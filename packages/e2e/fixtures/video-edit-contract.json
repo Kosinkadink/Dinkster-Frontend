@@ -1,0 +1,635 @@
+{
+  "provenance": {
+    "kind": "backend-schema-contract-fixture",
+    "sourceCommit": "7cb4f71098c3e8a60f9c6ab9ac4000a185cc1171",
+    "sourceRepository": "https://github.com/Kosinkadink/Dinkster",
+    "schemaSerializerCheckout": "e22522c77981c51f8cfd05337afdf2f60541d713",
+    "runtimeExecution": false
+  },
+  "nodes": {
+    "dinkster.save_video": {
+      "schemaVersion": 38,
+      "nodeType": "dinkster.save_video",
+      "version": 3,
+      "displayName": "Save Video",
+      "category": "video",
+      "description": "",
+      "idempotent": false,
+      "interface": [
+        {
+          "role": "input",
+          "id": "video",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO"
+            ]
+          },
+          "required": true
+        },
+        {
+          "role": "input",
+          "id": "target",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "dinkster.save_target"
+            ]
+          },
+          "required": false,
+          "default": {
+            "mount": "comfy-output",
+            "prefix": "video/ComfyUI"
+          },
+          "widget": {
+            "type": "SAVE_TARGET"
+          }
+        },
+        {
+          "role": "input",
+          "id": "container",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.combo"
+            ]
+          },
+          "required": false,
+          "default": "auto",
+          "widget": {
+            "type": "COMBO",
+            "options": [
+              "auto",
+              "mp4",
+              "mkv",
+              "mov",
+              "webm",
+              "avi",
+              "gif"
+            ]
+          }
+        },
+        {
+          "role": "input",
+          "id": "codec",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.combo"
+            ]
+          },
+          "required": false,
+          "default": "auto",
+          "widget": {
+            "type": "COMBO",
+            "options": [
+              "auto",
+              "h264",
+              "av1",
+              "vp9"
+            ]
+          }
+        },
+        {
+          "role": "input",
+          "id": "crf",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          },
+          "required": false,
+          "widget": {
+            "type": "NUMBER",
+            "min": 0,
+            "max": 63,
+            "step": 1
+          },
+          "doc": "Omit for stream copy where possible; specifying CRF requests encoding."
+        },
+        {
+          "role": "input",
+          "id": "metadata",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.string"
+            ]
+          },
+          "required": false,
+          "default": "{}",
+          "widget": {
+            "type": "STRING",
+            "multiline": true
+          },
+          "doc": "JSON object of container metadata tags."
+        },
+        {
+          "role": "input",
+          "id": "format",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.combo"
+            ]
+          },
+          "required": false,
+          "widget": {
+            "type": "COMBO",
+            "options": [
+              "mp4_h264",
+              "webm_vp9",
+              "webm_av1"
+            ]
+          },
+          "doc": "Legacy format; cannot combine with container or codec overrides.",
+          "advanced": true
+        },
+        {
+          "role": "output",
+          "id": "video",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO"
+            ]
+          }
+        },
+        {
+          "role": "output",
+          "id": "asset",
+          "type": {
+            "kind": "asset",
+            "element": {
+              "kind": "concrete",
+              "types": [
+                "comfy.VIDEO"
+              ]
+            }
+          },
+          "preview": true
+        }
+      ],
+      "searchTerms": [
+        "video encoder",
+        "mp4",
+        "webm",
+        "H.264",
+        "VP9",
+        "AV1"
+      ],
+      "replacements": [
+        {
+          "from": "dinkster.save_video",
+          "migration": {
+            "historicalInputs": [
+              "images",
+              "fps",
+              "audio",
+              "bit_depth",
+              "format.crf",
+              "format.bit_depth"
+            ]
+          },
+          "cases": [
+            {
+              "to": "dinkster.save_video",
+              "when": {
+                "kind": "any",
+                "of": [
+                  {
+                    "kind": "valuePresent",
+                    "input": "format.crf"
+                  },
+                  {
+                    "kind": "inputConnected",
+                    "input": "format.crf"
+                  },
+                  {
+                    "kind": "valuePresent",
+                    "input": "format.bit_depth"
+                  },
+                  {
+                    "kind": "inputConnected",
+                    "input": "format.bit_depth"
+                  }
+                ]
+              },
+              "nodes": {
+                "assemble": {
+                  "type": "dinkster.video.assemble",
+                  "values": {
+                    "color_space": "sRGB"
+                  }
+                }
+              },
+              "inputs": {
+                "assemble:images": {
+                  "kind": "copy",
+                  "input": "images"
+                },
+                "assemble:fps": {
+                  "kind": "copy",
+                  "input": "fps"
+                },
+                "assemble:audio": {
+                  "kind": "copy",
+                  "input": "audio"
+                },
+                "assemble:bit_depth": {
+                  "kind": "copy",
+                  "input": "format.bit_depth"
+                },
+                "target": {
+                  "kind": "copy",
+                  "input": "target"
+                },
+                "format": {
+                  "kind": "copy",
+                  "input": "format"
+                },
+                "crf": {
+                  "kind": "copy",
+                  "input": "format.crf"
+                }
+              },
+              "links": [
+                {
+                  "from": "assemble:video",
+                  "to": "video"
+                }
+              ],
+              "outputs": {
+                "asset": "video"
+              }
+            },
+            {
+              "to": "dinkster.save_video",
+              "nodes": {
+                "assemble": {
+                  "type": "dinkster.video.assemble",
+                  "values": {
+                    "color_space": "sRGB"
+                  }
+                }
+              },
+              "inputs": {
+                "assemble:images": {
+                  "kind": "copy",
+                  "input": "images"
+                },
+                "assemble:fps": {
+                  "kind": "copy",
+                  "input": "fps"
+                },
+                "assemble:audio": {
+                  "kind": "copy",
+                  "input": "audio"
+                },
+                "assemble:bit_depth": {
+                  "kind": "copy",
+                  "input": "bit_depth"
+                },
+                "target": {
+                  "kind": "copy",
+                  "input": "target"
+                },
+                "format": {
+                  "kind": "copy",
+                  "input": "format"
+                },
+                "crf": {
+                  "kind": "copy",
+                  "input": "crf"
+                }
+              },
+              "links": [
+                {
+                  "from": "assemble:video",
+                  "to": "video"
+                }
+              ],
+              "outputs": {
+                "asset": "video"
+              }
+            }
+          ]
+        }
+      ],
+      "outputNode": true
+    },
+    "dinkster.video.trim": {
+      "schemaVersion": 38,
+      "nodeType": "dinkster.video.trim",
+      "version": 1,
+      "displayName": "Trim Video",
+      "category": "video",
+      "description": "",
+      "idempotent": true,
+      "interface": [
+        {
+          "role": "input",
+          "id": "video",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO"
+            ]
+          },
+          "required": true
+        },
+        {
+          "role": "input",
+          "id": "video_edit",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO_EDIT"
+            ]
+          },
+          "required": false
+        },
+        {
+          "role": "input",
+          "id": "start_time",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.float"
+            ]
+          },
+          "required": false,
+          "default": 0.0,
+          "widget": {
+            "type": "NUMBER",
+            "min": -100000.0,
+            "max": 100000.0,
+            "step": 0.001
+          }
+        },
+        {
+          "role": "input",
+          "id": "duration",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.float"
+            ]
+          },
+          "required": false,
+          "default": 0.0,
+          "widget": {
+            "type": "NUMBER",
+            "min": 0.0,
+            "step": 0.001
+          }
+        },
+        {
+          "role": "input",
+          "id": "strict_duration",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.boolean"
+            ]
+          },
+          "required": false,
+          "default": false
+        },
+        {
+          "role": "output",
+          "id": "video",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO"
+            ]
+          },
+          "preview": true
+        }
+      ],
+      "searchTerms": [
+        "video slice",
+        "trim video duration",
+        "start time"
+      ]
+    },
+    "dinkster.video.crop": {
+      "schemaVersion": 38,
+      "nodeType": "dinkster.video.crop",
+      "version": 1,
+      "displayName": "Crop Video",
+      "category": "video",
+      "description": "",
+      "idempotent": true,
+      "interface": [
+        {
+          "role": "input",
+          "id": "video",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO"
+            ]
+          },
+          "required": true
+        },
+        {
+          "role": "input",
+          "id": "video_edit",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO_EDIT"
+            ]
+          },
+          "required": false
+        },
+        {
+          "role": "input",
+          "id": "x",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          },
+          "required": false,
+          "default": 0,
+          "widget": {
+            "type": "NUMBER",
+            "step": 1
+          }
+        },
+        {
+          "role": "input",
+          "id": "y",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          },
+          "required": false,
+          "default": 0,
+          "widget": {
+            "type": "NUMBER",
+            "step": 1
+          }
+        },
+        {
+          "role": "input",
+          "id": "width",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          },
+          "required": false,
+          "default": 0,
+          "widget": {
+            "type": "NUMBER",
+            "step": 1
+          }
+        },
+        {
+          "role": "input",
+          "id": "height",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          },
+          "required": false,
+          "default": 0,
+          "widget": {
+            "type": "NUMBER",
+            "step": 1
+          }
+        },
+        {
+          "role": "output",
+          "id": "video",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO"
+            ]
+          },
+          "preview": true
+        }
+      ]
+    },
+    "dinkster.video.assemble": {
+      "schemaVersion": 38,
+      "nodeType": "dinkster.video.assemble",
+      "version": 1,
+      "displayName": "Assemble Video",
+      "category": "video",
+      "description": "",
+      "idempotent": true,
+      "interface": [
+        {
+          "role": "input",
+          "id": "images",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "dinkster.image"
+            ]
+          },
+          "required": true
+        },
+        {
+          "role": "input",
+          "id": "fps",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.float"
+            ]
+          },
+          "required": false,
+          "default": 24.0,
+          "widget": {
+            "type": "NUMBER",
+            "min": 0.01,
+            "max": 1000.0,
+            "step": 0.01
+          }
+        },
+        {
+          "role": "input",
+          "id": "bit_depth",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.combo"
+            ]
+          },
+          "required": false,
+          "default": "auto",
+          "widget": {
+            "type": "COMBO",
+            "options": [
+              "auto",
+              "8",
+              "10"
+            ]
+          }
+        },
+        {
+          "role": "input",
+          "id": "color_space",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.combo"
+            ]
+          },
+          "required": false,
+          "widget": {
+            "type": "COMBO",
+            "options": [
+              "sRGB",
+              "HDR",
+              "HDR PQ"
+            ]
+          }
+        },
+        {
+          "role": "input",
+          "id": "audio",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.AUDIO"
+            ]
+          },
+          "required": false
+        },
+        {
+          "role": "output",
+          "id": "video",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO"
+            ]
+          },
+          "preview": true
+        }
+      ],
+      "searchTerms": [
+        "create video",
+        "images to video",
+        "encode",
+        "mp4",
+        "webm"
+      ]
+    }
+  }
+}

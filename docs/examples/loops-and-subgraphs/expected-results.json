@@ -1,0 +1,74 @@
+{
+  "map-gather.json": {
+    "state": "completed",
+    "output": "sum",
+    "value": [
+      12,
+      14,
+      18
+    ]
+  },
+  "map-zip.json": {
+    "state": "completed",
+    "output": "sum",
+    "value": [
+      11,
+      22,
+      33
+    ]
+  },
+  "map-cross-product.json": {
+    "state": "completed",
+    "output": "sum",
+    "value": [
+      11,
+      21,
+      31,
+      12,
+      22,
+      32
+    ]
+  },
+  "map-broadcast-scalar.json": {
+    "state": "completed",
+    "output": "sum",
+    "value": [
+      103,
+      106,
+      109
+    ]
+  },
+  "fold-running-sum.json": {
+    "state": "completed",
+    "output": "total",
+    "value": 10
+  },
+  "while-computed-continue.json": {
+    "state": "completed",
+    "output": "count",
+    "value": 4
+  },
+  "nested-map-inside-fold.json": {
+    "state": "completed",
+    "output": "total",
+    "value": 5
+  },
+  "subgraph-with-promoted-widget-inside-map.json": {
+    "state": "completed",
+    "output": "result",
+    "value": [
+      11,
+      12,
+      13
+    ]
+  },
+  "lazy-gate-inside-map.json": {
+    "state": "completed",
+    "output": "result",
+    "value": [
+      1,
+      2,
+      3
+    ]
+  }
+}

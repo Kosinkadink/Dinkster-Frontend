@@ -1,0 +1,56 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "lineage-unresolved-output",
+  "root": "g0",
+  "graphs": {
+    "g0": {
+      "id": "g0",
+      "name": "root",
+      "nodes": {
+        "n0": {
+          "id": "n0",
+          "type": "EmptyImage",
+          "values": { "width": 64, "height": 64, "batch_size": 1, "color": 0 }
+        },
+        "n1": {
+          "id": "n1",
+          "type": "comfy.Morphology",
+          "values": {}
+        },
+        "n2": {
+          "id": "n2",
+          "type": "PreviewImage",
+          "values": {}
+        }
+      },
+      "links": {
+        "l0": {
+          "id": "l0",
+          "from": { "node": "n0", "port": "out0" },
+          "to": { "node": "n1", "port": "image" }
+        },
+        "l1": {
+          "id": "l1",
+          "from": { "node": "n1", "port": "IMAGE" },
+          "to": { "node": "n2", "port": "images" }
+        }
+      },
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 4
+    }
+  },
+  "view": {
+    "graphs": {
+      "g0": {
+        "nodes": {
+          "n0": { "position": { "x": 80, "y": 120 } },
+          "n1": { "position": { "x": 420, "y": 120 } },
+          "n2": { "position": { "x": 760, "y": 120 } }
+        }
+      }
+    }
+  },
+  "meta": { "title": "Unresolved node feeding the executed output" }
+}

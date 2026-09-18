@@ -1,0 +1,151 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "visual-programming-while-with-a-body-computed-continue-flag",
+  "root": "root",
+  "graphs": {
+    "root": {
+      "id": "root",
+      "name": "While with a body-computed continue flag",
+      "nodes": {
+        "region": {
+          "id": "region",
+          "type": "#whileBody",
+          "values": {
+            "count": 0,
+            "increment": 1
+          },
+          "region": {
+            "kind": "while",
+            "statePorts": [
+              "count"
+            ],
+            "outputRoles": {
+              "next": {
+                "kind": "state",
+                "statePort": "count"
+              }
+            },
+            "continueOutput": "continue",
+            "maxIterations": 10
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 1
+    },
+    "whileBody": {
+      "id": "whileBody",
+      "name": "Increment and compare",
+      "nodes": {
+        "add": {
+          "id": "add",
+          "type": "std.math.add_ints",
+          "values": {}
+        },
+        "compare": {
+          "id": "compare",
+          "type": "dinkster.value.compare",
+          "values": {
+            "operation": "lt",
+            "epsilon": 0
+          }
+        },
+        "limit": {
+          "id": "limit",
+          "type": "dinkster.int",
+          "values": {
+            "value": 4
+          }
+        }
+      },
+      "links": {
+        "nextToCompare": {
+          "id": "nextToCompare",
+          "from": {
+            "node": "add",
+            "port": "sum"
+          },
+          "to": {
+            "node": "compare",
+            "port": "a"
+          }
+        },
+        "limitToCompare": {
+          "id": "limitToCompare",
+          "from": {
+            "node": "limit",
+            "port": "value"
+          },
+          "to": {
+            "node": "compare",
+            "port": "b"
+          }
+        }
+      },
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "count",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "a"
+            }
+          },
+          {
+            "id": "increment",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "b"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "next",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "sum"
+            }
+          },
+          {
+            "id": "continue",
+            "binds": {
+              "kind": "port",
+              "node": "compare",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "nextOrdinal": 3
+    }
+  },
+  "view": {
+    "graphs": {
+      "root": {
+        "nodes": {
+          "region": {
+            "position": {
+              "x": 120,
+              "y": 120
+            }
+          }
+        }
+      },
+      "whileBody": {
+        "nodes": {}
+      }
+    }
+  },
+  "meta": {
+    "title": "While with a body-computed continue flag"
+  }
+}

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export DINKSTER_ENGINE_SOURCE="${DINKSTER_ENGINE_SOURCE:-$ROOT/../Dinkster}"
+cd "$ROOT"
+exec pnpm --filter @dinkster/desktop start:web

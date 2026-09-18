@@ -1,0 +1,68 @@
+{
+  "nodes": {
+    "region": {
+      "region": {
+        "kind": "fold",
+        "ports": {
+          "item": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          },
+          "total": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          }
+        },
+        "elementPorts": [
+          "item"
+        ],
+        "statePorts": [
+          "total"
+        ],
+        "inputs": {
+          "item": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "total": 0
+        },
+        "body": {
+          "nodes": {
+            "add": {
+              "nodeType": "std.math.add_ints",
+              "inputs": {
+                "a": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "total"
+                  }
+                },
+                "b": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "item"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "outputs": {
+          "total": {
+            "source": {
+              "node": "add",
+              "output": "sum"
+            },
+            "mode": "state"
+          }
+        }
+      }
+    }
+  }
+}

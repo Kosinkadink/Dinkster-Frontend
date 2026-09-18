@@ -1,0 +1,111 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "visual-programming-fold-a-running-sum",
+  "root": "root",
+  "graphs": {
+    "root": {
+      "id": "root",
+      "name": "Fold a running sum",
+      "nodes": {
+        "region": {
+          "id": "region",
+          "type": "#foldBody",
+          "values": {
+            "item": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "total": 0
+          },
+          "region": {
+            "kind": "fold",
+            "elementPorts": [
+              "item"
+            ],
+            "statePorts": [
+              "total"
+            ],
+            "outputRoles": {
+              "result": {
+                "kind": "state",
+                "statePort": "total"
+              }
+            }
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 1
+    },
+    "foldBody": {
+      "id": "foldBody",
+      "name": "Accumulate a running sum",
+      "nodes": {
+        "add": {
+          "id": "add",
+          "type": "std.math.add_ints",
+          "values": {}
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "item",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "b"
+            }
+          },
+          {
+            "id": "total",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "a"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "result",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "sum"
+            }
+          }
+        ]
+      },
+      "nextOrdinal": 1
+    }
+  },
+  "view": {
+    "graphs": {
+      "root": {
+        "nodes": {
+          "region": {
+            "position": {
+              "x": 120,
+              "y": 120
+            }
+          }
+        }
+      },
+      "foldBody": {
+        "nodes": {}
+      }
+    }
+  },
+  "meta": {
+    "title": "Fold a running sum"
+  }
+}

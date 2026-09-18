@@ -1,0 +1,145 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "visual-programming-subgraph-with-promoted-widget-inside-map",
+  "root": "root",
+  "graphs": {
+    "root": {
+      "id": "root",
+      "name": "Subgraph with promoted widget inside map",
+      "nodes": {
+        "region": {
+          "id": "region",
+          "type": "#promotedRegionBody",
+          "values": {
+            "value": [
+              1,
+              2,
+              3
+            ]
+          },
+          "region": {
+            "kind": "map",
+            "elementPorts": [
+              "value"
+            ]
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 1
+    },
+    "promotedRegionBody": {
+      "id": "promotedRegionBody",
+      "name": "Call a subgraph from a region",
+      "nodes": {
+        "call": {
+          "id": "call",
+          "type": "#promotedAddBody",
+          "values": {
+            "offset": 10
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "value",
+            "binds": {
+              "kind": "port",
+              "node": "call",
+              "port": "value"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "result",
+            "binds": {
+              "kind": "port",
+              "node": "call",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "nextOrdinal": 1
+    },
+    "promotedAddBody": {
+      "id": "promotedAddBody",
+      "name": "Add a promoted offset",
+      "nodes": {
+        "add": {
+          "id": "add",
+          "type": "std.math.add_ints",
+          "values": {
+            "b": 1
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "value",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "a"
+            }
+          },
+          {
+            "id": "offset",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "b"
+            },
+            "promoted": true
+          }
+        ],
+        "outputs": [
+          {
+            "id": "result",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "sum"
+            }
+          }
+        ]
+      },
+      "nextOrdinal": 1
+    }
+  },
+  "view": {
+    "graphs": {
+      "root": {
+        "nodes": {
+          "region": {
+            "position": {
+              "x": 120,
+              "y": 120
+            }
+          }
+        }
+      },
+      "promotedRegionBody": {
+        "nodes": {}
+      },
+      "promotedAddBody": {
+        "nodes": {}
+      }
+    }
+  },
+  "meta": {
+    "title": "Subgraph with promoted widget inside map"
+  }
+}

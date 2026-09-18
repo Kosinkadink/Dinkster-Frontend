@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "noEmit": true,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": ["vite/client"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "resolveJsonModule": true
+  },
+  "include": ["src", "test", "vite.config.ts"]
+}

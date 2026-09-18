@@ -1,0 +1,115 @@
+[
+  {
+    "type": "gallery.WidgetsNumeric",
+    "displayName": "Gallery: Numeric",
+    "category": "gallery",
+    "source": "v3",
+    "isOutputNode": false,
+    "items": [
+      { "kind": "input", "id": "int_bounded", "displayName": "int 0..100 step 5", "type": { "kind": "concrete", "name": "INT" }, "optional": false, "widget": { "widgetType": "INT", "options": { "min": 0, "max": 100, "step": 5 }, "default": 50 } },
+      { "kind": "input", "id": "int_seed", "displayName": "seed (controller)", "type": { "kind": "concrete", "name": "INT" }, "optional": false, "widget": { "widgetType": "INT", "options": { "min": 0 }, "default": 0, "controller": "after_generate" } },
+      { "kind": "input", "id": "float_bounded", "displayName": "float 0..1", "type": { "kind": "concrete", "name": "FLOAT" }, "optional": false, "widget": { "widgetType": "FLOAT", "options": { "min": 0, "max": 1, "step": 0.05 }, "default": 0.5 } },
+      { "kind": "output", "id": "int_out", "displayName": "int", "type": { "kind": "concrete", "name": "INT" } }
+    ]
+  },
+  {
+    "type": "gallery.WidgetsText",
+    "displayName": "Gallery: Text & Choice",
+    "category": "gallery",
+    "source": "v3",
+    "isOutputNode": false,
+    "items": [
+      { "kind": "input", "id": "line", "displayName": "single line", "type": { "kind": "concrete", "name": "STRING" }, "optional": false, "widget": { "widgetType": "STRING", "options": {}, "default": "a single-line string" } },
+      { "kind": "input", "id": "prose", "displayName": "multiline", "type": { "kind": "concrete", "name": "STRING" }, "optional": false, "widget": { "widgetType": "STRING", "options": { "multiline": true }, "default": "first line\nsecond line\nthird line" } },
+      { "kind": "input", "id": "combo_static", "displayName": "combo static", "type": { "kind": "concrete", "name": "core.combo" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": ["alpha", "beta", "gamma", "a distinctly longer option label"] }, "default": "alpha" } },
+      { "kind": "input", "id": "combo_empty", "displayName": "combo empty", "type": { "kind": "concrete", "name": "core.combo" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": [] }, "default": "" } },
+      { "kind": "input", "id": "combo_remote", "displayName": "combo remote", "type": { "kind": "concrete", "name": "core.combo" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": ["baked-fallback"] }, "default": "baked-fallback", "remote": { "route": "/api/choices/gallery", "refreshButton": true } } },
+      { "kind": "output", "id": "text_out", "displayName": "text", "type": { "kind": "concrete", "name": "STRING" } }
+    ]
+  },
+  {
+    "type": "gallery.WidgetsToggleColor",
+    "displayName": "Gallery: Toggle & Color",
+    "category": "gallery",
+    "source": "v3",
+    "isOutputNode": false,
+    "items": [
+      { "kind": "input", "id": "flag", "displayName": "boolean bare", "type": { "kind": "concrete", "name": "BOOLEAN" }, "optional": false, "widget": { "widgetType": "BOOLEAN", "options": {}, "default": false } },
+      { "kind": "input", "id": "flag_labeled", "displayName": "boolean labeled", "type": { "kind": "concrete", "name": "BOOLEAN" }, "optional": false, "widget": { "widgetType": "BOOLEAN", "options": { "labelOn": "enable", "labelOff": "disable" }, "default": true } },
+      { "kind": "input", "id": "tint", "displayName": "color", "type": { "kind": "concrete", "name": "COLOR" }, "optional": false, "widget": { "widgetType": "COLOR", "options": {}, "default": "#3366ccff" } },
+      { "kind": "output", "id": "flag_out", "displayName": "flag", "type": { "kind": "concrete", "name": "BOOLEAN" } }
+    ]
+  },
+  {
+    "type": "gallery.WidgetsAsset",
+    "displayName": "Gallery: Asset & Save",
+    "category": "gallery",
+    "source": "v3",
+    "isOutputNode": true,
+    "items": [
+      { "kind": "input", "id": "picture", "displayName": "asset", "type": { "kind": "concrete", "name": "IMAGE" }, "optional": false, "widget": { "widgetType": "ASSET", "options": { "accept": ["image/png"] }, "kind": "image", "default": null } },
+      { "kind": "input", "id": "destination", "displayName": "save target", "type": { "kind": "concrete", "name": "STRING" }, "optional": false, "widget": { "widgetType": "SAVE_TARGET", "options": {}, "default": null } }
+    ]
+  },
+  {
+    "type": "gallery.SocketsIn",
+    "displayName": "Gallery: Input Sockets",
+    "category": "gallery",
+    "source": "v3",
+    "isOutputNode": false,
+    "items": [
+      { "kind": "input", "id": "req_image", "displayName": "required IMAGE", "type": { "kind": "concrete", "name": "IMAGE" }, "optional": false },
+      { "kind": "input", "id": "opt_image", "displayName": "optional IMAGE", "type": { "kind": "concrete", "name": "IMAGE" }, "optional": true },
+      { "kind": "input", "id": "union2", "displayName": "IMAGE|MASK", "type": { "kind": "union", "names": ["IMAGE", "MASK"] }, "optional": false },
+      { "kind": "input", "id": "union3", "displayName": "IMAGE|MASK|LATENT", "type": { "kind": "union", "names": ["IMAGE", "MASK", "LATENT"] }, "optional": false },
+      { "kind": "input", "id": "union4", "displayName": "4-way (truncated)", "type": { "kind": "union", "names": ["IMAGE", "MASK", "LATENT", "AUDIO"] }, "optional": false },
+      { "kind": "input", "id": "opt_union3", "displayName": "optional 3-way", "type": { "kind": "union", "names": ["IMAGE", "MASK", "LATENT"] }, "optional": true },
+      { "kind": "input", "id": "any_in", "displayName": "any", "type": { "kind": "wildcard" }, "optional": false },
+      { "kind": "input", "id": "opt_any", "displayName": "optional any", "type": { "kind": "wildcard" }, "optional": true },
+      { "kind": "output", "id": "image_out", "displayName": "IMAGE", "type": { "kind": "concrete", "name": "IMAGE" } }
+    ]
+  },
+  {
+    "type": "gallery.SocketsList",
+    "displayName": "Gallery: List Sockets",
+    "category": "gallery",
+    "source": "v3",
+    "isOutputNode": false,
+    "items": [
+      { "kind": "input", "id": "list_req", "displayName": "list<IMAGE>", "type": { "kind": "list", "element": { "kind": "concrete", "name": "IMAGE" } }, "optional": false },
+      { "kind": "input", "id": "list_opt", "displayName": "optional list<IMAGE>", "type": { "kind": "list", "element": { "kind": "concrete", "name": "IMAGE" } }, "optional": true },
+      { "kind": "input", "id": "list_union", "displayName": "list<IMAGE>|list<MASK>", "type": { "kind": "union", "names": ["list<IMAGE>", "list<MASK>"] }, "optional": false },
+      { "kind": "input", "id": "list_union_opt", "displayName": "optional list union", "type": { "kind": "union", "names": ["list<IMAGE>", "list<MASK>"] }, "optional": true },
+      { "kind": "input", "id": "list_nested", "displayName": "list<list<INT>>", "type": { "kind": "list", "element": { "kind": "list", "element": { "kind": "concrete", "name": "INT" } } }, "optional": false },
+      { "kind": "output", "id": "list_out", "displayName": "list<IMAGE>", "type": { "kind": "list", "element": { "kind": "concrete", "name": "IMAGE" } } },
+      { "kind": "output", "id": "mask_list_out", "displayName": "list<MASK>", "type": { "kind": "list", "element": { "kind": "concrete", "name": "MASK" } } }
+    ]
+  },
+  {
+    "type": "gallery.SocketsVar",
+    "displayName": "Gallery: Match Type",
+    "category": "gallery",
+    "source": "v3",
+    "isOutputNode": false,
+    "items": [
+      { "kind": "input", "id": "var_in", "displayName": "T in", "type": { "kind": "variable", "templateId": "T" }, "optional": false },
+      { "kind": "output", "id": "var_out", "displayName": "T out", "type": { "kind": "variable", "templateId": "T" } }
+    ]
+  },
+  {
+    "type": "gallery.Producer",
+    "displayName": "Gallery: Producer",
+    "category": "gallery",
+    "source": "v3",
+    "isOutputNode": false,
+    "items": [
+      { "kind": "output", "id": "image", "displayName": "IMAGE", "type": { "kind": "concrete", "name": "IMAGE" } },
+      { "kind": "output", "id": "mask", "displayName": "MASK", "type": { "kind": "concrete", "name": "MASK" } },
+      { "kind": "output", "id": "maybe_image", "displayName": "maybe IMAGE", "type": { "kind": "concrete", "name": "IMAGE" }, "optional": true },
+      { "kind": "output", "id": "union_out", "displayName": "IMAGE|MASK", "type": { "kind": "union", "names": ["IMAGE", "MASK"] } },
+      { "kind": "output", "id": "any_out", "displayName": "any", "type": { "kind": "wildcard" } },
+      { "kind": "output", "id": "image_list", "displayName": "list<IMAGE>", "type": { "kind": "list", "element": { "kind": "concrete", "name": "IMAGE" } } },
+      { "kind": "output", "id": "mask_list", "displayName": "list<MASK>", "type": { "kind": "list", "element": { "kind": "concrete", "name": "MASK" } } }
+    ]
+  }
+]

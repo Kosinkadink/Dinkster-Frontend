@@ -1,0 +1,25 @@
+{
+  "name": "dinkster-frontend",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Dinkster: greenfield ComfyUI frontend. Framework-free core, canvas renderer, SolidJS shell.",
+  "type": "module",
+  "scripts": {
+    "test": "pnpm --workspace-concurrency=1 -r test && node --import tsx --test scripts/comfy-subgraph-coverage.test.mjs && node --test scripts/check-ui-strings.test.mjs scripts/check-path-case.test.mjs",
+    "check:ui-strings": "node scripts/check-ui-strings.mjs",
+    "check:ui-strings:write": "node scripts/check-ui-strings.mjs --write",
+    "coverage:subgraphs": "tsx scripts/comfy-subgraph-coverage.mjs",
+    "typecheck": "node scripts/check-path-case.mjs && pnpm -r typecheck"
+  },
+  "packageManager": "pnpm@10.31.0",
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  }
+}

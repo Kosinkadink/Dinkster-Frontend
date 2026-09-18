@@ -1,0 +1,51 @@
+{
+  "nodes": {
+    "region": {
+      "region": {
+        "kind": "map",
+        "ports": {
+          "value": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          }
+        },
+        "elementPorts": [
+          "value"
+        ],
+        "inputs": {
+          "value": [
+            1,
+            2,
+            3
+          ]
+        },
+        "body": {
+          "nodes": {
+            "call.add": {
+              "nodeType": "std.math.add_ints",
+              "inputs": {
+                "a": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "value"
+                  }
+                },
+                "b": 10
+              }
+            }
+          }
+        },
+        "outputs": {
+          "result": {
+            "source": {
+              "node": "call.add",
+              "output": "sum"
+            }
+          }
+        }
+      }
+    }
+  }
+}

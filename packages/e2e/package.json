@@ -1,0 +1,23 @@
+{
+  "name": "@dinkster/e2e",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Playwright smoke tests for the M0 vertical slice (needs a live ComfyUI backend).",
+  "scripts": {
+    "test:e2e": "playwright test --project=parallel-safe --workers=10 && playwright test --project=backend-serial --workers=1 && playwright test --project=performance --workers=1",
+    "test:e2e:hosted": "playwright test --config=playwright.hosted.config.ts --project=parallel-safe --workers=1 --shard=1/4 && playwright test --config=playwright.hosted.config.ts --project=parallel-safe --workers=1 --shard=2/4 && playwright test --config=playwright.hosted.config.ts --project=parallel-safe --workers=1 --shard=3/4 && playwright test --config=playwright.hosted.config.ts --project=parallel-safe --workers=1 --shard=4/4 && playwright test --config=playwright.hosted.config.ts --project=backend-serial --workers=1 --shard=1/2 && playwright test --config=playwright.hosted.config.ts --project=backend-serial --workers=1 --shard=2/2 && playwright test --config=playwright.hosted.config.ts --project=performance --workers=1",
+    "test:e2e:serial": "playwright test --workers=1",
+    "test:e2e:parallel-only": "playwright test --project=parallel-safe --workers=10",
+    "bench:compare": "node bench/compare.mjs",
+    "bench:features": "node bench/feature-cost.mjs",
+    "bench:compare-features": "node bench/compare-features.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@dinkster/core": "workspace:*",
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^22.20.1",
+    "typescript": "^5.7.2"
+  }
+}

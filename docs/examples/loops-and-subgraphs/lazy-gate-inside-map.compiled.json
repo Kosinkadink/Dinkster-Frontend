@@ -1,0 +1,87 @@
+{
+  "nodes": {
+    "region": {
+      "region": {
+        "kind": "map",
+        "ports": {
+          "item": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          },
+          "enabled": {
+            "kind": "concrete",
+            "types": [
+              "core.boolean"
+            ]
+          }
+        },
+        "elementPorts": [
+          "item"
+        ],
+        "inputs": {
+          "item": [
+            1,
+            2,
+            3
+          ],
+          "enabled": true
+        },
+        "body": {
+          "nodes": {
+            "input": {
+              "nodeType": "std.math.add_ints",
+              "inputs": {
+                "a": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "item"
+                  }
+                },
+                "b": 0
+              }
+            },
+            "gate": {
+              "nodeType": "dinkster.route.gate",
+              "inputs": {
+                "condition": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "enabled"
+                  }
+                },
+                "value": {
+                  "$link": {
+                    "node": "input",
+                    "output": "sum"
+                  }
+                }
+              }
+            },
+            "add": {
+              "nodeType": "std.math.add_ints",
+              "inputs": {
+                "a": {
+                  "$link": {
+                    "node": "gate",
+                    "output": "value"
+                  }
+                },
+                "b": 0
+              }
+            }
+          }
+        },
+        "outputs": {
+          "result": {
+            "source": {
+              "node": "add",
+              "output": "sum"
+            }
+          }
+        }
+      }
+    }
+  }
+}

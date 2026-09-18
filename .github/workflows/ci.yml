@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.31.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm check:ui-strings
+      - run: pnpm test
+        env:
+          # Keep allocation-heavy performance gates on steady-state work
+          # instead of timing young-generation garbage collection.
+          NODE_OPTIONS: --max-semi-space-size=64
+      - run: pnpm --filter @dinkster/app build
+      - run: pnpm --filter @dinkster/e2e exec playwright install --with-deps chromium
+      - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
+
+  e2e-suite:
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'full-e2e')
+    name: e2e (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: parallel 1/4
+            project: parallel-safe
+            shard: --shard=1/4
+          - name: parallel 2/4
+            project: parallel-safe
+            shard: --shard=2/4
+          - name: parallel 3/4
+            project: parallel-safe
+            shard: --shard=3/4
+          - name: parallel 4/4
+            project: parallel-safe
+            shard: --shard=4/4
+          - name: backend serial 1/2
+            project: backend-serial
+            shard: --shard=1/2
+            vulkan: true
+          - name: backend serial 2/2
+            project: backend-serial
+            shard: --shard=2/2
+          - name: performance
+            project: performance
+            shard: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Comfy-Org/ComfyUI
+          ref: 15eb748b3ec5f8a0a2d470b7fb280e2d7579f916
+          path: .ci/ComfyUI
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Kosinkadink/Dinkster
+          ref: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+          path: .ci/Dinkster
+          ssh-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
+
+      - uses: ./.ci/Dinkster/.github/actions/configure-dinkster-identity
+        with:
+          deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.31.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - run: pnpm install --frozen-lockfile
+      - run: uv venv --python 3.12 .ci/ComfyUI/venv
+      - run: uv pip install --python .ci/ComfyUI/venv/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+      - run: uv pip install --python .ci/ComfyUI/venv/bin/python -r .ci/ComfyUI/requirements.txt
+      - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+      - run: pnpm --filter @dinkster/e2e exec playwright install --with-deps chromium
+      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers
+        if: matrix.vulkan
+      - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}
+        env:
+          DINKSTER_E2E_COMFY_ROOT: ${{ github.workspace }}/.ci/ComfyUI
+          DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
+          DINKSTER_E2E_PORT: "5410"
+          DINKSTER_E2E_COMFY_PORT: "5411"
+          DINKSTER_E2E_NATIVE_PORT: "5412"
+          DINKSTER_E2E_USE_NATIVE: "1"
+          DINKSTER_NATIVE_BACKEND: http://127.0.0.1:5412
+
+  e2e:
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'full-e2e'))
+    needs: e2e-suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every full-suite lane passed
+        run: test '${{ needs.e2e-suite.result }}' = success

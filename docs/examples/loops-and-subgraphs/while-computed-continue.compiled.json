@@ -1,0 +1,90 @@
+{
+  "nodes": {
+    "region": {
+      "region": {
+        "kind": "while",
+        "ports": {
+          "count": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          },
+          "increment": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          }
+        },
+        "statePorts": [
+          "count"
+        ],
+        "inputs": {
+          "count": 0,
+          "increment": 1
+        },
+        "body": {
+          "nodes": {
+            "add": {
+              "nodeType": "std.math.add_ints",
+              "inputs": {
+                "a": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "count"
+                  }
+                },
+                "b": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "increment"
+                  }
+                }
+              }
+            },
+            "compare": {
+              "nodeType": "dinkster.value.compare",
+              "inputs": {
+                "a": {
+                  "$link": {
+                    "node": "add",
+                    "output": "sum"
+                  }
+                },
+                "b": {
+                  "$link": {
+                    "node": "limit",
+                    "output": "value"
+                  }
+                },
+                "operation": "lt",
+                "epsilon": 0
+              }
+            },
+            "limit": {
+              "nodeType": "dinkster.int",
+              "inputs": {
+                "value": 4
+              }
+            }
+          }
+        },
+        "outputs": {
+          "count": {
+            "source": {
+              "node": "add",
+              "output": "sum"
+            },
+            "mode": "state"
+          }
+        },
+        "maxIterations": 10,
+        "continueSource": {
+          "node": "compare",
+          "output": "result"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "visual-programming-map-two-lists-with-cross-product-binding",
+  "root": "root",
+  "graphs": {
+    "root": {
+      "id": "root",
+      "name": "Map two lists with cross product binding",
+      "nodes": {
+        "region": {
+          "id": "region",
+          "type": "#addBody",
+          "values": {
+            "left": [
+              1,
+              2
+            ],
+            "right": [
+              10,
+              20,
+              30
+            ]
+          },
+          "region": {
+            "kind": "map",
+            "elementPorts": [
+              "left",
+              "right"
+            ],
+            "binding": "cross"
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 1
+    },
+    "addBody": {
+      "id": "addBody",
+      "name": "Add two integers",
+      "nodes": {
+        "add": {
+          "id": "add",
+          "type": "std.math.add_ints",
+          "values": {}
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "left",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "a"
+            }
+          },
+          {
+            "id": "right",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "b"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "sum",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "sum"
+            }
+          }
+        ]
+      },
+      "nextOrdinal": 1
+    }
+  },
+  "view": {
+    "graphs": {
+      "root": {
+        "nodes": {
+          "region": {
+            "position": {
+              "x": 120,
+              "y": 120
+            }
+          }
+        }
+      },
+      "addBody": {
+        "nodes": {}
+      }
+    }
+  },
+  "meta": {
+    "title": "Map two lists with cross product binding"
+  }
+}

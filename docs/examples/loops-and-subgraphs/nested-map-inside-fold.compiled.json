@@ -1,0 +1,147 @@
+{
+  "nodes": {
+    "region": {
+      "region": {
+        "kind": "fold",
+        "ports": {
+          "row": {
+            "kind": "list",
+            "element": {
+              "kind": "concrete",
+              "types": [
+                "core.int"
+              ]
+            }
+          },
+          "total": {
+            "kind": "concrete",
+            "types": [
+              "core.int"
+            ]
+          }
+        },
+        "elementPorts": [
+          "row"
+        ],
+        "statePorts": [
+          "total"
+        ],
+        "inputs": {
+          "row": [
+            [
+              1,
+              2
+            ],
+            [
+              3,
+              4,
+              5
+            ]
+          ],
+          "total": 0
+        },
+        "body": {
+          "nodes": {
+            "inner": {
+              "region": {
+                "kind": "map",
+                "ports": {
+                  "left": {
+                    "kind": "concrete",
+                    "types": [
+                      "core.int"
+                    ]
+                  },
+                  "right": {
+                    "kind": "concrete",
+                    "types": [
+                      "core.int"
+                    ]
+                  }
+                },
+                "elementPorts": [
+                  "left"
+                ],
+                "inputs": {
+                  "left": {
+                    "$link": {
+                      "node": "$region",
+                      "output": "row"
+                    }
+                  },
+                  "right": 1
+                },
+                "body": {
+                  "nodes": {
+                    "add": {
+                      "nodeType": "std.math.add_ints",
+                      "inputs": {
+                        "a": {
+                          "$link": {
+                            "node": "$region",
+                            "output": "left"
+                          }
+                        },
+                        "b": {
+                          "$link": {
+                            "node": "$region",
+                            "output": "right"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "outputs": {
+                  "sum": {
+                    "source": {
+                      "node": "add",
+                      "output": "sum"
+                    }
+                  }
+                }
+              }
+            },
+            "length": {
+              "nodeType": "std.list.length",
+              "inputs": {
+                "list": {
+                  "$link": {
+                    "node": "inner",
+                    "output": "sum"
+                  }
+                }
+              }
+            },
+            "add": {
+              "nodeType": "std.math.add_ints",
+              "inputs": {
+                "a": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "total"
+                  }
+                },
+                "b": {
+                  "$link": {
+                    "node": "length",
+                    "output": "length"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "outputs": {
+          "total": {
+            "source": {
+              "node": "add",
+              "output": "sum"
+            },
+            "mode": "state"
+          }
+        }
+      }
+    }
+  }
+}

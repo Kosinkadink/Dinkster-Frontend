@@ -1,0 +1,53 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "gallery-workflow",
+  "root": "g0",
+  "graphs": {
+    "g0": {
+      "id": "g0",
+      "name": "Widget & Socket Gallery",
+      "nodes": {
+        "producer": { "id": "producer", "type": "gallery.Producer", "values": {} },
+        "sockets_in": { "id": "sockets_in", "type": "gallery.SocketsIn", "values": {} },
+        "sockets_list": { "id": "sockets_list", "type": "gallery.SocketsList", "values": {} },
+        "sockets_var": { "id": "sockets_var", "type": "gallery.SocketsVar", "values": {} },
+        "sockets_var_open": { "id": "sockets_var_open", "type": "gallery.SocketsVar", "values": {} },
+        "numeric": { "id": "numeric", "type": "gallery.WidgetsNumeric", "values": { "int_bounded": 25 } },
+        "text": { "id": "text", "type": "gallery.WidgetsText", "values": { "combo_static": "beta" } },
+        "toggle_color": { "id": "toggle_color", "type": "gallery.WidgetsToggleColor", "values": {} },
+        "asset": { "id": "asset", "type": "gallery.WidgetsAsset", "values": {} }
+      },
+      "links": {
+        "l_req": { "id": "l_req", "from": { "node": "producer", "port": "image" }, "to": { "node": "sockets_in", "port": "req_image" } },
+        "l_maybe": { "id": "l_maybe", "from": { "node": "producer", "port": "maybe_image" }, "to": { "node": "sockets_in", "port": "opt_image" } },
+        "l_union": { "id": "l_union", "from": { "node": "producer", "port": "union_out" }, "to": { "node": "sockets_in", "port": "union2" } },
+        "l_any": { "id": "l_any", "from": { "node": "producer", "port": "any_out" }, "to": { "node": "sockets_in", "port": "any_in" } },
+        "l_list": { "id": "l_list", "from": { "node": "producer", "port": "image_list" }, "to": { "node": "sockets_list", "port": "list_req" } },
+        "l_list_union": { "id": "l_list_union", "from": { "node": "producer", "port": "mask_list" }, "to": { "node": "sockets_list", "port": "list_union" } },
+        "l_var": { "id": "l_var", "from": { "node": "producer", "port": "mask" }, "to": { "node": "sockets_var", "port": "var_in" } }
+      },
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 40
+    }
+  },
+  "view": {
+    "graphs": {
+      "g0": {
+        "nodes": {
+          "producer": { "position": { "x": 60, "y": 220 } },
+          "sockets_in": { "position": { "x": 420, "y": 60 } },
+          "sockets_list": { "position": { "x": 420, "y": 420 } },
+          "sockets_var": { "position": { "x": 420, "y": 720 } },
+          "sockets_var_open": { "position": { "x": 420, "y": 860 } },
+          "numeric": { "position": { "x": 820, "y": 60 } },
+          "text": { "position": { "x": 820, "y": 280 } },
+          "toggle_color": { "position": { "x": 820, "y": 640 } },
+          "asset": { "position": { "x": 820, "y": 880 } }
+        }
+      }
+    }
+  },
+  "meta": { "title": "Widget & Socket Gallery" }
+}

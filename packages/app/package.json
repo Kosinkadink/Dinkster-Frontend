@@ -1,0 +1,36 @@
+{
+  "name": "@dinkster/app",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Dinkster shell (M0): SolidJS validation spike - tabs, queue rail, canvas host, live backend loop.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run && vitest run --config vitest.component.config.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dinkster/canvas": "workspace:*",
+    "@dinkster/client": "workspace:*",
+    "@dinkster/core": "workspace:*",
+    "@dinkster/widgets": "workspace:*",
+    "@noble/hashes": "^2.3.0",
+    "@sparkjsdev/spark": "^2.1.0",
+    "lucide-solid": "^1.25.0",
+    "solid-js": "^1.9.4",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/three": "^0.185.4",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "20.11.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^3.0.0"
+  }
+}

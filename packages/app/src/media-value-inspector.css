@@ -1,0 +1,47 @@
+.media-value-inspector {
+  min-width: 0;
+  margin-bottom: var(--dinkster-space-8);
+  padding: var(--dinkster-space-8);
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: var(--dinkster-radius-card);
+  background: var(--dinkster-surface-inset);
+  overflow-wrap: anywhere;
+}
+
+.media-value-inspector summary {
+  cursor: pointer;
+  color: var(--dinkster-text-primary);
+}
+
+.media-value-inspector[open] summary {
+  margin-bottom: var(--dinkster-space-12);
+}
+
+.media-value-inspector p {
+  color: var(--dinkster-text-secondary);
+}
+
+.media-diagnostics {
+  display: grid;
+  gap: var(--dinkster-space-12);
+  padding: var(--dinkster-space-8);
+  margin-bottom: var(--dinkster-space-8);
+  border: 1px solid var(--dinkster-warning-border);
+  border-radius: var(--dinkster-radius-card);
+  background: var(--dinkster-warning-background);
+  color: var(--dinkster-warning-foreground);
+}
+
+.media-diagnostics h3 {
+  margin: 0;
+  font-size: var(--dinkster-type-body-size);
+}
+
+.outputs .output-thumbnail-preview,
+.output-viewer-single .output-viewer-stage,
+.output-viewer-grid .output-viewer-grid-preview,
+.app-preview-surface .app-preview-image {
+  background-color: var(--image-canvas-background);
+  background-image: conic-gradient(var(--image-canvas-checker) 25%, transparent 0 50%, var(--image-canvas-checker) 0 75%, transparent 0);
+  background-size: 16px 16px;
+}

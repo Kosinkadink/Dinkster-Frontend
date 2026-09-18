@@ -1,0 +1,206 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "visual-programming-nested-map-inside-fold",
+  "root": "root",
+  "graphs": {
+    "root": {
+      "id": "root",
+      "name": "Nested map inside fold",
+      "nodes": {
+        "region": {
+          "id": "region",
+          "type": "#nestedFoldBody",
+          "values": {
+            "row": [
+              [
+                1,
+                2
+              ],
+              [
+                3,
+                4,
+                5
+              ]
+            ],
+            "total": 0
+          },
+          "region": {
+            "kind": "fold",
+            "elementPorts": [
+              "row"
+            ],
+            "statePorts": [
+              "total"
+            ],
+            "outputRoles": {
+              "result": {
+                "kind": "state",
+                "statePort": "total"
+              }
+            }
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 1
+    },
+    "nestedFoldBody": {
+      "id": "nestedFoldBody",
+      "name": "Map each row, then accumulate its length",
+      "nodes": {
+        "inner": {
+          "id": "inner",
+          "type": "#innerMapBody",
+          "values": {
+            "left": [],
+            "right": 1
+          },
+          "region": {
+            "kind": "map",
+            "elementPorts": [
+              "left"
+            ]
+          }
+        },
+        "length": {
+          "id": "length",
+          "type": "std.list.length",
+          "values": {}
+        },
+        "add": {
+          "id": "add",
+          "type": "std.math.add_ints",
+          "values": {}
+        }
+      },
+      "links": {
+        "innerToLength": {
+          "id": "innerToLength",
+          "from": {
+            "node": "inner",
+            "port": "sum"
+          },
+          "to": {
+            "node": "length",
+            "port": "list"
+          }
+        },
+        "lengthToAdd": {
+          "id": "lengthToAdd",
+          "from": {
+            "node": "length",
+            "port": "length"
+          },
+          "to": {
+            "node": "add",
+            "port": "b"
+          }
+        }
+      },
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "row",
+            "binds": {
+              "kind": "port",
+              "node": "inner",
+              "port": "left"
+            }
+          },
+          {
+            "id": "total",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "a"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "result",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "sum"
+            }
+          }
+        ]
+      },
+      "nextOrdinal": 3
+    },
+    "innerMapBody": {
+      "id": "innerMapBody",
+      "name": "Add two integers",
+      "nodes": {
+        "add": {
+          "id": "add",
+          "type": "std.math.add_ints",
+          "values": {}
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "left",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "a"
+            }
+          },
+          {
+            "id": "right",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "b"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "sum",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "sum"
+            }
+          }
+        ]
+      },
+      "nextOrdinal": 1
+    }
+  },
+  "view": {
+    "graphs": {
+      "root": {
+        "nodes": {
+          "region": {
+            "position": {
+              "x": 120,
+              "y": 120
+            }
+          }
+        }
+      },
+      "nestedFoldBody": {
+        "nodes": {}
+      },
+      "innerMapBody": {
+        "nodes": {}
+      }
+    }
+  },
+  "meta": {
+    "title": "Nested map inside fold"
+  }
+}

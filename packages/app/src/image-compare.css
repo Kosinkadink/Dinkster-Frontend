@@ -1,0 +1,21 @@
+.output-compare-controls { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 8px; padding: 8px; }
+.output-compare-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.output-compare-selection input { width: 64px; }
+.output-compare-selection button, .output-compare-selection input, .app-image-controls button { min-height: 36px; color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); }
+.output-compare-selection button:disabled, .app-image-controls button:disabled { color: var(--dinkster-text-disabled); }
+.output-compare-range { display: flex; align-items: center; gap: 12px; padding: 8px 16px; }
+.output-compare-range input { flex: 1; min-width: 0; }
+.output-compare-stage { flex: 1; min-height: 140px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; background: var(--dinkster-surface-canvas); }
+.output-compare-stage figure { position: relative; min-width: 0; min-height: 0; margin: 0; display: grid; place-items: center; background: var(--dinkster-surface-canvas); }
+.output-compare-stage img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.output-compare-stage.slider { grid-template-columns: minmax(0, 1fr); }
+.output-compare-stage.slider figure { grid-area: 1 / 1; }
+.output-preview-color { padding: 4px 8px; background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-metadata-size); overflow-wrap: anywhere; }
+.output-compare-stage .output-preview-color { position: absolute; bottom: 0; left: 0; right: 0; }
+.output-viewer-grid-preview { position: relative; }
+.output-viewer-grid-preview .output-preview-color { position: absolute; bottom: 0; left: 0; right: 0; }
+.app-image-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 8px; }
+.image-preview-refusal { padding: 8px; white-space: normal; overflow-wrap: anywhere; color: var(--dinkster-warning-foreground); background: var(--dinkster-surface-inset); }
+@media (max-width: 700px) {
+  .modal-surface[data-modal='execution-images'] .output-viewer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

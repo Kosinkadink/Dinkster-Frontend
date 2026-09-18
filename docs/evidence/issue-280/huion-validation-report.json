@@ -1,0 +1,103 @@
+{
+  "capturedAt": "2026-08-29T08:24:58.7726612Z",
+  "testedHead": "8e54cfbd8ea369380c2faf59e2b7173342399f14",
+  "host": "SidePC",
+  "hardware": {
+    "model": "Huion Kamvas Pro 24",
+    "usbVendorId": "256C",
+    "usbProductId": "006E",
+    "hidCollections": [
+      {
+        "usagePage": "FF00",
+        "usage": "0001",
+        "description": "vendor-defined device"
+      },
+      {
+        "usagePage": "000D",
+        "usage": "0002",
+        "description": "digitizer pen"
+      }
+    ]
+  },
+  "browser": {
+    "name": "Chromium",
+    "version": "149.0.0.0",
+    "maxTouchPoints": 0
+  },
+  "capabilities": {
+    "pressure": {
+      "available": true,
+      "minimum": 0.0029296875,
+      "maximum": 1
+    },
+    "tilt": {
+      "available": true,
+      "tiltXDegrees": {
+        "minimum": 0,
+        "maximum": 0
+      },
+      "tiltYDegrees": {
+        "minimum": -3,
+        "maximum": 0
+      }
+    },
+    "twist": {
+      "available": false,
+      "observedMinimum": 0,
+      "observedMaximum": 0
+    },
+    "coalescedSamples": true,
+    "touch": {
+      "available": false,
+      "reason": "No touch-screen or touch-pad HID collection is exposed; Chromium maxTouchPoints is 0"
+    }
+  },
+  "pressureStroke": {
+    "pointerTraceRecords": 873,
+    "activePenSamples": 502,
+    "coalescedSamples": 2944,
+    "mask": {
+      "width": 512,
+      "height": 512,
+      "alphaTotal": 1786256,
+      "nonzeroPixels": 12002,
+      "maximumAlpha": 158,
+      "bounds": {
+        "left": 50,
+        "top": 154,
+        "right": 390,
+        "bottom": 428
+      }
+    },
+    "operationCountAfterPointerUp": 1,
+    "undoCountToEmptyMask": 1,
+    "visualPressureResponse": true
+  },
+  "captureLossRollback": {
+    "pointerCaptureHeld": true,
+    "lostPointerCaptureEvents": 1,
+    "occurredBeforePointerUp": true,
+    "alphaTotalAfterRollback": 0,
+    "nonzeroPixelsAfterRollback": 0
+  },
+  "documentRevision": {
+    "before": 0,
+    "after": 0,
+    "unchanged": true
+  },
+  "touchChecks": {
+    "palmRejection": "unavailable on this hardware",
+    "navigation": "unavailable on this hardware"
+  },
+  "sourceEvidence": {
+    "pointerTraceSha256": "a514a8240e2b4819c9897ee623362cabaac8f3a442a3e4add6f2a33d1d0ab5ce",
+    "pressureScreenshot": {
+      "file": "huion-pressure-stroke.png",
+      "sha256": "18c2b25ef6d371fa628bd47c16762802d98a88cda5b46a2c4a05c1f7e5a60efb"
+    },
+    "captureLossScreenshot": {
+      "file": "huion-capture-loss-rollback.png",
+      "sha256": "6be4cae22de06fdf6a0c762e21b3370365650b8b22ebff2991c31339e1dbd192"
+    }
+  }
+}

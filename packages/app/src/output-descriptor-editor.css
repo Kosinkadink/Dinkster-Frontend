@@ -1,0 +1,97 @@
+.widget-editor-popover.output-descriptor-popover {
+  width: min(520px, calc(100% - 8px));
+}
+
+.output-descriptor-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px;
+}
+
+.output-descriptor-editor h3,
+.output-descriptor-editor p {
+  margin: 0;
+}
+
+.output-descriptor-editor p {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.output-descriptor-entries,
+.output-descriptor-entry label,
+.output-descriptor-editor > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.output-descriptor-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid var(--border, #454545);
+  border-radius: 6px;
+  padding: 10px;
+  margin: 0;
+}
+
+.output-descriptor-entry label:nth-of-type(3) {
+  grid-column: 1 / -1;
+}
+
+.output-descriptor-editor input,
+.output-descriptor-editor textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.output-descriptor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.output-descriptor-notice {
+  border-left: 3px solid #d4a64b;
+  padding: 8px;
+}
+
+.output-descriptor-stale-links {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--dinkster-danger-border, #8c4545);
+  border-radius: 6px;
+  background: var(--dinkster-danger-background, #351f1f);
+}
+
+.output-descriptor-stale-links h4,
+.output-descriptor-stale-links ul {
+  margin: 0;
+}
+
+.output-descriptor-stale-links ul {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.output-descriptor-stale-links li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.output-descriptor-stale-links code {
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,138 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "visual-programming-lazy-gate-inside-map",
+  "root": "root",
+  "graphs": {
+    "root": {
+      "id": "root",
+      "name": "Lazy gate inside map",
+      "nodes": {
+        "region": {
+          "id": "region",
+          "type": "#lazyBody",
+          "values": {
+            "item": [
+              1,
+              2,
+              3
+            ],
+            "enabled": true
+          },
+          "region": {
+            "kind": "map",
+            "elementPorts": [
+              "item"
+            ]
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 1
+    },
+    "lazyBody": {
+      "id": "lazyBody",
+      "name": "Lazy gate inside a region",
+      "nodes": {
+        "input": {
+          "id": "input",
+          "type": "std.math.add_ints",
+          "values": {
+            "b": 0
+          }
+        },
+        "gate": {
+          "id": "gate",
+          "type": "dinkster.route.gate",
+          "values": {}
+        },
+        "add": {
+          "id": "add",
+          "type": "std.math.add_ints",
+          "values": {
+            "b": 0
+          }
+        }
+      },
+      "links": {
+        "inputToGate": {
+          "id": "inputToGate",
+          "from": {
+            "node": "input",
+            "port": "sum"
+          },
+          "to": {
+            "node": "gate",
+            "port": "value"
+          }
+        },
+        "gateToAdd": {
+          "id": "gateToAdd",
+          "from": {
+            "node": "gate",
+            "port": "value"
+          },
+          "to": {
+            "node": "add",
+            "port": "a"
+          }
+        }
+      },
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "item",
+            "binds": {
+              "kind": "port",
+              "node": "input",
+              "port": "a"
+            }
+          },
+          {
+            "id": "enabled",
+            "binds": {
+              "kind": "port",
+              "node": "gate",
+              "port": "condition"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "result",
+            "binds": {
+              "kind": "port",
+              "node": "add",
+              "port": "sum"
+            }
+          }
+        ]
+      },
+      "nextOrdinal": 3
+    }
+  },
+  "view": {
+    "graphs": {
+      "root": {
+        "nodes": {
+          "region": {
+            "position": {
+              "x": 120,
+              "y": 120
+            }
+          }
+        }
+      },
+      "lazyBody": {
+        "nodes": {}
+      }
+    }
+  },
+  "meta": {
+    "title": "Lazy gate inside map"
+  }
+}
