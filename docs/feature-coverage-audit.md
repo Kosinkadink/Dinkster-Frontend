@@ -35,6 +35,11 @@ Component and browser tests switch a partial locale on mounted controls,
 preserve user-entered names and credential request fields, and retain English
 fallback for missing messages. Agent-provided tool names and questions stay data.
 
+Delegated-agent permission controls and activity labels use the app catalog.
+Component and browser tests switch a partial locale on mounted controls,
+preserve user-entered names and credential request fields, and retain English
+fallback for missing messages. Agent-provided tool names and questions stay data.
+
 Executable loop and subgraph examples cover map gather, zip, cross-product and
 scalar broadcast; fold and while state; nested regions; and a promoted subgraph
 widget inside a region. The normal client test suite recompiles all nine authored
@@ -1085,6 +1090,18 @@ Pairwise suites (`compile-forwarding`, `compile-conditional`, `boundary-fanout`,
 12. **CLOSED - Problems are grouped by affected node and collapsible.** `ProblemsPanel.tsx` groups all visible diagnostics by the primary node in their structured refs, then falls back to occurrence/port anchors when refs carry no node. Occurrence paths resolve through subgraph instances with the same resolver used by badge projection and click-to-focus, so anchor-only `compile.input.missing` and provenance-anchored validation/runtime diagnostics join their node's group. Stale or identity-free anchors fall back to General. Groups use the existing user-title/schema-name/raw-id labels, show count and maximum severity, and use default-expanded accessible disclosure buttons that never trigger focus navigation. Disclosure keys include document lineage so unrelated workflows reusing `g0`/node ids cannot share collapsed state; controlled item containers stay mounted under native `hidden`, keeping `aria-controls` valid and preserving open traceback details. Node groups retain first appearance order and unanchored diagnostics collect in a final General group; individual messages, traceback details, and anchored click-to-focus remain unchanged. `app/test/problem-display.test.ts` pins primary-ref grouping, anchor-only grouping, mixed ref/anchor coalescing, subgraph occurrence resolution, stale-anchor fallback, severity precedence, stable ordering, General-last behavior, and cross-lineage key isolation through the pure `groupProblemDiagnostics` helper; `app/test/ProblemsPanel.test.tsx` renders the component in Solid's Node SSR mode and pins disclosure ARIA/content, isolated collapse/re-expand behavior, mounted hidden targets, navigation isolation, and item focus activation.
 
 ## Collaboration regression coverage
+
+Durable agent delegations have no default expiry. The permissions panel shows
+"Active while you are signed in" and an expiry only when one was chosen.
+`app/test/AgentPermissionsPanel.dom.test.tsx` and
+`e2e/tests/delegated-agents.spec.ts` cover both lifetime presentations, mint,
+revoke, and auth-off controls. `client/test/collab-connection.test.ts` and
+`agent-host/test/delegation.test.ts` cover transient `user-session-required`
+diagnostics, bounded 30-second retry, same-token join and pending-edit resume,
+cancellation, and definitive authorization refusals. Session discovery and
+creation also pause before connection; tests pin same-credential resume, MCP
+shutdown cancellation and no retry of an ambiguous creation failure. See `collaboration.md`
+and `agent-host.md` for the server's JWT freshness requirement.
 
 The Node 22+ headless collaboration demo is implemented in
 `packages/headless-demo`. Pure planner and local-session tests cover linked,

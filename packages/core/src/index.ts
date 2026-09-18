@@ -75,6 +75,7 @@ export {
   type PatchOp,
 } from './commands/patch.js'
 export * from './commands/contract.js'
+export type { CollabDenial } from './commands/collab-protocol.js'
 export * from './commands/store.js'
 export * from './commands/session.js'
 export * from './commands/shared-session.js'

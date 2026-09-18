@@ -49,11 +49,12 @@ export interface CollabDenial {
   readonly code: string
   readonly status: number
   readonly message: string
-  readonly sessionId: string
-  readonly actorId: string
+  readonly sessionId?: string
+  readonly actorId?: string
   readonly opId?: string
   readonly operation?: string
   readonly retryAfterMs?: number
+  readonly reason?: 'user-session-required'
 }
 
 export type FetchOpsOutcome =

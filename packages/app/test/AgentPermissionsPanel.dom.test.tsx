@@ -30,6 +30,7 @@ function mount(fetchPrincipals: () => Promise<readonly PrincipalSummary[]>, upda
 afterEach(() => {
   setLocale('en')
   document.body.replaceChildren()
+  setLocale('en')
   vi.restoreAllMocks()
 })
 
@@ -57,7 +58,7 @@ describe('AgentPermissionsPanel', () => {
     const mint = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === '[Delegation erstellen]')!
     mint.click()
     await flush()
-    expect(connection.mintDelegation).toHaveBeenCalledWith({ scope: 'shared', displayName: 'My agent', expiresInSeconds: 600 })
+    expect(connection.mintDelegation).toHaveBeenCalledWith({ scope: 'shared', displayName: 'My agent' })
   })
 
   it('keeps auth-off toggles visible through the real principal decoder without requesting a delegation', async () => {
@@ -84,18 +85,22 @@ describe('AgentPermissionsPanel', () => {
     expect(connection.fetchDelegations).toHaveBeenCalledTimes(local ? 0 : 1)
   })
 
-  it('lets a JWT user edit their toggles and mint, copy, and revoke a delegation', async () => {
+  it.each([undefined, 123])('lets a JWT user mint and revoke a delegation with optional expiry (%s)', async (expiresAt) => {
     const { root, connection } = mount(async () => [agent({ principalId: 'user-one', kind: 'human', self: true, scopes: ['shared'] })])
     await flush()
     expect(root.querySelector('[data-testid="connect-agent"]')).not.toBeNull()
-    const delegation: Delegation = { id: 'd1', displayName: 'My agent', kind: 'agent', scope: 'shared', sessionId: null, expiresAt: 123 }
+    const delegation: Delegation = { id: 'd1', displayName: 'My agent', kind: 'agent', scope: 'shared', sessionId: null, ...(expiresAt !== undefined && { expiresAt }) }
     connection.fetchDelegations.mockResolvedValue([delegation])
     const button = (text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === text)!
-    button('Create 10-minute delegation').click()
+    button('Create delegation').click()
     await flush()
-    expect(connection.mintDelegation).toHaveBeenCalledWith({ scope: 'shared', displayName: 'My agent', expiresInSeconds: 600 })
+    expect(connection.mintDelegation).toHaveBeenCalledWith({ scope: 'shared', displayName: 'My agent' })
     expect(root.textContent).not.toContain('test-delegation')
     expect(root.querySelectorAll('[data-testid="delegation"]')).toHaveLength(1)
+    const row = root.querySelector('[data-testid="delegation"]')!
+    expect(row.textContent).toContain('Active while you are signed in')
+    expect(row.textContent?.includes('expires')).toBe(expiresAt !== undefined)
+    expect(row.textContent).not.toContain('Invalid Date')
     const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
     button('Copy delegation token').click()
     await flush()

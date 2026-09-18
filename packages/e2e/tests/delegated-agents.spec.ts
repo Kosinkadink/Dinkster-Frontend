@@ -45,6 +45,7 @@ test('auth-off principals retain permission toggles through the production decod
 })
 
 test('user delegation controls and agent activity remain visible and actionable', async ({ page, request }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'fixture', schemaWire: 22 }, nodes: {} } }))
   await page.route('**/api/sessions?*', (route) => route.fulfill({ json: { sessions: [] } }))
   await page.route('**/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
@@ -74,7 +75,8 @@ test('user delegation controls and agent activity remain visible and actionable'
   const controls = page.locator('#delegation-controls')
   await expect(controls.getByText('Connect agent', { exact: true })).toBeVisible()
   await controls.getByRole('textbox', { name: 'Agent name', exact: true }).fill('Workflow assistant')
-  await controls.getByRole('button', { name: 'Create 10-minute delegation' }).click()
+  await expect(controls.getByText('Active while you are signed in. Keep the same token when you return.')).toBeVisible()
+  await controls.getByRole('button', { name: 'Create delegation' }).click()
   await expect(controls.getByTestId('delegation')).toContainText('Workflow assistant')
   await expect(controls.getByRole('button', { name: 'Copy delegation token' })).toBeVisible()
   await expect(controls).not.toContainText('fixture-only-not-a-credential')

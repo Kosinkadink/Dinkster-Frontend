@@ -4,6 +4,34 @@
 shared sessions without owning their lifecycle. It never ends or deletes a
 server session. Node 22 or newer is required.
 
+## Delegations and sign-in
+
+On authenticated servers, give the agent a delegation through `DINKSTER_AGENT_TOKEN`,
+`--token`, or the API's `token` option, never the user's own JWT. Delegations have
+no default expiry and survive server restart; users may choose an expiry or
+revoke them. They are active only while the server has recently verified a
+JWT from their owner. The default window is ten minutes; agent traffic cannot
+refresh it. The user's most recently verified JWT and permission toggles bound
+the agent's authority. Auth-off servers need no token or sign-in.
+
+When the server returns `user-session-required`, session discovery, creation,
+joining and `settle()` pause instead of failing. The client reports one structured diagnostic per suspension
+and retries at 30-second intervals. The same token and pending work resume when
+the user authenticates again. `beginConnect().close()` or the connected handle's
+`close()` cancels the wait. `connect` accepts an `onDiagnostic` callback for this
+state, including during initial join. CLI and MCP write its versioned
+`collab.denial` diagnostic to stderr with `reason: "user-session-required"`;
+stdout remains reserved for command results or MCP messages. Definitive role,
+toggle and revocation refusals still fail without indefinite retries.
+
+`createSession` accepts `onDiagnostic` and `signal`; `listSessions` accepts
+them in its optional fourth argument. MCP shutdown cancels these requests
+as well as pending joins. Pre-session diagnostics omit unknown session and
+actor ids. Session creation is retried only after an explicit freshness
+refusal, never after an ambiguous transport failure that may have created it.
+
+See [collaboration](collaboration.md#connect-an-agent) for minting and revocation.
+
 ## TypeScript API
 
 ```ts
@@ -42,8 +70,8 @@ session.close()
 ```
 
 `listSessions(baseUrl)` lists the sessions in the `shared` scope. The optional
-third argument to `connect` accepts `actorId`, `displayName`, `owner`, and
-`harness`. The package creates an `agent-<random suffix>` actor id when none is
+third argument to `connect` accepts `actorId`, `displayName`, `owner`, `harness`,
+`token`, and `onDiagnostic`. The package creates an `agent-<random suffix>` actor id when none is
 provided. While connected, every handle announces that it is an agent and
 refreshes that presence every two seconds until `close()`.
 `proposeSetting` adds a setting proposal to that ephemeral presence and
