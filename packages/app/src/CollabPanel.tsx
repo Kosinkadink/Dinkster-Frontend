@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid
 import type { CollabSessionDescriptor, SharedSessionStatus } from '@dinkster/core'
 import type { AppState, CollabTabState, Tab } from './app-state.js'
 import { actorColor, actorLabel } from './collab-presence.js'
+import { CollabParticipants } from './CollabParticipants.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
@@ -39,6 +40,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
   const tabs = useSignal(props.app.tabs)
   const activeTabId = useSignal(props.app.activeTabId)
   const collabTabs = useSignal(props.app.collabTabs)
+  const readOnlyDocument = useSignal(props.app.readOnlyCollabDocument)
   const activeTab = (): Tab | undefined => tabs().find((tab) => tab.id === activeTabId())
   const activeCollab = (): CollabTabState | undefined => {
     const tab = activeTab()
@@ -229,7 +231,9 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
       `Joining session ${sessionId}.`,
       `Joined session ${sessionId}.`,
       () => props.app.joinCollabSession(sessionId),
-      props.requestClose,
+      () => {
+        if (props.app.readOnlyCollabDocument.get()?.descriptor.sessionId !== sessionId) props.requestClose()
+      },
     )
   }
 
@@ -502,6 +506,21 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
           <ProductNotice tone="error" testId="collab-end-error">End failed: {message()}</ProductNotice>
         )}</Show>
       </section>
+
+      <Show when={readOnlyDocument()} keyed>{(preview) => {
+        const document = useSignal(preview.document)
+        const status = preview.session === undefined ? undefined : useSignal(preview.session.status)
+        return <section class="collab-read-only" aria-label="Read-only shared document" data-testid="collab-read-only">
+          <header class="collab-section-heading">
+            <h2>{preview.descriptor.documentId}</h2>
+            <button type="button" onClick={() => props.app.dismissCollabDocument()}>Dismiss</button>
+          </header>
+          <p>No editor is available for <code>{preview.descriptor.documentKind}</code>. {status === undefined
+            ? 'This is a read-only checkpoint, not a live session.'
+            : `The registered adapter provides a synchronized read-only view. Session: ${status()}.`}</p>
+          <pre tabindex="0" aria-label="Document JSON">{JSON.stringify(document(), null, 2)}</pre>
+        </section>
+      }}</Show>
 
       <section class="collab-join" aria-labelledby="collab-join-heading" aria-busy={isPending('refresh')}>
         <header class="collab-section-heading collab-list-heading">

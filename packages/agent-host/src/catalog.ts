@@ -1,4 +1,6 @@
-import { coreCommandRegistry } from '@dinkster/core'
+import { createDocumentTypeRegistry, normalizeCollabDocumentKind } from '@dinkster/core'
+
+export const agentDocumentTypes = createDocumentTypeRegistry()
 
 export interface ParameterSchema {
   readonly type?: string
@@ -133,10 +135,18 @@ const commandMetadata: readonly CommandCatalogEntry[] = [
   },
 ]
 
-export const commandCatalog: readonly CommandCatalogEntry[] = [...coreCommandRegistry().keys()].map((id) =>
-  commandMetadata.find((entry) => entry.id === id) ?? {
-    id,
-    summary: `Registered command: ${id}. Parameters are validated by the command.`,
-    params: { description: 'Command-specific JSON parameters; no schema metadata registered.' },
-  },
-)
+export function commandsForDocumentKind(documentKind = 'dinkster.workflow'): readonly (CommandCatalogEntry & { readonly documentKind: string })[] {
+  const kind = normalizeCollabDocumentKind(documentKind)
+  const adapter = agentDocumentTypes.get(kind)
+  if (adapter === undefined) throw new Error(`No document adapter is registered for '${kind}'`)
+  return [...adapter.commandIds].map((id) => ({
+    ...(kind === 'dinkster.workflow' ? commandMetadata.find((entry) => entry.id === id) : undefined) ?? {
+      id,
+      summary: `Registered command: ${id}. Parameters are validated by the command.`,
+      params: { description: 'Command-specific JSON parameters; no schema metadata registered.' },
+    },
+    documentKind: kind,
+  }))
+}
+
+export const commandCatalog = commandsForDocumentKind()

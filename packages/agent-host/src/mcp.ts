@@ -9,7 +9,7 @@ import {
   type AgentConnectOptions,
   type PendingAgentConnection,
 } from './api.js'
-import { commandCatalog } from './catalog.js'
+import { commandsForDocumentKind } from './catalog.js'
 import { captureExecutionDenial } from './execution.js'
 
 export interface AgentApi {
@@ -21,7 +21,7 @@ export interface AgentApi {
 export interface AgentToolHandlers {
   sessions_list(): Promise<unknown>
   session_create(args: { documentId?: string | undefined }): Promise<unknown>
-  commands_list(): Promise<unknown>
+  commands_list(args?: { documentKind?: string | undefined }): Promise<unknown>
   document_get(args: { sessionId: string }): Promise<unknown>
   command_dispatch(args: { sessionId: string; command: string; params: Json }): Promise<unknown>
   document_compile(args: { sessionId: string; scope?: ExecutionScope | undefined }): Promise<unknown>
@@ -64,7 +64,7 @@ export function createToolHandlers(
   const handlers: AgentToolHandlers = {
     sessions_list: () => api.listSessions(baseUrl, credentials.token, credentials.scope),
     session_create: (args) => api.createSession(baseUrl, { ...credentials, ...(args.documentId && { documentId: args.documentId }) }),
-    commands_list: async () => commandCatalog,
+    commands_list: async ({ documentKind } = {}) => commandsForDocumentKind(documentKind),
     document_get: async ({ sessionId }) => (await joined(sessionId)).getDocument(),
     command_dispatch: async ({ sessionId, command, params }) => {
       const handle = await joined(sessionId)
@@ -144,8 +144,9 @@ export function createAgentMcpServer(
     inputSchema: { documentId: z.string().optional() },
   }, async (args) => result(await tools.handlers.session_create(args)))
   server.registerTool('commands_list', {
-    description: 'List the full Dinkster command registry.',
-  }, async () => result(await tools.handlers.commands_list()))
+    description: 'List the commands registered for a document kind.',
+    inputSchema: { documentKind: z.string().optional() },
+  }, async (args) => result(await tools.handlers.commands_list(args)))
   server.registerTool('document_get', {
     description: 'Get the current document for a shared session.',
     inputSchema: { sessionId: z.string() },

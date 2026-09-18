@@ -90,6 +90,8 @@ function mount(options: {
     tabs,
     activeTabId,
     collabTabs,
+    readOnlyCollabDocument: createCoreSignal<ReturnType<AppState['readOnlyCollabDocument']['get']>>(undefined),
+    dismissCollabDocument: () => app.readOnlyCollabDocument.set(undefined),
     collabActorId: 'local-actor-with-a-deliberately-long-identity',
     collabBackend: () => options.backend === false ? undefined : {},
     listCollabSessions: list,
@@ -517,5 +519,22 @@ describe('CollabPanel', () => {
 
     expect(mounted.requestClose).toHaveBeenCalledOnce()
     expect(mounted.root.querySelector('[role="status"]')?.textContent).toContain('Joined session session-one')
+  })
+
+  it('shows an unsupported document checkpoint as read-only text', async () => {
+    const mounted = mount()
+    mounted.app.readOnlyCollabDocument.set({
+      descriptor: { ...descriptor(), documentKind: 'example.notes' },
+      document: createCoreSignal({ text: '<script>not executable</script>' }),
+    })
+    await flush()
+    const preview = mounted.root.querySelector('[data-testid="collab-read-only"]')!
+    expect(preview.textContent).toContain('example.notes')
+    expect(preview.querySelector('pre')?.textContent).toContain('<script>not executable</script>')
+    expect(preview.querySelector('script')).toBeNull()
+    expect(preview.querySelector('input, textarea, [contenteditable]')).toBeNull()
+    preview.querySelector<HTMLButtonElement>('button')!.click()
+    await flush()
+    expect(mounted.root.querySelector('[data-testid="collab-read-only"]')).toBeNull()
   })
 })

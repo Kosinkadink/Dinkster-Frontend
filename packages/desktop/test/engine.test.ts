@@ -455,6 +455,7 @@ describe('EngineRuntime lifecycle', () => {
       expect(runtime.status.phase).toBe('stopped')
       expect(existsSync(join(source, '.venv'))).toBe(false)
     } finally {
+      platform.mockRestore()
       globalThis.fetch = originalFetch
       platform.mockRestore()
     }

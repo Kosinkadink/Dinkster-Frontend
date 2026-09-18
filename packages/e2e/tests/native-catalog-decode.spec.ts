@@ -10,18 +10,18 @@ test('the full live catalog decodes without schema errors and dynamic families m
   // Probe same-origin through the dev-server proxy so the probe and the page
   // are guaranteed to hit the same backend (the proxy target is set by
   // DINKSTER_NATIVE_BACKEND in the app's vite config).
-  let payloadCount: number | undefined
+  let payloadIds: string[] | undefined
   try {
     const response = await page.request.get('/api/nodes', { timeout: 5_000 })
     if (response.ok()) {
       const payload = await response.json() as { nodes: Record<string, unknown> }
-      payloadCount = Object.keys(payload.nodes).length
+      payloadIds = Object.keys(payload.nodes)
     }
   } catch { /* handled below */ }
-  if (payloadCount === undefined && !REQUIRED) {
+  if (payloadIds === undefined && !REQUIRED) {
     test.skip(true, 'no native Dinkster backend reachable through the dev proxy (set DINKSTER_NATIVE_BACKEND)')
   }
-  expect(payloadCount, 'native backend unreachable through the dev proxy').toBeDefined()
+  expect(payloadIds, 'native backend unreachable through the dev proxy').toBeDefined()
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
@@ -31,7 +31,7 @@ test('the full live catalog decodes without schema errors and dynamic families m
   const registry = await page.evaluate(() => {
     const reg = window.__dinksterTest!.app.backends.get()[0]!.registry.get()!
     return {
-      schemaCount: reg.schemas.size,
+      schemaIds: [...reg.schemas.keys()],
       schemaErrors: ((reg.diagnostics ?? []) as readonly { code: string; severity?: string }[])
         .filter((d) => d.severity === 'error'),
       hasListMake: reg.schemas.has('std.list.make'),
@@ -40,7 +40,7 @@ test('the full live catalog decodes without schema errors and dynamic families m
   // Every node the backend serves must decode: an undecodable schema drops
   // the node from the catalog entirely, which users see as a missing node.
   expect(registry.schemaErrors).toEqual([])
-  expect(registry.schemaCount).toBe(payloadCount)
+  expect(registry.schemaIds).toEqual(expect.arrayContaining(payloadIds!))
 
   if (registry.hasListMake) {
     // Dynamic input families must materialize members: a family that

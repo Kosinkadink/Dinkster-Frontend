@@ -4,7 +4,20 @@ import type { WirePatchOp } from './session.js'
 
 export const COLLAB_PROTOCOL_VERSION = 1
 
-export type CollabDocumentKind = 'workflow' | 'image'
+export type CollabDocumentKind = string
+
+export function normalizeCollabDocumentKind(kind?: string): string {
+  if (kind === undefined || kind === 'workflow') return 'dinkster.workflow'
+  if (kind === 'image') return 'dinkster.image'
+  return kind
+}
+
+export function legacyCollabDocumentKind(kind?: string): string {
+  const normalized = normalizeCollabDocumentKind(kind)
+  if (normalized === 'dinkster.workflow') return 'workflow'
+  if (normalized === 'dinkster.image') return 'image'
+  return normalized
+}
 
 export interface CollabSessionDescriptor {
   readonly protocolVersion: number
@@ -137,7 +150,9 @@ export function validateCollabDescriptor(
     return `descriptor: protocol version ${String(descriptor.protocolVersion)} unsupported (this client speaks ${COLLAB_PROTOCOL_VERSION})`
   }
   if (descriptor.sessionId !== sessionId) return 'descriptor: sessionId mismatch'
-  if ((descriptor.documentKind ?? 'workflow') !== documentKind) return 'descriptor: documentKind mismatch'
+  if (normalizeCollabDocumentKind(descriptor.documentKind) !== normalizeCollabDocumentKind(documentKind)) {
+    return 'descriptor: documentKind mismatch'
+  }
   if (!isValidCollabRevision(descriptor.revision)) return 'descriptor: invalid revision'
   if (!isValidCollabRevision(descriptor.snapshotRevision) || descriptor.snapshotRevision > descriptor.revision) {
     return 'descriptor: invalid snapshotRevision'

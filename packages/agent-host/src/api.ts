@@ -17,16 +17,16 @@ import {
   diag,
   asGraphDefId,
   asLineageId,
-  connectSharedSession,
-  coreCommandRegistry,
+  connectDocumentSession,
+  legacyCollabDocumentKind,
+  normalizeCollabDocumentKind,
   type CollabSessionDescriptor,
-  type CommandOutcome,
   type Diagnostic,
-  type DocumentSession,
   type Json,
   type SharedDocumentSession,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { agentDocumentTypes } from './catalog.js'
 import {
   createAgentExecutionRuntime,
   type AgentExecutionRuntime,
@@ -36,7 +36,8 @@ const SCOPE = 'shared'
 
 export interface CreateSessionOptions {
   readonly documentId?: string
-  readonly snapshot?: WorkflowDocument
+  readonly snapshot?: unknown
+  readonly documentKind?: string
   readonly token?: string | undefined
   readonly scope?: string | undefined
 }
@@ -49,16 +50,16 @@ export interface AgentConnectOptions {
   readonly harness?: string
 }
 
-export interface DispatchResult {
+export interface DispatchResult<D = unknown> {
   readonly ok: boolean
   readonly diagnostics: readonly Diagnostic[]
-  readonly outcome: CommandOutcome
+  readonly outcome: ReturnType<SharedDocumentSession<D>['dispatch']>
 }
 
-export interface AgentSessionHandle extends AgentExecutionRuntime {
+export interface AgentSessionHandle<D = unknown> extends AgentExecutionRuntime {
   readonly actorId: string
-  getDocument(): WorkflowDocument
-  dispatch(command: string, params: Json): DispatchResult
+  getDocument(): D
+  dispatch(command: string, params: Json): DispatchResult<D>
   proposeSetting(input: { readonly settingId: string; readonly value: Json; readonly note?: string }): string
   withdrawProposal(id: string): void
   settle(): Promise<void>
@@ -91,7 +92,7 @@ export const defaultActorId = (): string =>
   `agent-${randomBytes(6).toString('base64url')}`
 
 const waitForLive = async (
-  session: SharedDocumentSession,
+  session: SharedDocumentSession<unknown>,
   targetRevision: number,
 ): Promise<void> => {
   for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -106,7 +107,7 @@ const waitForLive = async (
 }
 
 const settleSharedSession = async (
-  session: SharedDocumentSession,
+  session: SharedDocumentSession<unknown>,
   baseUrl: string,
   sessionId: string,
   token?: string,
@@ -133,21 +134,29 @@ export async function createSession(
   baseUrl: string,
   options: CreateSessionOptions = {},
 ): Promise<CollabSessionDescriptor> {
+  const kind = normalizeCollabDocumentKind(options.documentKind)
+  if (agentDocumentTypes.get(kind) === undefined) throw new Error(`No document adapter is registered for '${kind}'`)
+  if (options.snapshot === undefined && kind !== 'dinkster.workflow') throw new Error(`A snapshot is required for '${kind}'`)
   const snapshot = options.snapshot ?? createAgentDocument(options.documentId)
+  const lineage = snapshot !== null && typeof snapshot === 'object' && 'lineage' in snapshot
+    && typeof snapshot.lineage === 'string' ? snapshot.lineage : undefined
+  const documentId = options.documentId ?? lineage
+  if (documentId === undefined) throw new Error('A documentId is required for this document')
   return createCollabSession(baseUrl.replace(/\/$/, ''), {
     scope: options.scope ?? SCOPE,
-    documentId: options.documentId ?? snapshot.lineage,
+    documentId,
     snapshot,
+    ...(options.documentKind === undefined ? {} : { documentKind: legacyCollabDocumentKind(kind) }),
   }, credentialFetch({ token: options.token, actorKind: 'agent' }))
 }
 
-export function createAgentHandle(
-  session: DocumentSession & Partial<Pick<SharedDocumentSession, 'sendPresence'>>,
+export function createAgentHandle<D>(
+  session: Pick<SharedDocumentSession<D>, 'actorId' | 'doc' | 'dispatch'> & Partial<Pick<SharedDocumentSession<D>, 'sendPresence'>>,
   settle: () => Promise<void> = async () => {},
   close: () => void = () => {},
   presence?: AgentConnectOptions,
   execution?: AgentExecutionRuntime,
-): AgentSessionHandle {
+): AgentSessionHandle<D> {
   let presenceHeartbeat: ReturnType<typeof setInterval> | undefined
   let presenceFrame: Json | undefined
   let tool = 'connect'
@@ -155,8 +164,13 @@ export function createAgentHandle(
   const proposals: SettingsProposal[] = []
   const publishPresence = (): void => {
     if (presence === undefined || session.sendPresence === undefined) return
+    const document = session.doc
+    const graph = document !== null && typeof document === 'object' && 'root' in document
+      && typeof document.root === 'string' ? document.root
+      : document !== null && typeof document === 'object' && 'lineage' in document
+        && typeof document.lineage === 'string' ? document.lineage : 'document'
     presenceFrame = encodePresence({
-      graph: session.doc.root,
+      graph,
       cursor: undefined,
       selection: [],
       identity: {
@@ -256,13 +270,19 @@ export function beginConnect(
   const connection = new CollabHttpConnection({
     baseUrl: normalizedBaseUrl, sessionId, actorId, token: options.token, actorKind: 'agent',
   })
-  let session: SharedDocumentSession | undefined
+  let session: SharedDocumentSession<unknown> | undefined
   let connectedHandle: AgentSessionHandle | undefined
   let closed = false
   const collaborationProblems: Diagnostic[] = []
   const handle = (async (): Promise<AgentSessionHandle> => {
     try {
-      const connected = await connectSharedSession(connection, coreCommandRegistry(), {
+      const descriptor = await getCollabSession(normalizedBaseUrl, sessionId, credentialFetch({ token: options.token, actorKind: 'agent' }))
+      if (descriptor === undefined) throw new Error('session ended while joining')
+      const kind = normalizeCollabDocumentKind(descriptor.documentKind)
+      const adapter = agentDocumentTypes.get(kind)
+      if (adapter === undefined) throw new Error(`No document adapter is registered for '${kind}'`)
+      if (closed) throw new Error('connection closed while joining')
+      const connected = await connectDocumentSession(connection, adapter, {
         actorId,
         onError: (message) => collaborationProblems.push(
           diag('error', 'collab', 'collab.session', message),
@@ -274,18 +294,12 @@ export function beginConnect(
       })
       if (connection.denial !== undefined) await connected.settle()
       if (closed) throw new Error('connection closed while joining')
-      const descriptor = await getCollabSession(normalizedBaseUrl, sessionId, credentialFetch({ token: options.token, actorKind: 'agent' }))
-      if (descriptor === undefined) throw new Error('session ended while joining')
       await waitForLive(connected, descriptor.revision)
       if (closed) throw new Error('connection closed while joining')
       const settle = () => settleSharedSession(connected, normalizedBaseUrl, sessionId, options.token)
-      connectedHandle = createAgentHandle(
-        connected,
-        settle,
-        () => connected.close(),
-        options,
-        createAgentExecutionRuntime(
-          connected,
+      const execution = kind === 'dinkster.workflow'
+        ? createAgentExecutionRuntime(
+          connected as SharedDocumentSession<WorkflowDocument>,
           normalizedBaseUrl,
           actorId,
           {
@@ -293,7 +307,14 @@ export function beginConnect(
             beforeCompile: settle,
             ...(options.token === undefined ? {} : { token: options.token }),
           },
-        ),
+        )
+        : undefined
+      connectedHandle = createAgentHandle(
+        connected,
+        settle,
+        () => connected.close(),
+        options,
+        execution,
       )
       return connectedHandle
     } catch (error) {

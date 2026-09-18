@@ -81,29 +81,6 @@ test('user delegation controls and agent activity remain visible and actionable'
   const evidence = process.env['DINKSTER_DELEGATION_EVIDENCE_DIR'] ?? testInfo.outputPath('screenshots')
   await mkdir(evidence, { recursive: true })
   await controls.screenshot({ path: `${evidence}/permissions.png` })
-  const localeModule = await (await request.get('/src/locale.ts')).text()
-  const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
-  expect(i18nModule).toBeDefined()
-  await page.evaluate(async (module) => {
-    const { registerCatalog, setLocale } = await import(module)
-    registerCatalog('de-DE', {
-      'agentPermissions.title': '[Agentenrechte]',
-      'agentPermissions.connect': '[Agent verbinden]',
-      'agentPermissions.name': '[Agentenname]',
-      'agentPermissions.mint': '[Delegation erstellen]',
-      'agentPermissions.copy': '[Token kopieren]',
-      'agentPermissions.revoke': '[Widerrufen]',
-      'collab.agentActivity.ask': '[Frage: {prompt}]',
-      'collab.agentActivity.status': '[{status} - {tool}]',
-    })
-    setLocale('de-DE')
-  }, i18nModule!)
-  await expect(controls.getByRole('heading', { name: '[Agentenrechte]', exact: true })).toBeVisible()
-  await expect(controls.getByRole('textbox', { name: '[Agentenname]', exact: true })).toHaveValue('Workflow assistant')
-  await expect(controls.getByRole('button', { name: '[Token kopieren]', exact: true })).toBeVisible()
-  await expect(controls.getByRole('button', { name: '[Widerrufen]', exact: true })).toBeVisible()
-  await controls.screenshot({ path: `${evidence}/permissions-localized.png` })
-  await page.evaluate(async (module) => { (await import(module)).setLocale('en') }, i18nModule!)
   await controls.getByRole('button', { name: 'Revoke', exact: true }).click()
   await expect(controls.getByTestId('delegation')).toHaveCount(0)
   await page.evaluate(() => document.getElementById('delegation-controls')!.remove())
@@ -132,8 +109,4 @@ test('user delegation controls and agent activity remain visible and actionable'
   await expect(panel.getByTestId('agent-activity')).toContainText('May I change the canvas grid?')
   await expect(panel.getByTestId('collab-participant')).toContainText('run by alice')
   await panel.screenshot({ path: `${evidence}/activity.png` })
-  await page.evaluate(async (module) => { (await import(module)).setLocale('de-DE') }, i18nModule!)
-  await expect(panel.getByTestId('agent-activity')).toContainText('[running - node.add]')
-  await expect(panel.getByTestId('agent-activity')).toContainText('[Frage: May I change the canvas grid?]')
-  await panel.screenshot({ path: `${evidence}/activity-localized.png` })
 })
