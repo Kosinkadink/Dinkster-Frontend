@@ -105,6 +105,9 @@ connection per session, and closes those connections when the server exits.
 Each connection announces the OS username as its owner and `mcp` as its
 harness.
 
+`commands_list` accepts optional `documentKind` (default `dinkster.workflow`).
+`command_dispatch` derives the kind from its `sessionId`, not caller claims.
+
 ## CLI
 
 ```sh
@@ -130,10 +133,10 @@ pnpm --filter @dinkster/agent-host start -- \
   --note 'Reduce visual clutter' --hold 300
 ```
 
-Run any command level with `--help` for its usage. The curated command catalog
-is discovery metadata, not an allowlist: dispatch accepts every command id,
-and the connected document session performs authoritative validation and
-returns refusals as diagnostics.
+Run any command level with `--help` for its usage. CLI command discovery lists
+the workflow catalog. The catalog is discovery metadata; dispatch validates
+the command against the connected document's registered adapter and returns
+refusals as diagnostics.
 
 The CLI announces `cli` as its harness. Use `--owner NAME` to override the OS
 username associated with its agent presence.

@@ -33,7 +33,9 @@ import {
   detectFormat,
   diag,
   createLocalSession,
-  connectSharedSession,
+  createWorkflowDocumentTypeAdapter,
+  connectDocumentSession,
+  type DocumentTypeAdapter,
   type DocumentSession,
   type SharedDocumentSession,
   type CollabSessionDescriptor,
@@ -54,6 +56,7 @@ import {
   maskPaintSourceNodeId,
   nodeStatesFromDinksterJob,
   numericStepConstraints,
+  normalizeCollabDocumentKind,
   outputCountInputsOf,
   outputsOf,
   parseMaskPaintRecipe,
@@ -210,7 +213,7 @@ import {
   type ExecutionResultBackendIdentity,
   type PersistedExecutionResult,
 } from './execution-result-persistence.js'
-import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
+import { COLLAB_SCOPE, createCollabDocumentTypes, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
 import { PresenceChannel } from './collab-presence.js'
 import {
   connectSharedWorkerSession,
@@ -2581,6 +2584,13 @@ export class AppState {
    * through the collab panel); the entry's session IS the tab's store.
    */
   readonly collabTabs: Signal<ReadonlyMap<string, CollabTabState>> = createSignal<ReadonlyMap<string, CollabTabState>>(new Map())
+  readonly collabDocumentTypes = createCollabDocumentTypes()
+  private collabDocumentRequest = 0
+  readonly readOnlyCollabDocument = createSignal<{
+    readonly descriptor: CollabSessionDescriptor
+    readonly document: ReadonlySignal<unknown>
+    readonly session?: SharedDocumentSession<unknown>
+  } | undefined>(undefined)
   /** This browser's durable collab identity (joint actorId pin; collab.ts). */
   collabActorId: string
   readonly collabTransport: CollabTransport
@@ -3116,6 +3126,7 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.dismissCollabDocument()
     this.unsubscribePackLocale()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
     this.submissionWorlds.clear()
@@ -5477,7 +5488,7 @@ export class AppState {
     const backend = this.collabBackend()
     if (backend === undefined) return []
     return (await this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE))
-      .filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow')
+      .filter((descriptor) => normalizeCollabDocumentKind(descriptor.documentKind) !== 'dinkster.image')
   }
 
   /**
@@ -5527,6 +5538,8 @@ export class AppState {
    * of joined twice (one membership per session per app).
    */
   async joinCollabSession(sessionId: string): Promise<string | undefined> {
+    const preview = this.readOnlyCollabDocument.get()
+    if (preview?.session !== undefined && preview.descriptor.sessionId === sessionId) return undefined
     const existing = [...this.collabTabs.get().entries()].find(([, s]) => s.descriptor.sessionId === sessionId)
     if (existing !== undefined) {
       this.activeTabId.set(existing[0])
@@ -5547,6 +5560,13 @@ export class AppState {
     } finally {
       this.collabPending.delete(key)
     }
+  }
+
+  dismissCollabDocument(): void {
+    this.collabDocumentRequest += 1
+    const preview = this.readOnlyCollabDocument.get()
+    this.readOnlyCollabDocument.set(undefined)
+    preview?.session?.close()
   }
 
   /**
@@ -5624,6 +5644,36 @@ export class AppState {
       readonly activate?: boolean
     },
   ): Promise<void> {
+    // Schema resolution follows the adopted document, never the active tab.
+    let owner: string | undefined
+    const resolve = (type: string) => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
+      return tab ? this.registryForTab(tab)?.resolve(type) : undefined
+    }
+    const workflowAdapter = createWorkflowDocumentTypeAdapter(coreCommandRegistry([], resolve), {
+      schemaResolverFor: (document) => documentResolver(document, resolve),
+    })
+    const kind = normalizeCollabDocumentKind(descriptor.documentKind)
+    const registered = this.collabDocumentTypes.get(kind)
+    const documentTypes = createCollabDocumentTypes(workflowAdapter)
+    if (registered !== undefined && documentTypes.get(kind) === undefined) documentTypes.register(registered)
+    const adapter = documentTypes.get(kind)
+    this.dismissCollabDocument()
+    const request = this.collabDocumentRequest
+    if (adapter === undefined) {
+      const message = `No document adapter is registered for '${kind}'. The snapshot is read-only.`
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'collab', 'collab.documentKind.unsupported', message)])
+      const preview = this.collabTransport.connect({ baseUrl, sessionId: descriptor.sessionId, actorId: this.collabActorId })
+      try {
+        const snapshot = await preview.fetchSnapshot()
+        if (!this.disposed && request === this.collabDocumentRequest) {
+          this.readOnlyCollabDocument.set({ descriptor, document: createSignal(snapshot.document) })
+        }
+      } finally {
+        preview.close()
+      }
+      throw new Error(message)
+    }
     const expect = opts?.expect
     const actorId = this.collabTransport.bindActor === undefined ? this.collabActorId
       : await this.collabTransport.bindActor(baseUrl, descriptor.sessionId, this.collabActorId)
@@ -5633,27 +5683,31 @@ export class AppState {
       sessionId: descriptor.sessionId,
       actorId,
     })
-    // The Problems owner (= lineage) is known only after the snapshot loads;
-    // the sinks read it lazily. Nothing can fire before it is set: conflicts
-    // and errors need ingress, which needs the session to exist.
-    let owner: string | undefined
     const report = (d: Diagnostic) => this.reportProblems(owner ?? GLOBAL_PROBLEMS_OWNER, [d])
+    const sessionOptions = {
+      actorId,
+      onConflict: (conflict: SessionConflict) =>
+        report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
+          `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
+      onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
+    }
+    if (adapter !== workflowAdapter) {
+      try {
+        const session = await connectDocumentSession(connection, adapter, sessionOptions)
+        if (this.disposed || request !== this.collabDocumentRequest || session.status.get() === 'closed' || session.status.get() === 'error') {
+          session.close()
+          throw new Error('document session closed while joining')
+        }
+        this.readOnlyCollabDocument.set({ descriptor, document: session.document, session })
+      } catch (error) {
+        connection.close()
+        throw error
+      }
+      return
+    }
     let session: SharedDocumentSession
     try {
-      session = await connectSharedSession(connection, coreCommandRegistry([], (type) => {
-        const tab = this.tabs.get().find((c) => !c.execution && c.store.doc.lineage === owner)
-        return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-      }), {
-        actorId,
-        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, (type) => {
-          const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
-          return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-        }),
-        onConflict: (conflict: SessionConflict) =>
-          report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
-            `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
-        onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
-      })
+      session = await connectDocumentSession(connection, adapter, sessionOptions) as SharedDocumentSession
     } catch (e) {
       connection.close() // a failed join must not leak a retrying socket
       throw e

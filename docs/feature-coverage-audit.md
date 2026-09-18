@@ -1086,6 +1086,20 @@ Pairwise suites (`compile-forwarding`, `compile-conditional`, `boundary-fanout`,
 
 ## Collaboration regression coverage
 
+Workflow and ImageDocument collaboration share one generic session engine.
+Document adapters supply loading, invariants, pure command planning, semantic
+rebase/history rules, ID prediction and resource retention. Open namespaced
+kinds map legacy workflow/image aliases without changing protocol version 1.
+`core/test/document-session-adapter.test.ts` exercises a third JSON adapter;
+it also guards positional array history against concurrent shifts. The
+existing workflow/image suites retain their assertions. The app reports
+unsupported kinds as Problems and shows escaped read-only checkpoints, covered
+by `app/test/collab.test.ts` and `app/test/CollabPanel.dom.test.tsx`.
+`e2e/tests/shared-document-adapters.spec.ts` covers two-browser image edits,
+undo, participant identity, cursors and departure, plus the unsupported-kind
+read-only view and a retained extension registration receiving live edits.
+See [the adapter contract](collaboration.md#document-adapters-and-open-kinds).
+
 The Node 22+ headless collaboration demo is implemented in
 `packages/headless-demo`. Pure planner and local-session tests cover linked,
 unlinked, and empty workflows, including copied values, recreated links,

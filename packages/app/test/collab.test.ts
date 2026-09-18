@@ -11,15 +11,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   COLLAB_PROTOCOL_VERSION,
+  DocumentTypeRegistry,
+  applyOps,
   asConnectionId,
   asNodeId,
   diag,
+  invertOps,
   isValidActorId,
   type CollabClientOp,
   type CollabConnection,
   type CollabConnectionEvent,
   type CollabServerOp,
   type CollabSessionDescriptor,
+  type DocumentTypeAdapter,
   type FetchOpsOutcome,
   type Json,
   type NodeSchema,
@@ -32,7 +36,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
-import { AppState, type Tab } from '../src/app-state.js'
+import { AppState, GLOBAL_PROBLEMS_OWNER, type Tab } from '../src/app-state.js'
 import { bindBrowserActor, COLLAB_ACTOR_ID_KEY, COLLAB_SCOPE, stableActorId, type CollabTransport } from '../src/collab.js'
 import { APP_EDITOR_KIND } from '../src/editors.js'
 import { flattenInvocation } from '../src/subgraph-lifecycle.js'
@@ -433,6 +437,27 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
+  it('dispatches through the exact adapter selected from the per-session registry', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const lookup = vi.spyOn(DocumentTypeRegistry.prototype, 'get')
+    try {
+      expect(await app.shareActiveTab()).toBeUndefined()
+      const selected: DocumentTypeAdapter<unknown> | undefined = lookup.mock.results.at(-1)?.value
+      expect(selected?.kind).toBe('dinkster.workflow')
+      const execute = vi.spyOn(selected!, 'execute')
+      try {
+        expect(addNode(activeTab(app)).ok).toBe(true)
+        await sharedSession(app, activeTab(app).id).settle()
+        expect(execute).toHaveBeenCalled()
+      } finally {
+        execute.mockRestore()
+      }
+    } finally {
+      lookup.mockRestore()
+      app.dispose()
+    }
+  })
+
   it('T19 installs current-document schema authority for both AppState local and adopted shared tabs', async () => {
     const server = new FakeCollabServer()
     const run = async (shared: boolean): Promise<void> => {
@@ -613,6 +638,62 @@ describe('join and convergence', () => {
     const server = new FakeCollabServer()
     const app = makeApp(server)
     expect(await app.joinCollabSession('sess-nope')).toMatch(/no longer exists/)
+  })
+
+  it('keeps an unknown document kind read-only and reports a Problem', async () => {
+    const server = new FakeCollabServer()
+    const source = server.createSession(COLLAB_SCOPE, 'notes', { text: 'An extension document' })
+    const descriptor = server.descriptorOf(source)
+    vi.spyOn(server, 'descriptorOf').mockReturnValue({ ...descriptor, documentKind: 'example.notes' })
+    const app = makeApp(server)
+    const tab = activeTab(app)
+    const report = vi.spyOn(app, 'reportProblems')
+    expect(await app.listCollabSessions()).toHaveLength(1)
+    expect(await app.joinCollabSession(source.sessionId)).toContain('No document adapter')
+    expect(app.activeTab()).toBe(tab)
+    expect(app.collabTabs.get().size).toBe(0)
+    expect(app.readOnlyCollabDocument.get()?.document.get()).toEqual(source.snapshot)
+    expect(source.connections.size).toBe(0)
+    expect(source.log).toHaveLength(0)
+    expect(report).toHaveBeenCalledWith(GLOBAL_PROBLEMS_OWNER, expect.arrayContaining([
+      expect.objectContaining({ code: 'collab.documentKind.unsupported' }),
+    ]))
+  })
+
+  it('opens a retained extension adapter in one engine without making a workflow tab', async () => {
+    const server = new FakeCollabServer()
+    const source = server.createSession(COLLAB_SCOPE, 'notes', { text: 'initial' })
+    const descriptor = server.descriptorOf(source)
+    vi.spyOn(server, 'descriptorOf').mockReturnValue({ ...descriptor, documentKind: 'example.notes' })
+    const adapter: DocumentTypeAdapter<{ text: string }> = {
+      kind: 'example.notes', commandIds: new Set(['note.rename']),
+      load: (value) => ({ document: value as { text: string }, diagnostics: [] }),
+      check: () => [],
+      execute(document, invocation) {
+        const forward = [{ op: 'replace' as const, path: ['text'], value: invocation.params, oldValue: document.text }]
+        return { ok: true, doc: applyOps(document, forward) as { text: string }, forward, inverse: invertOps(forward), diagnostics: [] }
+      },
+    }
+    const apps = [makeApp(server), makeApp(server)]
+    for (const app of apps) {
+      const tab = app.activeTab()
+      app.collabDocumentTypes.register(adapter)
+      expect(await app.joinCollabSession(source.sessionId)).toBeUndefined()
+      expect(app.activeTab()).toBe(tab)
+      expect(app.collabTabs.get().size).toBe(0)
+      expect(app.readOnlyCollabDocument.get()?.document).toBe(app.readOnlyCollabDocument.get()?.session?.document)
+    }
+    const session = apps[0]!.readOnlyCollabDocument.get()!.session!
+    expect(session.dispatch({ command: 'note.rename', params: 'shared edit' }).ok).toBe(true)
+    await session.settle()
+    expect(apps[1]!.readOnlyCollabDocument.get()?.document.get()).toEqual({ text: 'shared edit' })
+    expect(await apps[0]!.joinCollabSession(source.sessionId)).toBeUndefined()
+    expect(source.connections.size).toBe(2)
+    apps[0]!.dismissCollabDocument()
+    expect(session.status.get()).toBe('closed')
+    expect(source.connections.size).toBe(1)
+    apps[1]!.dispose()
+    expect(source.connections.size).toBe(0)
   })
 })
 

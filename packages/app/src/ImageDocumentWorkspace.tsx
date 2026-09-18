@@ -11,6 +11,7 @@ import {
   createLocalImageDocumentSession,
   formatNumber,
   imageOutputPolicyOf,
+  normalizeCollabDocumentKind,
   orderedImageLayerIds,
   serializeImageDocument,
   type CollabSessionDescriptor,
@@ -29,6 +30,8 @@ import {
 } from '@dinkster/client'
 import type { AppState } from './app-state.js'
 import { COLLAB_SCOPE } from './collab.js'
+import { actorColor, actorLabel, PresenceChannel } from './collab-presence.js'
+import { CollabParticipants } from './CollabParticipants.js'
 import {
   ImageDocumentLocalStore,
   importSingleRaster,
@@ -77,6 +80,7 @@ interface OpenImageDocument {
     readonly descriptor: CollabSessionDescriptor
     readonly baseUrl: string
     readonly session: SharedImageDocumentSession
+    readonly presence: PresenceChannel
   }
 }
 
@@ -134,6 +138,7 @@ function ImageDocumentEditor(props: {
   const message = useAppMessage()
   const documentValue = useSignal(props.entry.session.document)
   const [selectedLayerId, setSelectedLayerId] = createSignal(documentValue().rootLayerIds.at(-1) ?? '')
+  const [cursor, setCursor] = createSignal<{ x: number; y: number }>()
   const [renderError, setRenderError] = createSignal<string>()
   const [authoritativeError, setAuthoritativeError] = createSignal<string>()
   const [authoritativeBusy, setAuthoritativeBusy] = createSignal(false)
@@ -157,6 +162,7 @@ function ImageDocumentEditor(props: {
   onCleanup(() => {
     rendererLive = false
     renderer.dispose()
+    props.entry.collaboration?.presence.blur()
   })
 
   const entryName = (): string => { props.metadataTick(); return props.entry.name }
@@ -164,6 +170,17 @@ function ImageDocumentEditor(props: {
   const selected = createMemo((): ImageLayer | undefined => {
     const current = documentValue()
     return current.layers[selectedLayerId()] ?? current.layers[current.rootLayerIds.at(-1) ?? '']
+  })
+  createEffect(() => {
+    const collaboration = props.entry.collaboration
+    if (collaboration === undefined) return
+    const document = documentValue()
+    const layerId = selectedLayerId()
+    collaboration.presence.setLocal({
+      graph: document.lineage,
+      cursor: cursor(),
+      selection: document.layers[layerId] === undefined ? [] : [layerId],
+    })
   })
   const canUndo = (): boolean => { documentValue(); return props.entry.session.canUndo }
   const canRedo = (): boolean => { documentValue(); return props.entry.session.canRedo }
@@ -449,10 +466,32 @@ function ImageDocumentEditor(props: {
                 : message('imageDocument.editor.action.groupBelow')}
             </button>
           </div>
+          <Show when={props.entry.collaboration}>{(shared) => (
+            <CollabParticipants presence={shared().presence} actorId={shared().session.actorId} />
+          )}</Show>
         </aside>
         <section class="image-document-preview" aria-label={message('imageDocument.editor.region.preview')}>
           <div class="image-document-preview-stage">
-            <canvas ref={preview} data-testid="image-document-preview" />
+            <div class="image-document-presence-surface">
+              <canvas ref={preview} data-testid="image-document-preview"
+                onPointerMove={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setCursor({
+                    x: (event.clientX - rect.left) * documentValue().canvas.width / rect.width,
+                    y: (event.clientY - rect.top) * documentValue().canvas.height / rect.height,
+                  })
+                }}
+                onPointerLeave={() => setCursor(undefined)}
+              />
+              <Show when={props.entry.collaboration}>{(shared) => {
+                const remotes = useSignal(shared().presence.remotes)
+                return <For each={[...remotes().values()].filter((remote) => remote.graph === documentValue().lineage && remote.cursor !== undefined)}>{(remote) => (
+                  <span class="image-document-remote-cursor" data-testid="image-collab-cursor"
+                    style={{ left: `${remote.cursor!.x / documentValue().canvas.width * 100}%`, top: `${remote.cursor!.y / documentValue().canvas.height * 100}%`, color: actorColor(remote.actorId) }}
+                  >+ <small>{remote.identity?.displayName ?? actorLabel(remote.actorId)}</small></span>
+                )}</For>
+              }}</Show>
+            </div>
           </div>
           <p>{message('imageDocument.editor.description.preview')}</p>
           <Show when={renderError()}>{(value) => <div role="alert">{message('imageDocument.editor.error.previewFailed', { reason: value() })}</div>}</Show>
@@ -792,6 +831,7 @@ export function ImageDocumentWorkspace(props: {
     origin?: ImageDocumentGraphOrigin,
   ): OpenImageDocument => {
     const session = shared?.session ?? createLocalImageDocumentSession(draft.document)
+    const presence = shared === undefined ? undefined : new PresenceChannel(shared.session, shared.session.actorId)
     let entry!: OpenImageDocument
     const stopOperation = session.onOp(() => {
       queuePersist(entry)
@@ -801,6 +841,7 @@ export function ImageDocumentWorkspace(props: {
     const stop = (): void => {
       stopOperation()
       stopStatus()
+      presence?.dispose()
     }
     entry = {
       session,
@@ -811,11 +852,12 @@ export function ImageDocumentWorkspace(props: {
       stop,
       ...(authoritative !== undefined ? { authoritative } : {}),
       ...(origin !== undefined ? { origin } : {}),
-      ...(shared !== undefined ? { collaboration: shared } : {}),
+      ...(shared !== undefined && presence !== undefined ? { collaboration: { ...shared, presence } } : {}),
     }
     if (shared !== undefined) {
       stopStatus = shared.session.status.subscribe((status) => {
         if (live) refresh()
+        if (status === 'closed' || status === 'error') presence?.dispose()
         if (status === 'closed') queueMicrotask(() => void leaveShared(entry, true))
       })
     }
@@ -856,7 +898,7 @@ export function ImageDocumentWorkspace(props: {
     baseUrl: string,
     previous?: OpenImageDocument,
   ): Promise<OpenImageDocument> => {
-    if (descriptor.documentKind !== 'image') throw new Error('collaboration session is not an ImageDocument')
+    if (normalizeCollabDocumentKind(descriptor.documentKind) !== 'dinkster.image') throw new Error('collaboration session is not an ImageDocument')
     const backend = backendForCollaboration(baseUrl)
     if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.collaborationBackendDisconnected'))
     const connection = props.app.collabTransport.connect({
@@ -1022,7 +1064,7 @@ export function ImageDocumentWorkspace(props: {
     setError(undefined)
     try {
       const sessions = await props.app.collabTransport.list(backend.baseUrl, COLLAB_SCOPE)
-      setCollaborationSessions(sessions.filter((descriptor) => descriptor.documentKind === 'image'))
+      setCollaborationSessions(sessions.filter((descriptor) => normalizeCollabDocumentKind(descriptor.documentKind) === 'dinkster.image'))
       setCollaborationOpen(true)
       queueMicrotask(() => collaborationDialog?.focus())
     } catch (cause) {
@@ -1098,7 +1140,7 @@ export function ImageDocumentWorkspace(props: {
             draft.collaboration.baseUrl,
             draft.collaboration.sessionId,
           )
-          if (descriptor === undefined || descriptor.documentKind !== 'image' ||
+          if (descriptor === undefined || normalizeCollabDocumentKind(descriptor.documentKind) !== 'dinkster.image' ||
             descriptor.documentId !== draft.document.lineage) {
             previous.draft = await store.setCollaboration(draft.document.lineage, undefined)
             refresh()

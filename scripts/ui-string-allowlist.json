@@ -298,7 +298,9 @@
   ],
   "CollabPanel.tsx": [
     "attribute:aria-label:Confirm ending session",
+    "attribute:aria-label:Document JSON",
     "attribute:aria-label:Participants in this collaboration session",
+    "attribute:aria-label:Read-only shared document",
     "text:!dismissedProposals().has(key)) const updateProposalState = ( setter: (value: (current: ReadonlySet",
     "text:('loading') const [confirmingEnd, setConfirmingEnd] = createSignal",
     "text:() let unsharedState: HTMLElement | undefined let currentSessionCard: HTMLElement | undefined let endButton: HTMLButtonElement | undefined let confirmEndButton: HTMLButtonElement | undefined let panel: HTMLDivElement | undefined let refreshRevision = 0 let refreshQueued = false const closedSessions = new Set",
@@ -315,11 +317,13 @@
     "text:Connect a Dinkster backend to host collaboration sessions.",
     "text:Current value",
     "text:Dismiss",
+    "text:Dismiss",
     "text:End for everyone",
     "text:Everyone will be disconnected. Their current workflow stays open locally.",
     "text:Invalid value",
     "text:Loading shared sessions",
     "text:No collaboration backend",
+    "text:No editor is available for",
     "text:No shared sessions",
     "text:Not available in this client",
     "text:Not shared",
@@ -339,6 +343,13 @@
     "text:confirmingEnd() === entry.descriptor.sessionId return (",
     "text:props.app.collabBackend() const [pending, setPending] = createSignal",
     "text:string | undefined, ): Promise"
+  ],
+  "CollabParticipants.tsx": [
+    "attribute:aria-label:Participants",
+    "attribute:aria-label:Participants in this collaboration session",
+    "text:Participants",
+    "text:You",
+    "text:agent"
   ],
   "CollectionPanel.tsx": [
     "text:( props.modeKey !== undefined ? readCollectionViewMode(storage, props.modeKey, props.defaultMode ?? 'list') : props.defaultMode ?? 'list', ) const [query, setQuery] = createSolidSignal('') const [folder, setFolder] = createSolidSignal('') const [filters, setFilters] = createSolidSignal",
@@ -519,6 +530,7 @@
     "text:() const [authoritativeBusy, setAuthoritativeBusy] = createSignal(false) const [authoritativeResult, setAuthoritativeResult] = createSignal",
     "text:() const [authoritativeError, setAuthoritativeError] = createSignal",
     "text:() const [libraryOpen, setLibraryOpen] = createSignal(false) const [libraryRecords, setLibraryRecords] = createSignal",
+    "text:() const [renderError, setRenderError] = createSignal",
     "text:([]) const [activeLineage, setActiveLineage] = createSignal('') const [loading, setLoading] = createSignal(true) const [busy, setBusySignal] = createSignal(false) const [error, setErrorValue] = createSignal",
     "text:([]) const [collaborationOpen, setCollaborationOpen] = createSignal(false) const [collaborationSessions, setCollaborationSessions] = createSignal",
     "text:([]) const [confirmingEnd, setConfirmingEnd] = createSignal(false) const [collaborationTransition, setCollaborationTransition] = createSignal(false) const [resourceTick, setResourceTick] = createSignal(0) const [metadataTick, setMetadataTick] = createSignal(0) let importInput!: HTMLInputElement let tablist!: HTMLDivElement let libraryDialog!: HTMLDivElement let collaborationDialog!: HTMLDivElement let endConfirmButton: HTMLButtonElement | undefined let live = true const leaving = new Set",

@@ -7642,6 +7642,8 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .collab-facts > div { display: grid; min-width: 0; gap: 2px; padding: var(--dinkster-space-8); background: var(--dinkster-surface-inset); border-radius: var(--dinkster-radius-small); }
 .collab-facts dt { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .collab-facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.collab-read-only { min-width: 0; padding: var(--dinkster-space-12); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); }
+.collab-read-only pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .collab-participant-section { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
 .collab-participant-section > header { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); }
 .collab-participant-section h4 { margin: 0; font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); }
@@ -7886,6 +7888,11 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .image-document-layer-row small { color: var(--dinkster-text-muted); text-transform: capitalize; }
 .image-document-editor .image-document-layer-row.selected { color: white; border-color: #5b8fb9; background: #29435a; }
 .image-document-layer-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; padding: 8px; border-top: 1px solid var(--dinkster-border-subtle); }
+.image-document-layers > .collab-participant-section { flex: none; padding: 8px; border-top: 1px solid var(--dinkster-border-subtle); }
+.image-document-layers .collab-participants { max-height: 140px; }
+.image-document-presence-surface { position: relative; display: grid; max-width: 100%; max-height: 100%; }
+.image-document-remote-cursor { position: absolute; pointer-events: none; font-size: 20px; line-height: 1; white-space: nowrap; text-shadow: 0 1px 2px #000; }
+.image-document-remote-cursor small { padding: 2px 4px; background: var(--dinkster-surface-panel); font-size: 11px; }
 .image-document-preview { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #181818; }
 .image-document-preview-stage {
   display: grid;
