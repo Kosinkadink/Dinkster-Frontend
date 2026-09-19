@@ -383,6 +383,63 @@ describe('combo search', () => {
     mounted.unmount()
   })
 
+  it('selects a DynamicCombo option on its direct owner', async () => {
+    const mounted = mountEditor({
+      ...editorState({ widgetType: 'COMBO', options: { options: ['fit', 'crop'] } }, 'fit'),
+      target: {
+        kind: 'input',
+        nodeId: 'resize',
+        valueKey: 'choice',
+        selector: { construct: 'choice', ancestors: [] },
+      },
+    })
+    await flushMicrotasks()
+
+    mounted.root.querySelectorAll<HTMLButtonElement>('[data-testid="combo-option"]')[1]!.click()
+
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
+      command: 'dynamic.selectOption',
+      params: { graphId: 'g0', nodeId: 'resize', construct: 'choice', option: 'crop' },
+    })
+    mounted.unmount()
+  })
+
+  it('selects a DynamicCombo option on a forwarded ancestor occurrence', async () => {
+    const mounted = mountEditor({
+      ...editorState({ widgetType: 'COMBO', options: { options: ['fit', 'crop'] } }, 'fit'),
+      target: {
+        kind: 'input',
+        nodeId: 'derived-resize',
+        valueKey: 'choice',
+        selector: {
+          construct: 'derived-choice',
+          ancestors: [],
+          owner: {
+            graphId: 'root',
+            nodeId: 'wrapper',
+            construct: 'forwarded-choice',
+            ancestors: [{ construct: 'regions', member: 'left' }],
+          },
+        },
+      },
+    })
+    await flushMicrotasks()
+
+    mounted.root.querySelectorAll<HTMLButtonElement>('[data-testid="combo-option"]')[1]!.click()
+
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
+      command: 'dynamic.selectOption',
+      params: {
+        graphId: 'root',
+        nodeId: 'wrapper',
+        construct: 'forwarded-choice',
+        option: 'crop',
+        ancestors: [{ construct: 'regions', member: 'left' }],
+      },
+    })
+    mounted.unmount()
+  })
+
   it('renders labels and info, navigates folders, and commits the canonical value', async () => {
     const mounted = mountEditor(editorState({
       widgetType: 'COMBO',

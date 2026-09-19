@@ -23,7 +23,6 @@ import type {
 import { Check, X } from 'lucide-solid'
 import {
   WidgetEditorController,
-  withMaterializeFrames,
   type WidgetEditorImplementationProps,
   type WidgetEditorProps,
   type WidgetEditorState,
@@ -86,26 +85,6 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
 
   const commitTarget = (value: Json): void => {
     if (!live) return
-    if (ed.target.kind === 'input' && ed.target.selector !== undefined) {
-      const owner = ed.target.selector.owner
-      host.app.dispatchTo(ed.tab, owner !== undefined
-        ? withMaterializeFrames(owner.graphId, owner.nodeId, ed.target.materialize, {
-            command: 'dynamic.selectOption',
-            params: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.construct, option: String(value), ...(owner.ancestors === undefined ? {} : { ancestors: owner.ancestors }) },
-          })
-        : withMaterializeFrames(ed.graphId, ed.target.nodeId, ed.target.materialize, {
-            command: 'dynamic.selectOption',
-            params: {
-              graphId: ed.graphId,
-              nodeId: ed.target.nodeId,
-              construct: ed.target.selector.construct,
-              ...(ed.target.selector.ancestors.length === 0 ? {} : { ancestors: ed.target.selector.ancestors.map((entry) => ({ construct: entry.construct, member: entry.member })) }),
-              option: String(value),
-            },
-          }))
-      props.close()
-      return
-    }
     if (ed.spec?.widgetType === 'STRING' && typeof value === 'string' && ed.target.kind === 'input') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
