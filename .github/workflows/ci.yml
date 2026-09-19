@@ -19,18 +19,31 @@ env:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - uses: ./.github/actions/configure-dinkster-identity
+        with:
+          repository: Kosinkadink/Dinkster
+          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
 
       - uses: actions/checkout@v4
         with:
+          clean: true
+          persist-credentials: false
           repository: Kosinkadink/Dinkster
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
-          ssh-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
+
+      - uses: ./.github/actions/configure-dinkster-identity
+        with:
+          deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -57,21 +70,24 @@ jobs:
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
       - run: pnpm typecheck
       - run: pnpm check:ui-strings
-      - run: pnpm test
+      - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" pnpm test'
         env:
           # Keep allocation-heavy performance gates on steady-state work
           # instead of timing young-generation garbage collection.
           NODE_OPTIONS: --max-semi-space-size=64
       - run: pnpm --filter @dinkster/app build
-      - run: pnpm --filter @dinkster/e2e exec playwright install --with-deps chromium
-      - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
+      - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      # Host interface changes must not invalidate Chromium's loopback requests.
+      - run: bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
+        env:
+          DINKSTER_E2E_PORT: "15376"
 
   e2e-suite:
     if: >-
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'full-e2e')
     name: e2e (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -102,21 +118,32 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
 
       - uses: actions/checkout@v4
         with:
+          clean: true
+          persist-credentials: false
           repository: Comfy-Org/ComfyUI
           ref: 15eb748b3ec5f8a0a2d470b7fb280e2d7579f916
           path: .ci/ComfyUI
 
+      - uses: ./.github/actions/configure-dinkster-identity
+        with:
+          repository: Kosinkadink/Dinkster
+          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
+
       - uses: actions/checkout@v4
         with:
+          clean: true
+          persist-credentials: false
           repository: Kosinkadink/Dinkster
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
-          ssh-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
 
-      - uses: ./.ci/Dinkster/.github/actions/configure-dinkster-identity
+      - uses: ./.github/actions/configure-dinkster-identity
         with:
           deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
 
@@ -142,18 +169,20 @@ jobs:
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
           CUDA_VISIBLE_DEVICES: ""
-      - run: pnpm --filter @dinkster/e2e exec playwright install --with-deps chromium
-      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers
+      - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
         if: matrix.vulkan
-      - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}
+      - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}'
         env:
+          # Match the software Vulkan driver available on CPU-only runners.
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
           DINKSTER_E2E_COMFY_ROOT: ${{ github.workspace }}/.ci/ComfyUI
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
-          DINKSTER_E2E_PORT: "5410"
-          DINKSTER_E2E_COMFY_PORT: "5411"
-          DINKSTER_E2E_NATIVE_PORT: "5412"
+          DINKSTER_E2E_PORT: "15410"
+          DINKSTER_E2E_COMFY_PORT: "15411"
+          DINKSTER_E2E_NATIVE_PORT: "15412"
           DINKSTER_E2E_USE_NATIVE: "1"
-          DINKSTER_NATIVE_BACKEND: http://127.0.0.1:5412
+          DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15412
 
   e2e:
     if: >-
@@ -161,7 +190,7 @@ jobs:
       (github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'full-e2e'))
     needs: e2e-suite
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Verify every full-suite lane passed
         run: test '${{ needs.e2e-suite.result }}' = success
