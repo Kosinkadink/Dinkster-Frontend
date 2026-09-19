@@ -13,7 +13,6 @@ import { createMemo, onCleanup, Show, type Component, type JSX } from 'solid-js'
 import {
   canonicalTypeIdOf,
   semanticDesignTokens,
-  type CommandInvocation,
   type EditorSizing,
   type HostUiProviderV1,
   type Json,
@@ -33,41 +32,16 @@ import { HostUiProviderHost } from './host-ui.js'
 import { useAppMessage } from './locale.js'
 import { VideoDocumentEditor, isVideoDocumentEditorCommand } from './VideoDocumentEditor.js'
 import {
+  dynamicSelectorCommitCommand,
+  withMaterializeFrames,
+} from './widget-editor-command.js'
+import {
   contrastingTextColor,
   editorScreenAnchor,
 } from './widget-editor-position.js'
 
 export { parseNumericCommit, widgetCommitError, type NumericCommitResult } from './widget-commit.js'
-
-/**
- * Wrap a command with a preceding dynamic.materialize when the target widget
- * is a ghost/min-fill member: ONE batch, so materialization is atomic with
- * the write that caused it (one undo step; a rejected write persists nothing).
- */
-export function withMaterializeFrames(
-  graphId: string,
-  nodeId: string,
-  frames: readonly MaterializeFrame[] | undefined,
-  action: CommandInvocation,
-): CommandInvocation {
-  if (frames === undefined || frames.length === 0) return action
-  return {
-    command: 'batch',
-    params: {
-      invocations: [
-        {
-          command: 'dynamic.materialize',
-          params: {
-            graphId,
-            nodeId,
-            frames: frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
-          },
-        },
-        { command: action.command, params: action.params },
-      ],
-    },
-  } as CommandInvocation
-}
+export { withMaterializeFrames } from './widget-editor-command.js'
 
 /** What a widget editor writes to: a node input, or a value source's value. */
 export type EditorTarget =
@@ -302,6 +276,11 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
         command: 'valueSource.setValue',
         params: { graphId: ed.graphId, valueSourceId: ed.target.valueSourceId, value },
       })
+      return
+    }
+    const selectorCommand = dynamicSelectorCommitCommand(ed, value)
+    if (selectorCommand !== undefined) {
+      props.app.dispatchTo(ed.tab, selectorCommand)
       return
     }
     props.app.dispatchTo(
