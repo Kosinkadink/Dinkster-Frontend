@@ -849,6 +849,9 @@
     "text:props.preferences ?? localPreferences() const [inspection, setInspection] = createSignal"
   ],
   "WidgetEditor.tsx": [
+    "text:return"
+  ],
+  "WidgetEditorController.tsx": [
     "attribute:alt:Asset preview",
     "attribute:aria-label:Asset requirements",
     "attribute:aria-label:Back to parent folder",

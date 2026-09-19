@@ -120,8 +120,10 @@ export interface WidgetRegistry {
   /** Register; returns an unregister function (gating/multi-window need clean removal). */
   registerKind(kind: WidgetKind): () => void
   registerView(view: WidgetView): () => void
+  registerEditor(widgetType: string, editor: unknown): () => void
   registerPreviewRenderer(r: PreviewRenderer): () => void
   kind(type: string): WidgetKind | undefined
   viewsFor(kindType: string): readonly WidgetView[]
+  editorFor(widgetType: string): unknown
   previewRendererFor(channel: string): PreviewRenderer | undefined
 }

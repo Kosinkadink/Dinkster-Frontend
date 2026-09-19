@@ -4,6 +4,7 @@ import {
   type ExtensionEvent, type ExtensionHostOptions, type FrontendPrivilege, type PackActivationApi, type PackManifest, type PackJsonObject,
 } from '@dinkster/core'
 import { createTextWidgetEditorExtensionRegistry, createWidgetRegistry, registerCoreWidgets, type TextWidgetEditorExtension } from '@dinkster/widgets'
+import { registerCoreWidgetEditors } from './editors/widget-editors.js'
 import { HostUiContributionRegistry } from './host-ui.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry } from './settings.js'
 
@@ -65,6 +66,7 @@ export class ExtensionWorld {
     private readonly report: (diagnostic: Diagnostic) => void = () => {},
   ) {
     registerCoreWidgets(this.widgets)
+    registerCoreWidgetEditors(this.widgets)
     const menus = createMenuRegistry()
     const text = createTextWidgetEditorExtensionRegistry()
     const settings = new SettingsRegistry(undefined)
