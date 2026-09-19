@@ -189,10 +189,10 @@ test('left zone hosts multiple tabs and each toggle activates or closes its pane
   await expect(zone.getByRole('tab', { name: 'Library' })).toHaveAttribute('aria-selected', 'true')
   await expect(zone.getByRole('tab', { name: 'Backends' })).toBeVisible()
   const tablist = zone.getByRole('tablist', { name: 'Primary dock panels' })
-  // Without the old Float chrome button, every tab floor fits at the default
-  // zone width, so the all-tabs overflow button stays hidden here. The
-  // overflow lifecycle keeps its own minimum-width test below.
-  await expect(zone.getByTestId('dock-zone-overflow-button')).not.toBeVisible()
+  const guidesInstalled = await page.getByRole('button', { name: 'Learning guides' }).count() > 0
+  const overflowButton = zone.getByTestId('dock-zone-overflow-button')
+  if (guidesInstalled) await expect(overflowButton).toBeVisible()
+  else await expect(overflowButton).not.toBeVisible()
   await expectWholeTabs(tablist, zone.locator('[role="tab"]'))
 
   // Switching to Backends selects its tab while both tabs remain available.

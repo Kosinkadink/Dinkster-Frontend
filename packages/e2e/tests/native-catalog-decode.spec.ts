@@ -40,7 +40,13 @@ test('the full live catalog decodes without schema errors and dynamic families m
   // Every node the backend serves must decode: an undecodable schema drops
   // the node from the catalog entirely, which users see as a missing node.
   expect(registry.schemaErrors).toEqual([])
-  expect(registry.schemaCount).toBe(payloadCount)
+  await expect.poll(async () => {
+    const response = await page.request.get('/api/nodes')
+    const payload = await response.json() as { nodes: Record<string, unknown> }
+    const registryTypes = await page.evaluate(() =>
+      [...window.__dinksterTest!.app.backends.get()[0]!.registry.get()!.schemas.keys()])
+    return Object.keys(payload.nodes).filter((type) => !registryTypes.includes(type))
+  }).toEqual([])
 
   if (registry.hasListMake) {
     // Dynamic input families must materialize members: a family that

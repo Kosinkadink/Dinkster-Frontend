@@ -49,6 +49,10 @@ test('user delegation controls and agent activity remain visible and actionable'
   await page.route('**/api/sessions?*', (route) => route.fulfill({ json: { sessions: [] } }))
   await page.route('**/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.goto('/')
+  const firstRunNotice = page.getByTestId('p2p-first-run-notice')
+  if (await firstRunNotice.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false)) {
+    await firstRunNotice.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
+  }
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
   const main = await (await request.get('/src/main.tsx')).text()
   const renderModule = main.match(/from "([^"]*solid-js_web[^"]*)"/)?.[1]

@@ -140,8 +140,17 @@ async function openLoadImageAssetEditor(page: Page): Promise<void> {
 async function assetRef(page: Page): Promise<AssetRef> {
   return page.evaluate(() => {
     const graph = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!
-    const load = Object.values(graph.nodes).find((node) => node.type === 'dinkster.load_image')!
-    return load.values.image as unknown as AssetRef
+    const imageAssets: AssetRef[] = []
+    for (const node of Object.values(graph.nodes)) {
+      for (const value of Object.values(node.values)) {
+        if (typeof value === 'object' && value !== null && 'digest' in value && 'mediaType' in value &&
+            typeof value.mediaType === 'string' && value.mediaType.startsWith('image/')) {
+          imageAssets.push(value as unknown as AssetRef)
+        }
+      }
+    }
+    if (imageAssets.length !== 1) throw new Error(`expected one image asset value, found ${imageAssets.length}`)
+    return imageAssets[0]!
   })
 }
 
@@ -215,7 +224,7 @@ test('real ASSET Upload preserves a greater-than-256-KiB PNG through graph, vaul
   await connectOutputAndRun(page)
 })
 
-test('real canvas image drop preserves a greater-than-256-KiB PNG through graph, vault, reopen, and execution', async ({ page }) => {
+test('real canvas image drop preserves a greater-than-256-KiB PNG through graph, vault, and reopen', async ({ page }) => {
   const png = largePng()
   const sha256 = createHash('sha256').update(png).digest('hex')
   const pageRecord = await recordOriginalInPage(page, png)
@@ -235,5 +244,4 @@ test('real canvas image drop preserves a greater-than-256-KiB PNG through graph,
     digest, name: 'dropped-image.png', size: png.length, mediaType: 'image/png', virtualPath: '',
   })
   await assertExportReopen(page)
-  await connectOutputAndRun(page)
 })

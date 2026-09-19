@@ -169,7 +169,7 @@ describe('dinkster stream replay: success', () => {
     // for INTERMEDIATE nodes mid-run, not just job-result targets.
     const done = new Map(nodeEntries(events).filter(([, p]) => p.state === 'done'))
     expect(done.get('r')!.outputs).toEqual({ items: { typeId: 'list<core.int>', length: 3 } })
-    expect(done.get('a')!.outputs).toEqual({ out: { typeId: 'core.int' } })
+    expect(done.get('a')!.outputs).toEqual({ out: { typeId: 'core.int', value: 8 } })
     expect(done.get('a')!.outputs!['out']).not.toHaveProperty('length')
   })
 
@@ -304,7 +304,7 @@ describe('dinkster stream replay: cached', () => {
   it('cache hits carry the same per-output summaries as fresh finishes', () => {
     const cached = new Map(nodeEntries(events).filter(([, p]) => p.state === 'cached'))
     expect(cached.get('r')!.outputs).toEqual({ items: { typeId: 'list<core.int>', length: 3 } })
-    expect(cached.get('a')!.outputs).toEqual({ out: { typeId: 'core.int' } })
+    expect(cached.get('a')!.outputs).toEqual({ out: { typeId: 'core.int', value: 8 } })
   })
 })
 

@@ -14,6 +14,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DINKSTER_REF: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -21,6 +24,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Kosinkadink/Dinkster
+          ref: ${{ env.DINKSTER_REF }}
+          path: .ci/Dinkster
+          ssh-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -32,7 +42,19 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
       - run: pnpm install --frozen-lockfile
+      - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - name: Verify generated fixtures are current
+        env:
+          DINKSTER_SOURCE_ROOT: ${{ github.workspace }}/.ci/Dinkster
+        run: |
+          .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
+          .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
+          git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
       - run: pnpm typecheck
       - run: pnpm check:ui-strings
       - run: pnpm test
@@ -90,7 +112,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Kosinkadink/Dinkster
-          ref: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+          ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
           ssh-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
 

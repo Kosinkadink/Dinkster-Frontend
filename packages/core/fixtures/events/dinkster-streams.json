@@ -7,8 +7,8 @@
     "executed": [
      "m",
      "a",
-     "r",
-     "p"
+     "p",
+     "r"
     ],
     "finishedAt": 0.0,
     "jobId": "job-1",
@@ -68,6 +68,9 @@
     },
     {
      "clientId": "client-a",
+     "detail": {
+      "executionArm": "native"
+     },
      "jobId": "job-1",
      "nodeId": "m",
      "runId": "run-success",
@@ -76,11 +79,13 @@
     {
      "clientId": "client-a",
      "detail": {
-      "cache_key": "50b8a2be0fde9a301eb05e3bf5b98e28f16f600a",
-      "duration_ms": 0.103,
+      "cache_key": "e030b1410195bdc0cbe1b9703c5258eabea4c3b2",
+      "duration_ms": 0.0,
+      "executionArm": "native",
       "outputs": {
        "value": {
-        "typeId": "core.int"
+        "typeId": "core.int",
+        "value": 7
        }
       }
      },
@@ -91,6 +96,9 @@
     },
     {
      "clientId": "client-a",
+     "detail": {
+      "executionArm": "native"
+     },
      "jobId": "job-1",
      "nodeId": "a",
      "runId": "run-success",
@@ -124,11 +132,13 @@
     {
      "clientId": "client-a",
      "detail": {
-      "cache_key": "8540b684726b80ad15f7e36b11e033ff0b18aef5",
-      "duration_ms": 0.082,
+      "cache_key": "8061e6cbb9919666476d4078786324a65be72dc1",
+      "duration_ms": 0.0,
+      "executionArm": "native",
       "outputs": {
        "out": {
-        "typeId": "core.int"
+        "typeId": "core.int",
+        "value": 8
        }
       }
      },
@@ -139,30 +149,9 @@
     },
     {
      "clientId": "client-a",
-     "jobId": "job-1",
-     "nodeId": "r",
-     "runId": "run-success",
-     "type": "node_started"
-    },
-    {
-     "clientId": "client-a",
      "detail": {
-      "cache_key": "c5cc3b290f3df6055ea2908ef5472b77e3681cf2",
-      "duration_ms": 0.083,
-      "outputs": {
-       "items": {
-        "length": 3,
-        "typeId": "list<core.int>"
-       }
-      }
+      "executionArm": "native"
      },
-     "jobId": "job-1",
-     "nodeId": "r",
-     "runId": "run-success",
-     "type": "node_finished"
-    },
-    {
-     "clientId": "client-a",
      "jobId": "job-1",
      "nodeId": "p",
      "runId": "run-success",
@@ -186,16 +175,46 @@
     {
      "clientId": "client-a",
      "detail": {
-      "cache_key": "0b28a98400daf8e9484a8e1707b05903738aae0d",
-      "duration_ms": 0.051,
+      "cache_key": "31b0ea0c426e9c9a2bc39ddd6667efad5c3ebaaa",
+      "duration_ms": 0.0,
+      "executionArm": "native",
       "outputs": {
        "out": {
-        "typeId": "core.int"
+        "typeId": "core.int",
+        "value": 8
        }
       }
      },
      "jobId": "job-1",
      "nodeId": "p",
+     "runId": "run-success",
+     "type": "node_finished"
+    },
+    {
+     "clientId": "client-a",
+     "detail": {
+      "executionArm": "native"
+     },
+     "jobId": "job-1",
+     "nodeId": "r",
+     "runId": "run-success",
+     "type": "node_started"
+    },
+    {
+     "clientId": "client-a",
+     "detail": {
+      "cache_key": "992941f4b395da25c6f6f8ed433a9a113b91bb92",
+      "duration_ms": 0.0,
+      "executionArm": "native",
+      "outputs": {
+       "items": {
+        "length": 3,
+        "typeId": "list<core.int>"
+       }
+      }
+     },
+     "jobId": "job-1",
+     "nodeId": "r",
      "runId": "run-success",
      "type": "node_finished"
     },
@@ -225,8 +244,8 @@
     "cached": [
      "m",
      "a",
-     "r",
-     "p"
+     "p",
+     "r"
     ],
     "clientId": "client-a",
     "executed": [],
@@ -289,10 +308,12 @@
     {
      "clientId": "client-a",
      "detail": {
-      "cache_key": "50b8a2be0fde9a301eb05e3bf5b98e28f16f600a",
+      "cache_key": "e030b1410195bdc0cbe1b9703c5258eabea4c3b2",
+      "executionArm": "native",
       "outputs": {
        "value": {
-        "typeId": "core.int"
+        "typeId": "core.int",
+        "value": 7
        }
       }
      },
@@ -304,10 +325,12 @@
     {
      "clientId": "client-a",
      "detail": {
-      "cache_key": "8540b684726b80ad15f7e36b11e033ff0b18aef5",
+      "cache_key": "8061e6cbb9919666476d4078786324a65be72dc1",
+      "executionArm": "native",
       "outputs": {
        "out": {
-        "typeId": "core.int"
+        "typeId": "core.int",
+        "value": 8
        }
       }
      },
@@ -319,7 +342,25 @@
     {
      "clientId": "client-a",
      "detail": {
-      "cache_key": "c5cc3b290f3df6055ea2908ef5472b77e3681cf2",
+      "cache_key": "31b0ea0c426e9c9a2bc39ddd6667efad5c3ebaaa",
+      "executionArm": "native",
+      "outputs": {
+       "out": {
+        "typeId": "core.int",
+        "value": 8
+       }
+      }
+     },
+     "jobId": "job-2",
+     "nodeId": "p",
+     "runId": "run-cached",
+     "type": "node_cached"
+    },
+    {
+     "clientId": "client-a",
+     "detail": {
+      "cache_key": "992941f4b395da25c6f6f8ed433a9a113b91bb92",
+      "executionArm": "native",
       "outputs": {
        "items": {
         "length": 3,
@@ -329,21 +370,6 @@
      },
      "jobId": "job-2",
      "nodeId": "r",
-     "runId": "run-cached",
-     "type": "node_cached"
-    },
-    {
-     "clientId": "client-a",
-     "detail": {
-      "cache_key": "0b28a98400daf8e9484a8e1707b05903738aae0d",
-      "outputs": {
-       "out": {
-        "typeId": "core.int"
-       }
-      }
-     },
-     "jobId": "job-2",
-     "nodeId": "p",
      "runId": "run-cached",
      "type": "node_cached"
     },
@@ -428,6 +454,9 @@
     },
     {
      "clientId": "client-a",
+     "detail": {
+      "executionArm": "native"
+     },
      "jobId": "job-3",
      "nodeId": "m",
      "runId": "run-skip-cascade",
@@ -436,8 +465,9 @@
     {
      "clientId": "client-a",
      "detail": {
-      "cache_key": "d6a5932fbac9ddebb581748fb5adc14ca2cd7530",
-      "duration_ms": 0.053,
+      "cache_key": "6fe65d7e189b36dd4840286633334fc50ef0ff8b",
+      "duration_ms": 0.0,
+      "executionArm": "native",
       "outputs": {
        "value": {
         "typeId": "core.absent"
@@ -537,6 +567,9 @@
     },
     {
      "clientId": "client-b",
+     "detail": {
+      "executionArm": "native"
+     },
      "jobId": "job-4",
      "nodeId": "m",
      "runId": "run-failure",
@@ -545,8 +578,9 @@
     {
      "clientId": "client-b",
      "detail": {
-      "cache_key": "d6a5932fbac9ddebb581748fb5adc14ca2cd7530",
-      "duration_ms": 0.044,
+      "cache_key": "6fe65d7e189b36dd4840286633334fc50ef0ff8b",
+      "duration_ms": 0.0,
+      "executionArm": "native",
       "outputs": {
        "value": {
         "typeId": "core.absent"

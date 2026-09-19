@@ -27,7 +27,7 @@ Each requirement keeps the user's verbatim words and its origin issue.
 | 11 | Model item details live in the right-side selection panel, not inline in the list | "we can leave showing deatils on the right side preview instead of rendering everything in the search" | #179 |
 
 Where the current behavior for each item is specified: navigation and staging
-in `docs/asset-browser-design.md`; dialog anatomy, selection staging, footer
+in `docs/archive/asset-browser-design.md`; dialog anatomy, selection staging, footer
 actions, and upload limits in `docs/widget-editors.md`; model rows, search,
 and details demotion in `docs/logical-model-variants.md`. All ASSET kinds use
 one CollectionPanel browse shell; media and logical-model adapters supply its

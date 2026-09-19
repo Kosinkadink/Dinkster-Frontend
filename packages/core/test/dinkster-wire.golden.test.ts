@@ -1,7 +1,7 @@
 /**
  * Native Dinkster schema wire decoder against a GOLDEN payload emitted by the
- * real backend encoder (dinkster_schema.schema_to_wire at SCHEMA_WIRE_VERSION 3
- * - regenerate with the script referenced in fixtures/dinkster-nodes.json's
+ * real backend encoder (dinkster_schema.schema_to_wire at its recorded schema
+ * version - regenerate with the script referenced in fixtures/dinkster-nodes.json's
  * provenance: every TypeExpr kind, families both sides, defaults, onAbsent,
  * optional outputs, admission hints).
  *
@@ -30,10 +30,9 @@ const here = dirname(fileURLToPath(import.meta.url))
 const rawPayload = JSON.parse(readFileSync(join(here, '../fixtures/dinkster-nodes.json'), 'utf8')) as DinksterNodesPayload
 const payload = {
   ...rawPayload,
-  schemaVersion: 14,
   nodes: Object.fromEntries(Object.entries(rawPayload.nodes as Record<string, Record<string, unknown>>).map(([type, node]) => [
     type,
-    { ...node, schemaVersion: 14, ...(type === 'test.primitives' ? { searchTerms: ['PrimitiveNode'] } : {}) },
+    { ...node, ...(type === 'test.primitives' ? { searchTerms: ['PrimitiveNode'] } : {}) },
   ])),
 } satisfies DinksterNodesPayload
 const PREDECESSOR_WIDGET_WIRE_VERSION = 16
@@ -165,7 +164,7 @@ describe('parseDinksterNodes golden payload', () => {
     const operands = input('test.families', 'operands')
     expect(operands.dynamic).toEqual({
       kind: 'autogrow',
-      template: [{ kind: 'input', id: 'operands', type: { kind: 'concrete', name: 'core.int' }, optional: true }],
+      template: [{ kind: 'input', id: 'operands', type: { kind: 'concrete', name: 'core.int' }, optional: false }],
       naming: { kind: 'prefix', prefix: 'operands', min: 2, max: 8 },
     })
     // Unbounded on the wire -> no max here; the editor growth cap applies.

@@ -11,3 +11,4 @@ test-results/
 playwright-report/
 packages/e2e/bench/results/
 delegates/
+.ci/
