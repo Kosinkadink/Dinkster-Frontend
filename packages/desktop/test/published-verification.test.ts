@@ -46,7 +46,7 @@ describe('published Desktop verification workflow', () => {
   it('guards before checkout and routes each acquisition token exclusively', () => {
     expect(steps[0]?.name).toBe('Require dedicated private release credential')
     expect(steps[1]?.uses).toBe('actions/checkout@v4')
-    expect(steps[1]?.with).toEqual({ 'persist-credentials': false })
+    expect(steps[1]?.with).toEqual({ clean: true, 'persist-credentials': false })
     const backend = steps.find((step) => step.run?.endsWith('-Action DownloadBackend'))!
     const desktop = steps.find((step) => step.run?.endsWith('-Action DownloadDesktop'))!
     expect(steps[0]?.env).toEqual({ GH_TOKEN: '${{ secrets.DINKSTER_RELEASE_READ_TOKEN }}' })
@@ -85,7 +85,7 @@ describe('published Desktop verification workflow', () => {
 
   it('keeps the proof code ready but does not select an unpublished source commit', async () => {
     const checkout = steps.find((step) => step.name === 'Check out the published frontend proof harness')!
-    expect(checkout.with).toEqual({ ref: 'main', path: 'published-source', 'persist-credentials': false })
+    expect(checkout.with).toEqual({ clean: true, ref: 'main', path: 'published-source', 'persist-credentials': false })
     expect(workflow.jobs.verify.env['DINKSTER_PUBLISHED_SOURCE']).toBe('published-source')
     const commands = steps.filter((step) => step.run?.startsWith('pnpm '))
     expect(commands.map((step) => step.run)).toEqual([
