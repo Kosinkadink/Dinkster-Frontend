@@ -310,14 +310,14 @@ describe('dropped image insertion', () => {
   const digest = `blake3:${'a'.repeat(64)}`
   const schema = {
     type: 'dinkster.load_image', displayName: 'Load Image', category: 'image', source: { kind: 'dinkster' }, isOutputNode: false,
-    items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }, required: true, widget: { widgetType: 'ASSET' } }],
+    items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['image/*'] } } }],
   } as unknown as NodeSchema
   const document = { graphs: { g0: { nodes: {} } } } as unknown as WorkflowDocument
   const base = () => ({
     file: new File([new Uint8Array([0, 255, 17, 33, 4])], 'private-local-name.png', { type: 'image/png' }),
     mediaType: 'image/png' as const, graphId: 'g0', position: { x: 12, y: 34 },
     tabStillOpen: () => true, graphStillOwned: () => true, currentGraphId: () => 'g0', frozen: () => false,
-    document: () => document, resolve: () => (type: string) => type === schema.type ? schema : undefined,
+    document: () => document, schemas: () => [schema],
     predictedNodeId: () => 'n1', upload: vi.fn(async () => digest), dispatch: vi.fn((_invocation: CommandInvocation) => true), onInserted: vi.fn(),
   })
 
@@ -352,6 +352,23 @@ describe('dropped image insertion', () => {
     }] } })
   })
 
+  it('chooses a synthetic catalog loader whose ASSET input exactly accepts the dropped MIME type', async () => {
+    const pngOnly = {
+      ...schema,
+      items: [{ ...schema.items[0]!, widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
+    } as NodeSchema
+    const synthetic = {
+      ...schema,
+      type: 'pack.synthetic_jpeg_loader',
+      items: [{ ...schema.items[0]!, id: 'source', widget: { widgetType: 'ASSET', options: { accept: ['image/jpeg'] } } }],
+    } as NodeSchema
+    const p = { ...base(), mediaType: 'image/jpeg' as const, schemas: () => [pngOnly, synthetic] }
+    await expect(insertDroppedImage(p)).resolves.toBe('inserted')
+    expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
+      command: 'node.add', params: { type: 'pack.synthetic_jpeg_loader', values: { source: { mediaType: 'image/jpeg' } } },
+    }] } })
+  })
+
   it('refuses stale owners and upload failures without graph mutation', async () => {
     const stale = { ...base(), tabStillOpen: () => false }
     await expect(insertDroppedImage(stale)).resolves.toBe('stale-tab')
@@ -374,14 +391,14 @@ describe('dropped image insertion', () => {
   })
 
   it('does not bypass the catalog when canonical Load Image is absent', async () => {
-    const p = { ...base(), resolve: () => () => undefined }
+    const p = { ...base(), schemas: () => [] }
     await expect(insertDroppedImage(p)).resolves.toBe('schema-missing')
     expect(p.dispatch).not.toHaveBeenCalled()
   })
 
   it('does not author through a hidden compatibility asset input', async () => {
     const hidden = { ...schema, items: [{ ...schema.items[0]!, hidden: true }] } as NodeSchema
-    const p = { ...base(), resolve: () => () => hidden }
+    const p = { ...base(), schemas: () => [hidden] }
     await expect(insertDroppedImage(p)).resolves.toBe('schema-missing')
     expect(p.dispatch).not.toHaveBeenCalled()
   })
@@ -394,13 +411,13 @@ describe('dropped latent insertion', () => {
   }
   const schema = {
     type: 'dinkster.load_latent', displayName: 'Load Latent', category: 'latent', source: { kind: 'dinkster' }, isOutputNode: false,
-    items: [{ kind: 'input', id: 'latent', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.LATENT' } }, required: true, widget: { widgetType: 'ASSET', kind: 'data/latent' } }],
+    items: [{ kind: 'input', id: 'latent', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.LATENT' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['application/x-comfy-latent'] }, kind: 'data/latent' } }],
   } as unknown as NodeSchema
   const document = { graphs: { g0: { nodes: {} } } } as unknown as WorkflowDocument
   const base = () => ({
     file: file(latent(), 'private-name.safetensors'), graphId: 'g0', position: { x: 40, y: 60 },
     tabStillOpen: () => true, graphStillOwned: () => true, currentGraphId: () => 'g0', frozen: () => false,
-    document: () => document, resolve: () => (type: string) => type === schema.type ? schema : undefined,
+    document: () => document, schemas: () => [schema],
     predictedNodeId: () => 'n2', upload: vi.fn(async () => asset), dispatch: vi.fn((_invocation: CommandInvocation) => true), onInserted: vi.fn(),
   })
 
@@ -436,14 +453,14 @@ describe('dropped latent insertion', () => {
     const wrongSchema = { ...schema, items: [{
       ...item, widget: { widgetType: 'ASSET', options: {}, ...(kind === undefined ? {} : { kind }) },
     }] } as unknown as NodeSchema
-    const p = { ...base(), resolve: () => () => wrongSchema }
+    const p = { ...base(), schemas: () => [wrongSchema] }
     await expect(insertDroppedLatent(p)).resolves.toBe('schema-missing')
     expect(p.dispatch).not.toHaveBeenCalled()
   })
 
   it('does not author through a hidden compatibility asset input', async () => {
     const hidden = { ...schema, items: [{ ...schema.items[0]!, hidden: true }] } as NodeSchema
-    const p = { ...base(), resolve: () => () => hidden }
+    const p = { ...base(), schemas: () => [hidden] }
     await expect(insertDroppedLatent(p)).resolves.toBe('schema-missing')
     expect(p.dispatch).not.toHaveBeenCalled()
   })

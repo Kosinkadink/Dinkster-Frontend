@@ -617,6 +617,17 @@ const decodeWorkspaceExecutionEvent = (value: unknown): NormalizedEvent | undefi
         kind: 'nodeOutput', execution, timestamp,
         runtimeNodeId: value['runtimeNodeId'], output: value['output'],
       }
+    case 'node.event': {
+      const payload = value['payload']
+      if (!workspaceString(value['name']) ||
+        (!(payload instanceof ArrayBuffer) && !workspaceRecord(payload)) ||
+        (value['runtimeNodeId'] !== undefined && !workspaceString(value['runtimeNodeId']))) return undefined
+      return {
+        kind: 'node.event', execution, timestamp,
+        name: value['name'], payload,
+        ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
+      }
+    }
     case 'activity': {
       const activity = decodeWorkspaceNodeActivity(value['activity'])
       return activity === undefined ? undefined : { kind: 'activity', execution, timestamp, activity }

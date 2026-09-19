@@ -696,9 +696,16 @@ describe('non-semantic node activity', () => {
     expect(event.activity.requestedInputs.every((name) => name.length <= 128)).toBe(true)
   })
 
-  it('keeps unknown event kinds and node_event names as silent forward-compatible drops', () => {
+  it('keeps unknown event kinds silent and forwards unknown node event names opaquely', () => {
     expect(normalize({ type: 'future_activity', jobId: 'j', nodeId: 'n' })).toEqual([])
-    expect(normalize({ type: 'node_event', jobId: 'j', nodeId: 'n', event: 'future.activity', data: {} })).toEqual([])
+    expect(normalize({ type: 'node_event', jobId: 'j', nodeId: 'n', event: 'future.activity', data: { value: 7 } })).toEqual([{
+      kind: 'node.event',
+      execution: { connection: CONN, prompt: 'j' },
+      timestamp: 17,
+      name: 'future.activity',
+      payload: { value: 7 },
+      runtimeNodeId: 'n',
+    }])
   })
 })
 
@@ -991,10 +998,9 @@ describe('malformed known events report through onMalformed (R2-6)', () => {
     // queued/running job transitions carry no meaning here.
     expect(normalizer.normalize({ type: 'job_state', jobId: 'j1', state: 'queued' })).toEqual([])
     expect(normalizer.normalize({ type: 'job_state', jobId: 'j1', state: 'running' })).toEqual([])
-    // Pack-defined node events have no normalized kind yet (audit #2) -
-    // silent WITH identity and even WITHOUT any identity at all (extension
-    // traffic is never held to the core identity contract).
-    expect(normalizer.normalize({ type: 'node_event', jobId: 'j1', nodeId: 'x', event: 'my.pack.event' })).toEqual([])
+    // Routed node events are forwarded, while an event without execution
+    // identity remains unroutable and silent.
+    expect(normalizer.normalize({ type: 'node_event', jobId: 'j1', nodeId: 'x', event: 'my.pack.event' })).toHaveLength(1)
     expect(normalizer.normalize({ type: 'node_event', event: 'my.pack.event', data: {} })).toEqual([])
     // queue_state without a queued count still emits a bare status event.
     expect(normalizer.normalize({ type: 'queue_state' })).toHaveLength(1)

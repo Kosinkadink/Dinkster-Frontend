@@ -483,6 +483,8 @@ export class ExecutionStore {
 
   private applyToState(event: ExecutionEvent, state: ExecutionState): void {
     switch (event.kind) {
+      case 'node.event':
+        return
       case 'started':
         if (this.isAuthoritativeTerminal(state)) return
         if (this.provisionallyLost.delete(state.key)) {

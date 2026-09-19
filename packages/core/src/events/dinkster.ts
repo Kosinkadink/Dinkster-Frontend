@@ -529,7 +529,16 @@ export class DinksterNormalizer implements EventNormalizer {
     }
     const digest = str(msg['extensionSnapshotDigest'])
     const pack = str(msg['pack'])
-    if (digest === undefined && msg['schemaVersion'] === undefined) return []
+    if (digest === undefined && msg['schemaVersion'] === undefined) {
+      return [{
+        kind: 'node.event',
+        execution,
+        timestamp,
+        name,
+        payload: blob ?? data,
+        ...(nodeId === undefined ? {} : { runtimeNodeId: nodeId }),
+      }]
+    }
     const declaration = digest === undefined ? undefined : this.extensionSnapshot?.(digest)?.extensions
       .find((extension) => extension.id === pack)?.events?.find((event) => event.name === name)
     const seq = num(msg['seq'])

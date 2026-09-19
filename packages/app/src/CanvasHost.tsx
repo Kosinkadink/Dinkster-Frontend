@@ -5197,7 +5197,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           currentGraphId: () => currentGraphId(tab),
           frozen: () => tab.execution !== undefined,
           document: () => tab.store.doc,
-          resolve: () => props.app.registryForTab(tab)?.resolve,
+          schemas: () => props.app.registryForTab(tab)?.schemas.values(),
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
           upload: (body) => backend.protocol === 'dinkster'
             ? backend.connection.uploadLatentAsset(body, { scope: 'local', name: 'dropped-latent.latent', signal: abort.signal })
@@ -5260,7 +5260,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           currentGraphId: () => currentGraphId(tab),
           frozen: () => tab.execution !== undefined,
           document: () => tab.store.doc,
-          resolve: () => props.app.registryForTab(tab)?.resolve,
+          schemas: () => props.app.registryForTab(tab)?.schemas.values(),
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
           upload: (body) => backend.protocol === 'dinkster'
             ? backend.connection.uploadAsset(body, abort.signal)

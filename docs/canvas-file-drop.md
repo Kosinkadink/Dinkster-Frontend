@@ -36,14 +36,15 @@ or failure.
 
 A plain image is uploaded through the active tab's same-origin `uploadAsset`
 connection. The response must be a lowercase BLAKE3 digest. The canvas then
-resolves `dinkster.load_image` from that tab's current catalog, verifies that it is
-the canonical `Load Image` schema with an ASSET input, and dispatches one atomic
-batch containing the node with a complete five-field AssetRef. The stored name
-is a generated media label such as `dropped-image.png`; the local filename and
-path are never persisted. Undo removes the node; the immutable uploaded object
-may remain in the library.
+scans that tab's current catalog for a node with one visible ASSET input that
+accepts the image MIME type. An exact MIME match wins over wildcard matches;
+ties retain catalog order. The canvas dispatches one atomic batch containing
+that node with a complete five-field AssetRef. The stored name is a generated
+media label such as `dropped-image.png`; the local filename and path are never
+persisted. Undo removes the node; the immutable uploaded object may remain in
+the library.
 
-Upload failure, malformed responses, a missing canonical schema, frozen tabs,
+Upload failure, malformed responses, no compatible catalog schema, frozen tabs,
 closed or retargeted tabs, and retired or navigated graphs insert nothing. The
 tab object, backend, graph id, graph incarnation, and world coordinates are all
 captured before asynchronous classification and upload.
@@ -103,9 +104,10 @@ as a plain image.
 A valid embedded latent workflow goes through the same schema-aware workflow
 import, validation, and missing-node diagnostics as JSON and PNG workflows. A
 missing or invalid workflow instead uploads the original File through
-`POST /api/assets/latent` and inserts `dinkster.load_latent` with the
-server-authored `AssetRef`. The catalog input must be exactly
-`ASSET<comfy.LATENT>` with kind `data/latent`. No local path enters the document.
+`POST /api/assets/latent` and inserts the first catalog node whose single visible
+ASSET input accepts `application/x-comfy-latent`, preferring an exact match over
+wildcards. The inserted input receives the server-authored `AssetRef`; no local
+path enters the document.
 
 Admission matches the backend parser: native Dinkster v1 requires exact
 single/multi schema-to-tensor correspondence, while schema-less ComfyUI files
