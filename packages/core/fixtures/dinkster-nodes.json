@@ -41,7 +41,7 @@
         }
       ],
       "nodeType": "std.math.add_ints",
-      "schemaVersion": 3,
+      "schemaVersion": 40,
       "version": 1
     },
     "test.absence": {
@@ -109,7 +109,7 @@
         }
       ],
       "nodeType": "test.absence",
-      "schemaVersion": 3,
+      "schemaVersion": 40,
       "version": 1
     },
     "test.families": {
@@ -135,24 +135,40 @@
           "id": "operands",
           "maxMembers": 8,
           "minMembers": 2,
+          "required": true,
           "role": "inputFamily",
-          "type": {
-            "kind": "concrete",
-            "types": [
-              "core.int"
-            ]
-          }
+          "template": [
+            {
+              "id": "value",
+              "required": true,
+              "role": "input",
+              "type": {
+                "kind": "concrete",
+                "types": [
+                  "core.int"
+                ]
+              }
+            }
+          ]
         },
         {
           "id": "extras",
           "minMembers": 0,
+          "required": true,
           "role": "inputFamily",
-          "type": {
-            "kind": "concrete",
-            "types": [
-              "std.image"
-            ]
-          }
+          "template": [
+            {
+              "id": "value",
+              "required": true,
+              "role": "input",
+              "type": {
+                "kind": "concrete",
+                "types": [
+                  "std.image"
+                ]
+              }
+            }
+          ]
         },
         {
           "id": "out",
@@ -178,7 +194,7 @@
         }
       ],
       "nodeType": "test.families",
-      "schemaVersion": 3,
+      "schemaVersion": 40,
       "version": 1
     },
     "test.hints": {
@@ -213,7 +229,7 @@
       "occupies": [
         "gpu"
       ],
-      "schemaVersion": 3,
+      "schemaVersion": 40,
       "version": 1
     },
     "test.primitives": {
@@ -294,7 +310,7 @@
         }
       ],
       "nodeType": "test.primitives",
-      "schemaVersion": 3,
+      "schemaVersion": 40,
       "version": 1
     },
     "test.types": {
@@ -337,12 +353,12 @@
           "required": true,
           "role": "input",
           "type": {
-            "kind": "variable",
-            "templateId": "C",
-            "types": [
+            "allowed": [
               "core.int",
               "core.float"
-            ]
+            ],
+            "kind": "variable",
+            "templateId": "C"
           }
         },
         {
@@ -398,9 +414,9 @@
         }
       ],
       "nodeType": "test.types",
-      "schemaVersion": 3,
+      "schemaVersion": 40,
       "version": 1
     }
   },
-  "schemaVersion": 3
+  "schemaVersion": 40
 }

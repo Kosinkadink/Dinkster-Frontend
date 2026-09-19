@@ -62,7 +62,7 @@ async function mockBackend(page: Page): Promise<void> {
     contentType: 'image/png',
     body: png,
   }))
-  await page.route('/api/values*', async (route) => serveValue(route))
+  await page.route('**/api/values*', async (route) => serveValue(route))
 }
 
 async function serveValue(route: Route): Promise<void> {
@@ -108,8 +108,8 @@ async function serveValue(route: Route): Promise<void> {
       : output === 'audio'
         ? [{
             kind: 'window', mime: 'audio/wav', default: true, version: 'window-v1',
-            parameters: ['window'], defaults: { window: '0,1' },
-            limits: { maxSeconds: 3, maxSampleValues: 24_000 },
+            parameters: ['window'], defaults: {},
+            limits: { durationSeconds: 3, sampleValues: 24_000 },
           }]
         : [{ kind: spec.rendition, mime: spec.mime, default: true }],
   } })

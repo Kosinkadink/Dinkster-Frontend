@@ -2,7 +2,7 @@
 
 Runs four scenarios on dinkster_engine with an event recorder, converts every
 EngineEvent through the real dinkster_server engine_event_to_wire (loaded by
-file path - the server package __init__ pulls aiohttp, which we don't need),
+file path without importing the server package),
 and appends the job_state transitions the server's queue would emit. Also
 records the node-state map a completed job status would carry (the
 _NODE_STATE_FOR_KIND mapping from app.py, replicated here as data since
@@ -14,7 +14,8 @@ Scenarios:
 - failure: strict on_absent='fail' consumer -> node_failed + job failed
 - cached: second run of success replays from cache
 
-Usage (requires a Dinkster checkout at /tmp/dinkster-src, kept at origin/main):
+Usage (requires a Dinkster checkout at /tmp/dinkster-src unless
+DINKSTER_SOURCE_ROOT is set):
     python3 scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
 
 Regenerate whenever the backend event/schema wire changes so goldens stay
@@ -24,9 +25,11 @@ recorded through the REAL encoder, never hand-written.
 import asyncio
 import importlib.util
 import json
+import os
 import sys
+import types
 
-P = "/tmp/dinkster-src/packages"
+P = f"{os.environ.get('DINKSTER_SOURCE_ROOT', '/tmp/dinkster-src')}/packages"
 for pkg in ("dinkster-values", "dinkster-schema", "dinkster-graph", "dinkster-caches",
             "dinkster-assets", "dinkster-memory", "dinkster-workers", "dinkster-engine"):
     sys.path.insert(0, f"{P}/{pkg}/src")
@@ -50,8 +53,12 @@ from dinkster_schema import (  # noqa: E402
 )
 from dinkster_values import TypeRegistry, register_core_types  # noqa: E402
 
+server_dir = f"{P}/dinkster-server/src/dinkster_server"
+server_package = types.ModuleType("dinkster_server")
+server_package.__path__ = [server_dir]
+sys.modules["dinkster_server"] = server_package
 spec = importlib.util.spec_from_file_location(
-    "server_events", f"{P}/dinkster-server/src/dinkster_server/events.py"
+    "dinkster_server.events", f"{server_dir}/events.py"
 )
 server_events = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(server_events)
@@ -189,8 +196,19 @@ def record(scenario, client_id, job_id, graph, targets, engine=None, events=None
             "message": exc.error.message,
             "traceback": exc.error.traceback,
         }
-    for ev in own_events[start:]:
+    job_events = own_events[start:]
+    leading_events = [ev for ev in job_events if ev.node_id is None and ev.kind == "run_started"]
+    node_events = [
+        ev for node_id in graph.nodes
+        for ev in job_events if ev.node_id == node_id
+    ]
+    trailing_events = [ev for ev in job_events if ev.node_id is None and ev.kind != "run_started"]
+    ordered_events = leading_events + node_events + trailing_events
+    for ev in ordered_events:
         wire = engine_event_to_wire(ev, client_id=client_id, job_id=job_id)
+        detail = wire.get("detail")
+        if isinstance(detail, dict) and "duration_ms" in detail:
+            detail["duration_ms"] = 0.0
         blob = wire.pop(BINARY_BLOB_KEY, None)
         if blob is not None:
             wire["_blobBase64"] = __import__("base64").b64encode(blob).decode()
@@ -203,7 +221,7 @@ def record(scenario, client_id, job_id, graph, targets, engine=None, events=None
     recorded.append(job_state)
 
     node_states = {}
-    for ev in own_events[start:]:
+    for ev in ordered_events:
         st = NODE_STATE_FOR_KIND.get(ev.kind)
         if st is not None and ev.node_id is not None:
             node_states[ev.node_id] = st
@@ -215,9 +233,9 @@ def record(scenario, client_id, job_id, graph, targets, engine=None, events=None
     if error is not None:
         job_wire["error"] = error
     if result is not None:
-        job_wire["executed"] = list(result.executed)
-        job_wire["cached"] = list(result.cached)
-        job_wire["skipped"] = list(result.skipped)
+        job_wire["executed"] = [node_id for node_id in graph.nodes if node_id in result.executed]
+        job_wire["cached"] = [node_id for node_id in graph.nodes if node_id in result.cached]
+        job_wire["skipped"] = [node_id for node_id in graph.nodes if node_id in result.skipped]
         # Mirror the real server's value_descriptor (dinkster_server/app.py):
         # top-level "length" comes from list_children, never envelope attrs.
         from dinkster_values import list_children

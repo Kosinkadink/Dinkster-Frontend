@@ -3,10 +3,10 @@
 Covers every TypeExpr kind (concrete, union, wildcard, variable free and
 constrained, list incl. nested and element-polymorphic), input/output
 families, defaults, onAbsent policies, optional outputs, docs, and the
-admission hints (occupies/ioBound) - all emitted by dinkster_schema.schema_to_wire
-at SCHEMA_WIRE_VERSION 3.
+admission hints (occupies/ioBound) - all emitted by dinkster_schema.schema_to_wire.
 
-Usage (requires a Dinkster checkout at /tmp/dinkster-src, kept at origin/main):
+Usage (requires a Dinkster checkout at /tmp/dinkster-src unless
+DINKSTER_SOURCE_ROOT is set):
     python3 scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
 
 Regenerate whenever the backend event/schema wire changes so goldens stay
@@ -14,10 +14,12 @@ recorded through the REAL encoder, never hand-written.
 """
 
 import json
+import os
 import sys
 
-sys.path.insert(0, "/tmp/dinkster-src/packages/dinkster-values/src")
-sys.path.insert(0, "/tmp/dinkster-src/packages/dinkster-schema/src")
+SOURCE_ROOT = os.environ.get("DINKSTER_SOURCE_ROOT", "/tmp/dinkster-src")
+sys.path.insert(0, f"{SOURCE_ROOT}/packages/dinkster-values/src")
+sys.path.insert(0, f"{SOURCE_ROOT}/packages/dinkster-schema/src")
 
 from dinkster_schema import (  # noqa: E402
     SCHEMA_WIRE_VERSION,

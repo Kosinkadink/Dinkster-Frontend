@@ -54,8 +54,8 @@ write the graph until that upload succeeds. Framework-free tests pin the exact
 object, bytes, metadata, and write ordering. A native browser proof is authored
 in `packages/e2e/tests/image-upload-byte-proof.spec.ts`: its canvas-drop arm
 uses a deterministic valid PNG larger than 256 KiB and compares the POST body,
-returned digest, vault GET bytes/hash/length, AssetRef, export/reopen value, and
-a Load Image -> Preview Image run. The prior live proof and exact hashes are
+returned digest, vault GET bytes/hash/length, AssetRef, and export/reopen value;
+its explicit Load Image arm also proves execution. The prior live proof and exact hashes are
 recorded in `docs/promises.md`.
 
 Historical backend defect observed 2026-08-07: live job

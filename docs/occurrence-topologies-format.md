@@ -1,7 +1,7 @@
 # Occurrence-local topology format
 
 This document summarizes the persisted format and shipped behavior from the
-[drilled occurrence topology design](drilled-occurrence-topology-design.md).
+[drilled occurrence topology design](archive/drilled-occurrence-topology-design.md).
 The reviewed design is commit `a1456c63c4dd355877a98d3d9af8caf192aef3e8`.
 The program now includes format and identity, effective compile, occurrence
 commands, scene projection, automatic compaction, definition guards, root

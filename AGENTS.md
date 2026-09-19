@@ -6,8 +6,7 @@ Keep docs concise. No delegation ledgers, promise ledgers, handoff records,
 or coordination narratives in this repo: GitHub issues and PRs are the record
 of work, decisions, and deferred items. Every user-facing feature or system
 (including a lens, panel, interaction mode, or shortcut) must be documented
-under `docs/` in the same commit that ships it, and
-`docs/feature-coverage-audit.md` must be updated. Undocumented features are
+under `docs/` in the same commit that ships it. Undocumented features are
 unfinished.
 
 # Locale catalogs

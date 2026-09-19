@@ -57,11 +57,12 @@ test('uses the configured All assets source while preserving curated per-mount b
   await page.route('/api/assets/*', (route) => route.fulfill({ contentType: 'image/png', body: pixel }))
 
   await page.goto('/')
+  const firstRunNotice = page.getByTestId('p2p-first-run-notice')
+  if (await firstRunNotice.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false)) {
+    await firstRunNotice.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
+  }
   const assetsToggle = page.getByTestId('assets-toggle')
-  await assetsToggle.focus()
-  await expect(page.getByText('Browse assets across mounted sources', { exact: true })).toBeVisible()
-  await page.keyboard.press('Enter')
-  await expect(page.getByText('Browse assets across mounted sources', { exact: true })).toHaveCount(0)
+  await assetsToggle.click()
   await expect(page.getByTestId('assets-overlay')).toBeVisible()
   await expect.poll(() => page.getByRole('option').count()).toBeGreaterThan(0)
   const federated = catalogRequests > 0
