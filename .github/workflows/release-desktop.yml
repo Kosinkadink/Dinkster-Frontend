@@ -13,13 +13,14 @@ concurrency:
 jobs:
   release:
     if: github.repository == 'Kosinkadink/Dinkster-Frontend' && github.event.repository.private == true && github.ref == 'refs/heads/main'
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 90
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
+          clean: true
           persist-credentials: false
       - name: Download pinned private backend and Aimdo
         env:
@@ -57,6 +58,8 @@ jobs:
           npm_config_workspace_concurrency: '1'
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
+        env:
+          DINKSTER_E2E_PORT: "15376"
       - run: pnpm --filter @dinkster/desktop package:win
       - run: pnpm --filter @dinkster/desktop verify:update-feed
       - name: Install into an isolated directory

@@ -9,7 +9,7 @@ permissions:
 jobs:
   verify:
     if: github.repository == 'Kosinkadink/Dinkster-Frontend' && github.event.repository.private == true && github.ref == 'refs/heads/main' && false
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 60
     defaults:
       run:
@@ -25,10 +25,12 @@ jobs:
           "DINKSTER_VERIFY_WORK=$(Join-Path $env:RUNNER_TEMP "dv-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT")" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
         with:
+          clean: true
           persist-credentials: false
       - name: Check out the published frontend proof harness
         uses: actions/checkout@v4
         with:
+          clean: true
           ref: main
           path: published-source
           persist-credentials: false

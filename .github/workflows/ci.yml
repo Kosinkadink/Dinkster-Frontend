@@ -78,6 +78,8 @@ jobs:
       - run: pnpm --filter @dinkster/app build
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
+        env:
+          DINKSTER_E2E_PORT: "15376"
 
   e2e-suite:
     if: >-
@@ -175,11 +177,11 @@ jobs:
           VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
           DINKSTER_E2E_COMFY_ROOT: ${{ github.workspace }}/.ci/ComfyUI
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
-          DINKSTER_E2E_PORT: "5410"
-          DINKSTER_E2E_COMFY_PORT: "5411"
-          DINKSTER_E2E_NATIVE_PORT: "5412"
+          DINKSTER_E2E_PORT: "15410"
+          DINKSTER_E2E_COMFY_PORT: "15411"
+          DINKSTER_E2E_NATIVE_PORT: "15412"
           DINKSTER_E2E_USE_NATIVE: "1"
-          DINKSTER_NATIVE_BACKEND: http://127.0.0.1:5412
+          DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15412
 
   e2e:
     if: >-
