@@ -38,6 +38,7 @@ const row = (): Extract<ParamRow, { kind: 'live' }> => ({
 const registry = (view: WidgetView | undefined): WidgetRegistry => ({
   registerKind: () => () => undefined,
   registerView: () => () => undefined,
+  registerEditor: () => () => undefined,
   registerPreviewRenderer: () => () => undefined,
   kind: () => ({
     type: 'CUSTOM',
@@ -47,6 +48,7 @@ const registry = (view: WidgetView | undefined): WidgetRegistry => ({
     defaultView: () => 'custom.literal',
   }),
   viewsFor: () => view === undefined ? [] : [view],
+  editorFor: () => undefined,
   previewRendererFor: () => undefined,
 })
 

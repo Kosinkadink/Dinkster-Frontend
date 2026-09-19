@@ -135,9 +135,11 @@ const stubView: WidgetView = {
 const registry: WidgetRegistry = {
   registerKind: () => () => {},
   registerView: () => () => {},
+  registerEditor: () => () => {},
   registerPreviewRenderer: () => () => {},
   kind: (type) => (type === stubKind.type ? stubKind : undefined),
   viewsFor: (kindType) => (kindType === stubKind.type ? [stubView] : []),
+  editorFor: () => undefined,
   previewRendererFor: () => undefined,
 }
 

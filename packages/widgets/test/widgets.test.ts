@@ -175,6 +175,16 @@ describe('registry', () => {
     expect(() => registerCoreWidgets(r)).toThrow(/already registered/)
   })
 
+  it('registers, resolves, and removes DOM editors by widget type', () => {
+    const r = createWidgetRegistry()
+    const editor = () => undefined
+    const dispose = r.registerEditor('pack.TIMELINE', editor)
+    expect(r.editorFor('pack.TIMELINE')).toBe(editor)
+    expect(() => r.registerEditor('pack.TIMELINE', () => undefined)).toThrow(/already registered/)
+    dispose()
+    expect(r.editorFor('pack.TIMELINE')).toBeUndefined()
+  })
+
   it('kind and view disposers permit re-registration and remove views', () => {
     const r = createWidgetRegistry()
     const kind = registry().kind('INT')!

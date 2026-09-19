@@ -46,9 +46,9 @@ function registryFor(name: string, state: CompactState[]): WidgetRegistry {
     },
   }
   return {
-    registerKind: () => () => {}, registerView: () => () => {}, registerPreviewRenderer: () => () => {},
+    registerKind: () => () => {}, registerView: () => () => {}, registerEditor: () => () => {}, registerPreviewRenderer: () => () => {},
     kind: (candidate) => candidate === type ? kind : undefined,
-    viewsFor: (candidate) => candidate === type ? [view] : [], previewRendererFor: () => undefined,
+    viewsFor: (candidate) => candidate === type ? [view] : [], editorFor: () => undefined, previewRendererFor: () => undefined,
   }
 }
 

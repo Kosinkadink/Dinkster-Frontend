@@ -26,6 +26,7 @@ import type { PreviewRenderer, WidgetKind, WidgetRegistry, WidgetView } from '..
 function fakeWidgets(): WidgetRegistry {
   const kinds = new Map<string, WidgetKind>()
   const views = new Map<string, WidgetView[]>()
+  const editors = new Map<string, unknown>()
   const previews: PreviewRenderer[] = []
   return {
     registerKind(kind) {
@@ -37,12 +38,17 @@ function fakeWidgets(): WidgetRegistry {
       views.set(view.kind, [...(views.get(view.kind) ?? []), view])
       return () => views.set(view.kind, (views.get(view.kind) ?? []).filter((v) => v !== view))
     },
+    registerEditor(widgetType, editor) {
+      editors.set(widgetType, editor)
+      return () => void editors.delete(widgetType)
+    },
     registerPreviewRenderer(r) {
       previews.push(r)
       return () => void previews.splice(previews.indexOf(r), 1)
     },
     kind: (type) => kinds.get(type),
     viewsFor: (kindType) => views.get(kindType) ?? [],
+    editorFor: (widgetType) => editors.get(widgetType),
     previewRendererFor: (channel) => previews.find((r) => r.canRender(channel)),
   }
 }

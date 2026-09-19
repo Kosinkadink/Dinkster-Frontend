@@ -45,9 +45,10 @@ const view: WidgetView = {
   drawCompact: (scene, value) => scene.text(1, 0, String(value), { align: 'right', width: 1 }),
 }
 const registry: WidgetRegistry = {
-  registerKind: () => () => {}, registerView: () => () => {}, registerPreviewRenderer: () => () => {},
+  registerKind: () => () => {}, registerView: () => () => {}, registerEditor: () => () => {}, registerPreviewRenderer: () => () => {},
   kind: (type) => type === 'INT' ? kind : undefined,
   viewsFor: (type) => type === 'INT' ? [view] : [],
+  editorFor: () => undefined,
   previewRendererFor: () => undefined,
 }
 

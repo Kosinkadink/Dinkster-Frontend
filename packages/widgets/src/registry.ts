@@ -9,6 +9,7 @@ import type { PreviewRenderer, WidgetKind, WidgetRegistry, WidgetView } from '@d
 export function createWidgetRegistry(): WidgetRegistry {
   const kinds = new Map<string, WidgetKind>()
   const views = new Map<string, WidgetView[]>()
+  const editors = new Map<string, unknown>()
   const previews: PreviewRenderer[] = []
   return {
     registerKind(kind) {
@@ -31,6 +32,13 @@ export function createWidgetRegistry(): WidgetRegistry {
         )
       }
     },
+    registerEditor(widgetType, editor) {
+      if (editors.has(widgetType)) throw new Error(`widget editor '${widgetType}' already registered`)
+      editors.set(widgetType, editor)
+      return () => {
+        if (editors.get(widgetType) === editor) editors.delete(widgetType)
+      }
+    },
     registerPreviewRenderer(r) {
       previews.push(r)
       return () => {
@@ -40,6 +48,7 @@ export function createWidgetRegistry(): WidgetRegistry {
     },
     kind: (type) => kinds.get(type),
     viewsFor: (kindType) => views.get(kindType) ?? [],
+    editorFor: (widgetType) => editors.get(widgetType),
     previewRendererFor: (channel) =>
       previews.find((r) => r.fallback !== true && r.canRender(channel)) ??
       previews.find((r) => r.fallback === true && r.canRender(channel)),

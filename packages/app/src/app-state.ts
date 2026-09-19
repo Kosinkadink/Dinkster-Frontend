@@ -200,6 +200,7 @@ import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE
 import { scopedSharedName, scopedStorageKey } from './projects.js'
 import { HostUiContributionRegistry } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
+import { registerCoreWidgetEditors } from './editors/widget-editors.js'
 import {
   clearExecutionResultJobRef,
   clearExecutionResults,
@@ -2897,6 +2898,7 @@ export class AppState {
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
     registerCoreWidgets(this.widgetRegistry)
+    registerCoreWidgetEditors(this.widgetRegistry)
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
     for (const contribution of coreMenuContributions()) this.menuRegistry.register(contribution)
     // Reset-to-default items are schema-aware: they resolve through the
