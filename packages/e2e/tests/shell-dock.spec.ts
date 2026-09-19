@@ -192,10 +192,8 @@ test('left zone hosts multiple tabs and each toggle activates or closes its pane
   const guidesInstalled = await page.getByRole('button', { name: 'Learning guides' }).count() > 0
   const overflowButton = zone.getByTestId('dock-zone-overflow-button')
   if (guidesInstalled) await expect(overflowButton).toBeVisible()
-  else {
-    await expect(overflowButton).not.toBeVisible()
-    await expectWholeTabs(tablist, zone.locator('[role="tab"]'))
-  }
+  else await expect(overflowButton).not.toBeVisible()
+  await expectWholeTabs(tablist, zone.locator('[role="tab"]'))
 
   // Switching to Backends selects its tab while both tabs remain available.
   await page.getByTestId('backends-sidebar-toggle').click()

@@ -524,7 +524,7 @@ position.
   tale - if a feature "just needs a little mirror state", derive it or put it
   in the document.
 
-## Lessons from the pack audit (see node-pack-extension-audit.md)
+## Lessons from the pack audit (see docs/archive/node-pack-extension-audit.md)
 
 Failure modes observed in the wild that our contracts must not re-enable:
 

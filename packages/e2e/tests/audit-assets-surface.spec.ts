@@ -62,7 +62,10 @@ test('uses the configured All assets source while preserving curated per-mount b
     await firstRunNotice.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
   }
   const assetsToggle = page.getByTestId('assets-toggle')
-  await assetsToggle.click()
+  await assetsToggle.focus()
+  await expect(page.getByText('Browse assets across mounted sources', { exact: true })).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Browse assets across mounted sources', { exact: true })).toHaveCount(0)
   await expect(page.getByTestId('assets-overlay')).toBeVisible()
   await expect.poll(() => page.getByRole('option').count()).toBeGreaterThan(0)
   const federated = catalogRequests > 0

@@ -14,6 +14,9 @@ Scenarios:
 - failure: strict on_absent='fail' consumer -> node_failed + job failed
 - cached: second run of success replays from cache
 
+For deterministic output, events and result ids follow graph node order and
+runtime durations are recorded as 0.0 milliseconds.
+
 Usage (requires a Dinkster checkout at /tmp/dinkster-src unless
 DINKSTER_SOURCE_ROOT is set):
     python3 scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json

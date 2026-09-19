@@ -140,12 +140,17 @@ async function openLoadImageAssetEditor(page: Page): Promise<void> {
 async function assetRef(page: Page): Promise<AssetRef> {
   return page.evaluate(() => {
     const graph = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!
+    const imageAssets: AssetRef[] = []
     for (const node of Object.values(graph.nodes)) {
       for (const value of Object.values(node.values)) {
-        if (typeof value === 'object' && value !== null && 'digest' in value && 'mediaType' in value) return value as unknown as AssetRef
+        if (typeof value === 'object' && value !== null && 'digest' in value && 'mediaType' in value &&
+            typeof value.mediaType === 'string' && value.mediaType.startsWith('image/')) {
+          imageAssets.push(value as unknown as AssetRef)
+        }
       }
     }
-    throw new Error('image asset value was not inserted')
+    if (imageAssets.length !== 1) throw new Error(`expected one image asset value, found ${imageAssets.length}`)
+    return imageAssets[0]!
   })
 }
 

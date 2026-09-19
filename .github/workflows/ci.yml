@@ -14,6 +14,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DINKSTER_REF: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -25,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Kosinkadink/Dinkster
-          ref: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+          ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
           ssh-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
 
@@ -109,7 +112,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Kosinkadink/Dinkster
-          ref: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+          ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
           ssh-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
 
