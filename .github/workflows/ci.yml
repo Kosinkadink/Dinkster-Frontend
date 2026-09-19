@@ -77,7 +77,8 @@ jobs:
           NODE_OPTIONS: --max-semi-space-size=64
       - run: pnpm --filter @dinkster/app build
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
-      - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
+      # Host interface changes must not invalidate Chromium's loopback requests.
+      - run: bwrap --unshare-net --bind / / --dev-bind /dev /dev --proc /proc --die-with-parent -- pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:
           DINKSTER_E2E_PORT: "15376"
 
@@ -171,7 +172,7 @@ jobs:
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
         if: matrix.vulkan
-      - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}'
+      - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bwrap --unshare-net --bind / / --dev-bind /dev /dev --proc /proc --die-with-parent -- pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}'
         env:
           # Match the software Vulkan driver available on CPU-only runners.
           VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
