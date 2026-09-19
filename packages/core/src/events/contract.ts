@@ -36,6 +36,16 @@ export interface ExtensionEvent {
   readonly executionArm?: ExecutionArm
 }
 
+/** Opaque node event not owned by the core execution protocol. */
+export interface NodeEvent {
+  readonly kind: 'node.event'
+  readonly execution: ExecutionRef
+  readonly timestamp: number
+  readonly name: string
+  readonly payload: ArrayBuffer | Readonly<Record<string, unknown>>
+  readonly runtimeNodeId?: string
+}
+
 /**
  * 'skipped' (Dinkster first-class absence): the node did not run because an
  * absent value reached an on_absent='skip' input. A NORMAL state, never an
@@ -163,6 +173,7 @@ export function isValueDiagnostic(value: unknown): value is ValueDiagnostic {
 
 export type NormalizedEvent =
   | ExtensionEvent
+  | NodeEvent
   | { readonly kind: 'started'; readonly execution: ExecutionRef; readonly timestamp: number }
   | {
       readonly kind: 'regionExpanded'

@@ -3217,6 +3217,22 @@ describe('websocket', () => {
     expect(ws.sent).toEqual([])
   })
 
+  it('delivers an unseen node event to the application subscriber unchanged', () => {
+    const { conn, events } = connected()
+    conn.ingest({
+      type: 'node_event', jobId: 'job-new-event', nodeId: 'node-1',
+      event: 'pack.future.telemetry', data: { nested: { answer: 42 }, values: [1, 2, 3] },
+    })
+    expect(events).toEqual([{
+      kind: 'node.event',
+      execution: { connection: C0, prompt: 'job-new-event' },
+      timestamp: expect.any(Number),
+      name: 'pack.future.telemetry',
+      payload: { nested: { answer: 42 }, values: [1, 2, 3] },
+      runtimeNodeId: 'node-1',
+    }])
+  })
+
   it('authenticates agent HTTP and event WebSocket traffic with the delegation', async () => {
     let ws: FakeWs | undefined
     const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {

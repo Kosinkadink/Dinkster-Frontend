@@ -221,7 +221,29 @@ export type LatentInsertOutcome = ImageInsertOutcome
 
 const imageName = (mediaType: string): string => `dropped-image.${mediaType === 'image/jpeg' ? 'jpg' : mediaType.slice('image/'.length)}`
 
-/** Upload and atomically insert the registry-owned Load Image node into the captured graph owner. */
+const loaderForMediaType = (
+  schemas: Iterable<NodeSchema>,
+  mediaType: string,
+): { readonly schema: NodeSchema; readonly input: Extract<NodeSchema['items'][number], { kind: 'input' }> } | undefined => {
+  const wildcard = `${mediaType.slice(0, mediaType.indexOf('/'))}/*`
+  let fallback: { readonly schema: NodeSchema; readonly input: Extract<NodeSchema['items'][number], { kind: 'input' }> } | undefined
+  for (const schema of schemas) {
+    const matching = schema.items.filter((item): item is Extract<NodeSchema['items'][number], { kind: 'input' }> => {
+      if (item.kind !== 'input' || item.hidden === true || item.widget?.widgetType !== 'ASSET') return false
+      const accept = item.widget.options['accept']
+      return Array.isArray(accept) && accept.every((value) => typeof value === 'string') &&
+        (accept.includes(mediaType) || accept.includes(wildcard) || accept.includes('*/*'))
+    })
+    if (matching.length !== 1) continue
+    const candidate = { schema, input: matching[0]! }
+    const accept = matching[0]!.widget!.options['accept'] as readonly string[]
+    if (accept.includes(mediaType)) return candidate
+    fallback ??= candidate
+  }
+  return fallback
+}
+
+/** Upload and atomically insert a catalog loader for the image MIME type. */
 export async function insertDroppedImage(p: {
   readonly file: Pick<File, 'size'> & Blob
   readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'
@@ -234,7 +256,7 @@ export async function insertDroppedImage(p: {
   readonly currentGraphId: () => string
   readonly frozen: () => boolean
   readonly document: () => WorkflowDocument
-  readonly resolve: () => ((type: string) => NodeSchema | undefined) | undefined
+  readonly schemas: () => Iterable<NodeSchema> | undefined
   readonly predictedNodeId: () => string | undefined
   readonly upload: (body: Blob) => Promise<string>
   readonly dispatch: (invocation: CommandInvocation) => boolean
@@ -250,12 +272,10 @@ export async function insertDroppedImage(p: {
   if (!p.graphStillOwned() || p.currentGraphId() !== p.graphId || p.document().graphs[p.graphId] === undefined) return 'stale-graph'
   if (p.frozen()) return 'frozen'
   if (!/^blake3:[0-9a-f]{64}$/.test(digest)) return 'invalid-asset'
-  const schema = p.resolve()?.('dinkster.load_image')
-  const assetInputs = schema?.type === 'dinkster.load_image'
-    ? schema.items.filter((item) => item.kind === 'input' && item.hidden !== true && item.widget?.widgetType === 'ASSET')
-    : []
-  const assetInput = assetInputs.length === 1 ? assetInputs[0] : undefined
-  if (!schema || !assetInput) return 'schema-missing'
+  const schemas = p.schemas()
+  const loader = schemas === undefined ? undefined : loaderForMediaType(schemas, p.mediaType)
+  if (loader === undefined) return 'schema-missing'
+  const { schema, input: assetInput } = loader
   const nodeId = p.predictedNodeId()
   if (nodeId === undefined) return 'stale-graph'
   const asset = { digest, name: p.assetName ?? imageName(p.mediaType), size: p.file.size, mediaType: p.mediaType, virtualPath: '' }
@@ -274,7 +294,7 @@ const validLatentAsset = (asset: AssetRef): boolean =>
   Number.isSafeInteger(asset.size) && asset.size >= 0 &&
   asset.mediaType === 'application/x-comfy-latent' && typeof asset.virtualPath === 'string'
 
-/** Upload and atomically insert the registry-owned native Load Latent node. */
+/** Upload and atomically insert a catalog loader for the latent MIME type. */
 export async function insertDroppedLatent(p: {
   readonly file: File
   readonly graphId: string
@@ -284,7 +304,7 @@ export async function insertDroppedLatent(p: {
   readonly currentGraphId: () => string
   readonly frozen: () => boolean
   readonly document: () => WorkflowDocument
-  readonly resolve: () => ((type: string) => NodeSchema | undefined) | undefined
+  readonly schemas: () => Iterable<NodeSchema> | undefined
   readonly predictedNodeId: () => string | undefined
   readonly upload: (file: File) => Promise<AssetRef>
   readonly dispatch: (invocation: CommandInvocation) => boolean
@@ -300,14 +320,10 @@ export async function insertDroppedLatent(p: {
   if (!p.graphStillOwned() || p.currentGraphId() !== p.graphId || p.document().graphs[p.graphId] === undefined) return 'stale-graph'
   if (p.frozen()) return 'frozen'
   if (!validLatentAsset(asset)) return 'invalid-asset'
-  const schema = p.resolve()?.('dinkster.load_latent')
-  const assetInputs = schema?.type === 'dinkster.load_latent'
-    ? schema.items.filter((item) => item.kind === 'input' && item.hidden !== true && item.widget?.widgetType === 'ASSET' &&
-      item.widget.kind === 'data/latent' &&
-      item.type.kind === 'asset' && item.type.element.kind === 'concrete' && item.type.element.name === 'comfy.LATENT')
-    : []
-  const assetInput = assetInputs.length === 1 ? assetInputs[0] : undefined
-  if (!schema || !assetInput) return 'schema-missing'
+  const schemas = p.schemas()
+  const loader = schemas === undefined ? undefined : loaderForMediaType(schemas, asset.mediaType)
+  if (loader === undefined) return 'schema-missing'
+  const { schema, input: assetInput } = loader
   const nodeId = p.predictedNodeId()
   if (nodeId === undefined) return 'stale-graph'
   const values = { ...(defaultValuesOf(schema) as Record<string, Json>), [assetInput.id]: asset as unknown as Json }
