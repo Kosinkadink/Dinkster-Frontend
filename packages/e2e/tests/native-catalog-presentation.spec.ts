@@ -62,7 +62,9 @@ test('native palette exposes canonical accessible identity', async ({ page }) =>
 
   const native = page.locator('[data-node-type="dinkster.preview_any"]').getByRole('option')
   await expect(native).toBeVisible()
-  await expect(native.locator('.search-result-row-detail')).toHaveText('utilities')
+  await expect(native.locator('.search-result-row-detail')).toHaveText(
+    'dinkster-nodes-foundation - utilities - dinkster.preview_any',
+  )
   await expect(native).toHaveRole('option')
   await expect(native).toHaveAccessibleName(/Preview as Text/)
   await page.getByTestId('palette-search').press('ArrowDown')
@@ -81,7 +83,9 @@ test('native universal search lists the canonical node', async ({ page }) => {
   await page.getByTestId('universal-search-input').fill('@ Preview as Text')
 
   const group = page.locator('[data-provider="core.nodes"]')
-  const native = group.getByTestId('search-result-row').filter({ hasText: 'Preview as Text' })
+  const native = group.getByRole('option', {
+    name: /Preview as Text dinkster-nodes-foundation/,
+  })
   await expect(native).toBeVisible()
   await expect(native).toHaveAccessibleName(/Preview as Text/)
 })

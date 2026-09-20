@@ -62,7 +62,7 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
         id: 'g0', name: 'root',
         nodes: {
           li: { id: 'li', type: 'dinkster.load_image', values: { image: { digest, name: 'e2e.png', size, mediaType: 'image/png' } } },
-          pi: { id: 'pi', type: 'comfy.PreviewImage', values: {} },
+          pi: { id: 'pi', type: 'comfy.SaveImage', values: {} },
         },
         links: { l1: { id: 'l1', from: { node: 'li', port: 'image' }, to: { node: 'pi', port: 'images' } } },
         nets: {}, reroutes: {}, nextOrdinal: 3,
@@ -81,8 +81,8 @@ test.beforeEach(async ({ page }) => {
     if (probe.ok) served = (await probe.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
-  test.skip(!(served !== null && 'dinkster.load_image' in served && 'comfy.PreviewImage' in served),
-    `native backend at ${NATIVE_BACKEND} lacks dinkster.load_image/comfy.PreviewImage - compose the comfy pack (--comfy-root)`)
+  test.skip(!(served !== null && 'dinkster.load_image' in served && 'comfy.SaveImage' in served),
+    `native backend at ${NATIVE_BACKEND} lacks dinkster.load_image/comfy.SaveImage - compose the comfy pack (--comfy-root)`)
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
