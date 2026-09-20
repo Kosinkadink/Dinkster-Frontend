@@ -110,3 +110,37 @@ test('extension literal guard rejects site and ceiling drift', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('default scan includes every package source root', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dinkster-extension-roots-'))
+  const app = join(root, 'packages', 'app', 'src')
+  const canvas = join(root, 'packages', 'canvas', 'src')
+  const allowlist = join(root, 'allowlist.json')
+  const canvasFile = join(canvas, 'scene.ts')
+  try {
+    await mkdir(app, { recursive: true })
+    await mkdir(canvas, { recursive: true })
+    await writeFile(join(app, 'app.ts'), 'export const app = true\n')
+    await writeFile(
+      canvasFile,
+      "export const matches = (widgetType: string) => widgetType === 'STRING'\n",
+    )
+    await exec(process.execPath, [
+      script,
+      '--allowlist',
+      allowlist,
+      '--write',
+    ], { cwd: root })
+
+    await writeFile(
+      canvasFile,
+      "export const matches = (widgetType: string) => widgetType === 'STRING' || widgetType === 'COMBO'\n",
+    )
+    await assert.rejects(
+      exec(process.execPath, [script, '--allowlist', allowlist], { cwd: root }),
+      (error) => String(error.stderr).includes('unlisted'),
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

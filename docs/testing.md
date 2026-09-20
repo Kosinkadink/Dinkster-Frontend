@@ -13,7 +13,7 @@ This command runs `check-extension-literals`, `check-ui-strings`, and
 `typecheck` (the latter also runs `check-path-case`) and a fixed unit subset.
 The extension check pins every intentional backend node-id literal and widget
 type comparison to an exact source location, owning issue, and non-increasing
-ceiling. The committed ceilings are 20 node-id literals and 79 widget-type
+ceiling. The committed ceilings are 20 node-id literals and 100 widget-type
 comparisons; new and stale entries fail the check. The Prettier check is limited
 to `scripts/ci-fast.mjs` and
 `packages/desktop/test/ci-workflow.test.ts`; it does not impose formatting

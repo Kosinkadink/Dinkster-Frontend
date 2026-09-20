@@ -1,7 +1,7 @@
 {
   "ceilings": {
     "nodeIdLiteral": 20,
-    "widgetTypeComparison": 79
+    "widgetTypeComparison": 100
   },
   "sites": [
     {
@@ -574,6 +574,158 @@
     },
     {
       "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/interaction.ts",
+      "line": 3339,
+      "column": 27,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/interaction.ts",
+      "line": 3339,
+      "column": 60,
+      "symbol": "widgetType:FLOAT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/interaction.ts",
+      "line": 3346,
+      "column": 29,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/registry-painter.ts",
+      "line": 60,
+      "column": 23,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/registry-painter.ts",
+      "line": 60,
+      "column": 56,
+      "symbol": "widgetType:FLOAT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/registry-painter.ts",
+      "line": 76,
+      "column": 21,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/registry-painter.ts",
+      "line": 76,
+      "column": 54,
+      "symbol": "widgetType:FLOAT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/registry-painter.ts",
+      "line": 78,
+      "column": 51,
+      "symbol": "widgetType:COMBO",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/registry-painter.ts",
+      "line": 89,
+      "column": 57,
+      "symbol": "widgetType:ASSET",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/registry-painter.ts",
+      "line": 91,
+      "column": 41,
+      "symbol": "widgetType:BOOLEAN",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/registry-painter.ts",
+      "line": 100,
+      "column": 44,
+      "symbol": "widgetType:BOOLEAN",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/renderer.ts",
+      "line": 327,
+      "column": 19,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/renderer.ts",
+      "line": 327,
+      "column": 52,
+      "symbol": "widgetType:FLOAT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/renderer.ts",
+      "line": 2849,
+      "column": 27,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/renderer.ts",
+      "line": 2849,
+      "column": 60,
+      "symbol": "widgetType:FLOAT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/renderer.ts",
+      "line": 3859,
+      "column": 21,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/renderer.ts",
+      "line": 3859,
+      "column": 54,
+      "symbol": "widgetType:FLOAT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/renderer.ts",
+      "line": 3933,
+      "column": 19,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/canvas/src/renderer.ts",
+      "line": 3933,
+      "column": 52,
+      "symbol": "widgetType:FLOAT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
       "line": 1059,
       "column": 11,
@@ -794,6 +946,22 @@
       "line": 168,
       "column": 9,
       "symbol": "widgetType:COMBO",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/widgets/src/text-editor-extension.ts",
+      "line": 103,
+      "column": 12,
+      "symbol": "widgetType:STRING",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/widgets/src/text-editor-extension.ts",
+      "line": 232,
+      "column": 12,
+      "symbol": "widgetType:STRING",
       "issue": 122
     }
   ]

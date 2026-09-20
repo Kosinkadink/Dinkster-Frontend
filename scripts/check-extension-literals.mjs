@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
@@ -13,10 +13,21 @@ const allowlistPath = resolve(
   option('--allowlist', 'scripts/extension-literal-allowlist.json'),
 )
 const write = args.includes('--write')
-const defaultRoots = ['packages/app/src', 'packages/core/src'].map((path) =>
-  resolve(repositoryRoot, path),
-)
-const sourceRoots = args.includes('--source') ? [repositoryRoot] : defaultRoots
+const hasSource = args.includes('--source')
+const defaultRoots = []
+if (!hasSource) {
+  for (const entry of await readdir(resolve(repositoryRoot, 'packages'), {
+    withFileTypes: true,
+  })) {
+    if (!entry.isDirectory()) continue
+    const source = resolve(repositoryRoot, 'packages', entry.name, 'src')
+    try {
+      await access(source)
+      defaultRoots.push(source)
+    } catch {}
+  }
+}
+const sourceRoots = hasSource ? [repositoryRoot] : defaultRoots
 const nodeIdPattern = /^dinkster(?:\.[a-z0-9_-]+){2,}$/u
 const nonNodeIds = new Map([
   ['packages/app/src/LibraryPanel.tsx', new Set(['dinkster.library.view.v1'])],
