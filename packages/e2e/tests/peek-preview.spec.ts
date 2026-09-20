@@ -12,7 +12,7 @@
  * - definitive refusals (structured reason, e.g. not-retained) ARE
  *   negative-cached: no refetch even after the server recovers.
  *
- * Requires a NATIVE Dinkster backend running with --dev: the image scaffolding
+ * Requires a native backend serving the dinkster-nodes-dev pack: the image scaffolding
  * nodes moved to the gated dev pack (dev.image.gradient, dev.image.invert)
  * and a plain dinkster-serve no longer composes them. Skips loudly when no
  * backend answers OR the dev nodes are absent, so the suite stays runnable
@@ -152,7 +152,7 @@ test.beforeEach(async ({ page }) => {
   // this suite runs.
   const missing = ['dev.image.gradient', 'dev.image.invert'].filter((id) => !(id in served!))
   test.skip(missing.length > 0,
-    `native backend at ${NATIVE_BACKEND} lacks ${missing.join(', ')} - run dinkster-serve with --dev`)
+    `native backend at ${NATIVE_BACKEND} lacks ${missing.join(', ')} - serve the dinkster-nodes-dev pack`)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await addNativeBackend(page)
