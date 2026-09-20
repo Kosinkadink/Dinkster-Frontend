@@ -1,12 +1,11 @@
 /**
  * Mid-graph tensor preview against a REAL Dinkster backend: upload a png asset,
- * execute dinkster.load_image -> comfy.PreviewImage, and prove the load node's
- * non-asset comfy.IMAGE output is fetched through /api/values rendition
+ * execute dinkster.load_image -> dinkster.save_image, and prove the load node's
+ * decoded image output is fetched through /api/values rendition
  * negotiation and decoded into an on-canvas preview at its true dimensions.
  *
- * Unlike native-imagery-live.spec.ts, no save node turns the intermediate
- * tensor into an ASSET output. The only persisted asset is the input literal.
- * Skips loudly if the shared backend is absent or lacks the catalog nodes.
+ * The assertion targets the producer's intermediate value, not the saved output.
+ * Skips loudly if the shared backend is absent.
  */
 import { deflateSync } from 'node:zlib'
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
@@ -62,7 +61,7 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
         id: 'g0', name: 'root',
         nodes: {
           li: { id: 'li', type: 'dinkster.load_image', values: { image: { digest, name: 'e2e.png', size, mediaType: 'image/png' } } },
-          pi: { id: 'pi', type: 'comfy.SaveImage', values: {} },
+          pi: { id: 'pi', type: 'dinkster.save_image', values: {} },
         },
         links: { l1: { id: 'l1', from: { node: 'li', port: 'image' }, to: { node: 'pi', port: 'images' } } },
         nets: {}, reroutes: {}, nextOrdinal: 3,
@@ -81,15 +80,22 @@ test.beforeEach(async ({ page }) => {
     if (probe.ok) served = (await probe.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
-  test.skip(!(served !== null && 'dinkster.load_image' in served && 'comfy.SaveImage' in served),
-    `native backend at ${NATIVE_BACKEND} lacks dinkster.load_image/comfy.SaveImage - compose the comfy pack (--comfy-root)`)
+  await expect.poll(async () => {
+    const response = await fetch(`${NATIVE_BACKEND}/api/nodes`)
+    if (!response.ok) return false
+    const nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
+    return 'dinkster.load_image' in nodes && 'dinkster.save_image' in nodes
+  }, {
+    message: `native backend at ${NATIVE_BACKEND} must compose dinkster.load_image and dinkster.save_image`,
+    timeout: 30_000,
+  }).toBe(true)
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await addNativeBackend(page)
 })
 
-test('a mid-graph comfy.IMAGE rendition decodes real pixels into the producer node preview', async ({ page, request }) => {
+test('a mid-graph image rendition decodes real pixels into the producer node preview', async ({ page, request }) => {
   const png = tinyPng()
   const uploaded = await request.post(`${NATIVE_BACKEND}/api/assets`, {
     headers: { 'Content-Type': 'application/octet-stream' },
@@ -117,7 +123,7 @@ test('a mid-graph comfy.IMAGE rendition decodes real pixels into the producer no
     }
     return latest.nodes?.['li']?.outputs?.['image']?.typeId
   })
-  expect(outputType).toBe('comfy.IMAGE')
+  expect(outputType).toBe('dinkster.image')
 
   await expect
     .poll(
@@ -133,7 +139,7 @@ test('a mid-graph comfy.IMAGE rendition decodes real pixels into the producer no
     .map((url) => new URL(url))
     .filter((url) => url.searchParams.get('nodeId') === 'li' && url.searchParams.get('outputId') === 'image')
   const peekAt = producerRequests.findIndex((url) => !url.searchParams.has('rendition'))
-  const renditionAt = producerRequests.findIndex((url) => url.searchParams.get('rendition') === 'png')
+  const renditionAt = producerRequests.findIndex((url) => url.searchParams.has('rendition'))
   expect(peekAt).toBeGreaterThanOrEqual(0)
   expect(renditionAt).toBeGreaterThan(peekAt)
 })

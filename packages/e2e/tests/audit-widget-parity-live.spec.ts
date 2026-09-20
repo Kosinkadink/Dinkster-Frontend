@@ -5,7 +5,7 @@ import { canonicalJson } from '@dinkster/core'
 import { skipWithoutNativeCatalog } from './fixtures.js'
 
 const proofDir = '/tmp/audit-wpar-proof'
-const canonicalCatalogSha256 = '44707310a3e066466bc6746664dbf4f54f1df11205fbeae8666407a282531cef'
+const canonicalCatalogSha256 = 'ece23f4b1408736a0350aa3d8242a6335c3e69b987415a47252f49956b586b99'
 const nativeBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 type CatalogInput = {
@@ -102,9 +102,8 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
   )
   const stableCatalog = { ...catalog, dinkster: stableDinkster }
   const catalogDigest = createHash('sha256').update(canonicalJson(stableCatalog)).digest('hex')
-  test.skip(catalogDigest !== canonicalCatalogSha256, 'requires the pinned full native catalog snapshot')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(884)
+  expect(Object.keys(catalog.nodes)).toHaveLength(930)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) => widgetDescriptors(input.widget))
 
@@ -155,7 +154,16 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
     { input: 'dinkster.detection.segment_text.provider', route: '/api/choices/dinkster.detection.segment_text.providers', refreshButton: null },
     { input: 'dinkster.detection.segment.provider', route: '/api/choices/dinkster.detection.segment.providers', refreshButton: null },
     { input: 'dinkster.detection.track.provider', route: '/api/choices/dinkster.detection.track.providers', refreshButton: null },
+    { input: 'dinkster.image.matte.provider', route: '/api/choices/dinkster.image.matte.providers', refreshButton: null },
     { input: 'dinkster.image.upscale_model.provider', route: '/api/choices/dinkster.image.upscale_model.providers', refreshButton: null },
+    { input: 'dinkster.preprocess.anyline.provider', route: '/api/choices/dinkster.preprocess.anyline.providers', refreshButton: null },
+    { input: 'dinkster.preprocess.lineart_anime.provider', route: '/api/choices/dinkster.preprocess.lineart_anime.providers', refreshButton: null },
+    { input: 'dinkster.preprocess.lineart_manga.provider', route: '/api/choices/dinkster.preprocess.lineart_manga.providers', refreshButton: null },
+    { input: 'dinkster.preprocess.lineart_realistic.provider', route: '/api/choices/dinkster.preprocess.lineart_realistic.providers', refreshButton: null },
+    { input: 'dinkster.preprocess.mlsd.provider', route: '/api/choices/dinkster.preprocess.mlsd.providers', refreshButton: null },
+    { input: 'dinkster.preprocess.model_depth.provider', route: '/api/choices/dinkster.preprocess.model_depth.providers', refreshButton: null },
+    { input: 'dinkster.preprocess.model_edges.provider', route: '/api/choices/dinkster.preprocess.model_edges.providers', refreshButton: null },
+    { input: 'dinkster.preprocess.teed.provider', route: '/api/choices/dinkster.preprocess.teed.providers', refreshButton: null },
     { input: 'dinkster.record_audio.device', route: '/api/choices/dinkster.devices.audio_inputs', refreshButton: true },
     { input: 'dinkster.webcam_capture.device', route: '/api/choices/dinkster.devices.video_inputs', refreshButton: true },
   ].sort((a, b) => a.input.localeCompare(b.input)))
@@ -167,8 +175,12 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
     'comfy.LoadImageOutput.image',
     'comfy.LoadVideo.file',
     'dinkster.load_audio.audio',
+    'dinkster.load_gaussian_splat.splat',
+    'dinkster.load_image.image',
+    'dinkster.load_image_output.image',
     'dinkster.load_latent.asset',
     'dinkster.load_mask.mask',
+    'dinkster.load_model3d.model',
     'dinkster.load_video.video',
     'dinkster.load_video_value.video',
     'dinkster.read_image_metadata.image',
@@ -195,7 +207,7 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0,
-  ), { timeout: 20_000 }).toBe(929)
+  ), { timeout: 20_000 }).toBe(930)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-wpar-live', root: 'g0',
