@@ -205,9 +205,9 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     const discover = async (): Promise<void> => {
       try {
         const descriptors = await connection.listMounts()
-        const ready = await mountAssetSources(connection, undefined, descriptors)
+        const browsable = await mountAssetSources(connection, undefined, descriptors)
         if (!live || !active || generation !== discoveryGeneration) return
-        setAdapters(ready)
+        setAdapters(browsable)
         setMounts(descriptors)
         setDiscoveryError(undefined)
         scanPolling = descriptors.some((mount) => mount.state === 'pending' || mount.state === 'scanning')
@@ -226,21 +226,21 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       if (timer !== undefined) clearTimeout(timer)
     })
   })
-  const unavailable = createMemo(() => mounts().filter((mount) => mount.state !== 'ready'))
+  const unavailable = createMemo(() => mounts().filter((mount) => mount.state !== 'ready' && mount.state !== 'scanning'))
   const presentations = createMemo(() => mountPresentations(mounts()))
   const presentedAdapters = createMemo(() => {
     const labels = new Map(presentations().map((row) => [`mount:${row.mount.id}`, row.label]))
     return (adapters() ?? []).map((adapter) => relabelAdapter(adapter, labels.get(adapter.id) ?? adapter.label))
   })
   const sources = createMemo((): readonly CollectionSource[] => {
-    const ready = presentedAdapters()
+    const browsable = presentedAdapters()
     const assetUrl = (digest: string): string => props.connection.assetUrl(digest)
     const healthGeneration = discoveryGeneration
     const reportFailures = (failures: readonly AssetSourceFailure[]): void => {
       if (!live || healthGeneration !== discoveryGeneration) return
       setSourceFailures(Object.fromEntries(failures.map((failure) => [failure.sourceId, { label: failure.label, message: failure.message }])))
     }
-    const local = allAssetsCollectionSource(ready, unavailable(), assetUrl, { onSourceFailures: reportFailures })
+    const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, { onSourceFailures: reportFailures })
     return [
       props.federatedContract
         ? federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), (message) => {
@@ -248,7 +248,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
             setSourceFailures(message === undefined ? {} : { 'all-assets': { label: 'Federated catalog', message } })
           })
         : local,
-      ...ready.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
+      ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
     ]
   })
 

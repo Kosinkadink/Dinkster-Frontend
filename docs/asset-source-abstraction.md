@@ -82,8 +82,9 @@ Selection accepts only a currently listed id.
 
 The Assets source-health panel polls mount status while any source is scanning.
 It shows indexed and total files, indexed and total bytes, and elapsed time so
-a large model folder remains observable while already indexed assets are
-available to generation.
+a large model folder remains observable. Already indexed entries from a
+scanning mount remain browsable and available to generation; the scanning
+health row marks the results as partial until indexing finishes.
 
 The store is framework-free and has no rendering contract. Product catalog
 UI, React/Solid bindings, `App.tsx` integration, and existing asset-browser
