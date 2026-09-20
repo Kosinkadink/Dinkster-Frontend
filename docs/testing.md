@@ -39,9 +39,15 @@ variable `DINKSTER_PR_RUNNER` can select hosted Linux with the JSON string
 
 ## Full validation
 
-`.github/workflows/full-validation.yml` runs on pushes to main, daily at
-10:43 UTC (03:43 Pacific daylight time / 02:43 Pacific standard time), and
-manual dispatch. To test an unmerged branch that contains the workflow:
+`.github/workflows/full-validation.yml` runs on pushes to main, every two
+hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, on manual
+dispatch, and when called by the desktop release workflow. The `on.schedule`
+cron list in that file is the single schedule definition; change its first
+cron line to change the two-hour cadence. Scheduled runs skip the heavy jobs
+when the latest successful main run already validated the same commit. Push
+runs cancel superseded push runs, while scheduled and called runs use a
+separate non-cancelling concurrency group. To test an unmerged branch that
+contains the workflow:
 
 ```bash
 gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <branch>
@@ -55,6 +61,9 @@ retain their existing assertions and dependency pins:
 | `ci` | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite |
 | `e2e-suite` | Four parallel-safe shards, two backend-serial shards and the performance browser job |
 | `e2e` | Always evaluates the aggregate and requires every E2E matrix leg to succeed |
+
+`release-desktop.yml` calls full validation before its release job, so the
+exact selected main commit must pass before publication begins.
 
 The heavy jobs retain the shared memory-only dependency identity action,
 clean checkouts without persisted credentials, counted-suite launcher and
