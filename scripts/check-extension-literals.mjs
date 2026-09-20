@@ -149,22 +149,62 @@ const counts = Object.fromEntries(
     sites.filter((site) => site.kind === kind).length,
   ]),
 )
-const snapshot = { ceilings: counts, sites }
-
-if (write) {
-  await mkdir(dirname(allowlistPath), { recursive: true })
-  await writeFile(allowlistPath, `${JSON.stringify(snapshot, null, 2)}\n`)
-  process.exit(0)
-}
 
 let allowlist
 try {
   allowlist = JSON.parse(await readFile(allowlistPath, 'utf8'))
 } catch (error) {
-  console.error(
-    `Cannot read extension literal allowlist: ${error instanceof Error ? error.message : String(error)}`,
-  )
-  process.exit(1)
+  const missing =
+    write &&
+    error instanceof Error &&
+    'code' in error &&
+    error.code === 'ENOENT'
+  if (!missing) {
+    console.error(
+      `Cannot read extension literal allowlist: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    process.exit(1)
+  }
+}
+
+if (write) {
+  let ceilings = counts
+  if (allowlist !== undefined) {
+    const ceilingKeys = Object.keys(allowlist.ceilings ?? {})
+    const invalidKinds = ceilingKeys.filter(
+      (kind) => !expectedKinds.includes(kind),
+    )
+    const raised = expectedKinds.filter((kind) => {
+      const ceiling = allowlist.ceilings?.[kind]
+      return !Number.isInteger(ceiling) || ceiling < 0 || counts[kind] > ceiling
+    })
+    if (
+      invalidKinds.length > 0 ||
+      ceilingKeys.length !== expectedKinds.length ||
+      raised.length > 0
+    ) {
+      console.error(
+        'Cannot refresh extension literal allowlist without raising ceilings:',
+      )
+      for (const kind of raised)
+        console.error(
+          `  ${kind}: current=${counts[kind]}, ceiling=${String(allowlist.ceilings?.[kind])}`,
+        )
+      for (const kind of invalidKinds)
+        console.error(`  ${kind}: unexpected ceiling`)
+      process.exit(1)
+    }
+    ceilings = Object.fromEntries(
+      expectedKinds.map((kind) => [
+        kind,
+        Math.min(allowlist.ceilings[kind], counts[kind]),
+      ]),
+    )
+  }
+  const snapshot = { ceilings, sites }
+  await mkdir(dirname(allowlistPath), { recursive: true })
+  await writeFile(allowlistPath, `${JSON.stringify(snapshot, null, 2)}\n`)
+  process.exit(0)
 }
 
 const ceilingKeys = Object.keys(allowlist.ceilings ?? {})

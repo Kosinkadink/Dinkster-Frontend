@@ -111,6 +111,46 @@ test('extension literal guard rejects site and ceiling drift', async () => {
   }
 })
 
+test('extension literal write refuses to raise a ceiling', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dinkster-extension-ceiling-'))
+  const source = join(root, 'src')
+  const allowlist = join(root, 'allowlist.json')
+  const file = join(source, 'Example.ts')
+  try {
+    await mkdir(source)
+    await writeFile(file, "export const node = 'dinkster.demo.deep.node'\n")
+    await exec(process.execPath, [
+      script,
+      '--source',
+      source,
+      '--allowlist',
+      allowlist,
+      '--write',
+    ])
+    const recorded = await readFile(allowlist, 'utf8')
+
+    await writeFile(
+      file,
+      "export const node = 'dinkster.demo.deep.node'\nexport const other = 'dinkster.demo.other'\n",
+    )
+    await assert.rejects(
+      exec(process.execPath, [
+        script,
+        '--source',
+        source,
+        '--allowlist',
+        allowlist,
+        '--write',
+      ]),
+      (error) =>
+        String(error.stderr).includes('nodeIdLiteral: current=2, ceiling=1'),
+    )
+    assert.equal(await readFile(allowlist, 'utf8'), recorded)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('default scan includes every package source root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dinkster-extension-roots-'))
   const app = join(root, 'packages', 'app', 'src')
@@ -125,12 +165,11 @@ test('default scan includes every package source root', async () => {
       canvasFile,
       "export const matches = (widgetType: string) => widgetType === 'STRING'\n",
     )
-    await exec(process.execPath, [
-      script,
-      '--allowlist',
-      allowlist,
-      '--write',
-    ], { cwd: root })
+    await exec(
+      process.execPath,
+      [script, '--allowlist', allowlist, '--write'],
+      { cwd: root },
+    )
 
     await writeFile(
       canvasFile,
