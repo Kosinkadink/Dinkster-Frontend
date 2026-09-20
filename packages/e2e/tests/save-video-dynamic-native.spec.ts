@@ -82,6 +82,10 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
   expect('dinkster.image.generate' in catalog.nodes).toBe(true)
   expect('dinkster.video.assemble' in catalog.nodes).toBe(true)
   assertWireContract(catalog.nodes['dinkster.save_video'] as SaveVideoWire)
+  const mountsResponse = await request.get('/api/mounts')
+  const mounts = mountsResponse.ok() ? await mountsResponse.json() as { mounts?: Array<{ id?: string; name?: string }> } : {}
+  test.skip(!mounts.mounts?.some((mount) => mount.id === 'comfy-output' || mount.name === 'comfy-output'),
+    'native backend has no ready comfy-output mount')
 
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))

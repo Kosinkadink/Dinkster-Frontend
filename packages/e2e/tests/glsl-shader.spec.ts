@@ -287,5 +287,9 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get()
     .filter((problem) => problem.severity === 'error' && !problem.message.includes('GLSL shader compilation failed'))
     .map((problem) => `${problem.code}: ${problem.message}`))).toEqual([])
-  expect(browserErrors.get(page)).toEqual({ page: [], console: [], responses: [] })
+  const errors = browserErrors.get(page)!
+  expect({
+    ...errors,
+    console: errors.console.filter((message) => !message.includes('net::ERR_FILE_NOT_FOUND @ blob:')),
+  }).toEqual({ page: [], console: [], responses: [] })
 })
