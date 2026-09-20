@@ -284,13 +284,20 @@ Stable v1 candidates:
 
 - `widgetKind`, `widgetView`, `previewRenderer`
 - `menu`, `command`, `keybinding`, `setting`
-- `canvasLayer`, `nodeDecoration`, `linkDecoration`, `canvasTool`
-- `hostUi`, `searchProvider`, `workflowObserver`, `workflowGuard`
+- `canvasLayer`, `nodeDecoration`
+- `hostUi`, `searchProvider`, `workflowObserver`
 - `eventConsumer`
 - `workflowImporter`
 
 Not every candidate has to ship in the first implementation slice. Unknown
 kinds are rejected before import. New kinds are additive frontend API changes.
+
+### 5.3 Removed kinds
+
+`linkDecoration`, `canvasTool`, and `workflowGuard` were removed from the
+extension vocabulary. Their intended uses, benefits, risks, and criteria for
+reconsideration are recorded in
+[the removal issue](https://github.com/Kosinkadink/comfy-vibe-station/issues/147).
 
 ## 6. Effective backend snapshot and frontend correlation
 
@@ -918,17 +925,6 @@ Observer events are:
 
 Observers receive immutable data after the host has established operation
 identity. They cannot mutate, cancel, or replace a document.
-
-Blocking behavior is separate and rare. A `workflowGuard` may be registered
-only for named operations such as close or queue. Guards run in deterministic
-order with a deadline; any explicit deny vetoes, errors are diagnosed, and no
-guard can rewrite the operation. Save serialization does not get a generic
-transform hook. Extension semantic state belongs in document `ext` through
-commands before save.
-
-[RECOMMENDATION, VETOABLE] Ship observers first. Add guards only for close and
-queue after a port proves the need. Broad `beforeSave`/`beforeQueue` transforms
-would recreate method wrapping and make behavior order-dependent.
 
 ### 12.3 Settings, commands, and keybindings
 
