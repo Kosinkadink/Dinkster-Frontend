@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
-  DINKSTER_REF: fcb4383c8ff17dcf2779640a9c7f8c452e602092
+  DINKSTER_REF: d15d8745e958746447c47cad72031f1632716890
 
 jobs:
   validation-plan:
