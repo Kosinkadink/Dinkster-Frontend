@@ -8,7 +8,7 @@
   },
   "nodes": {
     "dinkster.save_video": {
-      "schemaVersion": 38,
+      "schemaVersion": 1,
       "nodeType": "dinkster.save_video",
       "version": 3,
       "displayName": "Save Video",
@@ -320,7 +320,7 @@
       "outputNode": true
     },
     "dinkster.video.trim": {
-      "schemaVersion": 38,
+      "schemaVersion": 1,
       "nodeType": "dinkster.video.trim",
       "version": 1,
       "displayName": "Trim Video",
@@ -416,7 +416,7 @@
       ]
     },
     "dinkster.video.crop": {
-      "schemaVersion": 38,
+      "schemaVersion": 1,
       "nodeType": "dinkster.video.crop",
       "version": 1,
       "displayName": "Crop Video",
@@ -524,7 +524,7 @@
       ]
     },
     "dinkster.video.assemble": {
-      "schemaVersion": 38,
+      "schemaVersion": 1,
       "nodeType": "dinkster.video.assemble",
       "version": 1,
       "displayName": "Assemble Video",
