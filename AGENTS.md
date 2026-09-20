@@ -73,7 +73,7 @@ kill $(ss -tlnp 2>/dev/null | grep :5199 | grep -oP 'pid=\K[0-9]+' | sort -u) 2>
 
 # Service safety
 
-Never signal, kill, restart, or replace the :5199 dev server, the :8765
+Never signal, kill, restart, or replace the :5199 dev server, the :3639
 backend, or any other standing process while a browser or E2E session is
 using it. Check for active sessions first. Read-only inspection (process
 identity, ports, logs, HTTP state) is always fine.
@@ -82,14 +82,14 @@ identity, ports, logs, HTTP state) is always fine.
 
 Frontend work runs on the frontend host assigned by the workspace-root
 `DELEGATION.md`. The only supported frontend backend is the local
-`http://127.0.0.1:8765` process from that host's Dinkster checkout. Remote
+`http://127.0.0.1:3639` process from that host's Dinkster checkout. Remote
 backends and fallback routes are forbidden; never restore a cross-machine
 backend dependency. The service runs real generation with a persistent
 library root and the host's ComfyUI checkout/interpreter. Run from the sibling
 `Dinkster` checkout (wrap in a systemd user unit once the stack is stood up):
 
 ```bash
-.venv/bin/dinkster-serve --host 127.0.0.1 --port 8765 \
+.venv/bin/dinkster-serve --host 127.0.0.1 \
   --library-root ~/.local/state/dinkster/frontend-backend/library \
   --comfy-root ../ComfyUI --comfy-python ../ComfyUI/venv/bin/python
 ```
@@ -105,25 +105,25 @@ reporting it; when this host has a Tailscale address, use
 `http://<tailscale-ip-or-name>:5199`. Do not report a Tailscale URL unless
 that address or name exists and an HTTP request through it succeeds.
 
-Vite's same-origin proxy MUST target the local loopback backend explicitly;
-omitting the environment variable proxies `/api/*` to the dead default on
-:3639. Never expose :8765 directly. Canonical restart, from `packages/app`:
+Vite's same-origin proxy defaults to the Dinkster server on loopback port 3639.
+Set the environment variable explicitly when using another port. Never expose
+the backend directly. Canonical restart, from `packages/app`:
 
 ```bash
-DINKSTER_NATIVE_BACKEND=http://127.0.0.1:8765 nohup pnpm dev --host 0.0.0.0 --strictPort > /tmp/dinkster-frontend-5199.log 2>&1 &
+DINKSTER_NATIVE_BACKEND=http://127.0.0.1:3639 nohup pnpm dev --host 0.0.0.0 --strictPort > /tmp/dinkster-frontend-5199.log 2>&1 &
 ```
 
 Verify the direct and proxied catalogs are byte-identical before reporting
 the stack ready:
 
 ```bash
-curl -fsS "http://127.0.0.1:8765/api/nodes?wire=21" -o /tmp/dinkster-nodes-direct.json
-curl -fsS "http://127.0.0.1:5199/api/nodes?wire=21" -o /tmp/dinkster-nodes-proxy.json
+curl -fsS "http://127.0.0.1:3639/api/nodes?wire=40" -o /tmp/dinkster-nodes-direct.json
+curl -fsS "http://127.0.0.1:5199/api/nodes?wire=40" -o /tmp/dinkster-nodes-proxy.json
 cmp /tmp/dinkster-nodes-direct.json /tmp/dinkster-nodes-proxy.json
 ```
 
-If the request returns 406 wire-version-unsupported, the backend's supported
-wire versions have moved; use one from the error's "supported" list and
+The server currently serves schema wires 22 through 45. If the request returns
+406 wire-version-unsupported, use one from the error's `supported` list and
 update the example above.
 
 Also verify the frontend through the machine's actual LAN address and, when
