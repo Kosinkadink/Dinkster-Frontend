@@ -202,6 +202,22 @@ describe('Tab editorKind', () => {
     expect(app.editors.kinds()).toEqual([])
   })
 
+  it('preserves live descriptor getters registered through frontend doors', () => {
+    const app = new AppState()
+    let title = 'Initial title'
+    app.frontendDoors.panel('live-panel', {
+      get title() { return title },
+      placement: 'modal',
+      allowedPlacements: ['modal'],
+      order: 1,
+      component: () => null,
+    })
+
+    expect(app.panels.get('live-panel')?.title).toBe('Initial title')
+    title = 'Updated title'
+    expect(app.panels.get('live-panel')?.title).toBe('Updated title')
+  })
+
   it('opens a synthetic pack editor through its binding and registers its panel', () => {
     const app = new AppState()
     const provider = () => ({ version: 1 as const, root: { kind: 'text' as const, key: 'proof', text: 'Pack surface' } })

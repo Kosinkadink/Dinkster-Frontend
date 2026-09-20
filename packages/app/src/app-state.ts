@@ -2277,6 +2277,11 @@ export interface AppLogEntry {
   readonly message: string
 }
 
+const descriptorWithId = <T extends object>(id: string, descriptor: T): T & { readonly id: string } => {
+  const copy = Object.defineProperties({}, Object.getOwnPropertyDescriptors(descriptor))
+  return Object.defineProperty(copy, 'id', { configurable: true, enumerable: true, value: id }) as T & { readonly id: string }
+}
+
 export class AppState {
   /** Default backend's connection (single-backend code path; always exists). */
   readonly connection: Backend['connection']
@@ -2384,13 +2389,13 @@ export class AppState {
   readonly frontendDoors = {
     editor: (id: string, kind: Omit<EditorKindDescriptor, 'id'> | ExtensionEditorKind): (() => void) =>
       'component' in kind
-        ? this.editors.register({ ...kind, id })
+        ? this.editors.register(descriptorWithId(id, kind))
         : this.registerExtensionEditor({ ...kind, id }),
     editorBinding: (id: string, binding: Omit<EditorBinding, 'id'>): (() => void) =>
       this.editorBindings.register({ ...binding, id }),
     panel: (id: string, panel: Omit<PanelDescriptor, 'id'> | Omit<ExtensionPanelContributionV1, 'id'>): (() => void) =>
       'component' in panel
-        ? this.panels.register({ ...panel, id })
+        ? this.panels.register(descriptorWithId(id, panel))
         : this.registerExtensionPanel({ ...panel, id }),
   }
   /**

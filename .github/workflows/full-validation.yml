@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
-  DINKSTER_REF: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+  DINKSTER_REF: a44f1acba99e1504af91208a8d9ce8c2ea162847
 
 jobs:
   validation-plan:
@@ -70,6 +70,20 @@ jobs:
         with:
           clean: true
           persist-credentials: false
+      - uses: ./.github/actions/configure-dinkster-identity
+        with:
+          repository: Kosinkadink/Dinkster
+          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+          repository: Kosinkadink/Dinkster
+          ref: ${{ env.DINKSTER_REF }}
+          path: .ci/Dinkster
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: pnpm/action-setup@v4
         with:
           version: 10.31.0
@@ -81,6 +95,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm ci:fast
+        env:
+          DINKSTER_SOURCE_ROOT: .ci/Dinkster
 
   ci:
     needs: validation-plan
@@ -132,6 +148,7 @@ jobs:
         env:
           DINKSTER_SOURCE_ROOT: ${{ github.workspace }}/.ci/Dinkster
         run: |
+          .ci/Dinkster/.venv/bin/python .ci/Dinkster/tools/gen_extension_contribution_kinds.py --check --frontend-root .
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
@@ -144,10 +161,15 @@ jobs:
           NODE_OPTIONS: --max-semi-space-size=64
       - run: pnpm --filter @dinkster/app build
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
+        env:
+          CUDA_VISIBLE_DEVICES: ""
       # Host interface changes must not invalidate Chromium's loopback requests.
       - run: bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:
           DINKSTER_E2E_PORT: "15376"
+          DINKSTER_E2E_NATIVE_PORT: "15377"
+          DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
 
   e2e-suite:
     needs: validation-plan
@@ -210,6 +232,10 @@ jobs:
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python -r .ci/ComfyUI/requirements.txt
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - name: Install hosted compatibility dependencies
+        run: |
+          uv export --project .ci/Dinkster --locked --package dinkster-inference-torch --extra torch --no-emit-project --no-emit-workspace --output-file "${RUNNER_TEMP}/dinkster-torch-constraints.txt" > /dev/null
+          uv pip install --python .ci/ComfyUI/venv/bin/python --constraint "${RUNNER_TEMP}/dinkster-torch-constraints.txt" --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match packaging numpy scipy pillow tqdm dinkster-kitchen dinkster-aimdo sentencepiece tokenizers
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
           CUDA_VISIBLE_DEVICES: ""
