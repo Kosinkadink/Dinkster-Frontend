@@ -162,7 +162,8 @@ describe('P2PPanel', () => {
     const sharing = root.querySelector<HTMLButtonElement>('[id$="-enabled"]')!
     expect(sharing.getAttribute('aria-checked')).toBe('mixed')
     expect(root.textContent).toContain('Mixed')
-    expect(root.textContent).toContain('Peer downloads are on while background seeding is off.')
+    expect(root.textContent).toContain('Peer downloads and background seeding do not match.')
+    expect(root.textContent).toContain('Current seeding state: Off.')
     sharing.click()
     root.querySelector('form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
     await flush()
@@ -174,6 +175,24 @@ describe('P2PPanel', () => {
     })
     expect(sharing.getAttribute('aria-checked')).toBe('true')
     dispose()
+  })
+
+  it('reports saved seeding as on for the reverse mixed state', async () => {
+    const value = { ...defaults, downloadsEnabled: false, seedingEnabled: true }
+    const writable = mount({ value })
+    await flush()
+
+    expect(writable.root.querySelector<HTMLButtonElement>('[id$="-enabled"]')?.getAttribute('aria-checked')).toBe('mixed')
+    expect(writable.root.textContent).toContain('Peer downloads and background seeding do not match.')
+    expect(writable.root.textContent).toContain('Current seeding state: On.')
+    writable.dispose()
+
+    const readOnly = mount({ value, writable: false })
+    await flush()
+    const rows = [...readOnly.root.querySelectorAll('.p2p-readonly-summary > div')].map((row) => row.textContent)
+    expect(rows).toContain('Peer-to-peer sharingMixed')
+    expect(rows).toContain('Background seedingOn')
+    readOnly.dispose()
   })
 
   it('summarizes a read-only mixed state consistently', async () => {

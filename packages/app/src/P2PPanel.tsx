@@ -339,7 +339,9 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
                   })}
                 />
               </ProductField>
-              <p class="p2p-help">{sharingState(saved()) === 'mixed' ? m().sharingHelpMixed : saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}</p>
+              <p class="p2p-help">{sharingState(saved()) === 'mixed'
+                ? `${m().sharingHelpMixed} ${saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}`
+                : saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}</p>
               <ProductNotice tone="info" class="p2p-upload-disclosure">{m().uploadDisclosure}</ProductNotice>
               <ProductField controlId={id('scope')} label={m().scope} layout="stack">
                 <ProductSelect
