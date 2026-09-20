@@ -233,10 +233,6 @@ test('open Assets selection details update when the active locale changes', asyn
   await installWidgetRoutes(page, 'sparse', 'RAW-layout-images')
   await page.route('**/api/catalog', (route) => route.fulfill({ body: '' }))
   await page.goto('/')
-  const firstRunNotice = page.getByTestId('p2p-first-run-notice')
-  if (await firstRunNotice.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false)) {
-    await firstRunNotice.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
-  }
   await openAssetsDock(page)
   await page.getByTestId('dock-resize').focus()
   await page.keyboard.press('End')

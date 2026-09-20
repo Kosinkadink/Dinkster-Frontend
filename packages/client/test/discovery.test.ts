@@ -55,6 +55,20 @@ describe('discoverBackend', () => {
     })
   })
 
+  it('does not request any v1 endpoint when legacy probing is disabled', async () => {
+    const seen: string[] = []
+    const fetchFn: FetchLike = (url) => {
+      seen.push(url)
+      return Promise.resolve(url.includes('/api/nodes') ? nativeNodes() : json(404, {}))
+    }
+    expect(await discoverBackend('', { fetchFn, probeV1: false })).toEqual({
+      kind: 'dinkster',
+      supervised: false,
+    })
+    expect(seen).toHaveLength(2)
+    expect(seen.some((url) => url.includes('/system_stats'))).toBe(false)
+  })
+
   it('requests the nodes catalog without version negotiation', async () => {
     let nodesUrl = ''
     const fetchFn: FetchLike = (url) => {

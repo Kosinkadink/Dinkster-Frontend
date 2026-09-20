@@ -117,6 +117,7 @@ import {
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
+import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -4679,6 +4680,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // instead opens a read-only view of the executed curve. Selector rows
       // keep their own value channel and are never driven.
       if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.valueKey) && curveTarget?.follow === undefined) return
+      const editorRole = (registry()?.resolve(hit.node.node.type) as { readonly editorRole?: string } | undefined)?.editorRole
+      const valueType = canonicalTypeIdOf(hit.row.type)
+      if (props.app.openEditorForBinding(tab.id, {
+        ...(editorRole === undefined ? {} : { editorRole }),
+        nodeId: hit.node.node.type,
+        widgetType: spec.widgetType,
+        ...(valueType === undefined ? {} : { valueType }),
+      })) return
       const mergeableTypes = registry()?.mergeableTypes
       const widgetView = widgetRegistry().viewsFor(spec.widgetType).find((view) => view.id === hit.row.viewId)
       const widgetEditorSize = widgetView?.editorUi === undefined ? undefined : widgetEditorSizing(widgetView, spec)
@@ -4735,7 +4744,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (target) props.app.openCompositorEditor(target)
         return
       }
-      if (hit.node.node.type === 'dinkster.image.glsl_shader' && valueKey === 'fragment_shader') {
+      if (hit.node.node.type === BUILTIN_EDITOR_NODE_IDS.glsl && valueKey === 'fragment_shader') {
         const target = props.app.glslTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
         )

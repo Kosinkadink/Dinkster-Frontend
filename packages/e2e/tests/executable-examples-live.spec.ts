@@ -111,11 +111,6 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
-  const p2pNotice = page.getByRole('dialog', { name: /^Peer-to-peer sharing is on:/ })
-  if (await p2pNotice.isVisible()) {
-    await p2pNotice.getByRole('button', { name: 'Dismiss notice' }).last().click()
-    await expect(p2pNotice).not.toBeVisible()
-  }
 })
 
 for (const [file, expected] of Object.entries(expectedResults)) {

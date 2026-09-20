@@ -122,6 +122,13 @@ does not close an open dock. The Status bar and Activity bar stay mounted with
 the HTML `hidden` state, and the status bar's contents are therefore not
 recreated when it is shown again.
 
+Core and extension panels share `app.frontendDoors.panel`. Extension packs
+choose one bounded slot: `sidebar.left`, `sidebar.right`, `panel.bottom`, or
+`toolbar.canvas`. The host maps that slot to existing shell placement, owns all
+chrome and layout, and renders the pack's declarative host-UI tree. Disabling
+or unregistering the contribution removes it from the same panel registry and
+dock projection used by core panels.
+
 ## Document tabs
 
 Workflow documents use the dedicated `WorkflowTabs` shell primitive, not the
@@ -798,6 +805,10 @@ same-origin protocol. On a slow or dead origin that await holds for up to
 the probe timeout (2500ms), leaving `#root` blank. The boot indicator
 fills that window with a minimal centered pulse and the product name so the
 launch is never a blank screen.
+
+The launch origin is native-only: startup checks the supervisor and Dinkster
+node catalog but makes no ComfyUI v1 request. URL-based backend addition keeps
+full protocol discovery for users who explicitly add a ComfyUI server.
 
 Timing contract (`packages/app/src/boot-indicator.ts`):
 

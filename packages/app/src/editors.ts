@@ -15,7 +15,7 @@
  */
 
 import type { JSX } from 'solid-js'
-import { createSignal, type Signal } from '@dinkster/core'
+import { createSignal, type EditorBinding, type Signal } from '@dinkster/core'
 
 /** The built-in node-graph editor kind. */
 export const GRAPH_EDITOR_KIND = 'graph'
@@ -63,6 +63,43 @@ export interface EditorKindDescriptor {
    * per-tab view state such as the canvas viewport survives switching.
    */
   readonly component: (host?: EditorHostContext) => JSX.Element
+}
+
+export interface EditorBindingContext {
+  readonly editorRole?: string
+  readonly nodeId?: string
+  readonly widgetType?: string
+  readonly valueType?: string
+}
+
+export class EditorBindingRegistry {
+  private readonly bindings = new Map<string, EditorBinding>()
+  readonly changed: Signal<number> = createSignal(0)
+
+  register(binding: EditorBinding): () => void {
+    if (this.bindings.has(binding.id)) throw new Error(`editor binding already registered: ${binding.id}`)
+    this.bindings.set(binding.id, Object.freeze({ ...binding, match: Object.freeze({ ...binding.match }) }))
+    this.changed.update((value) => value + 1)
+    return () => {
+      this.bindings.delete(binding.id)
+      this.changed.update((value) => value + 1)
+    }
+  }
+
+  resolve(
+    context: EditorBindingContext,
+    accepts: (binding: EditorBinding) => boolean = () => true,
+  ): EditorBinding | undefined {
+    return [...this.bindings.values()]
+      .filter((binding) => accepts(binding) && Object.entries(binding.match).every(([key, value]) =>
+        value === undefined || context[key as keyof EditorBindingContext] === value))
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0) || left.id.localeCompare(right.id))[0]
+  }
+
+  all(): readonly EditorBinding[] {
+    return [...this.bindings.values()]
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0) || left.id.localeCompare(right.id))
+  }
 }
 
 export class EditorRegistry {
