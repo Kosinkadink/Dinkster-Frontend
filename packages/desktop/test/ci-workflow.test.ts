@@ -42,7 +42,7 @@ const release = await load('release-desktop.yml')
 const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
 const testingDocs = (
   await readFile(resolve(root, 'docs/testing.md'), 'utf8')
-).replace(/\n/g, ' ')
+).replace(/\r?\n/g, ' ')
 
 describe('fast pull-request and full validation workflows', () => {
   it('runs exactly one bounded job without a PR label path', () => {
