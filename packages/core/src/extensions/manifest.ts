@@ -27,8 +27,8 @@ export const FRONTEND_PRIVILEGES = ['schema-widget', 'graph-editor-canvas', 'app
 export type FrontendPrivilege = (typeof FRONTEND_PRIVILEGES)[number]
 export const FRONTEND_CONTRIBUTION_KINDS = [
   'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension', 'menu', 'command', 'keybinding', 'setting',
-  'canvasLayer', 'nodeDecoration', 'linkDecoration', 'canvasTool', 'hostUi', 'searchProvider',
-  'workflowObserver', 'workflowGuard', 'eventConsumer', 'workflowImporter',
+  'canvasLayer', 'nodeDecoration', 'hostUi', 'searchProvider',
+  'workflowObserver', 'eventConsumer', 'workflowImporter',
 ] as const
 export type FrontendContributionKind = (typeof FRONTEND_CONTRIBUTION_KINDS)[number]
 
@@ -37,11 +37,11 @@ export function frontendContributionAuthorized(kind: FrontendContributionKind, p
   switch (kind) {
     case 'widgetKind': case 'widgetView': case 'previewRenderer': case 'textEditorExtension': case 'workflowImporter':
       return privileges.includes('schema-widget')
-    case 'canvasLayer': case 'nodeDecoration': case 'linkDecoration': case 'canvasTool': case 'menu':
+    case 'canvasLayer': case 'nodeDecoration': case 'menu':
       return privileges.includes('graph-editor-canvas')
     case 'command': case 'keybinding':
       return privileges.includes('graph-editor-canvas') || privileges.includes('app-workflow')
-    case 'hostUi': case 'searchProvider': case 'setting': case 'workflowObserver': case 'workflowGuard':
+    case 'hostUi': case 'searchProvider': case 'setting': case 'workflowObserver':
       return privileges.includes('app-workflow')
     case 'eventConsumer':
       return privileges.includes('event-consumer')
