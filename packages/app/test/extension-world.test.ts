@@ -95,6 +95,30 @@ describe('connection extension worlds', () => {
     unauthorized.dispose()
   })
 
+  it.each(['workflowObserver', 'futureKind'])('skips an unimplemented or unknown %s contribution while activating its sibling', async (kind) => {
+    const { target, commands } = setup()
+    const report = vi.fn()
+    const world = new ExtensionWorld(asConnectionId('a'), digest, target, report)
+    const base = snapshotFor('command', 'app-workflow')
+    const pack = base.extensions[0]!
+    const entry = pack.frontend![0]!
+    await world.activate({ ...base, extensions: [{ ...pack, frontend: [{ ...entry, contributions: [
+      ...entry.contributions, { id: 'demo.skipped', kind },
+    ] as typeof entry.contributions }] }] }, '', [], async () => ({
+      frontendExtension: { activate(context: FrontendActivationContext) {
+        context.command('demo.contribution', { id: 'demo.contribution', label: 'Active', run() {} })
+      } },
+    }))
+    world.select(true)
+    expect(commands.get('demo.contribution')?.label).toBe('Active')
+    expect(world.host.packs()[0]?.contributions.map((item) => item.decl.id)).toEqual(['demo.contribution'])
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({
+      severity: 'warning', code: 'extension.contribution-kind-skipped',
+      message: expect.stringContaining(`'${kind}'`),
+    }))
+    world.dispose()
+  })
+
   it('delivers only declared producer events asynchronously and cancels queued delivery on gate changes', async () => {
     const { target } = setup()
     const world = new ExtensionWorld(asConnectionId('a'), digest, target)

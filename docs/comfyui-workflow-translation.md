@@ -23,9 +23,12 @@ translation.
 
 Positional and keyed static COMBO widgets normalize a finite numeric literal
 to its canonical string only when that exact string is a declared option.
-An exact numeric option in a legacy schema takes precedence. Labels, padded
-spellings, and unmatched values are not coerced; invalid choices remain
-available for normal validation. Normalized values survive native save/reopen.
+An exact numeric option in a legacy schema takes precedence. A legacy string
+that exactly matches one unique structured option label is stored as that
+option's canonical value; an already canonical value still takes precedence.
+Ambiguous labels, padded spellings, and unmatched values are not coerced, so
+invalid choices remain available for normal validation. Normalized values
+survive native save/reopen. Legacy tuple display labels remain unchanged.
 
 ComfyUI `Note` and `MarkdownNote` records translate directly to Dinkster's
 frontend-only Note and Markdown Note kinds. Text, title, position, size, and

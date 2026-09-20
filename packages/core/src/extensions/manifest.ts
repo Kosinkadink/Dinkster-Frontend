@@ -13,23 +13,23 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
+import {
+  CONTRIBUTION_CATEGORIES as GENERATED_CONTRIBUTION_CATEGORIES,
+  FRONTEND_CONTRIBUTION_KINDS as GENERATED_FRONTEND_CONTRIBUTION_KINDS,
+} from './contribution-kinds.generated.js'
 
 /**
  * Closed vocabulary of gateable contribution categories. Each maps to one
  * typed registry; adding a category is an additive contract change, never
  * a pack-side invention.
  */
-export const CONTRIBUTION_CATEGORIES = ['menu', 'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension', 'setting', 'command', 'keybinding', 'hostUi', 'searchProvider', 'eventConsumer', 'editor', 'editorBinding', 'panel', 'virtualNode'] as const
+export const CONTRIBUTION_CATEGORIES = [...GENERATED_CONTRIBUTION_CATEGORIES, 'virtualNode'] as const
 export type ContributionCategory = (typeof CONTRIBUTION_CATEGORIES)[number]
 
 /** RFC section 5 authored frontend vocabulary. Authored modules are package-relative. */
 export const FRONTEND_PRIVILEGES = ['schema-widget', 'graph-editor-canvas', 'app-workflow', 'event-consumer'] as const
 export type FrontendPrivilege = (typeof FRONTEND_PRIVILEGES)[number]
-export const FRONTEND_CONTRIBUTION_KINDS = [
-  'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension', 'menu', 'command', 'keybinding', 'setting',
-  'canvasLayer', 'nodeDecoration', 'hostUi', 'searchProvider',
-  'workflowObserver', 'eventConsumer', 'workflowImporter', 'editor', 'editorBinding', 'panel', 'virtualNode',
-] as const
+export const FRONTEND_CONTRIBUTION_KINDS = [...GENERATED_FRONTEND_CONTRIBUTION_KINDS, 'virtualNode'] as const
 export type FrontendContributionKind = (typeof FRONTEND_CONTRIBUTION_KINDS)[number]
 
 /** Privileges are independent; commands and bindings can belong to either editor or app code. */

@@ -121,10 +121,18 @@ export class ExtensionWorld {
   async activate(snapshot: EffectiveExtensionSnapshot, baseUrl: string, deniedPrivileges: readonly FrontendPrivilege[] = [], load: FrontendModuleLoader = loadFrontendModule): Promise<void> {
     for (const pack of snapshot.extensions) {
       if (!pack.frontend?.length) continue
+      const frontend = pack.frontend.map((entry) => ({
+        ...entry,
+        contributions: entry.contributions.filter((contribution) => {
+          if ((CONTRIBUTION_CATEGORIES as readonly string[]).includes(contribution.kind)) return true
+          this.record(diag('warning', 'extension', 'extension.contribution-kind-skipped',
+            `pack '${pack.id}' entry '${entry.id}' contribution '${contribution.id}' uses unimplemented or unknown kind '${contribution.kind}'; skipped`))
+          return false
+        }),
+      }))
       const manifest: PackManifest = {
         id: pack.id,
-        contributions: pack.frontend.flatMap((entry) => entry.contributions)
-          .filter((contribution) => (CONTRIBUTION_CATEGORIES as readonly string[]).includes(contribution.kind))
+        contributions: frontend.flatMap((entry) => entry.contributions)
           .map((contribution) => ({ id: contribution.id, category: contribution.kind as ContributionCategory })),
       }
       const required = new Set<string>()
@@ -132,10 +140,7 @@ export class ExtensionWorld {
         if (snapshot.frontendApi !== '1.0.0' && snapshot.frontendApi !== '1.1.0') {
           throw new Error(`unsupported frontend API '${snapshot.frontendApi}'`)
         }
-        const admitted = pack.frontend.filter((entry) => {
-          if (entry.contributions.some((contribution) => !(CONTRIBUTION_CATEGORIES as readonly string[]).includes(contribution.kind))) {
-            throw new Error(`entry '${entry.id}' requires an unsupported contribution kind`)
-          }
+        const admitted = frontend.filter((entry) => {
           if (entry.contributions.some((contribution) => !frontendContributionAuthorized(contribution.kind, entry.authorizedPrivileges))) {
             throw new Error(`entry '${entry.id}' lacks a required frontend privilege`)
           }

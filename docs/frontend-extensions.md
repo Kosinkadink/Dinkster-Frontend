@@ -47,6 +47,10 @@ schema, or backend status; footer actions remain keyboard reachable.
 
 Widget and preview code receives only its scoped client capability through
 `WidgetEnv`; raw theme or token objects are not part of the extension contract.
+Pack-defined schema widget descriptors retain their declared type and JSON
+parameters for `widgetKind` lookup. An active matching kind supplies its normal
+compact view and editor. Without one, the node remains usable through the raw
+value editor and Problems names the unavailable kind.
 
 Frontend API 1.1 adds three manifest-first doors that still render only this
 declarative host UI. `editor(id, kind)` registers a titled center-region
@@ -132,6 +136,9 @@ Only declared `/api/extension-assets/{pack}/{sha256:hex}/{entry}.js` URLs are
 loaded through the connection's same-origin proxy. The loader requires an
 immutable JavaScript response and verifies its SHA-256 before importing it.
 Bundles must be self-contained and export `frontendExtension.activate(context)`.
+An unknown or unimplemented contribution kind produces a warning and is omitted
+from the activation context. Supported sibling contributions in the same module
+continue through normal privilege, policy, and gate checks.
 
 Each connection/snapshot pair owns a child of the existing transactional host.
 The focused tab selects global shell contributions. Every visible pane resolves
