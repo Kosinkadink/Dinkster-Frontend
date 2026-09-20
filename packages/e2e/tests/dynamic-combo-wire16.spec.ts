@@ -12,17 +12,17 @@ const resizeWireFixture = JSON.parse(readFileSync(
   new URL('../../core/fixtures/dinkster-resize-image-mask-wire16.json', import.meta.url),
   'utf8',
 )) as Record<string, unknown>
-const resizeWire = { ...resizeWireFixture, schemaVersion: 22 }
+const resizeWire = { ...resizeWireFixture, schemaVersion: 1 }
 
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'resize-dynamiccombo-e2e', schemaWire: 22 },
+  dinkster: { version: 'resize-dynamiccombo-e2e', schemaWire: 1 },
   packs: { comfy: { displayName: 'ComfyUI' } },
   nodes: {
     'comfy.ResizeImageMaskNode': resizeWire,
     'test.ImageSource': {
-      schemaVersion: 22,
+      schemaVersion: 1,
       nodeType: 'test.ImageSource',
       displayName: 'Image Source',
       category: 'test',

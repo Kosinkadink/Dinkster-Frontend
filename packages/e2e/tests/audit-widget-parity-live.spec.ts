@@ -85,10 +85,10 @@ async function refreshCombo(page: Page, nodeId: string, inputId: string, route: 
 test('standing wire 22 stack proves live widget adoption and exact catalog absences', async ({ page, request }, testInfo) => {
   await skipWithoutNativeCatalog(request, testInfo)
   await mkdir(proofDir, { recursive: true })
-  const catalogResponse = await page.request.get(`${nativeBackend}/api/nodes?wire=22`)
+  const catalogResponse = await page.request.get(`${nativeBackend}/api/nodes`)
   expect(catalogResponse.ok()).toBe(true)
   const catalogBytes = await catalogResponse.body()
-  const proxiedCatalogResponse = await page.request.get('/api/nodes?wire=22')
+  const proxiedCatalogResponse = await page.request.get('/api/nodes')
   expect(proxiedCatalogResponse.ok()).toBe(true)
   expect(await proxiedCatalogResponse.body()).toEqual(catalogBytes)
   const catalog = JSON.parse(catalogBytes.toString()) as Catalog

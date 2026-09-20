@@ -51,9 +51,9 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
-    dinkster: { version: 'wire22-proof', schemaWire: 22 },
+    dinkster: { version: 'wire22-proof', schemaWire: 1 },
     nodes: { SourceUpload: {
-      schemaVersion: 22,
+      schemaVersion: 1,
       nodeType: 'SourceUpload',
       displayName: 'Source Upload',
       interface: [{
@@ -65,7 +65,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
         sourceFilename: { kind: 'media/image', category: 'input' },
       }],
     }, SourceScalar: {
-      schemaVersion: 22,
+      schemaVersion: 1,
       nodeType: 'SourceScalar',
       displayName: 'Source Scalar',
       interface: [{
@@ -75,7 +75,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
         sourceFilename: { kind: 'media/image', category: 'input' },
       }],
     }, SourceVideo: {
-      schemaVersion: 22,
+      schemaVersion: 1,
       nodeType: 'SourceVideo',
       displayName: 'Source Video',
       interface: [{

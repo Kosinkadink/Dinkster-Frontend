@@ -77,7 +77,7 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
 test.beforeEach(async ({ page }) => {
   let served: Record<string, unknown> | null = null
   try {
-    const probe = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=15`, { signal: AbortSignal.timeout(2000) })
+    const probe = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2000) })
     if (probe.ok) served = (await probe.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)

@@ -51,9 +51,9 @@ test('proves wire21 MULTI_COMBO editing, presentation, OOV, and remote choices',
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
-    dinkster: { version: 'wire21-multicombo-proof', schemaWire: 21 },
+    dinkster: { version: 'wire21-multicombo-proof', schemaWire: 1 },
     nodes: { Wire21MultiProof: {
-      schemaVersion: 21, nodeType: 'Wire21MultiProof', displayName: 'Wire 21 Multi Combo',
+      schemaVersion: 1, nodeType: 'Wire21MultiProof', displayName: 'Wire 21 Multi Combo',
       category: 'test', outputNode: false, signature: 'wire21-multi-proof', interface: multiInterface,
     } },
   } }))
@@ -144,10 +144,10 @@ test('proves wire21 catalog retains ordinary schema when the server omits a wire
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 2,
-    dinkster: { version: 'wire21-server-encoded-proof', schemaWire: 21 },
+    dinkster: { version: 'wire21-server-encoded-proof', schemaWire: 1 },
     schemaSkips,
     nodes: { OrdinaryWire21: {
-      schemaVersion: 21, nodeType: 'OrdinaryWire21', displayName: 'Ordinary Wire 21', category: 'test',
+      schemaVersion: 1, nodeType: 'OrdinaryWire21', displayName: 'Ordinary Wire 21', category: 'test',
       outputNode: false, signature: 'ordinary-wire21', interface: [{
         role: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['core.string'] },
         widget: { type: 'STRING', multiline: false },

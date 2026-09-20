@@ -54,6 +54,22 @@ describe('Dinkster schema wire', () => {
         { role: 'input', id: 'color', type: concrete('core.string'), required: true, default: '#000000', widget: { type: 'COLOR' } },
         { role: 'input', id: 'curve', type: concrete('dinkster.curve'), required: true, widget: { type: 'CURVE' } },
         { role: 'input', id: 'compositor', type: concrete('dinkster.compositor'), required: true, widget: { type: 'COMPOSITOR' } },
+        {
+          role: 'input',
+          id: 'representations',
+          type: concrete('core.string'),
+          required: true,
+          default: '',
+          widget: {
+            type: 'REPRESENTATIONS',
+            default: 'text',
+            userSwitchable: true,
+            representations: [
+              { id: 'text', displayName: 'Text', widget: { type: 'STRING', multiline: true } },
+              { id: 'color', displayName: 'Color', widget: { type: 'COLOR' } },
+            ],
+          },
+        },
       ],
     })
 
@@ -69,7 +85,64 @@ describe('Dinkster schema wire', () => {
       'COLOR',
       'CURVE',
       'COMPOSITOR',
+      'STRING',
     ])
+    expect(inputsOf(result.schema!)[10]!.widget?.representations).toEqual({
+      default: 'text',
+      userSwitchable: true,
+      representations: [
+        expect.objectContaining({
+          id: 'text',
+          displayName: 'Text',
+          widget: expect.objectContaining({ widgetType: 'STRING' }),
+        }),
+        expect.objectContaining({
+          id: 'color',
+          displayName: 'Color',
+          widget: expect.objectContaining({ widgetType: 'COLOR' }),
+        }),
+      ],
+    })
+  })
+
+  it('rejects nested and mixed-domain widget representations', () => {
+    const parse = (representations: readonly unknown[]) => parseDinksterSchema('Representations', {
+      schemaVersion: 1,
+      interface: [{
+        role: 'input',
+        id: 'value',
+        type: concrete('core.string'),
+        required: true,
+        widget: {
+          type: 'REPRESENTATIONS',
+          default: 'first',
+          userSwitchable: true,
+          representations,
+        },
+      }],
+    })
+
+    const nested = parse([{
+      id: 'first',
+      displayName: 'Nested',
+      widget: {
+        type: 'REPRESENTATIONS',
+        default: 'text',
+        userSwitchable: true,
+        representations: [
+          { id: 'text', displayName: 'Text', widget: { type: 'STRING' } },
+        ],
+      },
+    }])
+    expect(nested.schema).toBeUndefined()
+    expect(nested.diagnostics[0]?.message).toContain('nested widget representations are forbidden')
+
+    const mixed = parse([
+      { id: 'first', displayName: 'Text', widget: { type: 'STRING', multiline: true } },
+      { id: 'second', displayName: 'Custom', widget: { type: 'pack.custom' } },
+    ])
+    expect(mixed.schema).toBeUndefined()
+    expect(mixed.diagnostics[0]?.message).toContain('representations must share one canonical value domain')
   })
 
   it('decodes current structural entries and rejects malformed current schemas', () => {

@@ -50,7 +50,7 @@ async function expandAdvanced(page: Page, nodeId: string): Promise<void> {
 }
 
 function assertWireContract(schema: SaveVideoWire): void {
-  expect(schema.schemaVersion).toBe(38)
+  expect(schema.schemaVersion).toBe(1)
   expect(schema.version).toBe(4)
   expect(schema.outputNode).toBe(true)
   expect(schema.executionArms).toContain('native')
@@ -74,7 +74,7 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
     'set DINKSTER_E2E_USE_NATIVE=1 and DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
   test.setTimeout(90_000)
 
-  const catalogResponse = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=38`, {
+  const catalogResponse = await fetch(`${NATIVE_BACKEND}/api/nodes`, {
     signal: AbortSignal.timeout(5_000),
   })
   expect(catalogResponse.ok).toBe(true)
@@ -335,7 +335,7 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
 
   const evidence = {
     contract: {
-      schemaWire: 38,
+      schemaWire: 1,
       migration: {
         selectionSource: 'dynamic.format.selected',
         selectionDestination: 'values.format',

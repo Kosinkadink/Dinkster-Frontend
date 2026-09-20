@@ -5,7 +5,7 @@ const nativeBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.
 test.beforeEach(async ({ page }) => {
   let nodes: Record<string, unknown> | undefined
   try {
-    const response = await fetch(`${nativeBackend}/api/nodes?wire=44`, { signal: AbortSignal.timeout(2_000) })
+    const response = await fetch(`${nativeBackend}/api/nodes`, { signal: AbortSignal.timeout(2_000) })
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* The skip below reports the unavailable backend. */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${nativeBackend}`)

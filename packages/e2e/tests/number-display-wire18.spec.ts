@@ -18,10 +18,10 @@ const numberInput = (id: string, display?: string, displayName?: string) => ({
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-number-display-proof', schemaWire: 21 },
+  dinkster: { version: 'audit-number-display-proof', schemaWire: 1 },
   nodes: {
     'test.number_display': {
-      schemaVersion: 21,
+      schemaVersion: 1,
       displayName: 'NUMBER display wire 18',
       category: 'test',
       interface: [

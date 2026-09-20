@@ -34,7 +34,7 @@ reordering branches does not change the selected id, links, cache identity, or
 submitted graph. A forwarded family keeps labels on the owning subgraph
 occurrence, so sibling instances can name the same stable members differently.
 
-Wire-15 named numeric and boolean family members include an inline literal
+Named numeric and boolean family members include an inline literal
 editor unless their schema sets `forceInput`. Forced members render as
 connection-only socket rows, so generic canvas layout can pair them with output
 sockets on the same line. For editable families, editing a trailing ghost

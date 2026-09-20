@@ -101,10 +101,10 @@ test.beforeEach(async ({ page }) => {
 
   let table: { readonly schemaVersion?: number; readonly nodes?: Record<string, unknown> } | undefined
   try {
-    const response = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=35`, { signal: AbortSignal.timeout(2_000) })
+    const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2_000) })
     if (response.ok) table = await response.json() as typeof table
   } catch { /* handled by the skip below */ }
-  test.skip(table?.schemaVersion !== 1, `no wire-35 native Dinkster backend reachable at ${NATIVE_BACKEND}`)
+  test.skip(table?.schemaVersion !== 1, `no current native Dinkster backend reachable at ${NATIVE_BACKEND}`)
   const nodes = table!.nodes ?? {}
   test.skip(!('dinkster.curve.editor' in nodes && 'dinkster.curve.evaluate' in nodes),
     'native backend lacks the Curve Editor and Evaluate Curve nodes')
@@ -113,7 +113,7 @@ test.beforeEach(async ({ page }) => {
     readonly schemaVersion?: number
     readonly interface?: readonly { readonly id?: string; readonly widget?: unknown }[]
   }
-  expect(editorWire.schemaVersion).toBe(35)
+  expect(editorWire.schemaVersion).toBe(1)
   expect(editorWire.interface?.find((item) => item.id === 'curve')?.widget).toEqual({ type: 'CURVE' })
 
   await page.route('/system_stats', (route) =>

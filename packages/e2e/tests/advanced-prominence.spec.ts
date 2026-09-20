@@ -31,7 +31,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'advanced-prominence-e2e', schemaWire: 38 },
+    dinkster: { version: 'advanced-prominence-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))

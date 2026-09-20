@@ -47,7 +47,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'full-pseudo-locale-e2e', schemaWire: 44 },
+      dinkster: { version: 'full-pseudo-locale-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })

@@ -488,7 +488,7 @@ test('collapses an exact maintained group into its native replacement', async ({
 })
 
 test('native alias import is canonical before badges, save/reopen, and submission', async ({ page }) => {
-  const served = await page.request.get(`${NATIVE_BACKEND}/api/nodes?wire=3,4,5,6,10,11,12,13,14,15,16`).catch(() => null)
+  const served = await page.request.get(`${NATIVE_BACKEND}/api/nodes`).catch(() => null)
   test.skip(served === null || !served.ok(), `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
 
   // This spec intentionally exercises the live native backend through the

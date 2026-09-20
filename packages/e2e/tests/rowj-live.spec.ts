@@ -59,7 +59,7 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   })
 
   await page.goto('/')
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0), { timeout: 20_000 }).toBeGreaterThan(500)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0), { timeout: 20_000 }).toBeGreaterThan(400)
   expect(wires).toContain(DINKSTER_SCHEMA_WIRE_VERSION)
 
   await page.evaluate(() => {

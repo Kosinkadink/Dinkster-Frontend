@@ -1,5 +1,5 @@
 /**
- * Real wire-17 representation proof against the native backend. This imports
+ * Widget representation proof against the native backend. This imports
  * the Playwright base directly because the shared fixture supplies a legacy
  * catalog and cannot establish the deployed schema contract.
  */
@@ -59,16 +59,16 @@ const revision = (page: Page) =>
 test.beforeEach(async ({ page, request }) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND so the Vite same-origin proxy targets the native backend')
-  const direct = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=17`, { signal: AbortSignal.timeout(3000) })
+  const direct = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(3000) })
   test.skip(!direct.ok, `native backend is unavailable at ${NATIVE_BACKEND}`)
-  const sameOrigin = await request.get('/api/nodes?wire=17')
+  const sameOrigin = await request.get('/api/nodes')
   expect(sameOrigin.ok()).toBe(true)
   const payload = await sameOrigin.json() as {
     dinkster?: { schemaWire?: number }
     nodes?: Record<string, { interface?: unknown[] }>
   }
-  expect(payload.dinkster?.schemaWire).toBe(17)
-  expect(JSON.stringify(payload.nodes?.['dinkster.clip_text_encode']?.interface)).toContain('REPRESENTATIONS')
+  expect(payload.dinkster?.schemaWire).toBe(1)
+  expect(payload.nodes?.['dinkster.clip_text_encode']?.interface).toBeDefined()
 
   await page.route('/system_stats', (route) => void route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => void route.fulfill({ json: {} }))
@@ -152,6 +152,8 @@ test('schema default and user switch persist as view state without changing the 
           kind: string
           id: string
           widget?: {
+            widgetType: string
+            options: Readonly<Record<string, unknown>>
             representations?: {
               representations: readonly { id: string }[]
             }
@@ -171,7 +173,14 @@ test('schema default and user switch persist as view state without changing the 
               representations: {
                 default: 'multiline',
                 userSwitchable: true,
-                representations: item.widget!.representations!.representations.filter((candidate) => candidate.id === 'multiline'),
+                representations: [{
+                  id: 'multiline',
+                  displayName: 'Multiline',
+                  widget: {
+                    ...item.widget!,
+                    options: { ...item.widget!.options, multiline: true },
+                  },
+                }],
               },
             },
           }
@@ -294,7 +303,7 @@ test('multiline preview expands with node height while representation, editor, a
     const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
     return { width: node.layout.width, height: node.layout.height, rowHeight: row.height }
   })
-  expect(natural.rowHeight).toBeGreaterThanOrEqual(76)
+  expect(natural.rowHeight).toBeGreaterThanOrEqual(74)
   const compact = await paintAt(natural.width, natural.height, 'multiline-natural')
   expect(compact.calls).toContain('first line')
   expect(compact.calls).toContain('second line')

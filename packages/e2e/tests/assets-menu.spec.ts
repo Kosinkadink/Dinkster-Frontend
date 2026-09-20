@@ -23,7 +23,7 @@ test('global Assets browse surface is aggregated, honest, persistent, and read-o
   await page.route('/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'assets-menu-e2e', schemaWire: 16 },
+    dinkster: { version: 'assets-menu-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('**/api/mounts', (route) => void route.fulfill({ json: { mounts: [
