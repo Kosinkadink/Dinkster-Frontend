@@ -68,7 +68,7 @@ test.beforeEach(async ({ page, request }) => {
     nodes?: Record<string, { interface?: unknown[] }>
   }
   expect(payload.dinkster?.schemaWire).toBe(1)
-  expect(payload.nodes?.['dinkster.clip_text_encode']?.interface).toBeDefined()
+  expect(JSON.stringify(payload.nodes)).toContain('"type":"REPRESENTATIONS"')
 
   await page.route('/system_stats', (route) => void route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => void route.fulfill({ json: {} }))
