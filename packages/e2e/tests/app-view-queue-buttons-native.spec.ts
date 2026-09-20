@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
   } catch { /* The skip below reports the unavailable backend. */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${nativeBackend}`)
   test.skip(!('dev.image.gradient' in nodes!),
-    `native backend at ${nativeBackend} lacks dev.image.gradient - run dinkster-serve with --dev`)
+    `native backend at ${nativeBackend} lacks dev.image.gradient - serve the dinkster-nodes-dev pack`)
 })
 
 test('an App View partial queue button completes against the native backend', async ({ page }) => {

@@ -3,7 +3,7 @@
  * the frontend against deterministic fixtures; this suite proves the same
  * coverage against a real native backend by opening the backend's shipped
  * dev-gallery template (pack "core", node types dev.gallery.*, composed
- * under `dinkster-serve --dev`) through the production templates surface, so
+ * from the `dinkster-nodes-dev` pack through the production templates surface, so
  * wire decode gaps cannot hide behind fixture equivalence.
  *
  * Skips loudly without a reachable native backend (DINKSTER_NATIVE_BACKEND,
@@ -38,7 +38,7 @@ test.beforeEach(async ({ page }) => {
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
   test.skip(!(served !== null && 'dev.gallery.sockets' in served),
-    `native backend at ${NATIVE_BACKEND} lacks dev.gallery.* - run dinkster-serve with --dev (Dinkster >= 33a1345)`)
+    `native backend at ${NATIVE_BACKEND} lacks dev.gallery.* - serve the dinkster-nodes-dev pack (Dinkster >= 33a1345)`)
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
