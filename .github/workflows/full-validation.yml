@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 6-22/2 * * *'
+    - cron: "0 6-22/2 * * *"
       timezone: America/Los_Angeles
-    - cron: '43 10 * * *'
+    - cron: "43 10 * * *"
   workflow_dispatch:
   workflow_call:
 
@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: d15d8745e958746447c47cad72031f1632716890
+  DINKSTER_REF: 7ebfe0df27d4212630d3a0e5bb41c1333870d287
 
 jobs:
   validation-plan:

@@ -18,20 +18,19 @@ test('an ordinary third-party pack activates and executes through public contrac
           .__dinksterTest!.app.backends.get()[0]
           ?.registry.get()?.schemas
         return {
-          contract: schemas?.has('dev.extension.contract'),
+          contract: schemas?.has('fixture.extension.contract'),
           defaultPack: schemas?.has('dinkster.int'),
-          gradient: schemas?.has('dev.image.gradient'),
         }
       }),
     )
-    .toEqual({ contract: true, defaultPack: false, gradient: true })
+    .toEqual({ contract: true, defaultPack: false })
   const status = page.locator(
     '[data-host-ui-contribution="dinkster-extension-contract-fixture.status"]',
   )
   await expect(status).toContainText('Third-party pack route ready', {
     timeout: 15_000,
   })
-  await expect(status).toContainText('Waiting for custom dev.image execution')
+  await expect(status).toContainText('Waiting for custom fixture execution')
 
   const diagnostics = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
@@ -47,36 +46,23 @@ test('an ordinary third-party pack activates and executes through public contrac
             name: 'Extension contract',
             nets: {},
             reroutes: {},
-            nextOrdinal: 3,
+            nextOrdinal: 2,
             nodes: {
-              gradient: {
-                id: 'gradient',
-                type: 'dev.image.gradient',
-                title: 'Third-party image',
-                values: { width: 13, height: 7 },
-              },
               proof: {
                 id: 'proof',
-                type: 'dev.extension.contract',
+                type: 'fixture.extension.contract',
                 title: 'Extension contract proof',
-                values: {},
+                values: { width: 13, height: 7 },
               },
             },
-            links: {
-              image: {
-                id: 'image',
-                from: { node: 'gradient', port: 'image' },
-                to: { node: 'proof', port: 'image' },
-              },
-            },
+            links: {},
           },
         },
         view: {
           graphs: {
             root: {
               nodes: {
-                gradient: { position: { x: 120, y: 180 } },
-                proof: { position: { x: 500, y: 180 } },
+                proof: { position: { x: 320, y: 180 } },
               },
             },
           },
@@ -95,7 +81,7 @@ test('an ordinary third-party pack activates and executes through public contrac
           .sort(),
       ),
     )
-    .toEqual(['gradient', 'proof'])
+    .toEqual(['proof'])
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
@@ -105,7 +91,7 @@ test('an ordinary third-party pack activates and executes through public contrac
     page.getByTestId('execution-row').first().locator('.execution-status'),
   ).toHaveText('Completed', { timeout: 30_000 })
   await expect(status).toContainText(
-    'Custom dev.image execution: 13 x 7 (mean 0.500)',
+    'Custom fixture execution: 13 x 7 (mean 0.500)',
   )
 
   const screenshot = await page.screenshot({ animations: 'disabled' })

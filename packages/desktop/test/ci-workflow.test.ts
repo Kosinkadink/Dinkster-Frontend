@@ -356,7 +356,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
-      "'packages/dinkster-nodes-dev/extension-contract-pack.toml'",
+      "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
     )
     expect(auditConfig).toContain(
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",

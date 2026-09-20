@@ -34,7 +34,7 @@ export function frontendContributionAuthorized(kind: FrontendContributionKind, p
   switch (kind) {
     case 'widgetKind': case 'widgetView': case 'previewRenderer': case 'textEditorExtension': case 'workflowImporter':
       return privileges.includes('schema-widget')
-    case 'canvasLayer': case 'nodeDecoration': case 'menu':
+    case 'canvasLayer': case 'nodeDecoration': case 'menu': case 'virtualNode':
       return privileges.includes('graph-editor-canvas')
     case 'command': case 'keybinding':
       return privileges.includes('graph-editor-canvas') || privileges.includes('app-workflow')

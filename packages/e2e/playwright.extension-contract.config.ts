@@ -38,9 +38,10 @@ const nativeBackend = `http://127.0.0.1:${nativePort}`
 process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
 const pack = resolve(
   dinksterRoot,
-  'packages/dinkster-nodes-dev/extension-contract-pack.toml',
+  'tests/fixtures/extension-contract-pack/dinkster-pack.toml',
 )
 accessSync(pack)
+const packRoot = resolve(pack, '..')
 
 export default defineConfig({
   testDir: './tests',
@@ -66,7 +67,13 @@ export default defineConfig({
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/extension-contract-library'))}`,
       ].join(' '),
       cwd: dinksterRoot,
-      env: { ...process.env, DINKSTER_SERVING_PYTHON: python },
+      env: {
+        ...process.env,
+        DINKSTER_SERVING_PYTHON: python,
+        PYTHONPATH: [packRoot, process.env['PYTHONPATH']]
+          .filter(Boolean)
+          .join(process.platform === 'win32' ? ';' : ':'),
+      },
       url: `${nativeBackend}/api/health`,
       reuseExistingServer: false,
       timeout: 180_000,

@@ -75,12 +75,12 @@ and each remains behind its host's counted-suite launcher so Actions and owner
 gates share one admission limit. The jobs retain their existing assertions
 and dependency pins:
 
-| Job | Checks |
-| --- | --- |
-| `fast` | Push-only formatting, typecheck, UI-string and contract subset |
-| `ci` | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite |
+| Job         | Checks                                                                                                                                                                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fast`      | Push-only formatting, typecheck, UI-string and contract subset                                                                                                                                                                                        |
+| `ci`        | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                          |
 | `e2e-suite` | Two representative lanes on pushes; four parallel-safe shards, two backend-serial shards and the performance browser job for durable runs. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
-| `e2e` | Always evaluates the aggregate and requires every E2E matrix leg to succeed |
+| `e2e`       | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                           |
 
 `release-desktop.yml` calls full validation before its release job, so the
 exact selected main commit must pass before publication begins.
@@ -92,9 +92,9 @@ pinned Dinkster checkout and uses frontend/native ports 15376/15377. Full E2E
 uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
 compatibility dependencies into the pinned ComfyUI interpreter used by its
 full composition. Its contract proof separately starts Dinkster with
-`--no-default-packs --pack packages/dinkster-nodes-dev/extension-contract-pack.toml`
+`--no-default-packs --pack tests/fixtures/extension-contract-pack/dinkster-pack.toml`
 on ports 15420/15421, activates the fixture pack's immutable frontend module,
-executes its custom value graph, and observes its typed route and event in
+executes its custom node, and observes its typed route and event in
 host-owned UI.
 Both browser modes run inside the isolated network. Base, hosted and audit
 Playwright servers explicitly enable the v1 compatibility probe required by
