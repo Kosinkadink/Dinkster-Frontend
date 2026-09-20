@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: 2db569b3a7c27a8df235bcd5fa7675b43635f3ec
+  DINKSTER_REF: 26e393ca39a790199a268ae0a13f0a3c639b8216
 
 jobs:
   fast:
@@ -35,9 +35,13 @@ jobs:
           repository: Kosinkadink/Dinkster
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: pnpm/action-setup@v4
         with:
           version: 10.31.0
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - uses: actions/setup-node@v4
         with:
           node-version: 22

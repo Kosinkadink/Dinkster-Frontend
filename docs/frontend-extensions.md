@@ -47,6 +47,10 @@ schema, or backend status; footer actions remain keyboard reachable.
 
 Widget and preview code receives only its scoped client capability through
 `WidgetEnv`; raw theme or token objects are not part of the extension contract.
+Pack-defined schema widget descriptors retain their declared type and JSON
+parameters for `widgetKind` lookup. An active matching kind supplies its normal
+compact view and editor. Without one, the node remains usable through the raw
+value editor and Problems names the unavailable kind.
 
 Frontend API 1.1 adds three manifest-first doors that still render only this
 declarative host UI. `editor(id, kind)` registers a titled center-region
