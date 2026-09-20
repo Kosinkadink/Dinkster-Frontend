@@ -9,7 +9,7 @@ import type {
   P2PTransferActivity,
   RuntimeSettings,
 } from '@dinkster/client'
-import { ProductCheckbox } from './ProductControls.js'
+import { ProductCheckbox, type ProductCheckboxState } from './ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
@@ -29,6 +29,11 @@ function asP2PSettings(value: unknown): P2PSettings | undefined {
 
 const sameSettings = (left: P2PSettings, right: P2PSettings): boolean =>
   Object.entries(left).every(([key, value]) => value === right[key as keyof P2PSettings])
+
+const sharingState = (settings: P2PSettings | undefined): ProductCheckboxState => {
+  if (settings === undefined || (!settings.downloadsEnabled && !settings.seedingEnabled)) return false
+  return settings.downloadsEnabled && settings.seedingEnabled ? true : 'mixed'
+}
 
 const formatBytes = (bytes: number): string => {
   if (bytes === 0) return '0 B'
@@ -308,7 +313,7 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
           {(settings) => <>
             <Show when={!writable()}><ProductNotice tone="warning">{m().readOnly}</ProductNotice></Show>
             <Show when={writable()} fallback={<dl class="p2p-card p2p-readonly-summary">
-              <div><dt>{m().downloads}</dt><dd>{settings().downloadsEnabled ? m().enabled : m().disabled}</dd></div>
+              <div><dt>{m().sharing}</dt><dd>{sharingState(settings()) === 'mixed' ? m().mixed : sharingState(settings()) ? m().enabled : m().disabled}</dd></div>
               <div><dt>{m().seeding}</dt><dd>{settings().seedingEnabled ? m().enabled : m().disabled}</dd></div>
               <div><dt>{m().scope}</dt><dd>{settings().scope === 'lan-only' ? m().lanOnly : m().internet}</dd></div>
               <div><dt>{m().meteredPause}</dt><dd>{settings().pauseOnMetered ? m().enabled : m().disabled}</dd></div>
@@ -321,12 +326,12 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
               <ProductField
                 controlId={id('enabled')}
                 label={m().sharing}
-                metadata={<span class="p2p-setting-state">{settings().downloadsEnabled || settings().seedingEnabled ? m().enabled : m().disabled}</span>}
+                metadata={<span class="p2p-setting-state">{sharingState(settings()) === 'mixed' ? m().mixed : sharingState(settings()) ? m().enabled : m().disabled}</span>}
               >
                 <ProductCheckbox
                   id={id('enabled')}
                   ariaLabel={m().sharing}
-                  checked={settings().downloadsEnabled || settings().seedingEnabled}
+                  checked={sharingState(settings())}
                   onChange={(value) => setDraft((current) => current === undefined ? current : {
                     ...current,
                     downloadsEnabled: value,
@@ -334,7 +339,7 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
                   })}
                 />
               </ProductField>
-              <p class="p2p-help">{saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}</p>
+              <p class="p2p-help">{sharingState(saved()) === 'mixed' ? m().sharingHelpMixed : saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}</p>
               <ProductNotice tone="info" class="p2p-upload-disclosure">{m().uploadDisclosure}</ProductNotice>
               <ProductField controlId={id('scope')} label={m().scope} layout="stack">
                 <ProductSelect

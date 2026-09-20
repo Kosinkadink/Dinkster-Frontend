@@ -155,6 +155,37 @@ describe('P2PPanel', () => {
     dispose()
   })
 
+  it('represents a saved mixed state and normalizes both capabilities on', async () => {
+    const { root, connection, dispose } = mount({ value: { ...defaults, downloadsEnabled: true } })
+    await flush()
+
+    const sharing = root.querySelector<HTMLButtonElement>('[id$="-enabled"]')!
+    expect(sharing.getAttribute('aria-checked')).toBe('mixed')
+    expect(root.textContent).toContain('Mixed')
+    expect(root.textContent).toContain('Peer downloads are on while background seeding is off.')
+    sharing.click()
+    root.querySelector('form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
+    await flush()
+
+    expect(connection.updateRuntimeSetting).toHaveBeenCalledWith('p2p', {
+      ...defaults,
+      downloadsEnabled: true,
+      seedingEnabled: true,
+    })
+    expect(sharing.getAttribute('aria-checked')).toBe('true')
+    dispose()
+  })
+
+  it('summarizes a read-only mixed state consistently', async () => {
+    const { root, dispose } = mount({ value: { ...defaults, downloadsEnabled: true }, writable: false })
+    await flush()
+
+    const rows = [...root.querySelectorAll('.p2p-readonly-summary > div')].map((row) => row.textContent)
+    expect(rows).toContain('Peer-to-peer sharingMixed')
+    expect(rows).toContain('Background seedingOff')
+    dispose()
+  })
+
   it('shows metered pause, durable counters, seed-off upload, authorization, and allowed actions', async () => {
     const metered: P2PStatus = {
       ...activeStatus,
@@ -183,7 +214,7 @@ describe('P2PPanel', () => {
     expect(root.querySelector<HTMLElement>(`.p2p-authorization code[title="${grantId}"]`)?.getAttribute('aria-label')).toBe(grantId)
     expect(root.querySelector<HTMLElement>(`.p2p-authorization code[title="${seedGrant.evidenceId}"]`)?.getAttribute('aria-label')).toBe(seedGrant.evidenceId)
     expect(root.querySelector('[data-testid="p2p-transfer"] code')?.getAttribute('aria-label')).toBe(digest)
-    expect(root.querySelector<HTMLButtonElement>('[id$="-enabled"]')?.getAttribute('aria-checked')).toBe('true')
+    expect(root.querySelector<HTMLButtonElement>('[id$="-enabled"]')?.getAttribute('aria-checked')).toBe('mixed')
     expect(root.textContent).not.toContain('Reset budget')
     expect(root.textContent).not.toContain('Seed continuously')
 

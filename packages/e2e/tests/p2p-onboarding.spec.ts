@@ -452,3 +452,32 @@ test('fresh P2P is off without a modal and the single toggle starts and stops it
   await page.reload()
   await expect(page.getByTestId('p2p-first-run-notice')).toHaveCount(0)
 })
+
+test('mixed saved P2P choices are explicit and normalize both capabilities on', async ({ page }, testInfo) => {
+  const fixture: P2PFixture = {
+    settings: { ...defaultSettings, downloadsEnabled: true, seedingEnabled: false },
+    metered: false, grantRevoked: false, requiresResume: false, resumed: false,
+    downloadedBytes: 0, uploadedBytes: 0, statusRequests: 0,
+  }
+  await installRoutes(page, fixture)
+  await page.goto('/')
+  await openP2P(page)
+  const panel = page.getByTestId('p2p-panel')
+  const toggle = panel.getByRole('checkbox', { name: 'Peer-to-peer sharing' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'mixed')
+  await expect(panel).toContainText('Mixed')
+  await expect(panel).toContainText('Peer downloads are on while background seeding is off.')
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await panel.getByText('Sharing controls', { exact: true }).hover()
+  await page.waitForTimeout(500)
+  const image = await panel.locator('.p2p-sharing').screenshot({
+    ...(proofDir ? { path: join(proofDir, 'p2p-mixed-state.png') } : {}),
+    animations: 'disabled',
+  })
+  await testInfo.attach('p2p-mixed-state.png', { body: image, contentType: 'image/png' })
+
+  await toggle.click()
+  await panel.getByRole('button', { name: 'Apply settings' }).click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  expect(fixture.settings).toMatchObject({ downloadsEnabled: true, seedingEnabled: true })
+})

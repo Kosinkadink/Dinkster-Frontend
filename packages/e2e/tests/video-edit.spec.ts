@@ -541,8 +541,6 @@ test(liveTestTitle, async ({ page, request }, info) => {
     if (outgoing.method() === 'POST' && url.pathname === '/api/jobs') submissions.push(outgoing.postDataJSON() as Record<string, any>)
   })
   await page.goto('/')
-  const p2pNotice = page.getByRole('dialog', { name: /Peer-to-peer sharing is on/ })
-  if (await p2pNotice.isVisible()) await p2pNotice.getByRole('button', { name: 'Dismiss notice' }).last().click()
   const closeInspector = page.getByRole('button', { name: 'Close Inspector panels' })
   if (await closeInspector.isVisible()) await closeInspector.click()
   await expect.poll(() => page.evaluate(() =>
