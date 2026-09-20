@@ -283,7 +283,11 @@ function semanticSelector(s: NonNullable<GraphDef['selectors']>[string]): Json {
 function semanticGraph(g: GraphDef): Json {
   const selectors = Object.entries(g.selectors ?? {})
   return {
-    nodes: Object.fromEntries(Object.entries(g.nodes).map(([k, n]) => [k, semanticNode(n)])),
+    nodes: Object.fromEntries(
+      Object.entries(g.nodes)
+        .filter(([, node]) => node.virtual !== true)
+        .map(([k, n]) => [k, semanticNode(n)]),
+    ),
     links: semanticConnections(g),
     nets: g.nets,
     ...(g.boundary ? { boundary: g.boundary } : {}),

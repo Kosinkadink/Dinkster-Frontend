@@ -475,6 +475,7 @@ function compileImpl(
     if (!def) return
     const nextStack = new Set(stack).add(defId)
     for (const node of Object.values(def.nodes)) {
+      if (node.virtual === true) continue
       const mode = node.mode ?? 'active'
       if (node.region !== undefined) {
         if (mode === 'muted') continue
@@ -1533,6 +1534,7 @@ function compileImpl(
         if (node.dynamic !== undefined) ctx.overlays.set(node.id, node.dynamic)
         if (node.controllers !== undefined) ctx.controllers.set(node.id, node.controllers)
       }
+      if (node.virtual === true) continue
       const mode = node.mode ?? 'active'
       // Muted and bypassed nodes never enter the prompt. A bypassed subgraph
       // instance also never recurses: bypass acts at the boundary schema, so
@@ -2490,6 +2492,7 @@ function compileImpl(
   // explain a broken in-scope path).
 
   for (const fn of flat.values()) {
+    if (fn.node.virtual === true) continue
     if (!validatesNode(fn.runtimeId)) continue
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue // never reaches the prompt

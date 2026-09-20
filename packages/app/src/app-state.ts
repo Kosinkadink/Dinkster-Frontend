@@ -6,6 +6,7 @@
  */
 
 import {
+  CORE_VIRTUAL_NODE_KINDS,
   DINKSTER_ADVERTISED_WIRE_VERSIONS,
   activeLocale,
   analyzeSelectionExecution,
@@ -119,6 +120,7 @@ import {
   type GraphDef,
   type Signal,
   type WorkflowDocument,
+  type VirtualNodeKind,
   type WorkspaceCompileArtifact,
   type WidgetSpec,
   type Vec2,
@@ -2391,7 +2393,7 @@ export class AppState {
       this.editorBindings.register({ ...binding, id }),
     panel: (id: string, panel: Omit<PanelDescriptor, 'id'> | Omit<ExtensionPanelContributionV1, 'id'>): (() => void) =>
       'component' in panel
-        ? this.panels.register({ ...panel, id })
+        ? this.panels.register('id' in panel && panel.id === id ? panel as PanelDescriptor : { ...panel, id })
         : this.registerExtensionPanel({ ...panel, id }),
   }
   /**
@@ -2401,7 +2403,18 @@ export class AppState {
    * Gate overrides persist locally (browser storage), so a disabled panel
    * stays disabled across sessions.
    */
-  private readonly extensionRevision = createSignal(0)
+  readonly extensionRevision = createSignal(0)
+  readonly virtualNodeKinds = new Map(CORE_VIRTUAL_NODE_KINDS.map((kind) => [kind.id, kind]))
+  private registerVirtualNode(kind: VirtualNodeKind): () => void {
+    if (this.virtualNodeKinds.has(kind.id)) throw new Error(`virtual node kind '${kind.id}' is already registered`)
+    this.virtualNodeKinds.set(kind.id, kind)
+    this.extensionRevision.update((revision) => revision + 1)
+    return () => {
+      if (this.virtualNodeKinds.get(kind.id) !== kind) return
+      this.virtualNodeKinds.delete(kind.id)
+      this.extensionRevision.update((revision) => revision + 1)
+    }
+  }
   private readonly extensionTargets: ExtensionHostOptions<TextWidgetEditorExtension> = {
     changedSignal: this.extensionRevision,
     menus: this.menuRegistry,
@@ -2416,6 +2429,7 @@ export class AppState {
     registerEditor: (kind) => this.frontendDoors.editor(kind.id, kind),
     registerEditorBinding: (binding) => this.frontendDoors.editorBinding(binding.id, binding),
     registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
+    registerVirtualNode: (kind) => this.registerVirtualNode(kind),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()
@@ -3561,6 +3575,8 @@ export class AppState {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
     const resolve = (type: string): NodeSchema | undefined => {
+      const virtual = this.virtualNodeKinds.get(type)
+      if (virtual !== undefined) return virtual.schema
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live)?.resolve(type) : undefined
     }
@@ -4659,6 +4675,7 @@ export class AppState {
     for (const graph of Object.values(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       if (
         node.type.startsWith('#') ||
+        (node.virtual === true && this.virtualNodeKinds.has(node.type)) ||
         registry.resolve(node.type) ||
         registry.comfyAliases?.sourceSchemas.has(node.type) === true ||
         registry.comfyGroups?.groupSchemas.has(node.type) === true
@@ -5241,6 +5258,8 @@ export class AppState {
     initialRegistry?: SchemaRegistry,
   ): Tab {
     const resolve = (type: string): NodeSchema | undefined => {
+      const virtual = this.virtualNodeKinds.get(type)
+      if (virtual !== undefined) return virtual.schema
       // Frozen tabs resolve with their execution's compile-time registry; a
       // lineage lookup would hand them the LIVE tab's current schemas.
       if (execution) return this.registryForExecution(execution)?.resolve(type)
@@ -5737,11 +5756,15 @@ export class AppState {
     let session: SharedDocumentSession
     try {
       session = await connectSharedSession(connection, coreCommandRegistry([], (type) => {
+        const virtual = this.virtualNodeKinds.get(type)
+        if (virtual !== undefined) return virtual.schema
         const tab = this.tabs.get().find((c) => !c.execution && c.store.doc.lineage === owner)
         return tab ? this.registryForTab(tab)?.resolve(type) : undefined
       }), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, (type) => {
+          const virtual = this.virtualNodeKinds.get(type)
+          if (virtual !== undefined) return virtual.schema
           const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
           return tab ? this.registryForTab(tab)?.resolve(type) : undefined
         }),

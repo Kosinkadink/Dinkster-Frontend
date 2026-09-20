@@ -139,7 +139,7 @@ test('the mounted Focused panel relabels without changing context, raw facts, or
   const entity = context.locator('.context-entities li')
   const problem = panel.locator('details.problem', { hasText: 'proof.sourceBroken' })
   const problemSummary = problem.locator('summary')
-  await problemSummary.click()
+  if (await problem.getAttribute('open') === null) await problemSummary.click()
   const showOnCanvas = problem.locator('.problem-show-on-canvas')
   await expect(showOnCanvas).toHaveText('Show on canvas')
   await showOnCanvas.focus()

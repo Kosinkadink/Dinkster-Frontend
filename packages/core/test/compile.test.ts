@@ -36,6 +36,36 @@ const compileInput = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'fu
 })
 
 describe('golden pairs', () => {
+  it('strips virtual notes without changing the execution prompt or semantic hash', () => {
+    const base = loadWorkflow('exec-basic')
+    const graph = base.graphs[base.root]!
+    const withNote: WorkflowDocument = {
+      ...base,
+      graphs: {
+        ...base.graphs,
+        [base.root]: {
+          ...graph,
+          nodes: {
+            ...graph.nodes,
+            note: {
+              id: asNodeId('note'),
+              type: 'dinkster.note',
+              virtual: true,
+              values: { text: 'not executable' },
+            },
+          },
+        },
+      },
+    }
+    const expected = compile(compileInput(base))
+    const actual = compile(compileInput(withNote))
+    expect(expected.ok).toBe(true)
+    expect(actual.ok).toBe(true)
+    if (!expected.ok || !actual.ok) return
+    expect(actual.artifact.prompt).toEqual(expected.artifact.prompt)
+    expect(semanticHashOf(withNote)).toBe(semanticHashOf(base))
+  })
+
   it.each(['exec-basic', 'exec-subgraph'] as const)('%s compiles to the expected prompt', (name) => {
     const doc = loadWorkflow(name)
     const expected = readJson(`fixtures/prompts/${name}.expected.json`)

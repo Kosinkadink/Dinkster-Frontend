@@ -21,6 +21,7 @@ import {
   type PackManifest,
 } from '../src/extensions/manifest.js'
 import { ExtensionHost, emptyGates, type GateState } from '../src/extensions/host.js'
+import type { VirtualNodeKind } from '../src/virtual-node.js'
 import type { PreviewRenderer, WidgetKind, WidgetRegistry, WidgetView } from '../src/widgets/contract.js'
 
 /** Minimal contract-faithful widget registry (the real one lives in @dinkster/widgets). */
@@ -81,7 +82,7 @@ it('keeps the authored frontend vocabulary to the supported contribution kinds',
     'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension',
     'menu', 'command', 'keybinding', 'setting', 'canvasLayer', 'nodeDecoration',
     'hostUi', 'searchProvider', 'workflowObserver', 'eventConsumer', 'workflowImporter',
-    'editor', 'editorBinding', 'panel',
+    'editor', 'editorBinding', 'panel', 'virtualNode',
   ])
 })
 
@@ -171,6 +172,38 @@ describe('validateManifest', () => {
       expect(validateManifest(m).map((d) => d.code)).toContain(code)
     }
   })
+})
+
+it('registers a synthetic pack virtual node and exposes its renderer', () => {
+  const rendered: VirtualNodeKind[] = []
+  const h = new ExtensionHost({
+    menus: createMenuRegistry(),
+    widgets: fakeWidgets(),
+    registerVirtualNode: (kind) => {
+      rendered.push(kind)
+      return () => void rendered.splice(rendered.indexOf(kind), 1)
+    },
+  })
+  const kind: VirtualNodeKind = {
+    id: 'notes.callout', title: 'Callout',
+    schema: {
+      type: 'notes.callout', displayName: 'Callout', category: 'Notes',
+      source: 'v3', isOutputNode: false, items: [],
+    },
+    defaultValues: { text: 'Hello' },
+    render: (node) => ({ text: String(node.values['text'] ?? ''), format: 'plain' }),
+  }
+  expect(h.register({
+    id: 'notes',
+    contributions: [{ id: 'notes.callout', category: 'virtualNode' }],
+  }, (api) => api.virtualNode('notes.callout', kind))).toEqual([])
+  expect(rendered).toEqual([kind])
+  expect(rendered[0]!.render({
+    id: 'n1' as never, type: 'notes.callout', virtual: true,
+    values: { text: 'Rendered' },
+  })).toEqual({ text: 'Rendered', format: 'plain' })
+  h.unregister('notes')
+  expect(rendered).toEqual([])
 })
 
 describe('F0 authored and effective manifests', () => {

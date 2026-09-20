@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { buildDinksterRegistry, type DinksterSubmitResult } from '@dinkster/client'
-import { asConnectionId, asPromptId, createMenuRegistry, createSearchRegistry, createSignal, type EffectiveExtensionSnapshot, type ExtensionEvent, type ExtensionHostOptions, type FrontendContributionKind, type FrontendPrivilege } from '@dinkster/core'
+import { asConnectionId, asPromptId, createMenuRegistry, createSearchRegistry, createSignal, type EffectiveExtensionSnapshot, type ExtensionEvent, type ExtensionHostOptions, type FrontendContributionKind, type FrontendPrivilege, type VirtualNodeKind } from '@dinkster/core'
 import { createTextWidgetEditorExtensionRegistry, createWidgetRegistry, type TextWidgetEditorExtension } from '@dinkster/widgets'
 import { ExtensionWorld, type FrontendActivationContext } from '../src/extension-world.js'
 import { HostUiContributionRegistry } from '../src/host-ui.js'
@@ -18,6 +18,7 @@ function setup() {
   const editors: unknown[] = []
   const editorBindings: unknown[] = []
   const panels: unknown[] = []
+  const virtualNodes: VirtualNodeKind[] = []
   const target: ExtensionHostOptions<TextWidgetEditorExtension> = {
     menus: createMenuRegistry(), widgets: createWidgetRegistry(), changedSignal: createSignal(0),
     registerSetting: (value) => settings.register(value),
@@ -30,8 +31,9 @@ function setup() {
     registerEditor: (value) => { editors.push(value); return () => { editors.splice(editors.indexOf(value), 1) } },
     registerEditorBinding: (value) => { editorBindings.push(value); return () => { editorBindings.splice(editorBindings.indexOf(value), 1) } },
     registerPanel: (value) => { panels.push(value); return () => { panels.splice(panels.indexOf(value), 1) } },
+    registerVirtualNode: (value) => { virtualNodes.push(value); return () => { virtualNodes.splice(virtualNodes.indexOf(value), 1) } },
   }
-  return { target, commands, ui, editors, editorBindings, panels }
+  return { target, commands, ui, editors, editorBindings, panels, virtualNodes }
 }
 
 const digest = `sha256:${'a'.repeat(64)}`
@@ -53,6 +55,28 @@ const extensionEvent = (seq: number): ExtensionEvent => ({
 })
 
 describe('connection extension worlds', () => {
+  it('projects a virtual node through the selected pack world and removes it on disposal', async () => {
+    const { target, virtualNodes } = setup()
+    const world = new ExtensionWorld(asConnectionId('a'), digest, target)
+    const kind: VirtualNodeKind = {
+      id: 'demo.contribution', title: 'Callout', defaultValues: { text: '' },
+      schema: {
+        type: 'demo.contribution', displayName: 'Callout', category: 'Notes', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'core.string' }, optional: true, widget: { widgetType: 'STRING', options: {} } }],
+      },
+      render: (node) => ({ text: String(node.values['text'] ?? ''), format: 'plain' }),
+    }
+    await world.activate(snapshotFor('virtualNode', 'graph-editor-canvas'), '', [], async () => ({
+      frontendExtension: { activate(context: FrontendActivationContext) {
+        context.virtualNode(kind.id, kind)
+      } },
+    }))
+    world.select(true)
+    expect(virtualNodes).toEqual([kind])
+    world.dispose()
+    expect(virtualNodes).toEqual([])
+  })
+
   it.each([
     ['widgetKind', 'schema-widget'], ['menu', 'graph-editor-canvas'], ['setting', 'app-workflow'], ['eventConsumer', 'event-consumer'],
   ] as const)('restricts %s before importing code without widening another privilege', async (kind, privilege) => {

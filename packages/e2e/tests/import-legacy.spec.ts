@@ -324,7 +324,10 @@ test('translates a legacy litegraph workflow into the native format', async ({ p
   expect(g.nodes['n5']).toBeUndefined()
   expect(g.nodes['n6']).toBeUndefined()
   expect(g.nodes['n7']).toBeUndefined()
-  expect(g.nodes['n9']).toBeUndefined()
+  expect(g.nodes['n9']).toEqual({
+    id: 'n9', type: 'dinkster.note', virtual: true,
+    values: { text: 'legacy note text' },
+  })
   expect(g.nodes['n10']).toBeUndefined()
   expect(g.nodes['n11']!.values).toEqual({ ckpt_name: 'v1-5-pruned-emaonly.safetensors' })
   expect(g.nodes['n12']!.values).toEqual({ ckpt_name: 'v1-5-pruned-emaonly.safetensors' })

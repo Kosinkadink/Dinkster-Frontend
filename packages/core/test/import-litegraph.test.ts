@@ -15,6 +15,7 @@ import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
+import { exportVirtualNodesToLitegraph } from '../src/format/export-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
@@ -59,6 +60,8 @@ const lgNode = (
   type: string,
   o: {
     pos?: [number, number]
+    size?: [number, number]
+    color?: string
     mode?: number
     flags?: JsonObject
     title?: string
@@ -71,6 +74,8 @@ const lgNode = (
   id,
   type,
   pos: o.pos ?? [id * 100, 0],
+  ...(o.size !== undefined ? { size: o.size } : {}),
+  ...(o.color !== undefined ? { color: o.color } : {}),
   ...(o.mode !== undefined ? { mode: o.mode } : {}),
   ...(o.flags !== undefined ? { flags: o.flags } : {}),
   ...(o.title !== undefined ? { title: o.title } : {}),
@@ -261,7 +266,7 @@ describe('basic translation', () => {
 
     expect(errorsOf(imported.diagnostics)).toEqual([])
     const graph = imported.document!.graphs[imported.document!.root]!
-    expect(Object.keys(graph.nodes)).toHaveLength(63)
+    expect(Object.keys(graph.nodes)).toHaveLength(66)
     for (const [alias, canonical] of Object.entries(trellis2Aliases)) {
       const authoredCount = nodes.filter((node) => node.type === alias).length
       expect(Object.values(graph.nodes).filter((node) => node.type === canonical)).toHaveLength(authoredCount)
@@ -2784,17 +2789,36 @@ describe('view extras', () => {
     expect(codesOf(diagnostics)).toContain('import.group.malformed')
   })
 
-  it('parks Note nodes under view ext', () => {
+  it('imports Note nodes as visible virtual nodes', () => {
     const json = workflow([
       lgNode(1, 'Note', { pos: [50, 60], widgets_values: ['remember this'] }),
       lgNode(2, 'CLIPTextEncode', { widgets_values: ['x'] }),
     ])
     const { document, diagnostics } = importLitegraph(json, resolve)
     const g = document!.graphs[document!.root]!
-    expect(g.nodes['n1']).toBeUndefined()
-    expect(document!.view.graphs[document!.root]!.ext?.['importer.notes']).toEqual([
-      { position: { x: 50, y: 60 }, text: 'remember this' },
+    expect(g.nodes['n1']).toEqual({
+      id: 'n1', type: 'dinkster.note', virtual: true,
+      values: { text: 'remember this' },
+    })
+    expect(document!.view.graphs[document!.root]!.nodes['n1']).toEqual({
+      position: { x: 50, y: 60 },
+    })
+    expect(codesOf(diagnostics)).not.toContain('import.schema.missing')
+  })
+
+  it('round-trips MarkdownNote text, geometry, and color', () => {
+    const json = workflow([
+      lgNode(7, 'MarkdownNote', {
+        pos: [12, 34], size: [420, 210], widgets_values: ['# Heading'], color: '#335577',
+      }),
     ])
-    expect(codesOf(diagnostics)).toContain('import.notes.parked')
+    const { document } = importLitegraph(json, resolve)
+    expect(document).toBeDefined()
+    expect(exportVirtualNodesToLitegraph(document!)).toEqual([
+      expect.objectContaining({
+        type: 'MarkdownNote', pos: [12, 34], size: [420, 210],
+        widgets_values: ['# Heading'], color: '#335577',
+      }),
+    ])
   })
 })

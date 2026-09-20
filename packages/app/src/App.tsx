@@ -2355,11 +2355,15 @@ export function App(props: {
             </button>
           </section>
         </Show>}
-      >{(panel) => (
-        <section class="native-panel-window" data-testid="native-panel-window" data-panel={panel.id}>
+      >{(panel) => {
+        const title = createMemo(() => {
+          locale()
+          return panel.title
+        })
+        return <section class="native-panel-window" data-testid="native-panel-window" data-panel={panel.id}>
           <header class="native-panel-window-header">
             <h1>
-              {panel.title}
+              {title()}
               <Show when={activePanelIndicator(panel)} keyed>
                 {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
               </Show>
@@ -2373,7 +2377,7 @@ export function App(props: {
             })}
           </div>
         </section>
-      )}</Show>
+      }}</Show>
       <Show when={managedContext().kind !== 'panel'}>
       <div class="shell" ref={shellEl}>
       <AssetConsentDialog app={app} />
@@ -2489,10 +2493,18 @@ export function App(props: {
           [aria-modal="true"]. */}
       <Show when={modalDescriptor()} keyed>
         {(panel) => {
+          const title = createMemo(() => {
+            locale()
+            return panel.title
+          })
+          const ariaLabel = createMemo(() => {
+            locale()
+            return panel.ariaLabel
+          })
           return (
             <ModalSurface
-              title={panel.title}
-              {...(panel.ariaLabel !== undefined ? { ariaLabel: panel.ariaLabel } : {})}
+              title={title()}
+              {...(panel.ariaLabel !== undefined ? { ariaLabel: ariaLabel() } : {})}
               modalId={panel.id}
               onRequestClose={closeModal}
             >
@@ -2534,12 +2546,15 @@ export function App(props: {
           <div class="sidebar-toggle-stack">
             <div class="sidebar-toggle-group" data-testid="dock-toggle-group">
               <For each={dockPanels()}>
-                {(panel) => (
-                  <ActivityBarButton
+                {(panel) => {
+                  const title = createMemo(() => { locale(); return panel.title })
+                  const accessibleName = createMemo(() => { locale(); return panel.ariaLabel ?? panel.title })
+                  const tooltip = createMemo(() => { locale(); return panel.description ?? panel.title })
+                  return <ActivityBarButton
                     icon={panel.icon}
-                    label={panel.title}
-                    accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
+                    label={title()}
+                    accessibleName={accessibleName()}
+                    tooltip={tooltip()}
                     pressed={sidebarPressed(panel.id)}
                     panelId={panel.id}
                     suppressTooltipWhenPressed={panel.id === 'assets' || panel.id === 'backends'}
@@ -2549,23 +2564,26 @@ export function App(props: {
                       toggleSidebarPanel(panel.id)
                     }}
                   />
-                )}
+                }}
               </For>
             </div>
             <div class="sidebar-toggle-group sidebar-toggle-group-bottom" data-testid="bottom-toggle-group">
               <For each={bottomPanels()}>
-                {(panel) => (
-                  <ActivityBarButton
+                {(panel) => {
+                  const title = createMemo(() => { locale(); return panel.title })
+                  const accessibleName = createMemo(() => { locale(); return panel.ariaLabel ?? panel.title })
+                  const tooltip = createMemo(() => { locale(); return panel.description ?? panel.title })
+                  return <ActivityBarButton
                     icon={panel.icon}
-                    label={panel.title}
-                    accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
+                    label={title()}
+                    accessibleName={accessibleName()}
+                    tooltip={tooltip()}
                     pressed={sidebarPressed(panel.id)}
                     panelId={panel.id}
                     testId={panel.toggleTestId}
                     onActivate={() => toggleSidebarPanel(panel.id)}
                   />
-                )}
+                }}
               </For>
             </div>
           </div>

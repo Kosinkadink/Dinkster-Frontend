@@ -59,6 +59,14 @@ id breaks ties; an unavailable editor cannot shadow a usable pack binding.
 chrome, rendering, Problems reporting, gating, and cleanup. Packs supply no
 DOM, CSS, Solid components, or lifecycle callbacks through these doors.
 
+The `virtualNode` contribution is the pack door for frontend-only workflow
+nodes. Its `VirtualNodeKind` provides a widget schema, defaults, and a pure
+render model; the host owns node creation, canvas rendering, editing,
+serialization, clipboard, collaboration, and compiler exclusion. It requires
+`graph-editor-canvas`, is independently gateable, and follows the same
+transactional registration and cleanup rules as other contributions. See
+`virtual-nodes.md` for the document and execution contract.
+
 Host contributions remain manifest-first and independently gateable.
 Registration is transactional: activation or identity failure rolls back the
 whole batch, unregisters admitted contributions in reverse order, aborts the
