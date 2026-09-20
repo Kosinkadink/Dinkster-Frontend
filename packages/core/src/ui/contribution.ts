@@ -147,7 +147,7 @@ export interface HostUiContributionV1 {
   readonly root: HostUiNodeV1
 }
 
-export type HostUiSurfaceV1 = 'status' | 'widget-editor' | 'preview-viewer'
+export type HostUiSurfaceV1 = 'status' | 'widget-editor' | 'preview-viewer' | 'editor' | 'panel' | 'toolbar'
 
 export interface HostUiProviderContextV1 {
   readonly version: 1

@@ -217,6 +217,44 @@ test.beforeEach(async ({ page }) => {
   await openRailPanel(page, 'Extensions')
 })
 
+test('pack doors render a center editor and right panel through host UI', async ({ page }) => {
+  const diagnostics = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const provider = () => ({
+      version: 1 as const,
+      root: { kind: 'group' as const, key: 'proof', direction: 'column' as const, children: [
+        { kind: 'status' as const, key: 'status', text: 'Third-party pack active', tone: 'success' as const },
+        { kind: 'text' as const, key: 'detail', text: 'Rendered by the host from a declarative contribution.' },
+      ] },
+    })
+    const result = app.extensions.register({
+      id: 'pack-doors-proof',
+      displayName: 'Pack Doors Proof',
+      contributions: [
+        { id: 'pack-doors-proof.editor', category: 'editor', label: 'Pack editor' },
+        { id: 'pack-doors-proof.binding', category: 'editorBinding', label: 'Pack editor binding' },
+        { id: 'pack-doors-proof.panel', category: 'panel', label: 'Pack panel' },
+      ],
+    }, (api) => {
+      api.editor('pack-doors-proof.editor', { id: 'pack-doors-proof.editor', title: 'Pack editor', provider })
+      api.editorBinding('pack-doors-proof.binding', {
+        id: 'pack-doors-proof.binding', editor: 'pack-doors-proof.editor', match: { editorRole: 'proof' }, priority: 20,
+      })
+      api.panel('pack-doors-proof.panel', 'sidebar.right', provider, 5, 'Pack panel')
+    })
+    const tab = app.activeTab()!
+    if (!app.openEditorForBinding(tab.id, { editorRole: 'proof' })) throw new Error('binding did not open its editor')
+    app.dock.activate('right', 'pack-doors-proof.panel')
+    app.dock.setOpen('right', true)
+    return result
+  })
+  expect(diagnostics).toEqual([])
+  await expect(page.locator('.canvas-stage').getByText('Third-party pack active', { exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Pack panel', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.rail').getByText('Third-party pack active', { exact: true })).toBeVisible()
+  await captureEditorProof(page, 'pack-registered-editor-and-panel')
+})
+
 test('installed pack lists in the Extensions panel and its menu item serves', async ({ page }) => {
   await expect(page.getByTestId('extensions-empty')).toContainText('No extension packs')
   expect(await installDemoPack(page)).toEqual([])

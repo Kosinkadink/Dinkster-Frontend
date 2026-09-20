@@ -81,6 +81,7 @@ it('keeps the authored frontend vocabulary to the supported contribution kinds',
     'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension',
     'menu', 'command', 'keybinding', 'setting', 'canvasLayer', 'nodeDecoration',
     'hostUi', 'searchProvider', 'workflowObserver', 'eventConsumer', 'workflowImporter',
+    'editor', 'editorBinding', 'panel',
   ])
 })
 
@@ -161,7 +162,7 @@ describe('validateManifest', () => {
         'extension.contribution-duplicate',
       ],
       [
-        manifest({ contributions: [{ id: 'rgthree.a', category: 'panel' as never }] }),
+        manifest({ contributions: [{ id: 'rgthree.a', category: 'not-real' as never }] }),
         'extension.category-unknown',
       ],
       [manifest({ uses: ['rgthree.widget.power'] }), 'extension.uses-own'],
