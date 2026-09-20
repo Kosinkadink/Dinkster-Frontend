@@ -156,7 +156,6 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 3
       matrix: ${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}
 
     steps:

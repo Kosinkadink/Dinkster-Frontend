@@ -57,9 +57,10 @@ The dispatch ref selects both the workflow and frontend checkout. Main pushes
 run the fast formatting, type, UI-string and contract subset plus parallel-safe
 shard 4/4 and backend-serial shard 1/2. The latter retains the software Vulkan
 check. Scheduled, dispatched and release-called runs keep the complete matrix.
-At most three E2E lanes run concurrently, and each remains behind the host's
-counted-suite launcher so Actions and owner gates share one admission limit.
-The jobs retain their existing assertions and dependency pins:
+All seven durable E2E lanes may run concurrently across the Linux runner pool,
+and each remains behind its host's counted-suite launcher so Actions and owner
+gates share one admission limit. The jobs retain their existing assertions
+and dependency pins:
 
 | Job | Checks |
 | --- | --- |

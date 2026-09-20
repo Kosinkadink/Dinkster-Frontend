@@ -23,7 +23,6 @@ interface Job {
   'timeout-minutes'?: number
   strategy?: {
     'fail-fast': boolean
-    'max-parallel': number
     matrix: string
   }
   steps?: Step[]
@@ -148,7 +147,6 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(full.jobs['e2e-suite']!.strategy).toEqual({
       'fail-fast': false,
-      'max-parallel': 3,
       matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
     })
     expect(full.jobs['e2e']!.if).toBe(
