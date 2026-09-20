@@ -44,10 +44,10 @@ hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, on manual
 dispatch, and when called by the desktop release workflow. The `on.schedule`
 cron list in that file is the single schedule definition; change its first
 cron line to change the two-hour cadence. Scheduled runs skip the heavy jobs
-when the latest successful main run already validated the same commit. Push
-runs cancel superseded push runs, while scheduled and called runs use a
-separate non-cancelling concurrency group. To test an unmerged branch that
-contains the workflow:
+when the latest successful durable main run already validated the same commit;
+reduced push runs do not satisfy that check. Push runs cancel superseded push
+runs, while scheduled and called runs use a separate non-cancelling concurrency
+group. To test an unmerged branch that contains the workflow:
 
 ```bash
 gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <branch>
