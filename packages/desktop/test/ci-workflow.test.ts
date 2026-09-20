@@ -64,6 +64,10 @@ const testingDocs = (
 describe('fast pull-request and full validation workflows', () => {
   it('runs exactly one bounded job without a PR label path', () => {
     expect(fast.on).toEqual({ pull_request: null, workflow_dispatch: null })
+    expect(fast.concurrency).toEqual({
+      group: 'ci-${{ github.workflow }}-${{ github.ref }}',
+      'cancel-in-progress': true,
+    })
     expect(Object.keys(fast.jobs)).toEqual(['fast'])
     const job = fast.jobs['fast']!
     expect(job['timeout-minutes']).toBe(5)
@@ -113,7 +117,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.concurrency).toEqual({
       group:
         "ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && 'push' || 'durable' }}",
-      'cancel-in-progress': "${{ github.event_name == 'push' }}",
+      'cancel-in-progress': false,
     })
     expect(Object.keys(full.jobs)).toEqual([
       'validation-plan',
@@ -233,6 +237,10 @@ describe('fast pull-request and full validation workflows', () => {
     expect(testingDocs).toContain(
       '`on.schedule` cron list in that file is the single schedule definition',
     )
+    expect(testingDocs).toContain(
+      'one active push run and only the newest pending push run',
+    )
+    expect(testingDocs).toContain('git merge-base --is-ancestor')
     expect(full.jobs['e2e-suite']!.strategy).toEqual({
       'fail-fast': false,
       matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
