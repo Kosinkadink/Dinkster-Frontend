@@ -1,4 +1,17 @@
 import { execFileSync } from 'node:child_process'
+import { join } from 'node:path'
+
+const dinksterSource = process.env.DINKSTER_SOURCE_ROOT ?? '../Dinkster'
+execFileSync(
+  process.env.PYTHON ?? 'python3',
+  [
+    join(dinksterSource, 'tools/gen_extension_contribution_kinds.py'),
+    '--check',
+    '--frontend-root',
+    '.',
+  ],
+  { stdio: 'inherit' },
+)
 
 for (const args of [
   [
