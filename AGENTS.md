@@ -73,7 +73,7 @@ kill $(ss -tlnp 2>/dev/null | grep :5199 | grep -oP 'pid=\K[0-9]+' | sort -u) 2>
 
 # Service safety
 
-Never signal, kill, restart, or replace the :5199 dev server, the :8765
+Never signal, kill, restart, or replace the :5199 dev server, the :3639
 backend, or any other standing process while a browser or E2E session is
 using it. Check for active sessions first. Read-only inspection (process
 identity, ports, logs, HTTP state) is always fine.

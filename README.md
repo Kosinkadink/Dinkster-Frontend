@@ -55,9 +55,12 @@ are not kept running for a user may remain loopback-only.
 
 ### Running the app against a live ComfyUI
 
-The dev server proxies API routes to a local ComfyUI (default
-`http://127.0.0.1:8199`, override with `DINKSTER_BACKEND`). The proxy rewrites the
-Origin header because ComfyUI 403s cross-origin POSTs.
+The dev server proxies native API routes to local Dinkster at
+`http://127.0.0.1:3639` by default; `DINKSTER_NATIVE_BACKEND` overrides that
+target. Legacy ComfyUI routes use `http://127.0.0.1:8199` by default;
+`DINKSTER_V1_BACKEND` overrides that target and `DINKSTER_BACKEND` remains a
+legacy alias. The proxy rewrites the Origin header because ComfyUI 403s
+cross-origin POSTs.
 
 ```bash
 # terminal 1: any ComfyUI instance
