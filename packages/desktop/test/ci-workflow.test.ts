@@ -79,7 +79,7 @@ describe('fast pull-request and full validation workflows', () => {
     )
   })
 
-  it('runs every heavy lane through one guarded reusable workflow', () => {
+  it('runs every heavy lane through one guarded reusable workflow', async () => {
     expect(full.on).toEqual({
       push: { branches: ['main'] },
       schedule: [
@@ -124,13 +124,79 @@ describe('fast pull-request and full validation workflows', () => {
       "workflow_id: 'full-validation.yml'",
       "branch: 'main'",
       "status: 'success'",
-      'per_page: 1',
-      'workflow_runs[0]?.head_sha === context.sha',
+      'per_page: 100',
+      "workflow_runs.find((run) => run.event !== 'push')",
+      'latestDurable?.head_sha === context.sha',
       "context.eventName === 'push'",
       'fullMatrix.filter((entry) => entry.push)',
       "core.setOutput('e2e-matrix', JSON.stringify({ include: selected }))",
     ])
       expect(planScript).toContain(required)
+    const executePlan = async (
+      eventName: string,
+      runs: { event: string; head_sha: string }[],
+    ) => {
+      const outputs: Record<string, string> = {}
+      let requests = 0
+      const execute = new Function(
+        'context',
+        'core',
+        'github',
+        `return (async () => { ${planScript} })()`,
+      ) as (
+        context: {
+          eventName: string
+          repo: Record<string, string>
+          sha: string
+        },
+        core: { setOutput(name: string, value: string): void },
+        github: {
+          rest: {
+            actions: {
+              listWorkflowRuns(): Promise<{
+                data: { workflow_runs: { event: string; head_sha: string }[] }
+              }>
+            }
+          }
+        },
+      ) => Promise<void>
+      await execute(
+        {
+          eventName,
+          repo: { owner: 'Kosinkadink', repo: 'Dinkster-Frontend' },
+          sha: 'head',
+        },
+        { setOutput: (name, value) => (outputs[name] = value) },
+        {
+          rest: {
+            actions: {
+              listWorkflowRuns: async () => {
+                requests += 1
+                return { data: { workflow_runs: runs } }
+              },
+            },
+          },
+        },
+      )
+      return { outputs, requests }
+    }
+    const pushPlan = await executePlan('push', [])
+    expect(pushPlan.requests).toBe(0)
+    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(2)
+    expect(pushPlan.outputs['run-heavy']).toBe('true')
+    const durablePlan = await executePlan('schedule', [
+      { event: 'push', head_sha: 'head' },
+      { event: 'workflow_dispatch', head_sha: 'head' },
+    ])
+    expect(durablePlan.requests).toBe(1)
+    expect(durablePlan.outputs['run-heavy']).toBe('false')
+    expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
+      7,
+    )
+    expect(
+      (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
+        .outputs['run-heavy'],
+    ).toBe('true')
     expect(full.jobs['fast']!.needs).toBe('validation-plan')
     expect(full.jobs['fast']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name == 'push'",

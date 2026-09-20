@@ -55,9 +55,10 @@ jobs:
               workflow_id: 'full-validation.yml',
               branch: 'main',
               status: 'success',
-              per_page: 1,
+              per_page: 100,
             });
-            core.setOutput('run-heavy', runs.data.workflow_runs[0]?.head_sha === context.sha ? 'false' : 'true');
+            const latestDurable = runs.data.workflow_runs.find((run) => run.event !== 'push');
+            core.setOutput('run-heavy', latestDurable?.head_sha === context.sha ? 'false' : 'true');
 
   fast:
     needs: validation-plan
