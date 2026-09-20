@@ -434,9 +434,11 @@ test('fresh P2P is off without a modal and the single toggle starts and stops it
   await testInfo.attach('p2p-fresh-off.png', { body: image, contentType: 'image/png' })
 
   await toggle.click()
+  await expect(panel).toContainText('Current seeding state: Off.')
   await panel.getByRole('button', { name: 'Apply settings' }).click()
   await expect(panel).toContainText('P2P settings saved.')
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await expect(panel).toContainText('Current seeding state: On.')
   expect(fixture.settings).toMatchObject({ downloadsEnabled: true, seedingEnabled: true })
   expect(fixture.statusRequests).toBeGreaterThan(0)
 
@@ -444,6 +446,7 @@ test('fresh P2P is off without a modal and the single toggle starts and stops it
   await panel.getByRole('button', { name: 'Apply settings' }).click()
   await expect(panel).toContainText('P2P settings saved.')
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect(panel).toContainText('Current seeding state: Off.')
   await expect(panel.locator('.p2p-runtime')).toHaveCount(0)
   expect(fixture.settings).toMatchObject({ downloadsEnabled: false, seedingEnabled: false })
   await page.reload()

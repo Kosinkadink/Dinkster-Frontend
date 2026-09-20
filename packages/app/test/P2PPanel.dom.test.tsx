@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import { createSignal } from 'solid-js'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { P2PSettings, P2PStatus, RuntimeSettingSection } from '@dinkster/client'
@@ -96,7 +95,6 @@ const mount = (options: {
   readonly status?: P2PStatus
 } = {}) => {
   let value = options.value ?? defaults
-  const [revision, setRevision] = createSignal(0)
   let granted = options.granted !== false
   const connection = {
     fetchRuntimeSettings: vi.fn(async () => ({
@@ -109,8 +107,8 @@ const mount = (options: {
   }
   const root = document.createElement('div')
   document.body.append(root)
-  const dispose = render(() => <P2PPanel connection={connection} settingsRevision={revision()} />, root)
-  return { root, connection, dispose, revoke: () => { granted = false }, refresh: (next: P2PSettings) => { value = next; setRevision((previous) => previous + 1) } }
+  const dispose = render(() => <P2PPanel connection={connection} />, root)
+  return { root, connection, dispose, revoke: () => { granted = false } }
 }
 afterEach(() => {
   setLocale('en')
@@ -142,6 +140,7 @@ describe('P2PPanel', () => {
     await flush()
 
     root.querySelector<HTMLButtonElement>('[id$="-enabled"]')!.click()
+    expect(root.textContent).toContain('Current seeding state: Off.')
     root.querySelector('form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
     await flush()
 
@@ -152,6 +151,7 @@ describe('P2PPanel', () => {
     })
     expect(connection.fetchP2PStatus).toHaveBeenCalledTimes(1)
     expect(root.textContent).toContain('P2P settings saved.')
+    expect(root.textContent).toContain('Current seeding state: On.')
     dispose()
   })
 
@@ -340,35 +340,6 @@ describe('P2PPanel', () => {
     await flush()
     expect(connection.updateRuntimeSetting).toHaveBeenCalledWith('p2p', { ...defaults, stagingBudgetBytes: 0 })
     dispose()
-  })
-
-  it('refreshes an already-mounted panel after P2P is turned off without more activity requests', async () => {
-    const view = mount({ value: { ...defaults, downloadsEnabled: true, seedingEnabled: true, scope: 'lan-and-internet' } })
-    await flush()
-    expect(view.connection.fetchP2PStatus).toHaveBeenCalledOnce()
-    view.refresh(defaults)
-    await flush()
-    expect(view.connection.fetchP2PStatus).toHaveBeenCalledOnce()
-    expect(view.root.querySelector('.p2p-runtime')).toBeNull()
-    expect(view.root.querySelector('[id$="-enabled"]')?.getAttribute('aria-checked')).toBe('false')
-    view.dispose()
-  })
-
-  it('does not request activity from a pending transfer action after the notice turns P2P off', async () => {
-    const view = mount({ value: { ...defaults, downloadsEnabled: true } })
-    await flush()
-    let finish!: () => void
-    view.connection.performP2PTransferAction.mockImplementationOnce(() => new Promise<undefined>((resolve) => { finish = () => resolve(undefined) }))
-    const pause = [...view.root.querySelectorAll<HTMLButtonElement>('.p2p-transfer-actions button')].find((button) => button.textContent === 'Pause')!
-    pause.click()
-    await flush()
-    view.refresh(defaults)
-    await flush()
-    finish()
-    await flush()
-    expect(view.connection.fetchP2PStatus).toHaveBeenCalledOnce()
-    expect(view.root.querySelector('.p2p-runtime')).toBeNull()
-    view.dispose()
   })
 
   it('rejects a stale form submission after P2P write permission is revoked', async () => {

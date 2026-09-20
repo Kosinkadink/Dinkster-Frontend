@@ -46,7 +46,7 @@ const formatDuration = (seconds: number): string => {
   return `${(seconds / 3600).toFixed(1)} h`
 }
 
-export function P2PPanel(props: { readonly connection: P2PConnection; readonly backendId?: string; readonly backendLabel?: string; readonly settingsRevision?: number }) {
+export function P2PPanel(props: { readonly connection: P2PConnection; readonly backendId?: string; readonly backendLabel?: string }) {
   const idPrefix = `p2p-${createUniqueId()}`
   const id = (name: string): string => `${idPrefix}-${name}`
   const m = useAppMessageGroup('p2p')
@@ -134,9 +134,7 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
       }
     }
   }
-  const settingsRevision = createMemo(() => props.settingsRevision)
   createEffect(() => {
-    settingsRevision()
     void load()
   })
 
@@ -336,7 +334,7 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
                   })}
                 />
               </ProductField>
-              <p class="p2p-help">{settings().seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}</p>
+              <p class="p2p-help">{saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}</p>
               <ProductNotice tone="info" class="p2p-upload-disclosure">{m().uploadDisclosure}</ProductNotice>
               <ProductField controlId={id('scope')} label={m().scope} layout="stack">
                 <ProductSelect
