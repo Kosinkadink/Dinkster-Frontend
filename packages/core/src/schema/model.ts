@@ -874,6 +874,8 @@ export interface MirrorSpec {
 export interface NodeSchema {
   /** Node type id ('KSampler') or subgraph-derived id ('#<GraphDefId>'). */
   readonly type: string
+  /** Frontend-owned node kind that is never sent to an execution backend. */
+  readonly virtual?: true
   readonly displayName: string
   readonly category: string
   /**

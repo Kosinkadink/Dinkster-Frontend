@@ -6,6 +6,7 @@
  */
 
 import {
+  CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
   analyzeSelectionExecution,
   asConnectionId,
@@ -118,6 +119,7 @@ import {
   type GraphDef,
   type Signal,
   type WorkflowDocument,
+  type VirtualNodeKind,
   type WorkspaceCompileArtifact,
   type WidgetSpec,
   type Vec2,
@@ -358,7 +360,10 @@ const decodeWorkspaceChoices = (value: unknown): readonly SelectorChoice[] | und
   return choices.length === value.length ? choices : undefined
 }
 
-const decodeWorkspaceRegistration = (value: Readonly<Record<string, unknown>>): WorkspaceRegistration | undefined => {
+const decodeWorkspaceRegistration = (
+  value: Readonly<Record<string, unknown>>,
+  isVirtualType: (type: string) => boolean,
+): WorkspaceRegistration | undefined => {
   const ref = decodeWorkspaceExecutionRef(value['ref'])
   const rawArtifact = workspaceOwnedRecord(value['artifact'])
   const timestamp = value['timestamp']
@@ -377,7 +382,7 @@ const decodeWorkspaceRegistration = (value: Readonly<Record<string, unknown>>): 
   const choices = decodeWorkspaceChoices(rawArtifact['choices'])
   if (scope === undefined || choices === undefined || validateDocumentShape(rawArtifact['snapshot']).length > 0) return undefined
   const snapshot = rawArtifact['snapshot'] as WorkflowDocument
-  if (rawArtifact['semanticHash'] !== semanticHashOf(snapshot)) return undefined
+  if (rawArtifact['semanticHash'] !== semanticHashOf(snapshot, isVirtualType)) return undefined
   const artifact = projectWorkspaceCompileArtifact(rawArtifact as unknown as CompileArtifact)
   return {
     ref,
@@ -2405,7 +2410,30 @@ export class AppState {
    * Gate overrides persist locally (browser storage), so a disabled panel
    * stays disabled across sessions.
    */
-  private readonly extensionRevision = createSignal(0)
+  readonly extensionRevision = createSignal(0)
+  readonly virtualNodeKinds = new Map(CORE_VIRTUAL_NODE_KINDS.map((kind) => [kind.id, kind]))
+  virtualNodeSchema(type: string): NodeSchema | undefined {
+    return this.virtualNodeKinds.get(type)?.schema
+  }
+  private readonly virtualSchemaResolvers = new WeakMap<CompileInput['resolve'], CompileInput['resolve']>()
+  private resolverWithVirtualNodes(fallback: CompileInput['resolve']): CompileInput['resolve'] {
+    let resolver = this.virtualSchemaResolvers.get(fallback)
+    if (resolver === undefined) {
+      resolver = (type) => this.virtualNodeSchema(type) ?? fallback(type)
+      this.virtualSchemaResolvers.set(fallback, resolver)
+    }
+    return resolver
+  }
+  private registerVirtualNode(kind: VirtualNodeKind): () => void {
+    if (this.virtualNodeKinds.has(kind.id)) throw new Error(`virtual node kind '${kind.id}' is already registered`)
+    this.virtualNodeKinds.set(kind.id, kind)
+    this.extensionRevision.update((revision) => revision + 1)
+    return () => {
+      if (this.virtualNodeKinds.get(kind.id) !== kind) return
+      this.virtualNodeKinds.delete(kind.id)
+      this.extensionRevision.update((revision) => revision + 1)
+    }
+  }
   private readonly extensionTargets: ExtensionHostOptions<TextWidgetEditorExtension> = {
     changedSignal: this.extensionRevision,
     menus: this.menuRegistry,
@@ -2420,6 +2448,7 @@ export class AppState {
     registerEditor: (kind) => this.frontendDoors.editor(kind.id, kind),
     registerEditorBinding: (binding) => this.frontendDoors.editorBinding(binding.id, binding),
     registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
+    registerVirtualNode: (kind) => this.registerVirtualNode(kind),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()
@@ -3564,10 +3593,10 @@ export class AppState {
   private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
-    const resolve = (type: string): NodeSchema | undefined => {
+    const resolve = this.resolverWithVirtualNodes((type) => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live)?.resolve(type) : undefined
-    }
+    })
     let session: SharedDocumentSession | undefined
     try {
       session = await connectSharedWorkerSession(
@@ -4660,6 +4689,7 @@ export class AppState {
     for (const graph of Object.values(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       if (
         node.type.startsWith('#') ||
+        (node.virtual === true && this.virtualNodeSchema(node.type)?.virtual === true) ||
         registry.resolve(node.type) ||
         registry.comfyAliases?.sourceSchemas.has(node.type) === true ||
         registry.comfyGroups?.groupSchemas.has(node.type) === true
@@ -5234,13 +5264,13 @@ export class AppState {
     store?: DocumentSession,
     initialRegistry?: SchemaRegistry,
   ): Tab {
-    const resolve = (type: string): NodeSchema | undefined => {
+    const resolve = this.resolverWithVirtualNodes((type) => {
       // Frozen tabs resolve with their execution's compile-time registry; a
       // lineage lookup would hand them the LIVE tab's current schemas.
       if (execution) return this.registryForExecution(execution)?.resolve(type)
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
       return (tab ? this.registryForTab(tab) : initialRegistry)?.resolve(type)
-    }
+    })
     return {
       id: execution ? `frozen:${executionKey(execution)}` : document.lineage,
       title,
@@ -5728,17 +5758,15 @@ export class AppState {
     // and errors need ingress, which needs the session to exist.
     let owner: string | undefined
     const report = (d: Diagnostic) => this.reportProblems(owner ?? GLOBAL_PROBLEMS_OWNER, [d])
+    const resolve = this.resolverWithVirtualNodes((type) => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
+      return tab ? this.registryForTab(tab)?.resolve(type) : undefined
+    })
     let session: SharedDocumentSession
     try {
-      session = await connectSharedSession(connection, coreCommandRegistry([], (type) => {
-        const tab = this.tabs.get().find((c) => !c.execution && c.store.doc.lineage === owner)
-        return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-      }), {
+      session = await connectSharedSession(connection, coreCommandRegistry([], resolve), {
         actorId,
-        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, (type) => {
-          const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
-          return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-        }),
+        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
             `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
@@ -7275,7 +7303,7 @@ export class AppState {
     return {
       document: tab.store.doc,
       revision: tab.store.revision,
-      resolve: registry.resolve,
+      resolve: this.resolverWithVirtualNodes(registry.resolve),
       scope,
       connection: backend.id,
       schemaHash: registry.hash,
@@ -7397,7 +7425,10 @@ export class AppState {
     const def = tab.store.doc.graphs[tab.store.doc.root]
     const registry = this.registryForTab(tab)
     if (!def || !registry) return undefined
-    const analysis = analyzeSelectionExecution(def, nodeIds)
+    const analysis = analyzeSelectionExecution(def, nodeIds.filter((id) => {
+      const node = def.nodes[id]
+      return node?.virtual !== true || this.virtualNodeKinds.get(node.type)?.schema.virtual !== true
+    }))
     if (analysis.selected.size === 0) return { analysis }
     const resolve = documentResolver(tab.store.doc, registry.resolve)
     const expand = (nodeId: string, outputsOnly: boolean): Occurrence[] => {
@@ -7697,7 +7728,10 @@ export class AppState {
       return
     }
     if (raw['kind'] !== 'register') return
-    const registration = decodeWorkspaceRegistration(raw)
+    const registration = decodeWorkspaceRegistration(
+      raw,
+      (type) => this.virtualNodeSchema(type)?.virtual === true,
+    )
     if (registration === undefined) return
     const key = executionKey(registration.ref)
     this.pendingWorkspaceRegistrations.delete(key)
@@ -8333,7 +8367,10 @@ export class AppState {
   private semanticHashOfTab(tab: Tab): string {
     const cached = this.hashCache.get(tab)
     if (cached && cached.revision === tab.store.revision) return cached.hash
-    const hash = semanticHashOf(tab.store.doc)
+    const hash = semanticHashOf(
+      tab.store.doc,
+      (type) => this.virtualNodeSchema(type)?.virtual === true,
+    )
     this.hashCache.set(tab, { revision: tab.store.revision, hash })
     return hash
   }

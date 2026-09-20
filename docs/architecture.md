@@ -260,6 +260,13 @@ rgthree's Fast Muter/Bypasser, Fast Groups Muter, Node Mode Relay/Repeater, and 
 
 Why this avoids the two-category confusion: the old ecosystem's confusion came from control logic *pretending to be executable nodes*. The taxonomy here is explicit, small, and visually distinct - **compute nodes** (NodeSchema, compiled to the prompt), **structural constructs** (real topology, compiled away: reroutes, named nets, selectors, value sources - a closed core set), and **control surfaces** (no topology, commands only). Each has a distinct contract and design language; nothing masquerades. Relay/Repeater chains become largely unnecessary - they were wire-plumbing to fan out mode changes, which bindings, group targets, and command macros express directly; aggregate mode display ("all my targets muted?") is just a derived-state subscription on a control surface.
 
+**Virtual nodes** are a fourth document category for durable frontend content:
+they serialize and participate in ordinary editing, clipboard, undo, and shared
+sessions, but expose no ports and are removed before compilation and semantic
+hashing. Core Note and Markdown Note kinds and pack-contributed kinds use the
+same `VirtualNodeKind` registration contract. Reroutes remain structural
+constructs because they carry topology. See `docs/virtual-nodes.md`.
+
 ### 7. Compiler: CompileArtifact, not just a prompt
 
 Compilation is a pure function `(document, schemaRegistry) -> CompileArtifact`:

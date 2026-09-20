@@ -30,6 +30,14 @@ Ambiguous labels, padded spellings, and unmatched values are not coerced, so
 invalid choices remain available for normal validation. Normalized values
 survive native save/reopen. Legacy tuple display labels remain unchanged.
 
+ComfyUI `Note` and `MarkdownNote` records translate directly to Dinkster's
+frontend-only Note and Markdown Note kinds. Text, title, position, size, and
+color remain visible and editable after import. The core LiteGraph translation
+API emits corresponding note records for export callers; native app downloads
+remain Dinkster workflow documents. Notes never enter the executable graph sent
+to a backend. Reroutes remain document constructs and use the topology
+translator.
+
 Replacement rules can map ordinary inputs and outputs, copy one top-level
 Autogrow family to a differently named target family, or address an
 explicit ordered set of target-family members from fixed source inputs.
