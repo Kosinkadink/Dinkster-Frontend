@@ -31,6 +31,7 @@ interface Workflow {
   on: Record<string, unknown>
   permissions: Record<string, string>
   concurrency?: Record<string, string>
+  env?: Record<string, string>
   jobs: Record<string, Job>
 }
 const load = async (name: string): Promise<Workflow> =>
@@ -66,6 +67,11 @@ const testingDocs = (
 ).replace(/\r?\n/g, ' ')
 
 describe('fast pull-request and full validation workflows', () => {
+  it('pins both workflows to the same backend commit', () => {
+    expect(fast.env?.['DINKSTER_REF']).toMatch(/^[0-9a-f]{40}$/)
+    expect(full.env?.['DINKSTER_REF']).toBe(fast.env?.['DINKSTER_REF'])
+  })
+
   it('runs exactly one bounded job without a PR label path', () => {
     expect(fast.on).toEqual({ pull_request: null, workflow_dispatch: null })
     expect(fast.concurrency).toEqual({
