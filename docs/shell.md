@@ -799,6 +799,10 @@ the probe timeout (2500ms), leaving `#root` blank. The boot indicator
 fills that window with a minimal centered pulse and the product name so the
 launch is never a blank screen.
 
+The launch origin is native-only: startup checks the supervisor and Dinkster
+node catalog but makes no ComfyUI v1 request. URL-based backend addition keeps
+full protocol discovery for users who explicitly add a ComfyUI server.
+
 Timing contract (`packages/app/src/boot-indicator.ts`):
 
 - The indicator appears only after **150ms**. A fast boot that discovers

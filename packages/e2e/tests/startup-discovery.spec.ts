@@ -79,17 +79,16 @@ const CURRENT_PREVIEW_TABLE = {
   },
 }
 
-test('same-origin native engine wins discovery even when a v1 answer also exists', async ({ page }) => {
-  // Deterministic environment: the origin answers BOTH protocols. Native
-  // must win by priority - this pins the native-first default, not just
-  // "native when nothing else answers".
+test('same-origin native launch makes no v1 discovery request', async ({ page }) => {
+  let v1Requests = 0
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),
   )
   await page.route('/api/nodes*', (route) => route.fulfill({ json: NATIVE_TABLE }))
-  await page.route('/system_stats', (route) =>
-    route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }),
-  )
+  await page.route('/system_stats', (route) => {
+    v1Requests += 1
+    return route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } })
+  })
 
   await page.goto('/')
 
@@ -114,6 +113,7 @@ test('same-origin native engine wins discovery even when a v1 answer also exists
       }),
     )
     .toEqual({ protocol: 'dinkster', schemas: 1, title: 'Untitled', nodes: 0 })
+  expect(v1Requests).toBe(0)
 })
 
 test('native clean startup stays blank with a richer compatibility catalog', async ({ page }) => {
