@@ -27,9 +27,7 @@ export function exportVirtualNodesToLitegraph(
           typeof node.values['text'] === 'string' ? node.values['text'] : '',
         ],
         ...(node.title === undefined ? {} : { title: node.title }),
-        ...(state?.color === undefined
-          ? {}
-          : { color: state.color, bgcolor: state.color }),
+        ...(state?.color === undefined ? {} : { color: state.color }),
       } as JsonObject,
     ]
   }) as readonly JsonObject[]

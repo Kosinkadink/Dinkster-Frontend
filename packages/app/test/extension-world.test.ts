@@ -77,6 +77,22 @@ describe('connection extension worlds', () => {
     expect(virtualNodes).toEqual([])
   })
 
+  it('rejects a virtual node kind that is already registered', () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const app = new AppState()
+    try {
+      const kind = app.virtualNodeKinds.get('dinkster.note')!
+      const register = (app as unknown as {
+        registerVirtualNode: (candidate: VirtualNodeKind) => () => void
+      }).registerVirtualNode.bind(app)
+      expect(() => register(kind)).toThrow("virtual node kind 'dinkster.note' is already registered")
+      expect(app.virtualNodeKinds.get(kind.id)).toBe(kind)
+    } finally {
+      app.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([
     ['widgetKind', 'schema-widget'], ['menu', 'graph-editor-canvas'], ['virtualNode', 'graph-editor-canvas'],
     ['setting', 'app-workflow'], ['eventConsumer', 'event-consumer'],

@@ -3594,12 +3594,10 @@ export class AppState {
   private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
-    const resolve = (type: string): NodeSchema | undefined => {
-      const virtual = this.virtualNodeSchema(type)
-      if (virtual !== undefined) return virtual
+    const resolve = this.resolverWithVirtualNodes((type) => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live)?.resolve(type) : undefined
-    }
+    })
     let session: SharedDocumentSession | undefined
     try {
       session = await connectSharedWorkerSession(
@@ -4695,7 +4693,7 @@ export class AppState {
     for (const graph of Object.values(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       if (
         node.type.startsWith('#') ||
-        (node.virtual === true && this.virtualNodeKinds.has(node.type)) ||
+        (node.virtual === true && this.virtualNodeSchema(node.type)?.virtual === true) ||
         registry.resolve(node.type) ||
         registry.comfyAliases?.sourceSchemas.has(node.type) === true ||
         registry.comfyGroups?.groupSchemas.has(node.type) === true
@@ -5277,15 +5275,13 @@ export class AppState {
     store?: DocumentSession,
     initialRegistry?: SchemaRegistry,
   ): Tab {
-    const resolve = (type: string): NodeSchema | undefined => {
-      const virtual = this.virtualNodeSchema(type)
-      if (virtual !== undefined) return virtual
+    const resolve = this.resolverWithVirtualNodes((type) => {
       // Frozen tabs resolve with their execution's compile-time registry; a
       // lineage lookup would hand them the LIVE tab's current schemas.
       if (execution) return this.registryForExecution(execution)?.resolve(type)
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
       return (tab ? this.registryForTab(tab) : initialRegistry)?.resolve(type)
-    }
+    })
     return {
       id: execution ? `frozen:${executionKey(execution)}` : document.lineage,
       title,
@@ -5773,21 +5769,15 @@ export class AppState {
     // and errors need ingress, which needs the session to exist.
     let owner: string | undefined
     const report = (d: Diagnostic) => this.reportProblems(owner ?? GLOBAL_PROBLEMS_OWNER, [d])
+    const resolve = this.resolverWithVirtualNodes((type) => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
+      return tab ? this.registryForTab(tab)?.resolve(type) : undefined
+    })
     let session: SharedDocumentSession
     try {
-      session = await connectSharedSession(connection, coreCommandRegistry([], (type) => {
-        const virtual = this.virtualNodeSchema(type)
-        if (virtual !== undefined) return virtual
-        const tab = this.tabs.get().find((c) => !c.execution && c.store.doc.lineage === owner)
-        return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-      }), {
+      session = await connectSharedSession(connection, coreCommandRegistry([], resolve), {
         actorId,
-        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, (type) => {
-          const virtual = this.virtualNodeSchema(type)
-          if (virtual !== undefined) return virtual
-          const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
-          return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-        }),
+        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
             `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),

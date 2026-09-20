@@ -2820,5 +2820,6 @@ describe('view extras', () => {
         widgets_values: ['# Heading'], color: '#335577',
       }),
     ])
+    expect(exportVirtualNodesToLitegraph(document!)[0]).not.toHaveProperty('bgcolor')
   })
 })
