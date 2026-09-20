@@ -33,7 +33,7 @@ function setup() {
     registerPanel: (value) => { panels.push(value); return () => { panels.splice(panels.indexOf(value), 1) } },
     registerVirtualNode: (value) => { virtualNodes.push(value); return () => { virtualNodes.splice(virtualNodes.indexOf(value), 1) } },
   }
-  return { target, commands, ui, editors, editorBindings, panels, virtualNodes }
+  return { target, commands, bindings, ui, editors, editorBindings, panels, virtualNodes }
 }
 
 const digest = `sha256:${'a'.repeat(64)}`
@@ -55,6 +55,21 @@ const extensionEvent = (seq: number): ExtensionEvent => ({
 })
 
 describe('connection extension worlds', () => {
+  it('projects a pack keybinding through the selected extension world', async () => {
+    const { target, bindings } = setup()
+    const world = new ExtensionWorld(asConnectionId('a'), digest, target)
+    await world.activate(snapshotFor('keybinding', 'app-workflow'), '', [], async () => ({
+      frontendExtension: { activate(context: FrontendActivationContext) {
+        context.keybinding('demo.contribution', { command: 'demo.command', combo: 'Ctrl+K' })
+      } },
+    }))
+    expect(bindings.combo('demo.command')).toBeUndefined()
+    world.select(true)
+    expect(bindings.combo('demo.command')).toBe('ctrl+k')
+    world.dispose()
+    expect(bindings.combo('demo.command')).toBeUndefined()
+  })
+
   it('projects a virtual node through the selected pack world and removes it on disposal', async () => {
     const { target, virtualNodes } = setup()
     const world = new ExtensionWorld(asConnectionId('a'), digest, target)
