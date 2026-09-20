@@ -19,11 +19,12 @@ test('an ordinary third-party pack activates and executes through public contrac
           ?.registry.get()?.schemas
         return {
           contract: schemas?.has('fixture.extension.contract'),
+          value: schemas?.has('fixture.extension.value'),
           defaultPack: schemas?.has('dinkster.int'),
         }
       }),
     )
-    .toEqual({ contract: true, defaultPack: false })
+    .toEqual({ contract: true, value: true, defaultPack: false })
   const status = page.locator(
     '[data-host-ui-contribution="dinkster-extension-contract-fixture.status"]',
   )
@@ -46,22 +47,35 @@ test('an ordinary third-party pack activates and executes through public contrac
             name: 'Extension contract',
             nets: {},
             reroutes: {},
-            nextOrdinal: 2,
+            nextOrdinal: 3,
             nodes: {
+              value: {
+                id: 'value',
+                type: 'fixture.extension.value',
+                title: 'Extension contract value',
+                values: { width: 13, height: 7 },
+              },
               proof: {
                 id: 'proof',
                 type: 'fixture.extension.contract',
                 title: 'Extension contract proof',
-                values: { width: 13, height: 7 },
+                values: {},
               },
             },
-            links: {},
+            links: {
+              sample: {
+                id: 'sample',
+                from: { node: 'value', port: 'sample' },
+                to: { node: 'proof', port: 'sample' },
+              },
+            },
           },
         },
         view: {
           graphs: {
             root: {
               nodes: {
+                value: { position: { x: 80, y: 180 } },
                 proof: { position: { x: 320, y: 180 } },
               },
             },
@@ -81,7 +95,7 @@ test('an ordinary third-party pack activates and executes through public contrac
           .sort(),
       ),
     )
-    .toEqual(['proof'])
+    .toEqual(['proof', 'value'])
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

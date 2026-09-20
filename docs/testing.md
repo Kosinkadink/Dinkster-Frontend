@@ -94,8 +94,8 @@ compatibility dependencies into the pinned ComfyUI interpreter used by its
 full composition. Its contract proof separately starts Dinkster with
 `--no-default-packs --pack tests/fixtures/extension-contract-pack/dinkster-pack.toml`
 on ports 15420/15421, activates the fixture pack's immutable frontend module,
-executes its custom node, and observes its typed route and event in
-host-owned UI.
+renders two custom nodes linked through the pack's custom value type, executes
+the consumer, and observes its typed route and event in host-owned UI.
 Both browser modes run inside the isolated network. Base, hosted and audit
 Playwright servers explicitly enable the v1 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing
