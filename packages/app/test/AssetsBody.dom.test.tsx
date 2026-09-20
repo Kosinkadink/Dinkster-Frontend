@@ -210,7 +210,16 @@ describe('Assets dock body', () => {
       .mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', entryCount: 10 }])
     const connection = {
       listMounts,
-      listMountEntries: vi.fn().mockResolvedValue({ entries: [] }),
+      listMountEntries: vi.fn().mockResolvedValue({
+        entries: [{
+          virtualPath: 'checkpoints/indexed.ckpt',
+          name: 'indexed.ckpt',
+          digest: `blake3:${'a'.repeat(64)}`,
+          size: 1024,
+          mediaType: 'application/octet-stream',
+          kind: 'model/checkpoint',
+        }],
+      }),
       assetUrl: vi.fn(),
       fetchAssetMetadata: vi.fn(),
     } as unknown as DinksterConnection
@@ -219,7 +228,9 @@ describe('Assets dock body', () => {
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
 
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-health"]')).not.toBeNull())
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="mount:models:checkpoints/indexed.ckpt"]')).not.toBeNull())
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
+    expect(root.querySelector('[data-source="mount:models"]')?.getAttribute('data-state')).toBe('scanning')
     expect(root.querySelector('[data-source="mount:models"]')?.textContent).toContain(
       'Indexed 4/10 files, 1.0 KiB/4.0 KiB, 2s elapsed',
     )

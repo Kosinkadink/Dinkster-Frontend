@@ -152,10 +152,19 @@ test('mount scan progress stays visible while the scan is active', async ({ page
       elapsedSeconds: 48.7,
     },
   }] } }))
+  await page.route('**/api/mounts/checkpoints/entries?*', (route) => void route.fulfill({ json: { entries: [{
+    virtualPath: 'models/indexed.ckpt',
+    name: 'indexed.ckpt',
+    digest: digest('d'),
+    size: 2048,
+    mediaType: 'application/octet-stream',
+    kind: 'model/checkpoint',
+  }] } }))
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol ?? 'pending')).toBe('dinkster')
   await page.getByTestId('assets-toggle').click()
+  await expect(page.getByRole('option', { name: /indexed\.ckpt/ })).toBeVisible()
   const health = page.getByTestId('asset-source-health')
   await health.locator('summary').click()
   const scanning = health.locator('[data-source="mount:checkpoints"]')
