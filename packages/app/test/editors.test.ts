@@ -37,12 +37,13 @@ const makeStorage = (): Storage => {
 const TABS_KEY = 'dinkster.openTabs'
 
 const compositorPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 37,
+  schemaVersion: 1,
   nodes: {
     Compositor: {
-      schemaVersion: 37,
+      schemaVersion: 1,
       displayName: 'Create Layered Image',
       category: 'image/compositing',
+      editorRole: 'compositor',
       idempotent: false,
       interface: [
         {
@@ -55,7 +56,7 @@ const compositorPayload = (): DinksterNodesPayload => ({
       ],
     },
     Source: {
-      schemaVersion: 37,
+      schemaVersion: 1,
       displayName: 'Source',
       category: 'test',
       idempotent: true,
@@ -67,21 +68,21 @@ const compositorPayload = (): DinksterNodesPayload => ({
 }) as unknown as DinksterNodesPayload
 
 const curveFollowPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 40,
+  schemaVersion: 1,
   nodes: {
     AudioSource: {
-      schemaVersion: 40, displayName: 'Audio source', category: 'test', idempotent: true,
+      schemaVersion: 1, displayName: 'Audio source', category: 'test', idempotent: true,
       interface: [{ role: 'output', id: 'audio', type: { kind: 'concrete', types: ['comfy.AUDIO'] } }],
     },
     'dinkster.audio.envelope': {
-      schemaVersion: 40, displayName: 'Audio envelope', category: 'audio', idempotent: true,
+      schemaVersion: 1, displayName: 'Audio envelope', category: 'audio', idempotent: true, editorRole: 'audio-envelope',
       interface: [
         { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['comfy.AUDIO'] } },
         { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } },
       ],
     },
     'dinkster.curve.editor': {
-      schemaVersion: 40, displayName: 'Curve editor', category: 'curve', idempotent: true,
+      schemaVersion: 1, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
       interface: [
         {
           role: 'input', id: 'curve', required: false,
@@ -92,19 +93,20 @@ const curveFollowPayload = (): DinksterNodesPayload => ({
       ],
     },
     OtherCurve: {
-      schemaVersion: 40, displayName: 'Other curve', category: 'test', idempotent: true,
+      schemaVersion: 1, displayName: 'Other curve', category: 'test', idempotent: true,
       interface: [{ role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } }],
     },
   },
 }) as unknown as DinksterNodesPayload
 
 const glslPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 36,
+  schemaVersion: 1,
   nodes: {
-    'dinkster.image.glsl_shader': {
-      schemaVersion: 36,
+    'synthetic.shader': {
+      schemaVersion: 1,
       displayName: 'GLSL Shader',
       category: 'image/shader',
+      editorRole: 'glsl',
       idempotent: false,
       interface: [
         {
@@ -120,10 +122,10 @@ const glslPayload = (): DinksterNodesPayload => ({
 }) as unknown as DinksterNodesPayload
 
 const maskPaintPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 41,
+  schemaVersion: 1,
   nodes: {
     'dinkster.load_image': {
-      schemaVersion: 41, displayName: 'Load Image', category: 'image', idempotent: true,
+      schemaVersion: 1, displayName: 'Load Image', category: 'image', idempotent: true, editorRole: 'image-source',
       interface: [
         { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
         { role: 'output', id: 'image', type: { kind: 'concrete', types: ['dinkster.image'] } },
@@ -131,7 +133,7 @@ const maskPaintPayload = (): DinksterNodesPayload => ({
       ],
     },
     'dinkster.mask.paint': {
-      schemaVersion: 41, displayName: 'Paint Mask', category: 'image', idempotent: true,
+      schemaVersion: 1, displayName: 'Paint Mask', category: 'image', idempotent: true, editorRole: 'mask-paint',
       interface: [
         { role: 'input', id: 'source', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
         { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['core.string'] }, widget: { type: 'STRING', multiline: true } },
@@ -163,6 +165,16 @@ describe('EditorRegistry', () => {
     const reg = new EditorRegistry()
     reg.register(desc('graph'))
     expect(() => reg.register(desc('graph'))).toThrow(/already registered/)
+  })
+
+  it('resolves roles and refuses duplicate role owners', () => {
+    const reg = new EditorRegistry()
+    const graph = { ...desc('graph'), roles: ['curve'] }
+    const unregister = reg.register(graph)
+    expect(reg.forRole('curve')).toBe(graph)
+    expect(() => reg.register({ ...desc('other'), roles: ['curve'] })).toThrow(/role already registered/)
+    unregister()
+    expect(reg.forRole('curve')).toBeUndefined()
   })
 
   it('bumps changed on register and unregister', () => {
@@ -506,7 +518,7 @@ describe('Tab editorKind', () => {
     app.dispose()
   })
 
-  it('opens only the exact unchanged first-party GLSL source as a session editor', () => {
+  it('opens an unchanged GLSL source by editor role as a session editor', () => {
     const app = new AppState()
     const tab = app.tabs.get()[0]!
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), glslPayload()))
@@ -514,7 +526,7 @@ describe('Tab editorKind', () => {
     const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
     expect(app.dispatchTo(tab, {
       command: 'node.add',
-      params: { graphId, type: 'dinkster.image.glsl_shader', position: { x: 20, y: 30 } },
+      params: { graphId, type: 'synthetic.shader', position: { x: 20, y: 30 } },
     }).ok).toBe(true)
     const nodeId = Object.keys(tab.store.doc.graphs[graphId]!.nodes).find((id) => !before.has(id))!
     const target = app.glslTargetForInput(tab, graphId, nodeId, 'fragment_shader')

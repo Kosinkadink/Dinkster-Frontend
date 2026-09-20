@@ -73,6 +73,7 @@ import {
   replacementInvocation,
   resetMenuContributions,
   scanReplacements,
+  schemaForEditorRole,
   scopeClosure,
   resolvePreviewPolicy,
   semanticHashOf,
@@ -104,6 +105,7 @@ import {
   type NodeOutputSummary,
   type NodeProgress,
   type NodeSchema,
+  type SchemaResolver,
   type Occurrence,
   type NormalizedEvent,
   type ReadonlySignal,
@@ -190,7 +192,6 @@ import {
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
-import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { DockLayout } from './dock-layout.js'
@@ -3559,10 +3560,15 @@ export class AppState {
   private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
-    const resolve = (type: string): NodeSchema | undefined => {
+    const resolve: SchemaResolver = Object.assign((type: string): NodeSchema | undefined => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live)?.resolve(type) : undefined
-    }
+    }, {
+      forEditorRole: (role: string) => {
+        const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
+        return live ? this.registryForTab(live)?.resolve.forEditorRole?.(role) : undefined
+      },
+    })
     let session: SharedDocumentSession | undefined
     try {
       session = await connectSharedWorkerSession(
@@ -4844,12 +4850,13 @@ export class AppState {
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[selectedNodeIds[0]!]
     if (!graph || !node) return undefined
-    if (node.type === BUILTIN_EDITOR_NODE_IDS.maskPaint) {
+    const resolve = this.registryForTab(tab)?.resolve
+    if (resolve?.(node.type)?.editorRole === 'mask-paint') {
       const loaderNodeId = maskPaintSourceNodeId(node)
       return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
     }
     const candidates = imageInputCandidates({
-      schema: this.registryForTab(tab)?.resolve(node.type),
+      schema: resolve?.(node.type),
       nodeId: node.id,
       values: node.values,
       drivenInputIds: new Set([
@@ -4869,10 +4876,10 @@ export class AppState {
     const loader = graph?.nodes[candidate.nodeId]
     const registry = this.registryForTab(tab)
     const loaderSchema = loader ? registry?.resolve(loader.type) : undefined
-    const paintSchema = registry?.resolve(BUILTIN_EDITOR_NODE_IDS.maskPaint)
+    const paintSchema = registry?.resolve.forEditorRole?.('mask-paint')
     if (!graph) return base
     const associated = Object.values(graph.nodes).filter((node) =>
-      node.type === BUILTIN_EDITOR_NODE_IDS.maskPaint && maskPaintSourceNodeId(node) === candidate.nodeId)
+      registry?.resolve(node.type)?.editorRole === 'mask-paint' && maskPaintSourceNodeId(node) === candidate.nodeId)
     if (associated.length > 1) return undefined
     const paint = associated[0]
     const paintSource = paint?.values.source
@@ -4881,7 +4888,7 @@ export class AppState {
         !paintRecipe || paintRecipe.sourceDigest !== candidate.sourceRef.digest)) return undefined
     const hasOccurrenceTopology = Object.values(tab.store.doc.occurrenceTopologies ?? {})
       .some((topology) => topology.bodyGraph === graphId)
-    if (loader?.type !== BUILTIN_EDITOR_NODE_IDS.loadImage || candidate.inputId !== 'image' || hasOccurrenceTopology ||
+    if (loaderSchema?.editorRole !== 'image-source' || candidate.inputId !== 'image' || hasOccurrenceTopology ||
         schemaPortType(loaderSchema, 'input', 'image') !== 'asset<dinkster.image>' ||
         schemaPortType(loaderSchema, 'output', 'image') !== 'dinkster.image' ||
         schemaPortType(loaderSchema, 'output', 'mask') !== 'dinkster.mask' ||
@@ -4912,7 +4919,7 @@ export class AppState {
     if (tab.execution !== undefined) return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
-    if (node?.type === BUILTIN_EDITOR_NODE_IDS.maskPaint && inputId === 'source') {
+    if (node && this.registryForTab(tab)?.resolve(node.type)?.editorRole === 'mask-paint' && inputId === 'source') {
       const loaderNodeId = maskPaintSourceNodeId(node)
       return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
     }
@@ -5050,7 +5057,7 @@ export class AppState {
     const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
     const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
     if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    if (driven && graph && node?.type === BUILTIN_EDITOR_NODE_IDS.curve) {
+    if (driven && graph && node && resolve?.(node.type)?.editorRole === 'curve') {
       const sources = companionSourcesOf(graph, undefined, undefined, resolve)
       const envelopeSource = sources.get(nodeId)?.get(inputId)
       const envelope = envelopeSource?.kind === 'producer' && envelopeSource.output === 'curve'
@@ -5058,7 +5065,7 @@ export class AppState {
         : undefined
       const envelopeCurve = envelope && resolve?.(envelope.type)?.items.find((item) =>
         item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'dinkster.curve')
-      const audioSource = envelope?.type === BUILTIN_EDITOR_NODE_IDS.audioEnvelope
+      const audioSource = envelope && resolve?.(envelope.type)?.editorRole === 'audio-envelope'
         ? sources.get(envelope.id)?.get('audio')
         : undefined
       const audio = audioSource?.kind === 'producer' ? graph.nodes[audioSource.node] : undefined
@@ -5134,8 +5141,8 @@ export class AppState {
     if (tab.execution !== undefined || inputId !== 'fragment_shader') return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
-    if (node?.type !== BUILTIN_EDITOR_NODE_IDS.glsl) return undefined
     const resolver = this.registryForTab(tab)?.resolve
+    if (!node || resolver?.(node.type)?.editorRole !== 'glsl') return undefined
     const input = resolver?.(node.type)?.items.find((item) =>
       item.kind === 'input' && item.id === inputId)
     const definitionDriven = graph && (Object.values(graph.links).some((link) =>
@@ -5229,13 +5236,16 @@ export class AppState {
     store?: DocumentSession,
     initialRegistry?: SchemaRegistry,
   ): Tab {
-    const resolve = (type: string): NodeSchema | undefined => {
+    const registry = (): SchemaRegistry | undefined => {
       // Frozen tabs resolve with their execution's compile-time registry; a
       // lineage lookup would hand them the LIVE tab's current schemas.
-      if (execution) return this.registryForExecution(execution)?.resolve(type)
+      if (execution) return this.registryForExecution(execution)
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
-      return (tab ? this.registryForTab(tab) : initialRegistry)?.resolve(type)
+      return tab ? this.registryForTab(tab) : initialRegistry
     }
+    const resolve: SchemaResolver = Object.assign((type: string) => registry()?.resolve(type), {
+      forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
+    })
     return {
       id: execution ? `frozen:${executionKey(execution)}` : document.lineage,
       title,
@@ -5723,17 +5733,18 @@ export class AppState {
     // and errors need ingress, which needs the session to exist.
     let owner: string | undefined
     const report = (d: Diagnostic) => this.reportProblems(owner ?? GLOBAL_PROBLEMS_OWNER, [d])
+    const sessionRegistry = (): SchemaRegistry | undefined => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
+      return tab ? this.registryForTab(tab) : undefined
+    }
+    const sessionResolver: SchemaResolver = Object.assign((type: string) => sessionRegistry()?.resolve(type), {
+      forEditorRole: (role: string) => sessionRegistry()?.resolve.forEditorRole?.(role),
+    })
     let session: SharedDocumentSession
     try {
-      session = await connectSharedSession(connection, coreCommandRegistry([], (type) => {
-        const tab = this.tabs.get().find((c) => !c.execution && c.store.doc.lineage === owner)
-        return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-      }), {
+      session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
-        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, (type) => {
-          const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
-          return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-        }),
+        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
             `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
@@ -6050,7 +6061,6 @@ export class AppState {
     this.legacyBooleanPending.add(tab.id)
     this.drainLegacyBooleans() // immediate when schemas are already loaded
     this.drainUpgrades()
-    const backend = this.backendForTab(tab)
     if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
     return []
   }
@@ -6908,10 +6918,14 @@ export class AppState {
   private layerExtraSchemas(reg: SchemaRegistry): SchemaRegistry {
     if (this.extraSchemas.size === 0) return reg
     const extras = new Map(this.extraSchemas)
+    const schemas = new Map([...reg.schemas, ...extras])
+    const resolve = Object.assign((type: string) => extras.get(type) ?? reg.resolve(type), {
+      forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+    })
     return {
       ...reg,
-      schemas: new Map([...reg.schemas, ...extras]),
-      resolve: (type) => extras.get(type) ?? reg.resolve(type),
+      schemas,
+      resolve,
     }
   }
 

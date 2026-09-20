@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { DinksterNodesPayload, ObjectInfoEntry, ReplacementRule } from '@dinkster/core'
+import { DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload, type ObjectInfoEntry, type ReplacementRule } from '@dinkster/core'
 import { buildDinksterRegistry, buildSchemaRegistry } from '@dinkster/client'
 import { AppState, type Tab } from '../src/app-state.js'
 
@@ -471,7 +471,7 @@ const dynamicTargetFixture = JSON.parse(readFileSync(
 
 const dynamicTargetPayload = (): DinksterNodesPayload => {
   const raw = structuredClone(nodesPayload) as any
-  raw.dinkster.schemaWire = 28
+  raw.dinkster.schemaWire = DINKSTER_SCHEMA_WIRE_VERSION
   raw.packs = {}
   raw.nodes = Object.fromEntries(
     dynamicTargetFixture.schemas.map((schema) => [schema.nodeType, schema]),
@@ -489,18 +489,18 @@ const chainedMigrationPayload = (): DinksterNodesPayload => {
     required: false,
   })
   const output = (id: string): Record<string, unknown> => ({ role: 'output', id, type })
-  raw.dinkster.schemaWire = 28
+  raw.dinkster.schemaWire = DINKSTER_SCHEMA_WIRE_VERSION
   raw.packs = {}
   raw.nodes = {
     'fixture.chain-old': {
-      schemaVersion: 28,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       nodeType: 'fixture.chain-old',
       displayName: 'Chain Old',
       category: 'fixture',
       interface: [input('value'), output('result')],
     },
     'fixture.chain-current': {
-      schemaVersion: 28,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       nodeType: 'fixture.chain-current',
       displayName: 'Chain Current',
       category: 'fixture',
@@ -666,27 +666,27 @@ const maintainedDynamicGroupPayload = (): DinksterNodesPayload => {
   const sourceSchema = fixtureSchema('fixture.mask-source')
   sourceSchema.nodeType = sourceType
   const passSchema = {
-    schemaVersion: 28,
+    schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
     nodeType: passType,
     displayName: 'Mask Pass',
     category: 'fixture',
     interface: [input('mask', true), polarityInput(), output('mask')],
   }
   const sinkSchema = {
-    schemaVersion: 28,
+    schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
     nodeType: sinkType,
     displayName: 'Mask Sink',
     category: 'fixture',
     interface: [input('mask', true)],
   }
   const groupSchema = {
-    schemaVersion: 28,
+    schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
     nodeType: groupType,
     displayName: 'Mask Chain',
     category: 'fixture',
     interface: [input('mask', true), polarityInput()],
   }
-  raw.dinkster.schemaWire = 28
+  raw.dinkster.schemaWire = DINKSTER_SCHEMA_WIRE_VERSION
   raw.nodes = {}
   raw.nodes['fixture.mask-source'] = native(fixtureSchema('fixture.mask-source'))
   raw.nodes['fixture.slot-modern'] = native(fixtureSchema('fixture.slot-modern'))
@@ -871,7 +871,7 @@ const dynamicOutputPayload = (): DinksterNodesPayload => {
   const raw = structuredClone(nodesPayload) as any
   const type = (name: string): any => ({ kind: 'concrete', types: [name] })
   const schema = (count: string, family: string): any => ({
-    schemaVersion: 26,
+    schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
     interface: [
       { role: 'input', id: count, required: true, type: type('core.int') },
       {
@@ -884,7 +884,7 @@ const dynamicOutputPayload = (): DinksterNodesPayload => {
       },
     ],
   })
-  raw.dinkster.schemaWire = 26
+  raw.dinkster.schemaWire = DINKSTER_SCHEMA_WIRE_VERSION
   raw.packs = {}
   raw.nodes = {
     'test.DynamicOld': schema('count', 'results'),

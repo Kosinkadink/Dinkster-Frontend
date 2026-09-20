@@ -43,6 +43,7 @@ describe('Dinkster schema wire', () => {
   it('decodes every current widget descriptor through the single parser', () => {
     const result = parseDinksterSchema('WidgetCatalog', {
       schemaVersion: 1,
+      editorRole: 'custom-editor',
       interface: [
         { role: 'input', id: 'asset', type: concrete('dinkster.asset'), required: true, widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' } },
         { role: 'input', id: 'save', type: concrete('dinkster.save_target'), required: true, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
@@ -54,10 +55,12 @@ describe('Dinkster schema wire', () => {
         { role: 'input', id: 'color', type: concrete('core.string'), required: true, default: '#000000', widget: { type: 'COLOR' } },
         { role: 'input', id: 'curve', type: concrete('dinkster.curve'), required: true, widget: { type: 'CURVE' } },
         { role: 'input', id: 'compositor', type: concrete('dinkster.compositor'), required: true, widget: { type: 'COMPOSITOR' } },
+        { role: 'input', id: 'custom', type: concrete('extension.value'), required: false, widget: { type: 'extension.widget', nested: { enabled: true, values: [1, null, 'two'] } } },
       ],
     })
 
     expect(result.diagnostics).toEqual([])
+    expect(result.schema?.editorRole).toBe('custom-editor')
     expect(inputsOf(result.schema!).map((input) => input.widget?.widgetType)).toEqual([
       'ASSET',
       'SAVE_TARGET',
@@ -69,7 +72,9 @@ describe('Dinkster schema wire', () => {
       'COLOR',
       'CURVE',
       'COMPOSITOR',
+      'extension.widget',
     ])
+    expect(inputsOf(result.schema!).at(-1)?.widget?.options).toEqual({ nested: { enabled: true, values: [1, null, 'two'] } })
   })
 
   it('decodes current structural entries and rejects malformed current schemas', () => {

@@ -31,6 +31,7 @@ from dinkster_schema import (  # noqa: E402
     TypeExpr,
     schema_to_wire,
 )
+from dinkster_values import CustomWidgetDescriptor  # noqa: E402
 
 INT = TypeExpr.concrete("core.int")
 FLOAT = TypeExpr.concrete("core.float")
@@ -60,6 +61,20 @@ schemas = [
             InputSpec("image", IMAGE, required=False),
         ),
         outputs=(OutputSpec("out", STRING),),
+    ),
+    NodeSchema(
+        node_type="test.editor_metadata",
+        display_name="Editor Metadata",
+        category="test",
+        editor_role="video-edit",
+        inputs=(
+            InputSpec(
+                "edit",
+                TypeExpr.concrete("comfy.VIDEO_EDIT"),
+                required=False,
+                widget=CustomWidgetDescriptor("VIDEO_EDIT", {"features": ["trim", "crop"]}),
+            ),
+        ),
     ),
     # Absence: onAbsent policies + optional outputs.
     NodeSchema(

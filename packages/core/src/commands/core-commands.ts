@@ -25,6 +25,7 @@ import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import { PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
 import { NET_VIEWS_EXT_KEY, removeNetViewPositions, updateNetViewPositions, type NetViewGeometry, type NetViewPosition } from '../format/net-views.js'
 import { canonicalTypeIdOf, inputsOf, isImageAssetInput, outputCountInputsOf, outputsOf, type CountBoundOutputAutogrowSpec, type NodeSchema } from '../schema/model.js'
+import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, DEFAULT_ELAB_BUDGET, elabInputsOf, elaborateInterface, valueKeyOf } from '../schema/elaborate.js'
 import type { Json, JsonObject } from '../format/document.js'
 import { groupAllocationFloor } from '../group-alloc.js'
@@ -137,6 +138,11 @@ const commandSchemaOf = (
 ): NodeSchema | undefined => context.kind === 'initial'
   ? context.schemaResolverFor?.(doc)(nodeType) ?? resolve?.(nodeType)
   : resolve?.(nodeType)
+
+const commandSchemaForEditorRole = (doc: WorkflowDocument, role: string, context: CommandExecutionContext, resolve?: (type: string) => NodeSchema | undefined): NodeSchema | undefined => {
+  const resolver = context.kind === 'initial' ? context.schemaResolverFor?.(doc) ?? (resolve as SchemaResolver | undefined) : (resolve as SchemaResolver | undefined)
+  return resolver?.forEditorRole?.(role)
+}
 
 export interface OutputCountSchemaPlan {
   readonly nodeType: string
@@ -1044,14 +1050,16 @@ function imageApplyMaskPaintOf(resolve?: (type: string) => NodeSchema | undefine
       if (Object.values(doc.occurrenceTopologies ?? {}).some((topology) => topology.bodyGraph === params.graphId)) {
         return [err('image.maskOccurrenceUnsupported', 'Mask paint does not support occurrence-local topology')]
       }
-      if (loader.type !== 'dinkster.load_image') return [err('image.maskTargetInvalid', 'Mask paint requires dinkster.load_image')]
+      if (commandSchemaOf(doc, loader.type, context, resolve)?.editorRole !== 'image-source') {
+        return [err('image.maskTargetInvalid', 'Mask paint requires an image-source node')]
+      }
       const loaderSchema = commandSchemaOf(doc, loader.type, context, resolve)
-      const paintSchema = commandSchemaOf(doc, 'dinkster.mask.paint', context, resolve)
+      const paintSchema = commandSchemaForEditorRole(doc, 'mask-paint', context, resolve)
       const loaderImage = loaderSchema && inputsOf(loaderSchema).find((input) => input.id === 'image')
       const loaderOutputs = loaderSchema ? outputsOf(loaderSchema) : []
       const paintInputs = paintSchema ? inputsOf(paintSchema) : []
       const paintOutputs = paintSchema ? outputsOf(paintSchema) : []
-      if (!loaderImage || canonicalTypeIdOf(loaderImage.type) !== 'asset<dinkster.image>' ||
+      if (!paintSchema || !loaderImage || canonicalTypeIdOf(loaderImage.type) !== 'asset<dinkster.image>' ||
           canonicalTypeIdOf(loaderOutputs.find((output) => output.id === 'image')?.type ?? { kind: 'wildcard' }) !== 'dinkster.image' ||
           canonicalTypeIdOf(loaderOutputs.find((output) => output.id === 'mask')?.type ?? { kind: 'wildcard' }) !== 'dinkster.mask' ||
           canonicalTypeIdOf(paintInputs.find((input) => input.id === 'source')?.type ?? { kind: 'wildcard' }) !== 'asset<dinkster.image>' ||
@@ -1072,7 +1080,7 @@ function imageApplyMaskPaintOf(resolve?: (type: string) => NodeSchema | undefine
       }
       let paintNodeId = params.paintNodeId as string | null
       const associatedPaintIds = Object.values(graph.nodes).filter((node) =>
-        node.type === 'dinkster.mask.paint' && maskPaintSourceNodeId(node) === params.loaderNodeId).map((node) => node.id)
+        commandSchemaOf(doc, node.type, context, resolve)?.editorRole === 'mask-paint' && maskPaintSourceNodeId(node) === params.loaderNodeId).map((node) => node.id)
       if ((paintNodeId === null && associatedPaintIds.length !== 0) ||
           (paintNodeId !== null && (associatedPaintIds.length !== 1 || associatedPaintIds[0] !== paintNodeId))) {
         return [err('image.maskPaintChanged', 'The associated mask paint topology changed during editing')]
@@ -1081,7 +1089,7 @@ function imageApplyMaskPaintOf(resolve?: (type: string) => NodeSchema | undefine
         paintNodeId = allocateOne(tx, params.graphId, graph, 'n')
         tx.set(['graphs', params.graphId, 'nodes', paintNodeId], {
           id: paintNodeId,
-          type: 'dinkster.mask.paint',
+          type: paintSchema.type,
           values: { source: params.expectedSource, operations: params.operations },
           ext: { [MASK_PAINT_SOURCE_EXT_KEY]: { nodeId: params.loaderNodeId, outputId: 'mask' } },
         })
@@ -1090,7 +1098,7 @@ function imageApplyMaskPaintOf(resolve?: (type: string) => NodeSchema | undefine
         tx.set(['view', 'graphs', params.graphId, 'nodes', paintNodeId], { position: { x: position.x + 280, y: position.y + 120 } })
       } else {
         const paint = graph.nodes[paintNodeId]
-        if (!paint || paint.type !== 'dinkster.mask.paint' || maskPaintSourceNodeId(paint) !== params.loaderNodeId ||
+        if (!paint || commandSchemaOf(doc, paint.type, context, resolve)?.editorRole !== 'mask-paint' || maskPaintSourceNodeId(paint) !== params.loaderNodeId ||
             !sameAssetRef(paint.values.source, params.expectedSource) || paint.values.operations !== params.expectedPaintOperations) {
           return [err('image.maskPaintChanged', 'The associated mask paint node changed during editing')]
         }
@@ -1121,8 +1129,8 @@ function imageDocumentExportOf(resolve?: (type: string) => NodeSchema | undefine
       if (!graph || sha256Hex(canonicalJson(graph)) !== params.expectedGraphFingerprint) {
         return [err('image.graphChanged', 'The export graph changed while the document was being uploaded')]
       }
-      const load = commandSchemaOf(doc, 'dinkster.layers.load', context, resolve)
-      const flatten = commandSchemaOf(doc, 'dinkster.layers.flatten', context, resolve)
+      const load = commandSchemaForEditorRole(doc, 'layers-load', context, resolve)
+      const flatten = commandSchemaForEditorRole(doc, 'layers-flatten', context, resolve)
       const input = load?.items.find((item) => item.kind === 'input' && item.id === 'document')
       const output = load?.items.find((item) => item.kind === 'output' && item.id === 'layers')
       const layers = flatten?.items.find((item) => item.kind === 'input' && item.id === 'layers')
@@ -1186,9 +1194,9 @@ function imageDocumentRecipeExportOf(resolve?: (type: string) => NodeSchema | un
         ? undefined
         : commandSchemaOf(doc, sourceNode.type, context, resolve)?.items.find((item) =>
           item.kind === 'output' && item.id === params.sourceOutputId)
-      const edit = commandSchemaOf(doc, 'dinkster.layers.edit', context, resolve)
-      const flatten = commandSchemaOf(doc, 'dinkster.layers.flatten', context, resolve)
-      const save = commandSchemaOf(doc, 'dinkster.save_image', context, resolve)
+      const edit = commandSchemaForEditorRole(doc, 'layers-edit', context, resolve)
+      const flatten = commandSchemaForEditorRole(doc, 'layers-flatten', context, resolve)
+      const save = commandSchemaForEditorRole(doc, 'image-save', context, resolve)
       const editLayers = edit?.items.find((item) => item.kind === 'input' && item.id === 'layers')
       const editCommands = edit?.items.find((item) => item.kind === 'input' && item.id === 'commands')
       const editOutput = edit?.items.find((item) => item.kind === 'output' && item.id === 'layers')

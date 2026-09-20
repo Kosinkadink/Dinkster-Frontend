@@ -1,16 +1,16 @@
 {
   "provenance": {
     "kind": "backend-schema-contract-fixture",
-    "sourceCommit": "7cb4f71098c3e8a60f9c6ab9ac4000a185cc1171",
+    "sourceCommit": "ee65d888fb5955f841faa29ef9b950f9a62834ec",
     "sourceRepository": "https://github.com/Kosinkadink/Dinkster",
-    "schemaSerializerCheckout": "e22522c77981c51f8cfd05337afdf2f60541d713",
+    "schemaSerializerCheckout": "ee65d888fb5955f841faa29ef9b950f9a62834ec",
     "runtimeExecution": false
   },
   "nodes": {
     "dinkster.save_video": {
-      "schemaVersion": 38,
+      "schemaVersion": 1,
       "nodeType": "dinkster.save_video",
-      "version": 3,
+      "version": 4,
       "displayName": "Save Video",
       "category": "video",
       "description": "",
@@ -85,10 +85,72 @@
             "options": [
               "auto",
               "h264",
+              "hevc",
               "av1",
-              "vp9"
+              "vp9",
+              "vp8",
+              "prores",
+              "ffv1"
             ]
           }
+        },
+        {
+          "role": "input",
+          "id": "profile",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.combo"
+            ]
+          },
+          "required": false,
+          "default": "auto",
+          "widget": {
+            "type": "COMBO",
+            "options": [
+              "auto",
+              "lt",
+              "standard",
+              "hq",
+              "4444",
+              "4444xq"
+            ]
+          },
+          "doc": "ProRes profile; auto preserves alpha using 4444."
+        },
+        {
+          "role": "input",
+          "id": "audio_layout",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.combo"
+            ]
+          },
+          "required": false,
+          "default": "preserve",
+          "widget": {
+            "type": "COMBO",
+            "options": [
+              "preserve",
+              "mono",
+              "stereo"
+            ]
+          },
+          "doc": "Preserve declared channels, or explicitly downmix."
+        },
+        {
+          "role": "input",
+          "id": "trim_to_audio",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "core.boolean"
+            ]
+          },
+          "required": false,
+          "default": false,
+          "doc": "Stop at shortest audio; otherwise pad short audio with silence."
         },
         {
           "role": "input",
@@ -320,7 +382,7 @@
       "outputNode": true
     },
     "dinkster.video.trim": {
-      "schemaVersion": 38,
+      "schemaVersion": 1,
       "nodeType": "dinkster.video.trim",
       "version": 1,
       "displayName": "Trim Video",
@@ -348,7 +410,13 @@
               "comfy.VIDEO_EDIT"
             ]
           },
-          "required": false
+          "required": false,
+          "widget": {
+            "type": "VIDEO_EDIT",
+            "features": [
+              "trim"
+            ]
+          }
         },
         {
           "role": "input",
@@ -409,6 +477,7 @@
           "preview": true
         }
       ],
+      "editorRole": "video-trim",
       "searchTerms": [
         "video slice",
         "trim video duration",
@@ -416,7 +485,7 @@
       ]
     },
     "dinkster.video.crop": {
-      "schemaVersion": 38,
+      "schemaVersion": 1,
       "nodeType": "dinkster.video.crop",
       "version": 1,
       "displayName": "Crop Video",
@@ -444,7 +513,13 @@
               "comfy.VIDEO_EDIT"
             ]
           },
-          "required": false
+          "required": false,
+          "widget": {
+            "type": "VIDEO_EDIT",
+            "features": [
+              "crop"
+            ]
+          }
         },
         {
           "role": "input",
@@ -521,10 +596,11 @@
           },
           "preview": true
         }
-      ]
+      ],
+      "editorRole": "video-crop"
     },
     "dinkster.video.assemble": {
-      "schemaVersion": 38,
+      "schemaVersion": 1,
       "nodeType": "dinkster.video.assemble",
       "version": 1,
       "displayName": "Assemble Video",

@@ -25,7 +25,7 @@ import { formatByteSize, formatCollectionDate, historySource, initialsOf, packsS
 
 const nodesPayload: DinksterNodesPayload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
-  dinkster: { version: '0.9.0', schemaWire: 3 },
+  dinkster: { version: '0.9.0', schemaWire: DINKSTER_SCHEMA_WIRE_VERSION },
   packs: {
     core: { displayName: 'Dinkster Core', version: '1.2.0' },
     'vhs.video': {

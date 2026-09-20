@@ -56,7 +56,7 @@ const int = concrete('core.int')
 const boolean = concrete('core.boolean')
 const exampleNodes = {
   schemaVersion: 1,
-  dinkster: { version: 'test', schemaWire: 21, graphFeatures: ['regions'] },
+  dinkster: { version: 'test', schemaWire: 1, graphFeatures: ['regions'] },
   nodes: {
     'std.math.add_ints': schema('std.math.add_ints', [
       input('a', int), input('b', int), output('sum', int),
