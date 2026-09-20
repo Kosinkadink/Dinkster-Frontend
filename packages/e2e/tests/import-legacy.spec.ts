@@ -570,7 +570,7 @@ test('native alias import is canonical before badges, save/reopen, and submissio
     'dinkster.empty_latent_image',
     'dinkster.ksampler',
     'dinkster.vae_decode',
-    'comfy.PreviewImage',
+    'dinkster.preview_image',
   ])
   expect(graph.links['l4']).toMatchObject({
     from: { node: 'n2', port: 'conditioning' },
