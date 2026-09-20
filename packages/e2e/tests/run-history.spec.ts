@@ -14,7 +14,7 @@
  *
  * The clear test wipes the ENTIRE local history scope of the target server
  * (that is the feature); runs there are e2e-produced. Requires a NATIVE
- * Dinkster backend running with --dev: the driver node (dev.image.gradient)
+ * Dinkster backend serving the dinkster-nodes-dev pack: the driver node
  * lives in the gated dev pack and a plain dinkster-serve does not compose it.
  * Skips loudly when no backend answers OR the dev node is absent, so the
  * suite stays runnable against ComfyUI alone or a non-dev native server.
@@ -143,7 +143,7 @@ test.beforeEach(async ({ page }) => {
   // A reachable server is not enough: the driver node is dev-gated, so a
   // non-dev server answers 200 while missing the node every test queues.
   test.skip(!('dev.image.gradient' in served!),
-    `native backend at ${NATIVE_BACKEND} lacks dev.image.gradient - run dinkster-serve with --dev`)
+    `native backend at ${NATIVE_BACKEND} lacks dev.image.gradient - serve the dinkster-nodes-dev pack`)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await addNativeBackend(page)
