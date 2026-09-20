@@ -61,7 +61,7 @@ describe('connection extension worlds', () => {
     const kind: VirtualNodeKind = {
       id: 'demo.contribution', title: 'Callout', defaultValues: { text: '' },
       schema: {
-        type: 'demo.contribution', displayName: 'Callout', category: 'Notes', source: 'v3', isOutputNode: false,
+        type: 'demo.contribution', virtual: true, displayName: 'Callout', category: 'Notes', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'core.string' }, optional: true, widget: { widgetType: 'STRING', options: {} } }],
       },
       render: (node) => ({ text: String(node.values['text'] ?? ''), format: 'plain' }),
@@ -78,7 +78,8 @@ describe('connection extension worlds', () => {
   })
 
   it.each([
-    ['widgetKind', 'schema-widget'], ['menu', 'graph-editor-canvas'], ['setting', 'app-workflow'], ['eventConsumer', 'event-consumer'],
+    ['widgetKind', 'schema-widget'], ['menu', 'graph-editor-canvas'], ['virtualNode', 'graph-editor-canvas'],
+    ['setting', 'app-workflow'], ['eventConsumer', 'event-consumer'],
   ] as const)('restricts %s before importing code without widening another privilege', async (kind, privilege) => {
     const { target } = setup()
     const world = new ExtensionWorld(asConnectionId('a'), digest, target)

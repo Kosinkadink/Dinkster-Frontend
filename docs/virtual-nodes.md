@@ -18,9 +18,10 @@ resize, clipboard, undo, and shared-document paths. Their text, title, position,
 size, and color persist in the native workflow document.
 
 ComfyUI `Note` and `MarkdownNote` nodes import as these visible nodes with their
-text and view geometry preserved. Export to LiteGraph emits the corresponding
-ComfyUI node records. Other non-node document constructs continue through their
-dedicated import and export paths.
+text and view geometry preserved. The core LiteGraph translation API emits the
+corresponding ComfyUI node records for export callers. The app's ordinary
+workflow download remains the native Dinkster format. Other non-node document
+constructs continue through their dedicated translation paths.
 
 Packs declare a `virtualNode` manifest contribution and register the same id
 through `PackActivationApi.virtualNode`. A `VirtualNodeKind` supplies its id,
@@ -28,5 +29,6 @@ title, optional description, widget schema, default values, and a pure render
 callback. Registration requires the `graph-editor-canvas` privilege, follows
 normal contribution gates and transaction rollback, and never grants direct
 canvas or document access. A node is virtual only when its stored node data has
-`virtual: true`; an unregistered kind retains its data and uses missing-schema
-presentation rather than becoming executable.
+`virtual: true` and its registered schema declares `virtual: true`. An
+unregistered kind retains its data and uses missing-schema presentation; a
+virtual marker on an executable schema does not suppress execution.

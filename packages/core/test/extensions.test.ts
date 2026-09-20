@@ -187,7 +187,7 @@ it('registers a synthetic pack virtual node and exposes its renderer', () => {
   const kind: VirtualNodeKind = {
     id: 'notes.callout', title: 'Callout',
     schema: {
-      type: 'notes.callout', displayName: 'Callout', category: 'Notes',
+      type: 'notes.callout', virtual: true, displayName: 'Callout', category: 'Notes',
       source: 'v3', isOutputNode: false, items: [],
     },
     defaultValues: { text: 'Hello' },
@@ -204,6 +204,37 @@ it('registers a synthetic pack virtual node and exposes its renderer', () => {
   })).toEqual({ text: 'Rendered', format: 'plain' })
   h.unregister('notes')
   expect(rendered).toEqual([])
+})
+
+it('rejects virtual node kinds without a virtual port-free schema', () => {
+  const base: VirtualNodeKind = {
+    id: 'notes.callout', title: 'Callout', defaultValues: {},
+    schema: {
+      type: 'notes.callout', virtual: true, displayName: 'Callout', category: 'Notes',
+      source: 'v3', isOutputNode: false, items: [],
+    },
+    render: () => ({ text: '', format: 'plain' }),
+  }
+  const register = (kind: VirtualNodeKind) => {
+    const h = new ExtensionHost({ menus: createMenuRegistry(), widgets: fakeWidgets() })
+    return h.register({
+      id: 'notes', contributions: [{ id: kind.id, category: 'virtualNode' }],
+    }, (api) => api.virtualNode(kind.id, kind))
+  }
+  const { virtual: _virtual, ...executableSchema } = base.schema
+  expect(register({ ...base, schema: executableSchema })).toContainEqual(
+    expect.objectContaining({ code: 'extension.activate-failed' }),
+  )
+  expect(register({
+    ...base,
+    schema: {
+      ...base.schema,
+      items: [{
+        kind: 'output', id: 'out',
+        type: { kind: 'concrete', name: 'core.string' },
+      }],
+    },
+  })).toContainEqual(expect.objectContaining({ code: 'extension.activate-failed' }))
 })
 
 describe('F0 authored and effective manifests', () => {

@@ -1,5 +1,5 @@
-import { createEffect, createMemo, createRoot, createSignal, createUniqueId, For, Index, getOwner, on, onCleanup, onMount, Show, type Component, type JSX } from 'solid-js'
-import { activeLocale, type MenuActionItem, type MenuItem, type ResolvedMenuGroup } from '@dinkster/core'
+import { createEffect, createRoot, createSignal, createUniqueId, For, Index, getOwner, on, onCleanup, onMount, Show, type Component, type JSX } from 'solid-js'
+import type { MenuActionItem, MenuItem, ResolvedMenuGroup } from '@dinkster/core'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
@@ -17,7 +17,6 @@ import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
 import type { CommandRegistry } from './settings.js'
 import { useAppMessage } from './locale.js'
-import { useSignal } from './solid-adapter.js'
 
 export function TransientStatus(props: { readonly message: string | undefined }) {
   return (
@@ -271,7 +270,6 @@ function DockZoneSection(props: {
   readonly onRequestClose: () => void
 }) {
   const message = useAppMessage()
-  const locale = useSignal(activeLocale)
   const [hiddenTabIds, setHiddenTabIds] = createSignal<ReadonlySet<string>>(new Set())
   // Tab entries cache per descriptor so a registry tick re-maps the array
   // without recreating entries, keeping panel bodies mounted across updates.
@@ -297,25 +295,22 @@ function DockZoneSection(props: {
     return props.panels.map((panel) => {
       let entry = entries.get(panel)
       if (!entry) {
-        entry = createRoot((dispose) => {
-          const title = createMemo(() => { locale(); return panel.title })
-          return {
-            dispose,
-            tab: {
+        entry = createRoot((dispose) => ({
+          dispose,
+          tab: {
             id: panel.id,
             // The title tooltip is suppressed while the placement menu is open
             // so it cannot overlap the menu (the menu opens at the tab).
             // The badge sits outside the truncating text span so a narrow tab
             // ellipsizes its title but never clips the attention badge.
-            label: <span class="tab-title" data-tooltip-label={props.menuOpen() ? undefined : title()}>
-              <span class="tab-title-text">{title()}</span>
+            label: <span class="tab-title" data-tooltip-label={props.menuOpen() ? undefined : panel.title}>
+              <span class="tab-title-text">{panel.title}</span>
               <Show when={activePanelIndicator(panel)} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
             </span>,
             panel: panel.component({ placement: zonePlacement(props.zone), requestClose: props.onRequestClose }),
             get disabled() { return hiddenTabIds().has(panel.id) && panel.id !== props.activeId },
-            },
-          }
-        }, owner)
+          },
+        }), owner)
         entries.set(panel, entry)
       }
       return entry.tab
@@ -441,9 +436,8 @@ function DockZoneSection(props: {
                 </button>
                 <Show when={overflowOpen()}>
                   <div class="lens-menu dock-zone-overflow-menu" data-testid="dock-zone-overflow-menu" role="menu" aria-label={message('shell.chrome.zoneTabs', { zone: props.label })}>
-                    <For each={props.panels}>{(panel) => {
-                      const title = createMemo(() => { locale(); return panel.title })
-                      return <button
+                    <For each={props.panels}>{(panel) => (
+                      <button
                         role="menuitemradio"
                         aria-checked={panel.id === props.activeId}
                         onClick={() => {
@@ -451,20 +445,19 @@ function DockZoneSection(props: {
                           setOverflowOpen(false)
                         }}
                       >
-                        <strong>{title()}</strong>
+                        <strong>{panel.title}</strong>
                         <Show when={activePanelIndicator(panel)} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
                       </button>
-                    }}</For>
+                    )}</For>
                   </div>
                 </Show>
               </div>
             </Show>
-            <Show when={active()?.headerAction} keyed>{(action) => {
-              const label = createMemo(() => { locale(); return action.label })
-              return <button class="shell-panel-header-action" data-testid={action.testId} onClick={() => action.run()}>
-                {label()}
+            <Show when={active()?.headerAction} keyed>{(action) => (
+              <button class="shell-panel-header-action" data-testid={action.testId} onClick={() => action.run()}>
+                {action.label}
               </button>
-            }}</Show>
+            )}</Show>
             <Show when={props.showClose}>
               <button
                 class="shell-panel-close"
@@ -630,8 +623,6 @@ export function FloatingPanelHost(props: {
   readonly onOpenWindow?: (() => void) | undefined
 }) {
   const message = useAppMessage()
-  const locale = useSignal(activeLocale)
-  const title = createMemo(() => { locale(); return props.panel.title })
   const [position, setPosition] = createSignal({
     x: Math.max(8, Math.min(window.innerWidth - 368, window.innerWidth - 720 + props.index * 28)),
     y: Math.max(8, Math.min(window.innerHeight - 448, 204 + props.index * 28)),
@@ -705,7 +696,7 @@ export function FloatingPanelHost(props: {
     >
       <header class="floating-panel-header" onPointerDown={beginDrag} onContextMenu={openPlacementMenu}>
         <h2>
-          {title()}
+          {props.panel.title}
           <Show when={activePanelIndicator(props.panel)} keyed>
             {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
           </Show>

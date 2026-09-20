@@ -361,7 +361,10 @@ const decodeWorkspaceChoices = (value: unknown): readonly SelectorChoice[] | und
   return choices.length === value.length ? choices : undefined
 }
 
-const decodeWorkspaceRegistration = (value: Readonly<Record<string, unknown>>): WorkspaceRegistration | undefined => {
+const decodeWorkspaceRegistration = (
+  value: Readonly<Record<string, unknown>>,
+  isVirtualType: (type: string) => boolean,
+): WorkspaceRegistration | undefined => {
   const ref = decodeWorkspaceExecutionRef(value['ref'])
   const rawArtifact = workspaceOwnedRecord(value['artifact'])
   const timestamp = value['timestamp']
@@ -380,7 +383,7 @@ const decodeWorkspaceRegistration = (value: Readonly<Record<string, unknown>>): 
   const choices = decodeWorkspaceChoices(rawArtifact['choices'])
   if (scope === undefined || choices === undefined || validateDocumentShape(rawArtifact['snapshot']).length > 0) return undefined
   const snapshot = rawArtifact['snapshot'] as WorkflowDocument
-  if (rawArtifact['semanticHash'] !== semanticHashOf(snapshot)) return undefined
+  if (rawArtifact['semanticHash'] !== semanticHashOf(snapshot, isVirtualType)) return undefined
   const artifact = projectWorkspaceCompileArtifact(rawArtifact as unknown as CompileArtifact)
   return {
     ref,
@@ -2410,6 +2413,18 @@ export class AppState {
    */
   readonly extensionRevision = createSignal(0)
   readonly virtualNodeKinds = new Map(CORE_VIRTUAL_NODE_KINDS.map((kind) => [kind.id, kind]))
+  virtualNodeSchema(type: string): NodeSchema | undefined {
+    return this.virtualNodeKinds.get(type)?.schema
+  }
+  private readonly virtualSchemaResolvers = new WeakMap<CompileInput['resolve'], CompileInput['resolve']>()
+  private resolverWithVirtualNodes(fallback: CompileInput['resolve']): CompileInput['resolve'] {
+    let resolver = this.virtualSchemaResolvers.get(fallback)
+    if (resolver === undefined) {
+      resolver = (type) => this.virtualNodeSchema(type) ?? fallback(type)
+      this.virtualSchemaResolvers.set(fallback, resolver)
+    }
+    return resolver
+  }
   private registerVirtualNode(kind: VirtualNodeKind): () => void {
     if (this.virtualNodeKinds.has(kind.id)) throw new Error(`virtual node kind '${kind.id}' is already registered`)
     this.virtualNodeKinds.set(kind.id, kind)
@@ -3580,8 +3595,8 @@ export class AppState {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
     const resolve = (type: string): NodeSchema | undefined => {
-      const virtual = this.virtualNodeKinds.get(type)
-      if (virtual !== undefined) return virtual.schema
+      const virtual = this.virtualNodeSchema(type)
+      if (virtual !== undefined) return virtual
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live)?.resolve(type) : undefined
     }
@@ -5263,8 +5278,8 @@ export class AppState {
     initialRegistry?: SchemaRegistry,
   ): Tab {
     const resolve = (type: string): NodeSchema | undefined => {
-      const virtual = this.virtualNodeKinds.get(type)
-      if (virtual !== undefined) return virtual.schema
+      const virtual = this.virtualNodeSchema(type)
+      if (virtual !== undefined) return virtual
       // Frozen tabs resolve with their execution's compile-time registry; a
       // lineage lookup would hand them the LIVE tab's current schemas.
       if (execution) return this.registryForExecution(execution)?.resolve(type)
@@ -5761,15 +5776,15 @@ export class AppState {
     let session: SharedDocumentSession
     try {
       session = await connectSharedSession(connection, coreCommandRegistry([], (type) => {
-        const virtual = this.virtualNodeKinds.get(type)
-        if (virtual !== undefined) return virtual.schema
+        const virtual = this.virtualNodeSchema(type)
+        if (virtual !== undefined) return virtual
         const tab = this.tabs.get().find((c) => !c.execution && c.store.doc.lineage === owner)
         return tab ? this.registryForTab(tab)?.resolve(type) : undefined
       }), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, (type) => {
-          const virtual = this.virtualNodeKinds.get(type)
-          if (virtual !== undefined) return virtual.schema
+          const virtual = this.virtualNodeSchema(type)
+          if (virtual !== undefined) return virtual
           const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
           return tab ? this.registryForTab(tab)?.resolve(type) : undefined
         }),
@@ -7332,7 +7347,7 @@ export class AppState {
     return {
       document: tab.store.doc,
       revision: tab.store.revision,
-      resolve: registry.resolve,
+      resolve: this.resolverWithVirtualNodes(registry.resolve),
       scope,
       connection: backend.id,
       schemaHash: registry.hash,
@@ -7454,7 +7469,10 @@ export class AppState {
     const def = tab.store.doc.graphs[tab.store.doc.root]
     const registry = this.registryForTab(tab)
     if (!def || !registry) return undefined
-    const analysis = analyzeSelectionExecution(def, nodeIds)
+    const analysis = analyzeSelectionExecution(def, nodeIds.filter((id) => {
+      const node = def.nodes[id]
+      return node?.virtual !== true || this.virtualNodeKinds.get(node.type)?.schema.virtual !== true
+    }))
     if (analysis.selected.size === 0) return { analysis }
     const resolve = documentResolver(tab.store.doc, registry.resolve)
     const expand = (nodeId: string, outputsOnly: boolean): Occurrence[] => {
@@ -7754,7 +7772,10 @@ export class AppState {
       return
     }
     if (raw['kind'] !== 'register') return
-    const registration = decodeWorkspaceRegistration(raw)
+    const registration = decodeWorkspaceRegistration(
+      raw,
+      (type) => this.virtualNodeSchema(type)?.virtual === true,
+    )
     if (registration === undefined) return
     const key = executionKey(registration.ref)
     this.pendingWorkspaceRegistrations.delete(key)
@@ -8390,7 +8411,10 @@ export class AppState {
   private semanticHashOfTab(tab: Tab): string {
     const cached = this.hashCache.get(tab)
     if (cached && cached.revision === tab.store.revision) return cached.hash
-    const hash = semanticHashOf(tab.store.doc)
+    const hash = semanticHashOf(
+      tab.store.doc,
+      (type) => this.virtualNodeSchema(type)?.virtual === true,
+    )
     this.hashCache.set(tab, { revision: tab.store.revision, hash })
     return hash
   }

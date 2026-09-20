@@ -368,6 +368,8 @@ function compileImpl(
   const { document: doc, scope } = input
   const resolve = documentResolver(doc, input.resolve)
   const resolveNode = documentNodeResolver(doc, input.resolve)
+  const isVirtualNode = (graphId: string, node: NodeData): boolean =>
+    node.virtual === true && resolveNode(graphId, node)?.virtual === true
   /**
    * Capability gate for the $typed graph wire form (joint contract, Dinkster
    * ea6eca7): absent = the target server would pass the marker through as a
@@ -475,7 +477,7 @@ function compileImpl(
     if (!def) return
     const nextStack = new Set(stack).add(defId)
     for (const node of Object.values(def.nodes)) {
-      if (node.virtual === true) continue
+      if (isVirtualNode(defId, node)) continue
       const mode = node.mode ?? 'active'
       if (node.region !== undefined) {
         if (mode === 'muted') continue
@@ -1534,7 +1536,7 @@ function compileImpl(
         if (node.dynamic !== undefined) ctx.overlays.set(node.id, node.dynamic)
         if (node.controllers !== undefined) ctx.controllers.set(node.id, node.controllers)
       }
-      if (node.virtual === true) continue
+      if (isVirtualNode(defId, node)) continue
       const mode = node.mode ?? 'active'
       // Muted and bypassed nodes never enter the prompt. A bypassed subgraph
       // instance also never recurses: bypass acts at the boundary schema, so
@@ -2492,7 +2494,6 @@ function compileImpl(
   // explain a broken in-scope path).
 
   for (const fn of flat.values()) {
-    if (fn.node.virtual === true) continue
     if (!validatesNode(fn.runtimeId)) continue
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue // never reaches the prompt
@@ -2881,7 +2882,7 @@ function compileImpl(
   const artifact: CompileArtifact = Object.freeze({
     snapshot,
     revision: input.revision,
-    semanticHash: semanticHashOf(doc),
+    semanticHash: semanticHashOf(doc, (type) => resolve(type)?.virtual === true),
     scope: deepFreeze(structuredClone(scope)),
     connection: input.connection,
     schemaHash: input.schemaHash,

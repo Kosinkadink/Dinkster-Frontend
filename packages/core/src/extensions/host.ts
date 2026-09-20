@@ -434,7 +434,7 @@ export class ExtensionHost<TTextEditorExtension extends ExtensionIdentity = Exte
         }
       }),
       virtualNode: (id, kind) => accept(id, 'virtualNode', kind.id, () => {
-        if (kind.schema.type !== id || kind.schema.items.some((item) =>
+        if (kind.schema.type !== id || kind.schema.virtual !== true || kind.schema.items.some((item) =>
           item.kind === 'output' || (item.kind === 'input' && (item.widget === undefined || item.forceInput === true)))) {
           throw new Error(`virtual node contribution '${id}' must have a matching port-free schema`)
         }

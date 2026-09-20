@@ -4016,7 +4016,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         : undefined
       const built = repositioned ?? (() => {
         props.app.extensionRevision.get()
-        const resolve = documentResolver(doc, (type) => props.app.virtualNodeKinds.get(type)?.schema ?? reg?.resolve(type))
+        const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
         return buildScene({
           document: doc,

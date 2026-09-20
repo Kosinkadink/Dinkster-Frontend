@@ -15,6 +15,7 @@ import { asConnectionId, asNodeId } from '../src/ids.js'
 import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
 import { parseDinksterSchemaWire15, parseDinksterSchemaWire16, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
+import { coreVirtualNodeKind } from '../src/virtual-node.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
@@ -26,10 +27,14 @@ const backendResolve = (type: string) => schemas.get(type)
 const loadWorkflow = (name: string): WorkflowDocument =>
   loadDocument(readJson(`fixtures/workflows/${name}.json`)).document!
 
-const compileInput = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full' }): CompileInput => ({
+const compileInput = (
+  doc: WorkflowDocument,
+  scope: ExecutionScope = { kind: 'full' },
+  resolve: CompileInput['resolve'] = backendResolve,
+): CompileInput => ({
   document: doc,
   revision: 1,
-  resolve: backendResolve,
+  resolve,
   scope,
   connection: asConnectionId('c0'),
   schemaHash: 'test-schema-hash',
@@ -57,13 +62,43 @@ describe('golden pairs', () => {
         },
       },
     }
-    const expected = compile(compileInput(base))
-    const actual = compile(compileInput(withNote))
+    const resolve = (type: string) => coreVirtualNodeKind(type)?.schema ?? backendResolve(type)
+    const expected = compile(compileInput(base, { kind: 'full' }, resolve))
+    const actual = compile(compileInput(withNote, { kind: 'full' }, resolve))
     expect(expected.ok).toBe(true)
     expect(actual.ok).toBe(true)
     if (!expected.ok || !actual.ok) return
     expect(actual.artifact.prompt).toEqual(expected.artifact.prompt)
-    expect(semanticHashOf(withNote)).toBe(semanticHashOf(base))
+    const isVirtualType = (type: string) => resolve(type)?.virtual === true
+    expect(semanticHashOf(withNote, isVirtualType)).toBe(semanticHashOf(base, isVirtualType))
+  })
+
+  it('does not trust an unregistered virtual marker on an executable node', () => {
+    const base = loadWorkflow('exec-basic')
+    const graph = base.graphs[base.root]!
+    const forged: WorkflowDocument = {
+      ...base,
+      graphs: {
+        ...base.graphs,
+        [base.root]: {
+          ...graph,
+          nodes: {
+            ...graph.nodes,
+            n0: {
+              ...graph.nodes['n0']!,
+              virtual: true,
+              values: { ...graph.nodes['n0']!.values, width: 96 },
+            },
+          },
+        },
+      },
+    }
+    const result = compile(compileInput(forged))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['n0']).toBeDefined()
+    expect(semanticHashOf(forged, (type) => backendResolve(type)?.virtual === true))
+      .not.toBe(semanticHashOf(base, (type) => backendResolve(type)?.virtual === true))
   })
 
   it.each(['exec-basic', 'exec-subgraph'] as const)('%s compiles to the expected prompt', (name) => {

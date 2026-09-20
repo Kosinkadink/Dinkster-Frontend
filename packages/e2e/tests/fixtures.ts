@@ -100,9 +100,6 @@ export async function openRailPanel(page: Page, title: string): Promise<void> {
 export const test = base.extend({
   page: async ({ page }, use) => {
     if (process.env['DINKSTER_E2E_FIXTURE_MODE'] === 'legacy' || process.env['DINKSTER_E2E_USE_NATIVE'] !== '1') {
-      await page.addInitScript(() => {
-        sessionStorage.setItem('__dinkster_e2e_default_protocol', 'v1')
-      })
       await page.route('/api/nodes*', (route) =>
         route.fulfill({
           status: 502,

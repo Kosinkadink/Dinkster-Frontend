@@ -23,7 +23,6 @@ export default defineConfig({
     env: {
       VITE_DINKSTER_FEDERATED_CATALOG_PATH: '/api/catalog',
       VITE_DINKSTER_FEDERATED_CANDIDATES_PATH: '/api/catalog/candidates',
-      VITE_DINKSTER_DEFAULT_PROTOCOL: 'v1',
     },
   },
 })

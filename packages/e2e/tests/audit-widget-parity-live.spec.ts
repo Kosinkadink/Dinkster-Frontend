@@ -5,7 +5,7 @@ import { canonicalJson } from '@dinkster/core'
 import { skipWithoutNativeCatalog } from './fixtures.js'
 
 const proofDir = '/tmp/audit-wpar-proof'
-const canonicalCatalogSha256 = '813ec8a8eba176e73fa85a4229f8e394c68110b31e7f816a92706c1046ae8a22'
+const canonicalCatalogSha256 = '44707310a3e066466bc6746664dbf4f54f1df11205fbeae8666407a282531cef'
 const nativeBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 type CatalogInput = {

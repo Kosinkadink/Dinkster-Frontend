@@ -22,6 +22,7 @@ const noteSchema = (
   description: string,
 ): NodeSchema => ({
   type,
+  virtual: true,
   displayName,
   category: 'Notes',
   description,

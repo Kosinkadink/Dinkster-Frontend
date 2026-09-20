@@ -280,12 +280,12 @@ function semanticSelector(s: NonNullable<GraphDef['selectors']>[string]): Json {
   } as unknown as Json
 }
 
-function semanticGraph(g: GraphDef): Json {
+function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): Json {
   const selectors = Object.entries(g.selectors ?? {})
   return {
     nodes: Object.fromEntries(
       Object.entries(g.nodes)
-        .filter(([, node]) => node.virtual !== true)
+        .filter(([, node]) => node.virtual !== true || !isVirtualType(node.type))
         .map(([k, n]) => [k, semanticNode(n)]),
     ),
     links: semanticConnections(g),
@@ -458,13 +458,16 @@ function semanticOccurrenceTopology(
 }
 
 /** Execution-semantic hash of a document. Equal hash <=> same execution semantics. */
-export function semanticHashOf(doc: WorkflowDocument): string {
+export function semanticHashOf(
+  doc: WorkflowDocument,
+  isVirtualType: (type: string) => boolean = () => false,
+): string {
   const occurrenceTopologies = Object.entries(doc.occurrenceTopologies ?? {})
     .map(([, topology]) => [occurrenceKey(topology.owner), semanticOccurrenceTopology(doc, topology)] as const)
     .filter((entry): entry is readonly [string, Json] => entry[1] !== undefined)
   const semantic = {
     root: doc.root,
-    graphs: Object.fromEntries(Object.entries(doc.graphs).map(([k, g]) => [k, semanticGraph(g)])),
+    graphs: Object.fromEntries(Object.entries(doc.graphs).map(([k, g]) => [k, semanticGraph(g, isVirtualType)])),
     ...(occurrenceTopologies.length > 0
       ? { occurrenceTopologies: Object.fromEntries(occurrenceTopologies) }
       : {}),

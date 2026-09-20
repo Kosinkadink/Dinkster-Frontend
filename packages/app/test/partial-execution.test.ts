@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { asNodeId, type DinksterNodesPayload } from '@dinkster/core'
+import { asNodeId, type DinksterNodesPayload, type NodeData } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Tab } from '../src/app-state.js'
 import { inactiveSceneNodesFor, lazyInactiveSceneNodes, runOnMachineMenuGroup } from '../src/CanvasHost.js'
@@ -213,6 +213,30 @@ describe('directed partial-execution scopes', () => {
     })
     expect(scopes.between).toBeUndefined()
     expect(scopes.betweenReason).toBe('requires a contiguous multi-node selection')
+  })
+
+  it('ignores registered virtual notes when deriving execution scopes', () => {
+    const document = structuredClone(basic.store.doc) as unknown as {
+      graphs: Record<string, { nodes: Record<string, NodeData> }>
+      root: string
+    }
+    document.graphs[document.root]!.nodes['note'] = {
+      id: asNodeId('note'),
+      type: 'dinkster.note',
+      virtual: true,
+      values: { text: 'not executable' },
+    }
+    expect(app.openDocument(document, 'Virtual selection')).toEqual([])
+    const tab = app.activeTab()!
+    const mixed = app.selectionExecutionScopes(tab, ['note', 'n0'])!
+    expect([...mixed.analysis.selected]).toEqual(['n0'])
+    expect(mixed.upTo).toEqual({
+      kind: 'partial',
+      targets: [{ instancePath: [], node: asNodeId('n0') }],
+    })
+    const noteOnly = app.selectionExecutionScopes(tab, ['note'])!
+    expect([...noteOnly.analysis.selected]).toEqual([])
+    expect(noteOnly.upTo).toBeUndefined()
   })
 
   it('maps between to direct in-selection sinks for a contiguous range', () => {

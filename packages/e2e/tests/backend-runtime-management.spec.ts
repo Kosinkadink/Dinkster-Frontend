@@ -24,7 +24,6 @@ const runtimeSettings = {
 }
 
 async function installRoutes(page: Page): Promise<void> {
-  await page.routeWebSocket('/ws*', () => {})
   await page.route('**/api/**', (route) => route.fulfill({ json: {} }))
   await page.route('/supervisor/status', (route) => route.fulfill({ json: {
     protocol: 1,

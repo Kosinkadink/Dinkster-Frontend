@@ -32,9 +32,11 @@ survive native save/reopen. Legacy tuple display labels remain unchanged.
 
 ComfyUI `Note` and `MarkdownNote` records translate directly to Dinkster's
 frontend-only Note and Markdown Note kinds. Text, title, position, size, and
-color remain visible and editable after import. LiteGraph export emits those
-records again; they never enter the executable graph sent to a backend.
-Reroutes remain reroute document constructs and use the topology translator.
+color remain visible and editable after import. The core LiteGraph translation
+API emits corresponding note records for export callers; native app downloads
+remain Dinkster workflow documents. Notes never enter the executable graph sent
+to a backend. Reroutes remain document constructs and use the topology
+translator.
 
 Replacement rules can map ordinary inputs and outputs, copy one top-level
 wire-15 Autogrow family to a differently named target family, or address an
