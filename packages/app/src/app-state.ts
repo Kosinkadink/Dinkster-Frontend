@@ -4830,8 +4830,9 @@ export class AppState {
   }
 
   openEditorForBinding(tabId: string, context: EditorBindingContext): boolean {
-    const binding = this.editorBindings.resolve(context)
-    if (!binding || !this.extensionEditorIds.has(binding.editor) || !this.editors.get(binding.editor)) return false
+    const binding = this.editorBindings.resolve(context, (candidate) =>
+      this.extensionEditorIds.has(candidate.editor) && this.editors.get(candidate.editor) !== undefined)
+    if (!binding) return false
     this.setTabEditorKind(tabId, binding.editor)
     this.activeTabId.set(tabId)
     return this.tabs.get().some((tab) => tab.id === tabId && tab.editorKind === binding.editor)

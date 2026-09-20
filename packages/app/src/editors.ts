@@ -86,9 +86,12 @@ export class EditorBindingRegistry {
     }
   }
 
-  resolve(context: EditorBindingContext): EditorBinding | undefined {
+  resolve(
+    context: EditorBindingContext,
+    accepts: (binding: EditorBinding) => boolean = () => true,
+  ): EditorBinding | undefined {
     return [...this.bindings.values()]
-      .filter((binding) => Object.entries(binding.match).every(([key, value]) =>
+      .filter((binding) => accepts(binding) && Object.entries(binding.match).every(([key, value]) =>
         value === undefined || context[key as keyof EditorBindingContext] === value))
       .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0) || left.id.localeCompare(right.id))[0]
   }
