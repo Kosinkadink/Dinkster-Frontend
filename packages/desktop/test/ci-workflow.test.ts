@@ -59,9 +59,12 @@ describe('fast pull-request and full validation workflows', () => {
     ])
     expect(job.steps!.flatMap((step) => step.uses ?? [])).toEqual([
       'actions/checkout@v4',
+      './.github/actions/configure-dinkster-identity',
+      'actions/checkout@v4',
       'pnpm/action-setup@v4',
       'actions/setup-node@v4',
     ])
+    expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
     expect(script).toContain("['typecheck']")
     expect(script).toContain("'prettier'")

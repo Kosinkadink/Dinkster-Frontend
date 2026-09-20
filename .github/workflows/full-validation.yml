@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
-  DINKSTER_REF: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+  DINKSTER_REF: 2db569b3a7c27a8df235bcd5fa7675b43635f3ec
 
 jobs:
   validation-plan:
@@ -94,6 +94,7 @@ jobs:
         env:
           DINKSTER_SOURCE_ROOT: ${{ github.workspace }}/.ci/Dinkster
         run: |
+          .ci/Dinkster/.venv/bin/python .ci/Dinkster/tools/gen_extension_contribution_kinds.py --check --frontend-root .
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
