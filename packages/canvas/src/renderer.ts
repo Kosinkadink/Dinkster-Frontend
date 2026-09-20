@@ -3340,6 +3340,54 @@ export class CanvasRenderer {
       }
     }
 
+    if (contentDetail && node.virtual !== undefined) {
+      const bodyX = node.x + t.padX
+      const bodyY = node.y + l.headerHeight + 8
+      const bodyWidth = Math.max(0, l.width - t.padX * 2)
+      const bodyHeight = Math.max(0, l.height - l.headerHeight - 16)
+      ctx.fillStyle = node.color === undefined
+        ? t.colors.nodeBody
+        : tintHex(t.colors.nodeBody, node.color, 0.28)
+      ctx.fillRect(node.x + 1, node.y + l.headerHeight, l.width - 2, l.height - l.headerHeight - 1)
+      ctx.fillStyle = t.colors.value
+      ctx.textBaseline = 'top'
+      ctx.textAlign = 'left'
+      const lineHeight = Math.max(16, t.fontSize + 5)
+      let y = bodyY
+      for (const sourceLine of node.virtual.text.split('\n')) {
+        const heading = node.virtual.format === 'markdown' ? /^(#{1,6})\s+(.+)$/.exec(sourceLine) : null
+        const listItem = node.virtual.format === 'markdown' ? /^\s*[-*+]\s+(.+)$/.exec(sourceLine) : null
+        const paragraph = (heading?.[2] ?? listItem?.[1] ?? sourceLine)
+          .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+          .replace(/\*\*([^*]+)\*\*/g, '$1')
+          .replace(/__([^_]+)__/g, '$1')
+          .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '$1')
+          .replace(/`([^`]+)`/g, '$1')
+          .replace(/^\s*>\s?/, '')
+        const fontSize = heading === null ? t.fontSize : Math.max(t.fontSize, t.fontSize + 4 - heading[1]!.length)
+        const weight = heading !== null || node.virtual.format === 'markdown' && /\*\*|__/.test(sourceLine) ? '700' : '400'
+        ctx.font = `${weight} ${fontSize}px ${t.fontFamily}`
+        if (listItem !== null) ctx.fillText('\u2022', bodyX, y, bodyWidth)
+        const textX = listItem === null ? bodyX : bodyX + 16
+        const textWidth = Math.max(0, bodyWidth - (textX - bodyX))
+        const words = paragraph.split(/\s+/).filter(Boolean)
+        let line = ''
+        for (const word of words) {
+          const candidate = line === '' ? word : `${line} ${word}`
+          if (line !== '' && ctx.measureText(candidate).width > textWidth) {
+            if (y + lineHeight > bodyY + bodyHeight) break
+            ctx.fillText(line, textX, y, textWidth)
+            y += lineHeight
+            line = word
+          } else line = candidate
+        }
+        if (y + lineHeight > bodyY + bodyHeight) break
+        ctx.fillText(line, textX, y, textWidth)
+        y += Math.max(lineHeight, fontSize + 5)
+      }
+    }
+
     ctx.globalAlpha = 1
   }
 

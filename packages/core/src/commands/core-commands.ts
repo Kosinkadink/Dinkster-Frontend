@@ -341,7 +341,7 @@ function regionNode(doc: WorkflowDocument, params: JsonObject, command: string):
 }
 
 // ---------------------------------------------------------------------------
-// node.add {graphId, type, position, values?, dynamic?, title?, region?}
+// node.add {graphId, type, position, values?, dynamic?, title?, region?, virtual?}
 // ---------------------------------------------------------------------------
 
 const nodeAdd: CommandDefinition = {
@@ -368,6 +368,7 @@ const nodeAdd: CommandDefinition = {
       ...(isObj(params.dynamic) && Object.keys(params.dynamic).length > 0 ? { dynamic: params.dynamic } : {}),
       ...(region !== undefined ? { region } : {}),
       ...(typeof params.title === 'string' ? { title: params.title } : {}),
+      ...(params.virtual === true ? { virtual: true } : {}),
     } as unknown as Json)
     ensureViewGraph(tx, graphId)
     tx.set(['view', 'graphs', graphId, 'nodes', id], {

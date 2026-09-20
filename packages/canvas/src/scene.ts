@@ -64,6 +64,7 @@ import {
   type SolveResult,
   type TypeExpr,
   type ValueSourceData,
+  type VirtualNodeRenderModel,
   type WorkflowDocument,
 } from '@dinkster/core'
 import {
@@ -232,6 +233,7 @@ export interface SceneNode {
   readonly y: number
   readonly layout: NodeLayout
   readonly node: NodeData
+  readonly virtual?: VirtualNodeRenderModel
   /** Full effective interface, including inputs hidden by presentation state. */
   readonly elaborated?: ElaboratedInterface
   /** Schema declares live previews or an output intended for preview. */
@@ -817,6 +819,7 @@ export interface BuildSceneInput {
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
+  readonly renderVirtualNode?: (node: NodeData) => VirtualNodeRenderModel | undefined
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
@@ -1375,7 +1378,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           }),
         }
       : baseLayout
-    const layout = schema
+    const layoutWithPorts = schema
       ? {
           ...rawLayout,
           pins: rawLayout.pins.map((pin) => {
@@ -1418,12 +1421,15 @@ export function buildScene(input: BuildSceneInput): Scene {
             warnedPins.has(`${node.id}\u0000${elabKeyOf(pin.address)}`) ? { ...pin, warn: true as const } : pin,
           ),
         }
+    const virtual = node.virtual === true ? input.renderVirtualNode?.(occurrenceNode) : undefined
+    const layout = virtual === undefined ? layoutWithPorts : { ...layoutWithPorts, pins: [] }
     const sceneNode: SceneNode = {
       id: node.id,
       x: pos.x,
       y: pos.y,
       layout,
       node: occurrenceNode,
+      ...(virtual !== undefined ? { virtual } : {}),
       ...(elaborated !== undefined ? { elaborated } : {}),
       ...(schema !== undefined && hasPreviewSurface(schema)
         ? { previewCapable: true as const }
