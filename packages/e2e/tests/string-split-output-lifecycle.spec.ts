@@ -85,7 +85,7 @@ const splitState = (page: Page) => page.evaluate(() => {
 
 test.beforeEach(async ({ page }) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
-    'set DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend started with --dev')
+    'set DINKSTER_NATIVE_BACKEND to an isolated backend serving the dinkster-nodes-dev pack')
   const errors: BrowserErrors = { page: [], console: [], responses: [] }
   browserErrors.set(page, errors)
   page.on('pageerror', (error) => errors.page.push(error.message))
