@@ -9,11 +9,11 @@ import type {
   P2PTransferActivity,
   RuntimeSettings,
 } from '@dinkster/client'
-import { ProductCheckbox } from './ProductControls.js'
+import { ProductCheckbox, type ProductCheckboxState } from './ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
-import { useAppMessageGroup } from './locale.js'
+import { useAppMessage, useAppMessageGroup } from './locale.js'
 
 type P2PConnection = Pick<DinksterConnection, 'fetchRuntimeSettings' | 'updateRuntimeSetting' | 'fetchP2PStatus' | 'performP2PTransferAction'>
 type CapKey = 'internetUploadBytesPerSecond' | 'internetDownloadBytesPerSecond' | 'lanUploadBytesPerSecond' | 'lanDownloadBytesPerSecond'
@@ -29,6 +29,11 @@ function asP2PSettings(value: unknown): P2PSettings | undefined {
 
 const sameSettings = (left: P2PSettings, right: P2PSettings): boolean =>
   Object.entries(left).every(([key, value]) => value === right[key as keyof P2PSettings])
+
+const sharingState = (settings: P2PSettings | undefined): ProductCheckboxState => {
+  if (settings === undefined || (!settings.downloadsEnabled && !settings.seedingEnabled)) return false
+  return settings.downloadsEnabled && settings.seedingEnabled ? true : 'mixed'
+}
 
 const formatBytes = (bytes: number): string => {
   if (bytes === 0) return '0 B'
@@ -46,9 +51,10 @@ const formatDuration = (seconds: number): string => {
   return `${(seconds / 3600).toFixed(1)} h`
 }
 
-export function P2PPanel(props: { readonly connection: P2PConnection; readonly backendId?: string; readonly backendLabel?: string; readonly settingsRevision?: number }) {
+export function P2PPanel(props: { readonly connection: P2PConnection; readonly backendId?: string; readonly backendLabel?: string }) {
   const idPrefix = `p2p-${createUniqueId()}`
   const id = (name: string): string => `${idPrefix}-${name}`
+  const message = useAppMessage()
   const m = useAppMessageGroup('p2p')
   const [runtime, setRuntime] = createSignal<RuntimeSettings>()
   const [draft, setDraft] = createSignal<P2PSettings>()
@@ -134,9 +140,7 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
       }
     }
   }
-  const settingsRevision = createMemo(() => props.settingsRevision)
   createEffect(() => {
-    settingsRevision()
     void load()
   })
 
@@ -220,7 +224,7 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
     setNotice('')
     try {
       await props.connection.performP2PTransferAction(digest, action)
-      if (current !== generation || !enabled()) return
+      if (current !== generation) return
       const activity = await props.connection.fetchP2PStatus()
       if (current === generation) setStatus(activity)
     } catch (cause) {
@@ -310,7 +314,7 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
           {(settings) => <>
             <Show when={!writable()}><ProductNotice tone="warning">{m().readOnly}</ProductNotice></Show>
             <Show when={writable()} fallback={<dl class="p2p-card p2p-readonly-summary">
-              <div><dt>{m().downloads}</dt><dd>{settings().downloadsEnabled ? m().enabled : m().disabled}</dd></div>
+              <div><dt>{m().sharing}</dt><dd>{sharingState(settings()) === 'mixed' ? m().mixed : sharingState(settings()) ? m().enabled : m().disabled}</dd></div>
               <div><dt>{m().seeding}</dt><dd>{settings().seedingEnabled ? m().enabled : m().disabled}</dd></div>
               <div><dt>{m().scope}</dt><dd>{settings().scope === 'lan-only' ? m().lanOnly : m().internet}</dd></div>
               <div><dt>{m().meteredPause}</dt><dd>{settings().pauseOnMetered ? m().enabled : m().disabled}</dd></div>
@@ -321,29 +325,25 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
             <fieldset class="p2p-card p2p-sharing" disabled={!writable() || busy()}>
               <legend>{m().sharingLegend}</legend>
               <ProductField
-                controlId={id('downloads')}
-                label={m().downloads}
-                metadata={<span class="p2p-setting-state">{settings().downloadsEnabled ? m().enabled : m().disabled}</span>}
+                controlId={id('enabled')}
+                label={m().sharing}
+                metadata={<span class="p2p-setting-state">{sharingState(settings()) === 'mixed' ? m().mixed : sharingState(settings()) ? m().enabled : m().disabled}</span>}
               >
                 <ProductCheckbox
-                  id={id('downloads')}
-                  ariaLabel={m().downloads}
-                  checked={settings().downloadsEnabled}
-                  onChange={(value) => patch('downloadsEnabled', value)}
+                  id={id('enabled')}
+                  ariaLabel={m().sharing}
+                  checked={sharingState(settings())}
+                  onChange={(value) => setDraft((current) => current === undefined ? current : {
+                    ...current,
+                    downloadsEnabled: value,
+                    seedingEnabled: value,
+                  })}
                 />
               </ProductField>
-              <ProductField
-                controlId={id('seeding')}
-                label={m().seeding}
-                metadata={<span class="p2p-setting-state">{settings().seedingEnabled ? m().enabled : m().disabled}</span>}
-              >
-                <ProductCheckbox
-                  id={id('seeding')}
-                  ariaLabel={m().seeding}
-                  checked={settings().seedingEnabled}
-                  onChange={(value) => patch('seedingEnabled', value)}
-                />
-              </ProductField>
+              <p class="p2p-help">{message('p2p.sharingHelp', {
+                control: sharingState(saved()) === 'mixed' ? m().sharingHelpMixed : m().sharingHelpControl,
+                state: saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff,
+              })}</p>
               <ProductNotice tone="info" class="p2p-upload-disclosure">{m().uploadDisclosure}</ProductNotice>
               <ProductField controlId={id('scope')} label={m().scope} layout="stack">
                 <ProductSelect

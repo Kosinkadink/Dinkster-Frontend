@@ -101,6 +101,9 @@ export class ExtensionWorld {
       registerKeybinding: (value) => stage(() => bindings.register(value), () => target.registerKeybinding!(value)),
       registerHostUi: (...args) => stage(() => ui.register(...args), () => target.registerHostUi!(...args)),
       registerSearchProvider: (value) => stage(() => search.register(value), () => target.registerSearchProvider!(value)),
+      registerEditor: (value) => stage(() => () => {}, () => target.registerEditor!(value)),
+      registerEditorBinding: (value) => stage(() => () => {}, () => target.registerEditorBinding!(value)),
+      registerPanel: (value) => stage(() => () => {}, () => target.registerPanel!(value)),
       registerEventConsumer: (id, consume) => {
         if (!this.eventBindings.has(id)) throw new Error(`event consumer '${id}' has no snapshot declaration`)
         const consumer: EventConsumer = { consume, queue: [], active: true, draining: false, failed: false }
@@ -125,7 +128,9 @@ export class ExtensionWorld {
       }
       const required = new Set<string>()
       try {
-        if (snapshot.frontendApi !== '1.0.0') throw new Error(`unsupported frontend API '${snapshot.frontendApi}'`)
+        if (snapshot.frontendApi !== '1.0.0' && snapshot.frontendApi !== '1.1.0') {
+          throw new Error(`unsupported frontend API '${snapshot.frontendApi}'`)
+        }
         const admitted = pack.frontend.filter((entry) => {
           if (entry.contributions.some((contribution) => !(CONTRIBUTION_CATEGORIES as readonly string[]).includes(contribution.kind))) {
             throw new Error(`entry '${entry.id}' requires an unsupported contribution kind`)

@@ -117,6 +117,7 @@ import {
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
+import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -4184,14 +4185,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         for (const row of node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
           if (companionInputs.get(node.id)?.has(row.valueKey)) continue
+          const kind = widgetRegistry().kind(row.spec.widgetType)
+          if (!kind) {
+            out.push(diag('warning', 'schema', 'widget.kindUnavailable', `${node.id}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, {
+              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
+            }))
+            mark(node.id, row.valueKey)
+            continue
+          }
           // JSON cannot store undefined, so undefined means "not stored":
           // the schema default applies and is the schema author's problem,
           // not the document's. An explicit null IS stored (ASSET and
           // SAVE_TARGET use it as "no value") and must reach the validator.
           const value = node.node.values[row.valueKey]
           if (value === undefined) continue
-          const kind = widgetRegistry().kind(row.spec.widgetType)
-          if (!kind) continue
           const where = `${node.id}.${row.valueKey}`
           if (row.spec.widgetType === 'ASSET' && typeof value === 'string') {
             out.push(unresolvedAssetImportDiagnostic({
@@ -4679,8 +4686,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // instead opens a read-only view of the executed curve. Selector rows
       // keep their own value channel and are never driven.
       if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.valueKey) && curveTarget?.follow === undefined) return
+      const editorRole = (registry()?.resolve(hit.node.node.type) as { readonly editorRole?: string } | undefined)?.editorRole
+      const valueType = canonicalTypeIdOf(hit.row.type)
+      if (props.app.openEditorForBinding(tab.id, {
+        ...(editorRole === undefined ? {} : { editorRole }),
+        nodeId: hit.node.node.type,
+        widgetType: spec.widgetType,
+        ...(valueType === undefined ? {} : { valueType }),
+      })) return
       const mergeableTypes = registry()?.mergeableTypes
-      const widgetView = widgetRegistry().viewsFor(spec.widgetType).find((view) => view.id === hit.row.viewId)
+      const widgetKind = widgetRegistry().kind(spec.widgetType)
+      const widgetView = widgetKind === undefined
+        ? undefined
+        : widgetRegistry().viewsFor(spec.widgetType).find((view) => view.id === hit.row.viewId)
       const widgetEditorSize = widgetView?.editorUi === undefined ? undefined : widgetEditorSizing(widgetView, spec)
       // Selector rows (DynamicCombo) carry their value on the row; everything
       // else persists under the row's value key.
@@ -4735,7 +4753,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (target) props.app.openCompositorEditor(target)
         return
       }
-      if (hit.node.node.type === 'dinkster.image.glsl_shader' && valueKey === 'fragment_shader') {
+      if (hit.node.node.type === BUILTIN_EDITOR_NODE_IDS.glsl && valueKey === 'fragment_shader') {
         const target = props.app.glslTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
         )
@@ -4776,21 +4794,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),
           ...(hit.row.selector !== undefined ? { selector: hit.row.selector } : {}),
         },
-        spec,
+        spec: widgetKind === undefined ? undefined : spec,
         declaredType: hit.row.type,
         ...(hit.row.sourceFilename !== undefined ? { sourceFilename: hit.row.sourceFilename } : {}),
         // Captured at open time like declaredType: the merge arm gates on
         // the OWNER backend's advertised batch-merge providers.
         ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
         ...(inputFamilyMembers === undefined ? {} : { inputFamilyMembers }),
-        multiline: hit.row.viewId === 'core.text',
+        multiline: widgetKind === undefined || hit.row.viewId === 'core.text',
         rect: {
           x: hit.x,
           y: hit.y,
           width: hit.width,
           height: hit.height,
         },
-        initial: value,
+        initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(descriptors !== undefined ? { outputDescriptors: {
           spec: descriptors,
           asset: outputDescriptorAssetOf(descriptors, descriptorValues),

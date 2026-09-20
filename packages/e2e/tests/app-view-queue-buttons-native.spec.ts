@@ -52,10 +52,6 @@ test('an App View partial queue button completes against the native backend', as
     window.__dinksterTest!.app.backends.get()[0]?.registry.get()?.schemas.has('dev.image.gradient') === true,
   )).toBe(true)
 
-  const firstRunNotice = page.getByTestId('p2p-first-run-notice')
-  if (await firstRunNotice.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false)) {
-    await firstRunNotice.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
-  }
   await page.getByTestId('views-switcher').click()
   await page.getByRole('menuitemradio', { name: 'App view' }).click()
   const queue = page.getByRole('button', { name: 'Generate base' })

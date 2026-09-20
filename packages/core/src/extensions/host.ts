@@ -94,6 +94,32 @@ export interface ExtensionIdentity {
   readonly id: string
 }
 
+export interface ExtensionEditorKind extends ExtensionIdentity {
+  readonly title: string
+  readonly provider: HostUiProviderV1
+}
+
+export interface EditorBindingMatch {
+  readonly editorRole?: string
+  readonly nodeId?: string
+  readonly widgetType?: string
+  readonly valueType?: string
+}
+
+export interface EditorBinding extends ExtensionIdentity {
+  readonly editor: string
+  readonly match: EditorBindingMatch
+  readonly priority?: number
+}
+
+export type ExtensionPanelSlot = 'sidebar.left' | 'sidebar.right' | 'panel.bottom' | 'toolbar.canvas'
+export interface ExtensionPanelContributionV1 extends ExtensionIdentity {
+  readonly slot: ExtensionPanelSlot
+  readonly provider: HostUiProviderV1
+  readonly order?: number
+  readonly title?: string
+}
+
 export interface PackActivationApi<TTextEditorExtension extends ExtensionIdentity = ExtensionIdentity> {
   /** Aborted before rollback/deactivation disposers run. */
   readonly signal: AbortSignal
@@ -109,6 +135,9 @@ export interface PackActivationApi<TTextEditorExtension extends ExtensionIdentit
   hostUi(id: string, slot: ExtensionHostUiSlot, provider: HostUiProviderV1, order?: number, title?: string): void
   searchProvider(id: string, provider: SearchProvider): void
   eventConsumer(id: string, consume: (event: ExtensionEvent) => void): void
+  editor(id: string, kind: ExtensionEditorKind): void
+  editorBinding(id: string, binding: EditorBinding): void
+  panel(id: string, slot: ExtensionPanelSlot, provider: HostUiProviderV1, order?: number, title?: string): void
 }
 
 /** App-shell contributions stay structural here so core never depends on Solid. */
@@ -188,6 +217,9 @@ interface Slot<TTextEditorExtension extends ExtensionIdentity> {
     | { readonly category: 'hostUi'; readonly value: ExtensionHostUiContributionV1 }
     | { readonly category: 'searchProvider'; readonly value: SearchProvider }
     | { readonly category: 'eventConsumer'; readonly value: (event: ExtensionEvent) => void }
+    | { readonly category: 'editor'; readonly value: ExtensionEditorKind }
+    | { readonly category: 'editorBinding'; readonly value: EditorBinding }
+    | { readonly category: 'panel'; readonly value: ExtensionPanelContributionV1 }
   /** Set while the payload is registered; calling it removes it. */
   unregister?: (() => void) | undefined
 }
@@ -219,6 +251,9 @@ export interface ExtensionHostOptions<TTextEditorExtension extends ExtensionIden
   readonly invalidateHostUi?: (id: string) => void
   readonly registerSearchProvider?: (provider: SearchProvider) => () => void
   readonly registerEventConsumer?: (id: string, consume: (event: ExtensionEvent) => void) => () => void
+  readonly registerEditor?: (kind: ExtensionEditorKind) => () => void
+  readonly registerEditorBinding?: (binding: EditorBinding) => () => void
+  readonly registerPanel?: (panel: ExtensionPanelContributionV1) => () => void
   /** Suppress registry change publication until the initial pack commit settles. */
   readonly beginRegistryBatch?: () => (commit: boolean) => void
   readonly policy?: DeploymentPolicy
@@ -351,6 +386,48 @@ export class ExtensionHost<TTextEditorExtension extends ExtensionIdentity = Exte
         if (!this.options.registerEventConsumer) throw new Error('event consumers require a connection snapshot world')
         if (typeof consume !== 'function') throw new Error(`event consumer '${id}' requires a callback`)
         pack.slots.get(id)!.payload = { category: 'eventConsumer', value: consume }
+      }),
+      editor: (id, kind) => accept(id, 'editor', kind.id, () => {
+        if (typeof kind.title !== 'string' || kind.title.length === 0 || typeof kind.provider !== 'function') {
+          throw new Error(`editor contribution '${id}' requires a title and provider`)
+        }
+        pack.slots.get(id)!.payload = {
+          category: 'editor', value: Object.freeze({ id, title: kind.title, provider: kind.provider }),
+        }
+      }),
+      editorBinding: (id, binding) => accept(id, 'editorBinding', binding.id, () => {
+        const fields = ['editorRole', 'nodeId', 'widgetType', 'valueType'] as const
+        if (typeof binding.editor !== 'string' || binding.editor.length === 0 || binding.match === null ||
+            typeof binding.match !== 'object' || Object.keys(binding.match).some((key) => !fields.includes(key as typeof fields[number])) ||
+            !fields.some((key) => typeof binding.match[key] === 'string' && binding.match[key]!.length > 0) ||
+            fields.some((key) => binding.match[key] !== undefined && typeof binding.match[key] !== 'string')) {
+          throw new Error(`editor binding '${id}' requires an editor and at least one match field`)
+        }
+        if (binding.priority !== undefined && (!Number.isFinite(binding.priority) || !Number.isInteger(binding.priority))) {
+          throw new Error(`editor binding '${id}' has an invalid priority`)
+        }
+        const match = Object.freeze(Object.fromEntries(fields.flatMap((key) =>
+          binding.match[key] === undefined ? [] : [[key, binding.match[key]]])) as EditorBindingMatch)
+        pack.slots.get(id)!.payload = {
+          category: 'editorBinding',
+          value: Object.freeze({ id, editor: binding.editor, match, ...(binding.priority === undefined ? {} : { priority: binding.priority }) }),
+        }
+      }),
+      panel: (id, slot, provider, order, title) => accept(id, 'panel', id, () => {
+        if (!(['sidebar.left', 'sidebar.right', 'panel.bottom', 'toolbar.canvas'] as const).includes(slot)) {
+          throw new Error(`panel contribution '${id}' has an invalid slot`)
+        }
+        if (typeof provider !== 'function') throw new Error(`panel contribution '${id}' requires a provider`)
+        if (order !== undefined && (!Number.isFinite(order) || !Number.isInteger(order))) {
+          throw new Error(`panel contribution '${id}' has an invalid order`)
+        }
+        if (title !== undefined && (typeof title !== 'string' || title.length === 0 || title.length > HOST_UI_MAX_VISIBLE_STRING_LENGTH)) {
+          throw new Error(`panel contribution '${id}' has an invalid title`)
+        }
+        pack.slots.get(id)!.payload = {
+          category: 'panel',
+          value: Object.freeze({ id, slot, provider, ...(order === undefined ? {} : { order }), ...(title === undefined ? {} : { title }) }),
+        }
       }),
       onDispose: (disposer) => {
         if (!activationOpen) throw new Error(`pack '${manifest.id}' activation scope is closed`)
@@ -683,7 +760,13 @@ export class ExtensionHost<TTextEditorExtension extends ExtensionIdentity = Exte
                         ? this.options.registerHostUi?.(p.value.id, p.value.slot, p.value.provider, p.value.order, p.value.title) ?? (() => {})
                         : p.category === 'searchProvider'
                           ? this.options.registerSearchProvider?.(p.value) ?? (() => {})
-                          : this.options.registerEventConsumer?.(slot.decl.id, p.value) ?? (() => {})
+                          : p.category === 'eventConsumer'
+                            ? this.options.registerEventConsumer?.(slot.decl.id, p.value) ?? (() => {})
+                            : p.category === 'editor'
+                              ? this.options.registerEditor?.(p.value) ?? (() => {})
+                              : p.category === 'editorBinding'
+                                ? this.options.registerEditorBinding?.(p.value) ?? (() => {})
+                                : this.options.registerPanel?.(p.value) ?? (() => {})
       const pack = this.installed.get(slot.packId)
       if (pack) {
         for (let index = pack.diagnostics.length - 1; index >= 0; index--) {

@@ -20,6 +20,7 @@ import {
 } from './image-document-library.js'
 import { type ImageDocumentLocalStore, type ImageDocumentDraft } from './image-document-local.js'
 import { currentGraphId, type AppState } from './app-state.js'
+import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 
 const GRAPH_IMAGE_DOCUMENT_SCOPE = 'local'
 
@@ -114,7 +115,7 @@ const same = (left: unknown, right: unknown): boolean => left === undefined || r
   ? left === right
   : canonicalJson(left as Json) === canonicalJson(right as Json)
 
-/** Translate the editor's resulting state into commands accepted by dinkster.layers.edit. */
+/** Translate the editor's resulting state into commands accepted by the layer edit node. */
 export function imageDocumentRecipeCommands(source: ImageDocument, edited: ImageDocument): readonly Json[] {
   const renderingExtensions = (document: ImageDocument): Readonly<Record<string, Json>> =>
     Object.fromEntries(Object.entries(document.extensions ?? {}).filter(([key]) => key !== IMAGE_OUTPUT_POLICY_EXTENSION))
@@ -210,8 +211,8 @@ export async function exportImageDocumentSnapshot(
   if (graph === undefined) throw new Error('The destination graph is unavailable')
   const backend = app.backendForTab(tab)
   const registry = app.registryForTab(tab)
-  if (backend.protocol !== 'dinkster' || registry?.resolve('dinkster.layers.load') === undefined ||
-    registry.resolve('dinkster.layers.flatten') === undefined) {
+  if (backend.protocol !== 'dinkster' || registry?.resolve(BUILTIN_EDITOR_NODE_IDS.layersLoad) === undefined ||
+    registry.resolve(BUILTIN_EDITOR_NODE_IDS.layersFlatten) === undefined) {
     throw new Error('The destination does not advertise layer load and flatten nodes')
   }
   const expectedGraphFingerprint = sha256Hex(canonicalJson(graph))

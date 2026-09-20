@@ -19,7 +19,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
  * typed registry; adding a category is an additive contract change, never
  * a pack-side invention.
  */
-export const CONTRIBUTION_CATEGORIES = ['menu', 'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension', 'setting', 'command', 'keybinding', 'hostUi', 'searchProvider', 'eventConsumer'] as const
+export const CONTRIBUTION_CATEGORIES = ['menu', 'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension', 'setting', 'command', 'keybinding', 'hostUi', 'searchProvider', 'eventConsumer', 'editor', 'editorBinding', 'panel'] as const
 export type ContributionCategory = (typeof CONTRIBUTION_CATEGORIES)[number]
 
 /** RFC section 5 authored frontend vocabulary. Authored modules are package-relative. */
@@ -28,7 +28,7 @@ export type FrontendPrivilege = (typeof FRONTEND_PRIVILEGES)[number]
 export const FRONTEND_CONTRIBUTION_KINDS = [
   'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension', 'menu', 'command', 'keybinding', 'setting',
   'canvasLayer', 'nodeDecoration', 'hostUi', 'searchProvider',
-  'workflowObserver', 'eventConsumer', 'workflowImporter',
+  'workflowObserver', 'eventConsumer', 'workflowImporter', 'editor', 'editorBinding', 'panel',
 ] as const
 export type FrontendContributionKind = (typeof FRONTEND_CONTRIBUTION_KINDS)[number]
 
@@ -42,6 +42,7 @@ export function frontendContributionAuthorized(kind: FrontendContributionKind, p
     case 'command': case 'keybinding':
       return privileges.includes('graph-editor-canvas') || privileges.includes('app-workflow')
     case 'hostUi': case 'searchProvider': case 'setting': case 'workflowObserver':
+    case 'editor': case 'editorBinding': case 'panel':
       return privileges.includes('app-workflow')
     case 'eventConsumer':
       return privileges.includes('event-consumer')

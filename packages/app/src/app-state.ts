@@ -42,6 +42,9 @@ import {
   executionKey,
   ExtensionHost,
   type ExtensionHostOptions,
+  type ExtensionEditorKind,
+  type EditorBinding,
+  type ExtensionPanelContributionV1,
   type FrontendPrivilege,
   stampEnvironment,
   t,
@@ -158,6 +161,7 @@ import {
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
 import { MAX_SCALE, MIN_SCALE, type Viewport } from '@dinkster/canvas'
+import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
@@ -185,19 +189,20 @@ import {
   type ImportAssetDigestHint,
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
+import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
-import { PanelRegistry } from './panels.js'
+import { PanelRegistry, type PanelDescriptor } from './panels.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY } from './settings.js'
 import { scopedSharedName, scopedStorageKey } from './projects.js'
-import { HostUiContributionRegistry } from './host-ui.js'
+import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
 import {
@@ -2373,6 +2378,21 @@ export class AppState {
    * tab's editorKind here. Built-in editor kinds are registered in App.tsx.
    */
   readonly editors = new EditorRegistry()
+  readonly editorBindings = new EditorBindingRegistry()
+  readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
+  private readonly extensionEditorIds = new Set<string>()
+  readonly frontendDoors = {
+    editor: (id: string, kind: Omit<EditorKindDescriptor, 'id'> | ExtensionEditorKind): (() => void) =>
+      'component' in kind
+        ? this.editors.register({ ...kind, id })
+        : this.registerExtensionEditor({ ...kind, id }),
+    editorBinding: (id: string, binding: Omit<EditorBinding, 'id'>): (() => void) =>
+      this.editorBindings.register({ ...binding, id }),
+    panel: (id: string, panel: Omit<PanelDescriptor, 'id'> | Omit<ExtensionPanelContributionV1, 'id'>): (() => void) =>
+      'component' in panel
+        ? this.panels.register({ ...panel, id })
+        : this.registerExtensionPanel({ ...panel, id }),
+  }
   /**
    * Pack frontend contributions and per-contribution gating: packs enumerate
    * features in a manifest, every feature is
@@ -2392,6 +2412,9 @@ export class AppState {
     registerHostUi: (id, slot, provider, order, title) => this.hostUiContributions.register(id, slot, provider, order, title),
     invalidateHostUi: (id) => this.hostUiContributions.invalidate(id),
     registerSearchProvider: (provider) => this.searchRegistry.register(provider),
+    registerEditor: (kind) => this.frontendDoors.editor(kind.id, kind),
+    registerEditorBinding: (binding) => this.frontendDoors.editorBinding(binding.id, binding),
+    registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()
@@ -2414,6 +2437,57 @@ export class AppState {
 
   get extensions(): ExtensionHost<TextWidgetEditorExtension> {
     return this.selectedExtensionWorld?.host ?? this.localExtensions
+  }
+
+  private registerExtensionEditor(kind: ExtensionEditorKind): () => void {
+    const owner = Symbol(`extension-editor:${kind.id}`)
+    const app = this
+    const unregister = this.editors.register({
+      id: kind.id,
+      title: kind.title,
+      component: (host) => createComponent(ExtensionEditorHost, {
+        owner,
+        provider: kind.provider,
+        surface: 'editor',
+        get data() {
+          return { editor: kind.id, tabId: host?.tabId() ?? app.activeTabId.get() ?? null, focused: host?.focused() ?? true }
+        },
+        commands: this.commands,
+        replaceProblems: (problemOwner, diagnostics) => this.replaceProblems(problemOwner, diagnostics),
+        errorText: 'Unable to render extension editor.',
+      }),
+    })
+    this.extensionEditorIds.add(kind.id)
+    return () => {
+      this.extensionEditorIds.delete(kind.id)
+      unregister()
+    }
+  }
+
+  private registerExtensionPanel(panel: ExtensionPanelContributionV1): () => void {
+    if (panel.slot === 'toolbar.canvas') {
+      this.extensionToolbarPanels.update((panels) => [...panels, panel]
+        .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.id.localeCompare(right.id)))
+      return () => this.extensionToolbarPanels.update((panels) => panels.filter((candidate) => candidate !== panel))
+    }
+    const placement = panel.slot === 'sidebar.left' ? 'dock' : panel.slot === 'sidebar.right' ? 'rail' : 'bottom'
+    const owner = Symbol(`extension-panel:${panel.id}`)
+    return this.panels.register({
+      id: panel.id,
+      title: panel.title ?? panel.id.slice(panel.id.lastIndexOf('.') + 1),
+      placement,
+      allowedPlacements: [placement],
+      order: panel.order ?? 0,
+      component: () => createComponent(HostUiProviderHost, {
+        owner,
+        provider: panel.provider,
+        surface: 'panel',
+        data: { panel: panel.id, slot: panel.slot },
+        commands: this.commands,
+        replaceProblems: (problemOwner, diagnostics) => this.replaceProblems(problemOwner, diagnostics),
+        errorText: 'Unable to render extension panel.',
+      }),
+    })
   }
 
   private async prepareExtensionWorld(backend: Pick<Backend, 'id' | 'baseUrl'>, registry: SchemaRegistry): Promise<void> {
@@ -4744,6 +4818,15 @@ export class AppState {
     this.schedulePersistTabs()
   }
 
+  openEditorForBinding(tabId: string, context: EditorBindingContext): boolean {
+    const binding = this.editorBindings.resolve(context, (candidate) =>
+      this.extensionEditorIds.has(candidate.editor) && this.editors.get(candidate.editor) !== undefined)
+    if (!binding) return false
+    this.setTabEditorKind(tabId, binding.editor)
+    this.activeTabId.set(tabId)
+    return this.tabs.get().some((tab) => tab.id === tabId && tab.editorKind === binding.editor)
+  }
+
   /**
    * Toggle the app editor between use mode (clean form) and arrange mode
    * (authoring tools visible). Frozen tabs refuse: their document is a
@@ -4761,7 +4844,7 @@ export class AppState {
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[selectedNodeIds[0]!]
     if (!graph || !node) return undefined
-    if (node.type === 'dinkster.mask.paint') {
+    if (node.type === BUILTIN_EDITOR_NODE_IDS.maskPaint) {
       const loaderNodeId = maskPaintSourceNodeId(node)
       return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
     }
@@ -4786,10 +4869,10 @@ export class AppState {
     const loader = graph?.nodes[candidate.nodeId]
     const registry = this.registryForTab(tab)
     const loaderSchema = loader ? registry?.resolve(loader.type) : undefined
-    const paintSchema = registry?.resolve('dinkster.mask.paint')
+    const paintSchema = registry?.resolve(BUILTIN_EDITOR_NODE_IDS.maskPaint)
     if (!graph) return base
     const associated = Object.values(graph.nodes).filter((node) =>
-      node.type === 'dinkster.mask.paint' && maskPaintSourceNodeId(node) === candidate.nodeId)
+      node.type === BUILTIN_EDITOR_NODE_IDS.maskPaint && maskPaintSourceNodeId(node) === candidate.nodeId)
     if (associated.length > 1) return undefined
     const paint = associated[0]
     const paintSource = paint?.values.source
@@ -4798,7 +4881,7 @@ export class AppState {
         !paintRecipe || paintRecipe.sourceDigest !== candidate.sourceRef.digest)) return undefined
     const hasOccurrenceTopology = Object.values(tab.store.doc.occurrenceTopologies ?? {})
       .some((topology) => topology.bodyGraph === graphId)
-    if (loader?.type !== 'dinkster.load_image' || candidate.inputId !== 'image' || hasOccurrenceTopology ||
+    if (loader?.type !== BUILTIN_EDITOR_NODE_IDS.loadImage || candidate.inputId !== 'image' || hasOccurrenceTopology ||
         schemaPortType(loaderSchema, 'input', 'image') !== 'asset<dinkster.image>' ||
         schemaPortType(loaderSchema, 'output', 'image') !== 'dinkster.image' ||
         schemaPortType(loaderSchema, 'output', 'mask') !== 'dinkster.mask' ||
@@ -4829,7 +4912,7 @@ export class AppState {
     if (tab.execution !== undefined) return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
-    if (node?.type === 'dinkster.mask.paint' && inputId === 'source') {
+    if (node?.type === BUILTIN_EDITOR_NODE_IDS.maskPaint && inputId === 'source') {
       const loaderNodeId = maskPaintSourceNodeId(node)
       return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
     }
@@ -4967,7 +5050,7 @@ export class AppState {
     const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
     const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
     if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    if (driven && graph && node?.type === 'dinkster.curve.editor') {
+    if (driven && graph && node?.type === BUILTIN_EDITOR_NODE_IDS.curve) {
       const sources = companionSourcesOf(graph, undefined, undefined, resolve)
       const envelopeSource = sources.get(nodeId)?.get(inputId)
       const envelope = envelopeSource?.kind === 'producer' && envelopeSource.output === 'curve'
@@ -4975,7 +5058,7 @@ export class AppState {
         : undefined
       const envelopeCurve = envelope && resolve?.(envelope.type)?.items.find((item) =>
         item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'dinkster.curve')
-      const audioSource = envelope?.type === 'dinkster.audio.envelope'
+      const audioSource = envelope?.type === BUILTIN_EDITOR_NODE_IDS.audioEnvelope
         ? sources.get(envelope.id)?.get('audio')
         : undefined
       const audio = audioSource?.kind === 'producer' ? graph.nodes[audioSource.node] : undefined
@@ -5051,7 +5134,7 @@ export class AppState {
     if (tab.execution !== undefined || inputId !== 'fragment_shader') return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
-    if (node?.type !== 'dinkster.image.glsl_shader') return undefined
+    if (node?.type !== BUILTIN_EDITOR_NODE_IDS.glsl) return undefined
     const resolver = this.registryForTab(tab)?.resolve
     const input = resolver?.(node.type)?.items.find((item) =>
       item.kind === 'input' && item.id === inputId)

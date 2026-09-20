@@ -27,14 +27,9 @@ test('wire 43 Route Switch by Name edits labels but stores stable member ids', a
   expect(payload.nodes?.['dinkster.route.switch_by_name']).toBeDefined()
 
   await page.goto('/')
-  const firstRunNotice = page.getByTestId('p2p-first-run-notice')
-  await expect.poll(async () =>
-    await firstRunNotice.isVisible() || await page.evaluate(() =>
-      window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
-    ), { timeout: 15_000 }).toBe(true)
-  if (await firstRunNotice.isVisible()) {
-    await firstRunNotice.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
-  }
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
+  ), { timeout: 15_000 }).toBe(true)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire43-input-family-combo', root: 'g0',

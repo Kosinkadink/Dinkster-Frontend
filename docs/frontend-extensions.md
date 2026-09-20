@@ -47,6 +47,21 @@ schema, or backend status; footer actions remain keyboard reachable.
 
 Widget and preview code receives only its scoped client capability through
 `WidgetEnv`; raw theme or token objects are not part of the extension contract.
+Pack-defined schema widget descriptors retain their declared type and JSON
+parameters for `widgetKind` lookup. An active matching kind supplies its normal
+compact view and editor. Without one, the node remains usable through the raw
+value editor and Problems names the unavailable kind.
+
+Frontend API 1.1 adds three manifest-first doors that still render only this
+declarative host UI. `editor(id, kind)` registers a titled center-region
+editor. `editorBinding(id, binding)` selects an editor by the schema-owned
+`editorRole`, with `nodeId`, `widgetType`, and `valueType` available for
+compatibility. The highest-priority eligible editor wins and the contribution
+id breaks ties; an unavailable editor cannot shadow a usable pack binding.
+`panel(id, slot, provider, order?, title?)` registers in `sidebar.left`,
+`sidebar.right`, `panel.bottom`, or `toolbar.canvas`. The host owns placement,
+chrome, rendering, Problems reporting, gating, and cleanup. Packs supply no
+DOM, CSS, Solid components, or lifecycle callbacks through these doors.
 
 Host contributions remain manifest-first and independently gateable.
 Registration is transactional: activation or identity failure rolls back the

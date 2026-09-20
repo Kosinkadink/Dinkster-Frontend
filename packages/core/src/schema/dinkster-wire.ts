@@ -569,7 +569,10 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       rejectUnknownWidgetFields(descriptor, ['type'], where)
       return
     default:
-      throw new Error(`${where} has unsupported type '${String(descriptor['type'])}'`)
+      if (typeof descriptor['type'] !== 'string' || descriptor['type'] === '') {
+        throw new Error(`${where}.type must be a non-empty string`)
+      }
+      return
   }
 }
 
@@ -1108,6 +1111,15 @@ function widgetFor(
       return {
         widgetType: 'BOOLEAN',
         options: labels,
+        ...(dflt !== undefined ? { default: dflt } : {}),
+      }
+    }
+    if (typeof descriptor.type === 'string' && descriptor.type !== '') {
+      const options = { ...wire as Record<string, unknown> }
+      delete options['type']
+      return {
+        widgetType: descriptor.type,
+        options,
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
