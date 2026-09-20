@@ -108,6 +108,17 @@ describe('fast pull-request and full validation workflows', () => {
       'e2e-matrix': '${{ steps.plan.outputs.e2e-matrix }}',
     })
     const planScript = plan.steps![0]!.with!['script'] as string
+    expect(
+      planScript.match(/^\s+\{ name: .+ \},$/gm)?.map((entry) => entry.trim()),
+    ).toEqual([
+      "{ name: 'parallel 1/4', project: 'parallel-safe', shard: '--shard=1/4' },",
+      "{ name: 'parallel 2/4', project: 'parallel-safe', shard: '--shard=2/4' },",
+      "{ name: 'parallel 3/4', project: 'parallel-safe', shard: '--shard=3/4' },",
+      "{ name: 'parallel 4/4', project: 'parallel-safe', shard: '--shard=4/4', push: true },",
+      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true },",
+      "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
+      "{ name: 'performance', project: 'performance', shard: '' },",
+    ])
     for (const required of [
       "context.eventName !== 'schedule'",
       "workflow_id: 'full-validation.yml'",
@@ -115,13 +126,6 @@ describe('fast pull-request and full validation workflows', () => {
       "status: 'success'",
       'per_page: 1',
       'workflow_runs[0]?.head_sha === context.sha',
-      "{ name: 'parallel 1/4', project: 'parallel-safe', shard: '--shard=1/4' }",
-      "{ name: 'parallel 2/4', project: 'parallel-safe', shard: '--shard=2/4' }",
-      "{ name: 'parallel 3/4', project: 'parallel-safe', shard: '--shard=3/4' }",
-      "{ name: 'parallel 4/4', project: 'parallel-safe', shard: '--shard=4/4', push: true }",
-      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true }",
-      "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' }",
-      "{ name: 'performance', project: 'performance', shard: '' }",
       "context.eventName === 'push'",
       'fullMatrix.filter((entry) => entry.push)',
       "core.setOutput('e2e-matrix', JSON.stringify({ include: selected }))",
@@ -153,6 +157,8 @@ describe('fast pull-request and full validation workflows', () => {
       "always() && needs.validation-plan.outputs.run-heavy == 'true'",
     )
     expect(full.jobs['e2e']!.needs).toEqual(['validation-plan', 'e2e-suite'])
+    for (const job of Object.values(full.jobs))
+      expect(job['runs-on']).toEqual(['self-hosted', 'linux', 'x64'])
     expect(full.jobs['e2e']!.steps).toEqual([
       {
         name: 'Verify every full-suite lane passed',
