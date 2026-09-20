@@ -134,7 +134,7 @@ test('proves wire21 MULTI_COMBO editing, presentation, OOV, and remote choices',
   await page.screenshot({ path: `${proofDir}/06-remote-options-snapshot-miss-warning.png`, animations: 'disabled' })
 })
 
-test('proves wire21 catalog retains ordinary schema when the server omits a wire22-only node', async ({ page }) => {
+test('current catalog retains ordinary schema and ignores obsolete skip metadata', async ({ page }) => {
   await mkdir(proofDir, { recursive: true })
   const schemaSkips = [{
     nodeType: 'UploadOnly', code: 'schema-wire-required', requiredWire: 22,
@@ -169,12 +169,12 @@ test('proves wire21 catalog retains ordinary schema when the server omits a wire
   })
   const schemas = proof.schemas
   expect(schemas).not.toContain('UploadOnly')
-  expect(proof.skip).toEqual(schemaSkips[0])
+  expect(proof.skip).toBeUndefined()
   await page.evaluate((proof) => {
     const banner = document.createElement('pre')
     banner.style.cssText = 'position:fixed;left:80px;top:90px;z-index:10000;background:#102030;color:#e8f4ff;padding:18px;border:2px solid #60a5fa;font-size:18px'
-    banner.textContent = `wire 21 server catalog\nloaded: ${proof.schemas.join(', ')}\nwire 22-only node visible: false\nschemaSkips: ${String(proof.skip?.nodeType)} (${String(proof.skip?.code)})`
+    banner.textContent = `current server catalog\nloaded: ${proof.schemas.join(', ')}\nomitted node visible: false\nobsolete schemaSkips ignored: ${String(proof.skip === undefined)}`
     document.body.appendChild(banner)
   }, proof)
-  await page.screenshot({ path: `${proofDir}/07-wire21-whole-node-skip-ordinary-retained.png`, animations: 'disabled' })
+  await page.screenshot({ path: `${proofDir}/07-current-catalog-ordinary-retained.png`, animations: 'disabled' })
 })

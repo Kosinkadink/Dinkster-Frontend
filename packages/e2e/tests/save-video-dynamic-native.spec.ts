@@ -234,8 +234,9 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
     .map((problem) => `${problem.code}: ${problem.message}`))).toEqual([])
   await expect.poll(() => page.evaluate(() => {
     const executions = [...window.__dinksterTest!.app.store.executions.get().values()]
-    return executions.sort((a, b) => b.queuedAt - a.queuedAt)[0]?.status
-  }), { timeout: 60_000, intervals: [250, 500, 1_000] }).toBe('completed')
+    const execution = executions.sort((a, b) => b.queuedAt - a.queuedAt)[0]
+    return execution === undefined ? undefined : { status: execution.status, errors: execution.errors }
+  }), { timeout: 60_000, intervals: [250, 500, 1_000] }).toEqual({ status: 'completed', errors: [] })
 
   expect(submitted).toBeDefined()
   const submittedNodes = submitted!.graph.nodes as Record<string, {
