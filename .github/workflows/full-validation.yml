@@ -161,10 +161,15 @@ jobs:
           NODE_OPTIONS: --max-semi-space-size=64
       - run: pnpm --filter @dinkster/app build
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
+        env:
+          CUDA_VISIBLE_DEVICES: ""
       # Host interface changes must not invalidate Chromium's loopback requests.
       - run: bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:
           DINKSTER_E2E_PORT: "15376"
+          DINKSTER_E2E_NATIVE_PORT: "15377"
+          DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
 
   e2e-suite:
     needs: validation-plan
@@ -227,6 +232,10 @@ jobs:
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python -r .ci/ComfyUI/requirements.txt
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - name: Install hosted compatibility dependencies
+        run: |
+          uv export --project .ci/Dinkster --locked --package dinkster-inference-torch --extra torch --no-emit-project --no-emit-workspace --output-file "${RUNNER_TEMP}/dinkster-torch-constraints.txt" > /dev/null
+          uv pip install --python .ci/ComfyUI/venv/bin/python --constraint "${RUNNER_TEMP}/dinkster-torch-constraints.txt" --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match packaging numpy scipy pillow tqdm dinkster-kitchen dinkster-aimdo sentencepiece tokenizers
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
           CUDA_VISIBLE_DEVICES: ""
