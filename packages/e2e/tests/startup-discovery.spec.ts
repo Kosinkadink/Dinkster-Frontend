@@ -13,6 +13,10 @@
  */
 import { expect, test } from '@playwright/test'
 
+const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
+if (!nativeFrontend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the native-only frontend')
+test.use({ baseURL: nativeFrontend })
+
 const NATIVE_TABLE = {
   schemaVersion: 1,
   epoch: 1,
