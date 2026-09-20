@@ -75,7 +75,7 @@ export default defineConfig({
         ...process.env,
         DINKSTER_BACKEND: `http://127.0.0.1:${comfyPort}`,
         DINKSTER_NATIVE_BACKEND: nativeBackend,
-        VITE_DINKSTER_PROBE_V1: '1',
+        VITE_DINKSTER_E2E_PROBE_V1: '1',
       },
       url: `http://127.0.0.1:${frontendPort}`,
       reuseExistingServer: false,

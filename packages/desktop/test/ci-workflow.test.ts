@@ -49,6 +49,10 @@ const hostedConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.hosted.config.ts'),
   'utf8',
 )
+const baseConfig = await readFile(
+  resolve(root, 'packages/e2e/playwright.config.ts'),
+  'utf8',
+)
 const auditConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.audit-assets.config.ts'),
   'utf8',
@@ -302,14 +306,15 @@ describe('fast pull-request and full validation workflows', () => {
       }
     }
     expect(appMain).toContain(
-      "probeV1: import.meta.env['VITE_DINKSTER_PROBE_V1'] === '1'",
+      "probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1'",
     )
-    expect(hostedConfig).toContain("VITE_DINKSTER_PROBE_V1: '1'")
+    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
     expect(auditConfig).toContain(
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
-    expect(auditConfig).toContain("VITE_DINKSTER_PROBE_V1: '1'")
+    expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
   })
 
   it('validates the exact desktop release commit before publication', () => {

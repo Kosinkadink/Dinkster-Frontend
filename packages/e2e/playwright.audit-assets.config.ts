@@ -56,7 +56,7 @@ export default defineConfig({
       reuseExistingServer: false,
       env: {
         DINKSTER_NATIVE_BACKEND: nativeBackend,
-        VITE_DINKSTER_PROBE_V1: '1',
+        VITE_DINKSTER_E2E_PROBE_V1: '1',
         VITE_DINKSTER_FEDERATED_CATALOG_PATH: '/api/catalog',
         VITE_DINKSTER_FEDERATED_CANDIDATES_PATH: '/api/catalog/candidates',
       },

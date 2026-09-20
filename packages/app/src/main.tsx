@@ -101,7 +101,7 @@ async function bootstrap(): Promise<void> {
   // a ComfyUI backend by URL, where full protocol discovery remains enabled.
   const discovery = await discoverBackend('', {
     timeoutMs: 2500,
-    probeV1: import.meta.env['VITE_DINKSTER_PROBE_V1'] === '1',
+    probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1',
   })
   hideBoot()
   app = new AppState({ defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster' })
