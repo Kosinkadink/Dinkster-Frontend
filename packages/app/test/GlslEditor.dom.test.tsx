@@ -14,10 +14,10 @@ layout(location = 0) out vec4 fragColor0;
 void main() { fragColor0 = vec4(0.25); }`
 
 const payload = {
-  schemaVersion: 36,
+  schemaVersion: 1,
   nodes: {
     'dinkster.image.glsl_shader': {
-      schemaVersion: 36,
+      schemaVersion: 1,
       displayName: 'GLSL Shader',
       category: 'image/shader',
       idempotent: false,

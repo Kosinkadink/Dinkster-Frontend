@@ -37,10 +37,10 @@ const makeStorage = (): Storage => {
 const TABS_KEY = 'dinkster.openTabs'
 
 const compositorPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 37,
+  schemaVersion: 1,
   nodes: {
     Compositor: {
-      schemaVersion: 37,
+      schemaVersion: 1,
       displayName: 'Create Layered Image',
       category: 'image/compositing',
       idempotent: false,
@@ -55,7 +55,7 @@ const compositorPayload = (): DinksterNodesPayload => ({
       ],
     },
     Source: {
-      schemaVersion: 37,
+      schemaVersion: 1,
       displayName: 'Source',
       category: 'test',
       idempotent: true,
@@ -67,21 +67,21 @@ const compositorPayload = (): DinksterNodesPayload => ({
 }) as unknown as DinksterNodesPayload
 
 const curveFollowPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 40,
+  schemaVersion: 1,
   nodes: {
     AudioSource: {
-      schemaVersion: 40, displayName: 'Audio source', category: 'test', idempotent: true,
+      schemaVersion: 1, displayName: 'Audio source', category: 'test', idempotent: true,
       interface: [{ role: 'output', id: 'audio', type: { kind: 'concrete', types: ['comfy.AUDIO'] } }],
     },
     'dinkster.audio.envelope': {
-      schemaVersion: 40, displayName: 'Audio envelope', category: 'audio', idempotent: true,
+      schemaVersion: 1, displayName: 'Audio envelope', category: 'audio', idempotent: true,
       interface: [
         { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['comfy.AUDIO'] } },
         { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } },
       ],
     },
     'dinkster.curve.editor': {
-      schemaVersion: 40, displayName: 'Curve editor', category: 'curve', idempotent: true,
+      schemaVersion: 1, displayName: 'Curve editor', category: 'curve', idempotent: true,
       interface: [
         {
           role: 'input', id: 'curve', required: false,
@@ -92,17 +92,17 @@ const curveFollowPayload = (): DinksterNodesPayload => ({
       ],
     },
     OtherCurve: {
-      schemaVersion: 40, displayName: 'Other curve', category: 'test', idempotent: true,
+      schemaVersion: 1, displayName: 'Other curve', category: 'test', idempotent: true,
       interface: [{ role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } }],
     },
   },
 }) as unknown as DinksterNodesPayload
 
 const glslPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 36,
+  schemaVersion: 1,
   nodes: {
     'dinkster.image.glsl_shader': {
-      schemaVersion: 36,
+      schemaVersion: 1,
       displayName: 'GLSL Shader',
       category: 'image/shader',
       idempotent: false,
@@ -120,10 +120,10 @@ const glslPayload = (): DinksterNodesPayload => ({
 }) as unknown as DinksterNodesPayload
 
 const maskPaintPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 41,
+  schemaVersion: 1,
   nodes: {
     'dinkster.load_image': {
-      schemaVersion: 41, displayName: 'Load Image', category: 'image', idempotent: true,
+      schemaVersion: 1, displayName: 'Load Image', category: 'image', idempotent: true,
       interface: [
         { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
         { role: 'output', id: 'image', type: { kind: 'concrete', types: ['dinkster.image'] } },
@@ -131,7 +131,7 @@ const maskPaintPayload = (): DinksterNodesPayload => ({
       ],
     },
     'dinkster.mask.paint': {
-      schemaVersion: 41, displayName: 'Paint Mask', category: 'image', idempotent: true,
+      schemaVersion: 1, displayName: 'Paint Mask', category: 'image', idempotent: true,
       interface: [
         { role: 'input', id: 'source', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
         { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['core.string'] }, widget: { type: 'STRING', multiline: true } },

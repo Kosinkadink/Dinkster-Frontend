@@ -223,11 +223,11 @@ describe('AppState multi-window workspace', () => {
     first.openDocument(workflow(), 'Shared workflow')
     second.openDocument(workflow(), 'Shared workflow')
     first.registry.set(buildDinksterRegistry(asConnectionId('local'), {
-      schemaVersion: 16,
-      dinkster: { version: 'test', schemaWire: 16 },
+      schemaVersion: 1,
+      dinkster: { version: 'test', schemaWire: 1 },
       nodes: {
         X: {
-          schemaVersion: 16, displayName: 'X', outputNode: true,
+          schemaVersion: 1, displayName: 'X', outputNode: true,
           interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['core.int'] } }],
         },
       },
@@ -263,11 +263,11 @@ describe('AppState multi-window workspace', () => {
     first.openDocument(workflow(), 'Shared workflow')
     second.openDocument(workflow(), 'Shared workflow')
     first.registry.set(buildDinksterRegistry(asConnectionId('local'), {
-      schemaVersion: 16,
-      dinkster: { version: 'test', schemaWire: 16 },
+      schemaVersion: 1,
+      dinkster: { version: 'test', schemaWire: 1 },
       nodes: {
         X: {
-          schemaVersion: 16, displayName: 'X', outputNode: true,
+          schemaVersion: 1, displayName: 'X', outputNode: true,
           interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['core.int'] } }],
         },
       },
@@ -402,11 +402,11 @@ describe('AppState multi-window workspace', () => {
     right.peer = left
     const app = new AppState({ workspaceEvents: right })
     const registry = buildDinksterRegistry(asConnectionId('local'), {
-      schemaVersion: 16,
-      dinkster: { version: 'test', schemaWire: 16 },
+      schemaVersion: 1,
+      dinkster: { version: 'test', schemaWire: 1 },
       nodes: {
         X: {
-          schemaVersion: 16, displayName: 'X', outputNode: true,
+          schemaVersion: 1, displayName: 'X', outputNode: true,
           interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['core.int'] } }],
         },
       },
