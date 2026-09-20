@@ -98,8 +98,12 @@ async function bootstrap(): Promise<void> {
   // before constructing the app, so a clean launch connects to its Dinkster
   // engine or supervisor. The default launch is native-only and never probes
   // v1 endpoints; users can still add a ComfyUI backend by URL, where full
-  // protocol discovery remains enabled. The native probes run concurrently.
-  const discovery = await discoverBackend('', { timeoutMs: 2500, probeV1: false })
+  // protocol discovery remains enabled. The E2E compatibility harness opts
+  // into V1 discovery because its route fixtures cover both protocols.
+  const discovery = await discoverBackend('', {
+    timeoutMs: 2500,
+    probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1',
+  })
   hideBoot()
   app = new AppState({ defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster' })
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
