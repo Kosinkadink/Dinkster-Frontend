@@ -3,8 +3,8 @@
 P2P is off on a fresh installation and does not show a first-run prompt. The
 P2P panel has one sharing toggle for downloads and background seeding, shows
 the current seeding state, and retains controls for limits and live activity.
-Saved downloads-on, seeding-off settings appear as mixed; turning the mixed
-sharing control on enables both capabilities.
+Saved settings where downloads and background seeding differ appear as mixed;
+turning the mixed sharing control on enables both capabilities.
 Turning the toggle off stops the P2P runtime.
 
 The P2P transfers dock panel controls native Dinkster peer-to-peer model transfers. Saved server choices are preserved. Its chrome uses the shared application catalog and follows explicit or Automatic browser and desktop locale selection. Mounted controls update when the active locale changes without resetting draft settings or refetching settings and activity. Backend-provided identifiers and errors remain untranslated data.

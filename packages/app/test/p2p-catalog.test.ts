@@ -25,7 +25,7 @@ describe('shipped message catalogs', () => {
   })
 
   it('uses base-language and English fallback', () => {
-    expect(Object.keys(p2pEnglish)).toHaveLength(110)
+    expect(Object.keys(p2pEnglish)).toHaveLength(111)
     setLocale('zh-CN')
     expect(t('p2p.title')).toBe('P2P \u4f20\u8f93')
     setLocale('fr')
@@ -35,7 +35,7 @@ describe('shipped message catalogs', () => {
 
 describe('shared P2P messages', () => {
   it('keeps the complete English P2P catalog', () => {
-    expect(Object.keys(p2pEnglish)).toHaveLength(110)
+    expect(Object.keys(p2pEnglish)).toHaveLength(111)
   })
   it('directs read-only users to an operator startup override without granting write access', () => {
     expect(english['p2p.readOnly']).toContain('--disable-p2p')
@@ -46,6 +46,7 @@ describe('shared P2P messages', () => {
     expect(english['p2p.disclosure']).toBe('Other peers can learn your IP address and that your device is requesting or sharing a particular model digest.')
   })
   it('describes one sharing toggle with seeding state and distinguishes disk from rate limits', () => {
+    expect(english['p2p.sharingHelpControl']).toContain('Controls peer downloads and background seeding together.')
     expect(english['p2p.sharingHelpOff']).toContain('Current seeding state: Off.')
     expect(english['p2p.sharingHelpMixed']).toContain('do not match')
     expect(english['p2p.sharingHelpMixed']).toContain('Turning sharing on enables both.')
