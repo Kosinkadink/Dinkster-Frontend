@@ -161,10 +161,15 @@ jobs:
           NODE_OPTIONS: --max-semi-space-size=64
       - run: pnpm --filter @dinkster/app build
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
+        env:
+          CUDA_VISIBLE_DEVICES: ""
       # Host interface changes must not invalidate Chromium's loopback requests.
       - run: bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:
           DINKSTER_E2E_PORT: "15376"
+          DINKSTER_E2E_NATIVE_PORT: "15377"
+          DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
 
   e2e-suite:
     needs: validation-plan
