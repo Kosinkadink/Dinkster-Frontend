@@ -4,6 +4,11 @@ Status: proposal (researched against ComfyUI backend, ComfyUI_frontend, and KJNo
 
 See also [hazards.md](./hazards.md): the load-bearing invariants (reroutes especially) that keep the old frontend's minefields defused, and the failure mode each one prevents.
 
+Before public release, the schema wire contract is revised in place and the
+frontend decodes only version 1. Compatibility across wire versions begins at
+public release; after that point, a wire change will add a separate decoder and
+a documented support window.
+
 ## Goals
 
 - Performant node-graph editor for ComfyUI, local-first (no cloud/API-node concerns for now).

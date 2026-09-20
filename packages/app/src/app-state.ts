@@ -6,7 +6,6 @@
  */
 
 import {
-  DINKSTER_ADVERTISED_WIRE_VERSIONS,
   activeLocale,
   analyzeSelectionExecution,
   asConnectionId,
@@ -3893,7 +3892,7 @@ export class AppState {
             const goal = targetEpoch
             const gen = staleGen // a fetch issued now observes this server life
             attemptGen = gen
-            const fresh = await connection.fetchSchemas(this.schemaWireVersionsFor(nativeBackend))
+            const fresh = await connection.fetchSchemas()
             // A reconnect landed mid-fetch: this response may belong to the
             // PREVIOUS server life. Never commit it - committing would
             // restore capabilities the strip below just invalidated - loop
@@ -4102,10 +4101,7 @@ export class AppState {
         found.kind === 'v1' ? 'v1' : 'dinkster',
       )
     }
-    const message =
-      found.kind === 'dinkster-incompatible'
-        ? `'${trimmed}' is a Dinkster server, but this build decodes schema wire ${DINKSTER_ADVERTISED_WIRE_VERSIONS.join(', ')} and the server encodes ${found.supported.join(', ') || 'none of them'}`
-        : `'${trimmed}': ${found.detail}`
+    const message = `'${trimmed}': ${found.detail}`
     this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
       diag('error', 'schema', `backend.${found.kind}`, message),
     ])
@@ -4717,13 +4713,6 @@ export class AppState {
     const backend = this.backendFor(id)
     if (!tab || tab.execution || !backend) return
     this.tabTargets.update((m) => new Map(m).set(tabId, id))
-    if (
-      backend.protocol === 'dinkster' &&
-      this.documentNeedsWire43(tab.store.doc) &&
-      backend.registry.get()?.resolve('dinkster.route.switch_by_name') === undefined
-    ) {
-      void this.loadBackendSchemas(backend)
-    }
     // The new target's schemas now interpret the document: re-arm the
     // legacy-boolean pass (idempotent; see legacyBooleanPending). The tick
     // below drains it once the target's registry is available.
@@ -5979,13 +5968,6 @@ export class AppState {
     this.drainLegacyBooleans() // immediate when schemas are already loaded
     this.drainUpgrades()
     const backend = this.backendForTab(tab)
-    if (
-      backend.protocol === 'dinkster' &&
-      this.documentNeedsWire43(document) &&
-      backend.registry.get()?.resolve('dinkster.route.switch_by_name') === undefined
-    ) {
-      void this.loadBackendSchemas(backend)
-    }
     if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
     return []
   }
@@ -6858,7 +6840,7 @@ export class AppState {
       !this.disposed &&
       this.backends.get().includes(backend) &&
       backend.connection.currentRegistry === base
-    if (base === undefined || base.server?.schemaWire !== 44 || base.packs === undefined) return
+    if (base === undefined || base.packs === undefined) return
     const locale = activeLocale.get().tag
     const catalogsByPack = new Map<string, readonly PackLocaleCatalog[]>()
     await Promise.all([...base.packs].map(async ([packId, pack]) => {
@@ -7095,21 +7077,6 @@ export class AppState {
     )
   }
 
-  private documentNeedsWire43(document: WorkflowDocument): boolean {
-    return Object.values(document.graphs).some((graph) =>
-      Object.values(graph.nodes).some((node) => node.type === 'dinkster.route.switch_by_name'),
-    )
-  }
-
-  private schemaWireVersionsFor(backend: Backend): readonly number[] | undefined {
-    if (backend.protocol !== 'dinkster') return undefined
-    return this.tabs.get().some((tab) =>
-      tab.execution === undefined &&
-      this.backendForTab(tab) === backend &&
-      this.documentNeedsWire43(tab.store.doc),
-    ) ? [43, 44] : undefined
-  }
-
   /** Fetch schemas (+ native diagnostics); failures land in Problems - except
    * the supervisor's engine-not-ready gate, which the supervisor poll narrates
    * (and retries on ready) instead of a scary fetch-failed problem. */
@@ -7121,9 +7088,7 @@ export class AppState {
     const current = (): boolean =>
       this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request
     try {
-      const registry = backend.protocol === 'dinkster'
-        ? await backend.connection.fetchSchemas(this.schemaWireVersionsFor(backend))
-        : await backend.connection.fetchSchemas()
+      const registry = await backend.connection.fetchSchemas()
       if (!current()) return
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return

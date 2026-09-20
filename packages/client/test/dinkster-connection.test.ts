@@ -43,19 +43,18 @@ const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot
 
 const nodesPayload = readJson('fixtures/dinkster-nodes.json') as DinksterNodesPayload
 const docsPageFixture = JSON.parse(readFileSync(new URL('./fixtures/docs-page.json', import.meta.url), 'utf8')) as unknown
-const nodesPayloadAtWire = (
-  wire: number,
+const currentNodesPayload = (
   dinkster?: Record<string, unknown>,
 ): DinksterNodesPayload => ({
   ...nodesPayload,
-  schemaVersion: dinkster === undefined ? wire : 1,
-  ...(dinkster === undefined ? {} : { dinkster }),
+  schemaVersion: 1,
+  ...(dinkster === undefined ? {} : { dinkster: { ...dinkster, schemaWire: 1 } }),
   nodes: Object.fromEntries(
     Object.entries(nodesPayload.nodes as Record<string, Record<string, unknown>>)
-      .map(([type, schema]) => [type, { ...schema, schemaVersion: wire }]),
+      .map(([type, schema]) => [type, { ...schema, schemaVersion: 1 }]),
   ),
 })
-const liveNodesPayload = nodesPayloadAtWire(23)
+const liveNodesPayload = currentNodesPayload()
 const C0 = asConnectionId('c0')
 const registry = buildDinksterRegistry(C0, nodesPayload)
 const liveRegistry = buildDinksterRegistry(C0, liveNodesPayload)
@@ -66,8 +65,8 @@ const jsonResponse = (status: number, body: unknown): Response =>
 
 it('includes output profile detector revision in registry identity', () => {
   const payload = (revision: string): DinksterNodesPayload => ({
-    schemaVersion: 39,
-    nodes: { 'dinkster.load_model_profile': { schemaVersion: 39, interface: [
+    schemaVersion: 1,
+    nodes: { 'dinkster.load_model_profile': { schemaVersion: 1, interface: [
       { role: 'input', id: 'checkpoint', required: true, type: { kind: 'concrete', types: ['dinkster.asset'] } },
       { role: 'input', id: 'entries', required: true, type: { kind: 'concrete', types: ['core.string'] } },
       { role: 'outputDescriptors', input: 'entries', choices: ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete', types: [`dinkster.${id}`] } })), minEntries: 1, maxEntries: 3, fixedIds: true, probe: { input: 'checkpoint', kind: 'model', revision } },
@@ -83,8 +82,8 @@ it('includes output profile detector revision in registry identity', () => {
 describe('schema registry identity', () => {
   it('excludes the wire 42 help availability marker from execution identity', () => {
     const base = {
-      schemaVersion: 42,
-      nodes: { Documented: { schemaVersion: 42, interface: [] } },
+      schemaVersion: 1,
+      nodes: { Documented: { schemaVersion: 1, interface: [] } },
     } as unknown as DinksterNodesPayload
     const withDocs = structuredClone(base) as any
     withDocs.nodes.Documented.hasDocs = true
@@ -94,9 +93,9 @@ describe('schema registry identity', () => {
 
   it('normalizes false storage acceptance but retains true in registry cache identity', () => {
     const base = {
-      schemaVersion: 39,
+      schemaVersion: 1,
       nodes: { Storage: {
-        schemaVersion: 39,
+        schemaVersion: 1,
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'value', required: true,
@@ -116,9 +115,9 @@ describe('schema registry identity', () => {
 
   it('normalizes false stream acceptance and hashes stream and chunk policies', () => {
     const base = {
-      schemaVersion: 41,
+      schemaVersion: 1,
       nodes: { Stream: {
-        schemaVersion: 41,
+        schemaVersion: 1,
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'image', required: true,
@@ -154,9 +153,9 @@ describe('schema registry identity', () => {
 
   it.each([{}, { role: 'input' }])('preserves literal default fields named acceptsStorage: %j', (fields) => {
     const payload = (value: unknown): DinksterNodesPayload => ({
-      schemaVersion: 39,
+      schemaVersion: 1,
       nodes: { Options: {
-        schemaVersion: 39, signature: 'backend-signature',
+        schemaVersion: 1, signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'options', required: false,
           type: { kind: 'concrete', types: ['custom.options'] }, default: value,
@@ -170,9 +169,9 @@ describe('schema registry identity', () => {
 
   it('includes wire 40 media policies in registry cache identity', () => {
     const base = {
-      schemaVersion: 40,
+      schemaVersion: 1,
       nodes: { Media: {
-        schemaVersion: 40,
+        schemaVersion: 1,
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'image', required: true,
@@ -188,9 +187,9 @@ describe('schema registry identity', () => {
 
   it('does not include remote COMBO policy fields in the frontend registry hash', () => {
     const base = {
-      schemaVersion: 20,
+      schemaVersion: 1,
       nodes: { Policy: {
-        schemaVersion: 20,
+        schemaVersion: 1,
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'choice', required: true,
@@ -206,11 +205,11 @@ describe('schema registry identity', () => {
     expect(buildDinksterRegistry(C0, base).hash).toBe(buildDinksterRegistry(C0, withPolicy).hash)
   })
 
-  it('excludes MULTI_COMBO presentation and schema skips while retaining behavior', () => {
+  it('excludes MULTI_COMBO presentation while retaining behavior', () => {
     const base = {
-      schemaVersion: 21,
+      schemaVersion: 1,
       nodes: { Multi: {
-        schemaVersion: 21,
+        schemaVersion: 1,
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'choices', required: true,
@@ -227,10 +226,6 @@ describe('schema registry identity', () => {
         controlAfterRefresh: 'last', timeoutMs: 2000, maxRetries: 1, refreshMs: 5000,
       },
     }
-    changed.schemaSkips = [{
-      nodeType: 'OtherMulti', code: 'schema-wire-required', requiredWire: 22,
-      reason: 'future descriptor requires schema wire 22',
-    }]
     expect(buildDinksterRegistry(C0, base).hash).not.toBe(buildDinksterRegistry(C0, changed).hash)
     delete changed.nodes.Multi.interface[0].widget.remote
     expect(buildDinksterRegistry(C0, base).hash).toBe(buildDinksterRegistry(C0, changed).hash)
@@ -240,9 +235,9 @@ describe('schema registry identity', () => {
 
   it('excludes wire 23 choice labels, info, and folders from registry identity', () => {
     const base = {
-      schemaVersion: 23,
+      schemaVersion: 1,
       nodes: { Sampler: {
-        schemaVersion: 23,
+        schemaVersion: 1,
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'sampler', required: true,
@@ -264,9 +259,9 @@ describe('schema registry identity', () => {
 
   it('excludes wire 23 MULTI_COMBO presentation while retaining option values', () => {
     const base = {
-      schemaVersion: 23,
+      schemaVersion: 1,
       nodes: { Models: {
-        schemaVersion: 23,
+        schemaVersion: 1,
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'models', required: true,
@@ -881,16 +876,16 @@ describe('native schema registry', () => {
     expect(registry.server).toBeUndefined() // fixture predates the header
     const withHeader = buildDinksterRegistry(C0, {
       ...nodesPayload,
-      dinkster: { version: '0.9.0', schemaWire: 3 },
+      dinkster: { version: '0.9.0', schemaWire: 1 },
     })
-    expect(withHeader.server).toEqual({ version: '0.9.0', schemaWire: 3 })
+    expect(withHeader.server).toEqual({ version: '0.9.0', schemaWire: 1 })
   })
 
   it('carries graphFeatures when present, omits it when absent (older backend)', () => {
     expect(registry.graphFeatures).toBeUndefined() // fixture predates the field
     const withFeatures = buildDinksterRegistry(C0, {
       ...nodesPayload,
-      dinkster: { version: '0.9.0', schemaWire: 10, graphFeatures: ['typedLiteral'] },
+      dinkster: { version: '0.9.0', schemaWire: 1, graphFeatures: ['typedLiteral'] },
     })
     expect(withFeatures.graphFeatures).toEqual(['typedLiteral'])
   })
@@ -899,12 +894,12 @@ describe('native schema registry', () => {
     expect(registry.mergeableTypes).toBeUndefined() // fixture predates the field
     const withProviders = buildDinksterRegistry(C0, {
       ...nodesPayload,
-      dinkster: { version: '0.9.0', schemaWire: 12, mergeableTypes: ['comfy.IMAGE'] },
+      dinkster: { version: '0.9.0', schemaWire: 1, mergeableTypes: ['comfy.IMAGE'] },
     })
     expect(withProviders.mergeableTypes).toEqual(['comfy.IMAGE'])
     const settledEmpty = buildDinksterRegistry(C0, {
       ...nodesPayload,
-      dinkster: { version: '0.9.0', schemaWire: 12, mergeableTypes: [] },
+      dinkster: { version: '0.9.0', schemaWire: 1, mergeableTypes: [] },
     })
     expect(settledEmpty.mergeableTypes).toEqual([])
   })
@@ -958,10 +953,10 @@ describe('promptToDinksterGraph', () => {
       role: 'output', id, type: { kind: 'concrete', types: [type] },
     })
     const effective = buildDinksterRegistry(C0, {
-      schemaVersion: 32,
+      schemaVersion: 1,
       nodes: {
-        Source: { schemaVersion: 32, nodeType: 'Source', interface: [output('caption', 'core.str'), output('total', 'core.int')] },
-        Sink: { schemaVersion: 32, nodeType: 'Sink', interface: [
+        Source: { schemaVersion: 1, nodeType: 'Source', interface: [output('caption', 'core.str'), output('total', 'core.int')] },
+        Sink: { schemaVersion: 1, nodeType: 'Sink', interface: [
           { role: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['core.str'] } },
           { role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['core.int'] } },
         ] },
@@ -998,8 +993,8 @@ describe('promptToDinksterGraph', () => {
       [output('total', 'core.int'), output('caption', 'core.str')],
     ]) {
       const catalog = buildDinksterRegistry(C0, {
-        schemaVersion: 32,
-        nodes: { Source: { schemaVersion: 32, nodeType: 'Source', interface: declared } },
+        schemaVersion: 1,
+        nodes: { Source: { schemaVersion: 1, nodeType: 'Source', interface: declared } },
       })
       const native = promptToDinksterGraph(compiled.artifact.prompt, catalog.resolve)
       expect(native.ok).toBe(true)
@@ -1063,10 +1058,10 @@ describe('promptToDinksterGraph', () => {
     { count: 2, members: ['0', '1'] },
   ])('lowers output-family members $members with count $count by canonical ID', ({ count, members }) => {
     const dynamicRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 32,
+      schemaVersion: 1,
       nodes: {
         Splitter: {
-          schemaVersion: 32,
+          schemaVersion: 1,
           nodeType: 'Splitter',
           interface: [
             ...(count === undefined ? [] : [{
@@ -1178,10 +1173,10 @@ describe('promptToDinksterGraph', () => {
 
   it('moves recursive DynamicCombo selectors out of native inputs without removing DynamicSlot sockets', () => {
     const dynamicRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 22,
+      schemaVersion: 1,
       nodes: {
         Dynamic: {
-          schemaVersion: 22,
+          schemaVersion: 1,
           nodeType: 'Dynamic',
           interface: [
             {
@@ -1308,10 +1303,10 @@ describe('promptToDinksterGraph', () => {
       virtualPath: '',
     }
     const assetRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 4,
+      schemaVersion: 1,
       nodes: {
         'comfy.LoadImage': {
-          schemaVersion: 4,
+          schemaVersion: 1,
           nodeType: 'comfy.LoadImage',
           idempotent: false,
           interface: [{
@@ -1390,13 +1385,13 @@ function submitHarness(respond: (url: string, init?: RequestInit) => Response | 
 
 const nodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, liveNodesPayload) : undefined
-const regionNodesPayload = nodesPayloadAtWire(21, {
-  version: 'test', schemaWire: 21, graphFeatures: ['regions'],
+const regionNodesPayload = currentNodesPayload({
+  version: 'test', schemaWire: 1, graphFeatures: ['regions'],
 })
 const regionNodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, regionNodesPayload) : undefined
-const placementNodesPayload = nodesPayloadAtWire(23, {
-  version: 'test', schemaWire: 23, graphFeatures: ['placement'],
+const placementNodesPayload = currentNodesPayload({
+  version: 'test', schemaWire: 1, graphFeatures: ['placement'],
 })
 const placementNodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, placementNodesPayload) : undefined
@@ -1443,123 +1438,42 @@ describe('worker catalog', () => {
   })
 })
 
-describe('fetchSchemas wire negotiation', () => {
-  it('advertises the current strict compatibility window via ?wire=', async () => {
+describe('fetchSchemas wire contract', () => {
+  it('requests the nodes catalog without version negotiation', async () => {
     const { conn, requests } = submitHarness(nodesRoute)
     await conn.fetchSchemas()
     const nodes = requests.find((r) => r.url.includes('/api/nodes'))!
-    expect(new URL(nodes.url, 'http://x').searchParams.get('wire')).toBe('21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,44')
+    expect(new URL(nodes.url, 'http://x').search).toBe('')
   })
 
-  it('can request wire 43 only for a document that needs its schema', async () => {
-    const { conn, requests } = submitHarness((url) => url.includes('/api/nodes')
-      ? jsonResponse(200, {
-          schemaVersion: 1,
-          dinkster: { version: 'wire43-backend', schemaWire: 43 },
-          nodes: {},
-        })
-      : undefined)
-    await conn.fetchSchemas([43])
-    const nodes = requests.find((r) => r.url.includes('/api/nodes'))!
-    expect(new URL(nodes.url, 'http://x').searchParams.get('wire')).toBe('43')
-  })
-
-  it('refuses a backend selecting unoffered wire 19', async () => {
+  it('refuses a backend selecting another wire version', async () => {
     const { conn } = submitHarness((url) => url.includes('/api/nodes')
       ? jsonResponse(200, {
           schemaVersion: 1,
-          dinkster: { version: 'highest-common', schemaWire: 19 },
+          dinkster: { version: 'incompatible', schemaWire: 2 },
           nodes: {},
         })
       : undefined)
     await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44; the server encodes 19',
+      'schema wire version mismatch: this build decodes 1; the server encodes 2',
     )
     expect(conn.currentRegistry).toBeUndefined()
   })
 
-  it('keeps the frozen wire 15 decoder out of live negotiation', async () => {
-    const { conn } = submitHarness((url) => {
-      if (!url.includes('/api/nodes')) return undefined
-      expect(new URL(url, 'http://x').searchParams.get('wire')).toBe('21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,44')
-      return jsonResponse(200, {
-        schemaVersion: 1,
-        dinkster: { version: 'old-backend', schemaWire: 15 },
-        nodes: {},
-      })
-    })
-    await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44; the server encodes 15',
-    )
-    expect(conn.currentRegistry).toBeUndefined()
-  })
-
-  it('refuses a server selecting unoffered strict wire 17', async () => {
-    const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes')
-        ? jsonResponse(200, {
-            schemaVersion: 1,
-            dinkster: { version: 'wire17-backend', schemaWire: 17 },
-            nodes: {},
-          })
-        : undefined)
-    await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44; the server encodes 17',
-    )
-    expect(conn.currentRegistry).toBeUndefined()
-  })
-
-  it('refuses a backend selecting ancient wire 16', async () => {
-    const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes')
-        ? jsonResponse(200, {
-            schemaVersion: 1,
-            dinkster: { version: 'new-backend', schemaWire: 16 },
-            nodes: {},
-          })
-        : undefined,
-    )
-    await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44; the server encodes 16',
-    )
-    expect(conn.currentRegistry).toBeUndefined()
-  })
-
-  it('turns the machine-readable 406 refusal into a diagnosable error', async () => {
-    const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes')
-        ? jsonResponse(406, {
-            error: 'wire-version-unsupported',
-            requested: [3, 4, 5, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-            supported: [19],
-          })
-        : undefined,
-    )
-    await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44; the server encodes 19',
-    )
-  })
-
-  it('survives a 406 with an unparseable body', async () => {
-    const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes') ? new Response('nope', { status: 406 }) : undefined,
-    )
-    await expect(conn.fetchSchemas()).rejects.toThrow('schema wire version mismatch')
-  })
 })
 
 describe('fetchSchemas payload validation (CL5)', () => {
-  it('installs the exact wire 41 serializer fixture with streaming policies intact', async () => {
+  it('installs the serializer fixture with streaming policies intact', async () => {
     const exports = readJson('fixtures/dinkster-wire41.json') as Record<string, unknown>[]
     const payload = {
       schemaVersion: 1,
-      dinkster: { version: 'fixture', schemaWire: 41 },
-      nodes: Object.fromEntries(exports.map((schema) => [schema['nodeType'], schema])),
+      dinkster: { version: 'fixture', schemaWire: 1 },
+      nodes: Object.fromEntries(exports.map((schema) => [schema['nodeType'], { ...schema, schemaVersion: 1 }])),
     }
     const { conn } = submitHarness((url) =>
       url.includes('/api/nodes') ? jsonResponse(200, payload) : undefined,
     )
-    const installed = await conn.fetchSchemas([41])
+    const installed = await conn.fetchSchemas()
     expect(installed.schemas.size).toBe(4)
     expect(installed.resolve('test.stream_source')?.items[0]).toMatchObject({
       kind: 'output', type: { kind: 'stream', element: { kind: 'concrete', name: 'dinkster.image' } },
@@ -1572,7 +1486,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
   })
 
   it('accepts the current header-shaped payload (wire version in dinkster.schemaWire)', async () => {
-    const payload = { schemaVersion: 1, dinkster: { version: '0.1.0', schemaWire: 23 }, nodes: {} }
+    const payload = { schemaVersion: 1, dinkster: { version: '0.1.0', schemaWire: 1 }, nodes: {} }
     const { conn } = submitHarness((url) =>
       url.includes('/api/nodes') ? jsonResponse(200, payload) : undefined,
     )
@@ -1581,7 +1495,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
 
   it('rejects a malformed nodes table instead of installing an empty registry', async () => {
     const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: 23, nodes: 'bad' }) : undefined,
+      url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: 1, nodes: 'bad' }) : undefined,
     )
     await expect(conn.fetchSchemas()).rejects.toThrow('malformed or unsupported')
     expect(conn.currentRegistry).toBeUndefined()
@@ -1592,7 +1506,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
       url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: 99, nodes: {} }) : undefined,
     )
     await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44; the server encodes 99',
+      'schema wire version mismatch: this build decodes 1; the server encodes 99',
     )
   })
 
@@ -1611,7 +1525,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
     const fresh = conn.fetchSchemas()
     resolvers[1]!(jsonResponse(200, liveNodesPayload)) // newest request resolves first
     const freshRegistry = await fresh
-    resolvers[0]!(jsonResponse(200, { schemaVersion: 3, nodes: {} })) // superseded response lands late
+    resolvers[0]!(jsonResponse(200, { schemaVersion: 1, nodes: {} })) // superseded response lands late
     // The superseded invocation must return the committed registry too: its
     // own decode is stale and would split compile state from submit state.
     expect(await stale).toBe(freshRegistry)
@@ -3240,7 +3154,7 @@ describe('websocket', () => {
       expect(new Headers(init?.headers).get('X-Dinkster-Actor-Kind')).toBe('agent')
       if (url.includes('/api/events?clientId=')) return jsonResponse(400, { error: 'websocket-upgrade-required' })
       if (url.endsWith('/api/auth/ws-ticket')) return jsonResponse(200, { ticket: 'single use' })
-      if (url.includes('/api/nodes?wire=')) return jsonResponse(200, liveNodesPayload)
+      if (url.endsWith('/api/nodes')) return jsonResponse(200, liveNodesPayload)
       throw new Error(`unexpected fetch: ${url}`)
     })
     const conn = new DinksterConnection({

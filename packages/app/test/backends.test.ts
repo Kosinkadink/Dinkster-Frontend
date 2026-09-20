@@ -243,11 +243,11 @@ describe('addBackend / removeBackend', () => {
       requests.push(url)
       if (url.includes('/api/nodes')) return new Response(JSON.stringify({
         schemaVersion: 1,
-        dinkster: { version: 'wire44-test', schemaWire: 44 },
+        dinkster: { version: 'locale-test', schemaWire: 1 },
         packs: { demo: { displayName: 'Demo', locales: { en: digest('a'), de: digest('b') } } },
         nodes: {
           'demo.localized': {
-            schemaVersion: 44,
+            schemaVersion: 1,
             displayName: 'RAW pack node',
             pack: 'demo',
             interface: [],
@@ -471,42 +471,6 @@ describe('backend protocols', () => {
     )
   })
 
-  it('requests wire 43 only after opening a document that uses Route Switch by Name', async () => {
-    const nativeApp = new AppState({ defaultProtocol: 'dinkster' })
-    const backend = nativeApp.backends.get()[0]!
-    if (backend.protocol !== 'dinkster') throw new Error('native default backend rejected')
-    const fetchSchemas = vi.spyOn(backend.connection, 'fetchSchemas')
-      .mockResolvedValue(buildDinksterRegistry(backend.id, nodesPayload))
-
-    expect(nativeApp.openDocument({
-      format: 'dinkster-workflow',
-      formatVersion: 1,
-      lineage: 'wire43-route',
-      root: 'g0',
-      graphs: {
-        g0: {
-          id: 'g0',
-          name: 'root',
-          nodes: {
-            route: {
-              id: 'route',
-              type: 'dinkster.route.switch_by_name',
-              values: { choice: 'm0' },
-              dynamic: { values: { members: ['m0'] } },
-            },
-          },
-          links: {},
-          nets: {},
-          reroutes: {},
-          nextOrdinal: 1,
-        },
-      },
-      view: { graphs: { g0: { nodes: {} } } },
-    }, 'Named route')).toEqual([])
-
-    await vi.waitFor(() => expect(fetchSchemas).toHaveBeenCalledWith([43, 44]))
-    nativeApp.dispose()
-  })
 })
 
 describe('per-tab backend targeting (view state)', () => {

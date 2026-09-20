@@ -17,7 +17,7 @@ import {
 
 const payload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
-  dinkster: { version: '0.9.0', schemaWire: 3 },
+  dinkster: { version: '0.9.0', schemaWire: 1 },
   packs: {
     core: { displayName: 'Dinkster Core' },
     'vhs.video': { displayName: 'Video Helper Suite', abbr: 'VHS', mark: '\u{1F3A5}', color: '#64b5f6' },
@@ -251,7 +251,7 @@ describe('per-node interface signature (backend 5b58c53)', () => {
 
 describe('serverInfoFromDinksterWire', () => {
   it('decodes the dinkster server-identity header', () => {
-    expect(serverInfoFromDinksterWire(payload)).toEqual({ version: '0.9.0', schemaWire: 3 })
+    expect(serverInfoFromDinksterWire(payload)).toEqual({ version: '0.9.0', schemaWire: 1 })
   })
 
   it('absent or malformed headers yield undefined, never a diagnostic', () => {

@@ -44,7 +44,7 @@ const input = (id: string, type: Record<string, unknown>, defaultValue?: unknown
 })
 const output = (id: string, type: Record<string, unknown>): Record<string, unknown> => ({ role: 'output', id, type })
 const schema = (nodeType: string, interfaceItems: Record<string, unknown>[]): Record<string, unknown> => ({
-  schemaVersion: 21,
+  schemaVersion: 1,
   nodeType,
   displayName: nodeType,
   category: 'examples',
