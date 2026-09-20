@@ -15,6 +15,9 @@ function setup() {
   const ui = new HostUiContributionRegistry()
   const text = createTextWidgetEditorExtensionRegistry()
   const search = createSearchRegistry()
+  const editors: unknown[] = []
+  const editorBindings: unknown[] = []
+  const panels: unknown[] = []
   const target: ExtensionHostOptions<TextWidgetEditorExtension> = {
     menus: createMenuRegistry(), widgets: createWidgetRegistry(), changedSignal: createSignal(0),
     registerSetting: (value) => settings.register(value),
@@ -24,8 +27,11 @@ function setup() {
     invalidateHostUi: (id) => ui.invalidate(id),
     registerTextEditorExtension: (value) => text.register(value),
     registerSearchProvider: (value) => search.register(value),
+    registerEditor: (value) => { editors.push(value); return () => { editors.splice(editors.indexOf(value), 1) } },
+    registerEditorBinding: (value) => { editorBindings.push(value); return () => { editorBindings.splice(editorBindings.indexOf(value), 1) } },
+    registerPanel: (value) => { panels.push(value); return () => { panels.splice(panels.indexOf(value), 1) } },
   }
-  return { target, commands, ui }
+  return { target, commands, ui, editors, editorBindings, panels }
 }
 
 const digest = `sha256:${'a'.repeat(64)}`
@@ -352,6 +358,35 @@ describe('connection extension worlds', () => {
     world.host.setPackEnabled('demo', false)
     world.host.setPackEnabled('demo', true)
     expect(commands.get('demo.command')).toBeUndefined()
+    world.dispose()
+  })
+
+  it('projects API 1.1 editor doors only while the snapshot world is selected', async () => {
+    const { target, editors, editorBindings, panels } = setup()
+    const world = new ExtensionWorld(asConnectionId('a'), digest, target)
+    const base = snapshotFor('editor', 'app-workflow')
+    const pack = base.extensions[0]!
+    const entry = pack.frontend![0]!
+    const contributions = [
+      { id: 'demo.editor', kind: 'editor' as const },
+      { id: 'demo.binding', kind: 'editorBinding' as const },
+      { id: 'demo.panel', kind: 'panel' as const },
+    ]
+    await world.activate({
+      ...base,
+      frontendApi: '1.1.0',
+      extensions: [{ ...pack, frontend: [{ ...entry, contributions }] }],
+    }, '', [], async () => ({ frontendExtension: { activate(api: FrontendActivationContext) {
+      const provider = () => ({ version: 1 as const, root: { kind: 'text' as const, key: 'proof', text: 'Pack surface' } })
+      api.editor('demo.editor', { id: 'demo.editor', title: 'Demo editor', provider })
+      api.editorBinding('demo.binding', { id: 'demo.binding', editor: 'demo.editor', match: { editorRole: 'demo' } })
+      api.panel('demo.panel', 'sidebar.right', provider, 10, 'Demo panel')
+    } } }))
+    expect([editors, editorBindings, panels].map((values) => values.length)).toEqual([0, 0, 0])
+    world.select(true)
+    expect([editors, editorBindings, panels].map((values) => values.length)).toEqual([1, 1, 1])
+    world.select(false)
+    expect([editors, editorBindings, panels].map((values) => values.length)).toEqual([0, 0, 0])
     world.dispose()
   })
 })

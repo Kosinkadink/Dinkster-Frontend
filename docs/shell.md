@@ -122,6 +122,13 @@ does not close an open dock. The Status bar and Activity bar stay mounted with
 the HTML `hidden` state, and the status bar's contents are therefore not
 recreated when it is shown again.
 
+Core and extension panels share `app.frontendDoors.panel`. Extension packs
+choose one bounded slot: `sidebar.left`, `sidebar.right`, `panel.bottom`, or
+`toolbar.canvas`. The host maps that slot to existing shell placement, owns all
+chrome and layout, and renders the pack's declarative host-UI tree. Disabling
+or unregistering the contribution removes it from the same panel registry and
+dock projection used by core panels.
+
 ## Document tabs
 
 Workflow documents use the dedicated `WorkflowTabs` shell primitive, not the

@@ -202,6 +202,35 @@ describe('Tab editorKind', () => {
     expect(app.editors.kinds()).toEqual([])
   })
 
+  it('opens a synthetic pack editor through its binding and registers its panel', () => {
+    const app = new AppState()
+    const provider = () => ({ version: 1 as const, root: { kind: 'text' as const, key: 'proof', text: 'Pack surface' } })
+    const diagnostics = app.extensions.register({
+      id: 'synthetic',
+      contributions: [
+        { id: 'synthetic.editor', category: 'editor' },
+        { id: 'synthetic.binding', category: 'editorBinding' },
+        { id: 'synthetic.panel', category: 'panel' },
+      ],
+    }, (api) => {
+      api.editor('synthetic.editor', { id: 'synthetic.editor', title: 'Synthetic editor', provider })
+      api.editorBinding('synthetic.binding', {
+        id: 'synthetic.binding', editor: 'synthetic.editor', match: { nodeId: 'synthetic.node' }, priority: 10,
+      })
+      api.panel('synthetic.panel', 'sidebar.right', provider, 12, 'Synthetic panel')
+    })
+    expect(diagnostics).toEqual([])
+    const tab = app.tabs.get()[0]!
+    expect(app.openEditorForBinding(tab.id, { nodeId: 'synthetic.node' })).toBe(true)
+    expect(app.tabs.get()[0]!.editorKind).toBe('synthetic.editor')
+    expect(app.editors.get('synthetic.editor')?.title).toBe('Synthetic editor')
+    expect(app.panels.get('synthetic.panel')).toMatchObject({ title: 'Synthetic panel', placement: 'rail' })
+    app.extensions.unregister('synthetic')
+    expect(app.editors.get('synthetic.editor')).toBeUndefined()
+    expect(app.panels.get('synthetic.panel')).toBeUndefined()
+    app.dispose()
+  })
+
   it('setTabEditorKind swaps the projection but keeps id, session, and view state', () => {
     const app = new AppState()
     const tab = app.tabs.get()[0]!
