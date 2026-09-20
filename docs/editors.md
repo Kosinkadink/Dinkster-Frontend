@@ -44,9 +44,16 @@ rewrites or bolted-on views.
 Registration follows the house registry discipline (PanelRegistry,
 CommandRegistry, widget registry): `register` returns the unregister
 function, duplicate ids refuse loudly, `changed` ticks on every mutation.
-Core registers the graph editor in `App.tsx`; extension packs contribute
-future kinds through the same public API, clearly delineated as extension
-features.
+Core registers graph, app, image, curve, and GLSL editors through
+`app.frontendDoors.editor`. Extension packs use the `editor()` door and provide
+a declarative host-UI provider instead of a component.
+
+`editorBinding()` maps schema-owned `editorRole` metadata to an editor kind.
+Compatibility matches can use node id, widget type, or value type. A binding
+matches only when every declared field matches; priority is descending and id
+is the deterministic tie-breaker. Core registers its bindings through the same
+door. Opening an extension binding changes the tab's editor kind while keeping
+the shared document session and view state.
 
 ## Rendering
 

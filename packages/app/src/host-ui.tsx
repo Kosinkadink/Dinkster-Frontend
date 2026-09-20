@@ -136,7 +136,7 @@ export function HostUiRenderer(props: { readonly contribution: { readonly root: 
   return <HostUiNode node={props.contribution.root} commands={props.commands} idPrefix={idPrefix} core={props.core === true} />
 }
 
-export function HostUiProviderHost(props: {
+export interface HostUiProviderHostProps {
   readonly owner: string | symbol
   readonly provider: HostUiProviderV1
   readonly data: Json
@@ -145,7 +145,9 @@ export function HostUiProviderHost(props: {
   readonly replaceProblems: (owner: string | symbol, diagnostics: ReturnType<typeof diag>[]) => void
   readonly core?: boolean
   readonly errorText?: string
-}) {
+}
+
+export function HostUiProviderHost(props: HostUiProviderHostProps) {
   onCleanup(() => props.replaceProblems(props.owner, []))
   const result = createMemo(() => {
     try {
@@ -175,4 +177,8 @@ export function HostUiProviderHost(props: {
   return <Show when={result()} fallback={<span class="host-ui-error" role="alert">{props.errorText ?? 'Unable to render extension status.'}</span>}>
     {(contribution) => <HostUiRenderer contribution={contribution()} commands={props.commands} core={props.core === true} />}
   </Show>
+}
+
+export function ExtensionEditorHost(props: HostUiProviderHostProps) {
+  return <div class="extension-editor-host"><HostUiProviderHost {...props} /></div>
 }

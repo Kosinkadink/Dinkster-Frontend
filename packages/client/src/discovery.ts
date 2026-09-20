@@ -50,6 +50,8 @@ export interface DiscoveryOptions {
   readonly fetchFn?: FetchLike
   /** Per-probe timeout in ms (default 4000). */
   readonly timeoutMs?: number
+  /** Probe legacy ComfyUI after native detection fails (default true). */
+  readonly probeV1?: boolean
 }
 
 /** One probe answer, or undefined when the request itself failed. */
@@ -138,11 +140,13 @@ export async function discoverBackend(
     return answer
   }
 
-  // Fire all three probes at once; judge them in priority order below.
+  // Fire the enabled probes at once; judge them in priority order below.
   const [supAnswer, nodesAnswer, v1Answer] = await Promise.all([
     probe(fetchFn, `${base}/supervisor/status`, timeoutMs),
     probe(fetchFn, `${base}/api/nodes?wire=${DINKSTER_ADVERTISED_WIRE_VERSIONS.join(',')}`, timeoutMs),
-    probe(fetchFn, `${base}/system_stats`, timeoutMs),
+    options.probeV1 === false
+      ? Promise.resolve(undefined)
+      : probe(fetchFn, `${base}/system_stats`, timeoutMs),
   ])
 
   const sup = note(supAnswer)
@@ -174,7 +178,7 @@ export async function discoverBackend(
   }
 
   // 3. Legacy ComfyUI?
-  const v1 = note(v1Answer)
+  const v1 = v1Answer === undefined ? undefined : note(v1Answer)
   if (v1 && v1.status === 200 && looksLikeSystemStats(v1.body)) {
     return { kind: 'v1' }
   }

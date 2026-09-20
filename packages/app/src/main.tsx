@@ -95,13 +95,11 @@ async function bootstrap(): Promise<void> {
     }
   }
   // Native-first same-origin default: discover what THIS origin routes to
-  // before constructing the app, so a clean launch connects to the backend
-  // the deployment actually fronts (Dinkster engine, supervisor, or a legacy
-  // ComfyUI). Only a conclusive v1 answer picks the legacy bridge; anything
-  // else (native, or nothing reachable) defaults native. The probes run
-  // concurrently with a short timeout, so a dead origin costs one timeout,
-  // not three.
-  const discovery = await discoverBackend('', { timeoutMs: 2500 })
+  // before constructing the app, so a clean launch connects to its Dinkster
+  // engine or supervisor. The default launch is native-only and never probes
+  // v1 endpoints; users can still add a ComfyUI backend by URL, where full
+  // protocol discovery remains enabled. The native probes run concurrently.
+  const discovery = await discoverBackend('', { timeoutMs: 2500, probeV1: false })
   hideBoot()
   app = new AppState({ defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster' })
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)

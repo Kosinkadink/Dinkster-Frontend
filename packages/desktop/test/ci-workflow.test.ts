@@ -15,17 +15,21 @@ interface Step {
 }
 interface Job {
   if?: string
-  needs?: string
-  'runs-on': string | string[]
+  needs?: string | string[]
+  uses?: string
+  secrets?: string
+  outputs?: Record<string, string>
+  'runs-on'?: string | string[]
   'timeout-minutes'?: number
   strategy?: {
     matrix: { include: { name: string; project: string; shard: string }[] }
   }
-  steps: Step[]
+  steps?: Step[]
 }
 interface Workflow {
   on: Record<string, unknown>
   permissions: Record<string, string>
+  concurrency?: Record<string, string>
   jobs: Record<string, Job>
 }
 const load = async (name: string): Promise<Workflow> =>
@@ -34,7 +38,11 @@ const load = async (name: string): Promise<Workflow> =>
   ) as Workflow
 const fast = await load('ci.yml')
 const full = await load('full-validation.yml')
+const release = await load('release-desktop.yml')
 const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
+const testingDocs = (
+  await readFile(resolve(root, 'docs/testing.md'), 'utf8')
+).replace(/\n/g, ' ')
 
 describe('fast pull-request and full validation workflows', () => {
   it('runs exactly one bounded job without a PR label path', () => {
@@ -45,11 +53,11 @@ describe('fast pull-request and full validation workflows', () => {
     expect(job['runs-on']).toBe(
       '${{ fromJSON(vars.DINKSTER_PR_RUNNER || \'["self-hosted", "linux", "x64"]\') }}',
     )
-    expect(job.steps.flatMap((step) => step.run ?? [])).toEqual([
+    expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
       'pnpm install --frozen-lockfile',
       'pnpm ci:fast',
     ])
-    expect(job.steps.flatMap((step) => step.uses ?? [])).toEqual([
+    expect(job.steps!.flatMap((step) => step.uses ?? [])).toEqual([
       'actions/checkout@v4',
       'pnpm/action-setup@v4',
       'actions/setup-node@v4',
@@ -70,15 +78,51 @@ describe('fast pull-request and full validation workflows', () => {
     )
   })
 
-  it('runs every heavy lane on main, daily and dispatch, with the aggregate always evaluated', () => {
+  it('runs every heavy lane through one guarded reusable workflow', () => {
     expect(full.on).toEqual({
       push: { branches: ['main'] },
-      schedule: [{ cron: '43 10 * * *' }],
+      schedule: [
+        { cron: '0 6-22/2 * * *', timezone: 'America/Los_Angeles' },
+        { cron: '43 10 * * *' },
+      ],
       workflow_dispatch: null,
+      workflow_call: null,
     })
-    expect(Object.keys(full.jobs)).toEqual(['ci', 'e2e-suite', 'e2e'])
-    expect(full.jobs['ci']!.if).toBeUndefined()
-    expect(full.jobs['e2e-suite']!.if).toBeUndefined()
+    expect(full.permissions).toEqual({ actions: 'read', contents: 'read' })
+    expect(full.concurrency).toEqual({
+      group:
+        "ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && 'push' || 'durable' }}",
+      'cancel-in-progress': "${{ github.event_name == 'push' }}",
+    })
+    expect(Object.keys(full.jobs)).toEqual([
+      'validation-plan',
+      'ci',
+      'e2e-suite',
+      'e2e',
+    ])
+    const plan = full.jobs['validation-plan']!
+    expect(plan.outputs).toEqual({
+      'run-heavy': '${{ steps.plan.outputs.run-heavy }}',
+    })
+    const planScript = plan.steps![0]!.with!['script'] as string
+    for (const required of [
+      "context.eventName !== 'schedule'",
+      "workflow_id: 'full-validation.yml'",
+      "branch: 'main'",
+      "status: 'success'",
+      'per_page: 1',
+      'workflow_runs[0]?.head_sha === context.sha',
+    ])
+      expect(planScript).toContain(required)
+    for (const name of ['ci', 'e2e-suite']) {
+      expect(full.jobs[name]!.needs).toBe('validation-plan')
+      expect(full.jobs[name]!.if).toBe(
+        "needs.validation-plan.outputs.run-heavy == 'true'",
+      )
+    }
+    expect(testingDocs).toContain(
+      '`on.schedule` cron list in that file is the single schedule definition',
+    )
     expect(
       full.jobs['e2e-suite']!.strategy!.matrix.include.map(
         ({ name, project, shard }) => ({ name, project, shard }),
@@ -100,8 +144,10 @@ describe('fast pull-request and full validation workflows', () => {
       },
       { name: 'performance', project: 'performance', shard: '' },
     ])
-    expect(full.jobs['e2e']!.if).toBe('always()')
-    expect(full.jobs['e2e']!.needs).toBe('e2e-suite')
+    expect(full.jobs['e2e']!.if).toBe(
+      "always() && needs.validation-plan.outputs.run-heavy == 'true'",
+    )
+    expect(full.jobs['e2e']!.needs).toEqual(['validation-plan', 'e2e-suite'])
     expect(full.jobs['e2e']!.steps).toEqual([
       {
         name: 'Verify every full-suite lane passed',
@@ -112,9 +158,9 @@ describe('fast pull-request and full validation workflows', () => {
 
   it('retains clean checkouts, ref selection, read-only credentials and isolated browser ports', () => {
     for (const workflow of [fast, full]) {
-      expect(workflow.permissions).toEqual({ contents: 'read' })
+      expect(workflow.permissions['contents']).toBe('read')
       for (const job of Object.values(workflow.jobs)) {
-        for (const step of job.steps.filter(
+        for (const step of (job.steps ?? []).filter(
           (step) => step.uses === 'actions/checkout@v4',
         )) {
           expect(step.with).toMatchObject({
@@ -128,7 +174,7 @@ describe('fast pull-request and full validation workflows', () => {
       }
     }
     for (const name of ['ci', 'e2e-suite']) {
-      const steps = full.jobs[name]!.steps
+      const steps = full.jobs[name]!.steps!
       expect(
         steps.filter(
           (step) =>
@@ -151,5 +197,16 @@ describe('fast pull-request and full validation workflows', () => {
         })
       }
     }
+  })
+
+  it('validates the exact desktop release commit before publication', () => {
+    expect(release.jobs['validation']).toEqual({
+      if: "github.repository == 'Kosinkadink/Dinkster-Frontend' && github.event.repository.private == true && github.ref == 'refs/heads/main'",
+      uses: './.github/workflows/full-validation.yml',
+      secrets: 'inherit',
+    })
+    expect(release.jobs['release']!.needs).toBe('validation')
+    expect(release.jobs['release']!.if).toBe(release.jobs['validation']!.if)
+    expect(release.jobs['release']!.steps).toBeDefined()
   })
 })

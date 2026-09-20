@@ -324,6 +324,11 @@ interface DinksterTestBridge {
     refreshBackendSchemas(backend: ReturnType<DinksterTestBridge['app']['backends']['get']>[number]): Promise<void>
     backendForTab(tab: DinksterBridgeTab): ReturnType<DinksterTestBridge['app']['backends']['get']>[number]
     registerSchemas(schemas: readonly unknown[]): void
+    openEditorForBinding(tabId: string, context: { editorRole?: string; nodeId?: string; widgetType?: string; valueType?: string }): boolean
+    dock: {
+      activate(zone: 'left' | 'right' | 'bottom', panelId: string): void
+      setOpen(zone: 'left' | 'right' | 'bottom', open: boolean): void
+    }
     problems: { get(): ReadonlyArray<{ severity: string; code: string; message: string }> }
     /** Append diagnostic objects under one tab owner (badge lifecycle specs). */
     reportProblems(owner: string, diagnostics: readonly unknown[]): void
@@ -347,6 +352,20 @@ interface DinksterTestBridge {
           previewRenderer(id: string, renderer: unknown): void
           command(id: string, command: unknown): void
           setting(id: string, setting: unknown): void
+          editor(id: string, kind: { id: string; title: string; provider(context: unknown): unknown }): void
+          editorBinding(id: string, binding: {
+            id: string
+            editor: string
+            match: { editorRole?: string; nodeId?: string; widgetType?: string; valueType?: string }
+            priority?: number
+          }): void
+          panel(
+            id: string,
+            slot: 'sidebar.left' | 'sidebar.right' | 'panel.bottom' | 'toolbar.canvas',
+            provider: (context: unknown) => unknown,
+            order?: number,
+            title?: string,
+          ): void
           searchProvider(id: string, provider: {
             readonly id: string
             readonly label: string

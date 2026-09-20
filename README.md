@@ -40,7 +40,7 @@ When leaving the frontend running for testing from another machine, bind the
 frontend to all active interfaces on its fixed development port:
 
 ```bash
-DINKSTER_NATIVE_BACKEND=http://127.0.0.1:8765 \
+DINKSTER_NATIVE_BACKEND=http://127.0.0.1:3639 \
   pnpm --filter @dinkster/app dev --host 0.0.0.0 --strictPort
 ```
 
@@ -48,16 +48,19 @@ Use `http://<lan-ip>:5199` on the local network or
 `http://<tailscale-ip-or-name>:5199` when the host has a working Tailscale
 address. Verify each real address with an HTTP request before reporting it as
 available; binding to `0.0.0.0` alone does not prove Tailscale connectivity.
-The Dinkster backend stays private on `127.0.0.1:8765`; remote browsers reach it
+The Dinkster backend stays private on `127.0.0.1:3639`; remote browsers reach it
 only through the frontend's existing same-origin `/api/*` proxy. This exposes
 no additional listener. Isolated short-lived CI or browser-test servers that
 are not kept running for a user may remain loopback-only.
 
 ### Running the app against a live ComfyUI
 
-The dev server proxies API routes to a local ComfyUI (default
-`http://127.0.0.1:8199`, override with `DINKSTER_BACKEND`). The proxy rewrites the
-Origin header because ComfyUI 403s cross-origin POSTs.
+The dev server proxies native API routes to local Dinkster at
+`http://127.0.0.1:3639` by default; `DINKSTER_NATIVE_BACKEND` overrides that
+target. Legacy ComfyUI routes use `http://127.0.0.1:8199` by default;
+`DINKSTER_V1_BACKEND` overrides that target and `DINKSTER_BACKEND` remains a
+legacy alias. The proxy rewrites the Origin header because ComfyUI 403s
+cross-origin POSTs.
 
 ```bash
 # terminal 1: any ComfyUI instance

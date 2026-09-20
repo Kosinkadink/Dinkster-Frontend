@@ -13,6 +13,7 @@ import {
   decodeEffectiveExtensionSnapshot,
   frontendApiSatisfies,
   frontendContributionAuthorized,
+  FRONTEND_CONTRIBUTION_KINDS,
   FRONTEND_PRIVILEGES,
   validateAuthoredManifest,
   validateManifest,
@@ -74,6 +75,15 @@ const nodeCtx = {
   worldX: 0,
   worldY: 0,
 } as unknown as MenuContext
+
+it('keeps the authored frontend vocabulary to the supported contribution kinds', () => {
+  expect(FRONTEND_CONTRIBUTION_KINDS).toEqual([
+    'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension',
+    'menu', 'command', 'keybinding', 'setting', 'canvasLayer', 'nodeDecoration',
+    'hostUi', 'searchProvider', 'workflowObserver', 'eventConsumer', 'workflowImporter',
+    'editor', 'editorBinding', 'panel',
+  ])
+})
 
 it('keeps the four frontend privileges independent', () => {
   const examples = ['widgetView', 'menu', 'hostUi', 'eventConsumer'] as const
@@ -152,7 +162,7 @@ describe('validateManifest', () => {
         'extension.contribution-duplicate',
       ],
       [
-        manifest({ contributions: [{ id: 'rgthree.a', category: 'panel' as never }] }),
+        manifest({ contributions: [{ id: 'rgthree.a', category: 'not-real' as never }] }),
         'extension.category-unknown',
       ],
       [manifest({ uses: ['rgthree.widget.power'] }), 'extension.uses-own'],

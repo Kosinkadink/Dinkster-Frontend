@@ -33,6 +33,7 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { builtinEditorBindings } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { ImageEditor } from './ImageEditor.js'
 import { ImageDocumentWorkspace } from './ImageDocumentWorkspace.js'
@@ -460,6 +461,7 @@ export function App(props: {
   const backends = useSignal(app.backends)
   const backendsTick = useSignal(app.backendsTick)
   const hostUiTick = useSignal(app.hostUiContributions.changed)
+  const extensionToolbarPanels = useSignal(app.extensionToolbarPanels)
   const locale = useSignal(activeLocale)
   const message = (key: string, params?: MessageParams): string => {
     locale()
@@ -1349,14 +1351,16 @@ export function App(props: {
     const local = backend.baseUrl === '' || new URL(backend.baseUrl, window.location.href).origin === window.location.origin
     return backend.protocol === 'dinkster' && local ? backend.connection : undefined
   }
+  const registerBuiltinPanel = (descriptor: import('./panels.js').PanelDescriptor): (() => void) =>
+    app.frontendDoors.panel(descriptor.id, descriptor)
   const unregisterPanels = [
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'library', get title() { return message('shell.panel.library.title') }, icon: Library,
       get description() { return message('shell.panel.library.description') }, get ariaLabel() { return message('shell.panel.library.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 10,
       toggleTestId: 'library-toggle', component: LibraryBody,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 12,
@@ -1369,7 +1373,7 @@ export function App(props: {
         />
       },
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'assets', get title() { return message('shell.panel.assets.title') }, icon: Images,
       get description() { return message('shell.panel.assets.description') }, get ariaLabel() { return message('shell.panel.assets.title') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 15,
@@ -1378,7 +1382,7 @@ export function App(props: {
     // Logs live in the BOTTOM panel by default: a wide, short surface suits
     // streaming rows, and it gives the bottom region its first resident
     // (promises.md "Shell layout"). Dock stays an allowed placement.
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'logs', get title() { return message('shell.panel.activity.title') }, icon: ScrollText,
       get description() { return message('shell.panel.activity.description') }, get ariaLabel() { return message('shell.panel.activity.title') },
       placement: 'bottom', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
@@ -1389,20 +1393,20 @@ export function App(props: {
     // The Execution log is the per-run structured feed (node output,
     // warnings, error reports), deliberately separate from the app-level
     // Activity panel above (Dinkster issue #368).
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'execution-log', get title() { return message('shell.panel.executionLog.title') }, icon: Terminal,
       get description() { return message('shell.panel.executionLog.description') }, get ariaLabel() { return message('shell.panel.executionLog.title') },
       placement: 'bottom', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
       toggleTestId: 'execution-log-toggle',
       component: ExecutionLogBody,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'backends', get title() { return message('shell.panel.backends.title') }, icon: Server,
       get description() { return message('shell.panel.backends.description') }, get ariaLabel() { return message('shell.panel.backends.title') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
       toggleTestId: 'backends-sidebar-toggle', component: () => <BackendsPanel app={app} />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'memory', get title() { return message('shell.panel.memory.title') }, icon: Database,
       get description() { return message('shell.panel.memory.description') }, get ariaLabel() { return message('shell.panel.memory.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 35,
@@ -1412,7 +1416,7 @@ export function App(props: {
         </For>
       </div>,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'p2p', get title() { return message('p2p.tabTitle') }, icon: Network,
       get description() { return message('p2p.panelDescription') }, get ariaLabel() { return message('p2p.title') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 36,
@@ -1422,22 +1426,22 @@ export function App(props: {
         </For>
       </div>,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'queue', get title() { return message('shell.panel.executions.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 10,
       component: QueuePanel,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'outputs', get title() { return message('shell.panel.outputs.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
       component: OutputsPanel,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'extensions', get title() { return message('shell.panel.extensions.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
       component: () => <ExtensionsPanel host={app.extensions} />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'boundary', get title() { return message('shell.panel.boundary.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
       indicator: boundaryIndicator,
@@ -1446,7 +1450,7 @@ export function App(props: {
     // Control surfaces are parked in the rework queue (rgthree-like
     // controls); hidden by default so they are not mistaken for a settled
     // feature. See docs/rework-queue.md.
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'surfaces', get title() { return message('shell.panel.controlSurfaces.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 50,
       when: controlSurfacesEnabled, component: () => <SurfacePanel app={app} />,
@@ -1454,7 +1458,7 @@ export function App(props: {
     // The Focused tab shows the focused entity and only its problems
     // (docs/problem-surfaces.md); the Problems tab remains the whole-document
     // list. Both read the same composed diagnostics.
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'context', get title() { return message('shell.panel.focused.title') },
       get description() { return message('shell.panel.focused.description') }, get ariaLabel() { return message('shell.panel.focused.ariaLabel') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 55,
@@ -1469,14 +1473,14 @@ export function App(props: {
         }}
       />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'node-help', get title() { locale(); return t('nodeHelp.panel.title') },
       get description() { locale(); return t('nodeHelp.panel.description') },
       get ariaLabel() { locale(); return t('nodeHelp.panel.ariaLabel') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 57,
       component: () => <NodeHelpPanel app={app} locale={locale().tag} />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'problems', get title() { return message('shell.panel.problems.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 60,
       indicator: problemsIndicator,
@@ -1487,7 +1491,7 @@ export function App(props: {
     // placement-agnostic (SettingsDialog owns content, the host owns
     // backdrop/title/close/Escape), opened via app.modalPanel ('settings'
     // button, Ctrl+, command).
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'settings', get title() { return message('shell.panel.settings.title') },
       get description() { return message('shell.panel.settings.description') }, get ariaLabel() { return message('shell.panel.settings.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 10,
@@ -1499,7 +1503,7 @@ export function App(props: {
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
       />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'customize-layout', get title() { return message('shell.panel.customizeLayout.title') },
       get description() { return message('shell.panel.customizeLayout.description') }, get ariaLabel() { return message('shell.panel.customizeLayout.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 15,
@@ -1511,25 +1515,25 @@ export function App(props: {
         }}
       />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'desktop-management', get title() { return message('shell.panel.desktop.title') },
       get description() { return message('shell.panel.desktop.description') }, get ariaLabel() { return message('shell.panel.desktop.ariaLabel') },
       placement: 'modal', allowedPlacements: ['modal'], order: 16,
       component: () => <DesktopManagementDialog connection={desktopManagementConnection()} />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'projects', get title() { return message('shell.panel.projects.title') },
       get description() { return message('shell.panel.projects.description') }, get ariaLabel() { return message('shell.panel.projects.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 18,
       component: () => <ProjectsDialog onSwitch={switchProject} onOpenWindow={openProjectWindow} />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'subgraph-definitions', get title() { return message('shell.panel.subgraphDefinitions.title') },
       get description() { return message('shell.panel.subgraphDefinitions.description') }, get ariaLabel() { return message('shell.panel.subgraphDefinitions.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 17,
       component: () => <SubgraphDefinitionsDialog app={app} />,
     }),
-    app.panels.register({
+    registerBuiltinPanel({
       id: 'collab', get title() { return message('shell.panel.workspace.title') },
       get description() { return message('shell.panel.workspace.description') }, get ariaLabel() { return message('shell.panel.workspace.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 20,
@@ -1541,8 +1545,7 @@ export function App(props: {
   })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
-  const unregisterEditors = app.editors.register({
-    id: GRAPH_EDITOR_KIND,
+  const unregisterEditors = app.frontendDoors.editor(GRAPH_EDITOR_KIND, {
     get title() { return message('shell.editor.graph') },
     component: (host) => <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
       {...(host !== undefined ? { host } : {})}
@@ -1550,30 +1553,29 @@ export function App(props: {
   })
   onCleanup(unregisterEditors)
   // The form-style app view uses the same public descriptor API.
-  const unregisterAppEditor = app.editors.register({
-    id: APP_EDITOR_KIND,
+  const unregisterAppEditor = app.frontendDoors.editor(APP_EDITOR_KIND, {
     get title() { return message('shell.editor.appView') },
     component: (host) => <AppView app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterAppEditor)
-  const unregisterImageEditor = app.editors.register({
-    id: IMAGE_EDITOR_KIND,
+  const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
     get title() { return message('shell.editor.image') },
     component: (host) => <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterImageEditor)
-  const unregisterCurveEditor = app.editors.register({
-    id: CURVE_EDITOR_KIND,
+  const unregisterCurveEditor = app.frontendDoors.editor(CURVE_EDITOR_KIND, {
     get title() { return message('shell.editor.curve') },
     component: (host) => <CurveEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterCurveEditor)
-  const unregisterGlslEditor = app.editors.register({
-    id: GLSL_EDITOR_KIND,
+  const unregisterGlslEditor = app.frontendDoors.editor(GLSL_EDITOR_KIND, {
     get title() { return message('shell.editor.glsl') },
     component: (host) => <GlslEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterGlslEditor)
+  const unregisterEditorBindings = builtinEditorBindings.map(({ id, ...binding }) =>
+    app.frontendDoors.editorBinding(id, binding))
+  onCleanup(() => unregisterEditorBindings.reverse().forEach((unregister) => unregister()))
   /**
    * Registry-bound command shortcuts (undo, queue, view toggles, ...)
    * dispatch here at the SHELL level, not inside any editor: they must keep
@@ -2286,6 +2288,21 @@ export function App(props: {
                 setLensMenu(false)
               }}
             />
+            <For each={extensionToolbarPanels()}>
+              {(panel) => (
+                <div class="extension-toolbar-panel" data-testid={`extension-toolbar-panel-${panel.id}`}>
+                  <HostUiProviderHost
+                    owner={`extension-toolbar:${panel.id}`}
+                    provider={panel.provider}
+                    surface="toolbar"
+                    data={{ panel: panel.id, slot: panel.slot }}
+                    commands={app.commands}
+                    replaceProblems={(owner, diagnostics) => app.replaceProblems(owner, diagnostics)}
+                    errorText="Unable to render extension toolbar panel."
+                  />
+                </div>
+              )}
+            </For>
             {/* Keyed on the tab id, not the tab object: a tab-store update
                 that replaces the Tab object for the SAME id (e.g. an
                 execution event) must not remount the control and discard
