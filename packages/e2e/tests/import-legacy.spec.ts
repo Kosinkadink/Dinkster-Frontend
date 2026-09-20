@@ -13,7 +13,12 @@ import { expect, openRailPanel, test } from './fixtures.js'
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const groupEvidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-681/', import.meta.url))
 const importEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-381/', import.meta.url))
+const comboEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-118/', import.meta.url))
 const clientModuleUrl = `/@fs${fileURLToPath(new URL('../../client/src/index.ts', import.meta.url))}`
+const sd15DefaultWorkflow = JSON.parse(readFileSync(
+  fileURLToPath(new URL('../fixtures/comfyui-default-workflow.json', import.meta.url)),
+  'utf8',
+)) as Record<string, unknown>
 const legacyObjectInfo = (() => {
   const fixture = JSON.parse(readFileSync(
     fileURLToPath(new URL('../../core/fixtures/object_info.json', import.meta.url)),
@@ -102,6 +107,9 @@ test.beforeAll(() => {
   mkdirSync(groupEvidenceDir, { recursive: true })
   if (process.env['DINKSTER_CAPTURE_ISSUE_381_IMPORT'] === '1') {
     mkdirSync(importEvidenceDir, { recursive: true })
+  }
+  if (process.env['DINKSTER_CAPTURE_ISSUE_118_IMPORT'] === '1') {
+    mkdirSync(comboEvidenceDir, { recursive: true })
   }
 })
 
@@ -605,4 +613,106 @@ test('native alias import is canonical before badges, save/reopen, and submissio
   expect(submittedGraph.nodes['n2']!.nodeType).toBe('dinkster.clip_text_encode')
   expect(submittedGraph.nodes['n5']!.inputs['positive']).toEqual({ $link: { node: 'n2', output: 'conditioning' } })
   expect(submittedGraph.nodes['n5']!.inputs['negative']).toEqual({ $link: { node: 'n3', output: 'conditioning' } })
+})
+
+test('audit SD1.5 workflow import preserves canonical combos without false errors', async ({ page }) => {
+  const served = await page.request.get(`${NATIVE_BACKEND}/api/nodes`).catch(() => null)
+  test.skip(served === null || !served.ok(), `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
+
+  await page.unroute('/api/nodes*')
+  await page.unroute('/supervisor/status')
+  await page.route('/api/assets/guess', async (route) => {
+    const body = route.request().postDataJSON() as { names: string[] }
+    await route.fulfill({ json: { matches: body.names.map((query) => ({
+      query,
+      candidates: query === 'v1-5-pruned-emaonly-fp16.safetensors' ? [{
+        digest: 'blake3:4c50ebc6e2a5cb19e8d19626d5ede1fb64755562085ce7383d86c72d1d03eb7e',
+        name: query,
+        confidence: 'name',
+        held: true,
+        virtualPath: `mounts/checkpoints/${query}`,
+        size: 2_132_696_762,
+        mediaType: 'application/octet-stream',
+      }] : [],
+    })) } })
+  })
+  await page.goto('/')
+  await page.waitForFunction(() => {
+    const backend = window.__dinksterTest?.app.backends.get().find((candidate) => candidate.protocol === 'dinkster')
+    return backend?.registry.get() !== undefined
+  })
+
+  const nativeCombo = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')!
+    const failures = (app.openDocument as unknown as (...args: unknown[]) => readonly unknown[])(
+      {
+        version: 0.4,
+        nodes: [{
+          id: 1,
+          type: 'dinkster.ksampler',
+          widgets_values: {
+            seed: 91,
+            steps: 20,
+            cfg: 8,
+            sampler_name: 'euler',
+            scheduler: 'normal',
+            denoise: 1,
+          },
+        }],
+        links: [],
+      },
+      'Native combo import guard',
+      backend,
+    )
+    const tab = app.activeTab()!
+    const graph = tab.store.doc.graphs[tab.store.doc.root]!
+    return { failures, values: graph.nodes['n1']?.values }
+  })
+
+  expect(nativeCombo.failures).toEqual([])
+  expect(nativeCombo.values).toMatchObject({
+    sampler_name: 'dinkster.euler',
+    scheduler: 'dinkster.normal',
+  })
+
+  const imported = await page.evaluate((workflow) => {
+    const app = window.__dinksterTest!.app
+    const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')!
+    const failures = (app.openDocument as unknown as (...args: unknown[]) => readonly unknown[])(
+      workflow,
+      'Default SD1.5 workflow',
+      backend,
+    )
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    const graph = tab.store.doc.graphs[tab.store.doc.root]!
+    return {
+      failures,
+      nodeTypes: Object.values(graph.nodes).map((node) => node.type),
+      samplerValues: graph.nodes['n5']?.values,
+      errors: app.problems.get().filter((problem) => problem.severity === 'error'),
+    }
+  }, sd15DefaultWorkflow)
+
+  expect(imported.failures).toEqual([])
+  expect(imported.nodeTypes).toContain('dinkster.ksampler')
+  expect(imported.samplerValues).toMatchObject({
+    sampler_name: 'dinkster.euler',
+    scheduler: 'dinkster.normal',
+  })
+  expect(imported.errors).toEqual([])
+
+  await openRailPanel(page, 'Problems')
+  await expect(page.getByTestId('problems-panel')).not.toContainText('sampler_name')
+  await expect(page.getByTestId('problems-panel')).not.toContainText('scheduler')
+  if (process.env['DINKSTER_CAPTURE_ISSUE_118_IMPORT'] === '1') {
+    await page.mouse.move(0, 0)
+    await page.waitForTimeout(350)
+    await page.screenshot({
+      path: `${comboEvidenceDir}/default-workflow-problems.png`,
+      fullPage: true,
+      animations: 'disabled',
+    })
+  }
 })

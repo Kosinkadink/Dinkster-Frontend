@@ -26,12 +26,26 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     outputs:
       run-heavy: ${{ steps.plan.outputs.run-heavy }}
+      e2e-matrix: ${{ steps.plan.outputs.e2e-matrix }}
     steps:
       - name: Skip an unchanged scheduled commit
         id: plan
         uses: actions/github-script@v7
         with:
           script: |
+            const fullMatrix = [
+              { name: 'parallel 1/4', project: 'parallel-safe', shard: '--shard=1/4' },
+              { name: 'parallel 2/4', project: 'parallel-safe', shard: '--shard=2/4' },
+              { name: 'parallel 3/4', project: 'parallel-safe', shard: '--shard=3/4' },
+              { name: 'parallel 4/4', project: 'parallel-safe', shard: '--shard=4/4', push: true },
+              { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true },
+              { name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },
+              { name: 'performance', project: 'performance', shard: '' },
+            ];
+            const selected = context.eventName === 'push'
+              ? fullMatrix.filter((entry) => entry.push)
+              : fullMatrix;
+            core.setOutput('e2e-matrix', JSON.stringify({ include: selected }));
             if (context.eventName !== 'schedule') {
               core.setOutput('run-heavy', 'true');
               return;
@@ -41,13 +55,36 @@ jobs:
               workflow_id: 'full-validation.yml',
               branch: 'main',
               status: 'success',
-              per_page: 1,
+              per_page: 100,
             });
-            core.setOutput('run-heavy', runs.data.workflow_runs[0]?.head_sha === context.sha ? 'false' : 'true');
+            const latestDurable = runs.data.workflow_runs.find((run) => run.event !== 'push');
+            core.setOutput('run-heavy', latestDurable?.head_sha === context.sha ? 'false' : 'true');
+
+  fast:
+    needs: validation-plan
+    if: needs.validation-plan.outputs.run-heavy == 'true' && github.event_name == 'push'
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.31.0
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm ci:fast
 
   ci:
     needs: validation-plan
-    if: needs.validation-plan.outputs.run-heavy == 'true'
+    if: needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push'
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
 
@@ -120,30 +157,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: parallel 1/4
-            project: parallel-safe
-            shard: --shard=1/4
-          - name: parallel 2/4
-            project: parallel-safe
-            shard: --shard=2/4
-          - name: parallel 3/4
-            project: parallel-safe
-            shard: --shard=3/4
-          - name: parallel 4/4
-            project: parallel-safe
-            shard: --shard=4/4
-          - name: backend serial 1/2
-            project: backend-serial
-            shard: --shard=1/2
-            vulkan: true
-          - name: backend serial 2/2
-            project: backend-serial
-            shard: --shard=2/2
-          - name: performance
-            project: performance
-            shard: ""
+      matrix: ${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}
 
     steps:
       - uses: actions/checkout@v4

@@ -569,7 +569,10 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       rejectUnknownWidgetFields(descriptor, ['type'], where)
       return
     default:
-      throw new Error(`${where} has unsupported type '${String(descriptor['type'])}'`)
+      if (typeof descriptor['type'] !== 'string' || descriptor['type'] === '') {
+        throw new Error(`${where}.type must be a non-empty string`)
+      }
+      return
   }
 }
 
@@ -1111,7 +1114,13 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
-    throw new Error(`${nodeType}.${id}: widget descriptor is incompatible with its input`)
+    const options = { ...wire as Record<string, unknown> }
+    delete options['type']
+    return {
+      widgetType: descriptor.type as string,
+      options,
+      ...(dflt !== undefined ? { default: dflt } : {}),
+    }
   }
   if (type.kind !== 'concrete') return undefined
   if (type.name === 'comfy.VIDEO_EDIT') {
