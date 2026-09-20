@@ -4128,13 +4128,6 @@ body,
 .runtime-settings-editor .product-form-add { margin-top: var(--dinkster-space-8); }
 
 .p2p-panels { container-type: inline-size; height: 100%; min-width: 0; overflow: auto; }
-.modal-surface[data-modal^='p2p-first-run-'] { width: min(580px, 90vw); overflow: hidden; }
-.modal-surface[data-modal^='p2p-first-run-'] > .dock-header { flex-shrink: 0; }
-.p2p-first-run { display: grid; gap: var(--dinkster-space-12); min-height: 0; overflow: auto; padding: var(--dinkster-space-16); line-height: var(--dinkster-type-body-line); }
-.p2p-first-run-actions { flex-shrink: 0; padding: var(--dinkster-space-12) var(--dinkster-space-16); }
-.p2p-first-run p { margin: 0; }
-.p2p-first-run .p2p-readonly-summary > div { grid-template-columns: minmax(0, 1fr) minmax(0, auto); }
-.p2p-first-run .p2p-readonly-summary dd { text-align: right; overflow-wrap: anywhere; }
 .p2p-panel { box-sizing: border-box; display: grid; gap: var(--dinkster-space-12); min-width: 0; padding: var(--dinkster-space-12); color: var(--dinkster-text-primary); }
 .p2p-panel h2, .p2p-panel h3, .p2p-panel h4, .p2p-panel p { margin: 0; }
 .p2p-heading { display: grid; gap: var(--dinkster-space-4); }

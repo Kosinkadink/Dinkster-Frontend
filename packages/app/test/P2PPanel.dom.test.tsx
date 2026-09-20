@@ -1,12 +1,10 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import { createSignal } from 'solid-js'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { P2PSettings, P2PStatus, RuntimeSettingSection } from '@dinkster/client'
 import { P2PPanel } from '../src/P2PPanel.js'
-import { P2PFirstRunNotice } from '../src/P2PFirstRunNotice.js'
 
 const digest = `blake3:${'a'.repeat(64)}`
 const defaults: P2PSettings = {
@@ -97,7 +95,6 @@ const mount = (options: {
   readonly status?: P2PStatus
 } = {}) => {
   let value = options.value ?? defaults
-  const [revision, setRevision] = createSignal(0)
   let granted = options.granted !== false
   const connection = {
     fetchRuntimeSettings: vi.fn(async () => ({
@@ -110,8 +107,8 @@ const mount = (options: {
   }
   const root = document.createElement('div')
   document.body.append(root)
-  const dispose = render(() => <P2PPanel connection={connection} settingsRevision={revision()} />, root)
-  return { root, connection, dispose, revoke: () => { granted = false }, refresh: (next: P2PSettings) => { value = next; setRevision((previous) => previous + 1) } }
+  const dispose = render(() => <P2PPanel connection={connection} />, root)
+  return { root, connection, dispose, revoke: () => { granted = false } }
 }
 afterEach(() => {
   setLocale('en')
@@ -128,9 +125,9 @@ describe('P2PPanel', () => {
     expect(connection.fetchP2PStatus).not.toHaveBeenCalled()
     expect(root.textContent).toContain('Other peers can learn your IP address and that your device is requesting or sharing a particular model digest.')
     expect(root.textContent).toContain('While a download is active, peers may receive pieces from your device even when background seeding is off.')
-    expect(root.querySelectorAll('[role="checkbox"]')).toHaveLength(3)
-    expect(root.querySelector<HTMLButtonElement>('[id$="-downloads"]')?.getAttribute('aria-checked')).toBe('false')
-    expect(root.querySelector<HTMLButtonElement>('[id$="-seeding"]')?.getAttribute('aria-checked')).toBe('false')
+    expect(root.querySelectorAll('[role="checkbox"]')).toHaveLength(2)
+    expect(root.querySelector<HTMLButtonElement>('[id$="-enabled"]')?.getAttribute('aria-checked')).toBe('false')
+    expect(root.textContent).toContain('Current seeding state: Off.')
     expect(root.querySelector<HTMLButtonElement>('[id$="-scope"]')?.dataset['selectedId']).toBe('lan-only')
     expect(root.querySelector<HTMLInputElement>('[id$="-internetUploadBytesPerSecond"]')?.value).toBe('5')
     expect(root.querySelector<HTMLInputElement>('[id$="-internetSeedRatio"]')?.value).toBe('1')
@@ -138,21 +135,73 @@ describe('P2PPanel', () => {
     dispose()
   })
 
-  it('applies the download switch independently and requests activity only when enabled', async () => {
+  it('enables downloads and seeding together and requests activity', async () => {
     const { root, connection, dispose } = mount()
     await flush()
 
-    root.querySelector<HTMLButtonElement>('[id$="-downloads"]')!.click()
+    root.querySelector<HTMLButtonElement>('[id$="-enabled"]')!.click()
+    expect(root.textContent).toContain('Current seeding state: Off.')
     root.querySelector('form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
     await flush()
 
     expect(connection.updateRuntimeSetting).toHaveBeenCalledWith('p2p', {
       ...defaults,
       downloadsEnabled: true,
-      seedingEnabled: false,
+      seedingEnabled: true,
     })
     expect(connection.fetchP2PStatus).toHaveBeenCalledTimes(1)
     expect(root.textContent).toContain('P2P settings saved.')
+    expect(root.textContent).toContain('Current seeding state: On.')
+    dispose()
+  })
+
+  it('represents a saved mixed state and normalizes both capabilities on', async () => {
+    const { root, connection, dispose } = mount({ value: { ...defaults, downloadsEnabled: true } })
+    await flush()
+
+    const sharing = root.querySelector<HTMLButtonElement>('[id$="-enabled"]')!
+    expect(sharing.getAttribute('aria-checked')).toBe('mixed')
+    expect(root.textContent).toContain('Mixed')
+    expect(root.textContent).toContain('Peer downloads and background seeding do not match.')
+    expect(root.textContent).toContain('Current seeding state: Off.')
+    sharing.click()
+    root.querySelector('form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
+    await flush()
+
+    expect(connection.updateRuntimeSetting).toHaveBeenCalledWith('p2p', {
+      ...defaults,
+      downloadsEnabled: true,
+      seedingEnabled: true,
+    })
+    expect(sharing.getAttribute('aria-checked')).toBe('true')
+    dispose()
+  })
+
+  it('reports saved seeding as on for the reverse mixed state', async () => {
+    const value = { ...defaults, downloadsEnabled: false, seedingEnabled: true }
+    const writable = mount({ value })
+    await flush()
+
+    expect(writable.root.querySelector<HTMLButtonElement>('[id$="-enabled"]')?.getAttribute('aria-checked')).toBe('mixed')
+    expect(writable.root.textContent).toContain('Peer downloads and background seeding do not match.')
+    expect(writable.root.textContent).toContain('Current seeding state: On.')
+    writable.dispose()
+
+    const readOnly = mount({ value, writable: false })
+    await flush()
+    const rows = [...readOnly.root.querySelectorAll('.p2p-readonly-summary > div')].map((row) => row.textContent)
+    expect(rows).toContain('Peer-to-peer sharingMixed')
+    expect(rows).toContain('Background seedingOn')
+    readOnly.dispose()
+  })
+
+  it('summarizes a read-only mixed state consistently', async () => {
+    const { root, dispose } = mount({ value: { ...defaults, downloadsEnabled: true }, writable: false })
+    await flush()
+
+    const rows = [...root.querySelectorAll('.p2p-readonly-summary > div')].map((row) => row.textContent)
+    expect(rows).toContain('Peer-to-peer sharingMixed')
+    expect(rows).toContain('Background seedingOff')
     dispose()
   })
 
@@ -184,7 +233,7 @@ describe('P2PPanel', () => {
     expect(root.querySelector<HTMLElement>(`.p2p-authorization code[title="${grantId}"]`)?.getAttribute('aria-label')).toBe(grantId)
     expect(root.querySelector<HTMLElement>(`.p2p-authorization code[title="${seedGrant.evidenceId}"]`)?.getAttribute('aria-label')).toBe(seedGrant.evidenceId)
     expect(root.querySelector('[data-testid="p2p-transfer"] code')?.getAttribute('aria-label')).toBe(digest)
-    expect(root.querySelector<HTMLButtonElement>('[id$="-seeding"]')?.getAttribute('aria-checked')).toBe('false')
+    expect(root.querySelector<HTMLButtonElement>('[id$="-enabled"]')?.getAttribute('aria-checked')).toBe('mixed')
     expect(root.textContent).not.toContain('Reset budget')
     expect(root.textContent).not.toContain('Seed continuously')
 
@@ -343,41 +392,11 @@ describe('P2PPanel', () => {
     dispose()
   })
 
-  it('refreshes an already-mounted panel after first-run Turn off without more activity requests', async () => {
-    const view = mount({ value: { ...defaults, downloadsEnabled: true, seedingEnabled: true, scope: 'lan-and-internet' } })
-    await flush()
-    expect(view.connection.fetchP2PStatus).toHaveBeenCalledOnce()
-    view.refresh(defaults)
-    await flush()
-    expect(view.connection.fetchP2PStatus).toHaveBeenCalledOnce()
-    expect(view.root.querySelector('.p2p-runtime')).toBeNull()
-    expect(view.root.querySelector('[id$="-downloads"]')?.getAttribute('aria-checked')).toBe('false')
-    expect(view.root.querySelector('[id$="-seeding"]')?.getAttribute('aria-checked')).toBe('false')
-    view.dispose()
-  })
-
-  it('does not request activity from a pending transfer action after the notice turns P2P off', async () => {
-    const view = mount({ value: { ...defaults, downloadsEnabled: true } })
-    await flush()
-    let finish!: () => void
-    view.connection.performP2PTransferAction.mockImplementationOnce(() => new Promise<undefined>((resolve) => { finish = () => resolve(undefined) }))
-    const pause = [...view.root.querySelectorAll<HTMLButtonElement>('.p2p-transfer-actions button')].find((button) => button.textContent === 'Pause')!
-    pause.click()
-    await flush()
-    view.refresh(defaults)
-    await flush()
-    finish()
-    await flush()
-    expect(view.connection.fetchP2PStatus).toHaveBeenCalledOnce()
-    expect(view.root.querySelector('.p2p-runtime')).toBeNull()
-    view.dispose()
-  })
-
   it('rejects a stale form submission after P2P write permission is revoked', async () => {
     const { root, connection, dispose, revoke } = mount()
     await flush()
 
-    root.querySelector<HTMLButtonElement>('[id$="-downloads"]')!.click()
+    root.querySelector<HTMLButtonElement>('[id$="-enabled"]')!.click()
     revoke()
     root.querySelector('form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
     await flush()
@@ -404,16 +423,16 @@ describe('P2PPanel', () => {
   it('updates mounted chrome without replacing state, raw values, or backend requests', async () => {
     registerCatalog('de-DE', {
       'p2p.title': '[P2P-Ubertragungen]',
-      'p2p.downloads': '[Peer-Downloads]',
+      'p2p.sharing': '[P2P-Freigabe]',
       'p2p.status': '[Laufzeitstatus]',
       'p2p.authorizationInactive': '[Autorisiert, inaktiv]',
       'p2p.resolver.example/models': '[Ubersetzte Quelle]',
       'p2p.Apache-2.0': '[Ubersetzte Lizenz]',
     })
-    const { root, connection, dispose } = mount({ value: { ...defaults, downloadsEnabled: true } })
+    const { root, connection, dispose } = mount({ value: { ...defaults, downloadsEnabled: true, seedingEnabled: true } })
     await flush()
     const panel = root.querySelector<HTMLElement>('[data-testid="p2p-panel"]')!
-    const downloads = root.querySelector<HTMLElement>('[id$="-downloads"]')!
+    const downloads = root.querySelector<HTMLElement>('[id$="-enabled"]')!
     const transferRow = root.querySelector<HTMLElement>('[data-testid="p2p-transfer"]')!
     downloads.focus()
     const requestCounts = {
@@ -424,12 +443,12 @@ describe('P2PPanel', () => {
     setLocale('de-DE')
 
     expect(root.querySelector('[data-testid="p2p-panel"]')).toBe(panel)
-    expect(root.querySelector('[id$="-downloads"]')).toBe(downloads)
+    expect(root.querySelector('[id$="-enabled"]')).toBe(downloads)
     expect(root.querySelector('[data-testid="p2p-transfer"]')).toBe(transferRow)
     expect(document.activeElement).toBe(downloads)
     expect(downloads.getAttribute('aria-checked')).toBe('true')
     expect(root.textContent).toContain('[P2P-Ubertragungen]')
-    expect(root.textContent).toContain('[Peer-Downloads]')
+    expect(root.textContent).toContain('[P2P-Freigabe]')
     expect(root.textContent).toContain('[Laufzeitstatus]')
     expect(root.textContent).toContain('[Autorisiert, inaktiv]')
     expect(root.textContent).toContain('declarative-resolver resolver.example/models')
@@ -440,187 +459,5 @@ describe('P2PPanel', () => {
       status: connection.fetchP2PStatus.mock.calls.length,
     }).toEqual(requestCounts)
     dispose()
-  })
-})
-
-describe('P2P first-run notice', () => {
-  const enabledSettings: P2PSettings = { ...defaults, downloadsEnabled: true, seedingEnabled: true, scope: 'lan-and-internet' }
-  const mountNotice = (options: { backendId?: string; value?: P2PSettings; granted?: boolean; writable?: boolean } = {}) => {
-    let value = options.value ?? enabledSettings
-    let granted = options.granted !== false
-    const connection = {
-      fetchRuntimeSettings: vi.fn(async () => ({
-        categories: { granted: granted ? ['p2p'] : [], available: ['p2p'] },
-        settings: { p2p: section(value, options.writable !== false) },
-      })),
-      updateRuntimeSetting: vi.fn(async (_category: string, next: unknown) => {
-        value = next as P2PSettings
-        return section(value)
-      }),
-    }
-    const root = document.createElement('div')
-    document.body.append(root)
-    const changed = vi.fn()
-    const dispose = render(() => <P2PFirstRunNotice connection={connection}
-      backendId={options.backendId ?? 'first'} backendLabel="Fixture backend" connected={true}
-      onSettingsChanged={changed} />, root)
-    return { root, connection, dispose, changed, revoke: () => { granted = false } }
-  }
-  const button = (root: HTMLElement, label: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === label)!
-
-  it('shows enabled settings, persists dismissal per backend, and never enables networking on acknowledgment', async () => {
-    const first = mountNotice()
-    await flush()
-    expect(first.root.textContent).toContain('Dinkster enables downloads and background seeding on LAN and internet by default.')
-    expect(first.root.textContent).toContain('Other peers can learn your IP address')
-    expect(first.root.textContent).toContain('LAN and internet')
-    button(first.root, 'Dismiss notice').click()
-    expect(first.connection.updateRuntimeSetting).not.toHaveBeenCalled()
-    first.dispose()
-    const same = mountNotice()
-    const other = mountNotice({ backendId: 'second' })
-    await flush()
-    expect(same.root.querySelector('dialog')).toBeNull()
-    expect(other.root.querySelector('dialog')).not.toBeNull()
-    same.dispose()
-    other.dispose()
-  })
-
-  it('updates an open notice without replacing it or refetching settings', async () => {
-    registerCatalog('de-DE', {
-      'p2p.noticeTitle': '[P2P-Freigabe aktiv]',
-      'p2p.acknowledge': '[Hinweis schliessen]',
-      'p2p.downloads': '[Peer-Downloads]',
-    })
-    const view = mountNotice({ backendId: 'locale' })
-    await flush()
-    const dialog = view.root.querySelector<HTMLDialogElement>('dialog')!
-    const dismiss = button(view.root, 'Dismiss notice')
-    dismiss.focus()
-    const requestCount = view.connection.fetchRuntimeSettings.mock.calls.length
-
-    setLocale('de-DE')
-
-    expect(view.root.querySelector('dialog')).toBe(dialog)
-    expect(document.activeElement).toBe(dismiss)
-    expect(dialog.textContent).toContain('[P2P-Freigabe aktiv]')
-    expect(dialog.textContent).toContain('[Hinweis schliessen]')
-    expect(dialog.textContent).toContain('[Peer-Downloads]')
-    expect(dialog.textContent).toContain('Fixture backend')
-    expect(view.connection.fetchRuntimeSettings).toHaveBeenCalledTimes(requestCount)
-    view.dispose()
-  })
-
-  it.each(['Dismiss notice', 'Turn off P2P'])('isolates simultaneous backend notices when choosing %s', async (action) => {
-    const first = mountNotice({ backendId: 'first' })
-    const second = mountNotice({ backendId: 'second' })
-    await flush()
-    const firstDialog = first.root.querySelector('dialog')!
-    const secondDialog = second.root.querySelector('dialog')!
-    expect(firstDialog.dataset['modal']).not.toBe(secondDialog.dataset['modal'])
-    expect(firstDialog.getAttribute('aria-describedby')).not.toBe(secondDialog.getAttribute('aria-describedby'))
-    button(second.root, action).click()
-    await flush()
-    expect(second.root.querySelector('dialog')).toBeNull()
-    expect(first.root.querySelector('dialog')).toBe(firstDialog)
-    expect(first.connection.updateRuntimeSetting).not.toHaveBeenCalled()
-    expect(first.changed).not.toHaveBeenCalled()
-    expect(localStorage.getItem('dinkster.p2p-notice-dismissed.first')).toBeNull()
-    expect(localStorage.getItem('dinkster.p2p-notice-dismissed.second')).toBe('1')
-    expect(second.connection.updateRuntimeSetting).toHaveBeenCalledTimes(action === 'Turn off P2P' ? 1 : 0)
-    button(first.root, 'Dismiss notice').click()
-    expect(localStorage.getItem('dinkster.p2p-notice-dismissed.first')).toBe('1')
-    first.dispose()
-    second.dispose()
-  })
-
-  it('does not show or override an explicitly disabled server', async () => {
-    const view = mountNotice({ value: defaults })
-    await flush()
-    expect(view.root.querySelector('dialog')).toBeNull()
-    expect(view.connection.updateRuntimeSetting).not.toHaveBeenCalled()
-    view.dispose()
-  })
-
-  it('turns both switches off through the settings API and notifies mounted panels', async () => {
-    const view = mountNotice()
-    await flush()
-    button(view.root, 'Turn off P2P').click()
-    await flush()
-    expect(view.connection.updateRuntimeSetting).toHaveBeenCalledWith('p2p', { ...enabledSettings, downloadsEnabled: false, seedingEnabled: false })
-    expect(view.changed).toHaveBeenCalledOnce()
-    expect(view.root.querySelector('dialog')).toBeNull()
-    view.dispose()
-  })
-
-  it.each([{ granted: false }, { writable: false }])('explains read-only permissions and disables Turn off: %j', async (options) => {
-    const view = mountNotice(options)
-    await flush()
-    expect(view.root.textContent).toContain('read-only')
-    expect(button(view.root, 'Turn off P2P').disabled).toBe(true)
-    button(view.root, 'Turn off P2P').click()
-    expect(view.connection.updateRuntimeSetting).not.toHaveBeenCalled()
-    view.dispose()
-  })
-
-  it('rechecks revoked permission before writing', async () => {
-    const view = mountNotice()
-    await flush()
-    view.revoke()
-    button(view.root, 'Turn off P2P').click()
-    await flush()
-    expect(view.root.textContent).toContain('read-only')
-    expect(view.connection.updateRuntimeSetting).not.toHaveBeenCalled()
-    view.dispose()
-  })
-
-  it.each([
-    ['read', 'resolve'], ['read', 'reject'], ['write', 'resolve'], ['write', 'reject'],
-  ])('ignores a late Turn off %s %s after cleanup', async (stage, outcome) => {
-    const view = mountNotice()
-    await flush()
-    let settle!: () => void
-    const messageRead = vi.fn(() => 'Late request failed')
-    const lateError = new Error()
-    Object.defineProperty(lateError, 'message', { get: messageRead })
-    if (stage === 'read') {
-      view.connection.fetchRuntimeSettings.mockImplementationOnce(() => new Promise((resolve, reject) => {
-        settle = () => outcome === 'reject' ? reject(lateError) : resolve({
-          categories: { granted: ['p2p'], available: ['p2p'] },
-          settings: { p2p: section(enabledSettings) },
-        })
-      }))
-    } else {
-      view.connection.updateRuntimeSetting.mockImplementationOnce(() => new Promise((resolve, reject) => {
-        settle = () => outcome === 'reject' ? reject(lateError) : resolve(section(defaults))
-      }))
-    }
-    button(view.root, 'Turn off P2P').click()
-    await flush()
-    view.dispose()
-    const successor = mountNotice()
-    await flush()
-    settle()
-    await flush()
-    expect(messageRead).not.toHaveBeenCalled()
-    expect(view.connection.updateRuntimeSetting).toHaveBeenCalledTimes(stage === 'write' ? 1 : 0)
-    expect(view.changed).not.toHaveBeenCalled()
-    expect(localStorage.getItem('dinkster.p2p-notice-dismissed.first')).toBeNull()
-    expect(successor.root.querySelector('dialog')).not.toBeNull()
-    expect(button(successor.root, 'Turn off P2P').disabled).toBe(false)
-    expect(successor.connection.updateRuntimeSetting).not.toHaveBeenCalled()
-    successor.dispose()
-  })
-
-  it('keeps failed off requests visible without remembering dismissal', async () => {
-    const view = mountNotice()
-    await flush()
-    view.connection.updateRuntimeSetting.mockRejectedValueOnce(new Error('Permission was revoked'))
-    button(view.root, 'Turn off P2P').click()
-    await flush()
-    expect(view.root.textContent).toContain('Permission was revoked')
-    expect(view.root.querySelector('dialog')).not.toBeNull()
-    expect(localStorage.getItem('dinkster.p2p-notice-dismissed.first')).toBeNull()
-    view.dispose()
   })
 })
