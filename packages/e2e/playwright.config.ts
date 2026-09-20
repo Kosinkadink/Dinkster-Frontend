@@ -104,7 +104,10 @@ export default defineConfig({
     command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${devPort} --strictPort`,
     url: `http://127.0.0.1:${devPort}`,
     reuseExistingServer: false,
-    env: { DINKSTER_NATIVE_BACKEND: process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765' },
+    env: {
+      DINKSTER_NATIVE_BACKEND: process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
+      VITE_DINKSTER_E2E_PROBE_V1: '1',
+    },
     cwd: '../..',
   },
 })

@@ -41,6 +41,22 @@ const fast = await load('ci.yml')
 const full = await load('full-validation.yml')
 const release = await load('release-desktop.yml')
 const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
+const appMain = await readFile(
+  resolve(root, 'packages/app/src/main.tsx'),
+  'utf8',
+)
+const hostedConfig = await readFile(
+  resolve(root, 'packages/e2e/playwright.hosted.config.ts'),
+  'utf8',
+)
+const baseConfig = await readFile(
+  resolve(root, 'packages/e2e/playwright.config.ts'),
+  'utf8',
+)
+const auditConfig = await readFile(
+  resolve(root, 'packages/e2e/playwright.audit-assets.config.ts'),
+  'utf8',
+)
 const testingDocs = (
   await readFile(resolve(root, 'docs/testing.md'), 'utf8')
 ).replace(/\r?\n/g, ' ')
@@ -267,6 +283,19 @@ describe('fast pull-request and full validation workflows', () => {
       expect(browser.env?.['DINKSTER_E2E_PORT']).toBe(
         name === 'ci' ? '15376' : '15410',
       )
+      if (name === 'ci') {
+        expect(browser.env).toMatchObject({
+          DINKSTER_E2E_NATIVE_PORT: '15377',
+          DINKSTER_E2E_DINKSTER_ROOT: '${{ github.workspace }}/.ci/Dinkster',
+        })
+        expect(
+          steps.some((step) =>
+            step.run?.includes(
+              'dinkster-pack --accelerator cpu prepare-catalogs',
+            ),
+          ),
+        ).toBe(true)
+      }
       if (name === 'e2e-suite') {
         expect(browser.run).toContain('run_counted_suite.sh')
         expect(browser.env).toMatchObject({
@@ -274,8 +303,36 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_NATIVE_PORT: '15412',
           DINKSTER_NATIVE_BACKEND: 'http://127.0.0.1:15412',
         })
+        const compatibilityInstall = steps.find(
+          (step) => step.name === 'Install hosted compatibility dependencies',
+        )!
+        expect(compatibilityInstall.run).toContain(
+          'uv export --project .ci/Dinkster --locked --package dinkster-inference-torch --extra torch',
+        )
+        expect(compatibilityInstall.run).toContain(
+          'uv pip install --python .ci/ComfyUI/venv/bin/python',
+        )
+        expect(compatibilityInstall.run).toContain(
+          '--index https://download.pytorch.org/whl/cpu',
+        )
+        expect(compatibilityInstall.run).toContain(
+          '--constraint "${RUNNER_TEMP}/dinkster-torch-constraints.txt"',
+        )
+        expect(compatibilityInstall.run).toContain(
+          'dinkster-kitchen dinkster-aimdo sentencepiece tokenizers',
+        )
       }
     }
+    expect(appMain).toContain(
+      "probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1'",
+    )
+    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(auditConfig).toContain(
+      "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
+    )
+    expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
+    expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
   })
 
   it('validates the exact desktop release commit before publication', () => {
