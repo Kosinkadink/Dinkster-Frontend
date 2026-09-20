@@ -55,7 +55,6 @@ export default defineConfig({
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
         '--host 127.0.0.1',
         `--port ${nativePort}`,
-        '--dev',
         '--disable-p2p',
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/native-library'))}`,
