@@ -9,6 +9,7 @@ import { AssetsBody } from '../src/AssetsBody.js'
 import '../src/locale.js'
 
 afterEach(() => {
+  vi.useRealTimers()
   document.body.replaceChildren()
   localStorage.clear()
   setLocale('en')
@@ -186,6 +187,49 @@ describe('Assets dock body', () => {
     expect(root.querySelector('[data-source="mount:offline-cache"]')?.getAttribute('data-state')).toBe('offline')
     expect(root.querySelector('.assets-panel > .collection-panel')).not.toBeNull()
     expect(root.querySelector('.collection-toolbar > .asset-source-control')).not.toBeNull()
+    dispose()
+  })
+
+  it('shows scan counters and polls until the mount becomes ready', async () => {
+    vi.useFakeTimers()
+    const listMounts = vi.fn()
+      .mockResolvedValueOnce([{
+        id: 'models',
+        mode: 'read',
+        state: 'scanning',
+        entryCount: 4,
+        scanProgress: {
+          filesDone: 4,
+          filesTotal: 10,
+          bytesDone: 1024,
+          bytesTotal: 4096,
+          elapsedSeconds: 2.5,
+        },
+      }])
+      .mockRejectedValueOnce(new Error('temporary mount listing failure'))
+      .mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', entryCount: 10 }])
+    const connection = {
+      listMounts,
+      listMountEntries: vi.fn().mockResolvedValue({ entries: [] }),
+      assetUrl: vi.fn(),
+      fetchAssetMetadata: vi.fn(),
+    } as unknown as DinksterConnection
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
+
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-health"]')).not.toBeNull())
+    root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
+    expect(root.querySelector('[data-source="mount:models"]')?.textContent).toContain(
+      'Indexed 4/10 files, 1.0 KiB/4.0 KiB, 2s elapsed',
+    )
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.waitFor(() => expect(listMounts).toHaveBeenCalledTimes(2))
+    expect(root.textContent).toContain('temporary mount listing failure')
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.waitFor(() => expect(listMounts).toHaveBeenCalledTimes(3))
+    expect(root.querySelector('[data-source="mount:models"]')).toBeNull()
     dispose()
   })
 

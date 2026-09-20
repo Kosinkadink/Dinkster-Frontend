@@ -359,7 +359,9 @@ describe('fast pull-request and full validation workflows', () => {
       "probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1'",
     )
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
