@@ -51,9 +51,16 @@ dispatch, and when called by the desktop release workflow. The `on.schedule`
 cron list in that file is the single schedule definition; change its first
 cron line to change the two-hour cadence. Scheduled runs skip the heavy jobs
 when the latest successful durable main run already validated the same commit;
-reduced push runs do not satisfy that check. Push runs cancel superseded push
-runs, while scheduled and called runs use a separate non-cancelling concurrency
-group. To test an unmerged branch that contains the workflow:
+reduced push runs do not satisfy that check. Main pushes use one non-cancelling
+concurrency group. GitHub keeps one active push run and only the newest pending
+push run, replacing older pending runs as new commits arrive. A merge whose
+pending run is replaced is covered by the next completed run at a descendant
+head. Find candidate runs in the Actions `Full validation` history, then confirm
+coverage from a local clone with
+`git merge-base --is-ancestor <merge-sha> <run-head-sha>`. Scheduled,
+dispatched and release-called runs use a separate non-cancelling durable group,
+so push traffic neither queues nor replaces them. To test an unmerged branch
+that contains the workflow:
 
 ```bash
 gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <branch>

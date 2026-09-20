@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && 'push' || 'durable' }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  cancel-in-progress: false
 
 env:
   DINKSTER_REF: d15d8745e958746447c47cad72031f1632716890
