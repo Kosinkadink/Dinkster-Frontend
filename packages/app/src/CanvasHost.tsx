@@ -130,6 +130,7 @@ import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDispla
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
+import { waitForClipboardTextWrite, writeClipboardText } from './clipboard-text.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
@@ -5446,7 +5447,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       const text = JSON.stringify(envelope)
       clipboardFallback = text
-      try { await navigator.clipboard.writeText(text) } catch { /* in-memory fallback remains available */ }
+      await writeClipboardText((value) => navigator.clipboard.writeText(value), text)
     }
 
     const pasteSelection = async (anchor = pointerWorld, connectInputs = false): Promise<void> => {
@@ -5469,6 +5470,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       try {
         await pasteClipboardIntoTab({
           readText: async () => {
+            await waitForClipboardTextWrite()
             try { return await navigator.clipboard.readText() } catch { return clipboardFallback }
           },
           graphId,
@@ -5519,6 +5521,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       if (!tab || frozen()) return
       const graphId = currentGraphId(tab)
+      await waitForClipboardTextWrite()
+      if (activeTab() !== tab || currentGraphId(tab) !== graphId || tab.execution !== undefined) return
       const image = await readClipboardImage(() => navigator.clipboard.read())
       if (activeTab() !== tab || currentGraphId(tab) !== graphId || tab.execution !== undefined) return
       if (image === undefined) {
