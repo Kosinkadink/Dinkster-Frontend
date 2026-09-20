@@ -135,9 +135,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.jobs['fast']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name == 'push'",
     )
-    expect(full.jobs['fast']!.steps!.flatMap((step) => step.run ?? [])).toEqual(
-      ['pnpm install --frozen-lockfile', 'pnpm ci:fast'],
-    )
+    expect(full.jobs['fast']!.steps).toEqual(fast.jobs['fast']!.steps)
     expect(full.jobs['ci']!.needs).toBe('validation-plan')
     expect(full.jobs['ci']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push'",
