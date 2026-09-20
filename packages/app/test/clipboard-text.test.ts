@@ -1,24 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
-import { waitForClipboardTextWrite, writeClipboardText } from '../src/clipboard-text.js'
+import { pendingClipboardText, writeClipboardText } from '../src/clipboard-text.js'
 
 describe('clipboard text writes', () => {
-  it('finishes the latest internal copy before a following paste reads the clipboard', async () => {
+  it('exposes the latest internal copy without waiting for the system clipboard write', async () => {
     let releaseWrite: (() => void) | undefined
-    let clipboard = 'stale clipboard'
     const writeText = vi.fn(async (text: string) => {
       await new Promise<void>((resolve) => { releaseWrite = resolve })
-      clipboard = text
+      expect(text).toBe('current copy')
     })
-    const readText = vi.fn(() => clipboard)
 
     const write = writeClipboardText(writeText, 'current copy')
-    const read = waitForClipboardTextWrite().then(readText)
 
     await Promise.resolve()
-    expect(readText).not.toHaveBeenCalled()
+    expect(pendingClipboardText()).toBe('current copy')
     releaseWrite?.()
-    await expect(read).resolves.toBe('current copy')
     await write
+    expect(pendingClipboardText()).toBeUndefined()
   })
 
   it('serializes overlapping copies in invocation order', async () => {
@@ -33,12 +30,15 @@ describe('clipboard text writes', () => {
     const second = writeClipboardText(writeText, 'second')
     await Promise.resolve()
     expect(writeText).toHaveBeenCalledTimes(1)
+    expect(pendingClipboardText()).toBe('second')
     releases.shift()?.()
     await first
     await Promise.resolve()
     expect(writeText).toHaveBeenCalledTimes(2)
+    expect(pendingClipboardText()).toBe('second')
     releases.shift()?.()
     await second
     expect(written).toEqual(['first', 'second'])
+    expect(pendingClipboardText()).toBeUndefined()
   })
 })

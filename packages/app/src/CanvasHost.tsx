@@ -130,7 +130,7 @@ import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDispla
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
-import { waitForClipboardTextWrite, writeClipboardText } from './clipboard-text.js'
+import { pendingClipboardText, writeClipboardText } from './clipboard-text.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
@@ -5475,7 +5475,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       await writeClipboardText((value) => navigator.clipboard.writeText(value), text)
     }
 
-    const pasteSelection = async (anchor = pointerWorld, connectInputs = false): Promise<void> => {
+    const pasteSelection = async (
+      anchor = pointerWorld,
+      connectInputs = false,
+      internalText?: string,
+    ): Promise<void> => {
       // Owner capture BEFORE the clipboard await; the helper refuses to
       // commit if the tab closed, navigated, or froze during the read.
       // Selection is a view concern of the CURRENT canvas, so it only
@@ -5495,7 +5499,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       try {
         await pasteClipboardIntoTab({
           readText: async () => {
-            await waitForClipboardTextWrite()
+            if (internalText !== undefined) return internalText
             try { return await navigator.clipboard.readText() } catch { return clipboardFallback }
           },
           graphId,
@@ -5546,8 +5550,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       if (!tab || frozen()) return
       const graphId = currentGraphId(tab)
-      await waitForClipboardTextWrite()
-      if (activeTab() !== tab || currentGraphId(tab) !== graphId || tab.execution !== undefined) return
+      const internalText = pendingClipboardText()
+      if (internalText !== undefined) {
+        await pasteSelection(anchor, connectInputs, internalText)
+        return
+      }
       const image = await readClipboardImage(() => navigator.clipboard.read())
       if (activeTab() !== tab || currentGraphId(tab) !== graphId || tab.execution !== undefined) return
       if (image === undefined) {
