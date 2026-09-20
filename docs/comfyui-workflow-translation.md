@@ -23,9 +23,12 @@ translation.
 
 Positional and keyed static COMBO widgets normalize a finite numeric literal
 to its canonical string only when that exact string is a declared option.
-An exact numeric option in a legacy schema takes precedence. Labels, padded
-spellings, and unmatched values are not coerced; invalid choices remain
-available for normal validation. Normalized values survive native save/reopen.
+An exact numeric option in a legacy schema takes precedence. A legacy string
+that exactly matches one unique structured option label is stored as that
+option's canonical value; an already canonical value still takes precedence.
+Ambiguous labels, padded spellings, and unmatched values are not coerced, so
+invalid choices remain available for normal validation. Normalized values
+survive native save/reopen.
 
 Replacement rules can map ordinary inputs and outputs, copy one top-level
 wire-15 Autogrow family to a differently named target family, or address an

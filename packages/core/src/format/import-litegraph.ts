@@ -171,10 +171,16 @@ function normalizeLegacyWidgetValue(
   nodeLabel: string,
   diags: Diagnostic[],
 ): Json {
-  if (typeof value === 'number' && Number.isFinite(value) && item.dynamic === undefined && item.widget?.widgetType === 'COMBO') {
+  if (item.dynamic === undefined && item.widget?.widgetType === 'COMBO') {
     const options = normalizedComboOptions(item.widget)
-    const text = String(value)
-    if (!options.some((option) => option.value === value) && options.some((option) => option.value === text)) return text
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const text = String(value)
+      if (!options.some((option) => option.value === value) && options.some((option) => option.value === text)) return text
+    }
+    if (typeof value === 'string' && !options.some((option) => option.value === value)) {
+      const matches = [...new Set(options.filter((option) => option.label === value).map((option) => option.value))]
+      if (matches.length === 1) return matches[0]!
+    }
   }
   if (typeof value !== 'string') return value
   if (item.widget?.widgetType === 'INT' || item.widget?.widgetType === 'FLOAT') {
