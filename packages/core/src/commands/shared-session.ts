@@ -41,8 +41,8 @@
  * - The onOp feed emits SERVER-ORDERED ops only (contiguous revisions,
  *   own acks and foreign ops alike); optimistic state is visible through
  *   the document signal, not the feed. `revision` reports the optimistic
- *   count (confirmedRevision + pending.length) for dirty-tracking parity
- *   with the local session.
+ *   count plus any predecessor-session offset so same-document handoffs stay
+ *   monotonic for dirty tracking.
  * - Presence is ephemeral passthrough (never stored in document state).
  *
  * Trust boundary: foreign patches and snapshots are structurally validated
@@ -222,6 +222,7 @@ class SharedDocumentSession implements DocumentSession {
 
   private confirmed: WorkflowDocument
   private confirmedRevision: number
+  private revisionOffset = 0
   private store: DocumentStore
   private readonly pending: PendingEntry[] = []
   private readonly undoStack: HistoryRecord[] = []
@@ -326,9 +327,9 @@ class SharedDocumentSession implements DocumentSession {
     return this.store.doc
   }
 
-  /** Optimistic revision: confirmed head + unacknowledged local ops. */
+  /** Monotonic document revision across local/shared session handoffs. */
   get revision(): number {
-    return this.confirmedRevision + this.pending.length
+    return this.revisionOffset + this.confirmedRevision + this.pending.length
   }
 
   get document(): ReadonlySignal<WorkflowDocument> {
@@ -392,7 +393,7 @@ class SharedDocumentSession implements DocumentSession {
   historySnapshot(): HistorySnapshot {
     const detach = (records: readonly HistoryRecord[]): HistorySnapshot['undo'] =>
       records.map((record) => ({ forward: record.forward, inverse: record.inverse }))
-    return { undo: detach(this.undoStack), redo: detach(this.redoStack) }
+    return { revision: this.revision, undo: detach(this.undoStack), redo: detach(this.redoStack) }
   }
 
   /**
@@ -408,6 +409,7 @@ class SharedDocumentSession implements DocumentSession {
     if (this.pending.length > 0 || this.undoStack.length > 0 || this.redoStack.length > 0) {
       throw new Error('adoptHistory: session already has local intentions or history')
     }
+    this.revisionOffset = Math.max(0, history.revision - this.confirmedRevision)
     for (const record of history.undo) this.undoStack.push({ forward: record.forward, inverse: record.inverse })
     for (const record of history.redo) this.redoStack.push({ forward: record.forward, inverse: record.inverse })
     while (this.undoStack.length > this.maxUndo) this.undoStack.shift()
