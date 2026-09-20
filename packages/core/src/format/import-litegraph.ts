@@ -41,7 +41,7 @@ import {
 } from '../schema/model.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from '../schema/elaborate.js'
 import type { ComfyGroupCatalog, ComfyGroupRecord } from '../schema/comfy-group.js'
-import { normalizedComboOptions } from '../schema/combo-options.js'
+import { normalizeComboOption, normalizedComboOptions } from '../schema/combo-options.js'
 import {
   FORMAT_VERSION,
   type ControllerMode,
@@ -171,10 +171,22 @@ function normalizeLegacyWidgetValue(
   nodeLabel: string,
   diags: Diagnostic[],
 ): Json {
-  if (typeof value === 'number' && Number.isFinite(value) && item.dynamic === undefined && item.widget?.widgetType === 'COMBO') {
+  if (item.dynamic === undefined && item.widget?.widgetType === 'COMBO') {
     const options = normalizedComboOptions(item.widget)
-    const text = String(value)
-    if (!options.some((option) => option.value === value) && options.some((option) => option.value === text)) return text
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const text = String(value)
+      if (!options.some((option) => option.value === value) && options.some((option) => option.value === text)) return text
+    }
+    if (typeof value === 'string' && !options.some((option) => option.value === value)) {
+      const declared = item.widget.options['options']
+      const structured = Array.isArray(declared) ? declared.flatMap((option) => {
+        if (Array.isArray(option) || typeof option !== 'object' || option === null) return []
+        const normalized = normalizeComboOption(option)
+        return normalized === undefined ? [] : [normalized]
+      }) : []
+      const matches = [...new Set(structured.filter((option) => option.label === value).map((option) => option.value))]
+      if (matches.length === 1) return matches[0]!
+    }
   }
   if (typeof value !== 'string') return value
   if (item.widget?.widgetType === 'INT' || item.widget?.widgetType === 'FLOAT') {
