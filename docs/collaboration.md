@@ -12,7 +12,8 @@ adapter is `client/src/collab-connection.ts`.
 Right-click a workflow tab and choose **Share** to publish that tab's document
 as a new shared session and swap the tab onto it in place. Everyone who joins
 sees and makes the same edits live. The sharer's undo/redo history follows
-the tab when the shared session adopts the same document.
+the tab when the shared session adopts the same document, and the tab's
+revision remains monotonic across that session handoff.
 
 The Users button in the top bar opens the Workspace state modal:
 
