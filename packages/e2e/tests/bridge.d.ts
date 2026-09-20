@@ -8,6 +8,7 @@ interface DinksterBridgeSceneNode {
   x: number
   y: number
   color?: string
+  virtual?: { text: string; format: 'plain' | 'markdown' }
   unrecognized?: true
   layout: {
     width: number
@@ -137,6 +138,8 @@ interface DinksterBridgeTab {
             {
               id: string
               type: string
+              title?: string
+              virtual?: true
               values: Record<string, unknown>
               dynamic?: Record<string, {
                 selected?: string

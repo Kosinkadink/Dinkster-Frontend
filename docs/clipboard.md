@@ -28,6 +28,10 @@ The system clipboard receives JSON with this versioned outer shape:
 
 Node entries contain semantic node data, including values, controllers, dynamic state, mode, title, and extension data, plus their view state. Position, manual size, minimized state, sections, and selected views therefore survive paste. Reroutes include topology and position. A link is included only when both endpoints are included, which prevents references to nodes in the source document from leaking into another document. Unknown node types remain ordinary document nodes and use Dinkster's existing missing-schema placeholder presentation.
 
+Virtual nodes use this same node entry. Their virtual marker, text values,
+title, color, position, and size survive paste, while their no-port contract
+means they never contribute links.
+
 Version 2 preserves that self-contained `links` invariant. `scope` records the source document lineage and graph plus an app-issued provenance token used to prove that the original source-node incarnation is still owned locally. Incoming boundary links are separate stubs. An ordinary port source uses `{"source":{"graph":"g0","lineage":"workflow-lineage","node":"n0","nodeType":"Producer","port":"out","members":["m1"]},"target":{"node":"n1","nodeType":"Consumer","port":"in","members":["m1"]}}`. A widget-tap source uses the same shape with `"tap":"widgetInput"` instead of `port` and never has `members`. `members` is omitted for static port endpoints. This additive source variant stays inside version 2; existing port stubs retain their exact shape. Version 1 envelopes remain readable and behave as before; they have no external stubs.
 
 Boundary input/output pseudo-nodes are derived UI objects and are never copied. Value sources, selectors, boundary bindings, and links to unselected items are not part of the clipboard. A group is copied only when the group itself is the copy target; spatially contained nodes alone do not imply group selection.

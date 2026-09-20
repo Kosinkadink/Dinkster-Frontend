@@ -275,6 +275,7 @@ function checkNode(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   c.str(v['id'], `${path}.id`, { nonEmpty: true })
   c.str(v['type'], `${path}.type`, { nonEmpty: true })
+  if (v['virtual'] !== undefined && v['virtual'] !== true) c.fail(`${path}.virtual`, 'expected true')
   c.obj(v['values'], `${path}.values`)
   if (v['controllers'] !== undefined && c.obj(v['controllers'], `${path}.controllers`)) {
     for (const [k, mode] of Object.entries(v['controllers'])) {
