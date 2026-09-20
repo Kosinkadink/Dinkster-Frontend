@@ -1670,3 +1670,22 @@ The integrated sample also measured 91.0 ms open, 33.2 ms first paint,
 18.96 ms repaint after dispatch, and zero comparison compiles. Graph and view
 snapshots now reject position-only reuse after in-place structural mutation;
 the unchanged 50 ms dispatch budget still passes without narrowing the test.
+
+## 2026-09-20 Virtual note scene model
+
+Comparison base: `fd40f5c257add1bd40ad57b6459729917035e7a6`. One base
+sample and one integrated sample on ripperpc with Node 22.23.2, using the
+unchanged `packages/canvas/test/perf.test.ts` 1200-node workloads.
+
+| Scene build | Base | Virtual note model |
+| --- | ---: | ---: |
+| Plain 1200-node graph | 56.2 ms | 53.5 ms |
+| Feature-heavy 1200-node graph | 81.5 ms | 77.2 ms |
+| 60-instance subgraph root | 3.7 ms | 3.9 ms |
+
+All unchanged 2-second budgets pass. The registered virtual-node lookup and
+optional render-model field add no measurable regression to ordinary scenes.
+The integrated isolated Chromium suite also passes: plain average/p95
+21.75/43.90 ms, 1140 reroutes 29.33/48.10 ms, 1200 previews 20.78/37.00 ms,
+open/first paint 283.5/75.3 ms, move dispatch/repaint 24.48/31.07 ms, zero
+comparison compiles, and 102.1 ms cold decode.

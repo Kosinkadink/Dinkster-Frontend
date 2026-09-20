@@ -468,6 +468,7 @@ export const WORKFLOW_SCHEMA = {
       properties: {
         id: { type: 'string', minLength: 1 },
         type: { type: 'string', minLength: 1 },
+        virtual: { const: true },
         values: { type: 'object' },
         controllers: {
           type: 'object',

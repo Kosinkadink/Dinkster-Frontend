@@ -966,6 +966,31 @@ describe('shared DocumentSession', () => {
     expect(session.revision).toBe(1) // confirmed 1 + pending 0
   })
 
+  it('synchronizes frontend virtual node data through the ordinary shared-session path', async () => {
+    const { session } = await makeShared('actorA')
+    expect(session.dispatch({
+      command: 'node.add',
+      params: {
+        graphId: 'g0',
+        type: 'dinkster.note',
+        virtual: true,
+        position: { x: 12, y: 34 },
+        values: { text: 'Shared note' },
+        title: 'Review',
+      },
+    }).ok).toBe(true)
+    await session.settle()
+    const added = Object.values(session.doc.graphs.g0!.nodes)
+      .find((candidate) => candidate.type === 'dinkster.note')
+    expect(added).toMatchObject({
+      type: 'dinkster.note',
+      virtual: true,
+      title: 'Review',
+      values: { text: 'Shared note' },
+    })
+    expect(session.doc.view.graphs.g0!.nodes[added!.id]?.position).toEqual({ x: 12, y: 34 })
+  })
+
   it('stamps its actorId on every invocation: minted ids are actor-scoped', async () => {
     const { session } = await makeShared('actorA')
     session.dispatch(addNode)
