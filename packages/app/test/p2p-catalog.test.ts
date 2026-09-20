@@ -25,7 +25,7 @@ describe('shipped message catalogs', () => {
   })
 
   it('uses base-language and English fallback', () => {
-    expect(Object.keys(p2pEnglish)).toHaveLength(111)
+    expect(Object.keys(p2pEnglish)).toHaveLength(112)
     setLocale('zh-CN')
     expect(t('p2p.title')).toBe('P2P \u4f20\u8f93')
     setLocale('fr')
@@ -35,7 +35,7 @@ describe('shipped message catalogs', () => {
 
 describe('shared P2P messages', () => {
   it('keeps the complete English P2P catalog', () => {
-    expect(Object.keys(p2pEnglish)).toHaveLength(111)
+    expect(Object.keys(p2pEnglish)).toHaveLength(112)
   })
   it('directs read-only users to an operator startup override without granting write access', () => {
     expect(english['p2p.readOnly']).toContain('--disable-p2p')
@@ -57,5 +57,14 @@ describe('shared P2P messages', () => {
     expect(english['p2p.capsHelp']).toContain('0 for unlimited')
     expect(english['p2p.panelDescription']).not.toMatch(/consent|opt-in/i)
     expect(english['p2p.sharingLegend']).toBe('Sharing controls')
+  })
+  it('joins Chinese sharing help without an ASCII space between sentences', () => {
+    setLocale('zh')
+    const help = t('p2p.sharingHelp', {
+      control: t('p2p.sharingHelpMixed'),
+      state: t('p2p.sharingHelpOn'),
+    })
+    expect(help).not.toContain('\u3002 ')
+    expect(help).toBe(`${chinese['p2p.sharingHelpMixed']}${chinese['p2p.sharingHelpOn']}`)
   })
 })

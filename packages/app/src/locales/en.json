@@ -1088,6 +1088,7 @@
   "p2p.seeding": "Background seeding",
   "p2p.seedingState": "Seeding",
   "p2p.sharing": "Peer-to-peer sharing",
+  "p2p.sharingHelp": "{control} {state}",
   "p2p.sharingHelpControl": "Controls peer downloads and background seeding together.",
   "p2p.sharingHelpOff": "Current seeding state: Off.",
   "p2p.sharingHelpMixed": "Peer downloads and background seeding do not match. Turning sharing on enables both.",

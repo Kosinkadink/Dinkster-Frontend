@@ -1088,6 +1088,7 @@
   "p2p.seeding": "后台做种",
   "p2p.seedingState": "做种中",
   "p2p.sharing": "点对点共享",
+  "p2p.sharingHelp": "{control}{state}",
   "p2p.sharingHelpControl": "\u540c\u65f6\u63a7\u5236\u70b9\u5bf9\u70b9\u4e0b\u8f7d\u548c\u540e\u53f0\u505a\u79cd\u3002",
   "p2p.sharingHelpOff": "\u5f53\u524d\u505a\u79cd\u72b6\u6001\uff1a\u5173\u95ed\u3002",
   "p2p.sharingHelpMixed": "\u70b9\u5bf9\u70b9\u4e0b\u8f7d\u548c\u540e\u53f0\u505a\u79cd\u8bbe\u7f6e\u4e0d\u4e00\u81f4\u3002\u5f00\u542f\u5171\u4eab\u5c06\u540c\u65f6\u5f00\u542f\u4e24\u8005\u3002",

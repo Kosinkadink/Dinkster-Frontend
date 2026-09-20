@@ -13,7 +13,7 @@ import { ProductCheckbox, type ProductCheckboxState } from './ProductControls.js
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
-import { useAppMessageGroup } from './locale.js'
+import { useAppMessage, useAppMessageGroup } from './locale.js'
 
 type P2PConnection = Pick<DinksterConnection, 'fetchRuntimeSettings' | 'updateRuntimeSetting' | 'fetchP2PStatus' | 'performP2PTransferAction'>
 type CapKey = 'internetUploadBytesPerSecond' | 'internetDownloadBytesPerSecond' | 'lanUploadBytesPerSecond' | 'lanDownloadBytesPerSecond'
@@ -54,6 +54,7 @@ const formatDuration = (seconds: number): string => {
 export function P2PPanel(props: { readonly connection: P2PConnection; readonly backendId?: string; readonly backendLabel?: string }) {
   const idPrefix = `p2p-${createUniqueId()}`
   const id = (name: string): string => `${idPrefix}-${name}`
+  const message = useAppMessage()
   const m = useAppMessageGroup('p2p')
   const [runtime, setRuntime] = createSignal<RuntimeSettings>()
   const [draft, setDraft] = createSignal<P2PSettings>()
@@ -339,7 +340,10 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
                   })}
                 />
               </ProductField>
-              <p class="p2p-help">{`${sharingState(saved()) === 'mixed' ? m().sharingHelpMixed : m().sharingHelpControl} ${saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}`}</p>
+              <p class="p2p-help">{message('p2p.sharingHelp', {
+                control: sharingState(saved()) === 'mixed' ? m().sharingHelpMixed : m().sharingHelpControl,
+                state: saved()?.seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff,
+              })}</p>
               <ProductNotice tone="info" class="p2p-upload-disclosure">{m().uploadDisclosure}</ProductNotice>
               <ProductField controlId={id('scope')} label={m().scope} layout="stack">
                 <ProductSelect
