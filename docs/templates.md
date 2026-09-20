@@ -13,7 +13,7 @@ Select a row and choose **Open template** to fetch its immutable body and load i
 Set **Template registry URL** in Settings to combine templates from a registry with the installed templates. The frontend consumes catalog version 1:
 
 - `GET /index/templates` - descriptors from each pack's latest release. Descriptors carry `pack`, `version`, workflow digest, family, models, and optional thumbnail metadata.
-- `GET /index/packs/{pack}/versions/{version}/templates/{id}` - digest-verified template body with the usual immutable rendition caching (quoted digest ETag, If-None-Match -> 304).
+- `GET /index/packs/{pack}/versions/{version}/templates/{id}` - template body verified against the descriptor's SHA-256 digest before it is opened.
 - `GET /index/packs/{pack}/versions/{version}/templates/{id}/thumbnail` - immutable thumbnail bytes.
 
 The latest successful descriptor list is cached for offline browsing. Opening still requires the immutable body to be reachable, and the body is rejected when its SHA-256 digest differs from the descriptor. Refreshing the gallery fetches the catalog again, so newly published templates appear without rebuilding the frontend.

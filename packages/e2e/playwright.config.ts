@@ -43,6 +43,7 @@ const BACKEND_SERIAL_SPECS = [
   'lora-conditioning-scheduling-live.spec.ts',
   'image-upload-byte-proof.spec.ts',
   'gallery-live.spec.ts',
+  'starter-templates-live.spec.ts',
   'collab-noodle-presence.spec.ts',
   'dynamic-combo-native-live.spec.ts',
   'save-video-dynamic-native.spec.ts',
