@@ -43,6 +43,12 @@ describe('published Desktop verification workflow', () => {
     ])
   })
 
+  it('keeps its safety contracts in fast CI without running the published installer', async () => {
+    const fast = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
+    expect(fast).toContain('test/published-verification.test.ts')
+    expect(fast).not.toMatch(/verify:installed|prepare:engine|verify-published-desktop\.ps1/)
+  })
+
   it('guards before checkout and routes each acquisition token exclusively', () => {
     expect(steps[0]?.name).toBe('Require dedicated private release credential')
     expect(steps[1]?.uses).toBe('actions/checkout@v4')
