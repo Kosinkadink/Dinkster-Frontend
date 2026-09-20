@@ -358,11 +358,19 @@ describe('fast pull-request and full validation workflows', () => {
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
     )
+    expect(hostedConfig).toContain(
+      "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
+    )
+    expect(hostedConfig).not.toContain("'--dev'")
     expect(auditConfig).toContain(
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
     expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(auditConfig).toContain(
+      "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
+    )
+    expect(auditConfig).not.toContain("'--dev'")
   })
 
   it('validates the exact desktop release commit before publication', () => {
