@@ -128,6 +128,9 @@ Only declared `/api/extension-assets/{pack}/{sha256:hex}/{entry}.js` URLs are
 loaded through the connection's same-origin proxy. The loader requires an
 immutable JavaScript response and verifies its SHA-256 before importing it.
 Bundles must be self-contained and export `frontendExtension.activate(context)`.
+An unknown or unimplemented contribution kind produces a warning and is omitted
+from the activation context. Supported sibling contributions in the same module
+continue through normal privilege, policy, and gate checks.
 
 Each connection/snapshot pair owns a child of the existing transactional host.
 The focused tab selects global shell contributions. Every visible pane resolves
