@@ -303,6 +303,24 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_NATIVE_PORT: '15412',
           DINKSTER_NATIVE_BACKEND: 'http://127.0.0.1:15412',
         })
+        const compatibilityInstall = steps.find(
+          (step) => step.name === 'Install hosted compatibility dependencies',
+        )!
+        expect(compatibilityInstall.run).toContain(
+          'uv export --project .ci/Dinkster --locked --package dinkster-inference-torch --extra torch',
+        )
+        expect(compatibilityInstall.run).toContain(
+          'uv pip install --python .ci/ComfyUI/venv/bin/python',
+        )
+        expect(compatibilityInstall.run).toContain(
+          '--index https://download.pytorch.org/whl/cpu',
+        )
+        expect(compatibilityInstall.run).toContain(
+          '--constraint "${RUNNER_TEMP}/dinkster-torch-constraints.txt"',
+        )
+        expect(compatibilityInstall.run).toContain(
+          'dinkster-kitchen dinkster-aimdo sentencepiece tokenizers',
+        )
       }
     }
     expect(appMain).toContain(

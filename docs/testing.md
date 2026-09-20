@@ -76,10 +76,12 @@ The heavy jobs retain the shared memory-only dependency identity action,
 clean checkouts without persisted credentials, counted-suite launcher and
 `scripts/ci-browser.sh` network isolation. The audit-assets browser starts the
 pinned Dinkster checkout and uses frontend/native ports 15376/15377. Full E2E
-uses frontend/ComfyUI/native ports 15410/15411/15412. Both run inside the
-isolated network. Base, hosted and audit Playwright servers explicitly enable
-the v1 compatibility probe required by route-mocked specs; production startup
-remains native-only. No standing development server is reused or stopped.
+uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
+compatibility dependencies into the pinned ComfyUI interpreter used by its
+full composition. Both run inside the isolated network. Base, hosted and audit
+Playwright servers explicitly enable the v1 compatibility probe required by
+route-mocked specs; production startup remains native-only. No standing
+development server is reused or stopped.
 
 Owners still run lint, typecheck, full unit/component suites, app build,
 fixture drift and relevant browser checks locally before landing. The fast
