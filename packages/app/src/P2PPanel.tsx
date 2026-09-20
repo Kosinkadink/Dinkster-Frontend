@@ -218,7 +218,7 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
     setNotice('')
     try {
       await props.connection.performP2PTransferAction(digest, action)
-      if (current !== generation || !enabled()) return
+      if (current !== generation) return
       const activity = await props.connection.fetchP2PStatus()
       if (current === generation) setStatus(activity)
     } catch (cause) {

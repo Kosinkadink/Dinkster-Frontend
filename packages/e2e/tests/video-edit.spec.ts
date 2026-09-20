@@ -613,10 +613,6 @@ test(liveTestTitle, async ({ page, request }, info) => {
   }
 
   await run()
-  const firstRunNotice = page.getByTestId('p2p-first-run-notice')
-  if (await firstRunNotice.isVisible()) {
-    await firstRunNotice.getByRole('button', { name: 'Dismiss notice' }).last().click()
-  }
   await page.getByTestId('views-switcher').click()
   await page.getByRole('menuitemradio', { name: 'App view' }).click()
   await page.getByRole('button', { name: 'Edit Native trim video' }).click()
