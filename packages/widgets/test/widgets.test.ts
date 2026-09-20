@@ -13,6 +13,7 @@ import {
   numericStepPrecision,
   registerCoreWidgets,
   rgbToHsv,
+  widgetRegistrationDoors,
 } from '../src/index.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}, dflt?: unknown): WidgetSpec => ({
@@ -23,7 +24,7 @@ const spec = (widgetType: string, options: Record<string, unknown> = {}, dflt?: 
 
 function registry() {
   const r = createWidgetRegistry()
-  registerCoreWidgets(r)
+  registerCoreWidgets(widgetRegistrationDoors(r))
   return r
 }
 
@@ -172,7 +173,7 @@ describe('registry', () => {
 
   it('rejects duplicate kind and view registration', () => {
     const r = registry()
-    expect(() => registerCoreWidgets(r)).toThrow(/already registered/)
+    expect(() => registerCoreWidgets(widgetRegistrationDoors(r))).toThrow(/already registered/)
   })
 
   it('registers, resolves, and removes DOM editors by widget type', () => {

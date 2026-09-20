@@ -201,7 +201,7 @@ import { PanelRegistry, type PanelDescriptor } from './panels.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
-import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY } from './settings.js'
+import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
@@ -2388,6 +2388,14 @@ export class AppState {
   readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
   private readonly extensionEditorIds = new Set<string>()
   readonly frontendDoors = {
+    widgetKind: (_id: string, kind: Parameters<typeof this.widgetRegistry.registerKind>[0]): (() => void) =>
+      this.widgetRegistry.registerKind(kind),
+    widgetView: (_id: string, view: Parameters<typeof this.widgetRegistry.registerView>[0]): (() => void) =>
+      this.widgetRegistry.registerView(view),
+    previewRenderer: (_id: string, renderer: Parameters<typeof this.widgetRegistry.registerPreviewRenderer>[0]): (() => void) =>
+      this.widgetRegistry.registerPreviewRenderer(renderer),
+    command: (id: string, command: Omit<AppCommand, 'id'>): (() => void) =>
+      this.commands.register(descriptorWithId(id, command)),
     editor: (id: string, kind: Omit<EditorKindDescriptor, 'id'> | ExtensionEditorKind): (() => void) =>
       'component' in kind
         ? this.editors.register(descriptorWithId(id, kind))
@@ -2413,7 +2421,7 @@ export class AppState {
     widgets: this.widgetRegistry,
     registerTextEditorExtension: (extension) => this.textEditorExtensionRegistry.register(extension),
     registerSetting: (setting) => this.settings.register(setting),
-    registerCommand: (command) => this.commands.register(command),
+    registerCommand: (command) => this.frontendDoors.command(command.id, command),
     registerKeybinding: (binding) => this.keybindings.register(binding),
     registerHostUi: (id, slot, provider, order, title) => this.hostUiContributions.register(id, slot, provider, order, title),
     invalidateHostUi: (id) => this.hostUiContributions.invalidate(id),
@@ -2862,7 +2870,7 @@ export class AppState {
     })
     const activeTabNow = () => this.activeTab()
     const register = (id: string, labelKey: string, combo: string, run: () => void, enabled?: () => boolean) => {
-      this.commands.register({ id, get label() { return t(labelKey) }, run, ...(enabled ? { enabled } : {}) })
+      this.frontendDoors.command(id, { get label() { return t(labelKey) }, run, ...(enabled ? { enabled } : {}) })
       this.keybindings.register({ command: id, combo })
     }
     register('workflow.queue', 'command.workflow.queue', 'Ctrl+Enter', () => { const tab = activeTabNow(); if (tab) void this.queue(tab) })
@@ -2873,13 +2881,11 @@ export class AppState {
     register('workflow.open', 'command.workflow.open', 'Ctrl+O', () => {
       setPanelOpen(this.panels, this.dock, 'library', 'left', true)
     })
-    this.commands.register({
-      id: 'workflow.importFile',
+    this.frontendDoors.command('workflow.importFile', {
       get label() { return t('command.workflow.importFile') },
       run: () => this.openWorkflowFilePicker(),
     })
-    this.commands.register({
-      id: 'workflow.export',
+    this.frontendDoors.command('workflow.export', {
       get label() { return t('command.workflow.export') },
       run: () => { const tab = activeTabNow(); if (tab) this.exportWorkflow(tab.id) },
       enabled: () => {
@@ -2921,15 +2927,13 @@ export class AppState {
       const schema = this.registryForTab(target.tab)?.resolve(target.type)
       return schema?.hasDocs === true && schema.pack !== undefined && this.backendForTab(target.tab).protocol === 'dinkster'
     })
-    this.commands.register({
-      id: 'subgraph.createEmpty',
+    this.frontendDoors.command('subgraph.createEmpty', {
       get label() { return t('command.subgraph.createEmpty') },
       run: () => this.canvasBridge.get()?.createEmptySubgraph?.(),
       enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createEmptySubgraph !== undefined,
     })
     for (const kind of ['map', 'fold', 'while'] as const) {
-      this.commands.register({
-        id: `region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`,
+      this.frontendDoors.command(`region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`, {
         get label() { return t(`command.region.create.${kind}`) },
         run: () => this.canvasBridge.get()?.createRegion?.(kind),
         enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createRegion !== undefined,
@@ -2949,8 +2953,7 @@ export class AppState {
       () => this.canvasBridge.get()?.flattenSubgraph?.(),
       () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.canFlattenSubgraph?.() === true,
     )
-    this.commands.register({
-      id: 'subgraph.manageDefinitions',
+    this.frontendDoors.command('subgraph.manageDefinitions', {
       get label() { return t('command.subgraph.manageDefinitions') },
       run: () => this.modalPanel.set('subgraph-definitions'),
       enabled: () => activeTabNow() !== undefined && activeTabNow()?.execution === undefined,
@@ -2960,13 +2963,11 @@ export class AppState {
     // The bridge intentionally falls back to fitting the whole scene when
     // there is no selection, so selection emptiness does not disable this.
     register('view.fitSelection', 'command.view.fitSelection', '.', () => this.canvasBridge.get()?.fitSelection(), () => this.canvasBridge.get() !== undefined)
-    this.commands.register({
-      id: 'layout.customize',
+    this.frontendDoors.command('layout.customize', {
       get label() { return t('command.layout.customize') },
       run: () => this.modalPanel.set('customize-layout'),
     })
-    this.commands.register({
-      id: 'backend.open',
+    this.frontendDoors.command('backend.open', {
       get label() { return t('command.backend.open') },
       run: () => { setPanelOpen(this.panels, this.dock, 'backends', 'left', true) },
     })
@@ -2976,7 +2977,7 @@ export class AppState {
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
-    registerCoreWidgets(this.widgetRegistry)
+    registerCoreWidgets(this.frontendDoors)
     registerCoreWidgetEditors(this.widgetRegistry)
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
     for (const contribution of coreMenuContributions()) this.menuRegistry.register(contribution)

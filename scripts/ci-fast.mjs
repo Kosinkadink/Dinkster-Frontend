@@ -23,6 +23,7 @@ for (const args of [
     'scripts/ci-fast.mjs',
     'packages/desktop/test/ci-workflow.test.ts',
   ],
+  ['check:extension-literals'],
   ['check:ui-strings'],
   ['typecheck'],
   [
@@ -45,9 +46,18 @@ for (const args of [
     'test/published-verification.test.ts',
   ],
   [
+    '--filter',
+    '@dinkster/app',
+    'exec',
+    'vitest',
+    'run',
+    'test/extension-dogfooding.test.ts',
+  ],
+  [
     'exec',
     'node',
     '--test',
+    'scripts/check-extension-literals.test.mjs',
     'scripts/check-ui-strings.test.mjs',
     'scripts/check-path-case.test.mjs',
   ],

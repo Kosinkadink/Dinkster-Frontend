@@ -49,6 +49,10 @@ const hostedConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.hosted.config.ts'),
   'utf8',
 )
+const extensionContractConfig = await readFile(
+  resolve(root, 'packages/e2e/playwright.extension-contract.config.ts'),
+  'utf8',
+)
 const baseConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.config.ts'),
   'utf8',
@@ -93,6 +97,7 @@ describe('fast pull-request and full validation workflows', () => {
       'test/dinkster-inline-value.test.ts',
       'test/ci-workflow.test.ts',
       'test/published-verification.test.ts',
+      'test/extension-dogfooding.test.ts',
     ])
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
@@ -321,6 +326,19 @@ describe('fast pull-request and full validation workflows', () => {
         expect(compatibilityInstall.run).toContain(
           'dinkster-kitchen dinkster-aimdo sentencepiece tokenizers',
         )
+        const extensionProof = steps.find(
+          (step) =>
+            step.name === 'Prove the ordinary third-party pack contract',
+        )!
+        expect(extensionProof.if).toBe("matrix.name == 'backend serial 1/2'")
+        expect(extensionProof.run).toContain(
+          'playwright.extension-contract.config.ts',
+        )
+        expect(extensionProof.env).toEqual({
+          DINKSTER_E2E_DINKSTER_ROOT: '${{ github.workspace }}/.ci/Dinkster',
+          DINKSTER_E2E_PORT: '15420',
+          DINKSTER_E2E_NATIVE_PORT: '15421',
+        })
       }
     }
     expect(appMain).toContain(
@@ -328,6 +346,10 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(extensionContractConfig).toContain("'--no-default-packs'")
+    expect(extensionContractConfig).toContain(
+      "'packages/dinkster-nodes-dev/extension-contract-pack.toml'",
+    )
     expect(auditConfig).toContain(
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
     )

@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
-  DINKSTER_REF: a44f1acba99e1504af91208a8d9ce8c2ea162847
+  DINKSTER_REF: fcb4383c8ff17dcf2779640a9c7f8c452e602092
 
 jobs:
   validation-plan:
@@ -253,6 +253,13 @@ jobs:
           DINKSTER_E2E_NATIVE_PORT: "15412"
           DINKSTER_E2E_USE_NATIVE: "1"
           DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15412
+      - name: Prove the ordinary third-party pack contract
+        if: matrix.name == 'backend serial 1/2'
+        run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.extension-contract.config.ts'
+        env:
+          DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
+          DINKSTER_E2E_PORT: "15420"
+          DINKSTER_E2E_NATIVE_PORT: "15421"
 
   e2e:
     if: always() && needs.validation-plan.outputs.run-heavy == 'true'

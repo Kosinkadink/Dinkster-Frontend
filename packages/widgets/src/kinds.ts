@@ -11,6 +11,7 @@ import type {
   CompactState,
   Diagnostic,
   Json,
+  PackActivationApi,
   PreviewRenderer,
   SceneBuilder,
   WidgetKind,
@@ -823,33 +824,27 @@ export const model3dPreviewRenderer = mediaPreviewRenderer('core.model3d-preview
 // Registration (the only wiring; no private hooks)
 // ---------------------------------------------------------------------------
 
-export function registerCoreWidgets(registry: WidgetRegistry): void {
-  registry.registerKind(intKind as WidgetKind)
-  registry.registerKind(floatKind as WidgetKind)
-  registry.registerKind(stringKind as WidgetKind)
-  registry.registerKind(booleanKind as WidgetKind)
-  registry.registerKind(comboKind as WidgetKind)
-  registry.registerKind(multiComboKind as WidgetKind)
-  registry.registerKind(colorKind as WidgetKind)
-  registry.registerKind(curveKind as WidgetKind)
-  registry.registerKind(compositorKind as WidgetKind)
-  registry.registerKind(assetKind as WidgetKind)
-  registry.registerKind(saveTargetKind as WidgetKind)
-  registry.registerKind(videoEditKind as WidgetKind)
-  registry.registerView(numberView as WidgetView)
-  registry.registerView(floatNumberView as WidgetView)
-  registry.registerView(lineView as WidgetView)
-  registry.registerView(textView as WidgetView)
-  registry.registerView(toggleView as WidgetView)
-  registry.registerView(selectView as WidgetView)
-  registry.registerView(multiSelectView as WidgetView)
-  registry.registerView(colorView as WidgetView)
-  registry.registerView(curveView as WidgetView)
-  registry.registerView(compositorView as WidgetView)
-  registry.registerView(assetView as WidgetView)
-  registry.registerView(saveTargetView as WidgetView)
-  registry.registerView(videoEditView as WidgetView)
-  registry.registerPreviewRenderer(imagePreviewRenderer)
-  registry.registerPreviewRenderer(videoPreviewRenderer)
-  registry.registerPreviewRenderer(model3dPreviewRenderer)
+export type WidgetRegistrationDoors = Pick<
+  PackActivationApi,
+  'widgetKind' | 'widgetView' | 'previewRenderer'
+>
+
+export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistrationDoors => ({
+  widgetKind: (_id, kind) => registry.registerKind(kind),
+  widgetView: (_id, view) => registry.registerView(view),
+  previewRenderer: (_id, renderer) => registry.registerPreviewRenderer(renderer),
+})
+
+export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
+  for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
+    colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind]) {
+    doors.widgetKind(kind.type, kind as WidgetKind)
+  }
+  for (const view of [numberView, floatNumberView, lineView, textView, toggleView, selectView,
+    multiSelectView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView]) {
+    doors.widgetView(view.id, view as WidgetView)
+  }
+  for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {
+    doors.previewRenderer(renderer.id, renderer)
+  }
 }

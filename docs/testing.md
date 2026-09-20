@@ -9,9 +9,13 @@ After `pnpm install --frozen-lockfile`, reproduce it with:
 pnpm ci:fast
 ```
 
-This command runs the existing `check-ui-strings` and `typecheck` scripts
-(the latter also runs `check-path-case`) and a fixed unit subset. Its
-Prettier check is limited to `scripts/ci-fast.mjs` and
+This command runs `check-extension-literals`, `check-ui-strings`, and
+`typecheck` (the latter also runs `check-path-case`) and a fixed unit subset.
+The extension check pins every intentional backend node-id literal and widget
+type comparison to an exact source location, owning issue, and non-increasing
+ceiling. The committed ceilings are 20 node-id literals and 79 widget-type
+comparisons; new and stale entries fail the check. The Prettier check is limited
+to `scripts/ci-fast.mjs` and
 `packages/desktop/test/ci-workflow.test.ts`; it does not impose formatting
 on existing application files. There is no repository-wide formatter or
 linter configuration.
@@ -29,8 +33,10 @@ The subset uses synthetic inputs and checked-in fixtures:
 - Desktop `published-verification.test.ts`: read-only release verification
   contracts, without installing or launching a published application. Its
   existing Windows-only safety cases stay platform-gated.
-- `scripts/check-ui-strings.test.mjs` and `scripts/check-path-case.test.mjs`:
-  regression tests for source checks.
+- App `extension-dogfooding.test.ts`: built-in widget, command, and editor
+  registrations use the same public doors available to packs.
+- `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
+  and `scripts/check-path-case.test.mjs`: regression tests for source checks.
 
 Selection does not depend on changed files, labels, model availability or a
 running service. The job defaults to `[self-hosted, linux, x64]`; repository
@@ -66,7 +72,7 @@ and dependency pins:
 | --- | --- |
 | `fast` | Push-only formatting, typecheck, UI-string and contract subset |
 | `ci` | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite |
-| `e2e-suite` | Two representative lanes on pushes; four parallel-safe shards, two backend-serial shards and the performance browser job for durable runs |
+| `e2e-suite` | Two representative lanes on pushes; four parallel-safe shards, two backend-serial shards and the performance browser job for durable runs. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
 | `e2e` | Always evaluates the aggregate and requires every E2E matrix leg to succeed |
 
 `release-desktop.yml` calls full validation before its release job, so the
@@ -78,7 +84,12 @@ clean checkouts without persisted credentials, counted-suite launcher and
 pinned Dinkster checkout and uses frontend/native ports 15376/15377. Full E2E
 uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
 compatibility dependencies into the pinned ComfyUI interpreter used by its
-full composition. Both run inside the isolated network. Base, hosted and audit
+full composition. Its contract proof separately starts Dinkster with
+`--no-default-packs --pack packages/dinkster-nodes-dev/extension-contract-pack.toml`
+on ports 15420/15421, activates the fixture pack's immutable frontend module,
+executes its custom value graph, and observes its typed route and event in
+host-owned UI.
+Both browser modes run inside the isolated network. Base, hosted and audit
 Playwright servers explicitly enable the v1 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing
 development server is reused or stopped.
