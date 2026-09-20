@@ -298,6 +298,23 @@ describe('addBackend / removeBackend', () => {
     nativeApp.dispose()
   })
 
+  it('preserves the registry when locale changes have no pack catalogs', async () => {
+    const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
+    if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
+    const registry = buildDinksterRegistry(backend.id, nodesPayload)
+    vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(registry)
+
+    await app.refreshBackendSchemas(backend)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const invalidateRemoteChoices = vi.spyOn(backend, 'invalidateRemoteChoices')
+    setLocale('de-DE')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(backend.registry.get()).toBe(registry)
+    expect(invalidateRemoteChoices).not.toHaveBeenCalled()
+    setLocale('en')
+  })
+
   it('loads workers only for placement-capable schemas and rejects stale catalog responses', async () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')

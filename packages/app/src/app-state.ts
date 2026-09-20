@@ -6948,6 +6948,7 @@ export class AppState {
       if (catalogs.length > 0) catalogsByPack.set(packId, catalogs)
     }))
     if (!current() || activeLocale.get().tag !== locale) return
+    if (catalogsByPack.size === 0) return
     backend.registry.set(this.layerExtraSchemas(overlayPackLocales(base, catalogsByPack)))
     backend.invalidateRemoteChoices()
   }
