@@ -31,6 +31,9 @@ The workspace test command runs one package at a time to avoid competing
 worker pools starving child-process tests. Each package keeps its own file
 parallelism and test deadlines.
 
+See [Testing](docs/testing.md) for the fast PR subset, full-validation jobs
+and branch-ref dispatch commands.
+
 ### Persistent user-facing test session
 
 When leaving the frontend running for testing from another machine, bind the
