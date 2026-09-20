@@ -103,6 +103,7 @@
     "text:() const [mounts, setMounts] = createSignal",
     "text:() const [sourceFailures, setSourceFailures] = createSignal",
     "text:([]) const [discoveryError, setDiscoveryError] = createSignal",
+    "text:= 1024 && unit",
     "text:if (state.kind === 'error') return",
     "text:if (state.kind === 'no-compatible') return",
     "text:if (state.kind === 'no-match') return",
