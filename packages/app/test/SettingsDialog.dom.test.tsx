@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
+import type { PackSettings } from '@dinkster/client'
 import { registerCatalog, setLocale, t } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../src/locale.js'
@@ -468,6 +469,58 @@ describe('SettingsDialog search', () => {
     expect(root.querySelector('[data-setting-id]')?.textContent).toContain('Grid guide')
     expect(document.activeElement).toBe(root.querySelector('[data-setting-id="shell.gridGuide"] [role="checkbox"]'))
     expect(consumed).toBe(1)
+    unmount()
+  })
+
+  it('discovers pack categories and saves complete declared settings objects', async () => {
+    const packSettings: PackSettings = {
+      packId: 'render.pack', displayName: 'Render Pack',
+      schema: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          enabled: { type: 'boolean', title: 'Enable enhancement', description: 'Use the pack enhancement.', default: true },
+          quality: { type: 'integer', title: 'Quality level', default: 2, minimum: 1, maximum: 5 },
+        },
+        required: ['enabled', 'quality'],
+      },
+      values: { enabled: true, quality: 2 },
+    }
+    const fetchPackSettings = vi.fn(async () => packSettings)
+    const updatePackSettings = vi.fn(async (_packId: string, values: Readonly<Record<string, string | number | boolean>>) => ({ ...packSettings, values }))
+    const settings = isolatedSettings()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} packSettings={{ client: { fetchPackSettings, updatePackSettings }, packs: () => [{ id: 'render.pack', displayName: 'Render Pack' }] }} />, root)
+
+    root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Render Pack"]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('[data-pack-id="render.pack"]')).not.toBeNull())
+    const enabled = root.querySelector<HTMLButtonElement>('[data-pack-setting-id="enabled"] [role="checkbox"]')!
+    expect(enabled.getAttribute('aria-describedby')).toBe('pack-setting-render.pack-enabled-description')
+    enabled.click()
+    await vi.waitFor(() => expect(updatePackSettings).toHaveBeenCalledWith('render.pack', { enabled: false, quality: 2 }))
+    const quality = root.querySelector<HTMLInputElement>('[data-pack-setting-id="quality"] [role="spinbutton"]')!
+    quality.value = '4'
+    quality.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    quality.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(updatePackSettings).toHaveBeenLastCalledWith('render.pack', { enabled: false, quality: 4 }))
+    expect(fetchPackSettings).toHaveBeenCalledWith('render.pack')
+    unmount()
+  })
+
+  it('shows a pack settings load failure without rendering controls', async () => {
+    const settings = isolatedSettings()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} packSettings={{
+      client: {
+        fetchPackSettings: async () => { throw new Error('pack is unavailable') },
+        updatePackSettings: async () => { throw new Error('unexpected update') },
+      },
+      packs: () => [{ id: 'broken', displayName: 'Broken Pack' }],
+    }} />, root)
+    root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Broken Pack"]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toBe('pack is unavailable'))
+    expect(root.querySelector('[data-pack-setting-id]')).toBeNull()
     unmount()
   })
 })

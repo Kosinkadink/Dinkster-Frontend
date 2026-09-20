@@ -72,4 +72,10 @@ Universal search includes the **Open Backends** command as a low-cost route to
 the panel. Backend runtime categories are intentionally not indexed as local
 application settings because they are discovered per server.
 
+Packs may declare application settings in their manifests. Packs with declared
+settings appear by display name in the application **Settings** dialog. The
+backend supplies each field's label, description, type, constraints, and
+effective value; edits are validated and stored by that backend. These pack
+settings are separate from the per-backend runtime controls described above.
+
 The wire contract is jointly owned with `Dinkster/docs/settings-api.md`.

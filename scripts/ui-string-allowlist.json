@@ -720,8 +720,11 @@
   ],
   "SettingsDialog.tsx": [
     "text:() const [capture, setCapture] = createSignal",
+    "text:() const [error, setError] = createSignal",
+    "text:, ): Promise",
     "text:capture()?.command === command.id ? capture()?.pending || message('settingsDialog.keybinding.pressKeys') : combo() ?? message('settingsDialog.keybinding.unbound') const ids = productFieldIds(controlId) return",
-    "text:props.settings.categoryOf(d))) const [searchCategory, setSearchCategory] = createSignal"
+    "text:props.settings.categoryOf(d))) const [searchCategory, setSearchCategory] = createSignal",
+    "text:updatePackSettings( packId: string, values: Readonly"
   ],
   "ShellChrome.tsx": [
     "text:('.dock-zone-actions') const actionGap = actions === null ? 0 : Number.parseFloat(getComputedStyle(actions).columnGap) || 0 const overflowWidth = overflowRoot !== undefined && root.contains(overflowRoot) ? overflowRoot.getBoundingClientRect().width + actionGap : 0 const widthWithoutOverflow = tablist.clientWidth + overflowWidth const allFloorsWidth = count * floor + Math.max(0, count - 1) * gap const visibleCount = allFloorsWidth",

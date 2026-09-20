@@ -772,6 +772,8 @@ export interface PackInfo {
   readonly blueprints?: readonly PackBlueprintDescriptor[]
   /** Wire-44 immutable pack locale catalogs: canonical locale tag -> exact content digest. */
   readonly locales?: Readonly<Record<string, string>>
+  /** Pack declares a validated settings schema available from the pack settings endpoint. */
+  readonly settings?: true
 }
 
 /** Descriptor for a pack's chip icon; bytes are fetched lazily by digest. */
