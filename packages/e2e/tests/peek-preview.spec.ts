@@ -67,6 +67,11 @@ async function openGradientDoc(page: Page): Promise<void> {
   })
   await selectProductOption(page, page.getByTestId('tab-target'), NATIVE_BACKEND)
   await expect.poll(() => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()
+    return tab === undefined ? undefined : app.backendForTab(tab).workerCatalog.get().status
+  })).toBe('ready')
+  await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store && tab.store.doc.lineage === 'peek-preview-e2e'
   })).toBe(true)
