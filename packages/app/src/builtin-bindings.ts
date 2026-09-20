@@ -25,3 +25,10 @@ export const builtinEditorBindings: readonly EditorBinding[] = [
   { id: 'builtin.editor-role.audio-envelope', editor: CURVE_EDITOR_KIND, match: { editorRole: 'audio-envelope' }, priority: 100 },
   { id: 'builtin.editor-role.glsl', editor: GLSL_EDITOR_KIND, match: { editorRole: 'glsl' }, priority: 100 },
 ]
+
+export function builtinEditorRoles(editor: string): readonly string[] {
+  return builtinEditorBindings.flatMap((binding) =>
+    binding.editor === editor && binding.match.editorRole !== undefined
+      ? [binding.match.editorRole]
+      : [])
+}
