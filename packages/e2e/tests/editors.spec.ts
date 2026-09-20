@@ -30,7 +30,42 @@ test.beforeEach(async ({ page }) => {
     schemaVersion: 1,
     epoch: 1,
     dinkster: { version: 'editor-role-e2e', schemaWire: 1 },
-    nodes: {},
+    packs: { test: { displayName: 'Test' } },
+    nodes: {
+      'synthetic.curve': {
+        schemaVersion: 1,
+        nodeType: 'synthetic.curve',
+        displayName: 'Synthetic Curve',
+        category: 'test',
+        pack: 'test',
+        signature: 'editor-role-e2e-curve',
+        editorRole: 'curve',
+        interface: [
+          {
+            role: 'input',
+            id: 'curve',
+            required: true,
+            type: { kind: 'concrete', types: ['dinkster.curve'] },
+            widget: { type: 'CURVE' },
+            default: {
+              interpolation: 'linear',
+              points: [
+                { position: 0, value: 0 },
+                { position: 1, value: 1 },
+              ],
+            },
+          },
+          {
+            role: 'input',
+            id: 'enabled',
+            required: true,
+            type: { kind: 'concrete', types: ['core.boolean'] },
+            widget: { type: 'BOOLEAN', labelOn: 'On', labelOff: 'Off' },
+            default: false,
+          },
+        ],
+      },
+    },
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
@@ -112,42 +147,6 @@ test('unknown editor kind shows the loud missing-editor fallback, not blank spac
 test('a synthetic node opens its editor from the schema role', async ({ page }) => {
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    app.registerSchemas([
-      {
-        type: 'synthetic.curve',
-        displayName: 'Synthetic Curve',
-        category: 'test',
-        source: 'v3',
-        isOutputNode: false,
-        editorRole: 'curve',
-        items: [
-          {
-            kind: 'input',
-            id: 'curve',
-            type: { kind: 'concrete', name: 'dinkster.curve' },
-            optional: false,
-            widget: {
-              widgetType: 'CURVE',
-              options: {},
-              default: {
-                interpolation: 'linear',
-                points: [
-                  { position: 0, value: 0 },
-                  { position: 1, value: 1 }
-                ]
-              }
-            }
-          },
-          {
-            kind: 'input',
-            id: 'enabled',
-            type: { kind: 'concrete', name: 'core.boolean' },
-            optional: false,
-            widget: { widgetType: 'BOOLEAN', options: {}, default: false }
-          }
-        ]
-      }
-    ])
     app.openDocument(
       {
         format: 'dinkster-workflow',
