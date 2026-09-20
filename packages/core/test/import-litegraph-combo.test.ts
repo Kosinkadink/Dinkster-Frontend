@@ -34,6 +34,7 @@ const cases: { name: string; value: Json; options: Json[]; expected: Json; widge
   { name: 'canonical structured value', value: 'dinkster.euler', options: [{ value: 'dinkster.euler', label: 'euler' }], expected: 'dinkster.euler' },
   { name: 'ambiguous display label', value: 'euler', options: [{ value: 'dinkster.euler', label: 'euler' }, { value: 'other.euler', label: 'euler' }], expected: 'euler' },
   { name: 'canonical value before display label', value: 'normal', options: [{ value: 'dinkster.normal', label: 'normal' }, { value: 'normal', label: 'Normal' }], expected: 'normal' },
+  { name: 'legacy tuple display label', value: 'euler', options: [['dinkster.euler', 'euler']], expected: 'euler' },
   { name: 'no static choices', value: 8, options: [], expected: 8 },
   { name: 'boolean stays boolean', value: true, options: ['true'], expected: true },
   { name: 'string stays string', value: '08', options: ['8'], expected: '08' },

@@ -28,7 +28,7 @@ that exactly matches one unique structured option label is stored as that
 option's canonical value; an already canonical value still takes precedence.
 Ambiguous labels, padded spellings, and unmatched values are not coerced, so
 invalid choices remain available for normal validation. Normalized values
-survive native save/reopen.
+survive native save/reopen. Legacy tuple display labels remain unchanged.
 
 Replacement rules can map ordinary inputs and outputs, copy one top-level
 wire-15 Autogrow family to a differently named target family, or address an

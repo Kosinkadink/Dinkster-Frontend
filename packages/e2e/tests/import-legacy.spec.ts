@@ -642,6 +642,40 @@ test('audit SD1.5 workflow import preserves canonical combos without false error
     return backend?.registry.get() !== undefined
   })
 
+  const nativeCombo = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')!
+    const failures = (app.openDocument as unknown as (...args: unknown[]) => readonly unknown[])(
+      {
+        version: 0.4,
+        nodes: [{
+          id: 1,
+          type: 'dinkster.ksampler',
+          widgets_values: {
+            seed: 91,
+            steps: 20,
+            cfg: 8,
+            sampler_name: 'euler',
+            scheduler: 'normal',
+            denoise: 1,
+          },
+        }],
+        links: [],
+      },
+      'Native combo import guard',
+      backend,
+    )
+    const tab = app.activeTab()!
+    const graph = tab.store.doc.graphs[tab.store.doc.root]!
+    return { failures, values: graph.nodes['n1']?.values }
+  })
+
+  expect(nativeCombo.failures).toEqual([])
+  expect(nativeCombo.values).toMatchObject({
+    sampler_name: 'dinkster.euler',
+    scheduler: 'dinkster.normal',
+  })
+
   const imported = await page.evaluate((workflow) => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')!
