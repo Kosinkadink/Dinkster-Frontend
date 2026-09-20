@@ -1,6 +1,6 @@
 # Dinkster Desktop
 
-Dinkster Desktop is the Windows host for the existing Dinkster application. Its
+Dinkster Desktop is the unreleased Windows host for the existing Dinkster application. Its
 Electron window uses `contextIsolation`, renderer sandboxing, and no Node.js
 integration. Renderer permission requests are denied by default. A narrow
 preload reports local-engine setup state; backend and frontend requests stay
@@ -8,21 +8,18 @@ on loopback.
 
 ## Install and platform support
 
-Releases are private in [Kosinkadink/Dinkster-Frontend](https://github.com/Kosinkadink/Dinkster-Frontend/releases).
-Only invited repository readers can download them. There is no public download
-site or automatic production update feed.
+Dinkster Desktop has not been released. There is no installer download,
+public download site, or automatic production update feed.
 
 | Platform | Installation path | Support boundary |
 | --- | --- | --- |
-| Windows x64 | Download `Dinkster-Desktop-<version>-Setup.exe` and `SHA256SUMS` from the same private release; verify the hash, then run the installer. | Unsigned NSIS Desktop installer. First launch needs internet and several GB of disk space for Python and locked dependencies. Models are installed separately. |
+| Windows x64 | No released installer; use the [browser setup](#browser-setup-on-windows-linux-and-macos) or source launcher below. | The unreleased NSIS Desktop installer is unsigned. Source setup needs internet and several GB of disk space for Python and locked dependencies. Models are installed separately. |
 | Linux x64 | [Browser setup](#browser-setup-on-windows-linux-and-macos) with a separately installed backend, or the source launcher below. | No Linux Desktop installer is produced; source setup requires developer tools. |
 | macOS | [Browser setup](#browser-setup-on-windows-linux-and-macos) with a separately installed compatible backend. | No macOS Desktop installer or bundled uv platform exists. `start-dinkster.sh` does not support macOS. Backend/model support depends on the backend's documented platform limits. |
 
-Verify the Windows installer in PowerShell with
-`Get-FileHash .\Dinkster-Desktop-<version>-Setup.exe -Algorithm SHA256`; compare
-the full digest with `SHA256SUMS`. Launch **Dinkster Desktop** after installation.
-The first launch prepares a fresh engine environment; subsequent launches reuse
-it. A failed setup appears in the app with diagnostic details and a retry action.
+Source and development builds prepare a fresh engine environment on first
+launch; subsequent launches reuse it. A failed setup appears in the app with
+diagnostic details and a retry action.
 First-launch setup chrome follows the persisted application language while
 accelerator names, progress details, and errors remain exact host-provided facts.
 Do not bypass a checksum mismatch. Uninstall through Windows Installed apps;
@@ -331,7 +328,7 @@ an existing version.
 
 The committed `packages/desktop/scripts/published-desktop.json` pins the
 published installer bytes and original backend revision. A separate checkout
-is fixed to the [published frontend source](https://github.com/Kosinkadink/Dinkster-Frontend/commit/d4d3802d4ef196b9278c634c79d15f99d36b3d9b).
+is fixed to the published frontend source revision.
 Its lockfile, backend/Aimdo pin, native-profile helper, installed harness and
 wire parser are used together; later main changes cannot silently replace them.
 All three SHA256/size checks and the existing
@@ -420,8 +417,7 @@ Install and start a compatible backend using the
 Keep it on loopback and note its port. The examples below use backend port
 15449 and browser port 15448; choose unused ports, not an existing service's.
 Backend acceleration and model support follow that guide, not the frontend's OS.
-Linux and macOS Desktop installers remain tracked in the
-[installation issue](https://github.com/Kosinkadink/Dinkster/issues/1244).
+No Desktop installer has been released for Windows, Linux, or macOS.
 
 Install Git, Node.js 22 and pnpm 10.31.0. With Node's Corepack available,
 `corepack enable` enables the pnpm shim; the repository's `packageManager`
