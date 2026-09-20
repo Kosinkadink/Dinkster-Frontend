@@ -11,7 +11,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validation:
+    if: github.repository == 'Kosinkadink/Dinkster-Frontend' && github.event.repository.private == true && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/full-validation.yml
+    secrets: inherit
+
   release:
+    needs: validation
     if: github.repository == 'Kosinkadink/Dinkster-Frontend' && github.event.repository.private == true && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 90
