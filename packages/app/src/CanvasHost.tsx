@@ -4186,14 +4186,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         for (const row of node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
           if (companionInputs.get(node.id)?.has(row.valueKey)) continue
+          const kind = widgetRegistry().kind(row.spec.widgetType)
+          if (!kind) {
+            out.push(diag('warning', 'schema', 'widget.kindUnavailable', `${node.id}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, {
+              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
+            }))
+            mark(node.id, row.valueKey)
+            continue
+          }
           // JSON cannot store undefined, so undefined means "not stored":
           // the schema default applies and is the schema author's problem,
           // not the document's. An explicit null IS stored (ASSET and
           // SAVE_TARGET use it as "no value") and must reach the validator.
           const value = node.node.values[row.valueKey]
           if (value === undefined) continue
-          const kind = widgetRegistry().kind(row.spec.widgetType)
-          if (!kind) continue
           const where = `${node.id}.${row.valueKey}`
           if (row.spec.widgetType === 'ASSET' && typeof value === 'string') {
             out.push(unresolvedAssetImportDiagnostic({
@@ -4690,7 +4696,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(valueType === undefined ? {} : { valueType }),
       })) return
       const mergeableTypes = registry()?.mergeableTypes
-      const widgetView = widgetRegistry().viewsFor(spec.widgetType).find((view) => view.id === hit.row.viewId)
+      const widgetKind = widgetRegistry().kind(spec.widgetType)
+      const widgetView = widgetKind === undefined
+        ? undefined
+        : widgetRegistry().viewsFor(spec.widgetType).find((view) => view.id === hit.row.viewId)
       const widgetEditorSize = widgetView?.editorUi === undefined ? undefined : widgetEditorSizing(widgetView, spec)
       // Selector rows (DynamicCombo) carry their value on the row; everything
       // else persists under the row's value key.
@@ -4786,21 +4795,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),
           ...(hit.row.selector !== undefined ? { selector: hit.row.selector } : {}),
         },
-        spec,
+        spec: widgetKind === undefined ? undefined : spec,
         declaredType: hit.row.type,
         ...(hit.row.sourceFilename !== undefined ? { sourceFilename: hit.row.sourceFilename } : {}),
         // Captured at open time like declaredType: the merge arm gates on
         // the OWNER backend's advertised batch-merge providers.
         ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
         ...(inputFamilyMembers === undefined ? {} : { inputFamilyMembers }),
-        multiline: hit.row.viewId === 'core.text',
+        multiline: widgetKind === undefined || hit.row.viewId === 'core.text',
         rect: {
           x: hit.x,
           y: hit.y,
           width: hit.width,
           height: hit.height,
         },
-        initial: value,
+        initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(descriptors !== undefined ? { outputDescriptors: {
           spec: descriptors,
           asset: outputDescriptorAssetOf(descriptors, descriptorValues),

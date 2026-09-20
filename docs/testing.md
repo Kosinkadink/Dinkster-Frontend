@@ -44,22 +44,29 @@ hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, on manual
 dispatch, and when called by the desktop release workflow. The `on.schedule`
 cron list in that file is the single schedule definition; change its first
 cron line to change the two-hour cadence. Scheduled runs skip the heavy jobs
-when the latest successful main run already validated the same commit. Push
-runs cancel superseded push runs, while scheduled and called runs use a
-separate non-cancelling concurrency group. To test an unmerged branch that
-contains the workflow:
+when the latest successful durable main run already validated the same commit;
+reduced push runs do not satisfy that check. Push runs cancel superseded push
+runs, while scheduled and called runs use a separate non-cancelling concurrency
+group. To test an unmerged branch that contains the workflow:
 
 ```bash
 gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <branch>
 ```
 
-The dispatch ref selects both the workflow and frontend checkout. The jobs
-retain their existing assertions and dependency pins:
+The dispatch ref selects both the workflow and frontend checkout. Main pushes
+run the fast formatting, type, UI-string and contract subset plus parallel-safe
+shard 4/4 and backend-serial shard 1/2. The latter retains the software Vulkan
+check. Scheduled, dispatched and release-called runs keep the complete matrix.
+All seven durable E2E lanes may run concurrently across the Linux runner pool,
+and each remains behind its host's counted-suite launcher so Actions and owner
+gates share one admission limit. The jobs retain their existing assertions
+and dependency pins:
 
 | Job | Checks |
 | --- | --- |
+| `fast` | Push-only formatting, typecheck, UI-string and contract subset |
 | `ci` | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite |
-| `e2e-suite` | Four parallel-safe shards, two backend-serial shards and the performance browser job |
+| `e2e-suite` | Two representative lanes on pushes; four parallel-safe shards, two backend-serial shards and the performance browser job for durable runs |
 | `e2e` | Always evaluates the aggregate and requires every E2E matrix leg to succeed |
 
 `release-desktop.yml` calls full validation before its release job, so the
@@ -67,9 +74,14 @@ exact selected main commit must pass before publication begins.
 
 The heavy jobs retain the shared memory-only dependency identity action,
 clean checkouts without persisted credentials, counted-suite launcher and
-`scripts/ci-browser.sh` network isolation. The audit-assets browser uses port
-15376; full E2E uses frontend/ComfyUI/native ports 15410/15411/15412 inside
-the isolated network. No standing development server is reused or stopped.
+`scripts/ci-browser.sh` network isolation. The audit-assets browser starts the
+pinned Dinkster checkout and uses frontend/native ports 15376/15377. Full E2E
+uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
+compatibility dependencies into the pinned ComfyUI interpreter used by its
+full composition. Both run inside the isolated network. Base, hosted and audit
+Playwright servers explicitly enable the v1 compatibility probe required by
+route-mocked specs; production startup remains native-only. No standing
+development server is reused or stopped.
 
 Owners still run lint, typecheck, full unit/component suites, app build,
 fixture drift and relevant browser checks locally before landing. The fast
