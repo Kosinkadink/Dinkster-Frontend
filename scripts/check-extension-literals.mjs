@@ -74,11 +74,6 @@ function location(source, node) {
   return { line: point.line + 1, column: point.character + 1 }
 }
 
-function owningIssue(kind, path) {
-  if (kind === 'widgetTypeComparison') return 122
-  return path.endsWith('/core-commands.ts') ? 94 : 104
-}
-
 function scan(path, sourceText) {
   const source = ts.createSourceFile(
     path,
@@ -100,7 +95,6 @@ function scan(path, sourceText) {
         path: normalizedPath,
         ...location(source, node),
         symbol: value,
-        issue: owningIssue('nodeIdLiteral', normalizedPath),
       })
     }
     if (
@@ -120,7 +114,6 @@ function scan(path, sourceText) {
           path: normalizedPath,
           ...location(source, node),
           symbol: `widgetType:${value}`,
-          issue: owningIssue('widgetTypeComparison', normalizedPath),
         })
       }
     }
@@ -130,12 +123,45 @@ function scan(path, sourceText) {
   return sites
 }
 
-const sites = []
+function attachOwningIssues(scanned, allowed) {
+  const remaining = [...allowed]
+  const resolved = new Array(scanned.length)
+  const assign = (exact) => {
+    for (const [index, site] of scanned.entries()) {
+      if (resolved[index] !== undefined) continue
+      const allowedIndex = remaining.findIndex((candidate) => {
+        const sameSite =
+          candidate.kind === site.kind &&
+          candidate.path === site.path &&
+          candidate.symbol === site.symbol
+        const sameLocation =
+          candidate.line === site.line && candidate.column === site.column
+        return (
+          sameSite &&
+          (!exact || sameLocation) &&
+          Number.isInteger(candidate.issue) &&
+          candidate.issue > 0
+        )
+      })
+      if (allowedIndex < 0) continue
+      const [candidate] = remaining.splice(allowedIndex, 1)
+      resolved[index] = { ...site, issue: candidate.issue }
+    }
+  }
+  assign(true)
+  assign(false)
+  return {
+    sites: resolved.filter((site) => site !== undefined),
+    unowned: scanned.filter((_, index) => resolved[index] === undefined),
+  }
+}
+
+const scannedSites = []
 for (const root of sourceRoots) {
   for (const path of (await sourceFiles(root)).sort())
-    sites.push(...scan(path, await readFile(path, 'utf8')))
+    scannedSites.push(...scan(path, await readFile(path, 'utf8')))
 }
-sites.sort(
+scannedSites.sort(
   (a, b) =>
     a.kind.localeCompare(b.kind) ||
     a.path.localeCompare(b.path) ||
@@ -146,7 +172,7 @@ sites.sort(
 const counts = Object.fromEntries(
   expectedKinds.map((kind) => [
     kind,
-    sites.filter((site) => site.kind === kind).length,
+    scannedSites.filter((site) => site.kind === kind).length,
   ]),
 )
 
@@ -154,53 +180,57 @@ let allowlist
 try {
   allowlist = JSON.parse(await readFile(allowlistPath, 'utf8'))
 } catch (error) {
-  const missing =
-    write &&
-    error instanceof Error &&
-    'code' in error &&
-    error.code === 'ENOENT'
-  if (!missing) {
-    console.error(
-      `Cannot read extension literal allowlist: ${error instanceof Error ? error.message : String(error)}`,
-    )
-    process.exit(1)
-  }
+  console.error(
+    `Cannot read extension literal allowlist: ${error instanceof Error ? error.message : String(error)}`,
+  )
+  process.exit(1)
+}
+
+const { sites, unowned } = attachOwningIssues(
+  scannedSites,
+  allowlist.sites ?? [],
+)
+if (unowned.length > 0) {
+  console.error('Extension literal sites require explicit owning issues:')
+  for (const site of unowned)
+    console.error(`  unlisted ${JSON.stringify(site)}`)
+  console.error(
+    'Add each site to the allowlist with a positive issue, then refresh with `node scripts/check-extension-literals.mjs --write`.',
+  )
+  process.exit(1)
 }
 
 if (write) {
-  let ceilings = counts
-  if (allowlist !== undefined) {
-    const ceilingKeys = Object.keys(allowlist.ceilings ?? {})
-    const invalidKinds = ceilingKeys.filter(
-      (kind) => !expectedKinds.includes(kind),
+  const ceilingKeys = Object.keys(allowlist.ceilings ?? {})
+  const invalidKinds = ceilingKeys.filter(
+    (kind) => !expectedKinds.includes(kind),
+  )
+  const raised = expectedKinds.filter((kind) => {
+    const ceiling = allowlist.ceilings?.[kind]
+    return !Number.isInteger(ceiling) || ceiling < 0 || counts[kind] > ceiling
+  })
+  if (
+    invalidKinds.length > 0 ||
+    ceilingKeys.length !== expectedKinds.length ||
+    raised.length > 0
+  ) {
+    console.error(
+      'Cannot refresh extension literal allowlist without raising ceilings:',
     )
-    const raised = expectedKinds.filter((kind) => {
-      const ceiling = allowlist.ceilings?.[kind]
-      return !Number.isInteger(ceiling) || ceiling < 0 || counts[kind] > ceiling
-    })
-    if (
-      invalidKinds.length > 0 ||
-      ceilingKeys.length !== expectedKinds.length ||
-      raised.length > 0
-    ) {
+    for (const kind of raised)
       console.error(
-        'Cannot refresh extension literal allowlist without raising ceilings:',
+        `  ${kind}: current=${counts[kind]}, ceiling=${String(allowlist.ceilings?.[kind])}`,
       )
-      for (const kind of raised)
-        console.error(
-          `  ${kind}: current=${counts[kind]}, ceiling=${String(allowlist.ceilings?.[kind])}`,
-        )
-      for (const kind of invalidKinds)
-        console.error(`  ${kind}: unexpected ceiling`)
-      process.exit(1)
-    }
-    ceilings = Object.fromEntries(
-      expectedKinds.map((kind) => [
-        kind,
-        Math.min(allowlist.ceilings[kind], counts[kind]),
-      ]),
-    )
+    for (const kind of invalidKinds)
+      console.error(`  ${kind}: unexpected ceiling`)
+    process.exit(1)
   }
+  const ceilings = Object.fromEntries(
+    expectedKinds.map((kind) => [
+      kind,
+      Math.min(allowlist.ceilings[kind], counts[kind]),
+    ]),
+  )
   const snapshot = { ceilings, sites }
   await mkdir(dirname(allowlistPath), { recursive: true })
   await writeFile(allowlistPath, `${JSON.stringify(snapshot, null, 2)}\n`)

@@ -14,7 +14,11 @@ This command runs `check-extension-literals`, `check-ui-strings`, and
 The extension check pins every intentional backend node-id literal and widget
 type comparison to an exact source location, owning issue, and non-increasing
 ceiling. The committed ceilings are 20 node-id literals and 100 widget-type
-comparisons; new and stale entries fail the check. The Prettier check is limited
+comparisons; new and stale entries fail the check, and raising a ceiling
+requires an explicit reviewed edit. After merging main, run
+`node scripts/check-extension-literals.mjs --write`, review that only expected
+line or column coordinates changed and no ceiling changed, then run
+`pnpm ci:fast`. The Prettier check is limited
 to `scripts/ci-fast.mjs` and
 `packages/desktop/test/ci-workflow.test.ts`; it does not impose formatting
 on existing application files. There is no repository-wide formatter or

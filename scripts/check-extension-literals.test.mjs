@@ -8,6 +8,17 @@ import test from 'node:test'
 
 const exec = promisify(execFile)
 const script = resolve('scripts/check-extension-literals.mjs')
+const kinds = ['nodeIdLiteral', 'widgetTypeComparison']
+
+async function writeAllowlist(path, sites) {
+  const ceilings = Object.fromEntries(
+    kinds.map((kind) => [
+      kind,
+      sites.filter((site) => site.kind === kind).length,
+    ]),
+  )
+  await writeFile(path, `${JSON.stringify({ ceilings, sites }, null, 2)}\n`)
+}
 
 test('extension literal guard rejects site and ceiling drift', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dinkster-extension-literals-'))
@@ -20,6 +31,24 @@ test('extension literal guard rejects site and ceiling drift', async () => {
       file,
       "export const node = 'dinkster.demo.deep.node'\nexport const matches = (widgetType: string) => widgetType === 'STRING'\n",
     )
+    await writeAllowlist(allowlist, [
+      {
+        kind: 'nodeIdLiteral',
+        path: 'Example.ts',
+        line: 1,
+        column: 21,
+        symbol: 'dinkster.demo.deep.node',
+        issue: 104,
+      },
+      {
+        kind: 'widgetTypeComparison',
+        path: 'Example.ts',
+        line: 2,
+        column: 48,
+        symbol: 'widgetType:STRING',
+        issue: 122,
+      },
+    ])
     await exec(process.execPath, [
       script,
       '--source',
@@ -119,6 +148,16 @@ test('extension literal write refuses to raise a ceiling', async () => {
   try {
     await mkdir(source)
     await writeFile(file, "export const node = 'dinkster.demo.deep.node'\n")
+    await writeAllowlist(allowlist, [
+      {
+        kind: 'nodeIdLiteral',
+        path: 'Example.ts',
+        line: 1,
+        column: 21,
+        symbol: 'dinkster.demo.deep.node',
+        issue: 104,
+      },
+    ])
     await exec(process.execPath, [
       script,
       '--source',
@@ -140,12 +179,48 @@ test('extension literal write refuses to raise a ceiling', async () => {
         source,
         '--allowlist',
         allowlist,
+      ]),
+      (error) => String(error.stderr).includes('explicit owning issues'),
+    )
+    await assert.rejects(
+      exec(process.execPath, [
+        script,
+        '--source',
+        source,
+        '--allowlist',
+        allowlist,
+        '--write',
+      ]),
+      (error) =>
+        String(error.stderr).includes('positive issue') &&
+        String(error.stderr).includes('dinkster.demo.other'),
+    )
+    assert.equal(await readFile(allowlist, 'utf8'), recorded)
+
+    const explicit = JSON.parse(recorded)
+    explicit.sites.push({
+      kind: 'nodeIdLiteral',
+      path: 'Example.ts',
+      line: 2,
+      column: 22,
+      symbol: 'dinkster.demo.other',
+      issue: 104,
+    })
+    await writeFile(allowlist, `${JSON.stringify(explicit, null, 2)}\n`)
+    const explicitRecorded = await readFile(allowlist, 'utf8')
+    await assert.rejects(
+      exec(process.execPath, [
+        script,
+        '--source',
+        source,
+        '--allowlist',
+        allowlist,
         '--write',
       ]),
       (error) =>
         String(error.stderr).includes('nodeIdLiteral: current=2, ceiling=1'),
     )
-    assert.equal(await readFile(allowlist, 'utf8'), recorded)
+    assert.equal(await readFile(allowlist, 'utf8'), explicitRecorded)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -165,6 +240,16 @@ test('default scan includes every package source root', async () => {
       canvasFile,
       "export const matches = (widgetType: string) => widgetType === 'STRING'\n",
     )
+    await writeAllowlist(allowlist, [
+      {
+        kind: 'widgetTypeComparison',
+        path: 'packages/canvas/src/scene.ts',
+        line: 1,
+        column: 48,
+        symbol: 'widgetType:STRING',
+        issue: 122,
+      },
+    ])
     await exec(
       process.execPath,
       [script, '--allowlist', allowlist, '--write'],
