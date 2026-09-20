@@ -102,10 +102,6 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
     return route.fulfill({ json: catalogs[digest] })
   })
   await page.goto('/')
-  const firstRunNotice = page.getByTestId('p2p-first-run-notice')
-  if (await firstRunNotice.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false)) {
-    await firstRunNotice.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
-  }
   await expect.poll(() => page.evaluate(() => {
     const registry = window.__dinksterTest?.app.backends.get()[0]?.registry.get() as unknown as RegistryView
     return registry?.resolve('proof.localized')?.displayName

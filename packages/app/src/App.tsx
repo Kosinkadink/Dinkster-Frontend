@@ -18,7 +18,7 @@ import Terminal from 'lucide-solid/icons/terminal'
 import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
 import Network from 'lucide-solid/icons/network'
-import { canonicalBackendUrl, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
+import { currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { ActivityLog } from './ActivityLog.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
@@ -71,7 +71,6 @@ import {
 import { coordinateBrowserWindows } from './browser-window-layout.js'
 import { MemoryPanel } from './MemoryPanel.js'
 import { P2PPanel } from './P2PPanel.js'
-import { P2PFirstRunNotice } from './P2PFirstRunNotice.js'
 import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
@@ -1352,7 +1351,6 @@ export function App(props: {
     const local = backend.baseUrl === '' || new URL(backend.baseUrl, window.location.href).origin === window.location.origin
     return backend.protocol === 'dinkster' && local ? backend.connection : undefined
   }
-  const [p2pSettingsRevisions, setP2PSettingsRevisions] = createSolidSignal<Readonly<Record<string, number>>>({})
   const registerBuiltinPanel = (descriptor: import('./panels.js').PanelDescriptor): (() => void) =>
     app.frontendDoors.panel(descriptor.id, descriptor)
   const unregisterPanels = [
@@ -1424,7 +1422,7 @@ export function App(props: {
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 36,
       toggleTestId: 'p2p-sidebar-toggle', component: () => <div class="p2p-panels">
         <For each={backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')} fallback={<p>{message('shell.backend.noneNative')}</p>}>
-          {(backend) => <P2PPanel connection={backend.connection} backendId={backend.id} backendLabel={backend.label} settingsRevision={p2pSettingsRevisions()[backend.id] ?? 0} />}
+          {(backend) => <P2PPanel connection={backend.connection} backendId={backend.id} backendLabel={backend.label} />}
         </For>
       </div>,
     }),
@@ -2380,12 +2378,6 @@ export function App(props: {
       <div class="shell" ref={shellEl}>
       <AssetConsentDialog app={app} />
       <ImportAssetResolutionDialog app={app} />
-      <For each={backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')}>
-        {(backend) => <P2PFirstRunNotice connection={backend.connection}
-          backendId={canonicalBackendUrl(backend.baseUrl)} backendLabel={backend.label}
-          connected={statusOf(backend) === 'connected'}
-          onSettingsChanged={() => setP2PSettingsRevisions((value) => ({ ...value, [backend.id]: (value[backend.id] ?? 0) + 1 }))} />}
-      </For>
       <Show when={pendingClose()} keyed>
         {(pending) => (
           <ModalSurface
