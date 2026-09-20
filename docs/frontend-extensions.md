@@ -50,7 +50,7 @@ Widget and preview code receives only its scoped client capability through
 
 Frontend API 1.1 adds three manifest-first doors that still render only this
 declarative host UI. `editor(id, kind)` registers a titled center-region
-editor. `editorBinding(id, descriptor)` selects an editor by the schema-owned
+editor. `editorBinding(id, binding)` selects an editor by the schema-owned
 `editorRole`, with `nodeId`, `widgetType`, and `valueType` available for
 compatibility. The highest-priority eligible editor wins and the contribution
 id breaks ties; an unavailable editor cannot shadow a usable pack binding.
