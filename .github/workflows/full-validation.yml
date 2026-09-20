@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
-  DINKSTER_REF: 4258cb557cb684f8723c4dc0cf022b4a65e48baa
+  DINKSTER_REF: a44f1acba99e1504af91208a8d9ce8c2ea162847
 
 jobs:
   validation-plan:
@@ -70,6 +70,20 @@ jobs:
         with:
           clean: true
           persist-credentials: false
+      - uses: ./.github/actions/configure-dinkster-identity
+        with:
+          repository: Kosinkadink/Dinkster
+          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+          repository: Kosinkadink/Dinkster
+          ref: ${{ env.DINKSTER_REF }}
+          path: .ci/Dinkster
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: pnpm/action-setup@v4
         with:
           version: 10.31.0
@@ -81,6 +95,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm ci:fast
+        env:
+          DINKSTER_SOURCE_ROOT: .ci/Dinkster
 
   ci:
     needs: validation-plan
@@ -132,6 +148,7 @@ jobs:
         env:
           DINKSTER_SOURCE_ROOT: ${{ github.workspace }}/.ci/Dinkster
         run: |
+          .ci/Dinkster/.venv/bin/python .ci/Dinkster/tools/gen_extension_contribution_kinds.py --check --frontend-root .
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json

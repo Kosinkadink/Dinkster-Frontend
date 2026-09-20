@@ -11,6 +11,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DINKSTER_REF: a44f1acba99e1504af91208a8d9ce8c2ea162847
+
 jobs:
   fast:
     name: format, lint, types and unit subset
@@ -21,6 +24,20 @@ jobs:
         with:
           clean: true
           persist-credentials: false
+      - uses: ./.github/actions/configure-dinkster-identity
+        with:
+          repository: Kosinkadink/Dinkster
+          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+          repository: Kosinkadink/Dinkster
+          ref: ${{ env.DINKSTER_REF }}
+          path: .ci/Dinkster
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: pnpm/action-setup@v4
         with:
           version: 10.31.0
@@ -32,3 +49,5 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm ci:fast
+        env:
+          DINKSTER_SOURCE_ROOT: .ci/Dinkster
