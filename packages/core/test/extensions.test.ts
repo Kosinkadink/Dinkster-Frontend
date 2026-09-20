@@ -13,6 +13,7 @@ import {
   decodeEffectiveExtensionSnapshot,
   frontendApiSatisfies,
   frontendContributionAuthorized,
+  FRONTEND_CONTRIBUTION_KINDS,
   FRONTEND_PRIVILEGES,
   validateAuthoredManifest,
   validateManifest,
@@ -74,6 +75,14 @@ const nodeCtx = {
   worldX: 0,
   worldY: 0,
 } as unknown as MenuContext
+
+it('keeps the authored frontend vocabulary to the supported contribution kinds', () => {
+  expect(FRONTEND_CONTRIBUTION_KINDS).toEqual([
+    'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension',
+    'menu', 'command', 'keybinding', 'setting', 'canvasLayer', 'nodeDecoration',
+    'hostUi', 'searchProvider', 'workflowObserver', 'eventConsumer', 'workflowImporter',
+  ])
+})
 
 it('keeps the four frontend privileges independent', () => {
   const examples = ['widgetView', 'menu', 'hostUi', 'eventConsumer'] as const
