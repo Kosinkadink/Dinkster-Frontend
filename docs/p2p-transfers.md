@@ -1,12 +1,13 @@
 # P2P transfers
 
-The P2P transfers dock panel controls native Dinkster peer-to-peer model transfers. Downloads and background seeding are enabled by default with LAN and internet scope. Saved server choices, including explicitly disabled settings, are preserved. There is no opt-in gate.
+P2P is off on a fresh installation and does not show a first-run prompt. The
+P2P panel has one sharing toggle for downloads and background seeding, shows
+the current seeding state, and retains controls for limits and live activity.
+Turning the toggle off stops the P2P runtime.
 
-A first-run notice appears when an enabled native backend answers the settings request, without requiring the P2P tab to be opened. It discloses sharing, peer visibility of IP address and model digest, upload-during-download behavior, budgets, and metering. Dismissal is remembered in this browser per canonical backend URL; it does not enable networking or write settings. Turn off P2P rechecks settings permission and sets both downloads and seeding to false through the existing settings API. Read-only servers explain why Turn off is unavailable; failed writes remain visible and do not dismiss the notice. If browser storage is blocked, dismissal lasts for the mounted session only.
+The P2P transfers dock panel controls native Dinkster peer-to-peer model transfers. Saved server choices are preserved. Its chrome uses the shared application catalog and follows explicit or Automatic browser and desktop locale selection. Mounted controls update when the active locale changes without resetting draft settings or refetching settings and activity. Backend-provided identifiers and errors remain untranslated data.
 
-P2P panel and first-run notice chrome use the shared application catalog. The bundled English and Chinese catalogs follow explicit or Automatic browser and desktop locale selection, including regional Chinese tags. Mounted P2P surfaces update when the active locale changes without remounting controls, resetting draft settings or focus, or refetching settings and activity. Backend-provided digests, source IDs, revisions, licenses, evidence IDs, errors, and closure reasons remain untranslated data.
-
-Controls include independent download/seeding switches, LAN/internet scope, transfer caps in MiB/s, metered-network behavior, and ratio/time or continuous seed budgets. The staging budget uses GiB and maps to `stagingBudgetBytes`, a nonnegative safe integer at most `Number.MAX_SAFE_INTEGER`. Its default is 64 GiB. It caps aggregate temporary P2P download reservations, not existing no-copy seed files. Zero denies new P2P disk growth; unlike a rate cap of zero, it is not unlimited.
+Controls include one download-and-seeding switch, LAN/internet scope, transfer caps in MiB/s, metered-network behavior, and ratio/time or continuous seed budgets. The staging budget uses GiB and maps to `stagingBudgetBytes`, a nonnegative safe integer at most `Number.MAX_SAFE_INTEGER`. Its default is 64 GiB. It caps aggregate temporary P2P download reservations, not existing no-copy seed files. Zero denies new P2P disk growth; unlike a rate cap of zero, it is not unlimited.
 
 Runtime activity uses the backend's canonical host-managed sidecar status, durable totals, peer rates, partial storage, and remaining seed budgets. `network.paused` means all P2P, including LAN, is paused. `sidecar.global.active` and `closureReason` separately report internet activity or closure. Internet-only metered, unknown-cost, or budget closure does not claim LAN is paused. Per-digest activity continues to use the host's canonical transfer rows, not a separate internet activity model.
 

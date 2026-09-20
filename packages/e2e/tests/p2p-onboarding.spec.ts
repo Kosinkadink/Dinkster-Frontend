@@ -218,7 +218,7 @@ async function openP2P(page: Page): Promise<void> {
   await expect(page.getByTestId('p2p-panel')).toBeVisible()
 }
 
-test('P2P onboarding, LAN activity, metered recovery, and counters survive reload', async ({ page }, testInfo) => {
+test('P2P settings, LAN activity, metered recovery, and counters survive reload without a first-run modal', async ({ page }, testInfo) => {
   const fixture: P2PFixture = {
     settings: { ...defaultSettings },
     metered: false,
@@ -232,21 +232,14 @@ test('P2P onboarding, LAN activity, metered recovery, and counters survive reloa
   await installRoutes(page, fixture)
   await page.goto('/')
   const notice = page.getByTestId('p2p-first-run-notice')
-  await expect(notice).toBeVisible()
-  await expect(page.getByTestId('p2p-panel')).toHaveCount(0)
-  await expect(notice).toContainText('LAN and internet')
-  await expect(notice).toContainText('Other peers can learn your IP address')
-  expect(await auditLayout(page, '[data-testid="p2p-first-run-notice"]')).toEqual([])
-  const noticeBody = await notice.screenshot({ ...(proofDir ? { path: join(proofDir, 'p2p-first-run-notice.png') } : {}) })
-  await testInfo.attach('p2p-first-run-notice.png', { body: noticeBody, contentType: 'image/png' })
-  await notice.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
+  await expect(notice).toHaveCount(0)
   expect(fixture.settingsWrites ?? 0).toBe(0)
   await openP2P(page)
   const panel = page.getByTestId('p2p-panel')
   await expect(panel).toBeVisible()
 
-  await expect(panel.getByRole('checkbox', { name: 'Peer-to-peer downloads' })).toHaveAttribute('aria-checked', 'true')
-  await expect(panel.getByRole('checkbox', { name: 'Background seeding' })).toHaveAttribute('aria-checked', 'true')
+  await expect(panel.getByRole('checkbox', { name: 'Peer-to-peer sharing' })).toHaveAttribute('aria-checked', 'true')
+  await expect(panel).toContainText('Current seeding state: On.')
   await expect(panel.getByRole('combobox', { name: 'Network scope' })).toContainText('LAN and internet')
   await expect(panel.getByTestId('p2p-transfer')).toContainText('Authorized and active')
   await expect(panel.getByTestId('p2p-transfer')).toContainText('Not specified (metadata only)')
@@ -262,14 +255,9 @@ test('P2P onboarding, LAN activity, metered recovery, and counters survive reloa
   await page.setViewportSize({ width: 1440, height: 1300 })
   await captureRuntime(page, testInfo, 'p2p-active-empty-license.png')
   await page.setViewportSize({ width: 1440, height: 900 })
-  await panel.getByRole('checkbox', { name: 'Background seeding' }).click()
-  await panel.getByRole('button', { name: 'Apply settings' }).click()
-  await expect(panel).toContainText('P2P settings saved.')
-  await expect(panel.getByRole('checkbox', { name: 'Background seeding' })).toHaveAttribute('aria-checked', 'false')
-  expect(fixture.settings).toMatchObject({ downloadsEnabled: true, seedingEnabled: false, scope: 'lan-and-internet' })
   await expect(panel.getByTestId('p2p-transfer')).toContainText('2')
   await expect(panel.getByTestId('p2p-transfer')).toContainText('512.0 KiB/s up')
-  await expect(panel.getByTestId('p2p-transfer')).toContainText('Authorized, inactive')
+  await expect(panel.getByTestId('p2p-transfer')).toContainText('Authorized and active')
   await expect(panel.getByTestId('p2p-transfer')).toContainText('Public acquisition receipt')
   await expect(panel).toContainText('Uploaded: 2.0 MiB')
 
@@ -293,8 +281,7 @@ test('P2P onboarding, LAN activity, metered recovery, and counters survive reloa
   await page.reload()
   await openP2P(page)
   await expect(notice).toHaveCount(0)
-  await expect(panel.getByRole('checkbox', { name: 'Peer-to-peer downloads' })).toHaveAttribute('aria-checked', 'true')
-  await expect(panel.getByRole('checkbox', { name: 'Background seeding' })).toHaveAttribute('aria-checked', 'false')
+  await expect(panel.getByRole('checkbox', { name: 'Peer-to-peer sharing' })).toHaveAttribute('aria-checked', 'true')
   await expect(panel).toContainText('Downloaded: 28.0 MiB')
   await expect(panel).toContainText('Uploaded: 2.5 MiB')
   expect(fixture.settings.networkCostOverride).toBe('unmetered')
@@ -338,7 +325,7 @@ test('mounted P2P panel follows the shared catalog without resetting state or re
   await page.goto('/')
   await openP2P(page)
   const panel = page.getByTestId('p2p-panel')
-  const downloads = panel.getByRole('checkbox', { name: '\u70b9\u5bf9\u70b9\u4e0b\u8f7d' })
+  const downloads = panel.getByRole('checkbox', { name: '\u70b9\u5bf9\u70b9\u5171\u4eab' })
   await expect(panel.getByRole('heading', { name: 'P2P \u4f20\u8f93' })).toBeVisible()
   await expect(page.getByTestId('p2p-first-run-notice')).toHaveCount(0)
   await expect(downloads).toHaveAttribute('aria-checked', 'false')
@@ -371,7 +358,7 @@ test('mounted P2P panel follows the shared catalog without resetting state or re
     setLocale('en')
   }, { i18nModule: new URL(i18nModule!, page.url()).href })
 
-  const englishDownloads = panel.getByRole('checkbox', { name: 'Peer downloads' })
+  const englishDownloads = panel.getByRole('checkbox', { name: 'Peer-to-peer sharing' })
   await expect(panel.getByRole('heading', { name: 'P2P transfers' })).toBeVisible()
   await expect(englishDownloads).toHaveAttribute('aria-checked', 'false')
   await expect(panel).toContainText('LAN only')
@@ -415,133 +402,50 @@ test('explicit locale setting overrides the browser locale across P2P surfaces',
   await openP2P(page)
   const panel = page.getByTestId('p2p-panel')
   await expect(panel.getByRole('heading', { name: 'P2P transfers' })).toBeVisible()
-  await expect(panel.getByRole('checkbox', { name: 'Peer downloads' })).toHaveAttribute('aria-checked', 'false')
+  await expect(panel.getByRole('checkbox', { name: 'Peer-to-peer sharing' })).toHaveAttribute('aria-checked', 'false')
   await expect(panel).toContainText('LAN only')
   expect(fixture.statusRequests).toBe(0)
   await context.close()
 })
 
-test('first-run Turn off disables both choices and suppresses later activity requests', async ({ page }) => {
+test('fresh P2P is off without a modal and the single toggle starts and stops it', async ({ page }, testInfo) => {
   const fixture: P2PFixture = {
-    settings: { ...defaultSettings }, metered: false, grantRevoked: false,
-    requiresResume: false, resumed: false, downloadedBytes: 0, uploadedBytes: 0, statusRequests: 0,
+    settings: { ...defaultSettings, downloadsEnabled: false, seedingEnabled: false },
+    metered: false, grantRevoked: false, requiresResume: false, resumed: false,
+    downloadedBytes: 0, uploadedBytes: 0, statusRequests: 0,
   }
   await installRoutes(page, fixture)
   await page.goto('/')
-  const notice = page.getByTestId('p2p-first-run-notice')
-  await notice.getByRole('button', { name: 'Turn off P2P' }).click()
-  await expect(notice).toHaveCount(0)
-  expect(fixture.settings).toEqual({ ...defaultSettings, downloadsEnabled: false, seedingEnabled: false })
+  await expect(page.getByTestId('p2p-first-run-notice')).toHaveCount(0)
   await openP2P(page)
-  await expect(page.getByTestId('p2p-panel').getByRole('checkbox', { name: 'Peer-to-peer downloads' })).toHaveAttribute('aria-checked', 'false')
+  const panel = page.getByTestId('p2p-panel')
+  const toggle = panel.getByRole('checkbox', { name: 'Peer-to-peer sharing' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect(panel).toContainText('Current seeding state: Off.')
   expect(fixture.statusRequests).toBe(0)
-  await page.reload()
-  await openP2P(page)
-  await expect(notice).toHaveCount(0)
-  expect(fixture.statusRequests).toBe(0)
-})
-
-test('read-only first-run notice and failed Turn off remain clear on narrow screens', async ({ page }, testInfo) => {
-  const fixture: P2PFixture = {
-    settings: { ...defaultSettings }, metered: false, grantRevoked: false,
-    requiresResume: false, resumed: false, downloadedBytes: 0, uploadedBytes: 0, statusRequests: 0,
-    writable: false,
-  }
-  await page.setViewportSize({ width: 390, height: 844 })
-  await installRoutes(page, fixture)
-  await page.goto('/')
-  const notice = page.getByTestId('p2p-first-run-notice')
-  await expect(notice).toContainText('read-only')
-  await expect(notice).toContainText('--disable-p2p')
-  await expect(notice.getByRole('button', { name: 'Turn off P2P' })).toBeDisabled()
-  const top = await notice.screenshot({ ...(proofDir ? { path: join(proofDir, 'p2p-first-run-readonly-narrow-top.png') } : {}) })
-  await testInfo.attach('p2p-first-run-readonly-narrow-top.png', { body: top, contentType: 'image/png' })
-  await expect(notice.getByRole('button', { name: 'Turn off P2P' })).toBeInViewport()
-  await notice.locator('.p2p-first-run').evaluate((element) => { element.scrollTop = element.scrollHeight })
-  await expect(notice.getByTestId('modal-close')).toBeInViewport()
-  expect(await auditLayout(page, '[data-testid="p2p-first-run-notice"]')).toEqual([])
-  const body = await notice.screenshot({ ...(proofDir ? { path: join(proofDir, 'p2p-first-run-readonly-narrow.png') } : {}) })
-  await testInfo.attach('p2p-first-run-readonly-narrow.png', { body, contentType: 'image/png' })
-  expect(fixture.settingsWrites ?? 0).toBe(0)
-  fixture.writable = true
-  fixture.denyWrite = true
-  await page.reload()
-  await notice.getByRole('button', { name: 'Turn off P2P' }).click()
-  await expect(notice).toContainText('Changes to p2p are not granted (granted: none)')
-  await notice.locator('.p2p-first-run').evaluate((element) => { element.scrollTop = element.scrollHeight })
-  await expect(notice.getByRole('button', { name: 'Turn off P2P' })).toBeInViewport()
-  const failure = await notice.screenshot({ ...(proofDir ? { path: join(proofDir, 'p2p-first-run-off-error.png') } : {}) })
-  await testInfo.attach('p2p-first-run-off-error.png', { body: failure, contentType: 'image/png' })
-  expect(fixture.settings.downloadsEnabled).toBe(true)
-  expect(fixture.settings.seedingEnabled).toBe(true)
-})
-
-for (const action of ['Dismiss notice', 'Turn off P2P']) {
-  test(`two backend notices retain focus and independent settings after ${action}`, async ({ page }, testInfo) => {
-    const primary: P2PFixture = {
-      settings: { ...defaultSettings }, metered: false, grantRevoked: false,
-      requiresResume: false, resumed: false, downloadedBytes: 0, uploadedBytes: 0, statusRequests: 0,
-    }
-    const secondary: P2PFixture = { ...primary, settings: { ...defaultSettings } }
-    await installRoutes(page, primary)
-    await installRoutes(page, secondary, '/second')
-    await page.addInitScript(() => localStorage.setItem('dinkster.backends', JSON.stringify({
-      v: 1, backends: [{ baseUrl: '/second', label: 'Secondary fixture', protocol: 'dinkster' }],
-    })))
-    await page.goto('/')
-    const notices = page.getByTestId('p2p-first-run-notice')
-    await expect(notices).toHaveCount(2)
-    const ids = await notices.evaluateAll((elements) => elements.map((element) => element.getAttribute('data-modal')))
-    expect(new Set(ids).size).toBe(2)
-    // Native accessibility excludes covered dialogs; DOM role lookup still includes them.
-    const accessibility = await page.context().newCDPSession(page)
-    const { nodes } = await accessibility.send('Accessibility.getFullAXTree')
-    const active = page.locator('dialog[data-testid="p2p-first-run-notice"]:focus-within')
-    await expect(active).toHaveCount(1)
-    await expect(active).toHaveAccessibleName(/^Peer-to-peer sharing is on:/)
-    const name = await active.getAttribute('aria-label')
-    expect(nodes.filter((node) => !node.ignored && node.role?.value === 'dialog').map((node) => node.name?.value)).toEqual([name])
-    const isSecondary = name!.includes('Secondary fixture')
-    const selected = isSecondary ? secondary : primary
-    const other = isSecondary ? primary : secondary
-    const selectedKey = `dinkster.p2p-notice-dismissed.${isSecondary ? '/second' : ''}`
-    const otherKey = `dinkster.p2p-notice-dismissed.${isSecondary ? '' : '/second'}`
-    const activeId = await active.getAttribute('data-modal')
-    expect(await page.evaluate((id) => {
-      const dialogs = Array.from(document.querySelectorAll<HTMLDialogElement>('dialog[data-modal]'))
-      const top = dialogs.find((dialog) => dialog.dataset['modal'] === id)!
-      const covered = dialogs.find((dialog) => dialog !== top)!
-      covered.querySelector('button')!.focus()
-      return top.contains(document.activeElement)
-    }, activeId)).toBe(true)
-    const imageName = action === 'Turn off P2P' ? 'p2p-two-backends-off.png' : 'p2p-two-backends-dismiss.png'
-    const image = await page.screenshot({ ...(proofDir ? { path: join(proofDir, imageName) } : {}) })
-    await testInfo.attach(imageName, { body: image, contentType: 'image/png' })
-    await active.getByRole('button', { name: action, exact: true }).last().click()
-    await expect(notices).toHaveCount(1)
-    await expect(active).toHaveCount(1)
-    await expect(active).not.toHaveAttribute('aria-label', name!)
-    expect(await active.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true)
-    const remaining = await accessibility.send('Accessibility.getFullAXTree')
-    expect(remaining.nodes.filter((node) => !node.ignored && node.role?.value === 'dialog').map((node) => node.name?.value))
-      .toEqual([await active.getAttribute('aria-label')])
-    const remainingName = imageName.replace('.png', '-remaining.png')
-    const remainingImage = await page.screenshot({ ...(proofDir ? { path: join(proofDir, remainingName) } : {}) })
-    await testInfo.attach(remainingName, { body: remainingImage, contentType: 'image/png' })
-    expect(other.settings).toEqual(defaultSettings)
-    expect(other.settingsWrites ?? 0).toBe(0)
-    expect(selected.settingsWrites ?? 0).toBe(action === 'Turn off P2P' ? 1 : 0)
-    expect(selected.settings).toEqual(action === 'Turn off P2P'
-      ? { ...defaultSettings, downloadsEnabled: false, seedingEnabled: false } : defaultSettings)
-    expect(await page.evaluate((key) => localStorage.getItem(key), selectedKey)).toBe('1')
-    expect(await page.evaluate((key) => localStorage.getItem(key), otherKey)).toBeNull()
-    await page.reload()
-    await expect(notices).toHaveCount(1)
-    await expect(active).not.toHaveAttribute('aria-label', name!)
-    await active.getByRole('button', { name: 'Dismiss notice', exact: true }).last().click()
-    await expect(notices).toHaveCount(0)
-    expect(other.settingsWrites ?? 0).toBe(0)
-    expect(primary.statusRequests + secondary.statusRequests).toBe(0)
-    await accessibility.detach()
+  expect(await auditLayout(page, P2P_SURFACE)).toEqual([])
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.mouse.move(1430, 890)
+  await page.waitForTimeout(750)
+  const image = await panel.locator('.p2p-sharing').screenshot({
+    ...(proofDir ? { path: join(proofDir, 'p2p-fresh-off.png') } : {}),
+    animations: 'disabled',
   })
-}
+  await testInfo.attach('p2p-fresh-off.png', { body: image, contentType: 'image/png' })
+
+  await toggle.click()
+  await panel.getByRole('button', { name: 'Apply settings' }).click()
+  await expect(panel).toContainText('P2P settings saved.')
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  expect(fixture.settings).toMatchObject({ downloadsEnabled: true, seedingEnabled: true })
+  expect(fixture.statusRequests).toBeGreaterThan(0)
+
+  await toggle.click()
+  await panel.getByRole('button', { name: 'Apply settings' }).click()
+  await expect(panel).toContainText('P2P settings saved.')
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect(panel.locator('.p2p-runtime')).toHaveCount(0)
+  expect(fixture.settings).toMatchObject({ downloadsEnabled: false, seedingEnabled: false })
+  await page.reload()
+  await expect(page.getByTestId('p2p-first-run-notice')).toHaveCount(0)
+})

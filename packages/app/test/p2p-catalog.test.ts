@@ -25,7 +25,7 @@ describe('shipped message catalogs', () => {
   })
 
   it('uses base-language and English fallback', () => {
-    expect(Object.keys(p2pEnglish)).toHaveLength(113)
+    expect(Object.keys(p2pEnglish)).toHaveLength(109)
     setLocale('zh-CN')
     expect(t('p2p.title')).toBe('P2P \u4f20\u8f93')
     setLocale('fr')
@@ -35,7 +35,7 @@ describe('shipped message catalogs', () => {
 
 describe('shared P2P messages', () => {
   it('keeps the complete English P2P catalog', () => {
-    expect(Object.keys(p2pEnglish)).toHaveLength(113)
+    expect(Object.keys(p2pEnglish)).toHaveLength(109)
   })
   it('directs read-only users to an operator startup override without granting write access', () => {
     expect(english['p2p.readOnly']).toContain('--disable-p2p')
@@ -45,9 +45,9 @@ describe('shared P2P messages', () => {
   it('preserves the required disclosure exactly', () => {
     expect(english['p2p.disclosure']).toBe('Other peers can learn your IP address and that your device is requesting or sharing a particular model digest.')
   })
-  it('describes default-on sharing without an opt-in gate and distinguishes disk from rate limits', () => {
-    expect(english['p2p.noticeIntro']).toContain('by default')
-    expect(english['p2p.acknowledgementHelp']).toContain('does not enable networking or change settings')
+  it('describes one sharing toggle with seeding state and distinguishes disk from rate limits', () => {
+    expect(english['p2p.sharingHelpOff']).toContain('Current seeding state: Off.')
+    expect(english['p2p.sharingHelpOn']).toContain('Current seeding state: On.')
     expect(english['p2p.stagingHelp']).toContain('Zero denies new P2P disk growth; it is not unlimited.')
     expect(english['p2p.capsHelp']).toContain('0 for unlimited')
     expect(english['p2p.panelDescription']).not.toMatch(/consent|opt-in/i)

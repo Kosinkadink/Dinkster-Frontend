@@ -321,29 +321,22 @@ export function P2PPanel(props: { readonly connection: P2PConnection; readonly b
             <fieldset class="p2p-card p2p-sharing" disabled={!writable() || busy()}>
               <legend>{m().sharingLegend}</legend>
               <ProductField
-                controlId={id('downloads')}
-                label={m().downloads}
-                metadata={<span class="p2p-setting-state">{settings().downloadsEnabled ? m().enabled : m().disabled}</span>}
+                controlId={id('enabled')}
+                label={m().sharing}
+                metadata={<span class="p2p-setting-state">{settings().downloadsEnabled || settings().seedingEnabled ? m().enabled : m().disabled}</span>}
               >
                 <ProductCheckbox
-                  id={id('downloads')}
-                  ariaLabel={m().downloads}
-                  checked={settings().downloadsEnabled}
-                  onChange={(value) => patch('downloadsEnabled', value)}
+                  id={id('enabled')}
+                  ariaLabel={m().sharing}
+                  checked={settings().downloadsEnabled || settings().seedingEnabled}
+                  onChange={(value) => setDraft((current) => current === undefined ? current : {
+                    ...current,
+                    downloadsEnabled: value,
+                    seedingEnabled: value,
+                  })}
                 />
               </ProductField>
-              <ProductField
-                controlId={id('seeding')}
-                label={m().seeding}
-                metadata={<span class="p2p-setting-state">{settings().seedingEnabled ? m().enabled : m().disabled}</span>}
-              >
-                <ProductCheckbox
-                  id={id('seeding')}
-                  ariaLabel={m().seeding}
-                  checked={settings().seedingEnabled}
-                  onChange={(value) => patch('seedingEnabled', value)}
-                />
-              </ProductField>
+              <p class="p2p-help">{settings().seedingEnabled ? m().sharingHelpOn : m().sharingHelpOff}</p>
               <ProductNotice tone="info" class="p2p-upload-disclosure">{m().uploadDisclosure}</ProductNotice>
               <ProductField controlId={id('scope')} label={m().scope} layout="stack">
                 <ProductSelect
