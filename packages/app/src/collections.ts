@@ -217,12 +217,6 @@ const normalizeTemplateSearch = (value: string): string => value
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, '')
 
-const templateSearchTerms = (value: string): readonly string[] => {
-  const normalized = normalizeTemplateSearch(value)
-  const alias = normalizeTemplateSearch(value.replace(/\bstable[^a-z0-9]+diffusion\b/gi, 'sd'))
-  return alias === normalized ? [normalized] : [normalized, alias]
-}
-
 export function templatesSource(app: AppState): CollectionSource {
   return {
     id: 'templates',
@@ -243,15 +237,14 @@ export function templatesSource(app: AppState): CollectionSource {
       const pack = req.filters?.['pack']
       const catalog = new RemoteTemplateCatalog(app.settings.get<string>('templates.registryUrl'))
       const [local, remote] = await Promise.all([allLocalTemplates(backend), catalog.list()])
-      const query = templateSearchTerms(req.query.trim())
+      const query = normalizeTemplateSearch(req.query.trim())
       const templates = [
         ...local.map((template) => ({ template, ref: { kind: 'local', pack: template.pack, id: template.id } as TemplateCollectionRef })),
         ...remote.map((template) => ({ template, ref: { kind: 'remote', template } as TemplateCollectionRef })),
       ].filter(({ template }) =>
         (pack === undefined || pack === '' || template.pack === pack) &&
-        (query[0] === '' || [template.id, template.name, template.description ?? '', template.family ?? '', ...(template.tags ?? [])]
-          .some((value) => templateSearchTerms(value)
-            .some((candidate) => query.some((term) => candidate.includes(term))))))
+        (query === '' || [template.id, template.name, template.description ?? '', template.family ?? '', ...(template.tags ?? [])]
+          .some((value) => normalizeTemplateSearch(value).includes(query))))
       const modelNames = [...new Set(templates.flatMap(({ template }) => templateModels(template, backend)))]
       const matches = modelNames.length > 0 ? await backend.connection.guessAssets(modelNames) : []
       const held = new Map(matches.map((match) => [match.query, match.candidates.some((candidate) => candidate.held)]))

@@ -14,7 +14,7 @@ afterEach(() => {
 })
 
 describe('TemplateGallery', () => {
-  it('matches Stable Diffusion starter aliases', async () => {
+  it('normalizes template identity searches', async () => {
     const app = new AppState({ defaultProtocol: 'dinkster' })
     const backend = app.libraryBackend()!
     vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({
