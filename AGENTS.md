@@ -91,7 +91,7 @@ library root and the host's ComfyUI checkout/interpreter. Run from the sibling
 ```bash
 .venv/bin/dinkster-serve --host 127.0.0.1 \
   --library-root ~/.local/state/dinkster/frontend-backend/library \
-  --comfy-root ../ComfyUI --comfy-python ../ComfyUI/venv/bin/python
+  --comfy-root ../ComfyUI --execution-python ../ComfyUI/venv/bin/python
 ```
 
 # Restarting the local :5199 dev server
