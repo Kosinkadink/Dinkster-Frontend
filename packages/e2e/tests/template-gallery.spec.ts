@@ -90,7 +90,7 @@ test('refreshes the remote family gallery and opens a digest-verified template',
         json: {
           schemaVersion: 1,
           epoch: 1,
-          dinkster: { version: 'gallery-test', schemaWire: 40 },
+          dinkster: { version: 'gallery-test', schemaWire: 1 },
           packs: {},
           nodes: {},
         },
@@ -167,6 +167,18 @@ test('refreshes the remote family gallery and opens a digest-verified template',
     await expect(page.getByTestId('template-card')).toContainText(
       '1 required model(s) missing',
     )
+    const gallerySearch = gallery.getByTestId('template-gallery-search')
+    for (const query of ['SD 1.5', 'sd1.5', 'SD15']) {
+      await gallerySearch.fill(query)
+      await expect(page.getByTestId('template-card')).toHaveCount(1)
+      await expect(page.getByTestId('template-card')).toContainText('Stable Diffusion 1.5')
+    }
+    if (proofDir !== undefined)
+      await gallery.screenshot({
+        path: join(proofDir, 'starter-template-search-sd15.png'),
+        animations: 'disabled',
+      })
+    await gallery.getByTestId('template-gallery-search-clear').click()
     await gallery
       .getByRole('button', { name: 'Close template gallery' })
       .click()
@@ -189,7 +201,7 @@ test('refreshes the remote family gallery and opens a digest-verified template',
         path: join(proofDir, 'starter-template-gallery.png'),
         animations: 'disabled',
       })
-    await gallery.getByRole('button', { name: /MiniMax H3/ }).click()
+    await gallery.getByRole('option', { name: /MiniMax H3/ }).click()
     await expect
       .poll(() =>
         page.evaluate(
