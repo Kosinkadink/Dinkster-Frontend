@@ -195,6 +195,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     const connection = props.connection
     const generation = ++discoveryGeneration
     let timer: ReturnType<typeof setTimeout> | undefined
+    let outputTimer: ReturnType<typeof setTimeout> | undefined
     let active = true
     let scanPolling = false
     setAdapters(undefined)
@@ -220,10 +221,17 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         if (scanPolling) timer = setTimeout(() => { void discover() }, MOUNT_SCAN_POLL_MS)
       }
     }
+    const unsubscribe = connection.onEvent((event) => {
+      if (event.kind !== 'nodeOutput' && event.kind !== 'completed') return
+      if (outputTimer !== undefined) clearTimeout(outputTimer)
+      outputTimer = setTimeout(() => { void discover() }, 0)
+    })
     void discover()
     onCleanup(() => {
       active = false
+      unsubscribe()
       if (timer !== undefined) clearTimeout(timer)
+      if (outputTimer !== undefined) clearTimeout(outputTimer)
     })
   })
   const unavailable = createMemo(() => mounts().filter((mount) => mount.state !== 'ready' && mount.state !== 'scanning'))
