@@ -24,7 +24,7 @@ jobs:
         with:
           clean: true
           persist-credentials: false
-      - uses: ./.github/actions/configure-dinkster-identity
+      - uses: ./.github/actions/configure-private-repository
         with:
           repository: Kosinkadink/Dinkster
           deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}

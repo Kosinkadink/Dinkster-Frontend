@@ -70,7 +70,7 @@ jobs:
         with:
           clean: true
           persist-credentials: false
-      - uses: ./.github/actions/configure-dinkster-identity
+      - uses: ./.github/actions/configure-private-repository
         with:
           repository: Kosinkadink/Dinkster
           deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
@@ -110,7 +110,7 @@ jobs:
           clean: true
           persist-credentials: false
 
-      - uses: ./.github/actions/configure-dinkster-identity
+      - uses: ./.github/actions/configure-private-repository
         with:
           repository: Kosinkadink/Dinkster
           deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
@@ -122,10 +122,6 @@ jobs:
           repository: Kosinkadink/Dinkster
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
-
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -195,7 +191,7 @@ jobs:
           ref: 15eb748b3ec5f8a0a2d470b7fb280e2d7579f916
           path: .ci/ComfyUI
 
-      - uses: ./.github/actions/configure-dinkster-identity
+      - uses: ./.github/actions/configure-private-repository
         with:
           repository: Kosinkadink/Dinkster
           deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
@@ -207,10 +203,6 @@ jobs:
           repository: Kosinkadink/Dinkster
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
-
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
 
       - uses: pnpm/action-setup@v4
         with:
