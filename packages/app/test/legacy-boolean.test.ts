@@ -9,9 +9,9 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { ObjectInfoEntry } from '@dinkster/core'
-import { buildSchemaRegistry } from '@dinkster/client'
+import type { ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { AppState, type Tab } from '../src/app-state.js'
+import { buildSchemaRegistry } from '../src/v1-connection-kind.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }

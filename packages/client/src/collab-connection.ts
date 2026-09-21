@@ -51,7 +51,7 @@ import type {
   PutSnapshotOutcome,
   WorkflowDocument,
 } from '@dinkster/core'
-import type { FetchLike } from './connection.js'
+import type { FetchLike } from './connection-contract.js'
 import { credentialFetch, type CollabCredentials } from './credentials.js'
 import {
   ReconnectingSocket,
