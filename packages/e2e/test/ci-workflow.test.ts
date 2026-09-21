@@ -408,15 +408,19 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
     expect(hostedConfig).toContain("stubV1Entry === '1' ? 'native' : 'legacy'")
     expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
+    expect(hostedConfig).toContain('if (!stockV1Only)')
     expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
+    )
+    expect(hostedConfig).toContain(
+      '`--allow-origin http://127.0.0.1:${nativeFrontendPort}`',
     )
     expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? ['--no-default-packs'] : []",
     )
     expect(hostedConfig).toContain('...nativePackSelection')
-    expect(hostedConfig).toContain(
-      "const nativeComfySelection = stubV1Entry === '1'",
+    expect(hostedConfig).toMatch(
+      /const nativeComfySelection =\s*stubV1Entry === '1'/,
     )
     expect(hostedConfig).toContain('...nativeComfySelection')
     expect(extensionContractConfig).toContain("'--no-default-packs'")
