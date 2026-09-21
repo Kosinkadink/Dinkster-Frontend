@@ -48,7 +48,7 @@ test('imports, lowers, and executes the official Pixal3D and TRELLIS.2 workflow'
   const bytes = readFileSync(WORKFLOW_PATH)
   expect(createHash('sha256').update(bytes).digest('hex')).toBe(OFFICIAL_WORKFLOW_SHA256)
   const workflow = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>
-  const served = await page.request.get(`${NATIVE_BACKEND}/api/nodes?wire=22`).catch(() => null)
+  const served = await page.request.get(`${NATIVE_BACKEND}/api/nodes`).catch(() => null)
   expect(served?.ok(), `native Dinkster backend must be reachable at ${NATIVE_BACKEND}`).toBe(true)
 
   await page.unroute('/api/nodes*')

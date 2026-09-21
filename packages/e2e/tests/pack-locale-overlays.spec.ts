@@ -66,7 +66,7 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'wire44-proof', schemaWire: 44 },
+      dinkster: { version: 'wire44-proof', schemaWire: 1 },
       packs: {
         proof: {
           displayName: 'RAW proof pack',
@@ -76,7 +76,7 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
       },
       nodes: {
         'proof.localized': {
-          schemaVersion: 44,
+          schemaVersion: 1,
           displayName: 'RAW untranslated node',
           description: 'RAW untranslated description',
           category: 'proof',

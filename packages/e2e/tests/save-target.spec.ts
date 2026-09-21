@@ -50,7 +50,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'save-target-e2e', schemaWire: 22 },
+    dinkster: { version: 'save-target-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.goto('/')

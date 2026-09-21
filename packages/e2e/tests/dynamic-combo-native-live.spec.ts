@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
     'set DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
   let nodes: Record<string, unknown> | undefined
   try {
-    const response = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=22`, {
+    const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, {
       signal: AbortSignal.timeout(2_000),
     })
     if (response.ok) nodes = (await response.json() as { nodes: Record<string, unknown> }).nodes

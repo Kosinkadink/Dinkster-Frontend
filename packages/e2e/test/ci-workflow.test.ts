@@ -106,6 +106,7 @@ describe('fast pull-request and full validation workflows', () => {
       'test/dinkster-inline-value.test.ts',
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
+      'test/extension-world.test.ts',
     ])
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,

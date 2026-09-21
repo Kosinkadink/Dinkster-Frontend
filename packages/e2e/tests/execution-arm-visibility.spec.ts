@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 const node = (displayName: string, executionArms?: readonly ('native' | 'comfyui')[]) => ({
-  schemaVersion: 22,
+  schemaVersion: 1,
   displayName,
   category: 'Execution arms',
   interface: [],
@@ -11,7 +11,7 @@ const node = (displayName: string, executionArms?: readonly ('native' | 'comfyui
 const catalog = (withArms: boolean) => ({
   schemaVersion: 1,
   epoch: withArms ? 2 : 1,
-  dinkster: { version: 'execution-arm-proof', schemaWire: 22 },
+  dinkster: { version: 'execution-arm-proof', schemaWire: 1 },
   nodes: {
     'proof.native': node('Native Loader', withArms ? ['native'] : undefined),
     'proof.adaptive': node('Adaptive KSampler', withArms ? ['native', 'comfyui'] : undefined),

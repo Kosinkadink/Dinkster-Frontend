@@ -770,7 +770,7 @@ export interface PackInfo {
    * Absent when the pack ships none.
    */
   readonly blueprints?: readonly PackBlueprintDescriptor[]
-  /** Wire-44 immutable pack locale catalogs: canonical locale tag -> exact content digest. */
+  /** Immutable pack locale catalogs: canonical locale tag -> exact content digest. */
   readonly locales?: Readonly<Record<string, string>>
 }
 
