@@ -1225,6 +1225,13 @@ export interface MountDescriptor {
 export interface MountSettings {
   readonly mounts: readonly MountDescriptor[]
   readonly outputMount?: string
+  /**
+   * Server's gate on mutating mount configuration (add/remove grants,
+   * select the output mount). A response that omits it (an older backend)
+   * decodes as false so such servers degrade safely to read-only; a
+   * present non-boolean is malformed, never a silent default.
+   */
+  readonly mountChangesAllowed: boolean
 }
 
 export interface MountScanProgress {
@@ -2902,7 +2909,12 @@ export class DinksterConnection {
   async fetchMountSettings(): Promise<MountSettings> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts`)
     if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
-    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown }
+    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; mountChangesAllowed?: unknown }
+    // Compatibility: a response without the field (older backend) decodes
+    // as false - read-only; a present non-boolean is a protocol error.
+    if (payload.mountChangesAllowed !== undefined && typeof payload.mountChangesAllowed !== 'boolean') {
+      throw new Error('GET /api/mounts: malformed mountChangesAllowed')
+    }
     const rows = payload.mounts
     if (!Array.isArray(rows)) throw new Error('GET /api/mounts: malformed response')
     const mounts = rows.filter((value): value is MountDescriptor => {
@@ -2925,7 +2937,11 @@ export class DinksterConnection {
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
     if (payload.outputMount !== undefined && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
-    return { mounts, ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}) }
+    return {
+      mounts,
+      mountChangesAllowed: payload.mountChangesAllowed === undefined ? false : payload.mountChangesAllowed,
+      ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}),
+    }
   }
 
   async listMounts(): Promise<readonly MountDescriptor[]> {

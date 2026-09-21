@@ -295,8 +295,28 @@ async function snapshotFixture(id: string): Promise<{ body: string; digest: stri
 }
 
 describe('mount listing decode', () => {
-  const connectionWith = (mounts: unknown, outputMount?: unknown): DinksterConnection =>
-    new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, ...(outputMount === undefined ? {} : { outputMount }) }) })
+  const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
+    new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })
+
+  it('decodes mountChangesAllowed as an exact boolean', async () => {
+    await expect(connectionWith([], undefined, true).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: true })
+    await expect(connectionWith([], undefined, false).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: false })
+  })
+
+  it('decodes a missing mountChangesAllowed as false (older backends degrade to read-only)', async () => {
+    const fetch = (payload: unknown): DinksterConnection =>
+      new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
+    await expect(fetch({ mounts: [] }).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: false })
+    await expect(fetch({ mounts: [], mountChangesAllowed: undefined }).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: false })
+  })
+
+  it('rejects present non-boolean mountChangesAllowed', async () => {
+    const fetch = (payload: unknown): DinksterConnection =>
+      new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
+    for (const bad of ['true', 'false', 1, 0, null]) {
+      await expect(fetch({ mounts: [], mountChangesAllowed: bad }).fetchMountSettings()).rejects.toThrow('malformed mountChangesAllowed')
+    }
+  })
 
   it('decodes the selected output mount and host path', async () => {
     const settings = await connectionWith([
@@ -304,6 +324,7 @@ describe('mount listing decode', () => {
     ], 'output').fetchMountSettings()
     expect(settings).toEqual({
       outputMount: 'output',
+      mountChangesAllowed: true,
       mounts: [{ id: 'output', mode: 'readwrite', state: 'ready', path: '/library/output' }],
     })
     await expect(connectionWith([], 42).fetchMountSettings()).rejects.toThrow('malformed output mount')

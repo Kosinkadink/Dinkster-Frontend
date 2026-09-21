@@ -416,8 +416,8 @@
     "text:() const [removingWorker, setRemovingWorker] = createSignal",
     "text:() const [workerName, setWorkerName] = createSignal('') const [workerEndpoint, setWorkerEndpoint] = createSignal('') const [workerTokenFile, setWorkerTokenFile] = createSignal('') const [workerTokenFileGrant, setWorkerTokenFileGrant] = createSignal",
     "text:() const [workerTlsCaFile, setWorkerTlsCaFile] = createSignal('') const [workerTlsCaFileGrant, setWorkerTlsCaFileGrant] = createSignal",
-    "text:([]) const [mountPath, setMountPath] = createSignal('') const [mountId, setMountId] = createSignal('') const [workers, setWorkers] = createSignal",
     "text:([]) const [workerFormOpen, setWorkerFormOpen] = createSignal(false) const [editingWorker, setEditingWorker] = createSignal",
+    "text:([]) const [workers, setWorkers] = createSignal",
     "text:, successKey?: string): Promise",
     "text:= 1024 && unit",
     "text:Promise",
@@ -641,6 +641,9 @@
     "text:Download model",
     "text:Rendering 3D preview..."
   ],
+  "MountFolderForm.tsx": [
+    "text:Promise"
+  ],
   "NodePalette.tsx": [
     "text:() const duplicates = new Set",
     "text:(new Set(props.anchor.initialInputTypes)) const [paletteOutputTypes, setPaletteOutputTypes] = createSolidSignal",
@@ -757,6 +760,9 @@
   "SuggestionSurface.tsx": [
     "text:(): SuggestionInteraction",
     "text:readonly interaction: SuggestionInteraction"
+  ],
+  "TemplateGallery.tsx": [
+    "text:props.app.libraryBackend()?.connection) const [mountSettings, setMountSettings] = createSignal"
   ],
   "TimelineViewport.tsx": [
     "attribute:aria-label:Playhead seconds",

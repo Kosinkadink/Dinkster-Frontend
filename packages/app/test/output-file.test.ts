@@ -7,6 +7,7 @@ describe("saved output host paths", () => {
       outputHostPath(
         {
           outputMount: "output",
+          mountChangesAllowed: false,
           mounts: [
             {
               id: "output",
@@ -23,6 +24,7 @@ describe("saved output host paths", () => {
       outputHostPath(
         {
           outputMount: "renders",
+          mountChangesAllowed: false,
           mounts: [
             {
               id: "renders",
@@ -39,6 +41,7 @@ describe("saved output host paths", () => {
 
   it("refuses unmounted and traversing virtual paths", () => {
     const settings = {
+      mountChangesAllowed: false,
       mounts: [
         {
           id: "output",

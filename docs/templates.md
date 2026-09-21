@@ -1,6 +1,6 @@
 # Starter templates
 
-An empty workflow opens the starter gallery automatically. Templates are grouped by model family and show a thumbnail, source, description, and exact missing-model requirements. Choose **Start blank** to dismiss it. Run **Open template gallery** from universal search to return at any time.
+An empty workflow opens the starter gallery automatically. Templates are grouped by model family and show a thumbnail, source, description, and exact missing-model requirements. Choose **Start blank** to dismiss it. Run **Open template gallery** from universal search to return at any time. When no model folders are mounted, the gallery explains where models are read from. If the server allows mount changes, browser users can add a read-only folder by typing its server filesystem path in the gallery.
 
 The Library sidebar also contains a Templates collection for complete native Dinkster workflow documents shipped by packs. Search covers template identity, names, descriptions, families, and tags. The pack selector applies the backend's exact pack filter.
 

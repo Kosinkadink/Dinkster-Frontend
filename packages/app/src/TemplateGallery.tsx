@@ -1,7 +1,9 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import type { CollectionEntry } from '@dinkster/core'
+import type { MountSettings } from '@dinkster/client'
 import type { AppState } from './app-state.js'
 import { initialsOf, templatesSource, type TemplateCollectionRef } from './collections.js'
+import { MountFolderForm } from './MountFolderForm.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -59,6 +61,31 @@ export function TemplateGallery(props: {
     return [...grouped].map(([id, familyEntries]) => ({ id, entries: familyEntries }))
   })
 
+  const mountConnection = createMemo(() => props.app.libraryBackend()?.connection)
+  const [mountSettings, setMountSettings] = createSignal<MountSettings>()
+  const [mountRefresh, setMountRefresh] = createSignal(0)
+  let mountRequest = 0
+
+  createEffect(() => {
+    if (!props.visible()) return
+    backendTick()
+    mountRefresh()
+    const connection = mountConnection()
+    if (!connection) return
+    const generation = ++mountRequest
+    void connection.fetchMountSettings().then((settings) => {
+      if (generation !== mountRequest) return
+      setMountSettings(settings)
+    }).catch(() => {
+      if (generation !== mountRequest) return
+      setMountSettings(undefined)
+    })
+  })
+
+  const mountsEmpty = (): boolean => mountSettings()?.mounts.length === 0
+  const allowedMountConnection = createMemo(() =>
+    mountSettings()?.mountChangesAllowed === true ? mountConnection() : undefined)
+
   const open = (entry: CollectionEntry): void => {
     const ref = entry.ref as TemplateCollectionRef | undefined
     const opening = ref?.kind === 'remote'
@@ -89,6 +116,14 @@ export function TemplateGallery(props: {
           <Show when={error() !== ''}><p class="template-gallery-state" role="alert">{message('templateGallery.error', { error: error() })}</p></Show>
           <Show when={!loading() && error() === '' && families().length === 0}>
             <p class="template-gallery-state">{message('templateGallery.empty')}</p>
+          </Show>
+          <Show when={!loading() && error() === '' && mountsEmpty()}>
+            <div class="template-gallery-mounts">
+              <p class="template-gallery-state">{message('desktopManagement.folders.description')}</p>
+              <Show when={allowedMountConnection()}>
+                {(connection) => <MountFolderForm connection={connection()} onGranted={() => setMountRefresh((value) => value + 1)} />}
+              </Show>
+            </div>
           </Show>
           <For each={families()}>
             {(family) => (
