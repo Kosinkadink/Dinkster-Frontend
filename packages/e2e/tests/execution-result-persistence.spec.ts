@@ -7,17 +7,17 @@ const CLIENT_ID = 'issue-347-client:local'
 const PRINCIPAL = { principalId: 'issue-347-user', kind: 'human' }
 
 const catalog = {
-  schemaVersion: 32,
+  schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'issue-347-runtime', schemaWire: 32 },
+  dinkster: { version: 'issue-347-runtime', schemaWire: 1 },
   nodes: {
     RuntimeScalar: {
-      schemaVersion: 32, nodeType: 'RuntimeScalar', displayName: 'Runtime Scalar',
+      schemaVersion: 1, nodeType: 'RuntimeScalar', displayName: 'Runtime Scalar',
       category: 'test', signature: 'runtime-scalar-v1',
       interface: [{ role: 'output', id: 'value', type: { kind: 'concrete', types: ['core.float'] } }],
     },
     MathExpression: {
-      schemaVersion: 32, nodeType: 'MathExpression', displayName: 'Math Expression',
+      schemaVersion: 1, nodeType: 'MathExpression', displayName: 'Math Expression',
       category: 'test', outputNode: true, signature: 'math-expression-v1',
       interface: [
         { role: 'input', id: 'x', required: true, type: { kind: 'concrete', types: ['core.float'] },
@@ -28,7 +28,7 @@ const catalog = {
       ],
     },
     OtherBranch: {
-      schemaVersion: 32, nodeType: 'OtherBranch', displayName: 'Other Branch',
+      schemaVersion: 1, nodeType: 'OtherBranch', displayName: 'Other Branch',
       category: 'test', outputNode: true, signature: 'other-branch-v1',
       interface: [
         { role: 'input', id: 'value', required: true, type: { kind: 'concrete', types: ['core.int'] },

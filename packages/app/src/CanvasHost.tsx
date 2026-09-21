@@ -117,7 +117,6 @@ import {
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
-import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -146,7 +145,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { replacementBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -1422,6 +1421,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
+  const extensionRevision = useSignal(props.app.extensionRevision)
   const collabTabs = useSignal(props.app.collabTabs)
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
@@ -2554,6 +2554,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setGridVisible(props.app.settings.get('canvas.grid.visible'))
       repaintMinimap?.()
     })
+    createEffect(() => {
+      extensionRevision()
+      renderer.setCanvasLayers(props.app.canvasLayers.get(), (id, error) => {
+        props.app.reportProblems(`canvas-layer:${id}`, [
+          diag('error', 'extension', 'extension.canvas-layer-failed', `canvas layer '${id}' failed to draw: ${String(error)}`),
+        ])
+      })
+    })
 
     // -- presence egress (shared sessions) ---------------------------------
     // Declared BEFORE the controller: its onSelectionChange callback can
@@ -2745,7 +2753,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const menuRegistry = registry()
       const menuResolve = menuRegistry ? documentResolver(tab.store.doc, menuRegistry.resolve) : undefined
       const targetSchema = targetNode ? menuResolve?.(targetNode.type) : undefined
-      const previewCapable = previewCapabilityOf(menuRegistry, menuResolve)
+      const previewCapable = previewCapabilityOf(menuResolve)
       const mirrorCapable = mirrorCapabilityOf(menuResolve)
       const ctx = canvasMenuContext({
         doc: tab.store.doc,
@@ -4734,6 +4742,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const reg = registry()
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
+      const roleEditor = schema?.editorRole === undefined ? undefined : props.app.editors.forRole(schema.editorRole)
       const descriptors = schema?.items.flatMap((item) => item.kind !== 'section' && item.outputDescriptors?.input === hit.row.valueKey
         ? [item.outputDescriptors] : [])[0]
       const descriptorRevision = tab.store.revision
@@ -4759,23 +4768,29 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             : [])
       })()
 
-      if (spec.widgetType === 'CURVE') {
-        if (curveTarget) props.app.openCurveEditor(curveTarget)
-        return
+      if (roleEditor?.id === CURVE_EDITOR_KIND) {
+        if (curveTarget) {
+          props.app.openCurveEditor(curveTarget)
+          return
+        }
       }
-      if (spec.widgetType === 'COMPOSITOR') {
+      if (roleEditor?.id === IMAGE_EDITOR_KIND && schema?.editorRole === 'compositor') {
         const target = props.app.compositorTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
         )
-        if (target) props.app.openCompositorEditor(target)
-        return
+        if (target) {
+          props.app.openCompositorEditor(target)
+          return
+        }
       }
-      if (hit.node.node.type === BUILTIN_EDITOR_NODE_IDS.glsl && valueKey === 'fragment_shader') {
+      if (roleEditor?.id === GLSL_EDITOR_KIND && valueKey === 'fragment_shader') {
         const target = props.app.glslTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
         )
-        if (target) props.app.openGlslEditor(target)
-        return
+        if (target) {
+          props.app.openGlslEditor(target)
+          return
+        }
       }
 
       // The built-in Boolean view toggles in place. A registered declarative

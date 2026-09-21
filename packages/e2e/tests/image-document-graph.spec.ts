@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'layer-document-test', schemaWire: 40 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'layer-document-test', schemaWire: 1 }, nodes: {},
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')

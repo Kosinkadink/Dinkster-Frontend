@@ -47,9 +47,9 @@ test('a pack static asset and declared settings are available through the native
   await page.route('/api/nodes*', (route) =>
     route.fulfill({
       json: {
-        schemaVersion: 44,
+        schemaVersion: 1,
         epoch: 1,
-        dinkster: { version: 'pack-assets-settings-e2e', schemaWire: 44 },
+        dinkster: { version: 'pack-assets-settings-e2e', schemaWire: 1 },
         packs: {
           'render.pack': { displayName: 'Render Pack', settings: true },
         },
@@ -114,10 +114,8 @@ test('a pack static asset and declared settings are available through the native
     animations: 'disabled',
     fullPage: true,
   })
-  await test
-    .info()
-    .attach('pack-assets-settings', {
-      path: screenshot,
-      contentType: 'image/png',
-    })
+  await test.info().attach('pack-assets-settings', {
+    path: screenshot,
+    contentType: 'image/png',
+  })
 })

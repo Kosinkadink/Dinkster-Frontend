@@ -8,7 +8,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'proof' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 21 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 1 }, nodes: {},
   } }))
   await page.route(/\/view(?:\?|$)/, (route) => {
     const filename = new URL(route.request().url()).searchParams.get('filename') ?? 'unknown.png'

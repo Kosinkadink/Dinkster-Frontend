@@ -31,7 +31,7 @@ import {
   type Scene,
   type SceneNode,
 } from '../src/scene.js'
-import { CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, previewSurfaceAffordanceRect, rerouteTargetKey, sceneVisualBounds, widgetRowAffordanceRect, type PresenceActor } from '../src/renderer.js'
+import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, previewSurfaceAffordanceRect, rerouteTargetKey, sceneVisualBounds, widgetRowAffordanceRect, type PresenceActor } from '../src/renderer.js'
 import {
   BADGE_SIZE,
   badgeRect,
@@ -1616,6 +1616,7 @@ describe('diagnostic paint on the live renderer', () => {
     const frame = (setup?: (r: CanvasRenderer) => void) => {
       const { ctx, calls } = recordingCtx()
       const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+      renderer.setCanvasLayers([canvasGridLayer(defaultTokens)])
       renderer.setScene(empty)
       setup?.(renderer)
       renderer.renderNow()
@@ -1644,6 +1645,88 @@ describe('diagnostic paint on the live renderer', () => {
     const hidden = frame((r) => r.setGridVisible(false))
     expect(hidden.some((c) => c.method === 'fill' && c.fillStyle === gridDot)).toBe(false)
     expect(dotXs(hidden)).toHaveLength(0)
+  })
+
+  it('paints isolated background and foreground layers on opposite sides of the graph', () => {
+    const scene = fixtureScene('clean')
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    renderer.setScene(scene)
+    renderer.setCanvasLayers([
+      {
+        id: 'test.background', position: 'background',
+        draw: ({ context }) => {
+          context.globalAlpha = 0.25
+          context.fillStyle = '#010203'
+          context.fillRect(-11, -12, 1, 1)
+        },
+      },
+      {
+        id: 'test.background-after', position: 'background',
+        draw: ({ context }) => {
+          context.fillStyle = '#040506'
+          context.fillRect(-13, -14, 1, 1)
+        },
+      },
+      {
+        id: 'test.foreground', position: 'foreground',
+        draw: ({ context }) => {
+          context.fillStyle = '#070809'
+          context.fillRect(-15, -16, 1, 1)
+        },
+      },
+    ])
+    renderer.renderNow()
+    renderer.dispose()
+
+    const background = calls.findIndex((call) => call.method === 'fillRect' && call.args[0] === -11)
+    const isolatedBackground = calls.findIndex((call) => call.method === 'fillRect' && call.args[0] === -13)
+    const graph = calls.findIndex((call) =>
+      call.method === 'fillText' && call.args[0] === scene.nodes[0]!.layout.title)
+    const foreground = calls.findIndex((call) => call.method === 'fillRect' && call.args[0] === -15)
+
+    expect(background).toBeGreaterThanOrEqual(0)
+    expect(graph).toBeGreaterThan(background)
+    expect(foreground).toBeGreaterThan(graph)
+    expect(calls[background]!.globalAlpha).toBe(0.25)
+    expect(calls[isolatedBackground]!.globalAlpha).toBe(1)
+  })
+
+  it('freezes layer geometry and reports a failed layer once without stopping siblings', () => {
+    const scene = fixtureScene('clean')
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const failures: string[] = []
+    renderer.setScene(scene)
+    renderer.setCanvasLayers([
+      {
+        id: 'test.failure', position: 'background',
+        draw: () => { throw new Error('paint failed') },
+      },
+      {
+        id: 'test.geometry', position: 'background',
+        draw: ({ context, viewport, nodes }) => {
+          expect(Object.isFrozen(viewport)).toBe(true)
+          expect(Object.isFrozen(nodes)).toBe(true)
+          expect(Object.isFrozen(nodes[0])).toBe(true)
+          expect(nodes[0]).toEqual(expect.objectContaining({
+            id: scene.nodes[0]!.id,
+            x: scene.nodes[0]!.x,
+            y: scene.nodes[0]!.y,
+            width: scene.nodes[0]!.layout.width,
+            height: scene.nodes[0]!.layout.height,
+          }))
+          context.fillRect(-17, -18, 1, 1)
+        },
+      },
+    ], (id) => failures.push(id))
+
+    renderer.renderNow()
+    renderer.renderNow()
+    renderer.dispose()
+
+    expect(failures).toEqual(['test.failure'])
+    expect(calls.filter((call) => call.method === 'fillRect' && call.args[0] === -17)).toHaveLength(2)
   })
 
   it('a clean document paints nothing in the error color', () => {

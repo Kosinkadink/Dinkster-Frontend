@@ -99,4 +99,12 @@ describe('core extension door dogfooding', () => {
       '.editors.register(',
     ])
   })
+
+  it('registers the built-in grid through frontendDoors.canvasLayer', () => {
+    const appState = source('src/app-state.ts')
+    const renderer = source('../canvas/src/renderer.ts')
+    expect(appState).toContain("this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))")
+    expect(renderer).not.toContain('this.drawGrid(')
+    expect(renderer).toContain("this.drawCanvasLayers('background', ctx, view, scale)")
+  })
 })

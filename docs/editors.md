@@ -36,6 +36,8 @@ rewrites or bolted-on views.
 - `id`: the stable kind id tabs reference (`GRAPH_EDITOR_KIND = 'graph'`,
   `APP_EDITOR_KIND = 'app'`, `IMAGE_EDITOR_KIND = 'image'`).
 - `title`: human-readable name.
+- `roles`: backend schema roles that open this editor. A role has one owner;
+  duplicate role registrations refuse loudly.
 - `component`: renders the editor. Mounted once per kind and kept alive
   across same-kind tab switches - the component binds to the active tab
   itself (as CanvasHost does), so per-tab view state such as the canvas
@@ -54,6 +56,11 @@ matches only when every declared field matches; priority is descending and id
 is the deterministic tie-breaker. Core registers its bindings through the same
 door. Opening an extension binding changes the tab's editor kind while keeping
 the shared document session and view state.
+
+Native node schemas carry `editorRole`. Canvas editor entry points resolve that
+role through `EditorRegistry` rather than matching node type IDs, so a new node
+can reuse an editor without a frontend code change. Schema roles also identify
+supporting nodes used by image and layer commands.
 
 ## Rendering
 

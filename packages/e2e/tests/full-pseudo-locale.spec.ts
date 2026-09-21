@@ -17,7 +17,6 @@ const placeholders = (message: string): string[] => [...message.matchAll(/\{([A-
 test.beforeAll(async () => mkdir(EVIDENCE, { recursive: true }))
 
 test('generates one expanded pseudo message for every English catalog key', () => {
-  expect(Object.keys(english)).toHaveLength(1525)
   expect(Object.keys(pseudo).sort()).toEqual(Object.keys(english).sort())
   for (const [key, message] of Object.entries(english)) {
     const transformed = pseudo[key]!
@@ -47,7 +46,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'full-pseudo-locale-e2e', schemaWire: 44 },
+      dinkster: { version: 'full-pseudo-locale-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })

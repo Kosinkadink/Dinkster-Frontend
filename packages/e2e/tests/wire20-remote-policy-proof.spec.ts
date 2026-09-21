@@ -35,9 +35,9 @@ test('proves wire20 manual control policy, CAS, TTL, and phase1 fallback through
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
-    dinkster: { version: 'wire20-remote-policy-proof', schemaWire: 21 },
+    dinkster: { version: 'wire20-remote-policy-proof', schemaWire: 1 },
     nodes: { Wire20RemotePolicyProof: {
-      schemaVersion: 21, nodeType: 'Wire20RemotePolicyProof', displayName: 'Wire 20 Remote Policy',
+      schemaVersion: 1, nodeType: 'Wire20RemotePolicyProof', displayName: 'Wire 20 Remote Policy',
       category: 'test', outputNode: false, signature: 'wire20-remote-policy-proof',
       interface: ['first', 'last', 'edit', 'ttl', 'legacy'].map((id) => ({
         role: 'input', id, required: true,

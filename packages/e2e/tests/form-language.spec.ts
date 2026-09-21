@@ -8,7 +8,7 @@ async function installStartup(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'form-language-e2e', schemaWire: 22 },
+    dinkster: { version: 'form-language-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
@@ -91,7 +91,7 @@ test('runtime fields and actions use the shared panel language', async ({ page }
   await page.route(`${RUNTIME}/api/nodes*`, (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'runtime-form-e2e', schemaWire: 22 },
+    dinkster: { version: 'runtime-form-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route(`${RUNTIME}/api/settings*`, (route) => route.fulfill({ json: {

@@ -7857,6 +7857,38 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .image-document-empty { display: grid; place-content: center; flex: 1; gap: 10px; padding: 40px; color: var(--dinkster-text-secondary); text-align: center; }
 .image-document-empty strong { color: var(--dinkster-text-primary); font-size: 18px; }
 .image-document-empty p { max-width: 480px; margin: 0; }
+
+.graph-editor-with-gallery { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.graph-editor-with-gallery > .canvas-host { width: 100%; height: 100%; }
+.template-gallery { position: absolute; inset: 28px; z-index: 18; display: flex; flex-direction: column; overflow: hidden; border: 1px solid color-mix(in srgb, var(--dinkster-border) 80%, #72a7ce); border-radius: 16px; background: var(--dinkster-surface-canvas); box-shadow: 0 22px 70px rgb(0 0 0 / 45%); }
+.template-gallery-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 22px 24px 18px; border-bottom: 1px solid var(--dinkster-border); background: linear-gradient(120deg, rgb(56 120 166 / 16%), transparent 55%); }
+.template-gallery-header h2 { margin: 3px 0 5px; color: var(--dinkster-text-primary); font-size: 24px; line-height: 1.15; }
+.template-gallery-header p { max-width: 720px; margin: 0; color: var(--dinkster-text-secondary); }
+.template-gallery-kicker { color: #74b8e7; font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.template-gallery-close { flex: none; padding: 8px 13px; border: 1px solid var(--dinkster-border); border-radius: 8px; color: var(--dinkster-text-primary); background: var(--dinkster-surface); }
+.template-gallery-body { flex: 1; overflow: auto; padding: 20px 24px 28px; }
+.template-gallery-state { margin: 40px auto; color: var(--dinkster-text-secondary); text-align: center; }
+.template-family + .template-family { margin-top: 24px; }
+.template-family h3 { margin: 0 0 10px; color: var(--dinkster-text-primary); font-size: 13px; letter-spacing: .02em; }
+.template-family-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+.template-card { display: grid; grid-template-columns: 74px minmax(0, 1fr); width: 100%; min-height: 92px; overflow: hidden; padding: 0; border: 1px solid var(--dinkster-border-strong); border-radius: 10px; color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); text-align: left; transition: border-color 120ms ease, transform 120ms ease, background 120ms ease; }
+.template-card:hover { border-color: #5895bf; background: color-mix(in srgb, var(--dinkster-surface-raised) 82%, #2b668e); transform: translateY(-1px); }
+.template-card:focus-visible { outline: 2px solid #6ab3e5; outline-offset: 2px; }
+.template-card-image { position: relative; display: grid; place-items: center; min-height: 92px; overflow: hidden; background: #17232d; }
+.template-card-image img { width: 100%; height: 100%; object-fit: cover; image-rendering: auto; }
+.template-card-initials { color: #9fcbe8; font-size: 22px; font-weight: 700; }
+.template-card-source { position: absolute; left: 5px; bottom: 5px; padding: 2px 5px; border-radius: 4px; color: #e9f6ff; background: rgb(0 0 0 / 66%); font-size: 9px; font-weight: 650; text-transform: uppercase; }
+.template-card-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 11px 12px; }
+.template-card-copy strong { overflow: hidden; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.template-card-copy > small { display: -webkit-box; overflow: hidden; color: var(--dinkster-text-secondary); font-size: 11px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.template-card-missing { margin-top: auto; color: #eab26d; font-size: 10px; font-weight: 650; }
+.template-card-missing small { display: block; overflow: hidden; margin-top: 2px; color: color-mix(in srgb, var(--dinkster-text-primary) 72%, transparent); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 720px) {
+  .template-gallery { inset: 8px; border-radius: 10px; }
+  .template-gallery-header { padding: 16px; }
+  .template-gallery-body { padding: 16px; }
+  .template-family-grid { grid-template-columns: 1fr; }
+}
 .image-document-tabpanel { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .image-document-editor { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .image-document-toolbar {

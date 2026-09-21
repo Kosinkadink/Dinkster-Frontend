@@ -10,7 +10,7 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'region-inspector-proof', schemaWire: 44 },
+    dinkster: { version: 'region-inspector-proof', schemaWire: 1 },
     packs: {},
     nodes: {},
   } }))

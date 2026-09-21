@@ -23,10 +23,10 @@ test('proves all five wire 19 widget facts through the current live wire', async
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'wire19-proof', schemaWire: 21 },
+    dinkster: { version: 'wire19-proof', schemaWire: 1 },
     packs: { test: { displayName: 'Test' } },
     nodes: { Wire19Proof: {
-      schemaVersion: 21,
+      schemaVersion: 1,
       nodeType: 'Wire19Proof',
       displayName: 'Wire 19 Adoption',
       category: 'test',

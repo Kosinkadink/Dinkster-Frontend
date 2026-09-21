@@ -2,7 +2,7 @@
 
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asPromptId, type DinksterNodesPayload } from '@dinkster/core'
+import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GlslEditor } from '../src/GlslEditor.js'
@@ -14,14 +14,15 @@ layout(location = 0) out vec4 fragColor0;
 void main() { fragColor0 = vec4(0.25); }`
 
 const payload = {
-  schemaVersion: 36,
+  schemaVersion: 1,
   nodes: {
     'dinkster.image.glsl_shader': {
-      schemaVersion: 36,
+      schemaVersion: 1,
       displayName: 'GLSL Shader',
       category: 'image/shader',
       idempotent: false,
       outputNode: true,
+      editorRole: 'glsl',
       interface: [
         {
           role: 'input', id: 'fragment_shader', required: false,
@@ -40,6 +41,10 @@ function mount() {
   const tab = app.tabs.get()[0]!
   app.registry.set(buildDinksterRegistry(asConnectionId('local'), payload))
   const graphId = tab.store.doc.root
+  const seedNodeIds = Object.keys(tab.store.doc.graphs[graphId]!.nodes)
+  if (seedNodeIds.length > 0 && !app.dispatchTo(tab, {
+    command: 'node.remove', params: { graphId, nodeIds: seedNodeIds },
+  }).ok) throw new Error('failed to clear GLSL fixture graph')
   const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
   if (!app.dispatchTo(tab, {
     command: 'node.add',

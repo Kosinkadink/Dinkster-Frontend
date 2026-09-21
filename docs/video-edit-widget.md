@@ -1,10 +1,10 @@
 # Video trim and crop widget
 
 `comfy.VIDEO_EDIT` inputs open a one-track, one-clip editor from the canvas or
-an exposed App view parameter. Native `dinkster.video.trim` and `dinkster.video.crop`
-infer trim-only and crop-only editors from that type; no widget wire-version
-extension is required. Other VIDEO_EDIT schemas can select visible sections
-with the presentation-only `features` list. An open App view editor remains
+an exposed App view parameter. Each schema declares a `VIDEO_EDIT` widget
+descriptor whose presentation-only `features` list selects the visible trim
+and crop sections. The frontend does not infer features from node type IDs.
+An open App view editor remains
 open while shared-workspace tab metadata synchronizes.
 
 Linked literal value-source pills use the same editor and write only their

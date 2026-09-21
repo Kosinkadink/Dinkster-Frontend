@@ -7,7 +7,6 @@
 
 import {
   CORE_VIRTUAL_NODE_KINDS,
-  DINKSTER_ADVERTISED_WIRE_VERSIONS,
   activeLocale,
   analyzeSelectionExecution,
   asConnectionId,
@@ -47,6 +46,7 @@ import {
   type ExtensionEditorKind,
   type EditorBinding,
   type ExtensionPanelContributionV1,
+  type CanvasLayerContribution,
   type FrontendPrivilege,
   stampEnvironment,
   t,
@@ -75,6 +75,7 @@ import {
   replacementInvocation,
   resetMenuContributions,
   scanReplacements,
+  schemaForEditorRole,
   scopeClosure,
   resolvePreviewPolicy,
   semanticHashOf,
@@ -106,6 +107,7 @@ import {
   type NodeOutputSummary,
   type NodeProgress,
   type NodeSchema,
+  type SchemaResolver,
   type Occurrence,
   type NormalizedEvent,
   type ReadonlySignal,
@@ -163,7 +165,7 @@ import {
   SchemaTextCompletionProvider,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { MAX_SCALE, MIN_SCALE, type Viewport } from '@dinkster/canvas'
+import { canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, type Viewport } from '@dinkster/canvas'
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
@@ -193,7 +195,6 @@ import {
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
-import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { DockLayout } from './dock-layout.js'
@@ -204,6 +205,7 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
+import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import { scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
@@ -2338,6 +2340,7 @@ export class AppState {
   readonly menuRegistry = createMenuRegistry()
   readonly searchRegistry = createSearchRegistry()
   readonly searchOpen = createSignal(false)
+  readonly templateGalleryOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
   readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)
   /**
@@ -2391,6 +2394,7 @@ export class AppState {
   readonly editors = new EditorRegistry()
   readonly editorBindings = new EditorBindingRegistry()
   readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
+  readonly canvasLayers = createSignal<readonly CanvasLayerContribution[]>([])
   private readonly extensionEditorIds = new Set<string>()
   readonly frontendDoors = {
     widgetKind: (_id: string, kind: Parameters<typeof this.widgetRegistry.registerKind>[0]): (() => void) =>
@@ -2411,6 +2415,16 @@ export class AppState {
       'component' in panel
         ? this.panels.register(descriptorWithId(id, panel))
         : this.registerExtensionPanel({ ...panel, id }),
+    canvasLayer: (id: string, layer: Omit<CanvasLayerContribution, 'id'>): (() => void) => {
+      const contribution = Object.freeze({ ...layer, id })
+      this.canvasLayers.update((layers) => [...layers, contribution]
+        .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.id.localeCompare(right.id)))
+      this.extensionRevision.update((revision) => revision + 1)
+      return () => {
+        this.canvasLayers.update((layers) => layers.filter((candidate) => candidate !== contribution))
+        this.extensionRevision.update((revision) => revision + 1)
+      }
+    },
   }
   /**
    * Pack frontend contributions and per-contribution gating: packs enumerate
@@ -2428,7 +2442,16 @@ export class AppState {
   private resolverWithVirtualNodes(fallback: CompileInput['resolve']): CompileInput['resolve'] {
     let resolver = this.virtualSchemaResolvers.get(fallback)
     if (resolver === undefined) {
-      resolver = (type) => this.virtualNodeSchema(type) ?? fallback(type)
+      resolver = Object.assign(
+        (type: string) => this.virtualNodeSchema(type) ?? fallback(type),
+        {
+          forEditorRole: (role: string) =>
+            schemaForEditorRole(
+              [...this.virtualNodeKinds.values()].map((kind) => kind.schema),
+              role,
+            ) ?? fallback.forEditorRole?.(role),
+        },
+      )
       this.virtualSchemaResolvers.set(fallback, resolver)
     }
     return resolver
@@ -2458,6 +2481,7 @@ export class AppState {
     registerEditorBinding: (binding) => this.frontendDoors.editorBinding(binding.id, binding),
     registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
     registerVirtualNode: (kind) => this.registerVirtualNode(kind),
+    registerCanvasLayer: (layer) => this.frontendDoors.canvasLayer(layer.id, layer),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()
@@ -2845,6 +2869,14 @@ export class AppState {
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.controlSurfaces.enabled', get name() { return t('settings.features.controlSurfaces') }, type: 'boolean', defaultValue: false })
+    this.settings.register({
+      id: 'templates.registryUrl',
+      get name() { return t('settings.templates.registryUrl.name') },
+      get description() { return t('settings.templates.registryUrl.description') },
+      category: 'templates',
+      type: 'string',
+      defaultValue: '',
+    })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
@@ -2909,6 +2941,11 @@ export class AppState {
     })
     register('workflow.open', 'command.workflow.open', 'Ctrl+O', () => {
       setPanelOpen(this.panels, this.dock, 'library', 'left', true)
+    })
+    this.frontendDoors.command('workflow.openTemplateGallery', {
+      get label() { return t('command.workflow.openTemplateGallery') },
+      run: () => this.templateGalleryOpen.set(true),
+      enabled: () => activeTabNow() !== undefined && activeTabNow()?.execution === undefined,
     })
     this.frontendDoors.command('workflow.importFile', {
       get label() { return t('command.workflow.importFile') },
@@ -3006,6 +3043,7 @@ export class AppState {
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
+    this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     registerCoreWidgets(this.frontendDoors)
     registerCoreWidgetEditors(this.widgetRegistry)
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
@@ -3595,10 +3633,15 @@ export class AppState {
   private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
-    const resolve = this.resolverWithVirtualNodes((type) => {
+    const registry = (): SchemaRegistry | undefined => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
-      return live ? this.registryForTab(live)?.resolve(type) : undefined
-    })
+      return live ? this.registryForTab(live) : undefined
+    }
+    const resolve = this.resolverWithVirtualNodes(
+      Object.assign((type: string) => registry()?.resolve(type), {
+        forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
+      }),
+    )
     let session: SharedDocumentSession | undefined
     try {
       session = await connectSharedWorkerSession(
@@ -4002,7 +4045,7 @@ export class AppState {
             const goal = targetEpoch
             const gen = staleGen // a fetch issued now observes this server life
             attemptGen = gen
-            const fresh = await connection.fetchSchemas(this.schemaWireVersionsFor(nativeBackend))
+            const fresh = await connection.fetchSchemas()
             // A reconnect landed mid-fetch: this response may belong to the
             // PREVIOUS server life. Never commit it - committing would
             // restore capabilities the strip below just invalidated - loop
@@ -4211,10 +4254,7 @@ export class AppState {
         found.kind === 'v1' ? 'v1' : 'dinkster',
       )
     }
-    const message =
-      found.kind === 'dinkster-incompatible'
-        ? `'${trimmed}' is a Dinkster server, but this build decodes schema wire ${DINKSTER_ADVERTISED_WIRE_VERSIONS.join(', ')} and the server encodes ${found.supported.join(', ') || 'none of them'}`
-        : `'${trimmed}': ${found.detail}`
+    const message = `'${trimmed}': ${found.detail}`
     this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
       diag('error', 'schema', `backend.${found.kind}`, message),
     ])
@@ -4827,13 +4867,6 @@ export class AppState {
     const backend = this.backendFor(id)
     if (!tab || tab.execution || !backend) return
     this.tabTargets.update((m) => new Map(m).set(tabId, id))
-    if (
-      backend.protocol === 'dinkster' &&
-      this.documentNeedsWire43(tab.store.doc) &&
-      backend.registry.get()?.resolve(BUILTIN_EDITOR_NODE_IDS.routeSwitchByName) === undefined
-    ) {
-      void this.loadBackendSchemas(backend)
-    }
     // The new target's schemas now interpret the document: re-arm the
     // legacy-boolean pass (idempotent; see legacyBooleanPending). The tick
     // below drains it once the target's registry is available.
@@ -4891,12 +4924,13 @@ export class AppState {
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[selectedNodeIds[0]!]
     if (!graph || !node) return undefined
-    if (node.type === BUILTIN_EDITOR_NODE_IDS.maskPaint) {
+    const resolve = this.registryForTab(tab)?.resolve
+    if (resolve?.(node.type)?.editorRole === 'mask-paint') {
       const loaderNodeId = maskPaintSourceNodeId(node)
       return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
     }
     const candidates = imageInputCandidates({
-      schema: this.registryForTab(tab)?.resolve(node.type),
+      schema: resolve?.(node.type),
       nodeId: node.id,
       values: node.values,
       drivenInputIds: new Set([
@@ -4916,10 +4950,10 @@ export class AppState {
     const loader = graph?.nodes[candidate.nodeId]
     const registry = this.registryForTab(tab)
     const loaderSchema = loader ? registry?.resolve(loader.type) : undefined
-    const paintSchema = registry?.resolve(BUILTIN_EDITOR_NODE_IDS.maskPaint)
+    const paintSchema = registry?.resolve.forEditorRole?.('mask-paint')
     if (!graph) return base
     const associated = Object.values(graph.nodes).filter((node) =>
-      node.type === BUILTIN_EDITOR_NODE_IDS.maskPaint && maskPaintSourceNodeId(node) === candidate.nodeId)
+      registry?.resolve(node.type)?.editorRole === 'mask-paint' && maskPaintSourceNodeId(node) === candidate.nodeId)
     if (associated.length > 1) return undefined
     const paint = associated[0]
     const paintSource = paint?.values.source
@@ -4928,7 +4962,7 @@ export class AppState {
         !paintRecipe || paintRecipe.sourceDigest !== candidate.sourceRef.digest)) return undefined
     const hasOccurrenceTopology = Object.values(tab.store.doc.occurrenceTopologies ?? {})
       .some((topology) => topology.bodyGraph === graphId)
-    if (loader?.type !== BUILTIN_EDITOR_NODE_IDS.loadImage || candidate.inputId !== 'image' || hasOccurrenceTopology ||
+    if (loaderSchema?.editorRole !== 'image-source' || candidate.inputId !== 'image' || hasOccurrenceTopology ||
         schemaPortType(loaderSchema, 'input', 'image') !== 'asset<dinkster.image>' ||
         schemaPortType(loaderSchema, 'output', 'image') !== 'dinkster.image' ||
         schemaPortType(loaderSchema, 'output', 'mask') !== 'dinkster.mask' ||
@@ -4959,7 +4993,7 @@ export class AppState {
     if (tab.execution !== undefined) return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
-    if (node?.type === BUILTIN_EDITOR_NODE_IDS.maskPaint && inputId === 'source') {
+    if (node && this.registryForTab(tab)?.resolve(node.type)?.editorRole === 'mask-paint' && inputId === 'source') {
       const loaderNodeId = maskPaintSourceNodeId(node)
       return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
     }
@@ -5097,7 +5131,7 @@ export class AppState {
     const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
     const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
     if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    if (driven && graph && node?.type === BUILTIN_EDITOR_NODE_IDS.curve) {
+    if (driven && graph && node && resolve?.(node.type)?.editorRole === 'curve') {
       const sources = companionSourcesOf(graph, undefined, undefined, resolve)
       const envelopeSource = sources.get(nodeId)?.get(inputId)
       const envelope = envelopeSource?.kind === 'producer' && envelopeSource.output === 'curve'
@@ -5105,7 +5139,7 @@ export class AppState {
         : undefined
       const envelopeCurve = envelope && resolve?.(envelope.type)?.items.find((item) =>
         item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'dinkster.curve')
-      const audioSource = envelope?.type === BUILTIN_EDITOR_NODE_IDS.audioEnvelope
+      const audioSource = envelope && resolve?.(envelope.type)?.editorRole === 'audio-envelope'
         ? sources.get(envelope.id)?.get('audio')
         : undefined
       const audio = audioSource?.kind === 'producer' ? graph.nodes[audioSource.node] : undefined
@@ -5181,8 +5215,8 @@ export class AppState {
     if (tab.execution !== undefined || inputId !== 'fragment_shader') return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
-    if (node?.type !== BUILTIN_EDITOR_NODE_IDS.glsl) return undefined
     const resolver = this.registryForTab(tab)?.resolve
+    if (!node || resolver?.(node.type)?.editorRole !== 'glsl') return undefined
     const input = resolver?.(node.type)?.items.find((item) =>
       item.kind === 'input' && item.id === inputId)
     const definitionDriven = graph && (Object.values(graph.links).some((link) =>
@@ -5276,13 +5310,18 @@ export class AppState {
     store?: DocumentSession,
     initialRegistry?: SchemaRegistry,
   ): Tab {
-    const resolve = this.resolverWithVirtualNodes((type) => {
+    const registry = (): SchemaRegistry | undefined => {
       // Frozen tabs resolve with their execution's compile-time registry; a
       // lineage lookup would hand them the LIVE tab's current schemas.
-      if (execution) return this.registryForExecution(execution)?.resolve(type)
+      if (execution) return this.registryForExecution(execution)
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
-      return (tab ? this.registryForTab(tab) : initialRegistry)?.resolve(type)
-    })
+      return tab ? this.registryForTab(tab) : initialRegistry
+    }
+    const resolve = this.resolverWithVirtualNodes(
+      Object.assign((type: string) => registry()?.resolve(type), {
+        forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
+      }),
+    )
     return {
       id: execution ? `frozen:${executionKey(execution)}` : document.lineage,
       title,
@@ -5770,15 +5809,20 @@ export class AppState {
     // and errors need ingress, which needs the session to exist.
     let owner: string | undefined
     const report = (d: Diagnostic) => this.reportProblems(owner ?? GLOBAL_PROBLEMS_OWNER, [d])
-    const resolve = this.resolverWithVirtualNodes((type) => {
+    const sessionRegistry = (): SchemaRegistry | undefined => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
-      return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-    })
+      return tab ? this.registryForTab(tab) : undefined
+    }
+    const sessionResolver = this.resolverWithVirtualNodes(
+      Object.assign((type: string) => sessionRegistry()?.resolve(type), {
+        forEditorRole: (role: string) => sessionRegistry()?.resolve.forEditorRole?.(role),
+      }),
+    )
     let session: SharedDocumentSession
     try {
-      session = await connectSharedSession(connection, coreCommandRegistry([], resolve), {
+      session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
-        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
+        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
             `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
@@ -6095,14 +6139,6 @@ export class AppState {
     this.legacyBooleanPending.add(tab.id)
     this.drainLegacyBooleans() // immediate when schemas are already loaded
     this.drainUpgrades()
-    const backend = this.backendForTab(tab)
-    if (
-      backend.protocol === 'dinkster' &&
-      this.documentNeedsWire43(document) &&
-      backend.registry.get()?.resolve(BUILTIN_EDITOR_NODE_IDS.routeSwitchByName) === undefined
-    ) {
-      void this.loadBackendSchemas(backend)
-    }
     if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
     return []
   }
@@ -6594,11 +6630,41 @@ export class AppState {
         return false
       }
       const tab = this.activeTab()
-      if (tab) this.setTabTarget(tab.id, backend.id)
+      if (tab) {
+        this.setTabTarget(tab.id, backend.id)
+        void this.offerImportAssetResolution(tab, backend, [])
+      }
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', `failed to open template: ${e instanceof Error ? e.message : String(e)}`)])
+      }
+      return false
+    }
+  }
+
+  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
+    const backend = this.libraryBackend()
+    if (backend?.protocol !== 'dinkster') return false
+    const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
+    try {
+      const document = await catalog.fetchBody(template)
+      if (!this.ownerStillLive(backend) || document === undefined) return false
+      if (this.openDocument(document, title, backend).length > 0) return false
+      const tab = this.activeTab()
+      if (tab) {
+        this.setTabTarget(tab.id, backend.id)
+        void this.offerImportAssetResolution(tab, backend, [])
+      }
+      return true
+    } catch (error) {
+      if (this.ownerStillLive(backend)) {
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+          'error',
+          'validation',
+          'template.openFailed',
+          `failed to open remote template: ${error instanceof Error ? error.message : String(error)}`,
+        )])
       }
       return false
     }
@@ -6960,10 +7026,14 @@ export class AppState {
   private layerExtraSchemas(reg: SchemaRegistry): SchemaRegistry {
     if (this.extraSchemas.size === 0) return reg
     const extras = new Map(this.extraSchemas)
+    const schemas = new Map([...reg.schemas, ...extras])
+    const resolve = Object.assign((type: string) => extras.get(type) ?? reg.resolve(type), {
+      forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+    })
     return {
       ...reg,
-      schemas: new Map([...reg.schemas, ...extras]),
-      resolve: (type) => extras.get(type) ?? reg.resolve(type),
+      schemas,
+      resolve,
     }
   }
 
@@ -6975,7 +7045,7 @@ export class AppState {
       !this.disposed &&
       this.backends.get().includes(backend) &&
       backend.connection.currentRegistry === base
-    if (base === undefined || base.server?.schemaWire !== 44 || base.packs === undefined) return
+    if (base === undefined || base.packs === undefined) return
     const locale = activeLocale.get().tag
     const catalogsByPack = new Map<string, readonly PackLocaleCatalog[]>()
     await Promise.all([...base.packs].map(async ([packId, pack]) => {
@@ -6995,6 +7065,7 @@ export class AppState {
       if (catalogs.length > 0) catalogsByPack.set(packId, catalogs)
     }))
     if (!current() || activeLocale.get().tag !== locale) return
+    if (catalogsByPack.size === 0) return
     backend.registry.set(this.layerExtraSchemas(overlayPackLocales(base, catalogsByPack)))
     backend.invalidateRemoteChoices()
   }
@@ -7212,21 +7283,6 @@ export class AppState {
     )
   }
 
-  private documentNeedsWire43(document: WorkflowDocument): boolean {
-    return Object.values(document.graphs).some((graph) =>
-      Object.values(graph.nodes).some((node) => node.type === BUILTIN_EDITOR_NODE_IDS.routeSwitchByName),
-    )
-  }
-
-  private schemaWireVersionsFor(backend: Backend): readonly number[] | undefined {
-    if (backend.protocol !== 'dinkster') return undefined
-    return this.tabs.get().some((tab) =>
-      tab.execution === undefined &&
-      this.backendForTab(tab) === backend &&
-      this.documentNeedsWire43(tab.store.doc),
-    ) ? [43, 44] : undefined
-  }
-
   /** Fetch schemas (+ native diagnostics); failures land in Problems - except
    * the supervisor's engine-not-ready gate, which the supervisor poll narrates
    * (and retries on ready) instead of a scary fetch-failed problem. */
@@ -7238,9 +7294,7 @@ export class AppState {
     const current = (): boolean =>
       this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request
     try {
-      const registry = backend.protocol === 'dinkster'
-        ? await backend.connection.fetchSchemas(this.schemaWireVersionsFor(backend))
-        : await backend.connection.fetchSchemas()
+      const registry = await backend.connection.fetchSchemas()
       if (!current()) return
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return
