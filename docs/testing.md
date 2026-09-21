@@ -34,6 +34,9 @@ The subset uses synthetic inputs and checked-in fixtures:
 - Core `dinkster-inline-value.test.ts`: scalar event decoding and invalid inputs.
 - E2E `ci-workflow.test.ts`: workflow triggers, unit selection, credentials
   and browser-isolation contracts.
+- E2E `starter-execution-support.test.ts`: the starter execution matrix and
+  the `DINKSTER_STARTER_OVERRIDES` file-contract validation used by the
+  opt-in `tests/starter-execution-live.spec.ts` live harness.
 - App `extension-dogfooding.test.ts`: built-in widget, command, and editor
   registrations use the same public doors available to packs.
 - `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,

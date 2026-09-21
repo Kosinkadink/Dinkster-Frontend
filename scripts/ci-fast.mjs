@@ -46,6 +46,14 @@ for (const args of [
   ],
   [
     '--filter',
+    '@dinkster/e2e',
+    'exec',
+    'vitest',
+    'run',
+    'test/starter-execution-support.test.ts',
+  ],
+  [
+    '--filter',
     '@dinkster/app',
     'exec',
     'vitest',
