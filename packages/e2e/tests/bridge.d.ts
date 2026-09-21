@@ -460,6 +460,7 @@ interface DinksterTestBridge {
   }
   renderer?: {
     fitToScene(margin?: number): void
+    getDetailLevel(): 'overview' | 'content' | 'controls'
     getViewport(): { x: number; y: number; scale: number }
     setViewport(viewport: { x: number; y: number; scale: number }): void
     /** Grid preference as the renderer holds it (canvas.grid.visible). */

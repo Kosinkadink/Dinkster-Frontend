@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   expect,
@@ -125,6 +125,29 @@ async function connect(page: Page): Promise<string> {
   return owner;
 }
 
+async function connectNativeFrontend(page: Page): Promise<string> {
+  const frontend = process.env["DINKSTER_E2E_NATIVE_FRONTEND"];
+  if (frontend === undefined)
+    throw new Error("DINKSTER_E2E_NATIVE_FRONTEND is required");
+  await page.goto(frontend);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window
+          .__dinksterTest?.app.backends.get()
+          .find((backend) => backend.protocol === "dinkster")?.registry.get(),
+      ),
+    )
+    .toBeDefined();
+  return page.evaluate(() => {
+    const backend = window
+      .__dinksterTest!.app.backends.get()
+      .find((candidate) => candidate.protocol === "dinkster");
+    if (backend === undefined) throw new Error("native backend was not discovered");
+    return backend.id;
+  });
+}
+
 async function errorProblems(page: Page): Promise<readonly string[]> {
   return page.evaluate(() =>
     window
@@ -135,7 +158,7 @@ async function errorProblems(page: Page): Promise<readonly string[]> {
 }
 
 async function makeModelsAvailable(page: Page): Promise<void> {
-  await page.route(`${NATIVE_BACKEND}/api/assets/guess`, async (route) => {
+  await page.route("**/api/assets/guess", async (route) => {
     const request = route.request().postDataJSON() as { names: string[] };
     await route.fulfill({
       json: {
@@ -230,6 +253,62 @@ test("all starter families load through the current wire with zero problem-panel
     expect(await errorProblems(page), template.family).toEqual([]);
     await expect(panelErrors, template.family).toHaveCount(0);
   }
+});
+
+test("the Stable Diffusion 1.5 starter opens with readable node detail at 1280x800", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const templates = await starterTemplates();
+  test.skip(
+    templates === undefined,
+    `no native Dinkster backend reachable at ${NATIVE_BACKEND}`,
+  );
+  const template = templates?.find(
+    (candidate) => candidate.family === "dinkster.sd15",
+  );
+  test.skip(
+    template === undefined,
+    `native backend at ${NATIVE_BACKEND} has no SD 1.5 starter`,
+  );
+
+  const owner = await connectNativeFrontend(page);
+  await makeModelsAvailable(page);
+  expect(
+    await page.evaluate(
+      ({ ownerId, row }) =>
+        window.__dinksterTest!.app.openTemplate(
+          row.pack,
+          row.id,
+          row.name,
+          ownerId,
+        ),
+      { ownerId: owner, row: template! },
+    ),
+  ).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        lineage: window.__dinksterTest!.app.activeTab()?.store.doc.lineage,
+        detail: window.__dinksterTest!.renderer?.getDetailLevel(),
+      })),
+    )
+    .toMatchObject({
+      lineage: `starter-${template!.id}`,
+      detail: "content",
+    });
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__dinksterTest!.renderer?.getViewport().scale),
+    )
+    .toBeGreaterThanOrEqual(0.5);
+  const screenshot = await page.screenshot({ animations: "disabled" });
+  await testInfo.attach("sd15-starter-opened-1280x800", {
+    body: screenshot,
+    contentType: "image/png",
+  });
+  if (proofDir !== undefined)
+    writeFileSync(join(proofDir, "sd15-starter-opened-1280x800.png"), screenshot);
 });
 
 test("the all-family problem assertion rejects a malformed starter", async ({
