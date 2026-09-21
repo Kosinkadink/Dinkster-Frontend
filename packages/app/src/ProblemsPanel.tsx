@@ -196,7 +196,11 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                     <div class="inference-unavailable-reason">{unavailable.reason}</div>
                     <For each={unavailable.providers}>
                       {(provider) => (
-                        <div class="inference-unavailable-provider">{`${provider.registry}.${provider.id}`}</div>
+                        <div class="inference-unavailable-provider">
+                          {/* Zero-width space after each dot: dot-separated
+                              ids wrap after a boundary, never mid-word. */}
+                          {((`${provider.registry}.${provider.id}` as string).replaceAll('.', '.\u200B'))}
+                        </div>
                       )}
                     </For>
                   </div>

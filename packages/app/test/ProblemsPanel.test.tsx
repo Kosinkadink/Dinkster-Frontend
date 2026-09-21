@@ -241,8 +241,10 @@ describe('ProblemsPanel', () => {
     expect(html).toContain('<strong>pack.degraded</strong>')
     expect(html).toContain('<strong>pack.other</strong>')
     expect(html).toContain(reason)
-    expect(html).toContain('sampler.euler')
-    expect(html).toContain('scheduler.beta')
+    // Provider ids render with a zero-width space after each dot so long
+    // ids wrap on boundaries.
+    expect(html).toContain('sampler.\u200Beuler')
+    expect(html).toContain('scheduler.\u200Bbeta')
     expect(html).not.toContain('data-activatable')
     expect(html).not.toContain('None.')
   })
