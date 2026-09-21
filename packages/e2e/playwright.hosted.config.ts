@@ -3,6 +3,15 @@ import { resolve } from 'node:path'
 import { defineConfig } from '@playwright/test'
 import baseConfig from './playwright.config.js'
 
+const argumentProject = process.argv
+  .find((arg) => arg.startsWith('--project='))
+  ?.slice('--project='.length)
+if (argumentProject) process.env['DINKSTER_E2E_PROJECT'] = argumentProject
+const selectedProject =
+  argumentProject ?? process.env['DINKSTER_E2E_PROJECT']
+const stubV1Entry = selectedProject === 'native-without-v1' ? '1' : '0'
+const stockV1Only = selectedProject === 'v1-compatibility'
+const probeV1 = stubV1Entry === '1' ? '0' : '1'
 // Route-mocked specs stay on v1 even when live native coverage is enabled.
 process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'
 
@@ -16,7 +25,13 @@ const requiredDirectory = (name: string): string => {
 
 const port = (name: string, fallback: number): number => {
   const value = Number(process.env[name] ?? fallback)
-  if (!Number.isSafeInteger(value) || value < 1024 || value > 65535 || value === 5199 || value === 8765) {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1024 ||
+    value > 65535 ||
+    value === 5199 ||
+    value === 8765
+  ) {
     throw new Error(`${name} must be a valid unprotected port`)
   }
   return value
@@ -27,27 +42,42 @@ const comfyRoot = requiredDirectory('DINKSTER_E2E_COMFY_ROOT')
 const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
 const nativeOutput = resolve(nativeLibrary, 'output')
-rmSync(nativeLibrary, { recursive: true, force: true })
-mkdirSync(nativeOutput, { recursive: true })
-mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
-writeFileSync(resolve(nativeLibrary, 'mounts.toml'), `[settings]\noutput-mount = "output"\n\n[mounts.output]\npath = ${JSON.stringify(nativeOutput)}\nmode = "readwrite"\n`)
-const checkpointFixture = resolve(comfyRoot, 'models/checkpoints/audit-local-checkpoint.safetensors')
+if (argumentProject) {
+  rmSync(nativeLibrary, { recursive: true, force: true })
+  mkdirSync(nativeOutput, { recursive: true })
+  mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
+  writeFileSync(
+    resolve(nativeLibrary, 'mounts.toml'),
+    `[settings]\noutput-mount = "output"\n\n[mounts.output]\npath = ${JSON.stringify(nativeOutput)}\nmode = "readwrite"\n`,
+  )
+}
+const checkpointFixture = resolve(
+  comfyRoot,
+  'models/checkpoints/audit-local-checkpoint.safetensors',
+)
 mkdirSync(resolve(comfyRoot, 'models/checkpoints'), { recursive: true })
 writeFileSync(checkpointFixture, 'Dinkster hosted E2E checkpoint fixture\n')
 const frontendPort = port('DINKSTER_E2E_PORT', 5410)
 const comfyPort = port('DINKSTER_E2E_COMFY_PORT', 5411)
 const nativePort = port('DINKSTER_E2E_NATIVE_PORT', 5412)
-const nativeFrontendPort = port('DINKSTER_E2E_NATIVE_FRONTEND_PORT', frontendPort + 3)
-if (new Set([frontendPort, comfyPort, nativePort, nativeFrontendPort]).size !== 4) throw new Error('hosted E2E ports must differ')
+const nativeFrontendPort = port(
+  'DINKSTER_E2E_NATIVE_FRONTEND_PORT',
+  frontendPort + 3,
+)
+if (
+  new Set([frontendPort, comfyPort, nativePort, nativeFrontendPort]).size !== 4
+)
+  throw new Error('hosted E2E ports must differ')
 const nativeBackend = `http://127.0.0.1:${nativePort}`
-process.env['DINKSTER_E2E_NATIVE_FRONTEND'] = `http://127.0.0.1:${nativeFrontendPort}`
+process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
+  `http://127.0.0.1:${nativeFrontendPort}`
 
 export default defineConfig({
   ...baseConfig,
-  globalSetup: './hosted-global-setup.ts',
+  ...(stockV1Only ? {} : { globalSetup: './hosted-global-setup.ts' }),
   use: {
     ...baseConfig.use,
-    baseURL: `http://127.0.0.1:${frontendPort}`,
+    baseURL: `http://127.0.0.1:${stubV1Entry === '1' ? nativeFrontendPort : frontendPort}`,
   },
   webServer: [
     {
@@ -66,6 +96,7 @@ export default defineConfig({
         '--disable-p2p',
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
+        `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,
         `--library-root ${JSON.stringify(nativeLibrary)}`,
         '--execution-cache-mode memory',
         '--allow-mount-changes',
@@ -85,7 +116,8 @@ export default defineConfig({
         ...process.env,
         DINKSTER_BACKEND: `http://127.0.0.1:${comfyPort}`,
         DINKSTER_NATIVE_BACKEND: nativeBackend,
-        VITE_DINKSTER_E2E_PROBE_V1: '1',
+        DINKSTER_STUB_V1_ENTRY: stubV1Entry,
+        VITE_DINKSTER_E2E_PROBE_V1: probeV1,
       },
       url: `http://127.0.0.1:${frontendPort}`,
       reuseExistingServer: false,
@@ -97,6 +129,7 @@ export default defineConfig({
       env: {
         ...process.env,
         DINKSTER_NATIVE_BACKEND: nativeBackend,
+        DINKSTER_STUB_V1_ENTRY: stubV1Entry,
         VITE_DINKSTER_E2E_PROBE_V1: '0',
       },
       url: `http://127.0.0.1:${nativeFrontendPort}`,
