@@ -2,7 +2,7 @@
 
 ## Fast pull-request checks
 
-`.github/workflows/ci.yml` runs exactly one job with a five-minute limit.
+`.github/workflows/ci.yml` runs exactly one job with a ten-minute limit.
 After `pnpm install --frozen-lockfile`, reproduce it with:
 
 ```bash

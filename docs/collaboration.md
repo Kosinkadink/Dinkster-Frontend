@@ -114,15 +114,10 @@ a secret) or `--token`. Revoke it from the same panel. Expiry is capped by
 the user's JWT expiry. The server stores only token hashes in bounded memory;
 server restart revokes all delegations. Never give the agent the user's full JWT.
 
-The human-operated CLI login also accepts private credential files:
-
-```sh
-pnpm --filter @dinkster/agent-host exec tsx src/main.ts --base-url http://127.0.0.1:8765 login --scope shared --session-token-file /private/user-session --token-file /private/agent-delegation
-```
-
-Login exclusively creates the output file with mode 0600 and does not print
-the credential. Load that file into the agent's environment outside recorded
-commands. `@dinkster/agent-host` CLI, MCP and `headless-demo` accept the token.
+The external agent host's
+[authentication instructions](https://github.com/Kosinkadink/dinkster-agent-host#authentication)
+cover private credential files and CLI, MCP, and API usage. The headless
+collaboration example also accepts the delegation token.
 `CollabHttpConnection` accepts `{token, actorKind}`; HTTP uses Bearer authorization
 and each WebSocket connection mints a fresh single-use `/api/auth/ws-ticket`.
 Missing credentials against an authenticated server fail with a diagnostic,
