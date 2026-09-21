@@ -52,6 +52,7 @@ for (const args of [
     'vitest',
     'run',
     'test/extension-dogfooding.test.ts',
+    'test/extension-world.test.ts',
   ],
   [
     'exec',
