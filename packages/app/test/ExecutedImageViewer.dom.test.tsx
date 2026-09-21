@@ -122,6 +122,7 @@ describe('ExecutedImageViewer', () => {
     const reveal = vi.fn()
     const mounted = mount(1, reveal)
     expect(mounted.root.querySelector('.output-facts')?.textContent).toContain('mounts/output/ComfyUI_00001.png')
+    expect(mounted.root.querySelectorAll('.output-facts wbr')).toHaveLength(2)
     const revealButton = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Show in folder')
     revealButton!.click()
     expect(reveal).toHaveBeenCalledWith(images[1])

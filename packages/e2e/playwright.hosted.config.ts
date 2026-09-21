@@ -67,6 +67,7 @@ export default defineConfig({
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--library-root ${JSON.stringify(nativeLibrary)}`,
+        '--execution-cache-mode memory',
         '--allow-mount-changes',
         `--comfy-root ${JSON.stringify(comfyRoot)}`,
         `--comfy-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,

@@ -101,7 +101,9 @@ export function ExecutedImageFacts(props: {
       </>}</Show>
       <Show when={props.dimensions}>{(dimensions) => <div><dt>Resolution</dt><dd>{dimensions().width} x {dimensions().height}</dd></div>}</Show>
       <Show when={props.image.name}><div><dt>Name</dt><dd>{props.image.name}</dd></div></Show>
-      <Show when={props.image.virtualPath}><div><dt>{message('outputFile.writtenPath')}</dt><dd>{props.image.virtualPath}</dd></div></Show>
+      <Show when={props.image.virtualPath}>{(virtualPath) => <div><dt>{message('outputFile.writtenPath')}</dt><dd>
+        <For each={virtualPath().split('/')}>{(segment, index) => <>{index() > 0 && <><span>/</span><wbr /></>}{segment}</>}</For>
+      </dd></div>}</Show>
       <Show when={props.image.digest}>{(digest) => <div><dt>Asset digest</dt><dd><DigestValue digest={digest()} /></dd></div>}</Show>
       <Show when={props.image.subfolder !== undefined}><div><dt>Subfolder</dt><dd>{props.image.subfolder || '(root)'}</dd></div></Show>
       <Show when={props.image.fileType}><div><dt>File type</dt><dd>{props.image.fileType}</dd></div></Show>

@@ -13,7 +13,7 @@ if (!nativeFrontend)
   throw new Error(
     "DINKSTER_E2E_NATIVE_FRONTEND must identify the native-only frontend",
   );
-test.use({ baseURL: nativeFrontend });
+test.use({ baseURL: nativeFrontend, viewport: { width: 1600, height: 900 } });
 const frontendRoot = resolve(import.meta.dirname, "../../..");
 const library = resolve(frontendRoot, ".ci/native-library");
 const alternateOutput = resolve(library, "renders");
@@ -166,6 +166,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     { timeout: 15_000 },
   );
   await page.getByRole("tab", { name: "Outputs" }).click();
+  await page.getByTestId("rail-resize").press("End");
   await expect(page.getByTestId("outputs-panel")).toContainText(
     "mounts/output/ComfyUI_00001.png",
   );
