@@ -19,12 +19,11 @@ import {
   asSelectorId,
   documentResolver,
   loadDocument,
-  parseObjectInfo,
   type NodeProgress,
   type NodeSchema,
-  type ObjectInfoEntry,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { auditScene } from '../src/scene-audit.js'
 import {
   buildScene,

@@ -15,11 +15,10 @@ import {
   asPortId,
   documentResolver,
   loadDocument,
-  parseObjectInfo,
   type NodeSchema,
-  type ObjectInfoEntry,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import {
   buildScene,
   GROUP_HEADER_HEIGHT,

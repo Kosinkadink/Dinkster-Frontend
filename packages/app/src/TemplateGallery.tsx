@@ -1,8 +1,9 @@
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
 import type { CollectionEntry } from '@dinkster/core'
 import type { AppState } from './app-state.js'
 import { initialsOf, templatesSource, type TemplateCollectionRef } from './collections.js'
 import { useAppMessage } from './locale.js'
+import { SearchInput } from './SearchSurface.js'
 import { useSignal } from './solid-adapter.js'
 
 interface TemplateFamily {
@@ -25,8 +26,11 @@ export function TemplateGallery(props: {
   const backendTick = useSignal(props.app.backendsTick)
   const settingsTick = useSignal(props.app.settings.changed)
   const [entries, setEntries] = createSignal<readonly CollectionEntry[]>([])
+  const [query, setQuery] = createSignal('')
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
+  const resultsId = createUniqueId()
+  const searchDescriptionId = createUniqueId()
   let request = 0
 
   createEffect(() => {
@@ -36,7 +40,7 @@ export function TemplateGallery(props: {
     const generation = ++request
     setLoading(true)
     setError('')
-    void templatesSource(props.app).page({ query: '', limit: 500 }).then((page) => {
+    void templatesSource(props.app).page({ query: query(), limit: 500 }).then((page) => {
       if (generation !== request) return
       setEntries(page.items)
       setLoading(false)
@@ -85,48 +89,73 @@ export function TemplateGallery(props: {
           </button>
         </header>
         <div class="template-gallery-body">
+          <div class="template-gallery-search">
+            <SearchInput
+              value={query()}
+              placeholder={message('templateGallery.search.placeholder')}
+              controls={resultsId}
+              describedBy={searchDescriptionId}
+              busy={loading()}
+              ariaLabel={message('templateGallery.search.label')}
+              testId="template-gallery-search"
+              clearTestId="template-gallery-search-clear"
+              onClear={() => setQuery('')}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query() !== '') {
+                  event.preventDefault()
+                  setQuery('')
+                }
+              }}
+            />
+            <span id={searchDescriptionId} class="collection-search-description">
+              {message('templateGallery.search.description')}
+            </span>
+          </div>
           <Show when={loading()}><p class="template-gallery-state" role="status">{message('templateGallery.loading')}</p></Show>
           <Show when={error() !== ''}><p class="template-gallery-state" role="alert">{message('templateGallery.error', { error: error() })}</p></Show>
           <Show when={!loading() && error() === '' && families().length === 0}>
-            <p class="template-gallery-state">{message('templateGallery.empty')}</p>
+            <p class="template-gallery-state">{message(query().trim() === '' ? 'templateGallery.empty' : 'templateGallery.noMatches')}</p>
           </Show>
-          <For each={families()}>
-            {(family) => (
-              <section class="template-family" data-family={family.id}>
-                <h3>{family.id}</h3>
-                <div class="template-family-grid">
-                  <For each={family.entries}>
-                    {(entry) => {
-                      function missing(): readonly string[] { return missingModels(entry) }
-                      const source = entry.badges?.includes('remote') === true
-                        ? message('templateGallery.source.remote')
-                        : message('templateGallery.source.builtIn')
-                      return (
-                        <button type="button" class="template-card" onClick={() => open(entry)} data-testid="template-card">
-                          <span class="template-card-image">
-                            <Show when={entry.thumbUrl} fallback={<span class="template-card-initials">{initialsOf(entry.title)}</span>}>
-                              {(url) => <img src={url()} alt="" loading="lazy" />}
-                            </Show>
-                            <span class="template-card-source">{source}</span>
-                          </span>
-                          <span class="template-card-copy">
-                            <strong>{entry.title}</strong>
-                            <Show when={entry.subtitle}>{(subtitle) => <small>{subtitle()}</small>}</Show>
-                            <Show when={missing().length > 0}>
-                              <span class="template-card-missing">
-                                {message('templateGallery.modelsMissing', { count: missing().length })}
-                                <small>{missing().join(', ')}</small>
-                              </span>
-                            </Show>
-                          </span>
-                        </button>
-                      )
-                    }}
-                  </For>
-                </div>
-              </section>
-            )}
-          </For>
+          <div id={resultsId} role="listbox" aria-label={message('templateGallery.results')}>
+            <For each={families()}>
+              {(family) => (
+                <section class="template-family" data-family={family.id}>
+                  <h3>{family.id}</h3>
+                  <div class="template-family-grid">
+                    <For each={family.entries}>
+                      {(entry) => {
+                        function missing(): readonly string[] { return missingModels(entry) }
+                        const source = entry.badges?.includes('remote') === true
+                          ? message('templateGallery.source.remote')
+                          : message('templateGallery.source.builtIn')
+                        return (
+                          <button type="button" class="template-card" role="option" aria-selected="false" onClick={() => open(entry)} data-testid="template-card">
+                            <span class="template-card-image">
+                              <Show when={entry.thumbUrl} fallback={<span class="template-card-initials">{initialsOf(entry.title)}</span>}>
+                                {(url) => <img src={url()} alt="" loading="lazy" />}
+                              </Show>
+                              <span class="template-card-source">{source}</span>
+                            </span>
+                            <span class="template-card-copy">
+                              <strong>{entry.title}</strong>
+                              <Show when={entry.subtitle}>{(subtitle) => <small>{subtitle()}</small>}</Show>
+                              <Show when={missing().length > 0}>
+                                <span class="template-card-missing">
+                                  {message('templateGallery.modelsMissing', { count: missing().length })}
+                                  <small>{missing().join(', ')}</small>
+                                </span>
+                              </Show>
+                            </span>
+                          </button>
+                        )
+                      }}
+                    </For>
+                  </div>
+                </section>
+              )}
+            </For>
+          </div>
         </div>
       </section>
     </Show>

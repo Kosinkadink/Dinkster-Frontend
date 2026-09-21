@@ -2,7 +2,7 @@
 
 An empty workflow opens the starter gallery automatically. Templates are grouped by model family and show a thumbnail, source, description, and exact missing-model requirements. Choose **Start blank** to dismiss it. Run **Open template gallery** from universal search to return at any time.
 
-The Library sidebar also contains a Templates collection for complete native Dinkster workflow documents shipped by packs. Search covers template identity, names, descriptions, families, and tags. The pack selector applies the backend's exact pack filter.
+The Library sidebar and starter gallery search template identity, names, descriptions, families, and tags. Search preserves normal case-insensitive substring matches while also ignoring spaces and punctuation for aliases. `SD 1.5`, `sd1.5`, and `SD15` match the same templates, as do `SDXL` and `Stable Diffusion XL`; searches such as `stable`, `diffusion`, and `diffusion 1.5` continue to match the full template name. The Library pack selector applies the backend's exact pack filter.
 
 Each row shows the template name, pack, description, tags, and declared asset requirements. Asset ids are pack-local and are resolved against the pack table from `/api/nodes`; a missing descriptor is displayed as its raw id instead of hiding the requirement.
 

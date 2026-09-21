@@ -17,6 +17,13 @@ const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!nativeFrontend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the native-only frontend')
 test.use({ baseURL: nativeFrontend })
 
+test('native compatibility matrix replaces the V1 connection entry', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'native-without-v1', 'runs only in the native compatibility matrix')
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterV1EntryStubbed)).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol)).toBe('dinkster')
+})
+
 const NATIVE_TABLE = {
   schemaVersion: 1,
   epoch: 1,
@@ -83,7 +90,7 @@ const CURRENT_PREVIEW_TABLE = {
   },
 }
 
-test('same-origin native launch keeps the compatibility probe bounded', async ({ page }) => {
+test('same-origin native launch keeps the compatibility probe bounded', async ({ page }, testInfo) => {
   let v1Requests = 0
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),
@@ -117,7 +124,7 @@ test('same-origin native launch keeps the compatibility probe bounded', async ({
       }),
     )
     .toEqual({ protocol: 'dinkster', schemas: 1, title: 'Untitled', nodes: 0 })
-  expect(v1Requests).toBe(1)
+  expect(v1Requests).toBe(testInfo.project.name === 'native-without-v1' ? 0 : 1)
 })
 
 test('native clean startup stays blank with a richer compatibility catalog', async ({ page }) => {

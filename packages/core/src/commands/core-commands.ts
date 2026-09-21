@@ -11,7 +11,7 @@
  * - Commands are schema-blind except where schema controls document shape.
  *   Other commands enforce STRUCTURAL rules (endpoints exist, one driver per
  *   input). Type compatibility is advisory UI/diagnostic territory
- *   (schema/compat.ts) so documents never become uneditable when dynamic
+ *   (schema/type-compatibility.ts) so documents never become uneditable when dynamic
  *   types drift.
  * - Each command records the minimal patch set; cascades (removing a node
  *   removes its links/net references/view state) are part of the same

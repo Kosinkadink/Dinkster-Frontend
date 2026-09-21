@@ -1,14 +1,23 @@
 import { defineConfig } from '@playwright/test'
 
 const devPort = Number(process.env['DINKSTER_E2E_PORT'] ?? '5199')
-if (!Number.isSafeInteger(devPort) || devPort < 1024 || devPort > 65535) throw new Error('DINKSTER_E2E_PORT must be a valid non-privileged port')
+if (!Number.isSafeInteger(devPort) || devPort < 1024 || devPort > 65535)
+  throw new Error('DINKSTER_E2E_PORT must be a valid non-privileged port')
 const nativeFrontendPort = Number(
   process.env['DINKSTER_E2E_NATIVE_FRONTEND_PORT'] ?? devPort + 1,
 )
-if (!Number.isSafeInteger(nativeFrontendPort) || nativeFrontendPort < 1024 || nativeFrontendPort > 65535 || nativeFrontendPort === devPort) {
-  throw new Error('DINKSTER_E2E_NATIVE_FRONTEND_PORT must be a distinct valid non-privileged port')
+if (
+  !Number.isSafeInteger(nativeFrontendPort) ||
+  nativeFrontendPort < 1024 ||
+  nativeFrontendPort > 65535 ||
+  nativeFrontendPort === devPort
+) {
+  throw new Error(
+    'DINKSTER_E2E_NATIVE_FRONTEND_PORT must be a distinct valid non-privileged port',
+  )
 }
-process.env['DINKSTER_E2E_NATIVE_FRONTEND'] = `http://127.0.0.1:${nativeFrontendPort}`
+process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
+  `http://127.0.0.1:${nativeFrontendPort}`
 
 /**
  * smoke suite. Requires:
@@ -72,6 +81,55 @@ const BACKEND_SERIAL_SPECS = [
 ]
 
 const PERFORMANCE_SPECS = ['perf.spec.ts']
+const V1_COMPATIBILITY_SPECS = ['smoke.spec.ts']
+const NATIVE_WITHOUT_V1_SPECS = [
+  'app-view-queue-buttons-native.spec.ts',
+  'asset-widget.spec.ts',
+  'audit-float-paste-live.spec.ts',
+  'audit-noodle-live.spec.ts',
+  'audit-tap-boundary-live.spec.ts',
+  'audit-widget-parity-live.spec.ts',
+  'audio-recording-live.spec.ts',
+  'collab-noodle-presence.spec.ts',
+  'compositor-editor.spec.ts',
+  'curve-editor.spec.ts',
+  'dynamic-combo-native-live.spec.ts',
+  'executable-examples-live.spec.ts',
+  'fixture-discovery.spec.ts',
+  'gallery-live.spec.ts',
+  'glsl-shader.spec.ts',
+  'image-document-graph-live.spec.ts',
+  'image-editor.spec.ts',
+  'image-mask-graph-live.spec.ts',
+  'image-upload-byte-proof.spec.ts',
+  'import-legacy.spec.ts',
+  'link-drop.spec.ts',
+  'lora-conditioning-scheduling-live.spec.ts',
+  'midgraph-preview-live.spec.ts',
+  'missing-model-ux.spec.ts',
+  'native-catalog-decode.spec.ts',
+  'native-catalog-presentation.spec.ts',
+  'native-family-port-quality.spec.ts',
+  'native-imagery-live.spec.ts',
+  'node-help.spec.ts',
+  'output-mount-live.spec.ts',
+  'pack-assets-settings.spec.ts',
+  'palette-filters.spec.ts',
+  'peek-preview.spec.ts',
+  'rowj-live.spec.ts',
+  'run-history.spec.ts',
+  'save-video-dynamic-native.spec.ts',
+  'starter-templates-live.spec.ts',
+  'startup-discovery.spec.ts',
+  'string-split-output-lifecycle.spec.ts',
+  'trellis2-official-workflow-live.spec.ts',
+  'video-document-editor.spec.ts',
+  'video-edit.spec.ts',
+  'widget-representations-wire17.spec.ts',
+  'widget-value-presentation.spec.ts',
+  'wire43-input-family-combo.spec.ts',
+  'workflow-library.spec.ts',
+]
 
 export default defineConfig({
   testDir: './tests',
@@ -94,7 +152,9 @@ export default defineConfig({
   projects: [
     {
       name: 'parallel-safe',
-      testIgnore: [...BACKEND_SERIAL_SPECS, ...PERFORMANCE_SPECS].map((f) => `tests/${f}`),
+      testIgnore: [...BACKEND_SERIAL_SPECS, ...PERFORMANCE_SPECS].map(
+        (f) => `tests/${f}`,
+      ),
     },
     {
       name: 'backend-serial',
@@ -103,6 +163,14 @@ export default defineConfig({
     {
       name: 'performance',
       testMatch: PERFORMANCE_SPECS.map((f) => `tests/${f}`),
+    },
+    {
+      name: 'v1-compatibility',
+      testMatch: V1_COMPATIBILITY_SPECS.map((f) => `tests/${f}`),
+    },
+    {
+      name: 'native-without-v1',
+      testMatch: NATIVE_WITHOUT_V1_SPECS.map((f) => `tests/${f}`),
     },
   ],
   use: {
@@ -115,7 +183,8 @@ export default defineConfig({
       url: `http://127.0.0.1:${devPort}`,
       reuseExistingServer: false,
       env: {
-        DINKSTER_NATIVE_BACKEND: process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
+        DINKSTER_NATIVE_BACKEND:
+          process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
         VITE_DINKSTER_E2E_PROBE_V1: '1',
       },
       cwd: '../..',
@@ -125,7 +194,8 @@ export default defineConfig({
       url: `http://127.0.0.1:${nativeFrontendPort}`,
       reuseExistingServer: false,
       env: {
-        DINKSTER_NATIVE_BACKEND: process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
+        DINKSTER_NATIVE_BACKEND:
+          process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
         VITE_DINKSTER_E2E_PROBE_V1: '0',
       },
       cwd: '../..',

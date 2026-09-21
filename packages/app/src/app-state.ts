@@ -129,7 +129,6 @@ import {
   type CompileArtifact,
 } from '@dinkster/core'
 import {
-  BackendConnection,
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
   EngineNotReadyError,
@@ -139,9 +138,7 @@ import {
   hydrateDinksterCompletedExecution,
   probeSupervisorStatus,
   reconcileDinksterExecutions,
-  reconcileExecutions,
   restartSupervisorEngine,
-  v1ViewUrl,
   type ConnectionStatus,
   type ExecutionState,
   type ExecutionStatus,
@@ -158,6 +155,11 @@ import {
   type SupervisorStatus,
   type WorkerInfo,
 } from '@dinkster/client'
+import {
+  BackendConnection,
+  reconcileExecutions,
+  v1ViewUrl,
+} from './v1-connection-kind.js'
 import {
   createTextWidgetEditorExtensionRegistry,
   createWidgetRegistry,
