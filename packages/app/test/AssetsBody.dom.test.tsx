@@ -16,6 +16,11 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+const stubConnection = <T extends object>(members: T): DinksterConnection => ({
+  onEvent: vi.fn(() => () => undefined),
+  ...members,
+} as unknown as DinksterConnection)
+
 describe('Assets dock body', () => {
   it('updates open source and health controls without refetching or translating source data', async () => {
     registerCatalog('de-DE', {
@@ -38,7 +43,7 @@ describe('Assets dock body', () => {
       if (mountId === 'RAW-broken-source') throw new Error('RAW backend failure')
       return { entries: [] }
     })
-    const connection = {
+    const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([
         { id: 'RAW-checkpoints', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 1 },
         { id: 'RAW-custom-source', mode: 'read', state: 'ready', entryCount: 1 },
@@ -49,7 +54,7 @@ describe('Assets dock body', () => {
       listMountEntries,
       assetUrl: vi.fn(),
       fetchAssetMetadata: vi.fn(),
-    } as unknown as DinksterConnection
+    })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="RAW-backend" />, root)
@@ -85,7 +90,7 @@ describe('Assets dock body', () => {
   })
 
   it('shows a deterministic source-discovery loading state', () => {
-    const connection = { listMounts: vi.fn(() => new Promise(() => undefined)) } as unknown as DinksterConnection
+    const connection = stubConnection({ listMounts: vi.fn(() => new Promise(() => undefined)) })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
@@ -112,12 +117,12 @@ describe('Assets dock body', () => {
       assetRef: { digest, name: 'Federated Alpha.safetensors', size: 12, mediaType: 'application/octet-stream', virtualPath: 'models/federated-alpha.safetensors' },
     }] })))
     vi.stubGlobal('fetch', fetchFn)
-    const connection = {
+    const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'local', mode: 'read', state: 'ready', entryCount: 1 }]),
       listMountEntries: vi.fn().mockResolvedValue({ entries: [{ virtualPath: 'local.safetensors', name: 'local.safetensors', digest: `blake3:${'b'.repeat(64)}`, size: 10, mediaType: 'application/octet-stream' }] }),
       assetUrl: vi.fn(),
       fetchAssetMetadata: vi.fn(),
-    } as unknown as DinksterConnection
+    })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" baseUrl="https://backend.example" federatedContract={contract} />, root)
@@ -153,7 +158,7 @@ describe('Assets dock body', () => {
   })
 
   it('keeps available sources in one picker and empty or unavailable mounts in dedicated health', async () => {
-    const connection = {
+    const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([
         { id: 'comfy-model-checkpoints-1', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 1 },
         { id: 'comfy-model-checkpoints-2', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 1 },
@@ -167,7 +172,7 @@ describe('Assets dock body', () => {
       listMountEntries: vi.fn().mockResolvedValue({ entries: [] }),
       assetUrl: vi.fn(),
       fetchAssetMetadata: vi.fn(),
-    } as unknown as DinksterConnection
+    })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
@@ -208,7 +213,7 @@ describe('Assets dock body', () => {
       }])
       .mockRejectedValueOnce(new Error('temporary mount listing failure'))
       .mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', entryCount: 10 }])
-    const connection = {
+    const connection = stubConnection({
       listMounts,
       listMountEntries: vi.fn().mockResolvedValue({
         entries: [{
@@ -222,7 +227,7 @@ describe('Assets dock body', () => {
       }),
       assetUrl: vi.fn(),
       fetchAssetMetadata: vi.fn(),
-    } as unknown as DinksterConnection
+    })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
@@ -247,7 +252,7 @@ describe('Assets dock body', () => {
   it('defaults to All assets, shows offline reasons and digest facts, and persists view', async () => {
     registerCatalog('de-DE', { 'assets.preview.alt': '[Vorschau von {name}]' })
     const digest = `blake3:${'1234567890abcdef'.repeat(4)}`
-    const connection = {
+    const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([
         { id: 'input', mode: 'read', state: 'ready' },
         { id: 'offline', mode: 'read', state: 'offline' },
@@ -257,7 +262,7 @@ describe('Assets dock body', () => {
       }),
       assetUrl: (digest: string) => `/api/assets/${digest}`,
       fetchAssetMetadata: vi.fn(),
-    } as unknown as DinksterConnection
+    })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
@@ -317,7 +322,7 @@ describe('Assets dock body', () => {
     const digest = `blake3:${'c'.repeat(64)}`
     let finishMetadata!: (value: unknown) => void
     const fetchAssetMetadata = vi.fn(() => new Promise((resolve) => { finishMetadata = resolve }))
-    const connection = {
+    const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'RAW-mount', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 1 }]),
       listMountEntries: vi.fn().mockResolvedValue({ entries: [{
         virtualPath: 'RAW/path/model.safetensors', name: 'RAW Model.safetensors', digest,
@@ -325,7 +330,7 @@ describe('Assets dock body', () => {
       }] }),
       assetUrl: (value: string) => `/api/assets/${value}`,
       fetchAssetMetadata,
-    } as unknown as DinksterConnection
+    })
     const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) }
     vi.stubGlobal('navigator', { ...navigator, clipboard })
     const root = document.createElement('div')
@@ -373,14 +378,14 @@ describe('Assets dock body', () => {
 
   it('re-discovers sources on a backend switch and ignores a stale discovery response', async () => {
     let releaseFirst!: (mounts: readonly { id: string; mode: 'read'; state: string }[]) => void
-    const connection = (id: string, delayed = false) => ({
+    const connection = (id: string, delayed = false) => stubConnection({
       listMounts: vi.fn(() => delayed
         ? new Promise<readonly { id: string; mode: 'read'; state: string }[]>((resolve) => { releaseFirst = resolve })
         : Promise.resolve([{ id, mode: 'read' as const, state: 'ready' }])),
       listMountEntries: vi.fn().mockResolvedValue({ entries: [] }),
       assetUrl: (digest: string) => `/${id}/${digest}`,
       fetchAssetMetadata: vi.fn(),
-    }) as unknown as DinksterConnection
+    })
     const first = connection('first', true)
     const second = connection('second')
     const [current, setCurrent] = createSignal(first)
@@ -398,12 +403,12 @@ describe('Assets dock body', () => {
   })
 
   it('renders a ready mount listing failure as a source-specific reason', async () => {
-    const connection = {
+    const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'broken', mode: 'read', state: 'ready' }]),
       listMountEntries: vi.fn().mockRejectedValue(new Error('index unavailable')),
       assetUrl: (digest: string) => `/assets/${digest}`,
       fetchAssetMetadata: vi.fn(),
-    } as unknown as DinksterConnection
+    })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
@@ -416,7 +421,7 @@ describe('Assets dock body', () => {
   })
 
   it('shows a terminal discovery failure without a false loading state', async () => {
-    const connection = { listMounts: vi.fn().mockRejectedValue(new Error('mount catalog offline')) } as unknown as DinksterConnection
+    const connection = stubConnection({ listMounts: vi.fn().mockRejectedValue(new Error('mount catalog offline')) })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)

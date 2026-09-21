@@ -21,6 +21,7 @@ function fakeBridge(overrides: Partial<DinksterDesktopBridge> = {}): DinksterDes
     checkForUpdates: vi.fn(),
     installUpdate: vi.fn(),
     chooseDirectory: vi.fn(),
+    revealFile: vi.fn(),
     exportSnapshot: vi.fn(),
     importSnapshot: vi.fn(),
     systemCheck: vi.fn(),

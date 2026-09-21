@@ -108,7 +108,8 @@
     "text:if (state.kind === 'no-compatible') return",
     "text:if (state.kind === 'no-match') return",
     "text:part.length",
-    "text:return"
+    "text:return",
+    "text:| undefined let outputTimer: ReturnType"
   ],
   "AudioRecorder.tsx": [
     "attribute:aria-label:Record audio",
@@ -656,6 +657,10 @@
   ],
   "OutputDescriptorEditor.tsx": [
     "text:() const [busy, setBusy] = createSignal(false) const [raw, setRaw] = createSignal(false) const [probeCurrent, setProbeCurrent] = createSignal"
+  ],
+  "OutputMountSettings.tsx": [
+    "text:(); const [selected, setSelected] = createSignal(\"\"); const [saving, setSaving] = createSignal(false); const [error, setError] = createSignal(\"\"); const load = async (): Promise",
+    "text:mount.mode === \"readwrite\") ?? []; const save = async (): Promise"
   ],
   "P2PPanel.tsx": [
     "text:() const [draft, setDraft] = createSignal",
