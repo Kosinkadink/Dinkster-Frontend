@@ -464,8 +464,8 @@ compiled browser assets. Set it explicitly: the default is port 3639. Native
 `/api`, `/memory` and `/supervisor` requests stay same-origin; event and session
 WebSockets are proxied too. If the UI does not connect, compare
 `/api/nodes` on the backend and browser ports. Both should return the same JSON,
-not the SPA's HTML. Install matching frontend/backend releases when their
-schema wire versions differ.
+not the SPA's HTML. Before public release both sides speak wire 1; install
+matching frontend/backend releases after compatibility versioning begins.
 
 ### Production static hosting and proxy
 

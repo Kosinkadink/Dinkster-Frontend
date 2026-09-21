@@ -68,7 +68,7 @@ const registry = {
   }]]),
 }
 
-describe('wire-44 pack locale catalogs', () => {
+describe('pack locale catalogs', () => {
   it('strictly decodes the closed catalog vocabulary', () => {
     const catalog = decodePackLocaleCatalog({
       nodes: { 'demo.paint': {

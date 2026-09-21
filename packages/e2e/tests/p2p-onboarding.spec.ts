@@ -144,8 +144,8 @@ async function installRoutes(page: Page, fixture: P2PFixture, base = ''): Promis
   await page.route(`${base}/system_stats`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${base}/supervisor/status`, (route) => route.fulfill({ json: { protocol: 1, state: 'ready', detail: 'Ready' } }))
   await page.route(`${base}/api/nodes*`, (route) => route.fulfill({ json: {
-    schemaVersion: 21,
-    dinkster: { version: 'p2p-e2e', schemaWire: 21 },
+    schemaVersion: 1,
+    dinkster: { version: 'p2p-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route(`${base}/api/settings`, (route) => {

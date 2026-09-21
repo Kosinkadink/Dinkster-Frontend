@@ -29,10 +29,10 @@ const imageDocument = {
 const state = { version: 2 as const, document: imageDocument, documentDigest: assetDigest, stale: false, layerStreams: ['compositor.layer.0', 'compositor.layer.1'] }
 
 const payload = {
-  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  schemaVersion: 1,
   nodes: {
     Compositor: {
-      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      schemaVersion: 1,
       displayName: 'Create Layered Image',
       category: 'image/compositing',
       idempotent: false,

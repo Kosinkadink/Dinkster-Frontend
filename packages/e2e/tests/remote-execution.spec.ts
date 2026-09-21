@@ -5,13 +5,13 @@ const nativeTable = {
   epoch: 1,
   dinkster: {
     version: 'remote-execution-e2e',
-    schemaWire: 30,
+    schemaWire: 1,
     graphFeatures: ['placement'],
   },
   packs: { test: { displayName: 'Test' } },
   nodes: {
     'test.ImageSource': {
-      schemaVersion: 30,
+      schemaVersion: 1,
       nodeType: 'test.ImageSource',
       displayName: 'Image Source',
       category: 'test',
@@ -19,7 +19,7 @@ const nativeTable = {
       signature: 'remote-execution-source',
     },
     'test.ImageSink': {
-      schemaVersion: 30,
+      schemaVersion: 1,
       nodeType: 'test.ImageSink',
       displayName: 'Image Sink',
       category: 'test',

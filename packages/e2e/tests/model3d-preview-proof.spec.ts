@@ -89,7 +89,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'model3d-proof', schemaWire: 22 },
+    dinkster: { version: 'model3d-proof', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('/api/assets/**', (route) => {

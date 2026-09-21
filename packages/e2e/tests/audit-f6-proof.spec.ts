@@ -6,7 +6,7 @@ test('proves both product type disclosures and mutation-free interaction', async
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'audit-f6-proof', schemaWire: 21 },
+    dinkster: { version: 'audit-f6-proof', schemaWire: 1 },
     packs: {},
     nodes: {},
   } }))

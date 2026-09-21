@@ -49,15 +49,15 @@ test('documented node context Help renders its immutable Markdown page', async (
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'node-help-e2e', schemaWire: 42 },
+    dinkster: { version: 'node-help-e2e', schemaWire: 1 },
     packs: { 'demo-pack': { displayName: 'Demo Pack' } },
     nodes: {
       'demo.add': {
-        schemaVersion: 42, displayName: 'Add Values', description: 'Adds two values.',
+        schemaVersion: 1, displayName: 'Add Values', description: 'Adds two values.',
         category: 'math', pack: 'demo-pack', signature: 'help-e2e', hasDocs: true, interface: [],
       },
       'demo.no_docs': {
-        schemaVersion: 42, displayName: 'No Docs', description: 'Has no full help page.',
+        schemaVersion: 1, displayName: 'No Docs', description: 'Has no full help page.',
         category: 'math', pack: 'demo-pack', signature: 'no-help-e2e', interface: [],
       },
     },

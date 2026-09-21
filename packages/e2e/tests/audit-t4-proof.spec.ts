@@ -32,7 +32,7 @@ test('drilled occurrence suffix and ghost sockets use the planner while definiti
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'audit-t4', schemaWire: 21 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'audit-t4', schemaWire: 1 }, nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')

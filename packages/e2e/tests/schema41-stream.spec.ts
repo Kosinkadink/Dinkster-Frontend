@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 
 const pathSchema = {
-  schemaVersion: 41, nodeType: 'comfy.VHS_LoadVideoPath', displayName: 'VHS_LoadVideoPath',
+  schemaVersion: 1, nodeType: 'comfy.VHS_LoadVideoPath', displayName: 'VHS_LoadVideoPath',
   interface: [{ role: 'input', id: 'video', required: true,
     type: { kind: 'concrete', types: ['core.string'] },
     widget: { type: 'STRING', placeholder: 'X://insert/path/here.mp4' },
@@ -22,7 +22,7 @@ test('loads wire41 serializer fixtures and the native path widget without browse
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'schema41-fixture', schemaWire: 41 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'schema41-fixture', schemaWire: 1 },
     nodes: Object.fromEntries(schemas.map((schema) => [schema.nodeType, schema])),
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})

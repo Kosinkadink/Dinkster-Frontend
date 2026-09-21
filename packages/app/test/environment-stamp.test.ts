@@ -34,7 +34,7 @@ const objectInfo = JSON.parse(
 /** A Dinkster /api/nodes payload with the full environment surface (5b58c53). */
 const nodesPayload: DinksterNodesPayload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
-  dinkster: { version: '0.9.0', schemaWire: DINKSTER_SCHEMA_WIRE_VERSION },
+  dinkster: { version: '0.9.0', schemaWire: 1 },
   packs: {
     core: { displayName: 'Dinkster Core', version: '1.2.0' },
     'vhs.video': {
@@ -95,7 +95,7 @@ describe('exportDocument', () => {
     const tab = open(docJson('lin-stamp', ['std.a']))
     const out = app.exportDocument(tab.id)!
     expect(out.environment).toEqual({
-      dinkster: { version: '0.9.0', schemaWire: DINKSTER_SCHEMA_WIRE_VERSION },
+      dinkster: { version: '0.9.0', schemaWire: 1 },
       frontend: { version: FRONTEND_VERSION },
       packs: { core: { version: '1.2.0' } }, // vhs.video unused -> absent
       nodes: { 'std.a': { pack: 'core', signature: 'sig-a-1' } },

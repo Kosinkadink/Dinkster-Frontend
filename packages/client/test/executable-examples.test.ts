@@ -46,6 +46,7 @@ const output = (id: string, type: Record<string, unknown>): Record<string, unkno
 const schema = (nodeType: string, interfaceItems: Record<string, unknown>[]): Record<string, unknown> => ({
   schemaVersion: 1,
   nodeType,
+  version: 1,
   displayName: nodeType,
   category: 'examples',
   idempotent: true,

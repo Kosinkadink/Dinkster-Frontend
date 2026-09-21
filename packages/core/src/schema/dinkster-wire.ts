@@ -71,9 +71,9 @@ interface WireEntry {
   readonly maxMembers?: unknown
   readonly count?: unknown
   readonly widget?: unknown
-  /** Per-input display label (v11); empty/absent falls back to the id. */
+  /** Per-input display label; empty/absent falls back to the id. */
   readonly displayName?: unknown
-  /** dynamicSlot role only (v6): [{key, type, inputs, doc?}]. */
+  /** dynamicSlot role only: [{key, type, inputs, doc?}]. */
   readonly variants?: unknown
   /** Recursive dynamic-entry fields. */
   readonly template?: unknown
@@ -313,8 +313,8 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
 // ---------------------------------------------------------------------------
 
 /**
- * Decode explicit presentation first, then preserve primitive inference for
- * v3 servers and inputs whose v4/v5 descriptor is absent or not understood.
+ * Decode explicit presentation first, then preserve primitive inference when
+ * a descriptor is absent or not understood.
  */
 const ASSET_KIND = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)+$/
 
@@ -786,7 +786,7 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
-    // V5 structured save target. The wire omits suffix when empty; the
+    // The wire omits a structured save target suffix when empty; the
     // decoder normalizes it to '' so every consumer reads ONE shape (the
     // suffix is display context owned by the node, never persisted data).
     if (descriptor.type === 'SAVE_TARGET' && (descriptor.suffix === undefined || typeof descriptor.suffix === 'string')) {
@@ -798,7 +798,7 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
-    // V9 COMBO: static options and/or a declarative remote source. Static
+    // COMBO supports static options and/or a declarative remote source. Static
     // options render immediately; a successful remote fetch REPLACES them
     // (never merges). At least one of the two must survive validation. A
     // combo with neither source is invalid schema; keep the core.combo
@@ -951,10 +951,10 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
-    // V11 NUMBER: presentation constraints on core.int/core.float inputs.
+    // NUMBER carries presentation constraints on core.int/core.float inputs.
     // The SOCKET type is authoritative for integer-vs-float rendering and
     // validation (joint pin); the descriptor only carries constraints. Per
-    // the v10 BOOLEAN precedent, a malformed FIELD drops alone with a
+    // the BOOLEAN precedent, a malformed FIELD drops alone with a
     // warning and the input keeps a usable numeric widget - presentation
     // metadata never hides an editor. Integer sockets retain unsafe
     // constraints as canonical decimal strings; float sockets remain numbers.
@@ -1113,7 +1113,7 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
-    // V10 BOOLEAN: custom toggle labels. A label-less boolean carries no
+    // BOOLEAN supports custom toggle labels. A label-less boolean carries no
     // descriptor at all (the core.boolean type alone implies the toggle);
     // empty strings are treated as absent per the omitted-when-empty wire
     // convention. A malformed label drops alone, never the widget.
@@ -1209,7 +1209,7 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
   } else if (widget?.allowUpload === true || representedUpload) {
     throw new Error(`${nodeType}.${id} upload-enabled ASSET widget requires sourceFilename`)
   }
-  // V11 per-input display label; empty is the wire's omitted-when-empty
+  // Per-input display label; empty is the wire's omitted-when-empty
   // convention, a non-string is smuggled - warn and fall back to the id.
   let displayName: string | undefined
   if (entry.displayName !== undefined && entry.displayName !== '') {
@@ -2307,7 +2307,7 @@ function decodeChunkSafe(wire: DinksterWireSchema, inputs: ReadonlyMap<string, I
 }
 
 // ---------------------------------------------------------------------------
-// Deprecation / search visibility (schema wire v3 additive fields)
+// Deprecation / search visibility
 // ---------------------------------------------------------------------------
 
 const SEARCH_VISIBILITIES: ReadonlySet<string> = new Set(['deprecated', 'hidden'])

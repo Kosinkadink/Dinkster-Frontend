@@ -69,7 +69,7 @@ const decodeTable = <T>(
   }))
 }
 
-/** Strictly decode the closed wire-44 pack catalog vocabulary. */
+/** Strictly decode the closed pack catalog vocabulary. */
 export function decodePackLocaleCatalog(value: unknown): PackLocaleCatalog {
   const root = asRecord(value, 'catalog')
   rejectUnknownFields(root, ['nodes', 'blueprints', 'guides', 'searchTerms'], 'catalog')

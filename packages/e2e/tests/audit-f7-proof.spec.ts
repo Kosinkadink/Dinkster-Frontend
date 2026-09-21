@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f7-proof', schemaWire: 21 },
+  dinkster: { version: 'audit-f7-proof', schemaWire: 1 },
   packs: {},
   nodes: {},
 }
