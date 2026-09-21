@@ -1,8 +1,6 @@
-import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-41/', import.meta.url))
 const MOCK = 'http://asset-guesses.test'
 const RAW_MODEL = 'v1-5-pruned-emaonly-fp16.safetensors'
 const RAW_IMAGE = 'missing.png'
@@ -34,11 +32,10 @@ const capture = async (page: Page, name: string): Promise<void> => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await page.mouse.move(0, 0)
     await page.waitForTimeout(350)
-    await page.screenshot({ path: `${evidenceDir}/${name}.png`, fullPage: true, animations: 'disabled' })
+    await page.screenshot({ path: `evidencePath('issue-41', '${name}.png')`, fullPage: true, animations: 'disabled' })
   }
 }
 
-test.beforeAll(() => mkdirSync(evidenceDir, { recursive: true }))
 
 const workflow = (model = RAW_MODEL, image = RAW_IMAGE) => ({
   last_node_id: 2, last_link_id: 0,

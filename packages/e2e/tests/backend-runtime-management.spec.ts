@@ -1,9 +1,7 @@
-import { mkdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 import { auditLayout } from './ui-audit.js'
+import { evidencePath } from './evidence-output.js'
 
-const EVIDENCE = '../../docs/evidence/issue-37'
-const LOCALE_EVIDENCE = '../../docs/evidence/issue-457'
 const BACKENDS_SURFACE = '.product-tabpanel:has(> [data-testid="backends-panel"])'
 
 test.use({ hasTouch: true })
@@ -73,11 +71,6 @@ async function openFixture(page: Page): Promise<void> {
   await expect(page.getByTestId('backends-panel')).toBeVisible()
 }
 
-test.beforeAll(async () => {
-  await mkdir(EVIDENCE, { recursive: true })
-  await mkdir(LOCALE_EVIDENCE, { recursive: true })
-})
-
 test('backend and runtime management remains truthful and usable across wide, narrow, and zoomed layouts', async ({ page }) => {
   await openFixture(page)
   const panel = page.getByTestId('backends-panel')
@@ -92,7 +85,7 @@ test('backend and runtime management remains truthful and usable across wide, na
   await expect(panel.getByRole('button', { name: 'Remove Maintenance backend' })).toBeVisible()
   await expect(page.locator('.backend-address').filter({ hasText: '/a/very/long/backend/path' })).toBeVisible()
   expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
-  await page.screenshot({ path: `${EVIDENCE}/after-backends-wide.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-37', 'after-backends-wide.png'), fullPage: true })
 
   const local = page.getByTestId('backend-row').filter({ hasText: 'Local' })
   await local.getByRole('button', { name: 'Local runtime settings' }).click()
@@ -110,7 +103,7 @@ test('backend and runtime management remains truthful and usable across wide, na
   await local.locator('[data-category="future-category"]').scrollIntoViewIfNeeded()
   await expect(local.getByText('A long additive value remains visible')).toBeVisible()
   expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
-  await local.locator('[data-category="future-category"]').screenshot({ path: `${EVIDENCE}/after-runtime-wide.png` })
+  await local.locator('[data-category="future-category"]').screenshot({ path: evidencePath('issue-37', 'after-runtime-wide.png') })
 
   await page.setViewportSize({ width: 390, height: 844 })
   const railToggle = page.getByTestId('rail-toggle')
@@ -120,7 +113,7 @@ test('backend and runtime management remains truthful and usable across wide, na
   await expect(panel).toBeInViewport()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
-  await panel.screenshot({ path: `${EVIDENCE}/after-backends-narrow.png` })
+  await panel.screenshot({ path: evidencePath('issue-37', 'after-backends-narrow.png') })
 
   await page.emulateMedia({ reducedMotion: 'reduce' })
   expect(await panel.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0s')
@@ -144,7 +137,7 @@ test('backend and runtime management remains truthful and usable across wide, na
   expect(box!.height).toBeGreaterThanOrEqual(40)
   await page.keyboard.press('Tab')
   await expect(add).toBeFocused()
-  await panel.screenshot({ path: `${EVIDENCE}/after-backends-200-percent.png` })
+  await panel.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent.png') })
 })
 
 test('mounted backend connection chrome follows the supported locale without changing backend facts or authority', async ({ page, request }) => {
@@ -174,7 +167,7 @@ test('mounted backend connection chrome follows the supported locale without cha
     app.refreshBackendSchemas = async (backend: any) => { calls.retry.push(backend.label) }
   })
   await reconnecting.scrollIntoViewIfNeeded()
-  await page.screenshot({ path: `${LOCALE_EVIDENCE}/backend-connections-i18n-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'backend-connections-i18n-en.png'), fullPage: true })
 
   const backendRequests: string[] = []
   page.on('request', (outgoing) => {
@@ -208,7 +201,7 @@ test('mounted backend connection chrome follows the supported locale without cha
   await expect.poll(() => backendRequests).toEqual([])
   expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
   await reconnecting.scrollIntoViewIfNeeded()
-  await page.screenshot({ path: `${LOCALE_EVIDENCE}/backend-connections-i18n-zh.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'backend-connections-i18n-zh.png'), fullPage: true })
 
   await retry.click()
   await restart.click()
@@ -231,7 +224,7 @@ test('open saved connections follow the active locale', async ({ page, request }
   await profiles.scrollIntoViewIfNeeded()
   await expect(profiles.getByRole('heading', { name: 'Saved connections' })).toBeVisible()
   await expect(profiles.getByText('Maintenance backend')).toHaveCount(0)
-  await page.screenshot({ path: `${LOCALE_EVIDENCE}/connection-profiles-i18n-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'connection-profiles-i18n-en.png'), fullPage: true })
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
@@ -259,7 +252,7 @@ test('open saved connections follow the active locale', async ({ page, request }
   await expect(profiles.getByTestId('profile-add')).toHaveText('[Verbindungsprofil speichern]')
   await expect(profiles.getByText('Maintenance backend')).toHaveCount(0)
   expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
-  await page.screenshot({ path: `${LOCALE_EVIDENCE}/connection-profiles-i18n-de-DE.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'connection-profiles-i18n-de-DE.png'), fullPage: true })
 })
 
 test('mounted agent permission chrome relabels without refetching or changing authority', async ({ page, request }) => {
@@ -299,7 +292,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
   await row.evaluate((element) => { element.dataset['localeIdentity'] = 'row' })
   await edit.evaluate((element) => { element.dataset['localeIdentity'] = 'edit' })
   await execute.focus()
-  await page.screenshot({ path: `${LOCALE_EVIDENCE}/agent-permissions-i18n-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'agent-permissions-i18n-en.png'), fullPage: true })
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]

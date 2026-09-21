@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_PALETTE_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -306,7 +307,7 @@ test('an open palette and type filter update when the active locale changes', as
   await expect(page.getByRole('dialog', { name: 'Input type filters' })).toBeVisible()
   await page.getByRole('dialog', { name: 'Input type filters' }).getByRole('searchbox').press('Escape')
   await search.fill('PaletteImageConsumer')
-  await page.screenshot({ path: '../../docs/evidence/issue-457/node-palette-i18n-en.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'node-palette-i18n-en.png'), fullPage: true })
   await search.fill('Palette schema preview')
   await inputFilter.click()
 
@@ -351,5 +352,5 @@ test('an open palette and type filter update when the active locale changes', as
   await expect(page.getByTestId('palette-preview')).toContainText('[wahlweise]')
   await page.getByRole('dialog', { name: '[Typfilter: [Eingang]]', exact: true }).getByRole('searchbox').press('Escape')
   await search.fill('PaletteImageConsumer')
-  await page.screenshot({ path: '../../docs/evidence/issue-457/node-palette-i18n-de-DE.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'node-palette-i18n-de-DE.png'), fullPage: true })
 })

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 interface ContextAppInternals {
   readonly canvasSelection: { get(): unknown }
@@ -9,21 +9,19 @@ interface ContextAppInternals {
   readonly diagnosticFocus: { get(): { readonly anchor?: unknown } | undefined }
 }
 
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-22/', import.meta.url))
-const localeEvidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-457/', import.meta.url))
 
 const capture = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_22'] !== '1') return
   await page.screenshot({
-    path: `${evidenceDir}/${name}.png`,
+    path: `evidencePath('issue-22', '${name}.png')`,
     fullPage: true,
     animations: 'disabled',
   })
 }
 
 test.beforeAll(() => {
-  mkdirSync(evidenceDir, { recursive: true })
-  mkdirSync(localeEvidenceDir, { recursive: true })
+  mkdirSync(evidenceGroupDir('issue-22'), { recursive: true })
+  mkdirSync(evidenceGroupDir('issue-457'), { recursive: true })
 })
 
 const railTab = (page: Page, id: string): Locator =>
@@ -170,7 +168,7 @@ test('the mounted Focused panel relabels without changing context, raw facts, or
     }
   })
   await page.screenshot({
-    path: `${localeEvidenceDir}/context-panel-i18n-en.png`,
+    path: `evidencePath('issue-457', 'context-panel-i18n-en.png')`,
     fullPage: true,
     animations: 'disabled',
   })
@@ -227,7 +225,7 @@ test('the mounted Focused panel relabels without changing context, raw facts, or
     }
   })).toEqual(stateBeforeLocale)
   await page.screenshot({
-    path: `${localeEvidenceDir}/context-panel-i18n-de-DE.png`,
+    path: `evidencePath('issue-457', 'context-panel-i18n-de-DE.png')`,
     fullPage: true,
     animations: 'disabled',
   })

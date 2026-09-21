@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_ACTIVITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -98,7 +99,7 @@ test('mounted Activity chrome localizes without changing raw events or reader st
   await expect(clearButton).toBeFocused()
   await expect(clearStatus).toContainText('30 entries')
   const requestsBeforeLocale = backendRequests
-  await page.screenshot({ path: join('../../docs/evidence/issue-457', 'activity-log-i18n-en.png'), fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'activity-log-i18n-en.png'), fullPage: true })
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
@@ -130,7 +131,7 @@ test('mounted Activity chrome localizes without changing raw events or reader st
   await expect(retainedRow.locator('.activity-log-source')).toHaveText(seeded[0]!.source)
   await expect(retainedRow.locator('.activity-log-message')).toHaveText(seeded[0]!.message)
   expect(backendRequests).toBe(requestsBeforeLocale)
-  await page.screenshot({ path: join('../../docs/evidence/issue-457', 'activity-log-i18n-de-DE.png'), fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'activity-log-i18n-de-DE.png'), fullPage: true })
 
   await clearButton.click()
   await expect(retainedLog.locator('.activity-log-row')).toHaveCount(0)

@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
-const EVIDENCE_DIR = fileURLToPath(new URL('../../../docs/evidence/issue-404/', import.meta.url))
 const PHYSICAL_MICROPHONE = process.env['DINKSTER_PHYSICAL_MICROPHONE']
 
 interface UploadedAsset {
@@ -367,13 +366,13 @@ test(PHYSICAL_MICROPHONE
   const executed = await transport.screenshot({ animations: 'disabled' })
   await testInfo.attach('audio-recording-executed', { body: executed, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
-    mkdirSync(EVIDENCE_DIR, { recursive: true })
+    mkdirSync(evidenceGroupDir('issue-404'), { recursive: true })
     const evidencePrefix = PHYSICAL_MICROPHONE ? 'physical-microphone' : 'audio-recording'
-    if (selectedDevice) writeFileSync(`${EVIDENCE_DIR}/${evidencePrefix}-selected.png`, selectedDevice)
-    writeFileSync(`${EVIDENCE_DIR}/${evidencePrefix}-staged.png`, staged)
-    writeFileSync(`${EVIDENCE_DIR}/${evidencePrefix}-executed.png`, executed)
-    writeFileSync(`${EVIDENCE_DIR}/${evidencePrefix}-envelope-follow.png`, curveFollow)
-    writeFileSync(`${EVIDENCE_DIR}/${evidencePrefix}-receipt.json`, `${JSON.stringify({
+    if (selectedDevice) writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-selected.png')`, selectedDevice)
+    writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-staged.png')`, staged)
+    writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-executed.png')`, executed)
+    writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-envelope-follow.png')`, curveFollow)
+    writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-receipt.json')`, `${JSON.stringify({
       backend: process.env['DINKSTER_BACKEND_SHA'] ?? 'unrecorded',
       ...(PHYSICAL_MICROPHONE ? { device: { label: PHYSICAL_MICROPHONE } } : {}),
       upload: { size: postedBytes.length, sha256: createHash('sha256').update(postedBytes).digest('hex'), asset: response.asset },

@@ -4,8 +4,8 @@
  * membership capture, one-undo-step bulk applies, broken-binding display,
  * and the invariant that surface chrome never touches semantic state.
  */
-import { join } from 'node:path'
 import { expect, openRailPanel, selectProductOption, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -82,7 +82,7 @@ test('mounted Control Surfaces chrome localizes without changing raw data or pan
   await panel.evaluate((element) => { element.dataset['localeIdentity'] = 'panel' })
   await surface.evaluate((element) => { element.dataset['localeIdentity'] = 'surface' })
   await binding.evaluate((element) => { element.dataset['localeIdentity'] = 'binding' })
-  await page.screenshot({ path: join('../../docs/evidence/issue-457', 'control-surfaces-i18n-en.png'), fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'control-surfaces-i18n-en.png'), fullPage: true })
   await groupSelect.focus()
   await groupSelect.click()
   const listbox = page.getByRole('listbox', { name: 'Bind group to surface' })
@@ -136,7 +136,7 @@ test('mounted Control Surfaces chrome localizes without changing raw data or pan
   expect(backendRequests).toBe(requestsBeforeLocale)
 
   await page.keyboard.press('Escape')
-  await page.screenshot({ path: join('../../docs/evidence/issue-457', 'control-surfaces-i18n-de-DE.png'), fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'control-surfaces-i18n-de-DE.png'), fullPage: true })
   await page.getByTestId(`surface-apply-muted-${id}`).click()
   expect(await nodeMode(page, 'n0')).toBe('muted')
 })

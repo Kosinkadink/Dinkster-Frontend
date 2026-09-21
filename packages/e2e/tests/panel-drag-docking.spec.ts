@@ -1,9 +1,8 @@
 import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-105/', import.meta.url))
 type DockZone = 'left' | 'right' | 'bottom'
 interface DockingTestApp {
   readonly dock: {
@@ -69,21 +68,19 @@ async function registerDockingProof(page: Page): Promise<void> {
 const capture = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_105'] !== '1') return
   await page.screenshot({
-    path: `${evidenceDir}/${name}.png`,
+    path: `evidencePath('issue-105', '${name}.png')`,
     fullPage: true,
     animations: 'disabled',
   })
 }
 
-const ghostEvidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-170/', import.meta.url))
 
 const captureDragGhost = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_170'] !== '1') return
-  mkdirSync(ghostEvidenceDir, { recursive: true })
-  await page.screenshot({ path: `${ghostEvidenceDir}/${name}.png`, animations: 'disabled' })
+  mkdirSync(evidenceGroupDir('issue-170'), { recursive: true })
+  await page.screenshot({ path: `evidencePath('issue-170', '${name}.png')`, animations: 'disabled' })
 }
 
-test.beforeAll(() => mkdirSync(evidenceDir, { recursive: true }))
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')

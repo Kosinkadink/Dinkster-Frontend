@@ -1,10 +1,8 @@
-import { mkdir } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { auditLayout } from './ui-audit.js'
+import { evidencePath } from './evidence-output.js'
 
-const EVIDENCE = '../../docs/evidence/issue-457'
 
-test.beforeAll(async () => mkdir(EVIDENCE, { recursive: true }))
 
 test('desktop Automatic locale reaches setup and the full app without host side effects', async ({ page }) => {
   await page.addInitScript(() => {
@@ -76,7 +74,7 @@ test('desktop Automatic locale reaches setup and the full app without host side 
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-label', '\u672c\u5730\u5f15\u64ce\u8bbe\u7f6e')
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
   expect(await auditLayout(page, 'main.desktop-setup')).toEqual([])
-  await page.screenshot({ path: `${EVIDENCE}/desktop-setup-zh.png`, fullPage: true })
+  await page.screenshot({ path: `evidencePath('issue-457', 'desktop-setup-zh.png')`, fullPage: true })
 
   const preserved = await page.evaluate(() => {
     const main = document.querySelector('main.desktop-setup')
@@ -97,7 +95,7 @@ test('desktop Automatic locale reaches setup and the full app without host side 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   expect(await page.evaluate(() => (window as typeof window & { __desktopSetupCalls: unknown }).__desktopSetupCalls)).toEqual({ locale: 1, status: 1, retry: 0 })
   expect(await auditLayout(page, 'main.desktop-setup')).toEqual([])
-  await page.screenshot({ path: `${EVIDENCE}/desktop-setup-en.png`, fullPage: true })
+  await page.screenshot({ path: `evidencePath('issue-457', 'desktop-setup-en.png')`, fullPage: true })
 
   await page.evaluate(() => {
     localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.locale': 'auto' } }))

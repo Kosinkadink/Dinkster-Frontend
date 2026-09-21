@@ -1,10 +1,6 @@
-import { mkdir } from 'node:fs/promises'
 import { expect, test } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
-
-const EVIDENCE = '../../docs/evidence/issue-457'
-
-test.beforeAll(async () => mkdir(EVIDENCE, { recursive: true }))
+import { evidencePath } from './evidence-output.js'
 
 test('an expanded RTL pseudo-locale updates the mounted host without changing app state', async ({ page, request }) => {
   let schemaRequests = 0
@@ -42,7 +38,7 @@ test('an expanded RTL pseudo-locale updates the mounted host without changing ap
     }
   })
   const requestsBeforeLocale = { schemas: schemaRequests, diagnostics: diagnosticRequests }
-  await page.screenshot({ path: `${EVIDENCE}/rtl-pseudo-locale-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'rtl-pseudo-locale-en.png'), fullPage: true })
 
   const localeSource = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeSource.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
@@ -93,7 +89,7 @@ test('an expanded RTL pseudo-locale updates the mounted host without changing ap
     }
   })).toEqual(stateBeforeLocale)
   expect(await auditLayout(page, '[data-testid="modal-surface"][data-modal="settings"]')).toEqual([])
-  await page.screenshot({ path: `${EVIDENCE}/rtl-pseudo-locale-wide.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'rtl-pseudo-locale-wide.png'), fullPage: true })
 
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(retainedSearch).toBeFocused()
@@ -109,5 +105,5 @@ test('an expanded RTL pseudo-locale updates the mounted host without changing ap
       documentFits: document.documentElement.scrollWidth <= window.innerWidth,
     }
   })).toEqual({ dialogFits: true, categoriesContained: true, documentFits: true })
-  await page.screenshot({ path: `${EVIDENCE}/rtl-pseudo-locale-constrained.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'rtl-pseudo-locale-constrained.png'), fullPage: true })
 })

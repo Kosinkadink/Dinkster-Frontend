@@ -5,24 +5,19 @@
  * interactions + the shared menu registry; the document assertions prove the
  * net serializes as ONE hyperedge scoped to its graph definition.
  */
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
-/** Issue #23 / #176 evidence screenshots, committed under docs/evidence. */
-const docsDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'docs', 'evidence')
-const evidenceDir = join(docsDir, 'issue-23')
-async function evidenceShot(page: Page, name: string, dir: string = evidenceDir): Promise<void> {
-  mkdirSync(dir, { recursive: true })
-  await page.screenshot({ path: join(dir, name), animations: 'disabled' })
+/**
+ * Issue #23 / #176 / #177 / #184 / #262 evidence captures. Captures are
+ * written to the Playwright output directory; inspected copies are retained
+ * at https://github.com/Kosinkadink/dinkster-evidence/tree/main/frontend.
+ */
+async function evidenceShot(page: Page, name: string, group: string = 'issue-23'): Promise<void> {
+  await page.screenshot({ path: evidencePath(group, name), animations: 'disabled' })
 }
-const evidenceDir176 = join(docsDir, 'issue-176')
-const evidenceDir177 = join(docsDir, 'issue-177')
-const evidenceDir184 = join(docsDir, 'issue-184')
-const evidenceDir262 = join(docsDir, 'issue-262')
 
 /** Frame the whole scene (and settle the repaint) before an evidence shot. */
 async function fitForShot(page: Page): Promise<void> {
@@ -370,7 +365,7 @@ test('collapsed mismatch tags keep the solver error visible beside a healthy del
     { role: 'sink', nodeId: 'c1', mismatch: undefined },
     { role: 'sink', nodeId: 'c2', mismatch: true },
   ])
-  await evidenceShot(page, 'collapsed-mismatch-and-healthy-tags.png', evidenceDir184)
+  await evidenceShot(page, 'collapsed-mismatch-and-healthy-tags.png', 'issue-184')
 })
 
 test('Get/Set views move atomically and advisory geometry survives export/reopen', async ({ page }) => {
@@ -439,7 +434,7 @@ test('a manually placed tag follows its node and keeps the chosen offset', async
   const placed = await tagAndNode(page, 'c1')
   const offset = { x: placed.stub.x - placed.node.x, y: placed.stub.y - placed.node.y }
   await fitForShot(page)
-  await evidenceShot(page, 'tag-placed-before-node-move.png', evidenceDir176)
+  await evidenceShot(page, 'tag-placed-before-node-move.png', 'issue-176')
   await identityViewport(page)
 
   // Drag the node: mid-drag the tag rides along (screenshot evidence) and
@@ -448,7 +443,7 @@ test('a manually placed tag follows its node and keeps the chosen offset', async
   await page.mouse.move(header.x, header.y)
   await page.mouse.down()
   await page.mouse.move(header.x + 170, header.y + 120, { steps: 10 })
-  await evidenceShot(page, 'tag-mid-node-drag.png', evidenceDir176)
+  await evidenceShot(page, 'tag-mid-node-drag.png', 'issue-176')
   await page.mouse.up()
 
   const after = await tagAndNode(page, 'c1')
@@ -463,7 +458,7 @@ test('a manually placed tag follows its node and keeps the chosen offset', async
   expect(entries[0]!.offset!.x).toBeCloseTo(offset.x, 6)
   expect(entries[0]!.offset!.y).toBeCloseTo(offset.y, 6)
   await fitForShot(page)
-  await evidenceShot(page, 'tag-after-node-move.png', evidenceDir176)
+  await evidenceShot(page, 'tag-after-node-move.png', 'issue-176')
   await identityViewport(page)
 
   // Undo returns node AND tag; redo replays both.
@@ -830,7 +825,7 @@ test('a net noodle midpoint offers no splice menu; right-click still opens the n
   await expect(menu(page)).not.toBeVisible()
 
   await fitForShot(page)
-  await evidenceShot(page, 'no-midpoint-dot.png', evidenceDir262)
+  await evidenceShot(page, 'no-midpoint-dot.png', 'issue-262')
   await identityViewport(page)
 })
 
@@ -913,7 +908,7 @@ test('a collapsed net stays a real connection: hidden scene link, and dragging t
   })
   expect(netLinks).toEqual([{ id: 'net100:0', hidden: true }])
   await fitForShot(page)
-  await evidenceShot(page, 'collapsed-connected-pin.png', evidenceDir177)
+  await evidenceShot(page, 'collapsed-connected-pin.png', 'issue-177')
   await identityViewport(page)
 
   // Dragging the sink pin grabs the hidden delivery; the drop moves the
@@ -923,13 +918,13 @@ test('a collapsed net stays a real connection: hidden scene link, and dragging t
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
   await page.mouse.move(to.x, to.y, { steps: 8 })
-  await evidenceShot(page, 'sink-drag-mid.png', evidenceDir177)
+  await evidenceShot(page, 'sink-drag-mid.png', 'issue-177')
   await page.mouse.up()
   let doc = await activeDoc(page)
   expect(doc.graphs['g0']!.nets['net100']!.sinks).toEqual([{ node: 'c2', port: 'in0' }])
   expect(Object.keys(doc.graphs['g0']!.links)).toHaveLength(0)
   await fitForShot(page)
-  await evidenceShot(page, 'sink-drag-after.png', evidenceDir177)
+  await evidenceShot(page, 'sink-drag-after.png', 'issue-177')
   await identityViewport(page)
 
   await page.keyboard.press('Control+z')
@@ -985,7 +980,7 @@ test('Shift-dragging the net source pin onto another producer re-points the whol
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
   await page.mouse.move(to.x, to.y, { steps: 8 })
-  await evidenceShot(page, 'source-move-mid.png', evidenceDir177)
+  await evidenceShot(page, 'source-move-mid.png', 'issue-177')
   await page.mouse.up()
   await page.keyboard.up('Shift')
 
@@ -993,7 +988,7 @@ test('Shift-dragging the net source pin onto another producer re-points the whol
   expect(doc.graphs['g0']!.nets['net0']!.source).toEqual({ node: 'p1', port: 'out0' })
   expect(doc.graphs['g0']!.nets['net0']!.sinks).toEqual([{ node: 'c1', port: 'in0' }])
   await fitForShot(page)
-  await evidenceShot(page, 'source-move-after.png', evidenceDir177)
+  await evidenceShot(page, 'source-move-after.png', 'issue-177')
   await identityViewport(page)
 
   // One undo returns the source; the sink list never churned.

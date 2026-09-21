@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { evidencePath } from './evidence-output.js'
 
 const EN_DIGEST = `sha256:${'a'.repeat(64)}`
 const ZH_DIGEST = `sha256:${'b'.repeat(64)}`
@@ -119,7 +120,7 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
   await expect(page.getByTestId('palette-preview')).toContainText('English fallback description from the pack catalog.')
   await expect(page.getByTestId('palette-preview')).toContainText('Color')
   await expect(page.getByTestId('palette-preview')).toContainText('Image')
-  await page.screenshot({ path: '../../docs/evidence/issue-457/pack-locale-overlay-en.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'pack-locale-overlay-en.png'), fullPage: true })
   const nodeRequestsBeforeLocaleChange = nodeRequests
 
   await page.evaluate(() => {
@@ -153,5 +154,5 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
   expect(registryFacts.hash).toBe(registryHash)
   expect(nodeRequests).toBe(nodeRequestsBeforeLocaleChange)
   expect(localeRequests).toEqual([EN_DIGEST, ZH_DIGEST])
-  await page.screenshot({ path: '../../docs/evidence/issue-457/pack-locale-overlay-zh.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'pack-locale-overlay-zh.png'), fullPage: true })
 })

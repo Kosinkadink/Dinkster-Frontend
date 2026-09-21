@@ -1,16 +1,13 @@
-import { mkdir } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { auditLayout } from './ui-audit.js'
+import { evidencePath } from './evidence-output.js'
 
-const EVIDENCE = '../../docs/evidence/issue-457'
 const GUIDE_DIGEST = `sha256:${'a'.repeat(64)}`
 const TEMPLATE_DOCUMENT = {
   format: 'dinkster-workflow', formatVersion: 1, lineage: 'guide-template', root: 'g0',
   graphs: { g0: { id: 'g0', name: 'Map and Gather', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
   view: { graphs: { g0: { nodes: {} } } },
 }
-
-test.beforeAll(async () => mkdir(EVIDENCE, { recursive: true }))
 
 test('browses a fallback guide in place and opens its exact template', async ({ page }) => {
   let nodeRequests = 0
@@ -76,7 +73,7 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
   await expect(search).toBeFocused()
   await search.hover()
   await expect(page.getByTestId('app-tooltip')).not.toBeVisible()
-  await page.screenshot({ path: `${EVIDENCE}/guide-browsing-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'guide-browsing-en.png'), fullPage: true })
 
   await panel.evaluate((element) => { element.dataset['localeIdentity'] = 'panel' })
   await panel.getByRole('button', { name: /Map and Gather/ }).evaluate((element) => { element.dataset['localeIdentity'] = 'card' })
@@ -102,7 +99,7 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
   expect(pageRequests).toHaveLength(1)
   expect(decodeURIComponent(pageRequests[0]!)).toContain(`/api/packs/foundation/docs/pages/${GUIDE_DIGEST}`)
   expect(await auditLayout(page, '[data-testid="learn-panel"]')).toEqual([])
-  await page.screenshot({ path: `${EVIDENCE}/guide-browsing-zh.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'guide-browsing-zh.png'), fullPage: true })
 
   await panel.getByRole('button', { name: '\u6253\u5f00\u6a21\u677f' }).click()
   await expect.poll(() => templateRequests.length).toBe(1)
