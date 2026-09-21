@@ -2,7 +2,6 @@ import { asNodeId, companionSourcesOf, inputsOf, occurrencesForView, type Json }
 import type { DinksterValuesClient, ValueQuery } from '@dinkster/client'
 import type { AppState, Tab } from './app-state.js'
 import { previewRuntimeMapping } from './app-view-rows.js'
-import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 import { liveExactnessFor } from './companion-display.js'
 
 export interface VideoEditSource {
@@ -21,7 +20,7 @@ export function videoEditContext(
   if (!graph || !node || !schema) return { sourceReason: 'Video node schema is unavailable.' }
   const inputs = inputsOf(schema)
   const sources = companionSourcesOf(graph, undefined, undefined, resolve)
-  const section = node.type === BUILTIN_EDITOR_NODE_IDS.videoTrim ? 'trim' : node.type === BUILTIN_EDITOR_NODE_IDS.videoCrop ? 'crop' : undefined
+  const section = schema.editorRole === 'video-trim' ? 'trim' : schema.editorRole === 'video-crop' ? 'crop' : undefined
   const fields = section === 'trim' ? ['start_time', 'duration'] : ['x', 'y', 'width', 'height']
   const scalarFallback = node.values['video_edit'] === undefined && section !== undefined ? {
     initial: { [section]: Object.fromEntries(fields.map((field) => [field, node.values[field] ?? inputs.find((input) => input.id === field)?.widget?.default ?? 0])) } as Json,
