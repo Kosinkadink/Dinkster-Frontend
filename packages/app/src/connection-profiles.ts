@@ -139,8 +139,8 @@ export function removeConnectionProfile(
 
 /**
  * Format a shareable dinkster:// link for a saved workflow. The grammar is
- * parsed by the desktop shell (packages/desktop deep-link.ts): identifiers
- * only, never credentials. The project parameter is omitted for the default
+ * parsed by the Desktop shell: identifiers only, never credentials. The
+ * project parameter is omitted for the default
  * project; the backend parameter is omitted for the same-origin default
  * backend (empty canonical base URL), which the opener resolves to its own
  * library backend.

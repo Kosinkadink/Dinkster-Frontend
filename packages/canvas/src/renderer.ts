@@ -6,7 +6,7 @@
  * owner pushes scene/state and the renderer repaints on a rAF dirty loop.
  */
 
-import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, formatWidgetValue, selectorCandidateKey, type Json, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BADGE_SIZE,
   badgeRect,
@@ -756,6 +756,32 @@ export function sceneVisualBounds(
   return minX === Infinity ? undefined : { minX, minY, maxX, maxY }
 }
 
+/** Core's sparse world-anchored grid uses the same layer door as packs. */
+export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
+  return {
+    id: 'core.canvas.grid',
+    position: 'background',
+    order: -1000,
+    draw: ({ context, viewport }) => {
+      let spacing = 32
+      while (spacing * viewport.scale < 12) spacing *= 2
+      const minX = Math.floor(viewport.x / spacing) * spacing
+      const minY = Math.floor(viewport.y / spacing) * spacing
+      const maxX = viewport.x + viewport.width
+      const maxY = viewport.y + viewport.height
+      context.beginPath()
+      for (let y = minY; y <= maxY; y += spacing) {
+        for (let x = minX; x <= maxX; x += spacing) {
+          context.moveTo(x + 1.5, y)
+          context.arc(x, y, 1.5, 0, Math.PI * 2)
+        }
+      }
+      context.fillStyle = tokens.colors.gridDot
+      context.fill()
+    },
+  }
+}
+
 export class CanvasRenderer {
   private baseScene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   private scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
@@ -773,6 +799,10 @@ export class CanvasRenderer {
   private reducedMotion = false
   private animationTimeMs = 0
   private previewChecker: CanvasPattern | null | undefined
+  private canvasLayers: readonly CanvasLayerContribution[] = []
+  private canvasLayerNodes: readonly CanvasLayerNode[] = []
+  private canvasLayerError: (id: string, error: unknown) => void = () => {}
+  private readonly failedCanvasLayers = new Set<string>()
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -786,11 +816,27 @@ export class CanvasRenderer {
   setScene(scene: Scene): void {
     this.baseScene = scene
     this.scene = this.sceneWithBodyRegions(scene)
+    this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
+      id: node.id,
+      type: node.node.type,
+      title: node.layout.title,
+      x: node.x,
+      y: node.y,
+      width: node.layout.width,
+      height: node.layout.height,
+    })))
     this.refreshTypeAdornments()
     this.invalidate()
     // Notify AFTER installation so listeners (gesture cancellation) observe
     // the new scene through getScene().
     for (const listener of this.sceneReplacedListeners) listener(this.scene)
+  }
+
+  setCanvasLayers(layers: readonly CanvasLayerContribution[], onError?: (id: string, error: unknown) => void): void {
+    this.canvasLayers = layers
+    this.canvasLayerError = onError ?? (() => {})
+    this.failedCanvasLayers.clear()
+    this.invalidate()
   }
 
   private readonly sceneReplacedListeners = new Set<(scene: Scene) => void>()
@@ -1444,7 +1490,7 @@ export class CanvasRenderer {
 
     // Visible world rect for culling.
     const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
-    if (this.gridVisible) this.drawGrid(ctx, view, scale)
+    this.drawCanvasLayers('background', ctx, view, scale)
 
     const offsets = this.overlay.dragOffsets
     const off = (nodeId: string) => offsets?.get(nodeId) ?? ZERO_OFFSET
@@ -1968,7 +2014,38 @@ export class CanvasRenderer {
 
     this.drawPresence(ctx, scale)
 
+    this.drawCanvasLayers('foreground', ctx, view, scale)
+
     ctx.setTransform(1, 0, 0, 1, 0, 0)
+  }
+
+  private drawCanvasLayers(
+    position: CanvasLayerContribution['position'],
+    context: CanvasRenderingContext2D,
+    viewport: Readonly<{ x: number; y: number; w: number; h: number }>,
+    scale: number,
+  ): void {
+    const layers = this.canvasLayers.filter((layer) =>
+      layer.position === position && (layer.id !== 'core.canvas.grid' || this.gridVisible))
+    if (layers.length === 0) return
+    const input = Object.freeze({
+      context,
+      viewport: Object.freeze({ x: viewport.x, y: viewport.y, width: viewport.w, height: viewport.h, scale }),
+      nodes: this.canvasLayerNodes,
+    })
+    for (const layer of layers) {
+      context.save()
+      try {
+        layer.draw(input)
+      } catch (error) {
+        if (!this.failedCanvasLayers.has(layer.id)) {
+          this.failedCanvasLayers.add(layer.id)
+          this.canvasLayerError(layer.id, error)
+        }
+      } finally {
+        context.restore()
+      }
+    }
   }
 
   private drawTypeAdornments(
@@ -2282,33 +2359,6 @@ export class CanvasRenderer {
       ctx.restore()
     }
     ctx.restore()
-  }
-
-  /**
-   * Sparse world-anchored reference grid. Spacing grows geometrically when
-   * zoomed out, bounding both visual density and arc count to screen area
-   * rather than the potentially enormous visible world rectangle.
-   */
-  private drawGrid(
-    ctx: CanvasRenderingContext2D,
-    view: { readonly x: number; readonly y: number; readonly w: number; readonly h: number },
-    scale: number,
-  ): void {
-    let spacing = 32
-    while (spacing * scale < 12) spacing *= 2
-    const minX = Math.floor(view.x / spacing) * spacing
-    const minY = Math.floor(view.y / spacing) * spacing
-    const maxX = view.x + view.w
-    const maxY = view.y + view.h
-    ctx.beginPath()
-    for (let y = minY; y <= maxY; y += spacing) {
-      for (let x = minX; x <= maxX; x += spacing) {
-        ctx.moveTo(x + 1.5, y)
-        ctx.arc(x, y, 1.5, 0, Math.PI * 2)
-      }
-    }
-    ctx.fillStyle = this.tokens.colors.gridDot
-    ctx.fill()
   }
 
   /** Group rectangle: translucent fill, title band, border, and title. */

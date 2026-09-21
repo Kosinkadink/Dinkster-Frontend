@@ -1498,6 +1498,9 @@ export interface TemplateDescriptor {
   readonly name: string
   readonly description?: string
   readonly tags?: readonly string[]
+  readonly family?: string
+  readonly models?: readonly string[]
+  readonly thumbnail?: { readonly digest: string; readonly mediaType: string }
   /** Pack-local asset ids, joined against PackInfo.assets by consumers. */
   readonly assets?: readonly string[]
   readonly digest: string
@@ -1518,6 +1521,13 @@ const templateDescriptor = (value: unknown): TemplateDescriptor | undefined => {
     pack: r['pack'], id: r['id'], name: r['name'], digest: r['digest'],
     ...(typeof r['description'] === 'string' ? { description: r['description'] } : {}),
     ...(strings(r['tags']) !== undefined ? { tags: strings(r['tags'])! } : {}),
+    ...(typeof r['family'] === 'string' ? { family: r['family'] } : {}),
+    ...(strings(r['models']) !== undefined ? { models: strings(r['models'])! } : {}),
+    ...(typeof r['thumbnail'] === 'object' && r['thumbnail'] !== null &&
+      typeof (r['thumbnail'] as Record<string, unknown>)['digest'] === 'string' &&
+      typeof (r['thumbnail'] as Record<string, unknown>)['mediaType'] === 'string'
+      ? { thumbnail: r['thumbnail'] as { digest: string; mediaType: string } }
+      : {}),
     ...(strings(r['assets']) !== undefined ? { assets: strings(r['assets'])! } : {}),
   }
 }

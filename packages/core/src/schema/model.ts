@@ -878,6 +878,8 @@ export interface NodeSchema {
   readonly virtual?: true
   readonly displayName: string
   readonly category: string
+  /** Backend-declared role used to bind rich editors without node-type knowledge. */
+  readonly editorRole?: string
   /**
    * Owning pack id, host-attached by the backend at schema collection
    * (never self-claimed by the schema): 'core' for Dinkster std nodes, the
@@ -956,6 +958,11 @@ export interface NodeSchema {
   /** Presentation-only visibility groups for top-level static widgets (wire 27). */
   readonly widgetGroups?: readonly ConditionalWidgetGroup[]
   readonly ext?: Readonly<Record<string, unknown>>
+}
+
+export function schemaForEditorRole(schemas: Iterable<NodeSchema>, role: string): NodeSchema | undefined {
+  const matches = [...schemas].filter((schema) => schema.editorRole === role)
+  return matches.length === 1 ? matches[0] : undefined
 }
 
 /**

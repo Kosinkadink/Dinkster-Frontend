@@ -24,7 +24,7 @@ import { ActivityLog } from './ActivityLog.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
-import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource } from './collections.js'
+import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard } from './ExecutionActivityCard.js'
 import { ExecutionLogPanel } from './ExecutionLogPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
@@ -44,6 +44,7 @@ import { ProductActionFooter } from './ProductForm.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { SurfacePanel } from './SurfacePanel.js'
+import { TemplateGallery } from './TemplateGallery.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
@@ -593,10 +594,13 @@ export function App(props: {
     }
     if (sourceId === 'templates' && actionId === 'open') {
       if (entry.owner === undefined) return
-      const split = entry.id.indexOf('/')
-      const pack = entry.id.slice(0, split)
-      const id = entry.id.slice(split + 1)
-      void app.openTemplate(pack, id, entry.title, entry.owner).then((ok) => {
+      const ref = entry.ref as TemplateCollectionRef | undefined
+      const opening = ref?.kind === 'remote'
+        ? app.openRemoteTemplate(ref.template, entry.title)
+        : ref?.kind === 'local'
+          ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
+          : Promise.resolve(false)
+      void opening.then((ok) => {
         if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
       })
       return
@@ -1546,11 +1550,43 @@ export function App(props: {
   })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
+  const GraphEditor = (editorProps: { readonly host?: EditorHostContext }) => {
+    const tabs = useSignal(app.tabs)
+    const globalActiveTabId = useSignal(app.activeTabId)
+    const galleryRequested = useSignal(app.templateGalleryOpen)
+    const [documentRevision, setDocumentRevision] = createSolidSignal(0)
+    const [dismissed, setDismissed] = createSolidSignal<ReadonlySet<string>>(new Set())
+    const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
+    const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
+    createEffect(() => {
+      const tab = activeEditorTab()
+      if (tab === undefined) return
+      setDocumentRevision((value) => value + 1)
+      const unsubscribe = tab.store.document.subscribe(() => setDocumentRevision((value) => value + 1))
+      onCleanup(unsubscribe)
+    })
+    const empty = (): boolean => {
+      documentRevision()
+      const tab = activeEditorTab()
+      if (tab === undefined) return false
+      const root = tab.store.doc.graphs[tab.store.doc.root]
+      return root !== undefined && Object.keys(root.nodes).length === 0
+    }
+    const visible = (): boolean => galleryRequested() || (empty() && !dismissed().has(activeTabId()))
+    const close = (): void => {
+      app.templateGalleryOpen.set(false)
+      setDismissed((current) => new Set([...current, activeTabId()]))
+    }
+    return <div class="graph-editor-with-gallery">
+      <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
+        {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
+        {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />
+      <TemplateGallery app={app} visible={visible} onClose={close} />
+    </div>
+  }
   const unregisterEditors = app.frontendDoors.editor(GRAPH_EDITOR_KIND, {
     get title() { return message('shell.editor.graph') },
-    component: (host) => <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
-      {...(host !== undefined ? { host } : {})}
-      {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />,
+    component: (host) => <GraphEditor {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterEditors)
   // The form-style app view uses the same public descriptor API.
