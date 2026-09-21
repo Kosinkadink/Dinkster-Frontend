@@ -4,6 +4,7 @@ import {
   MEDIA_PREFIX_FOR_KIND,
   STARTER_FAMILIES,
   STARTER_ROWS,
+  collectSavedArtifacts,
   parseStarterOverrides,
 } from '../tests/starter-execution-support.js'
 
@@ -56,6 +57,57 @@ describe('starter execution matrix', () => {
       'dinkster.wan21',
       'dinkster.wan22',
     ])
+  })
+})
+
+describe('saved artifact collection', () => {
+  it('collects saved asset metadata nested in terminal outputs', () => {
+    const artifacts: { digest?: string; mediaType?: string }[] = []
+    collectSavedArtifacts(
+      {
+        save: {
+          assets: {
+            typeId: 'list<asset<dinkster.image>>',
+            elements: [
+              {
+                typeId: 'asset<dinkster.image>',
+                meta: {
+                  digest: 'blake3:abc',
+                  name: 'sd15_00001.png',
+                  size: 123,
+                  mediaType: 'image/png',
+                  virtualPath: 'mounts/output/sd15_00001.png',
+                },
+              },
+            ],
+          },
+        },
+      },
+      artifacts,
+    )
+    expect(artifacts).toEqual([
+      {
+        digest: 'blake3:abc',
+        name: 'sd15_00001.png',
+        size: 123,
+        mediaType: 'image/png',
+        virtualPath: 'mounts/output/sd15_00001.png',
+      },
+    ])
+  })
+
+  it('ignores value descriptors that are not saved assets', () => {
+    const artifacts: { digest?: string; mediaType?: string }[] = []
+    collectSavedArtifacts(
+      {
+        image: {
+          typeId: 'dinkster.image',
+          meta: { shape: [1, 256, 256, 3], dtype: 'float32' },
+        },
+      },
+      artifacts,
+    )
+    expect(artifacts).toEqual([])
   })
 })
 

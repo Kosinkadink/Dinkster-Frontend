@@ -33,7 +33,9 @@ import {
   MEDIA_PREFIX_FOR_KIND,
   STARTER_FAMILIES,
   STARTER_ROWS,
+  collectSavedArtifacts,
   parseStarterOverrides,
+  type SavedArtifact,
   type StarterFamilyOverride,
   type StarterOverrides,
   type StarterRow,
@@ -675,12 +677,10 @@ for (const row of STARTER_ROWS) {
       `terminal outputs carry no ${row.outputKind} descriptor (${prefix}); media kinds seen: ` +
         `${JSON.stringify(descriptorMediaTypes)}`,
     ).toBe(true)
-    const artifacts = (terminal['artifacts'] ?? []) as readonly {
-      digest?: string
-      mediaType?: string
-      name?: string
-      virtualPath?: string
-    }[]
+    const artifacts: SavedArtifact[] = [
+      ...((terminal['artifacts'] ?? []) as readonly SavedArtifact[]),
+    ]
+    collectSavedArtifacts(outputs, artifacts)
     expect(
       artifacts.filter(
         (artifact) =>

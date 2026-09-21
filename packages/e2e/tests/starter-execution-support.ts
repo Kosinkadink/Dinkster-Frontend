@@ -83,6 +83,49 @@ export const MEDIA_PREFIX_FOR_KIND: Record<StarterOutputKind, string> = {
   'gaussian-splat': 'model/ply',
 }
 
+export interface SavedArtifact {
+  readonly digest?: string
+  readonly mediaType?: string
+  readonly name?: string
+  readonly virtualPath?: string
+  readonly size?: number
+}
+
+/** Collect saved asset descriptors nested under terminal node outputs. */
+export function collectSavedArtifacts(
+  value: unknown,
+  into: SavedArtifact[],
+): void {
+  if (Array.isArray(value)) {
+    for (const element of value) collectSavedArtifacts(element, into)
+    return
+  }
+  if (typeof value !== 'object' || value === null) return
+  const record = value as Record<string, unknown>
+  const meta = record['meta']
+  if (typeof meta === 'object' && meta !== null) {
+    const descriptor = meta as Record<string, unknown>
+    if (
+      typeof descriptor['digest'] === 'string' &&
+      typeof descriptor['mediaType'] === 'string' &&
+      typeof descriptor['virtualPath'] === 'string'
+    ) {
+      into.push({
+        digest: descriptor['digest'],
+        mediaType: descriptor['mediaType'],
+        virtualPath: descriptor['virtualPath'],
+        ...(typeof descriptor['name'] === 'string'
+          ? { name: descriptor['name'] }
+          : {}),
+        ...(typeof descriptor['size'] === 'number'
+          ? { size: descriptor['size'] }
+          : {}),
+      })
+    }
+  }
+  for (const child of Object.values(record)) collectSavedArtifacts(child, into)
+}
+
 export interface StarterModelOverride {
   /** Document-graph node id whose ASSET input is replaced. */
   readonly node: string
