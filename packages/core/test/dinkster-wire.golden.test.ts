@@ -43,6 +43,7 @@ describe('Dinkster schema wire', () => {
   it('decodes every current widget descriptor through the single parser', () => {
     const result = parseDinksterSchema('WidgetCatalog', {
       schemaVersion: 1,
+      editorRole: 'custom-editor',
       interface: [
         { role: 'input', id: 'asset', type: concrete('dinkster.asset'), required: true, widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' } },
         { role: 'input', id: 'save', type: concrete('dinkster.save_target'), required: true, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
@@ -70,10 +71,12 @@ describe('Dinkster schema wire', () => {
             ],
           },
         },
+        { role: 'input', id: 'custom', type: concrete('extension.value'), required: false, widget: { type: 'extension.widget', nested: { enabled: true, values: [1, null, 'two'] } } },
       ],
     })
 
     expect(result.diagnostics).toEqual([])
+    expect(result.schema?.editorRole).toBe('custom-editor')
     expect(inputsOf(result.schema!).map((input) => input.widget?.widgetType)).toEqual([
       'ASSET',
       'SAVE_TARGET',
@@ -86,6 +89,7 @@ describe('Dinkster schema wire', () => {
       'CURVE',
       'COMPOSITOR',
       'STRING',
+      'extension.widget',
     ])
     expect(inputsOf(result.schema!)[10]!.widget?.representations).toEqual({
       default: 'text',
@@ -103,6 +107,7 @@ describe('Dinkster schema wire', () => {
         }),
       ],
     })
+    expect(inputsOf(result.schema!).at(-1)?.widget?.options).toEqual({ nested: { enabled: true, values: [1, null, 'two'] } })
   })
 
   it('rejects nested and mixed-domain widget representations', () => {

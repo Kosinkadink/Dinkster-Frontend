@@ -46,6 +46,7 @@ import {
   mergeableTypesFromDinksterWire,
   serverInfoFromDinksterWire,
   parseOccurrenceKey,
+  schemaForEditorRole,
   validateDinksterGraph,
   type CompileArtifact,
   type ConnectionId,
@@ -3374,12 +3375,15 @@ export function buildDinksterRegistry(
   // (surface generation), composing is present-only-when-true.
   const epoch =
     typeof raw.epoch === 'number' && Number.isInteger(raw.epoch) && raw.epoch > 0 ? raw.epoch : undefined
+  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type) ?? aliasMap.get(type), {
+    forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+  })
   return {
     connection,
     hash: fnv1a64(canonicalJson(schemaIdentityWithoutWidgetPresentation(raw) as Json)),
     schemas,
     diagnostics: [...parsed.diagnostics, ...aliasDiags, ...aliases.diagnostics, ...groups.diagnostics],
-    resolve: (type) => schemas.get(type) ?? aliasMap.get(type),
+    resolve,
     packs: packsFromDinksterWire(raw),
     ...(aliases.catalog.records.length > 0 ? { comfyAliases: aliases.catalog } : {}),
     ...(groups.catalog.records.length > 0 ? { comfyGroups: groups.catalog } : {}),

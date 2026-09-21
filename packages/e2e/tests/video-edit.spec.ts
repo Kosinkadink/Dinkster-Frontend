@@ -24,7 +24,8 @@ const catalog = {
     'dinkster.video.trim': { ...contract.nodes['dinkster.video.trim'], outputNode: true },
     'dinkster.video.crop': { ...contract.nodes['dinkster.video.crop'], outputNode: true },
     'test.video.edit': node([
-      input('video', 'comfy.VIDEO'), { ...input('video_edit', 'comfy.VIDEO_EDIT'), required: false },
+      input('video', 'comfy.VIDEO'),
+      { ...input('video_edit', 'comfy.VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
       input('strict_duration', 'core.boolean', false),
       { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
     ]),
@@ -691,7 +692,17 @@ test('SaveVideo v3 persists the migrated dynamic format as a static input', asyn
     view: { graphs: {} },
   }
   expect(await page.evaluate((document) => window.__dinksterTest!.app.openDocument(document, 'Historical Save Video'), before)).toEqual([])
-  const expected = { target: { mount: 'comfy-output', prefix: 'saved-editor' }, format: 'webm_vp9', crf: 31, container: 'auto', codec: 'auto', metadata: '{}' }
+  const expected = {
+    target: { mount: 'comfy-output', prefix: 'saved-editor' },
+    format: 'webm_vp9',
+    crf: 31,
+    container: 'auto',
+    codec: 'auto',
+    profile: 'auto',
+    audio_layout: 'preserve',
+    trim_to_audio: false,
+    metadata: '{}',
+  }
   expect(await valuesOf(page)).toEqual(expected)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.edit!.dynamic?.format)).toBeUndefined()
   const compiledNodeInputs = await retainRoundTrip(page, info, 'save-video-v3', before, expected, [])

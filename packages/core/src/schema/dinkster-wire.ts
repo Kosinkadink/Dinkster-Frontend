@@ -158,6 +158,7 @@ export interface DinksterWireSchema {
   readonly displayName?: unknown
   readonly category?: unknown
   readonly description?: unknown
+  readonly editorRole?: unknown
   readonly idempotent?: unknown
   readonly interface?: unknown
   readonly occupies?: unknown
@@ -572,8 +573,25 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       if (typeof descriptor['type'] !== 'string' || descriptor['type'] === '') {
         throw new Error(`${where}.type must be a non-empty string`)
       }
+      for (const [key, value] of Object.entries(descriptor)) {
+        if (key !== 'type') cloneJsonValue(value, `${where}.${key}`)
+      }
       return
   }
+}
+
+function cloneJsonValue(value: unknown, where: string): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (Array.isArray(value)) return value.map((item, index) => cloneJsonValue(item, `${where}[${index}]`))
+  if (typeof value === 'object') {
+    const result: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = cloneJsonValue(item, `${where}.${key}`)
+    }
+    return result
+  }
+  throw new Error(`${where} must be JSON-safe`)
 }
 
 function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string): void {
@@ -1115,8 +1133,10 @@ function widgetFor(
       }
     }
     if (typeof descriptor.type === 'string' && descriptor.type !== '') {
-      const options = { ...wire as Record<string, unknown> }
-      delete options['type']
+      const options: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(descriptor)) {
+        if (key !== 'type') options[key] = cloneJsonValue(value, `${nodeType}.${id}.widget.${key}`)
+      }
       return {
         widgetType: descriptor.type,
         options,
@@ -1126,14 +1146,6 @@ function widgetFor(
     throw new Error(`${nodeType}.${id}: widget descriptor is incompatible with its input`)
   }
   if (type.kind !== 'concrete') return undefined
-  if (type.name === 'comfy.VIDEO_EDIT') {
-    const features = nodeType === 'dinkster.video.trim' ? ['trim'] : nodeType === 'dinkster.video.crop' ? ['crop'] : ['trim', 'crop']
-    return {
-      widgetType: 'VIDEO_EDIT',
-      options: { features },
-      ...(dflt !== undefined ? { default: dflt } : {}),
-    }
-  }
   const widgetType = PRIMITIVE_WIDGETS[type.name]
   if (widgetType === undefined) return undefined
   return {
@@ -1883,6 +1895,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       type: nodeType,
       displayName: typeof wire.displayName === 'string' && wire.displayName !== '' ? wire.displayName : nodeType,
       category: typeof wire.category === 'string' ? wire.category : '',
+      ...(typeof wire.editorRole === 'string' && wire.editorRole !== '' ? { editorRole: wire.editorRole } : {}),
       ...(typeof wire.pack === 'string' && wire.pack !== '' ? { pack: wire.pack } : {}),
       ...(typeof wire.signature === 'string' && wire.signature !== '' ? { signature: wire.signature } : {}),
       ...(executionArms.length > 0 ? { executionArms: [...new Set(executionArms)] } : {}),

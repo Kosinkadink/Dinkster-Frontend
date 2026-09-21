@@ -33,7 +33,7 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
-import { builtinEditorBindings } from './builtin-bindings.js'
+import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { ImageEditor } from './ImageEditor.js'
 import { ImageDocumentWorkspace } from './ImageDocumentWorkspace.js'
@@ -1584,27 +1584,32 @@ export function App(props: {
     </div>
   }
   const unregisterEditors = app.frontendDoors.editor(GRAPH_EDITOR_KIND, {
+    roles: builtinEditorRoles(GRAPH_EDITOR_KIND),
     get title() { return message('shell.editor.graph') },
     component: (host) => <GraphEditor {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterEditors)
   // The form-style app view uses the same public descriptor API.
   const unregisterAppEditor = app.frontendDoors.editor(APP_EDITOR_KIND, {
+    roles: builtinEditorRoles(APP_EDITOR_KIND),
     get title() { return message('shell.editor.appView') },
     component: (host) => <AppView app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterAppEditor)
   const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
+    roles: builtinEditorRoles(IMAGE_EDITOR_KIND),
     get title() { return message('shell.editor.image') },
     component: (host) => <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterImageEditor)
   const unregisterCurveEditor = app.frontendDoors.editor(CURVE_EDITOR_KIND, {
+    roles: builtinEditorRoles(CURVE_EDITOR_KIND),
     get title() { return message('shell.editor.curve') },
     component: (host) => <CurveEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterCurveEditor)
   const unregisterGlslEditor = app.frontendDoors.editor(GLSL_EDITOR_KIND, {
+    roles: builtinEditorRoles(GLSL_EDITOR_KIND),
     get title() { return message('shell.editor.glsl') },
     component: (host) => <GlslEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })

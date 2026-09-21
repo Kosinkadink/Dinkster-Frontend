@@ -8,6 +8,7 @@ import {
 
 const schema: NodeSchema = {
   type: 'demo.paint',
+  editorRole: 'demo.paint.editor',
   displayName: 'Paint',
   description: 'Base description',
   category: 'demo',
@@ -126,6 +127,7 @@ describe('pack locale catalogs', () => {
     const image = translated.items[2]!
 
     expect(localized.hash).toBe(registry.hash)
+    expect(localized.resolve.forEditorRole?.('demo.paint.editor')).toBe(translated)
     expect(translated.displayName).toBe('Malen')
     expect(translated.description).toBe('Fallback description')
     expect(color).toMatchObject({ displayName: 'Farbe', tooltip: 'Fallback color help' })
