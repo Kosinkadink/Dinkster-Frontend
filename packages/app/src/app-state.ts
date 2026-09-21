@@ -46,6 +46,7 @@ import {
   type ExtensionEditorKind,
   type EditorBinding,
   type ExtensionPanelContributionV1,
+  type CanvasLayerContribution,
   type FrontendPrivilege,
   stampEnvironment,
   t,
@@ -162,7 +163,7 @@ import {
   SchemaTextCompletionProvider,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { MAX_SCALE, MIN_SCALE, type Viewport } from '@dinkster/canvas'
+import { canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, type Viewport } from '@dinkster/canvas'
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
@@ -2392,6 +2393,7 @@ export class AppState {
   readonly editors = new EditorRegistry()
   readonly editorBindings = new EditorBindingRegistry()
   readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
+  readonly canvasLayers = createSignal<readonly CanvasLayerContribution[]>([])
   private readonly extensionEditorIds = new Set<string>()
   readonly frontendDoors = {
     widgetKind: (_id: string, kind: Parameters<typeof this.widgetRegistry.registerKind>[0]): (() => void) =>
@@ -2412,6 +2414,16 @@ export class AppState {
       'component' in panel
         ? this.panels.register(descriptorWithId(id, panel))
         : this.registerExtensionPanel({ ...panel, id }),
+    canvasLayer: (id: string, layer: Omit<CanvasLayerContribution, 'id'>): (() => void) => {
+      const contribution = Object.freeze({ ...layer, id })
+      this.canvasLayers.update((layers) => [...layers, contribution]
+        .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.id.localeCompare(right.id)))
+      this.extensionRevision.update((revision) => revision + 1)
+      return () => {
+        this.canvasLayers.update((layers) => layers.filter((candidate) => candidate !== contribution))
+        this.extensionRevision.update((revision) => revision + 1)
+      }
+    },
   }
   /**
    * Pack frontend contributions and per-contribution gating: packs enumerate
@@ -2459,6 +2471,7 @@ export class AppState {
     registerEditorBinding: (binding) => this.frontendDoors.editorBinding(binding.id, binding),
     registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
     registerVirtualNode: (kind) => this.registerVirtualNode(kind),
+    registerCanvasLayer: (layer) => this.frontendDoors.canvasLayer(layer.id, layer),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()
@@ -3020,6 +3033,7 @@ export class AppState {
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
+    this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     registerCoreWidgets(this.frontendDoors)
     registerCoreWidgetEditors(this.widgetRegistry)
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
