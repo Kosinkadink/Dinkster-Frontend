@@ -12,10 +12,8 @@ const selectedProject =
 const stubV1Entry = selectedProject === 'native-without-v1' ? '1' : '0'
 const stockV1Only = selectedProject === 'v1-compatibility'
 const probeV1 = stubV1Entry === '1' ? '0' : '1'
-// Route-mocked specs normally stay on v1 even when live native coverage is enabled.
-// The native dependency-boundary project must keep every page on the native path.
-process.env['DINKSTER_E2E_FIXTURE_MODE'] =
-  stubV1Entry === '1' ? 'native' : 'legacy'
+// Route-mocked specs stay on v1 even when live native coverage is enabled.
+process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'
 
 const requiredDirectory = (name: string): string => {
   const value = process.env[name]
@@ -59,13 +57,6 @@ const checkpointFixture = resolve(
 )
 mkdirSync(resolve(comfyRoot, 'models/checkpoints'), { recursive: true })
 writeFileSync(checkpointFixture, 'Dinkster hosted E2E checkpoint fixture\n')
-const nativeComfySelection =
-  stubV1Entry === '1'
-    ? []
-    : [
-        `--comfy-root ${JSON.stringify(comfyRoot)}`,
-        `--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
-      ]
 const frontendPort = port('DINKSTER_E2E_PORT', 5410)
 const comfyPort = port('DINKSTER_E2E_COMFY_PORT', 5411)
 const nativePort = port('DINKSTER_E2E_NATIVE_PORT', 5412)
@@ -109,7 +100,8 @@ export default defineConfig({
         `--library-root ${JSON.stringify(nativeLibrary)}`,
         '--execution-cache-mode memory',
         '--allow-mount-changes',
-        ...nativeComfySelection,
+        `--comfy-root ${JSON.stringify(comfyRoot)}`,
+        `--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
       ].join(' '),
       cwd: dinksterRoot,
       env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },

@@ -406,7 +406,9 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain('VITE_DINKSTER_E2E_PROBE_V1: probeV1')
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
-    expect(hostedConfig).toContain("stubV1Entry === '1' ? 'native' : 'legacy'")
+    expect(hostedConfig).toContain(
+      "process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'",
+    )
     expect(hostedConfig).toContain(
       "process.env['DINKSTER_E2E_PROJECT'] = argumentProject",
     )
@@ -424,10 +426,12 @@ describe('fast pull-request and full validation workflows', () => {
       '`--allow-origin http://127.0.0.1:${nativeFrontendPort}`',
     )
     expect(hostedConfig).not.toContain("'--no-default-packs'")
-    expect(hostedConfig).toMatch(
-      /const nativeComfySelection =\s*stubV1Entry === '1'/,
+    expect(hostedConfig).toContain(
+      '`--comfy-root ${JSON.stringify(comfyRoot)}`',
     )
-    expect(hostedConfig).toContain('...nativeComfySelection')
+    expect(hostedConfig).toContain(
+      "`--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`",
+    )
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
