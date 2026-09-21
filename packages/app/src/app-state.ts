@@ -46,6 +46,7 @@ import {
   type ExtensionEditorKind,
   type EditorBinding,
   type ExtensionPanelContributionV1,
+  type CanvasLayerContribution,
   type FrontendPrivilege,
   stampEnvironment,
   t,
@@ -164,7 +165,7 @@ import {
   SchemaTextCompletionProvider,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { MAX_SCALE, MIN_SCALE, type Viewport } from '@dinkster/canvas'
+import { canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, type Viewport } from '@dinkster/canvas'
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
@@ -204,6 +205,7 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
+import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import { scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
@@ -2338,6 +2340,7 @@ export class AppState {
   readonly menuRegistry = createMenuRegistry()
   readonly searchRegistry = createSearchRegistry()
   readonly searchOpen = createSignal(false)
+  readonly templateGalleryOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
   readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)
   /**
@@ -2391,6 +2394,7 @@ export class AppState {
   readonly editors = new EditorRegistry()
   readonly editorBindings = new EditorBindingRegistry()
   readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
+  readonly canvasLayers = createSignal<readonly CanvasLayerContribution[]>([])
   private readonly extensionEditorIds = new Set<string>()
   readonly frontendDoors = {
     widgetKind: (_id: string, kind: Parameters<typeof this.widgetRegistry.registerKind>[0]): (() => void) =>
@@ -2411,6 +2415,16 @@ export class AppState {
       'component' in panel
         ? this.panels.register(descriptorWithId(id, panel))
         : this.registerExtensionPanel({ ...panel, id }),
+    canvasLayer: (id: string, layer: Omit<CanvasLayerContribution, 'id'>): (() => void) => {
+      const contribution = Object.freeze({ ...layer, id })
+      this.canvasLayers.update((layers) => [...layers, contribution]
+        .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.id.localeCompare(right.id)))
+      this.extensionRevision.update((revision) => revision + 1)
+      return () => {
+        this.canvasLayers.update((layers) => layers.filter((candidate) => candidate !== contribution))
+        this.extensionRevision.update((revision) => revision + 1)
+      }
+    },
   }
   /**
    * Pack frontend contributions and per-contribution gating: packs enumerate
@@ -2467,6 +2481,7 @@ export class AppState {
     registerEditorBinding: (binding) => this.frontendDoors.editorBinding(binding.id, binding),
     registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
     registerVirtualNode: (kind) => this.registerVirtualNode(kind),
+    registerCanvasLayer: (layer) => this.frontendDoors.canvasLayer(layer.id, layer),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()
@@ -2854,6 +2869,14 @@ export class AppState {
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.controlSurfaces.enabled', get name() { return t('settings.features.controlSurfaces') }, type: 'boolean', defaultValue: false })
+    this.settings.register({
+      id: 'templates.registryUrl',
+      get name() { return t('settings.templates.registryUrl.name') },
+      get description() { return t('settings.templates.registryUrl.description') },
+      category: 'templates',
+      type: 'string',
+      defaultValue: '',
+    })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
@@ -2918,6 +2941,11 @@ export class AppState {
     })
     register('workflow.open', 'command.workflow.open', 'Ctrl+O', () => {
       setPanelOpen(this.panels, this.dock, 'library', 'left', true)
+    })
+    this.frontendDoors.command('workflow.openTemplateGallery', {
+      get label() { return t('command.workflow.openTemplateGallery') },
+      run: () => this.templateGalleryOpen.set(true),
+      enabled: () => activeTabNow() !== undefined && activeTabNow()?.execution === undefined,
     })
     this.frontendDoors.command('workflow.importFile', {
       get label() { return t('command.workflow.importFile') },
@@ -3015,6 +3043,7 @@ export class AppState {
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
+    this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     registerCoreWidgets(this.frontendDoors)
     registerCoreWidgetEditors(this.widgetRegistry)
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
@@ -6601,11 +6630,41 @@ export class AppState {
         return false
       }
       const tab = this.activeTab()
-      if (tab) this.setTabTarget(tab.id, backend.id)
+      if (tab) {
+        this.setTabTarget(tab.id, backend.id)
+        void this.offerImportAssetResolution(tab, backend, [])
+      }
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', `failed to open template: ${e instanceof Error ? e.message : String(e)}`)])
+      }
+      return false
+    }
+  }
+
+  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
+    const backend = this.libraryBackend()
+    if (backend?.protocol !== 'dinkster') return false
+    const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
+    try {
+      const document = await catalog.fetchBody(template)
+      if (!this.ownerStillLive(backend) || document === undefined) return false
+      if (this.openDocument(document, title, backend).length > 0) return false
+      const tab = this.activeTab()
+      if (tab) {
+        this.setTabTarget(tab.id, backend.id)
+        void this.offerImportAssetResolution(tab, backend, [])
+      }
+      return true
+    } catch (error) {
+      if (this.ownerStillLive(backend)) {
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+          'error',
+          'validation',
+          'template.openFailed',
+          `failed to open remote template: ${error instanceof Error ? error.message : String(error)}`,
+        )])
       }
       return false
     }

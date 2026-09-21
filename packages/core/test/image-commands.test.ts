@@ -265,6 +265,12 @@ describe('image.applyMaskPaint', () => {
       ...nonIntegerMaskOperations.map((operations) => ({ ...maskInvocation.params, operations })),
     ]) expect(maskStore().dispatch({ command: maskInvocation.command, params }).ok).toBe(false)
   })
+
+  it('reports a missing mask schema when no resolver is available', () => {
+    const outcome = new DocumentStore(document(maskGraph()), coreCommandRegistry()).dispatch(maskInvocation)
+    expect(outcome.ok).toBe(false)
+    expect(outcome.diagnostics.map((diagnostic) => diagnostic.code)).toContain('image.maskSchemaMissing')
+  })
 })
 
 const compositorSchema: NodeSchema = {

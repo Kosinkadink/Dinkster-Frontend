@@ -96,6 +96,12 @@ test('an ordinary third-party pack activates and executes through public contrac
       ),
     )
     .toEqual(['proof', 'value'])
+  await expect.poll(() => page.evaluate(() => {
+    const proof = (globalThis as typeof globalThis & {
+      __dinksterExtensionContractCanvas?: { draws: number; nodes: string[] }
+    }).__dinksterExtensionContractCanvas
+    return proof === undefined ? undefined : { drew: proof.draws > 0, nodes: proof.nodes.sort() }
+  })).toEqual({ drew: true, nodes: ['proof', 'value'] })
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

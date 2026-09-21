@@ -1,13 +1,13 @@
 {
   "ceilings": {
     "nodeIdLiteral": 0,
-    "widgetTypeComparison": 98
+    "widgetTypeComparison": 93
   },
   "sites": [
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 925,
+      "line": 927,
       "column": 11,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -15,7 +15,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 958,
+      "line": 960,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -23,7 +23,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1057,
+      "line": 1059,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -31,7 +31,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1069,
+      "line": 1071,
       "column": 10,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -39,7 +39,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 4748,
+      "line": 4777,
       "column": 38,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -47,7 +47,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 4942,
+      "line": 4971,
       "column": 9,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -55,7 +55,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5046,
+      "line": 5075,
       "column": 34,
       "symbol": "widgetType:COMPOSITOR",
       "issue": 122
@@ -63,7 +63,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5104,
+      "line": 5133,
       "column": 36,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -71,7 +71,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5222,
+      "line": 5251,
       "column": 34,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -79,7 +79,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6125,
+      "line": 6154,
       "column": 38,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -159,7 +159,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4219,
+      "line": 4228,
       "column": 15,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -167,7 +167,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4694,
+      "line": 4703,
       "column": 27,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -175,7 +175,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4790,
+      "line": 4799,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -183,7 +183,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4871,
+      "line": 4880,
       "column": 36,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -191,7 +191,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4888,
+      "line": 4897,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -199,7 +199,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 6647,
+      "line": 6656,
       "column": 19,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -503,7 +503,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 2849,
+      "line": 2899,
       "column": 27,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -511,7 +511,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 2849,
+      "line": 2899,
       "column": 60,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -519,7 +519,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3907,
+      "line": 3957,
       "column": 21,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -527,7 +527,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3907,
+      "line": 3957,
       "column": 54,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -535,7 +535,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3981,
+      "line": 4031,
       "column": 19,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -543,7 +543,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3981,
+      "line": 4031,
       "column": 52,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -551,47 +551,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1068,
-      "column": 11,
-      "symbol": "widgetType:STRING",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1139,
-      "column": 38,
-      "symbol": "widgetType:ASSET",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1219,
-      "column": 9,
-      "symbol": "widgetType:COMBO",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1222,
-      "column": 9,
-      "symbol": "widgetType:INT",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1340,
-      "column": 38,
-      "symbol": "widgetType:COMPOSITOR",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 3204,
+      "line": 2716,
       "column": 37,
       "symbol": "widgetType:string",
       "issue": 122
@@ -599,7 +559,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 3216,
+      "line": 2728,
       "column": 9,
       "symbol": "widgetType:string",
       "issue": 122

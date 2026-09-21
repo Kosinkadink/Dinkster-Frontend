@@ -37,6 +37,7 @@ const payload = {
       category: 'image/compositing',
       idempotent: false,
       outputNode: true,
+      editorRole: 'compositor',
       interface: [
         {
           role: 'input', id: 'recipe', required: false,
