@@ -7880,6 +7880,8 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .template-gallery-kicker { color: #74b8e7; font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
 .template-gallery-close { flex: none; padding: 8px 13px; border: 1px solid var(--dinkster-border); border-radius: 8px; color: var(--dinkster-text-primary); background: var(--dinkster-surface); }
 .template-gallery-body { flex: 1; overflow: auto; padding: 20px 24px 28px; }
+.template-gallery-search { width: min(100%, 520px); margin: 0 0 20px; }
+.template-gallery-search .search-input-shell { width: 100%; }
 .template-gallery-state { margin: 40px auto; color: var(--dinkster-text-secondary); text-align: center; }
 .template-family + .template-family { margin-top: 24px; }
 .template-family h3 { margin: 0 0 10px; color: var(--dinkster-text-primary); font-size: 13px; letter-spacing: .02em; }
