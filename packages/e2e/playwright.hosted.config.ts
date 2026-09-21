@@ -16,7 +16,6 @@ const probeV1 = stubV1Entry === '1' ? '0' : '1'
 // The native dependency-boundary project must keep every page on the native path.
 process.env['DINKSTER_E2E_FIXTURE_MODE'] =
   stubV1Entry === '1' ? 'native' : 'legacy'
-const nativePackSelection = stubV1Entry === '1' ? ['--no-default-packs'] : []
 
 const requiredDirectory = (name: string): string => {
   const value = process.env[name]
@@ -104,7 +103,6 @@ export default defineConfig({
         '--host 127.0.0.1',
         `--port ${nativePort}`,
         '--disable-p2p',
-        ...nativePackSelection,
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,

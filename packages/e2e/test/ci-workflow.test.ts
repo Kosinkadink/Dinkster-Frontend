@@ -423,10 +423,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain(
       '`--allow-origin http://127.0.0.1:${nativeFrontendPort}`',
     )
-    expect(hostedConfig).toContain(
-      "stubV1Entry === '1' ? ['--no-default-packs'] : []",
-    )
-    expect(hostedConfig).toContain('...nativePackSelection')
+    expect(hostedConfig).not.toContain("'--no-default-packs'")
     expect(hostedConfig).toMatch(
       /const nativeComfySelection =\s*stubV1Entry === '1'/,
     )
