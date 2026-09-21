@@ -27,12 +27,12 @@ the engine library and models are separate from the application binaries.
 
 The installed app opens the workspace after the local engine is ready:
 
-![Installed Desktop workspace](evidence/issue-1244/installed-workspace.png)
+![Installed Desktop workspace](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-1244/installed-workspace.png)
 
 An incompatible native profile stops startup without changing the existing
 environment:
 
-![Native profile mismatch diagnostic](evidence/issue-1244/native-profile-mismatch.png)
+![Native profile mismatch diagnostic](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-1244/native-profile-mismatch.png)
 
 On first launch, the app verifies its pinned Dinkster source payload, downloads a
 pinned and checksummed uv release, detects the host accelerator as CPU, CUDA,
@@ -156,7 +156,7 @@ writes through an older open descriptor or replaces the live path at any later
 point. A conflict is reported when detected. Close manual editors before editing
 in Desktop; retained files can be removed after their contents are reconciled.
 
-![Remote worker management](evidence/issue-368/desktop-remote-worker-management.png)
+![Remote worker management](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-368/desktop-remote-worker-management.png)
 
 The worker daemon and its credential files are installed separately. The
 packaged engine speaks remote-worker protocol 8; the protocol has no backwards

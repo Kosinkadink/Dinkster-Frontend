@@ -34,5 +34,5 @@ runtime document digest. Pixel content remains in digest-owned ImageDocument
 resources and never enters the workflow value. The compositor and persistent
 image workspace therefore share the same asset-backed layer document model.
 
-The [live compositor editor](evidence/issue-400/graph-native-compositor.png)
+The [live compositor editor](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-native-compositor.png)
 shows the two-layer native execution state and edited placement.

@@ -776,9 +776,9 @@ The editor remains a flat source plus mask operations. It does not define a
 layer stack or general operation-stack document. Graph persistence is limited
 to the published mask-paint recipe; other targets flatten to one AssetRef.
 The inspected before/after and mask-tool frames are under
-`docs/evidence/issue-310/`; pen/touch navigation frames are under
-`docs/evidence/issue-280/`; graph-native mask apply is under
-`docs/evidence/issue-400/`. The physical Huion Kamvas Pro 24 report and paired
+`dinkster-evidence/frontend/issue-310/`; pen/touch navigation frames are under
+`dinkster-evidence/frontend/issue-280/`; graph-native mask apply is under
+`dinkster-evidence/frontend/issue-400/`. The physical Huion Kamvas Pro 24 report and paired
 screenshots in that folder record pressure-responsive width and opacity,
 coalesced input, one-operation undo, capture-loss rollback, unchanged document
 revision, and the available pen capabilities. That device exposes no touch HID

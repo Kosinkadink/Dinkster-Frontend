@@ -40,7 +40,7 @@ and `boundary-output-refusals.spec.ts`.
 
 The sibling-instance browser proof and inspected before/after screenshots are
 in `packages/e2e/tests/count-bound-output-boundary.spec.ts` and
-`docs/evidence/issue-308/`.
+`dinkster-evidence/frontend/issue-308/`.
 
 Count-bound schemas require one ordinary template slot; execution-time arity
 remains refused under [#397](https://github.com/Kosinkadink/Dinkster-Frontend/issues/397).
