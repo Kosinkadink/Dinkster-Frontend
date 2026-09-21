@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "ci:fast": "node scripts/ci-fast.mjs",
-    "test": "pnpm --workspace-concurrency=1 -r test && node --import tsx --test scripts/comfy-subgraph-coverage.test.mjs && node --test scripts/check-ui-strings.test.mjs scripts/check-path-case.test.mjs",
+    "test": "pnpm --workspace-concurrency=1 -r test && node --import tsx --test scripts/comfy-subgraph-coverage.test.mjs && node --test scripts/check-extension-literals.test.mjs scripts/check-ui-strings.test.mjs scripts/check-path-case.test.mjs",
+    "check:extension-literals": "node scripts/check-extension-literals.mjs",
+    "check:extension-literals:write": "node scripts/check-extension-literals.mjs --write",
     "check:ui-strings": "node scripts/check-ui-strings.mjs",
     "check:ui-strings:write": "node scripts/check-ui-strings.mjs --write",
     "coverage:subgraphs": "tsx scripts/comfy-subgraph-coverage.mjs",

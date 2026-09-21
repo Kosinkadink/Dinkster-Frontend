@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { effectiveWidgetDefault, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
-import { createWidgetRegistry, registerCoreWidgets, saveTargetPresentation } from '../src/index.js'
+import { createWidgetRegistry, registerCoreWidgets, saveTargetPresentation, widgetRegistrationDoors } from '../src/index.js'
 
 const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'cat.png', size: 12, mediaType: 'image/png', virtualPath: 'input/cat.png' }
 const target = { mount: 'output', prefix: 'jobs/cat' }
@@ -29,11 +29,12 @@ const cases: Array<{
 
 const registry = createWidgetRegistry()
 const registeredFamilies: string[] = []
+const doors = widgetRegistrationDoors(registry)
 registerCoreWidgets({
-  ...registry,
-  registerKind(kind) {
+  ...doors,
+  widgetKind(id, kind) {
     registeredFamilies.push(kind.type)
-    return registry.registerKind(kind)
+    return doors.widgetKind(id, kind)
   },
 })
 
