@@ -8,7 +8,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { DinksterNormalizer, asConnectionId, asPromptId, type RawMessage } from '@dinkster/core'
-import { BackendConnection, ExecutionStore } from '../src/index.js'
+import { ExecutionStore } from '../src/index.js'
+import { BackendConnection } from '../src/comfy-v1.js'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../../core/fixtures/events')
 

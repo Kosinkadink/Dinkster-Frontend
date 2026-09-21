@@ -36,7 +36,7 @@
  * Framework-free; fetch and timeout are injectable. Never throws.
  */
 import { DINKSTER_ADVERTISED_WIRE_VERSIONS } from '@dinkster/core'
-import type { FetchLike } from './connection.js'
+import type { FetchLike } from './connection-contract.js'
 import { parseEngineNotReady, parseSupervisorStatus } from './supervisor.js'
 
 export type BackendDiscovery =

@@ -17,7 +17,6 @@ import {
   type NodeSchema,
 } from '@dinkster/core'
 import {
-  BackendConnection,
   buildDinksterRegistry,
   DinksterConnection,
   EngineNotReadyError,
@@ -25,6 +24,7 @@ import {
   type WorkerInfo,
 } from '@dinkster/client'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
+import { BackendConnection } from '../src/v1-connection-kind.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }

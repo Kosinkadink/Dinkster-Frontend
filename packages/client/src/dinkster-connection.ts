@@ -72,7 +72,7 @@ import {
   type WorkflowDocument,
   loadDocument,
 } from '@dinkster/core'
-import type { FetchLike, SchemaRegistry, SubmitResult } from './connection.js'
+import type { FetchLike, SchemaRegistry, SubmitResult } from './connection-contract.js'
 import type { ExecutionArtifact, ExecutionSubmitter } from './execution-store.js'
 import { EngineNotReadyError, parseEngineNotReady } from './supervisor.js'
 import {
