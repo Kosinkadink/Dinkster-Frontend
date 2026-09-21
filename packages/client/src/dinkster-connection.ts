@@ -330,7 +330,8 @@ export interface DinksterDiagnostics {
  * and events composed normally, but no native sampling worker was live at
  * composition, so plan-time use of its sampler/scheduler ids is refused at
  * composition time (the server's inference.worker-required doctor finding).
- * Decoded from /api/diagnostics' packInferenceUnavailable map, keyed by pack.
+ * Decoded from /api/diagnostics' packInferenceUnavailable list; each row names
+ * its pack in its own ``packId`` field.
  */
 export interface PackInferenceUnavailable {
   readonly pack: string
@@ -2162,11 +2163,16 @@ export class DinksterConnection {
         packInferenceUnavailable?: unknown
       }
       const packInferenceUnavailable: PackInferenceUnavailable[] = []
-      const unavailable = raw.packInferenceUnavailable
-      if (typeof unavailable === 'object' && unavailable !== null && !Array.isArray(unavailable)) {
-        for (const [pack, value] of Object.entries(unavailable)) {
+      if (Array.isArray(raw.packInferenceUnavailable)) {
+        for (const value of raw.packInferenceUnavailable) {
+          if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+            continue
+          }
+          const pack = (value as Record<string, unknown>)['packId']
           const payload = readUnavailableInference(value)
-          if (payload !== undefined && pack !== '') packInferenceUnavailable.push({ pack, ...payload })
+          if (payload !== undefined && typeof pack === 'string' && pack !== '') {
+            packInferenceUnavailable.push({ pack, ...payload })
+          }
         }
       }
       return {

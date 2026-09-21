@@ -1964,16 +1964,17 @@ describe('fetchDiagnostics', () => {
     })
   })
 
-  it('decodes degraded pack inference entries keyed by pack, injecting the pack id', async () => {
+  it('decodes packInferenceUnavailable rows, taking the pack id from each row', async () => {
     const { conn } = submitHarness(() => jsonResponse(200, {
-      packInferenceUnavailable: {
-        'pack.degraded': {
+      packInferenceUnavailable: [
+        {
+          packId: 'pack.degraded',
           reason: 'No live native sampling worker (dinkster.ksampler) is registered.',
           entry: 'sampler',
           worker: 'dinkster.ksampler',
           providers: [{ registry: 'sampler', id: 'euler', available: false, extra: 'ignored' }],
         },
-      },
+      ],
     }))
     expect(await conn.fetchDiagnostics()).toEqual({
       replacementProblems: [],
@@ -1988,18 +1989,20 @@ describe('fetchDiagnostics', () => {
     })
   })
 
-  it('keeps entries without optional fields and drops malformed ones independently', async () => {
+  it('keeps rows without optional fields and drops malformed ones independently', async () => {
     const { conn } = submitHarness(() => jsonResponse(200, {
-      packInferenceUnavailable: {
-        'pack.bare': { reason: 'no worker', providers: [] },
-        'pack.no-reason': { providers: [] },
-        'pack.bad-entry': { reason: 'x', entry: 7, providers: [] },
-        'pack.bad-worker': { reason: 'x', worker: {}, providers: [] },
-        'pack.no-providers': { reason: 'x' },
-        'pack.bad-provider-row': { reason: 'x', providers: ['nope'] },
-        'pack.bad-provider-fields': { reason: 'x', providers: [{ registry: 's', id: 3 }] },
-        '': { reason: 'x', providers: [] },
-      },
+      packInferenceUnavailable: [
+        { packId: 'pack.bare', reason: 'no worker', providers: [] },
+        { reason: 'no packId', providers: [] },
+        { packId: '', reason: 'empty packId', providers: [] },
+        { packId: 'pack.no-reason', providers: [] },
+        { packId: 'pack.bad-entry', reason: 'x', entry: 7, providers: [] },
+        { packId: 'pack.bad-worker', reason: 'x', worker: {}, providers: [] },
+        { packId: 'pack.no-providers', reason: 'x' },
+        { packId: 'pack.bad-provider-row', reason: 'x', providers: ['nope'] },
+        { packId: 'pack.bad-provider-fields', reason: 'x', providers: [{ registry: 's', id: 3 }] },
+        'not-an-object',
+      ],
     }))
     expect(await conn.fetchDiagnostics()).toEqual({
       replacementProblems: [],
@@ -2008,13 +2011,22 @@ describe('fetchDiagnostics', () => {
     })
   })
 
-  it('tolerates a non-object packInferenceUnavailable key', async () => {
+  it('tolerates a packInferenceUnavailable field that is not a list of rows', async () => {
     const conn = submitHarness(() => jsonResponse(200, {
       replacementProblems: [problem],
       packInferenceUnavailable: 'bad',
     })).conn
     expect(await conn.fetchDiagnostics()).toEqual({
       replacementProblems: [problem],
+      compatSkips: [],
+      packInferenceUnavailable: [],
+    })
+    // A map keyed by pack is not the wire the backend emits; it decodes as absent.
+    const mapped = submitHarness(() => jsonResponse(200, {
+      packInferenceUnavailable: { 'pack.degraded': { reason: 'x', providers: [] } },
+    })).conn
+    expect(await mapped.fetchDiagnostics()).toEqual({
+      replacementProblems: [],
       compatSkips: [],
       packInferenceUnavailable: [],
     })
