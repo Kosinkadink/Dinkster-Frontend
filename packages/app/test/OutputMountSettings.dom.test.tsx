@@ -18,6 +18,7 @@ describe("OutputMountSettings", () => {
   it("lists only writable mounts and persists an explicit selection", async () => {
     const fetchMountSettings = vi.fn(async () => ({
       outputMount: "output",
+      mountChangesAllowed: false,
       mounts: [
         { id: "models", mode: "read" as const, state: "ready" },
         { id: "output", mode: "readwrite" as const, state: "ready" },

@@ -120,10 +120,10 @@ describe('DesktopManagementDialog', () => {
 
   it('grants an existing model folder without copying and exposes diagnostics', async () => {
     const addMount = vi.fn(async () => ({ id: 'shared-models', mode: 'read' as const, state: 'pending' }))
-    const listMounts = vi.fn()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: 'shared-models', mode: 'read', state: 'pending' }])
-    const { root, unmount } = mount({ addMount, listMounts })
+    const fetchMountSettings = vi.fn()
+      .mockResolvedValueOnce({ mounts: [], mountChangesAllowed: true })
+      .mockResolvedValueOnce({ mounts: [{ id: 'shared-models', mode: 'read', state: 'pending' }], mountChangesAllowed: true })
+    const { root, unmount } = mount({ addMount, fetchMountSettings })
     await flush()
     const choose = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Choose folder') as HTMLButtonElement
     choose.click()
@@ -275,8 +275,8 @@ describe('DesktopManagementDialog', () => {
 
   it('keeps every desktop action wired after switching to Chinese', async () => {
     const addMount = vi.fn(async () => ({ id: 'shared-models', mode: 'read' as const, state: 'pending' }))
-    const listMounts = vi.fn(async () => [])
-    const connection = { addMount, listMounts }
+    const fetchMountSettings = vi.fn(async () => ({ mounts: [], mountChangesAllowed: true }))
+    const connection = { addMount, fetchMountSettings }
     const worker = {
       name: 'render-box', endpoint: 'worker.example.test:5151', tokenFile: 'C:\\Dinkster\\worker.token', memory: [],
     }
