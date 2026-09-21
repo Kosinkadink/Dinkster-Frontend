@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 6-22/2 * * *'
+    - cron: "0 6-22/2 * * *"
       timezone: America/Los_Angeles
-    - cron: '43 10 * * *'
+    - cron: "43 10 * * *"
   workflow_dispatch:
   workflow_call:
 
@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: 8d441762ecd00329dc1b3ccc68883b66eb301f7d
+  DINKSTER_REF: 833d3a3b4259ceab51c4fff97505d24b02d63355
 
 jobs:
   validation-plan:
@@ -253,6 +253,13 @@ jobs:
           DINKSTER_E2E_NATIVE_PORT: "15412"
           DINKSTER_E2E_USE_NATIVE: "1"
           DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15412
+      - name: Prove the ordinary third-party pack contract
+        if: matrix.name == 'backend serial 1/2'
+        run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.extension-contract.config.ts'
+        env:
+          DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
+          DINKSTER_E2E_PORT: "15420"
+          DINKSTER_E2E_NATIVE_PORT: "15421"
 
   e2e:
     if: always() && needs.validation-plan.outputs.run-heavy == 'true'

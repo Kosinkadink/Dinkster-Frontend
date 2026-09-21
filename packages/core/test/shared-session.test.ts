@@ -1660,12 +1660,27 @@ describe('shared DocumentSession', () => {
     expect(session.canUndo).toBe(false)
   })
 
+  it('preserves the predecessor revision across a same-document handoff', async () => {
+    const local = createLocalSession(baseDoc(), coreCommandRegistry())
+    expect(local.dispatch(setTitle('n1', 'first')).ok).toBe(true)
+    expect(local.dispatch(setTitle('n2', 'second')).ok).toBe(true)
+    const { session } = await makeShared('actorA', local.doc)
+
+    session.adoptHistory(local.historySnapshot())
+
+    expect(session.revision).toBe(2)
+    expect(session.dispatch(setTitle('n1', 'third')).ok).toBe(true)
+    expect(session.revision).toBe(3)
+    await session.settle()
+    expect(session.revision).toBe(3)
+  })
+
   it('refuses history adoption once the session has intentions or history of its own', async () => {
     const { session } = await makeShared('actorA')
     session.dispatch(setTitle('n1', 'mine'))
-    expect(() => session.adoptHistory({ undo: [], redo: [] })).toThrow(/already has/)
+    expect(() => session.adoptHistory({ revision: 0, undo: [], redo: [] })).toThrow(/already has/)
     await session.settle()
-    expect(() => session.adoptHistory({ undo: [], redo: [] })).toThrow(/already has/)
+    expect(() => session.adoptHistory({ revision: 0, undo: [], redo: [] })).toThrow(/already has/)
   })
 
   it('drops adopted history on resync like any other history', async () => {
@@ -1686,7 +1701,7 @@ describe('shared DocumentSession', () => {
     conn.revision = 7
     conn.retentionFloor = 7
     conn.emit({ kind: 'connected', descriptor: conn.descriptor() })
-    await until(() => session.revision === 7, 'resync to revision 7')
+    await until(() => session.revision === local.revision + 7, 'resync while preserving the predecessor revision')
     // History records were computed against pre-resync documents.
     expect(session.canUndo).toBe(false)
     expect(session.canRedo).toBe(false)
@@ -1701,7 +1716,7 @@ describe('shared DocumentSession', () => {
       maxUndo: 2,
     })
     const record = { forward: [], inverse: [] }
-    session.adoptHistory({ undo: [record, record, record], redo: [record, record, record] })
+    session.adoptHistory({ revision: 0, undo: [record, record, record], redo: [record, record, record] })
     expect(session.historySnapshot().undo).toHaveLength(2)
     expect(session.historySnapshot().redo).toHaveLength(2)
   })

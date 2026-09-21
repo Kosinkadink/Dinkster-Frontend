@@ -2,6 +2,13 @@ import { defineConfig } from '@playwright/test'
 
 const devPort = Number(process.env['DINKSTER_E2E_PORT'] ?? '5199')
 if (!Number.isSafeInteger(devPort) || devPort < 1024 || devPort > 65535) throw new Error('DINKSTER_E2E_PORT must be a valid non-privileged port')
+const nativeFrontendPort = Number(
+  process.env['DINKSTER_E2E_NATIVE_FRONTEND_PORT'] ?? devPort + 1,
+)
+if (!Number.isSafeInteger(nativeFrontendPort) || nativeFrontendPort < 1024 || nativeFrontendPort > 65535 || nativeFrontendPort === devPort) {
+  throw new Error('DINKSTER_E2E_NATIVE_FRONTEND_PORT must be a distinct valid non-privileged port')
+}
+process.env['DINKSTER_E2E_NATIVE_FRONTEND'] = `http://127.0.0.1:${nativeFrontendPort}`
 
 /**
  * smoke suite. Requires:
@@ -100,14 +107,26 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${devPort}`,
     viewport: { width: 1440, height: 900 },
   },
-  webServer: {
-    command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${devPort} --strictPort`,
-    url: `http://127.0.0.1:${devPort}`,
-    reuseExistingServer: false,
-    env: {
-      DINKSTER_NATIVE_BACKEND: process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
-      VITE_DINKSTER_E2E_PROBE_V1: '1',
+  webServer: [
+    {
+      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${devPort} --strictPort`,
+      url: `http://127.0.0.1:${devPort}`,
+      reuseExistingServer: false,
+      env: {
+        DINKSTER_NATIVE_BACKEND: process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
+        VITE_DINKSTER_E2E_PROBE_V1: '1',
+      },
+      cwd: '../..',
     },
-    cwd: '../..',
-  },
+    {
+      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${nativeFrontendPort} --strictPort`,
+      url: `http://127.0.0.1:${nativeFrontendPort}`,
+      reuseExistingServer: false,
+      env: {
+        DINKSTER_NATIVE_BACKEND: process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
+        VITE_DINKSTER_E2E_PROBE_V1: '0',
+      },
+      cwd: '../..',
+    },
+  ],
 })

@@ -1091,6 +1091,15 @@ export interface MountDescriptor {
   readonly kind?: string
   /** Server-reported catalog size when the mount index provides it. */
   readonly entryCount?: number
+  readonly scanProgress?: MountScanProgress
+}
+
+export interface MountScanProgress {
+  readonly filesDone: number
+  readonly filesTotal: number
+  readonly bytesDone: number
+  readonly bytesTotal: number
+  readonly elapsedSeconds: number
 }
 
 export interface MountEntry {
@@ -2743,9 +2752,20 @@ export class DinksterConnection {
     return rows.filter((value): value is MountDescriptor => {
       if (typeof value !== 'object' || value === null) return false
       const row = value as Record<string, unknown>
+      const scanProgress = row['scanProgress']
+      const progress = typeof scanProgress === 'object' && scanProgress !== null
+        ? scanProgress as Record<string, unknown>
+        : undefined
+      const validProgress = scanProgress === undefined || (progress !== undefined &&
+        ['filesDone', 'filesTotal', 'bytesDone', 'bytesTotal'].every((field) => {
+          const number = progress[field]
+          return typeof number === 'number' && Number.isSafeInteger(number) && number >= 0
+        }) && typeof progress['elapsedSeconds'] === 'number' && Number.isFinite(progress['elapsedSeconds']) &&
+        progress['elapsedSeconds'] >= 0 && (progress['filesDone'] as number) <= (progress['filesTotal'] as number) &&
+        (progress['bytesDone'] as number) <= (progress['bytesTotal'] as number))
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
         typeof row['state'] === 'string' && (row['kind'] === undefined || typeof row['kind'] === 'string') &&
-        (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0))
+        (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
   }
 

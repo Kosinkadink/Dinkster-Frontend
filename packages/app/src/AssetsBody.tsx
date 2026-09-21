@@ -26,6 +26,30 @@ interface MountPresentation {
 }
 
 const errorText = (reason: unknown): string => reason instanceof Error ? reason.message : String(reason)
+const MOUNT_SCAN_POLL_MS = 1000
+
+const formatScanBytes = (bytes: number): string => {
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'] as const
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${unit === 0 ? value : value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`
+}
+
+const mountDetail = (mount: MountDescriptor, message: AssetMessage): string => {
+  const progress = mount.scanProgress
+  if (progress === undefined) return message('assets.source.mountDetail', { id: mount.id })
+  return message('assets.source.scanProgress', {
+    filesDone: progress.filesDone,
+    filesTotal: progress.filesTotal,
+    bytesDone: formatScanBytes(progress.bytesDone),
+    bytesTotal: formatScanBytes(progress.bytesTotal),
+    elapsed: Math.floor(progress.elapsedSeconds),
+  })
+}
 
 const titleWord = (value: string): string => value.split(/[-_]/).filter(Boolean)
   .map((part) => part.length <= 4 ? part.toUpperCase() : `${part[0]!.toUpperCase()}${part.slice(1)}`)
@@ -110,7 +134,7 @@ function AssetSourceControl(props: {
         const id = `mount:${row.mount.id}`
         const failure = props.failures[id]
         if (failure !== undefined) return [{ id, label: presentationLabel(row, props.message), state: 'error', detail: failure.message }]
-        if (row.mount.state !== 'ready') return [{ id, label: presentationLabel(row, props.message), state: row.mount.state, detail: props.message('assets.source.mountDetail', { id: row.mount.id }) }]
+        if (row.mount.state !== 'ready') return [{ id, label: presentationLabel(row, props.message), state: row.mount.state, detail: mountDetail(row.mount, props.message) }]
         if (row.mount.entryCount === 0) return [{ id, label: presentationLabel(row, props.message), state: 'empty', detail: props.message('assets.source.mountDetail', { id: row.mount.id }) }]
         return []
       }),
@@ -170,36 +194,53 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   createEffect(() => {
     const connection = props.connection
     const generation = ++discoveryGeneration
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let active = true
+    let scanPolling = false
     setAdapters(undefined)
     setMounts([])
     setDiscoveryError(undefined)
     setSourceFailures({})
-    void connection.listMounts()
-      .then(async (descriptors) => ({ descriptors, ready: await mountAssetSources(connection, undefined, descriptors) }))
-      .then(({ ready, descriptors }) => {
-        if (!live || generation !== discoveryGeneration) return
-        setAdapters(ready)
+
+    const discover = async (): Promise<void> => {
+      try {
+        const descriptors = await connection.listMounts()
+        const browsable = await mountAssetSources(connection, undefined, descriptors)
+        if (!live || !active || generation !== discoveryGeneration) return
+        setAdapters(browsable)
         setMounts(descriptors)
-      })
-      .catch((reason: unknown) => {
-        if (live && generation === discoveryGeneration) setDiscoveryError(errorText(reason))
-      })
+        setDiscoveryError(undefined)
+        scanPolling = descriptors.some((mount) => mount.state === 'pending' || mount.state === 'scanning')
+        if (scanPolling) {
+          timer = setTimeout(() => { void discover() }, MOUNT_SCAN_POLL_MS)
+        }
+      } catch (reason: unknown) {
+        if (!live || !active || generation !== discoveryGeneration) return
+        setDiscoveryError(errorText(reason))
+        if (scanPolling) timer = setTimeout(() => { void discover() }, MOUNT_SCAN_POLL_MS)
+      }
+    }
+    void discover()
+    onCleanup(() => {
+      active = false
+      if (timer !== undefined) clearTimeout(timer)
+    })
   })
-  const unavailable = createMemo(() => mounts().filter((mount) => mount.state !== 'ready'))
+  const unavailable = createMemo(() => mounts().filter((mount) => mount.state !== 'ready' && mount.state !== 'scanning'))
   const presentations = createMemo(() => mountPresentations(mounts()))
   const presentedAdapters = createMemo(() => {
     const labels = new Map(presentations().map((row) => [`mount:${row.mount.id}`, row.label]))
     return (adapters() ?? []).map((adapter) => relabelAdapter(adapter, labels.get(adapter.id) ?? adapter.label))
   })
   const sources = createMemo((): readonly CollectionSource[] => {
-    const ready = presentedAdapters()
+    const browsable = presentedAdapters()
     const assetUrl = (digest: string): string => props.connection.assetUrl(digest)
     const healthGeneration = discoveryGeneration
     const reportFailures = (failures: readonly AssetSourceFailure[]): void => {
       if (!live || healthGeneration !== discoveryGeneration) return
       setSourceFailures(Object.fromEntries(failures.map((failure) => [failure.sourceId, { label: failure.label, message: failure.message }])))
     }
-    const local = allAssetsCollectionSource(ready, unavailable(), assetUrl, { onSourceFailures: reportFailures })
+    const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, { onSourceFailures: reportFailures })
     return [
       props.federatedContract
         ? federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), (message) => {
@@ -207,7 +248,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
             setSourceFailures(message === undefined ? {} : { 'all-assets': { label: 'Federated catalog', message } })
           })
         : local,
-      ...ready.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
+      ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
     ]
   })
 

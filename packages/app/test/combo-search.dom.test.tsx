@@ -13,7 +13,7 @@ import {
   scrollComboHighlightIntoView,
 } from '../src/combo-search.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
-import { createWidgetRegistry, registerCoreWidgets } from '@dinkster/widgets'
+import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 
 const options = [
   { value: 'dinkster.alpha', label: 'Alpha Model', info: 'Fast baseline', folder: 'Models/Fast' },
@@ -149,7 +149,7 @@ describe('combo search', () => {
 
   it('MULTI_COMBO commits edits while retaining an authoritative static OOV value', async () => {
     const widgetRegistry = createWidgetRegistry()
-    registerCoreWidgets(widgetRegistry)
+    registerCoreWidgets(widgetRegistrationDoors(widgetRegistry))
     const mounted = mountEditor(editorState({
       widgetType: 'MULTI_COMBO', options: { options: ['alpha'] },
     }, ['outside']), { widgetRegistry } as Partial<AppState>)
