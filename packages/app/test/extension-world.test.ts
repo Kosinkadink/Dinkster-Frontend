@@ -19,21 +19,30 @@ function setup() {
   const editorBindings: unknown[] = []
   const panels: unknown[] = []
   const virtualNodes: VirtualNodeKind[] = []
+  const projected = new Set<string>()
+  const project = (id: string, register: () => () => void): (() => void) => {
+    const unregister = register()
+    projected.add(id)
+    return () => {
+      projected.delete(id)
+      unregister()
+    }
+  }
   const target: ExtensionHostOptions<TextWidgetEditorExtension> = {
     menus: createMenuRegistry(), widgets: createWidgetRegistry(), changedSignal: createSignal(0),
-    registerSetting: (value) => settings.register(value),
+    registerSetting: (value) => project(value.id, () => settings.register(value)),
     registerCommand: (value) => commands.register(value),
-    registerKeybinding: (value) => bindings.register(value),
+    registerKeybinding: (value) => project(value.command, () => bindings.register(value)),
     registerHostUi: (...args) => ui.register(...args),
     invalidateHostUi: (id) => ui.invalidate(id),
-    registerTextEditorExtension: (value) => text.register(value),
+    registerTextEditorExtension: (value) => project(value.id, () => text.register(value)),
     registerSearchProvider: (value) => search.register(value),
     registerEditor: (value) => { editors.push(value); return () => { editors.splice(editors.indexOf(value), 1) } },
     registerEditorBinding: (value) => { editorBindings.push(value); return () => { editorBindings.splice(editorBindings.indexOf(value), 1) } },
-    registerPanel: (value) => { panels.push(value); return () => { panels.splice(panels.indexOf(value), 1) } },
+    registerPanel: (value) => project(value.id, () => { panels.push(value); return () => { panels.splice(panels.indexOf(value), 1) } }),
     registerVirtualNode: (value) => { virtualNodes.push(value); return () => { virtualNodes.splice(virtualNodes.indexOf(value), 1) } },
   }
-  return { target, commands, bindings, ui, editors, editorBindings, panels, virtualNodes }
+  return { target, commands, bindings, ui, editors, editorBindings, panels, virtualNodes, projected }
 }
 
 const digest = `sha256:${'a'.repeat(64)}`
@@ -68,6 +77,65 @@ describe('connection extension worlds', () => {
     expect(bindings.combo('demo.command')).toBe('ctrl+k')
     world.dispose()
     expect(bindings.combo('demo.command')).toBeUndefined()
+  })
+
+  it.each([
+    {
+      kind: 'setting', privilege: 'app-workflow',
+      register: (context: FrontendActivationContext, id: string) => context.setting(id, {
+        id, name: 'Demo setting', type: 'boolean', defaultValue: false,
+      }),
+    },
+    {
+      kind: 'keybinding', privilege: 'app-workflow',
+      register: (context: FrontendActivationContext, id: string) => context.keybinding(id, {
+        command: id, combo: 'Ctrl+K',
+      }),
+    },
+    {
+      kind: 'panel', privilege: 'app-workflow',
+      register: (context: FrontendActivationContext, id: string) => context.panel(
+        id,
+        'sidebar.left',
+        () => ({ version: 1, root: { kind: 'text', key: 'demo', text: 'Demo panel' } }),
+      ),
+    },
+    {
+      kind: 'textEditorExtension', privilege: 'schema-widget',
+      register: (context: FrontendActivationContext, id: string) => context.textEditorExtension(id, {
+        id, supports: () => true, complete: () => [],
+      }),
+    },
+  ] as const)('accepts a declared $kind and rejects an undeclared use of the same door', async ({ kind, privilege, register }) => {
+    const declared = setup()
+    const declaredWorld = new ExtensionWorld(asConnectionId('a'), digest, declared.target)
+    await declaredWorld.activate(snapshotFor(kind, privilege), '', [], async () => ({
+      frontendExtension: { activate(context: FrontendActivationContext) {
+        register(context, 'demo.contribution')
+      } },
+    }))
+    expect(declaredWorld.host.packs()[0]?.registered).toBe(true)
+    expect(declared.projected).not.toContain('demo.contribution')
+    declaredWorld.select(true)
+    expect(declared.projected).toContain('demo.contribution')
+    declaredWorld.dispose()
+    expect(declared.projected).not.toContain('demo.contribution')
+
+    const undeclared = setup()
+    const undeclaredWorld = new ExtensionWorld(asConnectionId('b'), digest, undeclared.target)
+    await undeclaredWorld.activate(snapshotFor(kind, privilege), '', [], async () => ({
+      frontendExtension: { activate(context: FrontendActivationContext) {
+        register(context, 'demo.contribution')
+        try { register(context, 'demo.undeclared') } catch {}
+      } },
+    }))
+    expect(undeclaredWorld.host.packs()[0]?.registered).toBe(false)
+    expect(undeclaredWorld.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'extension.activate-failed',
+      'extension.rollback-complete',
+    ])
+    expect(undeclared.projected).toEqual(new Set())
+    undeclaredWorld.dispose()
   })
 
   it('projects a virtual node through the selected pack world and removes it on disposal', async () => {
