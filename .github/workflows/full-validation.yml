@@ -5,9 +5,9 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 6-22/2 * * *"
+    - cron: '0 6-22/2 * * *'
       timezone: America/Los_Angeles
-    - cron: "43 10 * * *"
+    - cron: '43 10 * * *'
   workflow_dispatch:
   workflow_call:
 
@@ -88,7 +88,7 @@ jobs:
           path: .ci/Dinkster
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
       - uses: pnpm/action-setup@v4
         with:
           version: 10.31.0
@@ -145,7 +145,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       - run: pnpm install --frozen-lockfile
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
@@ -168,12 +168,12 @@ jobs:
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
-          CUDA_VISIBLE_DEVICES: ""
+          CUDA_VISIBLE_DEVICES: ''
       # Host interface changes must not invalidate Chromium's loopback requests.
       - run: bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:
-          DINKSTER_E2E_PORT: "15376"
-          DINKSTER_E2E_NATIVE_PORT: "15377"
+          DINKSTER_E2E_PORT: '15376'
+          DINKSTER_E2E_NATIVE_PORT: '15377'
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
 
   e2e-suite:
@@ -230,7 +230,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       - run: pnpm install --frozen-lockfile
       - run: uv venv --python 3.12 .ci/ComfyUI/venv
@@ -243,28 +243,31 @@ jobs:
           uv pip install --python .ci/ComfyUI/venv/bin/python --constraint "${RUNNER_TEMP}/dinkster-torch-constraints.txt" --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match packaging numpy scipy pillow tqdm dinkster-kitchen dinkster-aimdo sentencepiece tokenizers
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
-          CUDA_VISIBLE_DEVICES: ""
+          CUDA_VISIBLE_DEVICES: ''
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
         if: matrix.vulkan
+      - name: Replay recorded stock ComfyUI fixtures
+        if: matrix.name == 'stock ComfyUI V1'
+        run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" pnpm --filter @dinkster/core exec vitest run test/object-info.golden.test.ts test/events.golden.test.ts'
       - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}'
         env:
           # Match the software Vulkan driver available on CPU-only runners.
           VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
           DINKSTER_E2E_COMFY_ROOT: ${{ github.workspace }}/.ci/ComfyUI
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
-          DINKSTER_E2E_PORT: "15410"
-          DINKSTER_E2E_COMFY_PORT: "15411"
-          DINKSTER_E2E_NATIVE_PORT: "15412"
-          DINKSTER_E2E_USE_NATIVE: "1"
+          DINKSTER_E2E_PORT: '15410'
+          DINKSTER_E2E_COMFY_PORT: '15411'
+          DINKSTER_E2E_NATIVE_PORT: '15412'
+          DINKSTER_E2E_USE_NATIVE: '1'
           DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15412
       - name: Prove the ordinary third-party pack contract
         if: matrix.name == 'backend serial 1/2'
         run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.extension-contract.config.ts'
         env:
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
-          DINKSTER_E2E_PORT: "15420"
-          DINKSTER_E2E_NATIVE_PORT: "15421"
+          DINKSTER_E2E_PORT: '15420'
+          DINKSTER_E2E_NATIVE_PORT: '15421'
 
   e2e:
     if: always() && needs.validation-plan.outputs.run-heavy == 'true'

@@ -379,6 +379,14 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_PORT: '15420',
           DINKSTER_E2E_NATIVE_PORT: '15421',
         })
+        const recordedFixtures = steps.find(
+          (step) => step.name === 'Replay recorded stock ComfyUI fixtures',
+        )!
+        expect(recordedFixtures.if).toBe("matrix.name == 'stock ComfyUI V1'")
+        expect(recordedFixtures.run).toContain(
+          'test/object-info.golden.test.ts',
+        )
+        expect(recordedFixtures.run).toContain('test/events.golden.test.ts')
       }
     }
     expect(appMain).toContain(
