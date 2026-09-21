@@ -3,8 +3,10 @@ import { resolve } from 'node:path'
 import { defineConfig } from '@playwright/test'
 import baseConfig from './playwright.config.js'
 
-// Route-mocked specs stay on v1 even when live native coverage is enabled.
-process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'
+const stubV1Entry = process.argv.some((arg) => arg === '--project=native-without-v1') ? '1' : '0'
+// Route-mocked specs normally stay on v1 even when live native coverage is enabled.
+// The native dependency-boundary project must keep every page on the native path.
+process.env['DINKSTER_E2E_FIXTURE_MODE'] = stubV1Entry === '1' ? 'native' : 'legacy'
 
 const requiredDirectory = (name: string): string => {
   const value = process.env[name]
@@ -77,6 +79,7 @@ export default defineConfig({
         ...process.env,
         DINKSTER_BACKEND: `http://127.0.0.1:${comfyPort}`,
         DINKSTER_NATIVE_BACKEND: nativeBackend,
+        DINKSTER_STUB_V1_ENTRY: stubV1Entry,
         VITE_DINKSTER_E2E_PROBE_V1: '1',
       },
       url: `http://127.0.0.1:${frontendPort}`,
@@ -89,6 +92,7 @@ export default defineConfig({
       env: {
         ...process.env,
         DINKSTER_NATIVE_BACKEND: nativeBackend,
+        DINKSTER_STUB_V1_ENTRY: stubV1Entry,
         VITE_DINKSTER_E2E_PROBE_V1: '0',
       },
       url: `http://127.0.0.1:${nativeFrontendPort}`,

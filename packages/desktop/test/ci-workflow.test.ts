@@ -98,7 +98,9 @@ describe('fast pull-request and full validation workflows', () => {
     ])
     expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
+    expect(script).toContain("['check:v1-boundary']")
     expect(script).toContain("['typecheck']")
+    expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")
     expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.ts/g)).toEqual([
@@ -117,6 +119,7 @@ describe('fast pull-request and full validation workflows', () => {
 
   it('runs every heavy lane through one guarded reusable workflow', async () => {
     expect(full.on).toEqual({
+      pull_request: null,
       push: { branches: ['main'] },
       schedule: [
         { cron: '0 6-22/2 * * *', timezone: 'America/Los_Angeles' },
@@ -278,6 +281,7 @@ describe('fast pull-request and full validation workflows', () => {
       'fail-fast': false,
       matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
     })
+    expect(full.jobs['e2e-suite']!['timeout-minutes']).toBe(30)
     expect(full.jobs['e2e']!.if).toBe(
       "always() && needs.validation-plan.outputs.run-heavy == 'true'",
     )
@@ -382,8 +386,12 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
+    expect(baseConfig).toContain("name: 'v1-compatibility'")
+    expect(baseConfig).toContain("name: 'native-without-v1'")
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
+    expect(hostedConfig).toContain("DINKSTER_STUB_V1_ENTRY: stubV1Entry")
+    expect(hostedConfig).toContain("stubV1Entry === '1' ? 'native' : 'legacy'")
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",

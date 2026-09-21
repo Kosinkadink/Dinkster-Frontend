@@ -1,6 +1,7 @@
 name: Full validation
 
 on:
+  pull_request:
   push:
     branches: [main]
   schedule:
@@ -180,7 +181,7 @@ jobs:
     if: needs.validation-plan.outputs.run-heavy == 'true'
     name: e2e (${{ matrix.name }})
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 60
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}

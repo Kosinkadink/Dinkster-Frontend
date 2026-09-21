@@ -25,6 +25,7 @@ for (const args of [
   ],
   ['check:extension-literals'],
   ['check:ui-strings'],
+  ['check:v1-boundary'],
   ['typecheck'],
   [
     '--filter',
@@ -61,6 +62,7 @@ for (const args of [
     'scripts/check-extension-literals.test.mjs',
     'scripts/check-ui-strings.test.mjs',
     'scripts/check-path-case.test.mjs',
+    'scripts/check-v1-boundary.test.mjs',
   ],
 ]) {
   execFileSync(process.execPath, [process.env.npm_execpath, ...args], {

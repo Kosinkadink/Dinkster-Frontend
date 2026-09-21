@@ -70,6 +70,38 @@ const BACKEND_SERIAL_SPECS = [
 ]
 
 const PERFORMANCE_SPECS = ['perf.spec.ts']
+const V1_COMPATIBILITY_SPECS = ['smoke.spec.ts']
+const NATIVE_WITHOUT_V1_SPECS = [
+  'app-view-queue-buttons-native.spec.ts',
+  'asset-widget.spec.ts',
+  'audio-recording-live.spec.ts',
+  'collab-noodle-presence.spec.ts',
+  'compositor-editor.spec.ts',
+  'curve-editor.spec.ts',
+  'dynamic-combo-native-live.spec.ts',
+  'executable-examples-live.spec.ts',
+  'gallery-live.spec.ts',
+  'glsl-shader.spec.ts',
+  'image-document-graph-live.spec.ts',
+  'image-editor.spec.ts',
+  'image-mask-graph-live.spec.ts',
+  'image-upload-byte-proof.spec.ts',
+  'link-drop.spec.ts',
+  'lora-conditioning-scheduling-live.spec.ts',
+  'missing-model-ux.spec.ts',
+  'native-imagery-live.spec.ts',
+  'palette-filters.spec.ts',
+  'peek-preview.spec.ts',
+  'run-history.spec.ts',
+  'save-video-dynamic-native.spec.ts',
+  'starter-templates-live.spec.ts',
+  'startup-discovery.spec.ts',
+  'string-split-output-lifecycle.spec.ts',
+  'trellis2-official-workflow-live.spec.ts',
+  'video-document-editor.spec.ts',
+  'video-edit.spec.ts',
+  'workflow-library.spec.ts',
+]
 
 export default defineConfig({
   testDir: './tests',
@@ -101,6 +133,14 @@ export default defineConfig({
     {
       name: 'performance',
       testMatch: PERFORMANCE_SPECS.map((f) => `tests/${f}`),
+    },
+    {
+      name: 'v1-compatibility',
+      testMatch: V1_COMPATIBILITY_SPECS.map((f) => `tests/${f}`),
+    },
+    {
+      name: 'native-without-v1',
+      testMatch: NATIVE_WITHOUT_V1_SPECS.map((f) => `tests/${f}`),
     },
   ],
   use: {
