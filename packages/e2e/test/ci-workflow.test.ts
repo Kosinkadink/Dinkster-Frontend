@@ -386,7 +386,10 @@ describe('fast pull-request and full validation workflows', () => {
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(baseConfig).toContain("name: 'v1-compatibility'")
     expect(baseConfig).toContain("name: 'native-without-v1'")
-    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(hostedConfig).toContain(
+      "const probeV1 = stubV1Entry === '1' ? '0' : '1'",
+    )
+    expect(hostedConfig).toContain('VITE_DINKSTER_E2E_PROBE_V1: probeV1')
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
     expect(hostedConfig).toContain("stubV1Entry === '1' ? 'native' : 'legacy'")
