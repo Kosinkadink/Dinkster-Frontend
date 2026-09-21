@@ -62,7 +62,7 @@ export default defineConfig({
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/native-library'))}`,
         `--comfy-root ${JSON.stringify(comfyRoot)}`,
-        `--comfy-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
+        `--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
       ].join(' '),
       cwd: dinksterRoot,
       env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },
