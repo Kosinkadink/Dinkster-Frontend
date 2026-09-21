@@ -33,6 +33,12 @@ const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
 const checkpointFixture = resolve(comfyRoot, 'models/checkpoints/audit-local-checkpoint.safetensors')
 mkdirSync(resolve(comfyRoot, 'models/checkpoints'), { recursive: true })
 writeFileSync(checkpointFixture, 'Dinkster hosted E2E checkpoint fixture\n')
+const nativeComfySelection = stubV1Entry === '1'
+  ? []
+  : [
+      `--comfy-root ${JSON.stringify(comfyRoot)}`,
+      `--comfy-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
+    ]
 const frontendPort = port('DINKSTER_E2E_PORT', 5410)
 const comfyPort = port('DINKSTER_E2E_COMFY_PORT', 5411)
 const nativePort = port('DINKSTER_E2E_NATIVE_PORT', 5412)
@@ -67,8 +73,7 @@ export default defineConfig({
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/native-library'))}`,
-        `--comfy-root ${JSON.stringify(comfyRoot)}`,
-        `--comfy-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
+        ...nativeComfySelection,
       ].join(' '),
       cwd: dinksterRoot,
       env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },

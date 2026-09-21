@@ -395,6 +395,10 @@ describe('fast pull-request and full validation workflows', () => {
       "stubV1Entry === '1' ? ['--no-default-packs'] : []",
     )
     expect(hostedConfig).toContain('...nativePackSelection')
+    expect(hostedConfig).toContain(
+      "const nativeComfySelection = stubV1Entry === '1'",
+    )
+    expect(hostedConfig).toContain('...nativeComfySelection')
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
