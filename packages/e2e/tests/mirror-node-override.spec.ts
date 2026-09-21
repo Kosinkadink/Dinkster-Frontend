@@ -21,7 +21,7 @@ const sourcePng = Buffer.from(
 )
 
 const imageSourceNode = {
-  schemaVersion: 29,
+  schemaVersion: 1,
   nodeType: 'e2e.image.source',
   displayName: 'Image Source',
   category: 'test',
@@ -47,7 +47,7 @@ test('the node context menu overrides mirror estimates per node', async ({ page 
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-node-override-proof', schemaWire: 29 },
+    dinkster: { version: 'mirror-node-override-proof', schemaWire: 1 },
     nodes: {
       'e2e.image.source': imageSourceNode,
       'dinkster.image.adjust': adjustWire,

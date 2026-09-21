@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseDinksterSchemaWire40 } from '../src/schema/dinkster-wire.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf } from '../src/schema/model.js'
 
 describe('native VIDEO_EDIT editor derivation', () => {
@@ -8,8 +8,8 @@ describe('native VIDEO_EDIT editor derivation', () => {
     ['dinkster.video.crop', ['crop']],
     ['extension.video_edit', ['trim', 'crop']],
   ])('derives %s from the published typed optional input without a widget wire extension', (type, features) => {
-    const parsed = parseDinksterSchemaWire40(type as string, {
-      schemaVersion: 40, signature: 'backend-signature',
+    const parsed = parseDinksterSchema(type as string, {
+      schemaVersion: 1, signature: 'backend-signature',
       interface: [{ role: 'input', id: 'video_edit', type: { kind: 'concrete', types: ['comfy.VIDEO_EDIT'] }, required: false }],
     })
     expect(parsed.diagnostics).toEqual([])

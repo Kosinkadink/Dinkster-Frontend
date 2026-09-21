@@ -39,7 +39,7 @@ to a backend. Reroutes remain document constructs and use the topology
 translator.
 
 Replacement rules can map ordinary inputs and outputs, copy one top-level
-wire-15 Autogrow family to a differently named target family, or address an
+Autogrow family to a differently named target family, or address an
 explicit ordered set of target-family members from fixed source inputs.
 Family copy preserves authored suffixes, order, values, controllers, links,
 and named-net sinks. Import reconstructs members from every authored input

@@ -1,7 +1,7 @@
 /**
  * URL-only backend add + native-first default: addBackendByUrl adds with
  * the DISCOVERED protocol (no manual choice), refuses unreachable/
- * unrecognized/wire-incompatible URLs with named problems instead of dead
+ * unrecognized URLs with named problems instead of dead
  * rows, and the constructor's defaultProtocol option makes the same-origin
  * default native when main's discovery says so.
  */
@@ -35,19 +35,6 @@ describe('addBackendByUrl', () => {
       start: false,
     })
     expect(added).toMatchObject({ protocol: 'v1' })
-  })
-
-  it('refuses a wire-incompatible Dinkster with a named problem naming both sides', async () => {
-    const app = new AppState()
-    const added = await app.addBackendByUrl('http://future:3639', {
-      discover: discovered({ kind: 'dinkster-incompatible', supported: [11, 12] }),
-      start: false,
-    })
-    expect(added).toBeUndefined()
-    expect(app.backends.get()).toHaveLength(1)
-    const problem = app.problems.get().find((p) => p.code === 'backend.dinkster-incompatible')
-    expect(problem?.message).toContain('11, 12')
-    expect(problem?.message).toContain('this build decodes')
   })
 
   it('refuses unreachable and unrecognized URLs with their detail', async () => {

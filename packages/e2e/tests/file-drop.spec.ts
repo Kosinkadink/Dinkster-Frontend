@@ -12,18 +12,18 @@ const emptyWorkflow = (lineage: string) => ({
 const STARTUP_CATALOG = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'latent-file-drop-proof', schemaWire: 22 },
+  dinkster: { version: 'latent-file-drop-proof', schemaWire: 1 },
   packs: {},
   nodes: {
     'dinkster.load_image': {
-      schemaVersion: 22, nodeType: 'dinkster.load_image', displayName: 'Load Image', category: 'image',
+      schemaVersion: 1, nodeType: 'dinkster.load_image', displayName: 'Load Image', category: 'image',
       interface: [
         { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/*'], kind: 'media/image' } },
         { role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
       ],
     },
     'dinkster.load_latent': {
-      schemaVersion: 22, nodeType: 'dinkster.load_latent', displayName: 'Load Latent', category: 'latent',
+      schemaVersion: 1, nodeType: 'dinkster.load_latent', displayName: 'Load Latent', category: 'latent',
       interface: [
         { role: 'input', id: 'latent', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.LATENT'] } }, widget: { type: 'ASSET', accept: ['application/x-comfy-latent'], kind: 'data/latent' } },
         { role: 'output', id: 'samples', type: { kind: 'concrete', types: ['comfy.LATENT'] } },

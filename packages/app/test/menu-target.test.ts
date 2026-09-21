@@ -146,27 +146,19 @@ describe('previewCapabilityOf', () => {
   const resolve = (nodeType: string) =>
     nodeType === 'dinkster.ksampler' ? { emitsPreviews: true } : nodeType === 'dinkster.load_image' ? {} : undefined
 
-  it('answers per node type when the negotiated wire declares capability', () => {
-    const capable = previewCapabilityOf({ server: { schemaWire: 24 } }, resolve)!
+  it('answers per node type from the current schema catalog', () => {
+    const capable = previewCapabilityOf(resolve)!
     expect(capable('dinkster.ksampler')).toBe(true)
     expect(capable('dinkster.load_image')).toBe(false)
     expect(capable('unknown.type')).toBe(false)
   })
 
-  it('stays undefined below wire 24 even when a layered schema is flagged', () => {
-    // A frontend-registered schema carrying the flag must not make a wire-23
-    // backend look flag-aware.
-    expect(previewCapabilityOf({ server: { schemaWire: 23 } }, resolve)).toBeUndefined()
+  it('stays undefined without a resolver', () => {
+    expect(previewCapabilityOf(undefined)).toBeUndefined()
   })
 
-  it('stays undefined without server identity (v1 backends) or a resolver', () => {
-    expect(previewCapabilityOf({}, resolve)).toBeUndefined()
-    expect(previewCapabilityOf(undefined, resolve)).toBeUndefined()
-    expect(previewCapabilityOf({ server: { schemaWire: 24 } }, undefined)).toBeUndefined()
-  })
-
-  it('gates by wire version, not catalog contents: a wire-24 empty catalog still gates', () => {
-    const capable = previewCapabilityOf({ server: { schemaWire: 24 } }, () => undefined)!
+  it('treats an empty catalog as having no preview-capable nodes', () => {
+    const capable = previewCapabilityOf(() => undefined)!
     expect(capable('dinkster.ksampler')).toBe(false)
   })
 })

@@ -17,7 +17,7 @@ import {
 
 const payload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
-  dinkster: { version: '0.9.0', schemaWire: 3 },
+  dinkster: { version: '0.9.0', schemaWire: 1 },
   packs: {
     core: { displayName: 'Dinkster Core' },
     'vhs.video': { displayName: 'Video Helper Suite', abbr: 'VHS', mark: '\u{1F3A5}', color: '#64b5f6' },
@@ -251,7 +251,7 @@ describe('per-node interface signature (backend 5b58c53)', () => {
 
 describe('serverInfoFromDinksterWire', () => {
   it('decodes the dinkster server-identity header', () => {
-    expect(serverInfoFromDinksterWire(payload)).toEqual({ version: '0.9.0', schemaWire: 3 })
+    expect(serverInfoFromDinksterWire(payload)).toEqual({ version: '0.9.0', schemaWire: 1 })
   })
 
   it('absent or malformed headers yield undefined, never a diagnostic', () => {
@@ -264,13 +264,13 @@ describe('serverInfoFromDinksterWire', () => {
 
 describe('graphFeaturesFromDinksterWire', () => {
   it('decodes graphFeatures from the dinkster header (Dinkster ea6eca7)', () => {
-    const dinkster = { version: '0.9.0', schemaWire: 10, graphFeatures: ['typedLiteral'] }
+    const dinkster = { version: '0.9.0', schemaWire: 1, graphFeatures: ['typedLiteral'] }
     expect(graphFeaturesFromDinksterWire({ nodes: {}, dinkster })).toEqual(['typedLiteral'])
   })
 
-  it('absent field yields undefined (older backend = no negotiated forms)', () => {
+  it('absent field yields undefined', () => {
     expect(graphFeaturesFromDinksterWire({ nodes: {} })).toBeUndefined()
-    expect(graphFeaturesFromDinksterWire({ nodes: {}, dinkster: { version: '0.9.0', schemaWire: 10 } })).toBeUndefined()
+    expect(graphFeaturesFromDinksterWire({ nodes: {}, dinkster: { version: '0.9.0', schemaWire: 1 } })).toBeUndefined()
   })
 
   it('malformed field yields undefined; non-string entries drop, unknown flags pass through', () => {
@@ -284,18 +284,18 @@ describe('graphFeaturesFromDinksterWire', () => {
 
 describe('mergeableTypesFromDinksterWire', () => {
   it('decodes mergeableTypes from the dinkster header (Dinkster 6dbbddd)', () => {
-    const dinkster = { version: '0.9.0', schemaWire: 12, mergeableTypes: ['comfy.IMAGE'] }
+    const dinkster = { version: '0.9.0', schemaWire: 1, mergeableTypes: ['comfy.IMAGE'] }
     expect(mergeableTypesFromDinksterWire({ nodes: {}, dinkster })).toEqual(['comfy.IMAGE'])
   })
 
   it('an empty list decodes as [] (settled: no providers), distinct from absent', () => {
-    expect(mergeableTypesFromDinksterWire({ nodes: {}, dinkster: { version: '0.9.0', schemaWire: 12, mergeableTypes: [] } }))
+    expect(mergeableTypesFromDinksterWire({ nodes: {}, dinkster: { version: '0.9.0', schemaWire: 1, mergeableTypes: [] } }))
       .toEqual([])
   })
 
-  it('absent field yields undefined (older backend = merge arm off)', () => {
+  it('absent field yields undefined', () => {
     expect(mergeableTypesFromDinksterWire({ nodes: {} })).toBeUndefined()
-    expect(mergeableTypesFromDinksterWire({ nodes: {}, dinkster: { version: '0.9.0', schemaWire: 12 } })).toBeUndefined()
+    expect(mergeableTypesFromDinksterWire({ nodes: {}, dinkster: { version: '0.9.0', schemaWire: 1 } })).toBeUndefined()
   })
 
   it('malformed field yields undefined; non-string entries drop silently', () => {

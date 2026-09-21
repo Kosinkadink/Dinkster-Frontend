@@ -1,6 +1,6 @@
 # Dynamic output families
 
-Dinkster schema wire 26 can declare top-level output families whose size comes
+The current Dinkster schema can declare top-level output families whose size comes
 from a required `core.int` input. The count must be a stored, nonnegative safe
 integer within every family bound that uses it. A linked count input is invalid.
 
@@ -50,16 +50,15 @@ member identities and terminal output indexes, as covered by
 
 ## Named, typed output descriptors
 
-Wire 39 adds `outputDescriptors`: a concrete type catalog plus the name of a
+The schema also supports `outputDescriptors`: a concrete type catalog plus the name of a
 required `core.string` source input. Its stored JSON is an object with an
 ordered `entries` array. Each entry has a stable `id`, display `name`, and
 catalog choice `type`. Other document and entry fields belong to the node and
 are preserved, including expression text, values, and indices.
 
-Wire 39 supports descriptors together with ordinary `acceptsStorage` inputs.
-On wire 40, choice `alphaPolicy`, `maskPolarity`, and `maskSemantic` declarations
-follow the selected output through elaboration and subgraph boundaries. Invalid
-policies and policy fields on older wire versions are rejected.
+Descriptors work with ordinary `acceptsStorage` inputs. Choice `alphaPolicy`,
+`maskPolarity`, and `maskSemantic` declarations follow the selected output
+through elaboration and subgraph boundaries. Invalid policies are rejected.
 
 Click the source widget on the node to open the output descriptor editor.
 Edit names and types, reorder rows, or add/remove outputs, then choose **Apply

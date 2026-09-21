@@ -70,10 +70,10 @@ const base = {
 }
 
 const scalarExpressionRegistry = () => parseDinksterNodes({
-  schemaVersion: 34,
+  schemaVersion: 1,
   nodes: {
     'e2e.identity.int': {
-      schemaVersion: 34,
+      schemaVersion: 1,
       nodeType: 'e2e.identity.int',
       version: 1,
       displayName: 'Integer',
@@ -91,7 +91,7 @@ const scalarExpressionRegistry = () => parseDinksterNodes({
       ],
     },
     'dinkster.math.expression': {
-      schemaVersion: 34,
+      schemaVersion: 1,
       nodeType: 'dinkster.math.expression',
       version: 1,
       displayName: 'Math Expression',

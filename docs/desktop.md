@@ -463,9 +463,9 @@ validation server, not a production service.
 compiled browser assets. Set it explicitly: the default is port 3639. Native
 `/api`, `/memory` and `/supervisor` requests stay same-origin; event and session
 WebSockets are proxied too. If the UI does not connect, compare
-`/api/nodes?wire=38` on the backend and browser ports. Both should return the
-same JSON, not the SPA's HTML. A 406 response lists supported wire versions;
-use a mutually supported version or install matching frontend/backend releases.
+`/api/nodes` on the backend and browser ports. Both should return the same JSON,
+not the SPA's HTML. Before public release both sides speak wire 1; install
+matching frontend/backend releases after compatibility versioning begins.
 
 ### Production static hosting and proxy
 

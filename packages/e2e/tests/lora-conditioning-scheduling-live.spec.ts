@@ -102,7 +102,7 @@ test.beforeEach(async ({ page }) => {
   test.skip(process.env['DINKSTER_SCHEDULING_LIVE'] !== '1', 'set DINKSTER_SCHEDULING_LIVE=1 with the documented SD1.5 proof assets installed')
   let nodes: Record<string, unknown> | undefined
   try {
-    const response = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=22`, { signal: AbortSignal.timeout(2_000) })
+    const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2_000) })
     if (response.ok) nodes = (await response.json() as { nodes: Record<string, unknown> }).nodes
   } catch { /* handled by the skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
