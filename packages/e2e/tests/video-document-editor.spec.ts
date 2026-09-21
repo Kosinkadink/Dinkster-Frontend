@@ -15,7 +15,7 @@ const input = (id: string, type: string, options: { optional?: boolean; default?
 })
 const output = (id: string, type: string) => ({ role: 'output', id, type: typed(type) })
 const schema = (command: typeof commands[number]) => ({
-  schemaVersion: 38,
+  schemaVersion: 1,
   nodeType: `dinkster.video_document.${command}`,
   version: 1,
   displayName: `Video document ${command}`,
@@ -41,7 +41,7 @@ const schema = (command: typeof commands[number]) => ({
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'video-document-editor-test', schemaWire: 38 },
+  dinkster: { version: 'video-document-editor-test', schemaWire: 1 },
   nodes: Object.fromEntries(commands.map((command) => [`dinkster.video_document.${command}`, schema(command)])),
 }
 

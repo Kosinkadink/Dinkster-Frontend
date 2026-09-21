@@ -18,10 +18,10 @@ const numberInput = (id: string, display?: string, displayName?: string) => ({
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-number-display-proof', schemaWire: 21 },
+  dinkster: { version: 'audit-number-display-proof', schemaWire: 1 },
   nodes: {
     'test.number_display': {
-      schemaVersion: 21,
+      schemaVersion: 1,
       displayName: 'NUMBER display wire 18',
       category: 'test',
       interface: [
@@ -119,7 +119,8 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(1)
-  expect(advertisedWires.some((wire) => wire.split(',').includes('21'))).toBe(true)
+  expect(advertisedWires).not.toHaveLength(0)
+  expect(advertisedWires.every((wire) => wire === '')).toBe(true)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire18-number-display', root: 'g0',

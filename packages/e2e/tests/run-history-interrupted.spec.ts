@@ -18,11 +18,11 @@ const DIGEST = `blake3:${'a'.repeat(64)}`
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'interrupted-history-e2e', schemaWire: 22 },
+  dinkster: { version: 'interrupted-history-e2e', schemaWire: 1 },
   packs: { test: { displayName: 'Test' } },
   nodes: {
     'test.ImageSource': {
-      schemaVersion: 22,
+      schemaVersion: 1,
       nodeType: 'test.ImageSource',
       displayName: 'Image Source',
       category: 'test',
@@ -30,7 +30,7 @@ const nativeTable = {
       signature: 'image-source-e2e',
     },
     'test.ImageSink': {
-      schemaVersion: 22,
+      schemaVersion: 1,
       nodeType: 'test.ImageSink',
       displayName: 'Image Sink',
       category: 'test',

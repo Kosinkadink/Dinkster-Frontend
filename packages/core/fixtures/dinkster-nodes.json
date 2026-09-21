@@ -41,7 +41,7 @@
         }
       ],
       "nodeType": "std.math.add_ints",
-      "schemaVersion": 40,
+      "schemaVersion": 1,
       "version": 1
     },
     "test.absence": {
@@ -109,7 +109,7 @@
         }
       ],
       "nodeType": "test.absence",
-      "schemaVersion": 40,
+      "schemaVersion": 1,
       "version": 1
     },
     "test.families": {
@@ -194,7 +194,7 @@
         }
       ],
       "nodeType": "test.families",
-      "schemaVersion": 40,
+      "schemaVersion": 1,
       "version": 1
     },
     "test.hints": {
@@ -229,7 +229,7 @@
       "occupies": [
         "gpu"
       ],
-      "schemaVersion": 40,
+      "schemaVersion": 1,
       "version": 1
     },
     "test.primitives": {
@@ -310,7 +310,7 @@
         }
       ],
       "nodeType": "test.primitives",
-      "schemaVersion": 40,
+      "schemaVersion": 1,
       "version": 1
     },
     "test.types": {
@@ -414,9 +414,9 @@
         }
       ],
       "nodeType": "test.types",
-      "schemaVersion": 40,
+      "schemaVersion": 1,
       "version": 1
     }
   },
-  "schemaVersion": 40
+  "schemaVersion": 1
 }

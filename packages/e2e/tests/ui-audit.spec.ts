@@ -132,7 +132,7 @@ test.describe('plain widget editors', () => {
 test.describe('asset and save-target editors (mock dinkster backend)', () => {
   test.beforeEach(async ({ page }) => {
     await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 22 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {},
     } }))
     await page.route('**/api/mounts**', async (route) => {
       const url = new URL(route.request().url())

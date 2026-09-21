@@ -11,7 +11,7 @@ test('honors configured federated routes and otherwise stays on local mounts', a
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'audit-e2e', schemaWire: 22 },
+    dinkster: { version: 'audit-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('**/api/mounts', (route) => route.fulfill({ json: { mounts: [

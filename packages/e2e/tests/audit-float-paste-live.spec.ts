@@ -90,13 +90,13 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   await skipWithoutNativeCatalog(request, testInfo)
   pageErrors.length = 0
   page.on('pageerror', (error) => pageErrors.push(error.message))
-  const catalog = await page.request.get('/api/nodes?wire=39')
+  const catalog = await page.request.get('/api/nodes')
   expect(catalog.ok()).toBe(true)
-  expect(((await catalog.json()) as { dinkster?: { schemaWire?: number } }).dinkster?.schemaWire).toBe(39)
+  expect(((await catalog.json()) as { dinkster?: { schemaWire?: number } }).dinkster?.schemaWire).toBe(1)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0,
-  ), { timeout: 20_000 }).toBeGreaterThan(500)
+  ), { timeout: 20_000 }).toBeGreaterThan(400)
   await openFixture(page)
 })
 

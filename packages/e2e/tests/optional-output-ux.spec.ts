@@ -6,7 +6,7 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'optional-output-proof', schemaWire: 21 },
+    dinkster: { version: 'optional-output-proof', schemaWire: 1 },
     packs: {},
     nodes: {},
   } }))

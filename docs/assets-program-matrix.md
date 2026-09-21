@@ -59,7 +59,7 @@ The frontend proof ran from exact clean source `b012fe5` and backend source
 `e78b3988`; the later `2290f24` frontend commit changes only this delegation
 ledger's orchestrator pointer. During acceptance, backend PID 18594 had zero
 restarts and frontend MainPID/node 20013/20031 remained stable. Direct and
-proxied health, wire-22 nodes, catalog, and candidates responses were
+proxied health, nodes, catalog, and candidates responses were
 byte-identical. Resolve remained intentionally absent with matching 404
 responses.
 

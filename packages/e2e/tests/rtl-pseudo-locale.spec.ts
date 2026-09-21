@@ -14,7 +14,7 @@ test('an expanded RTL pseudo-locale updates the mounted host without changing ap
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'rtl-pseudo-locale-e2e', schemaWire: 44 },
+      dinkster: { version: 'rtl-pseudo-locale-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })
