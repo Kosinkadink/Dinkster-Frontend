@@ -295,8 +295,19 @@ async function snapshotFixture(id: string): Promise<{ body: string; digest: stri
 }
 
 describe('mount listing decode', () => {
-  const connectionWith = (mounts: unknown): DinksterConnection =>
-    new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts }) })
+  const connectionWith = (mounts: unknown, outputMount?: unknown): DinksterConnection =>
+    new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, ...(outputMount === undefined ? {} : { outputMount }) }) })
+
+  it('decodes the selected output mount and host path', async () => {
+    const settings = await connectionWith([
+      { id: 'output', mode: 'readwrite', state: 'ready', path: '/library/output' },
+    ], 'output').fetchMountSettings()
+    expect(settings).toEqual({
+      outputMount: 'output',
+      mounts: [{ id: 'output', mode: 'readwrite', state: 'ready', path: '/library/output' }],
+    })
+    await expect(connectionWith([], 42).fetchMountSettings()).rejects.toThrow('malformed output mount')
+  })
 
   it("decodes the server vocabulary: 'read' and 'readwrite'", async () => {
     // The real server (dinkster_assets MOUNT_MODES) says 'read', never
@@ -375,6 +386,19 @@ describe('mount listing decode', () => {
       init: { method: 'POST', body: JSON.stringify({ id: 'shared-models', path: 'D:\\Models', mode: 'read' }) },
     })
     expect(requests[1]).toMatchObject({ url: 'http://native/api/mounts/shared-models', init: { method: 'DELETE' } })
+  })
+
+  it('selects the default output mount with the settings route', async () => {
+    const requests: { url: string; init?: RequestInit }[] = []
+    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+      requests.push({ url: String(url), ...(init ? { init } : {}) })
+      return jsonResponse(200, { outputMount: 'renders' })
+    } })
+    await connection.selectOutputMount('renders')
+    expect(requests).toEqual([{
+      url: 'http://native/api/mounts/output',
+      init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'renders' }) },
+    }])
   })
 })
 
@@ -490,6 +514,62 @@ describe('runtime settings transport', () => {
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => replies.shift()! })
     await expect(connection.updateRuntimeSetting('jobs', {})).rejects.toMatchObject({ status: 403, body: undefined, message: 'runtime settings request failed: 403' })
     await expect(connection.updateRuntimeSetting('jobs', {})).rejects.toMatchObject({ status: 500, body: undefined, message: 'runtime settings request failed: 500' })
+  })
+})
+
+describe('pack settings transport', () => {
+  const response = {
+    packId: 'pack/one',
+    displayName: 'Pack One',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        enabled: { type: 'boolean', title: 'Enabled', default: true },
+        quality: { type: 'integer', title: 'Quality', default: 2, minimum: 1, maximum: 5 },
+      },
+      required: ['enabled', 'quality'],
+    },
+    values: { enabled: true, quality: 2 },
+  }
+
+  it('GETs and PUTs the encoded pack route with a complete values object', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const connection = new DinksterConnection({
+      id: C0,
+      baseUrl: 'http://native',
+      clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike,
+      fetchFn: async (url, init) => {
+        calls.push({ url: String(url), ...(init ? { init } : {}) })
+        return jsonResponse(200, calls.length === 1 ? response : { ...response, values: { enabled: false, quality: 4 } })
+      },
+    })
+    await expect(connection.fetchPackSettings('pack/one')).resolves.toEqual(response)
+    await expect(connection.updatePackSettings('pack/one', { enabled: false, quality: 4 })).resolves.toMatchObject({ values: { enabled: false, quality: 4 } })
+    expect(calls).toEqual([
+      { url: 'http://native/api/packs/pack%2Fone/settings' },
+      { url: 'http://native/api/packs/pack%2Fone/settings', init: expect.objectContaining({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"enabled":false,"quality":4}' }) },
+    ])
+  })
+
+  it('rejects malformed schemas and values instead of exposing partial settings', async () => {
+    const replies = [
+      { ...response, schema: { ...response.schema, future: true } },
+      { ...response, values: { enabled: true, quality: 9 } },
+      { ...response, values: { enabled: true, quality: 2**53 } },
+    ]
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => jsonResponse(200, replies.shift()) })
+    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings response is malformed')
+    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings response is malformed')
+    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings response is malformed')
+  })
+
+  it('surfaces read status and backend mutation errors', async () => {
+    const replies = [jsonResponse(503, {}), jsonResponse(400, { error: 'quality must be at most 5' })]
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => replies.shift()! })
+    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings request failed: 503')
+    await expect(connection.updatePackSettings('pack', { enabled: true, quality: 9 })).rejects.toThrow('quality must be at most 5')
   })
 })
 

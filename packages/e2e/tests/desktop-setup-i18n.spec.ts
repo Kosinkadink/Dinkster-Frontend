@@ -29,6 +29,7 @@ test('desktop Automatic locale reaches setup and the full app without host side 
       checkForUpdates: async () => undefined,
       installUpdate: async () => undefined,
       chooseDirectory: async () => undefined,
+      revealFile: async () => undefined,
       exportSnapshot: async () => undefined,
       importSnapshot: async () => undefined,
       systemCheck: async () => ({

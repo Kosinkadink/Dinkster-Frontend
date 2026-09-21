@@ -65,6 +65,7 @@ const BACKEND_SERIAL_SPECS = [
   'glsl-shader.spec.ts',
   'executable-examples-live.spec.ts',
   'app-view-queue-buttons-native.spec.ts',
+  'output-mount-live.spec.ts',
   // Environment-conditional live discovery probe.
   'startup-discovery.spec.ts',
 ]

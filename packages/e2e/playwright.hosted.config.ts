@@ -1,4 +1,4 @@
-import { accessSync, mkdirSync, writeFileSync } from 'node:fs'
+import { accessSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig } from '@playwright/test'
 import baseConfig from './playwright.config.js'
@@ -31,6 +31,12 @@ const port = (name: string, fallback: number): number => {
 const frontendRoot = resolve(import.meta.dirname, '../..')
 const comfyRoot = requiredDirectory('DINKSTER_E2E_COMFY_ROOT')
 const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
+const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
+const nativeOutput = resolve(nativeLibrary, 'output')
+rmSync(nativeLibrary, { recursive: true, force: true })
+mkdirSync(nativeOutput, { recursive: true })
+mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
+writeFileSync(resolve(nativeLibrary, 'mounts.toml'), `[settings]\noutput-mount = "output"\n\n[mounts.output]\npath = ${JSON.stringify(nativeOutput)}\nmode = "readwrite"\n`)
 const checkpointFixture = resolve(comfyRoot, 'models/checkpoints/audit-local-checkpoint.safetensors')
 mkdirSync(resolve(comfyRoot, 'models/checkpoints'), { recursive: true })
 writeFileSync(checkpointFixture, 'Dinkster hosted E2E checkpoint fixture\n')
@@ -53,7 +59,7 @@ export default defineConfig({
   ...(stockV1Only ? {} : { globalSetup: './hosted-global-setup.ts' }),
   use: {
     ...baseConfig.use,
-    baseURL: `http://127.0.0.1:${frontendPort}`,
+    baseURL: `http://127.0.0.1:${stubV1Entry === '1' ? nativeFrontendPort : frontendPort}`,
   },
   webServer: [
     {
@@ -73,7 +79,9 @@ export default defineConfig({
         ...nativePackSelection,
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
-        `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/native-library'))}`,
+        `--library-root ${JSON.stringify(nativeLibrary)}`,
+        '--execution-cache-mode memory',
+        '--allow-mount-changes',
         ...nativeComfySelection,
       ].join(' '),
       cwd: dinksterRoot,

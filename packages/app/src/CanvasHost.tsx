@@ -55,6 +55,7 @@ import type { VideoPreferences } from './video-preview.js'
 import { AudioTransport } from './AudioTransport.js'
 import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
+import { canRevealOutput, revealExecutedImage } from './output-file.js'
 import { placeFloatingSurface } from './floating-surface.js'
 import {
   defaultValuesOf,
@@ -117,7 +118,6 @@ import {
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
-import { BUILTIN_EDITOR_NODE_IDS } from './builtin-bindings.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -146,7 +146,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { replacementBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -1157,6 +1157,8 @@ export function NodeOutputPager(props: {
   readonly mediaKind?: 'image' | 'video' | 'audio' | 'model3d'
   readonly refusal?: string | undefined
   readonly download?: NonNullable<NodePreview['download']> | undefined
+  readonly virtualPath?: string | undefined
+  readonly onReveal?: (() => void) | undefined
   readonly width?: number
   readonly height?: number
   readonly rect: EditorWorldRect
@@ -1166,6 +1168,7 @@ export function NodeOutputPager(props: {
   readonly onOpen?: () => void
   readonly onActiveChange?: (active: boolean) => void
 }) {
+  const message = useAppMessage()
   const mediaKind = () => props.mediaKind ?? 'image'
   const style = () => ({
     left: `${props.rect.x}px`, top: `${props.rect.y}px`, width: `${props.rect.width}px`, height: `${props.rect.height}px`,
@@ -1228,7 +1231,7 @@ export function NodeOutputPager(props: {
       <div class="node-output-pager-controls" role="group" aria-label={`${props.title} execution ${mediaKind()}s`}>
         <Show when={props.refusal}>{(reason) => <span class="image-preview-refusal" role="alert">{reason()}</span>}</Show>
         <Show when={props.count > 1}>
-          <button type="button" aria-label={`Previous ${mediaKind()} for ${props.title}`} disabled={props.index <= 0} onClick={() => page(props.onPrevious)}>Previous</button>
+          <button type="button" class="node-output-page-previous" aria-label={`Previous ${mediaKind()} for ${props.title}`} disabled={props.index <= 0} onClick={() => page(props.onPrevious)}>Previous</button>
           <Show when={props.onOpen !== undefined} fallback={
             <span class="node-output-position node-output-label" aria-label={`${mediaKind()} ${props.index + 1} of ${props.count} for ${props.title}`}>
               <span>{props.index + 1}/{props.count}</span>
@@ -1241,7 +1244,7 @@ export function NodeOutputPager(props: {
               </Show>
             </button>
           </Show>
-          <button type="button" aria-label={`Next ${mediaKind()} for ${props.title}`} disabled={props.index >= props.count - 1} onClick={() => page(props.onNext)}>Next</button>
+          <button type="button" class="node-output-page-next" aria-label={`Next ${mediaKind()} for ${props.title}`} disabled={props.index >= props.count - 1} onClick={() => page(props.onNext)}>Next</button>
         </Show>
         <Show when={props.count === 1 && props.onOpen !== undefined}>
           <button type="button" class="node-output-position" aria-label={`Open image 1 of 1 for ${props.title}`} onClick={() => props.onOpen?.()}>Open image</button>
@@ -1249,6 +1252,8 @@ export function NodeOutputPager(props: {
         <Show when={props.download}>
           {(download) => <a href={download().src} download={download().name}>Download</a>}
         </Show>
+        <Show when={props.virtualPath}>{(path) => <span class="node-output-path" title={path()}>{message('outputFile.writtenTo', { path: path() })}</span>}</Show>
+        <Show when={props.onReveal}><button type="button" class="node-output-reveal" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</button></Show>
       </div>
     </div>
   )
@@ -1597,7 +1602,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const selected = selectedNodeIds()
     const viewer = outputViewerKey()
     return boundedVisibleOverlayKeys(
-      outputImagePreviews().filter((item) => item.output.count > 1 || item.download !== undefined || item.output.batch !== undefined || item.output.refusal !== undefined),
+      outputImagePreviews().filter((item) => item.output.count > 1 || item.download !== undefined || item.output.batch !== undefined || item.output.refusal !== undefined || item.output.images[item.output.index]?.virtualPath !== undefined),
       (item) => item.output.key,
       (item) => {
         if (item.output.batch === undefined && viewport.scale < defaultTokens.mediaControlMinScale) return false
@@ -4743,6 +4748,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const reg = registry()
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
+      const roleEditor = schema?.editorRole === undefined ? undefined : props.app.editors.forRole(schema.editorRole)
       const descriptors = schema?.items.flatMap((item) => item.kind !== 'section' && item.outputDescriptors?.input === hit.row.valueKey
         ? [item.outputDescriptors] : [])[0]
       const descriptorRevision = tab.store.revision
@@ -4768,23 +4774,29 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             : [])
       })()
 
-      if (spec.widgetType === 'CURVE') {
-        if (curveTarget) props.app.openCurveEditor(curveTarget)
-        return
+      if (roleEditor?.id === CURVE_EDITOR_KIND) {
+        if (curveTarget) {
+          props.app.openCurveEditor(curveTarget)
+          return
+        }
       }
-      if (spec.widgetType === 'COMPOSITOR') {
+      if (roleEditor?.id === IMAGE_EDITOR_KIND && schema?.editorRole === 'compositor') {
         const target = props.app.compositorTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
         )
-        if (target) props.app.openCompositorEditor(target)
-        return
+        if (target) {
+          props.app.openCompositorEditor(target)
+          return
+        }
       }
-      if (hit.node.node.type === BUILTIN_EDITOR_NODE_IDS.glsl && valueKey === 'fragment_shader') {
+      if (roleEditor?.id === GLSL_EDITOR_KIND && valueKey === 'fragment_shader') {
         const target = props.app.glslTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
         )
-        if (target) props.app.openGlslEditor(target)
-        return
+        if (target) {
+          props.app.openGlslEditor(target)
+          return
+        }
       }
 
       // The built-in Boolean view toggles in place. A registered declarative
@@ -6136,6 +6148,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                     {...(current().width === undefined ? {} : { width: current().width })}
                     {...(current().height === undefined ? {} : { height: current().height })}
                     {...(current().download === undefined ? {} : { download: current().download })}
+                    {...(current().output.images[current().output.index]?.virtualPath === undefined ? {} : {
+                      virtualPath: current().output.images[current().output.index]!.virtualPath,
+                      ...(canRevealOutput() ? { onReveal: () => {
+                        const tab = activeTab()
+                        const execution = tab === undefined ? undefined : props.app.executionForTab(tab)
+                        const backend = execution === undefined ? undefined : props.app.backendFor(execution.ref.connection)
+                        const image = current().output.images[current().output.index]
+                        if (backend?.protocol === 'dinkster' && image !== undefined) void revealExecutedImage(backend.connection, image)
+                      } } : {}),
+                    })}
                     rect={rect()}
                     canvas={canvasEl}
                     onPrevious={() => page(current().output.index - 1)}
@@ -6152,7 +6174,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         )
       }}</For>
       <Show when={outputViewer()} keyed>
-        {(viewer) => <ExecutedImageViewer images={viewer.preview.output.images} batch={viewer.preview.output.batch} initialIndex={viewer.preview.output.index} provenance={viewer.provenance} onRequestClose={closeOutputViewer} />}
+        {(viewer) => <ExecutedImageViewer
+          images={viewer.preview.output.images}
+          batch={viewer.preview.output.batch}
+          initialIndex={viewer.preview.output.index}
+          provenance={viewer.provenance}
+          {...(canRevealOutput() ? { onReveal: (image) => {
+            const tab = activeTab()
+            const execution = tab === undefined ? undefined : props.app.executionForTab(tab)
+            const backend = execution === undefined ? undefined : props.app.backendFor(execution.ref.connection)
+            if (backend?.protocol === 'dinkster') void revealExecutedImage(backend.connection, image)
+          } } : {})}
+          onRequestClose={closeOutputViewer}
+        />}
       </Show>
       <Show when={!editor() && !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()}>
         <div class="canvas-widget-a11y" aria-label="Canvas widget controls">

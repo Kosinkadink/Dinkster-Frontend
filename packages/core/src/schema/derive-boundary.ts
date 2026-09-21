@@ -61,7 +61,7 @@ import type {
   TypeExpr,
 } from './model.js'
 
-/** Resolves a node type (backend id or '#<defId>') to its schema. */
+/** Resolves node types and optional backend-declared editor roles. */
 export interface SchemaResolver {
   (nodeType: string): NodeSchema | undefined
   readonly forEditorRole?: (role: string) => NodeSchema | undefined

@@ -35,6 +35,7 @@ function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterD
     checkForUpdates: vi.fn(async () => undefined),
     installUpdate: vi.fn(async () => undefined),
     chooseDirectory: vi.fn(async () => 'D:\\Shared Models'),
+    revealFile: vi.fn(async () => undefined),
     exportSnapshot: vi.fn(async () => 'C:\\snapshots\\dinkster.json'),
     importSnapshot: vi.fn(async () => ({ format: 1 })),
     systemCheck: vi.fn(async () => ({

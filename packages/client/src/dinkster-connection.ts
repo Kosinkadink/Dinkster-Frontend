@@ -46,6 +46,7 @@ import {
   mergeableTypesFromDinksterWire,
   serverInfoFromDinksterWire,
   parseOccurrenceKey,
+  schemaForEditorRole,
   validateDinksterGraph,
   type CompileArtifact,
   type ConnectionId,
@@ -349,6 +350,87 @@ export interface RuntimeSettings {
     readonly available: readonly string[]
   }
   readonly settings: Readonly<Record<string, RuntimeSettingSection>>
+}
+
+export interface PackSettingSchema {
+  readonly type: 'string' | 'integer' | 'number' | 'boolean'
+  readonly title: string
+  readonly description?: string
+  readonly default: string | number | boolean
+  readonly enum?: readonly string[]
+  readonly minimum?: number
+  readonly maximum?: number
+  readonly multipleOf?: number
+}
+
+export interface PackSettings {
+  readonly packId: string
+  readonly displayName: string
+  readonly schema: {
+    readonly type: 'object'
+    readonly additionalProperties: false
+    readonly properties: Readonly<Record<string, PackSettingSchema>>
+    readonly required: readonly string[]
+  }
+  readonly values: Readonly<Record<string, string | number | boolean>>
+}
+
+function validPackSettingValue(field: PackSettingSchema, value: unknown): value is string | number | boolean {
+  if (field.type === 'string') return typeof value === 'string' && (field.enum === undefined || field.enum.includes(value))
+  if (field.type === 'boolean') return typeof value === 'boolean'
+  if (typeof value !== 'number' || !Number.isFinite(value) || (field.type === 'integer' && !Number.isSafeInteger(value))) return false
+  return (field.minimum === undefined || value >= field.minimum)
+    && (field.maximum === undefined || value <= field.maximum)
+    && (field.multipleOf === undefined || Math.abs(value / field.multipleOf - Math.round(value / field.multipleOf)) <= 1e-12)
+}
+
+function decodePackSettings(raw: unknown): PackSettings | undefined {
+  if (!record(raw) || !exactKeys(raw, ['packId', 'displayName', 'schema', 'values'])
+    || typeof raw['packId'] !== 'string' || raw['packId'] === ''
+    || typeof raw['displayName'] !== 'string' || raw['displayName'] === ''
+    || !record(raw['schema']) || !record(raw['values'])) return undefined
+  const schema = raw['schema']
+  if (!exactKeys(schema, ['type', 'additionalProperties', 'properties', 'required'])
+    || schema['type'] !== 'object' || schema['additionalProperties'] !== false
+    || !record(schema['properties']) || !Array.isArray(schema['required'])) return undefined
+  const schemaProperties = schema['properties']
+  const required = schema['required']
+  if (!required.every((name): name is string => typeof name === 'string')
+    || required.length !== Object.keys(schemaProperties).length
+    || required.some((name, index) => name !== Object.keys(schemaProperties)[index])) return undefined
+  const properties: Record<string, PackSettingSchema> = {}
+  for (const [name, candidate] of Object.entries(schemaProperties)) {
+    if (!record(candidate)
+      || !requiredAndOptionalKeys(candidate, ['type', 'title', 'default'], ['description', 'enum', 'minimum', 'maximum', 'multipleOf'])
+      || typeof candidate['title'] !== 'string' || candidate['title'] === ''
+      || !['string', 'integer', 'number', 'boolean'].includes(String(candidate['type']))
+      || !Object.hasOwn(candidate, 'default')) return undefined
+    const type = candidate['type'] as PackSettingSchema['type']
+    if ((candidate['description'] !== undefined && typeof candidate['description'] !== 'string')
+      || (candidate['enum'] !== undefined && (!Array.isArray(candidate['enum']) || !candidate['enum'].every((value) => typeof value === 'string')))
+      || (candidate['enum'] !== undefined && (type !== 'string' || new Set(candidate['enum']).size !== candidate['enum'].length))
+      || ['minimum', 'maximum', 'multipleOf'].some((key) => candidate[key] !== undefined && (typeof candidate[key] !== 'number' || !Number.isFinite(candidate[key])))
+      || (type === 'string' || type === 'boolean') && ['minimum', 'maximum', 'multipleOf'].some((key) => candidate[key] !== undefined)
+      || typeof candidate['multipleOf'] === 'number' && candidate['multipleOf'] <= 0
+      || typeof candidate['minimum'] === 'number' && typeof candidate['maximum'] === 'number' && candidate['minimum'] > candidate['maximum']) return undefined
+    const field = candidate as unknown as PackSettingSchema
+    if (!validPackSettingValue(field, candidate['default'])) return undefined
+    properties[name] = field
+  }
+  const values: Record<string, string | number | boolean> = {}
+  if (Object.keys(raw['values']).length !== required.length) return undefined
+  for (const name of required) {
+    const field = properties[name]
+    const value = raw['values'][name]
+    if (field === undefined || !validPackSettingValue(field, value)) return undefined
+    values[name] = value
+  }
+  return {
+    packId: raw['packId'],
+    displayName: raw['displayName'],
+    schema: { type: 'object', additionalProperties: false, properties, required },
+    values,
+  }
 }
 
 export interface P2PSettings {
@@ -1086,11 +1168,17 @@ export interface MountDescriptor {
    */
   readonly mode: 'read' | 'readwrite'
   readonly state: string
+  readonly path?: string
   /** Optional semantic scope for homogeneous mounts (for example model/checkpoint). */
   readonly kind?: string
   /** Server-reported catalog size when the mount index provides it. */
   readonly entryCount?: number
   readonly scanProgress?: MountScanProgress
+}
+
+export interface MountSettings {
+  readonly mounts: readonly MountDescriptor[]
+  readonly outputMount?: string
 }
 
 export interface MountScanProgress {
@@ -2076,6 +2164,32 @@ export class DinksterConnection {
     return await res.json() as RuntimeSettings
   }
 
+  async fetchPackSettings(packId: string): Promise<PackSettings> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`)
+    if (!res.ok) throw new Error(`pack settings request failed: ${res.status}`)
+    const decoded = decodePackSettings(await res.json())
+    if (decoded === undefined) throw new Error('pack settings response is malformed')
+    return decoded
+  }
+
+  async updatePackSettings(
+    packId: string,
+    values: Readonly<Record<string, string | number | boolean>>,
+  ): Promise<PackSettings> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(values),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => undefined) as { error?: unknown } | undefined
+      throw new Error(typeof body?.error === 'string' ? body.error : `pack settings update failed: ${res.status}`)
+    }
+    const decoded = decodePackSettings(await res.json())
+    if (decoded === undefined) throw new Error('pack settings response is malformed')
+    return decoded
+  }
+
   async fetchP2PStatus(): Promise<P2PStatus> {
     const res = await this.fetchFn(`${this.baseUrl}/api/p2p/status`)
     if (!res.ok) throw await p2pRequestError(res, 'GET /api/p2p/status')
@@ -2721,12 +2835,13 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
-  async listMounts(): Promise<readonly MountDescriptor[]> {
+  async fetchMountSettings(): Promise<MountSettings> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts`)
     if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
-    const rows = (await res.json() as { mounts?: unknown }).mounts
+    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown }
+    const rows = payload.mounts
     if (!Array.isArray(rows)) throw new Error('GET /api/mounts: malformed response')
-    return rows.filter((value): value is MountDescriptor => {
+    const mounts = rows.filter((value): value is MountDescriptor => {
       if (typeof value !== 'object' || value === null) return false
       const row = value as Record<string, unknown>
       const scanProgress = row['scanProgress']
@@ -2741,9 +2856,25 @@ export class DinksterConnection {
         progress['elapsedSeconds'] >= 0 && (progress['filesDone'] as number) <= (progress['filesTotal'] as number) &&
         (progress['bytesDone'] as number) <= (progress['bytesTotal'] as number))
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
-        typeof row['state'] === 'string' && (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
+        (row['kind'] === undefined || typeof row['kind'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
+    if (payload.outputMount !== undefined && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
+    return { mounts, ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}) }
+  }
+
+  async listMounts(): Promise<readonly MountDescriptor[]> {
+    return (await this.fetchMountSettings()).mounts
+  }
+
+  async selectOutputMount(id: string): Promise<void> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/output`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    if (!res.ok) throw new Error(`PUT /api/mounts/output failed: ${res.status}`)
   }
 
   async addMount(id: string, path: string, mode: 'read' | 'readwrite' = 'read'): Promise<MountDescriptor> {
@@ -3374,12 +3505,15 @@ export function buildDinksterRegistry(
   // (surface generation), composing is present-only-when-true.
   const epoch =
     typeof raw.epoch === 'number' && Number.isInteger(raw.epoch) && raw.epoch > 0 ? raw.epoch : undefined
+  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type) ?? aliasMap.get(type), {
+    forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+  })
   return {
     connection,
     hash: fnv1a64(canonicalJson(schemaIdentityWithoutWidgetPresentation(raw) as Json)),
     schemas,
     diagnostics: [...parsed.diagnostics, ...aliasDiags, ...aliases.diagnostics, ...groups.diagnostics],
-    resolve: (type) => schemas.get(type) ?? aliasMap.get(type),
+    resolve,
     packs: packsFromDinksterWire(raw),
     ...(aliases.catalog.records.length > 0 ? { comfyAliases: aliases.catalog } : {}),
     ...(groups.catalog.records.length > 0 ? { comfyGroups: groups.catalog } : {}),

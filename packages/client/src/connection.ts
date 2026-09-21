@@ -17,6 +17,7 @@ import {
   diag,
   fnv1a64,
   parseOccurrenceKey,
+  schemaForEditorRole,
   type CompileArtifact,
   type ConnectionId,
   type Diagnostic,
@@ -45,12 +46,15 @@ export function buildSchemaRegistry(
   raw: Readonly<Record<string, ObjectInfoEntry>>,
 ): SchemaRegistry {
   const { schemas, diagnostics } = parseObjectInfo(raw)
+  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type), {
+    forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+  })
   return {
     connection,
     hash: fnv1a64(canonicalJson(raw)),
     schemas,
     diagnostics,
-    resolve: (type) => schemas.get(type),
+    resolve,
   }
 }
 

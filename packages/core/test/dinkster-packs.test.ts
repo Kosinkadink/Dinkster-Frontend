@@ -30,6 +30,8 @@ const payload = {
     },
     'dev.pack': { displayName: 'Dev Pack', source: 'local:/home/dev/pack' },
     'junk.prov': { displayName: 'Junk Prov', version: '', artifactDigest: 42, source: null },
+    'with.settings': { displayName: 'Configurable Pack', settings: true },
+    'junk.settings': { displayName: 'Not Configurable', settings: 'true' },
     bare: {},
     dropped: { displayName: 'Bad Fields', abbr: '', mark: 42, color: 'not-a-color' },
     'with.icon': {
@@ -154,6 +156,11 @@ describe('packsFromDinksterWire', () => {
 
   it('malformed fields drop without dropping the entry (never fail fetch)', () => {
     expect(packs.get('dropped')).toEqual({ displayName: 'Bad Fields' })
+  })
+
+  it('retains only the literal declared-settings marker', () => {
+    expect(packs.get('with.settings')).toEqual({ displayName: 'Configurable Pack', settings: true })
+    expect(packs.get('junk.settings')).toEqual({ displayName: 'Not Configurable' })
   })
 
   it('decodes the icon descriptor (backend 2078063): digest + mediaType', () => {

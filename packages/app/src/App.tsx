@@ -33,7 +33,7 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
-import { builtinEditorBindings } from './builtin-bindings.js'
+import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { ImageEditor } from './ImageEditor.js'
 import { ImageDocumentWorkspace } from './ImageDocumentWorkspace.js'
@@ -109,7 +109,8 @@ import {
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { ExecutedImageFacts, ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
-import { executedImageInventory, executedImageLabel } from './executed-image-inventory.js'
+import { canRevealOutput, revealExecutedImage } from './output-file.js'
+import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
 import {
   beginTabDragModel,
   moveTabDragModel,
@@ -451,6 +452,7 @@ export function App(props: {
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
   const settingsTick = useSignal(app.settings.changed)
+  const defaultRegistry = useSignal(app.registry)
   const searchShortcut = (): string | undefined => {
     settingsTick()
     return app.keybindings.combo('search.open')
@@ -1505,6 +1507,12 @@ export function App(props: {
         keybindings={app.keybindings}
         request={app.settingsOpenRequest.get()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+        packSettings={'fetchPackSettings' in app.connection ? {
+          client: app.connection,
+          packs: () => [...(defaultRegistry()?.packs ?? [])]
+            .filter(([, info]) => info.settings === true)
+            .map(([id, info]) => ({ id, displayName: info.displayName })),
+        } : undefined}
       />,
     }),
     registerBuiltinPanel({
@@ -1584,27 +1592,32 @@ export function App(props: {
     </div>
   }
   const unregisterEditors = app.frontendDoors.editor(GRAPH_EDITOR_KIND, {
+    roles: builtinEditorRoles(GRAPH_EDITOR_KIND),
     get title() { return message('shell.editor.graph') },
     component: (host) => <GraphEditor {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterEditors)
   // The form-style app view uses the same public descriptor API.
   const unregisterAppEditor = app.frontendDoors.editor(APP_EDITOR_KIND, {
+    roles: builtinEditorRoles(APP_EDITOR_KIND),
     get title() { return message('shell.editor.appView') },
     component: (host) => <AppView app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterAppEditor)
   const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
+    roles: builtinEditorRoles(IMAGE_EDITOR_KIND),
     get title() { return message('shell.editor.image') },
     component: (host) => <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterImageEditor)
   const unregisterCurveEditor = app.frontendDoors.editor(CURVE_EDITOR_KIND, {
+    roles: builtinEditorRoles(CURVE_EDITOR_KIND),
     get title() { return message('shell.editor.curve') },
     component: (host) => <CurveEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterCurveEditor)
   const unregisterGlslEditor = app.frontendDoors.editor(GLSL_EDITOR_KIND, {
+    roles: builtinEditorRoles(GLSL_EDITOR_KIND),
     get title() { return message('shell.editor.glsl') },
     component: (host) => <GlslEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
@@ -2896,6 +2909,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     const backend = props.app.backendFor(props.execution.ref.connection)
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
+  const reveal = (image: ExecutedImage): void => {
+    const backend = props.app.backendFor(props.execution.ref.connection)
+    if (backend?.protocol === 'dinkster') void revealExecutedImage(backend.connection, image)
+  }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()
     const layers = new Set<string>()
@@ -3032,7 +3049,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         </For>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} {...(canRevealOutput() ? { onReveal: reveal } : {})} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>
     </>
   )

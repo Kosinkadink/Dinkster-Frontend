@@ -4,6 +4,7 @@ import { executionStatusLabel } from './ExecutionActivityCard.js'
 import { ModalSurface } from './ModalSurface.js'
 import { executedImageLabel, type ExecutedImage, type ExecutedImageBatch } from './executed-image-inventory.js'
 import { DigestValue } from './asset-browser/presentation.js'
+import { useAppMessage } from './locale.js'
 import './image-compare.css'
 
 export interface ExecutionOutputProvenance {
@@ -81,7 +82,9 @@ export function ExecutedImageFacts(props: {
   readonly image: ExecutedImage
   readonly availability: 'Checking' | 'Available' | 'Unavailable'
   readonly dimensions?: { readonly width: number; readonly height: number } | undefined
+  readonly onReveal?: (() => void) | undefined
 }) {
+  const message = useAppMessage()
   return (
     <dl class="output-facts">
       <div><dt>Runtime node</dt><dd>{props.image.runtimeId}</dd></div>
@@ -98,12 +101,16 @@ export function ExecutedImageFacts(props: {
       </>}</Show>
       <Show when={props.dimensions}>{(dimensions) => <div><dt>Resolution</dt><dd>{dimensions().width} x {dimensions().height}</dd></div>}</Show>
       <Show when={props.image.name}><div><dt>Name</dt><dd>{props.image.name}</dd></div></Show>
+      <Show when={props.image.virtualPath}>{(virtualPath) => <div><dt>{message('outputFile.writtenPath')}</dt><dd>
+        <For each={virtualPath().split('/')}>{(segment, index) => <>{index() > 0 && <><span>/</span><wbr /></>}{segment}</>}</For>
+      </dd></div>}</Show>
       <Show when={props.image.digest}>{(digest) => <div><dt>Asset digest</dt><dd><DigestValue digest={digest()} /></dd></div>}</Show>
       <Show when={props.image.subfolder !== undefined}><div><dt>Subfolder</dt><dd>{props.image.subfolder || '(root)'}</dd></div></Show>
       <Show when={props.image.fileType}><div><dt>File type</dt><dd>{props.image.fileType}</dd></div></Show>
       <div class="output-availability" data-availability={props.availability.toLowerCase()}>
         <dt>Availability</dt><dd>{props.availability}</dd>
       </div>
+      <Show when={props.onReveal}><div><dt>{message('outputFile.file')}</dt><dd><button type="button" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</button></dd></div></Show>
     </dl>
   )
 }
@@ -113,6 +120,7 @@ export function ExecutedImageViewer(props: {
   readonly batch?: ExecutedImageBatch | undefined
   readonly initialIndex: number
   readonly provenance: ExecutionOutputProvenance
+  readonly onReveal?: ((image: ExecutedImage) => void) | undefined
   readonly onRequestClose: () => void
 }) {
   const pageZoom = Math.max(1, Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1)
@@ -273,7 +281,7 @@ export function ExecutedImageViewer(props: {
               </div>
               <aside class="output-viewer-details" aria-label="Selected output identity">
                 <h3>{props.batch === undefined ? 'Output' : 'Batch image'} {index() + 1} of {count()}</h3>
-                <ExecutedImageFacts image={image} availability={availability(image)} dimensions={naturalSizes().get(image.key)} />
+                <ExecutedImageFacts image={image} availability={availability(image)} dimensions={naturalSizes().get(image.key)} {...(props.onReveal === undefined || image.virtualPath === undefined ? {} : { onReveal: () => props.onReveal?.(image) })} />
               </aside>
             </div>
           )}

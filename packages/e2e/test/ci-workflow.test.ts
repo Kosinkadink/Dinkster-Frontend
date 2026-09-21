@@ -395,6 +395,9 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain("stubV1Entry === '1' ? 'native' : 'legacy'")
     expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
     expect(hostedConfig).toContain(
+      "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
+    )
+    expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? ['--no-default-packs'] : []",
     )
     expect(hostedConfig).toContain('...nativePackSelection')
