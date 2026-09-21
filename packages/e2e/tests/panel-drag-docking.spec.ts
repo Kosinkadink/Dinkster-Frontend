@@ -68,7 +68,7 @@ async function registerDockingProof(page: Page): Promise<void> {
 const capture = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_105'] !== '1') return
   await page.screenshot({
-    path: `evidencePath('issue-105', '${name}.png')`,
+    path: evidencePath('issue-105', `${name}.png`),
     fullPage: true,
     animations: 'disabled',
   })
@@ -78,7 +78,7 @@ const capture = async (page: Page, name: string): Promise<void> => {
 const captureDragGhost = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_170'] !== '1') return
   mkdirSync(evidenceGroupDir('issue-170'), { recursive: true })
-  await page.screenshot({ path: `evidencePath('issue-170', '${name}.png')`, animations: 'disabled' })
+  await page.screenshot({ path: evidencePath('issue-170', `${name}.png`), animations: 'disabled' })
 }
 
 

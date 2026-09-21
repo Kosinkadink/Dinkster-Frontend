@@ -161,7 +161,7 @@ test('represented estimates propagate and recompute after connect and reconnect'
   await page.screenshot({ path: testInfo.outputPath('mirror-estimate-propagation.png'), animations: 'disabled' })
   if (process.env['DINKSTER_CAPTURE_ISSUE_679'] === '1') {
     mkdirSync(evidenceGroupDir('issue-679'), { recursive: true })
-    await page.screenshot({ path: `evidencePath('issue-679', 'mirror-estimate-propagation.png')`, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-679', 'mirror-estimate-propagation.png'), animations: 'disabled' })
   }
   expect(pageErrors).toEqual([])
 })

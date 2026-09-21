@@ -32,7 +32,7 @@ const capture = async (page: Page, name: string): Promise<void> => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await page.mouse.move(0, 0)
     await page.waitForTimeout(350)
-    await page.screenshot({ path: `evidencePath('issue-41', '${name}.png')`, fullPage: true, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-41', `${name}.png`), fullPage: true, animations: 'disabled' })
   }
 }
 

@@ -49,7 +49,7 @@ const capture = async (page: Page, name: string): Promise<void> => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await page.mouse.move(0, 0)
     await page.waitForTimeout(350)
-    await page.screenshot({ path: `evidencePath('issue-41', '${name}.png')`, fullPage: true, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-41', `${name}.png`), fullPage: true, animations: 'disabled' })
   }
 }
 
@@ -76,7 +76,7 @@ test('selects exact digests, updates the mounted locale, and closes after succes
   await first.focus()
   if (process.env['DINKSTER_CAPTURE_ISSUE_457'] === '1') {
     mkdirSync(evidenceGroupDir('issue-457'), { recursive: true })
-    await page.screenshot({ path: `evidencePath('issue-457', 'asset-consent-i18n-en.png')`, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-457', 'asset-consent-i18n-en.png'), animations: 'disabled' })
   }
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as { settings: { set(id: string, value: unknown): void } }
@@ -99,7 +99,7 @@ test('selects exact digests, updates the mounted locale, and closes after succes
   await expect(page.getByTestId('asset-consent-selection-status')).toHaveText('\u5728 2 \u4e2a\u53ef\u7528\u8d44\u4ea7\u4e2d\u5df2\u9009\u62e9 1 \u4e2a\u3002')
   expect(bodies).toHaveLength(1)
   if (process.env['DINKSTER_CAPTURE_ISSUE_457'] === '1') {
-    await page.screenshot({ path: `evidencePath('issue-457', 'asset-consent-i18n-zh.png')`, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-457', 'asset-consent-i18n-zh.png'), animations: 'disabled' })
   }
   await capture(page, 'after-consent-wide-mixed')
   await page.getByTestId('asset-consent-acquire').click()

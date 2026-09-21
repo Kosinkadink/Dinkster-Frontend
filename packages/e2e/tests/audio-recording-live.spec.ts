@@ -368,11 +368,11 @@ test(PHYSICAL_MICROPHONE
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
     mkdirSync(evidenceGroupDir('issue-404'), { recursive: true })
     const evidencePrefix = PHYSICAL_MICROPHONE ? 'physical-microphone' : 'audio-recording'
-    if (selectedDevice) writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-selected.png')`, selectedDevice)
-    writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-staged.png')`, staged)
-    writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-executed.png')`, executed)
-    writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-envelope-follow.png')`, curveFollow)
-    writeFileSync(`evidencePath('issue-404', '${evidencePrefix}-receipt.json')`, `${JSON.stringify({
+    if (selectedDevice) writeFileSync(evidencePath('issue-404', `${evidencePrefix}-selected.png`), selectedDevice)
+    writeFileSync(evidencePath('issue-404', `${evidencePrefix}-staged.png`), staged)
+    writeFileSync(evidencePath('issue-404', `${evidencePrefix}-executed.png`), executed)
+    writeFileSync(evidencePath('issue-404', `${evidencePrefix}-envelope-follow.png`), curveFollow)
+    writeFileSync(evidencePath('issue-404', `${evidencePrefix}-receipt.json`), `${JSON.stringify({
       backend: process.env['DINKSTER_BACKEND_SHA'] ?? 'unrecorded',
       ...(PHYSICAL_MICROPHONE ? { device: { label: PHYSICAL_MICROPHONE } } : {}),
       upload: { size: postedBytes.length, sha256: createHash('sha256').update(postedBytes).digest('hex'), asset: response.asset },

@@ -282,7 +282,7 @@ test('edits, executes, persists, and falls back safely when compositor sources c
   await testInfo.attach('native-compositor-editor', { body: screenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
     mkdirSync(evidenceGroupDir('issue-400'), { recursive: true })
-    writeFileSync(`evidencePath('issue-400', 'graph-native-compositor.png')`, screenshot)
+    writeFileSync(evidencePath('issue-400', 'graph-native-compositor.png'), screenshot)
   }
 
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)

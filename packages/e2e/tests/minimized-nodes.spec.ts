@@ -66,7 +66,7 @@ async function capture(page: Page, name: string, projectName: string, outputPath
   await attach(outputPath)
   if (process.env['DINKSTER_CAPTURE_ISSUE_387'] === '1') {
     mkdirSync(evidenceGroupDir('issue-387'), { recursive: true })
-    writeFileSync(`evidencePath('issue-387', '${projectName}-${name}.png')`, image)
+    writeFileSync(evidencePath('issue-387', `${projectName}-${name}.png`), image)
   }
 }
 

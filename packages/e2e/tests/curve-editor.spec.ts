@@ -209,7 +209,7 @@ test('renders finite curve geometry across extreme float values', async ({ page 
   await testInfo.attach('native-curve-editor-extreme-floats', { body: screenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
     mkdirSync(evidenceGroupDir('issue-680'), { recursive: true })
-    writeFileSync(`evidencePath('issue-680', 'native-curve-editor-extreme-floats.png')`, screenshot)
+    writeFileSync(evidencePath('issue-680', 'native-curve-editor-extreme-floats.png'), screenshot)
   }
 
   const errors = browserErrors.get(page)
@@ -375,7 +375,7 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
   await testInfo.attach('native-curve-editor-histogram', { body: screenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
     mkdirSync(evidenceGroupDir('issue-680'), { recursive: true })
-    writeFileSync(`evidencePath('issue-680', 'native-curve-editor-histogram.png')`, screenshot)
+    writeFileSync(evidencePath('issue-680', 'native-curve-editor-histogram.png'), screenshot)
   }
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expect(editor).toHaveCount(0)

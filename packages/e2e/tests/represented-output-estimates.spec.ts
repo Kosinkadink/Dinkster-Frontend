@@ -141,7 +141,7 @@ test('an uploaded selected asset estimates its represented output before executi
   await page.screenshot({ path: testInfo.outputPath('represented-output-estimate.png'), animations: 'disabled' })
   if (process.env['DINKSTER_CAPTURE_ISSUE_679'] === '1') {
     mkdirSync(evidenceGroupDir('issue-679'), { recursive: true })
-    await page.screenshot({ path: `evidencePath('issue-679', 'represented-output-estimate.png')`, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-679', 'represented-output-estimate.png'), animations: 'disabled' })
   }
 
   await page.evaluate(() => {

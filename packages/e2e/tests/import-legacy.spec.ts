@@ -491,7 +491,7 @@ test('collapses an exact maintained group into its native replacement', async ({
     await page.mouse.move(0, 0)
     await page.waitForTimeout(350)
     await page.screenshot({
-      path: `evidencePath('issue-681', 'exact-group-import.png')`,
+      path: evidencePath('issue-681', 'exact-group-import.png'),
       fullPage: true,
       animations: 'disabled',
     })

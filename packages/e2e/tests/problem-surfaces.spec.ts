@@ -13,7 +13,7 @@ interface ContextAppInternals {
 const capture = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_22'] !== '1') return
   await page.screenshot({
-    path: `evidencePath('issue-22', '${name}.png')`,
+    path: evidencePath('issue-22', `${name}.png`),
     fullPage: true,
     animations: 'disabled',
   })
@@ -168,7 +168,7 @@ test('the mounted Focused panel relabels without changing context, raw facts, or
     }
   })
   await page.screenshot({
-    path: `evidencePath('issue-457', 'context-panel-i18n-en.png')`,
+    path: evidencePath('issue-457', 'context-panel-i18n-en.png'),
     fullPage: true,
     animations: 'disabled',
   })
@@ -225,7 +225,7 @@ test('the mounted Focused panel relabels without changing context, raw facts, or
     }
   })).toEqual(stateBeforeLocale)
   await page.screenshot({
-    path: `evidencePath('issue-457', 'context-panel-i18n-de-DE.png')`,
+    path: evidencePath('issue-457', 'context-panel-i18n-de-DE.png'),
     fullPage: true,
     animations: 'disabled',
   })

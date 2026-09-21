@@ -237,7 +237,7 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
   await testInfo.attach('native-glsl-shader-editor', { body: screenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
     mkdirSync(evidenceGroupDir('issue-680'), { recursive: true })
-    writeFileSync(`evidencePath('issue-680', 'native-glsl-shader-editor.png')`, screenshot)
+    writeFileSync(evidencePath('issue-680', 'native-glsl-shader-editor.png'), screenshot)
   }
   await editor.getByRole('button', { name: 'Apply', exact: true }).click()
   await expect(editor).toHaveCount(0)

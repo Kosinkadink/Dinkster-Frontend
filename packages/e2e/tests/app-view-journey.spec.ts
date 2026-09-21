@@ -178,7 +178,7 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
     store.dispatch({ command: 'app.layout.setGrid', params: { id: byKind('preview').id, grid: { x: 5, y: 7, w: 7, h: 5 } } })
   })
   await page.getByTestId('app-view').evaluate((element) => { element.scrollTop = 0 })
-  await page.screenshot({ path: `evidencePath('issue-21', 'app-grid-arrange.png')`, animations: 'disabled' })
+  await page.screenshot({ path: evidencePath('issue-21', 'app-grid-arrange.png'), animations: 'disabled' })
 
   await page.getByTestId('app-layout-breakpoint-mobile').click()
   const mobileResult = page.getByRole('listitem', { name: /Mobile placement: Result/ })
@@ -187,7 +187,7 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
   await expect(page.getByTestId('app-layout-reset-mobile')).toBeVisible()
   await page.setViewportSize({ width: 1440, height: 1700 })
   await page.getByTestId('app-view').evaluate((element) => { element.scrollTop = 0 })
-  await page.screenshot({ path: `evidencePath('issue-21', 'app-mobile-arrange.png')`, animations: 'disabled' })
+  await page.screenshot({ path: evidencePath('issue-21', 'app-mobile-arrange.png'), animations: 'disabled' })
 
   await page.evaluate(() => {
     const store = window.__dinksterTest!.app.activeTab()!.store
@@ -206,12 +206,12 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
   await page.getByRole('textbox', { name: 'Prompt' }).fill('cinematic portrait')
   await page.getByRole('textbox', { name: 'Prompt' }).blur()
   await page.getByTestId('app-view').evaluate((element) => { element.scrollTop = 0 })
-  await page.screenshot({ path: `evidencePath('issue-21', 'app-grid-use-mixed-flow.png')`, animations: 'disabled' })
+  await page.screenshot({ path: evidencePath('issue-21', 'app-grid-use-mixed-flow.png'), animations: 'disabled' })
 
   await page.setViewportSize({ width: 1440, height: 1100 })
   await setEditorWidth(page, 600)
   await page.getByTestId('app-view').evaluate((element) => { element.scrollTop = 0 })
-  await page.screenshot({ path: `evidencePath('issue-21', 'app-mobile-use-narrow.png')`, animations: 'disabled' })
+  await page.screenshot({ path: evidencePath('issue-21', 'app-mobile-use-narrow.png'), animations: 'disabled' })
 
   const popupPromise = page.waitForEvent('popup')
   await page.getByTestId('tab-bar').locator('.tab', { hasText: 'Portrait Studio' }).click({ button: 'right' })
@@ -230,7 +230,7 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
   await popup.mouse.move(300, 300)
   await popup.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await popup.waitForTimeout(500)
-  await popup.screenshot({ path: `evidencePath('issue-21', 'app-mobile-use-popout.png')`, animations: 'disabled' })
+  await popup.screenshot({ path: evidencePath('issue-21', 'app-mobile-use-popout.png'), animations: 'disabled' })
   await popup.close()
 
   const restoredTab = page.getByRole('tab', { name: /Portrait Studio/ })

@@ -186,12 +186,12 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
   await testInfo.attach('graph-mask-editor', { body: graphEditorScreenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
     mkdirSync(evidenceGroupDir('issue-400'), { recursive: true })
-    writeFileSync(`evidencePath('issue-400', 'graph-mask-editor.png')`, graphEditorScreenshot)
+    writeFileSync(evidencePath('issue-400', 'graph-mask-editor.png'), graphEditorScreenshot)
   }
   const graphMaskDetail = await page.locator('.image-canvas-stack').screenshot({ animations: 'disabled' })
   await testInfo.attach('graph-mask-detail', { body: graphMaskDetail, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
-    writeFileSync(`evidencePath('issue-400', 'graph-mask-detail.png')`, graphMaskDetail)
+    writeFileSync(evidencePath('issue-400', 'graph-mask-detail.png'), graphMaskDetail)
   }
   await page.getByRole('button', { name: 'Clear' }).click()
   await paintStroke(page)
@@ -276,7 +276,7 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
   await testInfo.attach('graph-mask-authoritative-document', { body: workspaceScreenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
     mkdirSync(evidenceGroupDir('issue-400'), { recursive: true })
-    writeFileSync(`evidencePath('issue-400', 'graph-mask-authoritative-document.png')`, workspaceScreenshot)
+    writeFileSync(evidencePath('issue-400', 'graph-mask-authoritative-document.png'), workspaceScreenshot)
   }
   await testInfo.attach('graph-mask-live-receipts', {
     body: JSON.stringify({ backend: NATIVE_BACKEND, submitted, receipt, paintNode: graphState.paint, baked }, null, 2),
