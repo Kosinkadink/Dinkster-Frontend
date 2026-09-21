@@ -153,6 +153,8 @@ describe('fast pull-request and full validation workflows', () => {
       "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true },",
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
+      "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '', pullRequest: true },",
+      "{ name: 'native without V1', project: 'native-without-v1', shard: '', pullRequest: true },",
     ])
     for (const required of [
       "context.eventName !== 'schedule'",
@@ -164,6 +166,8 @@ describe('fast pull-request and full validation workflows', () => {
       'latestDurable?.head_sha === context.sha',
       "context.eventName === 'push'",
       'fullMatrix.filter((entry) => entry.push)',
+      "context.eventName === 'pull_request'",
+      'fullMatrix.filter((entry) => entry.pullRequest)',
       "core.setOutput('e2e-matrix', JSON.stringify({ include: selected }))",
     ])
       expect(planScript).toContain(required)
@@ -226,8 +230,25 @@ describe('fast pull-request and full validation workflows', () => {
     expect(durablePlan.requests).toBe(1)
     expect(durablePlan.outputs['run-heavy']).toBe('false')
     expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
-      7,
+      9,
     )
+    const pullRequestPlan = await executePlan('pull_request', [])
+    expect(pullRequestPlan.requests).toBe(0)
+    expect(JSON.parse(pullRequestPlan.outputs['e2e-matrix']!).include).toEqual([
+      {
+        name: 'stock ComfyUI V1',
+        project: 'v1-compatibility',
+        shard: '',
+        pullRequest: true,
+      },
+      {
+        name: 'native without V1',
+        project: 'native-without-v1',
+        shard: '',
+        pullRequest: true,
+      },
+    ])
+    expect(pullRequestPlan.outputs['run-heavy']).toBe('true')
     expect(
       (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
         .outputs['run-heavy'],
@@ -239,7 +260,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.jobs['fast']!.steps).toEqual(fast.jobs['fast']!.steps)
     expect(full.jobs['ci']!.needs).toBe('validation-plan')
     expect(full.jobs['ci']!.if).toBe(
-      "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push'",
+      "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push' && github.event_name != 'pull_request'",
     )
     expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
     expect(full.jobs['e2e-suite']!.if).toBe(

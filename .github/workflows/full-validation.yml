@@ -41,10 +41,14 @@ jobs:
               { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true },
               { name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },
               { name: 'performance', project: 'performance', shard: '' },
+              { name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '', pullRequest: true },
+              { name: 'native without V1', project: 'native-without-v1', shard: '', pullRequest: true },
             ];
             const selected = context.eventName === 'push'
               ? fullMatrix.filter((entry) => entry.push)
-              : fullMatrix;
+              : context.eventName === 'pull_request'
+                ? fullMatrix.filter((entry) => entry.pullRequest)
+                : fullMatrix;
             core.setOutput('e2e-matrix', JSON.stringify({ include: selected }));
             if (context.eventName !== 'schedule') {
               core.setOutput('run-heavy', 'true');
@@ -100,7 +104,7 @@ jobs:
 
   ci:
     needs: validation-plan
-    if: needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push'
+    if: needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push' && github.event_name != 'pull_request'
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
 
