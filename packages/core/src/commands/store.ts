@@ -582,7 +582,7 @@ export class DocumentStore implements DocumentStoreContract {
   historySnapshot(): HistorySnapshot {
     const detach = (records: readonly TransactionRecord[]): HistorySnapshotRecord[] =>
       records.map((record) => ({ forward: record.forward, inverse: record.inverse }))
-    return { undo: detach(this.undoStack), redo: detach(this.redoStack) }
+    return { revision: this.revision, undo: detach(this.undoStack), redo: detach(this.redoStack) }
   }
 }
 
@@ -594,6 +594,7 @@ export interface HistorySnapshotRecord {
 
 /** Undo/redo history detached from a store or session, oldest record first. */
 export interface HistorySnapshot {
+  readonly revision: number
   readonly undo: readonly HistorySnapshotRecord[]
   readonly redo: readonly HistorySnapshotRecord[]
 }

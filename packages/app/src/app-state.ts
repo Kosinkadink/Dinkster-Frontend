@@ -193,17 +193,7 @@ import {
   type ImportAssetDigestHint,
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
-import {
-  APP_EDITOR_KIND,
-  CURVE_EDITOR_KIND,
-  EditorBindingRegistry,
-  EditorRegistry,
-  GLSL_EDITOR_KIND,
-  GRAPH_EDITOR_KIND,
-  IMAGE_EDITOR_KIND,
-  type EditorBindingContext,
-  type EditorKindDescriptor,
-} from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { DockLayout } from './dock-layout.js'
@@ -213,18 +203,9 @@ import { PanelRegistry, type PanelDescriptor } from './panels.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
-import {
-  CommandRegistry,
-  KeybindingRegistry,
-  SettingsRegistry,
-  SETTINGS_STORAGE_KEY,
-} from './settings.js'
+import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { scopedSharedName, scopedStorageKey } from './projects.js'
-import {
-  ExtensionEditorHost,
-  HostUiContributionRegistry,
-  HostUiProviderHost,
-} from './host-ui.js'
+import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
 import {
@@ -237,12 +218,7 @@ import {
   type ExecutionResultBackendIdentity,
   type PersistedExecutionResult,
 } from './execution-result-persistence.js'
-import {
-  COLLAB_SCOPE,
-  httpCollabTransport,
-  stableActorId,
-  type CollabTransport,
-} from './collab.js'
+import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
 import { PresenceChannel } from './collab-presence.js'
 import {
   connectSharedWorkerSession,
@@ -262,23 +238,13 @@ export type RegionKind = 'map' | 'fold' | 'while'
 
 interface WorkspaceEventChannel {
   postMessage(message: unknown): void
-  addEventListener(
-    type: 'message',
-    listener: (event: MessageEvent<unknown>) => void,
-  ): void
-  removeEventListener?(
-    type: 'message',
-    listener: (event: MessageEvent<unknown>) => void,
-  ): void
+  addEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void
+  removeEventListener?(type: 'message', listener: (event: MessageEvent<unknown>) => void): void
   close?(): void
 }
 
 type WorkspaceExecutionMessage =
-  | {
-      readonly source: string
-      readonly kind: 'event'
-      readonly event: NormalizedEvent
-    }
+  | { readonly source: string; readonly kind: 'event'; readonly event: NormalizedEvent }
   | {
       readonly source: string
       readonly kind: 'register'
@@ -302,11 +268,8 @@ interface WorkspaceRegistration {
   readonly sourceDocument?: string
 }
 
-const workspaceRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value))
-    return false
+const workspaceRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
 }
@@ -324,21 +287,15 @@ const workspaceStrings = (value: unknown): readonly string[] | undefined =>
   Array.isArray(value) && value.every(workspaceString) ? value : undefined
 
 const workspaceTextStrings = (value: unknown): readonly string[] | undefined =>
-  Array.isArray(value) && value.every((entry) => typeof entry === 'string')
-    ? value
-    : undefined
+  Array.isArray(value) && value.every((entry) => typeof entry === 'string') ? value : undefined
 
-const workspaceOwnedRecord = (
-  value: unknown,
-): Readonly<Record<string, unknown>> | undefined => {
+const workspaceOwnedRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined => {
   try {
     const encoded = JSON.stringify(value)
     if (encoded === undefined || encoded.length > 16_000_000) return undefined
     const decoded: unknown = JSON.parse(encoded)
     if (!workspaceRecord(decoded)) return undefined
-    const pending: Array<{ value: unknown; depth: number }> = [
-      { value: decoded, depth: 0 },
-    ]
+    const pending: Array<{ value: unknown; depth: number }> = [{ value: decoded, depth: 0 }]
     let nodes = 0
     while (pending.length > 0) {
       const next = pending.pop()!
@@ -358,69 +315,48 @@ const workspaceOwnedRecord = (
   }
 }
 
-const decodeWorkspaceExecutionRef = (
-  value: unknown,
-): ExecutionRef | undefined => {
-  if (
-    !workspaceRecord(value) ||
-    !workspaceString(value['connection']) ||
-    !workspaceString(value['prompt'])
-  ) {
+const decodeWorkspaceExecutionRef = (value: unknown): ExecutionRef | undefined => {
+  if (!workspaceRecord(value) || !workspaceString(value['connection']) || !workspaceString(value['prompt'])) {
     return undefined
   }
-  return {
-    connection: asConnectionId(value['connection']),
-    prompt: asPromptId(value['prompt']),
-  }
+  return { connection: asConnectionId(value['connection']), prompt: asPromptId(value['prompt']) }
 }
 
 const decodeWorkspaceOccurrence = (value: unknown): Occurrence | undefined => {
-  if (!workspaceRecord(value) || !workspaceString(value['node']))
-    return undefined
+  if (!workspaceRecord(value) || !workspaceString(value['node'])) return undefined
   const instancePath = workspaceStrings(value['instancePath'])
   if (instancePath === undefined) return undefined
-  return {
-    instancePath: instancePath.map(asNodeId),
-    node: asNodeId(value['node']),
-  }
+  return { instancePath: instancePath.map(asNodeId), node: asNodeId(value['node']) }
 }
 
 const decodeWorkspaceScope = (value: unknown): ExecutionScope | undefined => {
   if (!workspaceRecord(value)) return undefined
   if (value['kind'] === 'full') return { kind: 'full' }
-  if (value['kind'] !== 'partial' || !Array.isArray(value['targets']))
-    return undefined
+  if (value['kind'] !== 'partial' || !Array.isArray(value['targets'])) return undefined
   const targets = value['targets'].map(decodeWorkspaceOccurrence)
   if (targets.some((target) => target === undefined)) return undefined
   return { kind: 'partial', targets: targets as Occurrence[] }
 }
 
-const decodeWorkspaceChoices = (
-  value: unknown,
-): readonly SelectorChoice[] | undefined => {
+const decodeWorkspaceChoices = (value: unknown): readonly SelectorChoice[] | undefined => {
   if (value === undefined) return []
   if (!Array.isArray(value)) return undefined
   const keys = new Set<string>()
   const choices = value.flatMap((entry): SelectorChoice[] => {
-    if (
-      !workspaceRecord(entry) ||
+    if (!workspaceRecord(entry) ||
       !workspaceString(entry['graph']) ||
       !workspaceString(entry['selector']) ||
       !workspaceString(entry['candidate']) ||
-      (entry['policy'] !== 'fixed' && entry['policy'] !== 'random')
-    )
-      return []
+      (entry['policy'] !== 'fixed' && entry['policy'] !== 'random')) return []
     const key = JSON.stringify([entry['graph'], entry['selector']])
     if (keys.has(key)) return []
     keys.add(key)
-    return [
-      {
-        graph: entry['graph'],
-        selector: entry['selector'],
-        policy: entry['policy'],
-        candidate: entry['candidate'],
-      },
-    ]
+    return [{
+      graph: entry['graph'],
+      selector: entry['selector'],
+      policy: entry['policy'],
+      candidate: entry['candidate'],
+    }]
   })
   return choices.length === value.length ? choices : undefined
 }
@@ -434,36 +370,21 @@ const decodeWorkspaceRegistration = (
   const timestamp = value['timestamp']
   const jobRef = value['jobRef']
   const sourceDocument = value['sourceDocument']
-  if (
-    ref === undefined ||
-    rawArtifact === undefined ||
+  if (ref === undefined || rawArtifact === undefined ||
     (timestamp !== undefined && !workspaceNumber(timestamp)) ||
     (jobRef !== undefined && !workspaceString(jobRef)) ||
     (sourceDocument !== undefined && !workspaceString(sourceDocument)) ||
     !workspaceInteger(rawArtifact['revision']) ||
-    !workspaceString(rawArtifact['connection']) ||
-    rawArtifact['connection'] !== ref.connection ||
-    !workspaceString(rawArtifact['schemaHash']) ||
-    !workspaceString(rawArtifact['semanticHash']) ||
-    !workspaceRecord(rawArtifact['prompt']) ||
-    !workspaceRecord(rawArtifact['provenance']) ||
-    !Array.isArray(rawArtifact['diagnostics'])
-  )
-    return undefined
+    !workspaceString(rawArtifact['connection']) || rawArtifact['connection'] !== ref.connection ||
+    !workspaceString(rawArtifact['schemaHash']) || !workspaceString(rawArtifact['semanticHash']) ||
+    !workspaceRecord(rawArtifact['prompt']) || !workspaceRecord(rawArtifact['provenance']) ||
+    !Array.isArray(rawArtifact['diagnostics'])) return undefined
   const scope = decodeWorkspaceScope(rawArtifact['scope'])
   const choices = decodeWorkspaceChoices(rawArtifact['choices'])
-  if (
-    scope === undefined ||
-    choices === undefined ||
-    validateDocumentShape(rawArtifact['snapshot']).length > 0
-  )
-    return undefined
+  if (scope === undefined || choices === undefined || validateDocumentShape(rawArtifact['snapshot']).length > 0) return undefined
   const snapshot = rawArtifact['snapshot'] as WorkflowDocument
-  if (rawArtifact['semanticHash'] !== semanticHashOf(snapshot, isVirtualType))
-    return undefined
-  const artifact = projectWorkspaceCompileArtifact(
-    rawArtifact as unknown as CompileArtifact,
-  )
+  if (rawArtifact['semanticHash'] !== semanticHashOf(snapshot, isVirtualType)) return undefined
+  const artifact = projectWorkspaceCompileArtifact(rawArtifact as unknown as CompileArtifact)
   return {
     ref,
     artifact,
@@ -478,21 +399,13 @@ const decodeWorkspaceRegistration = (
   }
 }
 
-const decodeWorkspaceOutputSummary = (
-  value: unknown,
-): NodeOutputSummary | undefined => {
-  if (!workspaceRecord(value) || !workspaceString(value['typeId']))
-    return undefined
+const decodeWorkspaceOutputSummary = (value: unknown): NodeOutputSummary | undefined => {
+  if (!workspaceRecord(value) || !workspaceString(value['typeId'])) return undefined
   const length = value['length']
   if (length !== undefined && !workspaceInteger(length)) return undefined
   const inline = value['value']
-  if (
-    inline !== undefined &&
-    typeof inline !== 'string' &&
-    typeof inline !== 'boolean' &&
-    !workspaceNumber(inline)
-  )
-    return undefined
+  if (inline !== undefined &&
+    typeof inline !== 'string' && typeof inline !== 'boolean' && !workspaceNumber(inline)) return undefined
   return {
     typeId: value['typeId'],
     ...(length === undefined ? {} : { length }),
@@ -500,27 +413,13 @@ const decodeWorkspaceOutputSummary = (
   }
 }
 
-const decodeWorkspaceNodeProgress = (
-  value: unknown,
-): NodeProgress | undefined => {
+const decodeWorkspaceNodeProgress = (value: unknown): NodeProgress | undefined => {
   if (!workspaceRecord(value)) return undefined
   const state = value['state']
-  if (
-    state !== 'pending' &&
-    state !== 'running' &&
-    state !== 'cached' &&
-    state !== 'done' &&
-    state !== 'error' &&
-    state !== 'skipped'
-  )
-    return undefined
+  if (state !== 'pending' && state !== 'running' && state !== 'cached' &&
+    state !== 'done' && state !== 'error' && state !== 'skipped') return undefined
   const executionArm = value['executionArm']
-  if (
-    executionArm !== undefined &&
-    executionArm !== 'native' &&
-    executionArm !== 'comfyui'
-  )
-    return undefined
+  if (executionArm !== undefined && executionArm !== 'native' && executionArm !== 'comfyui') return undefined
   const provider = value['provider']
   if (provider !== undefined && !workspaceString(provider)) return undefined
   const pack = value['pack']
@@ -534,8 +433,7 @@ const decodeWorkspaceNodeProgress = (
   const skipOrigin = value['skipOrigin']
   const skipReason = value['skipReason']
   if (skipOrigin !== undefined && !workspaceString(skipOrigin)) return undefined
-  if (skipReason !== undefined && typeof skipReason !== 'string')
-    return undefined
+  if (skipReason !== undefined && typeof skipReason !== 'string') return undefined
   const rawOutputs = value['outputs']
   let outputs: Readonly<Record<string, NodeOutputSummary>> | undefined
   if (rawOutputs !== undefined) {
@@ -563,25 +461,17 @@ const decodeWorkspaceNodeProgress = (
   }
 }
 
-const decodeWorkspaceNodeActivity = (
-  value: unknown,
-): NodeActivity | undefined => {
-  if (!workspaceRecord(value) || !workspaceString(value['nodeId']))
-    return undefined
+const decodeWorkspaceNodeActivity = (value: unknown): NodeActivity | undefined => {
+  if (!workspaceRecord(value) || !workspaceString(value['nodeId'])) return undefined
   if (value['kind'] === 'lazy_demand') {
     const requestedInputs = workspaceStrings(value['requestedInputs'])
     const newInputs = workspaceStrings(value['newInputs'])
     const demandedInputs = workspaceStrings(value['demandedInputs'])
     const producerNodes = workspaceStrings(value['producerNodes'])
-    if (
-      !workspaceInteger(value['round']) ||
+    if (!workspaceInteger(value['round']) ||
       (value['status'] !== 'waiting' && value['status'] !== 'ready') ||
-      requestedInputs === undefined ||
-      newInputs === undefined ||
-      demandedInputs === undefined ||
-      producerNodes === undefined
-    )
-      return undefined
+      requestedInputs === undefined || newInputs === undefined ||
+      demandedInputs === undefined || producerNodes === undefined) return undefined
     return {
       kind: 'lazy_demand',
       nodeId: value['nodeId'],
@@ -593,26 +483,13 @@ const decodeWorkspaceNodeActivity = (
       producerNodes,
     }
   }
-  if (value['kind'] !== 'cache_miss' || typeof value['reason'] !== 'string')
-    return undefined
-  const changedInputs =
-    value['changedInputs'] === undefined
-      ? undefined
-      : workspaceStrings(value['changedInputs'])
-  const addedInputs =
-    value['addedInputs'] === undefined
-      ? undefined
-      : workspaceStrings(value['addedInputs'])
-  const removedInputs =
-    value['removedInputs'] === undefined
-      ? undefined
-      : workspaceStrings(value['removedInputs'])
-  if (
-    (value['changedInputs'] !== undefined && changedInputs === undefined) ||
+  if (value['kind'] !== 'cache_miss' || typeof value['reason'] !== 'string') return undefined
+  const changedInputs = value['changedInputs'] === undefined ? undefined : workspaceStrings(value['changedInputs'])
+  const addedInputs = value['addedInputs'] === undefined ? undefined : workspaceStrings(value['addedInputs'])
+  const removedInputs = value['removedInputs'] === undefined ? undefined : workspaceStrings(value['removedInputs'])
+  if ((value['changedInputs'] !== undefined && changedInputs === undefined) ||
     (value['addedInputs'] !== undefined && addedInputs === undefined) ||
-    (value['removedInputs'] !== undefined && removedInputs === undefined)
-  )
-    return undefined
+    (value['removedInputs'] !== undefined && removedInputs === undefined)) return undefined
   return {
     kind: 'cache_miss',
     nodeId: value['nodeId'],
@@ -623,15 +500,10 @@ const decodeWorkspaceNodeActivity = (
   }
 }
 
-const decodeWorkspaceRuntimeError = (
-  value: unknown,
-): RuntimeErrorDetail | undefined => {
-  if (
-    !workspaceRecord(value) ||
+const decodeWorkspaceRuntimeError = (value: unknown): RuntimeErrorDetail | undefined => {
+  if (!workspaceRecord(value) ||
     !workspaceString(value['exceptionType']) ||
-    typeof value['exceptionMessage'] !== 'string'
-  )
-    return undefined
+    typeof value['exceptionMessage'] !== 'string') return undefined
   const traceback = workspaceTextStrings(value['traceback'])
   if (traceback === undefined) return undefined
   const rawHints = value['hints']
@@ -639,33 +511,22 @@ const decodeWorkspaceRuntimeError = (
   if (rawHints !== undefined) {
     if (!Array.isArray(rawHints)) return undefined
     const decoded = rawHints.flatMap((rawHint) => {
-      if (
-        !workspaceRecord(rawHint) ||
-        !workspaceString(rawHint['code']) ||
-        typeof rawHint['message'] !== 'string' ||
-        (rawHint['suggestion'] !== undefined &&
-          typeof rawHint['suggestion'] !== 'string')
-      )
-        return []
-      return [
-        {
-          code: rawHint['code'],
-          message: rawHint['message'],
-          ...(rawHint['suggestion'] === undefined
-            ? {}
-            : { suggestion: rawHint['suggestion'] as string }),
-        },
-      ]
+      if (!workspaceRecord(rawHint) ||
+        !workspaceString(rawHint['code']) || typeof rawHint['message'] !== 'string' ||
+        (rawHint['suggestion'] !== undefined && typeof rawHint['suggestion'] !== 'string')) return []
+      return [{
+        code: rawHint['code'],
+        message: rawHint['message'],
+        ...(rawHint['suggestion'] === undefined ? {} : { suggestion: rawHint['suggestion'] as string }),
+      }]
     })
     if (decoded.length !== rawHints.length) return undefined
     hints = decoded
   }
   const currentInputs = value['currentInputs']
   const currentOutputs = value['currentOutputs']
-  if (currentInputs !== undefined && !workspaceRecord(currentInputs))
-    return undefined
-  if (currentOutputs !== undefined && !Array.isArray(currentOutputs))
-    return undefined
+  if (currentInputs !== undefined && !workspaceRecord(currentInputs)) return undefined
+  if (currentOutputs !== undefined && !Array.isArray(currentOutputs)) return undefined
   return {
     exceptionType: value['exceptionType'],
     exceptionMessage: value['exceptionMessage'],
@@ -677,34 +538,22 @@ const decodeWorkspaceRuntimeError = (
 }
 
 /** Decode the unversioned same-origin channel before it reaches the execution store. */
-const decodeWorkspaceExecutionEvent = (
-  value: unknown,
-): NormalizedEvent | undefined => {
-  if (
-    !workspaceRecord(value) ||
-    !workspaceString(value['kind']) ||
-    !workspaceNumber(value['timestamp'])
-  ) {
+const decodeWorkspaceExecutionEvent = (value: unknown): NormalizedEvent | undefined => {
+  if (!workspaceRecord(value) || !workspaceString(value['kind']) || !workspaceNumber(value['timestamp'])) {
     return undefined
   }
   const execution = decodeWorkspaceExecutionRef(value['execution'])
   const timestamp = value['timestamp']
   if (value['kind'] === 'status') {
-    if (
-      !workspaceString(value['connection']) ||
+    if (!workspaceString(value['connection']) ||
       (value['execution'] !== undefined && execution === undefined) ||
-      (value['queueRemaining'] !== undefined &&
-        !workspaceInteger(value['queueRemaining']))
-    )
-      return undefined
+      (value['queueRemaining'] !== undefined && !workspaceInteger(value['queueRemaining']))) return undefined
     return {
       kind: 'status',
       connection: asConnectionId(value['connection']),
       timestamp,
       ...(execution === undefined ? {} : { execution }),
-      ...(value['queueRemaining'] === undefined
-        ? {}
-        : { queueRemaining: value['queueRemaining'] as number }),
+      ...(value['queueRemaining'] === undefined ? {} : { queueRemaining: value['queueRemaining'] as number }),
     }
   }
   if (execution === undefined) return undefined
@@ -717,20 +566,13 @@ const decodeWorkspaceExecutionEvent = (
       const iterations = value['iterations']
       const regionKind = value['regionKind']
       const binding = value['binding']
-      if (
-        !workspaceString(value['runtimeNodeId']) ||
-        (regionKind !== 'map' &&
-          regionKind !== 'fold' &&
-          regionKind !== 'while') ||
+      if (!workspaceString(value['runtimeNodeId']) ||
+        (regionKind !== 'map' && regionKind !== 'fold' && regionKind !== 'while') ||
         (binding !== 'zip' && binding !== 'cross' && binding !== 'broadcast') ||
         (iterations !== null && !workspaceInteger(iterations)) ||
-        (regionKind === 'while') !== (iterations === null)
-      )
-        return undefined
+        ((regionKind === 'while') !== (iterations === null))) return undefined
       return {
-        kind: 'regionExpanded',
-        execution,
-        timestamp,
+        kind: 'regionExpanded', execution, timestamp,
         runtimeNodeId: value['runtimeNodeId'],
         regionKind,
         binding,
@@ -738,24 +580,14 @@ const decodeWorkspaceExecutionEvent = (
       }
     }
     case 'regionFinished':
-      if (
-        !workspaceString(value['runtimeNodeId']) ||
-        !workspaceInteger(value['iterations'])
-      )
-        return undefined
+      if (!workspaceString(value['runtimeNodeId']) || !workspaceInteger(value['iterations'])) return undefined
       return {
-        kind: 'regionFinished',
-        execution,
-        timestamp,
-        runtimeNodeId: value['runtimeNodeId'],
-        iterations: value['iterations'],
+        kind: 'regionFinished', execution, timestamp,
+        runtimeNodeId: value['runtimeNodeId'], iterations: value['iterations'],
       }
     case 'nodeStates': {
-      if (
-        !workspaceRecord(value['nodes']) ||
-        (value['snapshot'] !== undefined && value['snapshot'] !== true)
-      )
-        return undefined
+      if (!workspaceRecord(value['nodes']) ||
+        (value['snapshot'] !== undefined && value['snapshot'] !== true)) return undefined
       const entries: Array<readonly [string, NodeProgress]> = []
       for (const [nodeId, rawProgress] of Object.entries(value['nodes'])) {
         if (!workspaceString(nodeId)) return undefined
@@ -764,9 +596,7 @@ const decodeWorkspaceExecutionEvent = (
         entries.push([nodeId, progress])
       }
       return {
-        kind: 'nodeStates',
-        execution,
-        timestamp,
+        kind: 'nodeStates', execution, timestamp,
         nodes: Object.fromEntries(entries),
         ...(value['snapshot'] === true ? { snapshot: true } : {}),
       }
@@ -775,153 +605,74 @@ const decodeWorkspaceExecutionEvent = (
       const payload = value['payload']
       const payloadValid =
         (typeof Blob !== 'undefined' && payload instanceof Blob) ||
-        payload instanceof ArrayBuffer ||
-        workspaceRecord(payload)
-      if (
-        !workspaceString(value['channel']) ||
-        !payloadValid ||
-        (value['runtimeNodeId'] !== undefined &&
-          !workspaceString(value['runtimeNodeId'])) ||
+        payload instanceof ArrayBuffer || workspaceRecord(payload)
+      if (!workspaceString(value['channel']) || !payloadValid ||
+        (value['runtimeNodeId'] !== undefined && !workspaceString(value['runtimeNodeId'])) ||
         (value['stream'] !== undefined && !workspaceString(value['stream'])) ||
-        (value['frameIndex'] !== undefined &&
-          !workspaceInteger(value['frameIndex'])) ||
-        (value['frameCount'] !== undefined &&
-          !workspaceInteger(value['frameCount'], 1)) ||
-        (value['fps'] !== undefined &&
-          (!workspaceNumber(value['fps']) || value['fps'] <= 0))
-      )
-        return undefined
+        (value['frameIndex'] !== undefined && !workspaceInteger(value['frameIndex'])) ||
+        (value['frameCount'] !== undefined && !workspaceInteger(value['frameCount'], 1)) ||
+        (value['fps'] !== undefined && (!workspaceNumber(value['fps']) || value['fps'] <= 0))) return undefined
       return {
-        kind: 'preview',
-        execution,
-        timestamp,
-        channel: value['channel'],
-        payload,
-        ...(value['runtimeNodeId'] === undefined
-          ? {}
-          : { runtimeNodeId: value['runtimeNodeId'] as string }),
-        ...(value['stream'] === undefined
-          ? {}
-          : { stream: value['stream'] as string }),
-        ...(value['frameIndex'] === undefined
-          ? {}
-          : { frameIndex: value['frameIndex'] as number }),
-        ...(value['frameCount'] === undefined
-          ? {}
-          : { frameCount: value['frameCount'] as number }),
+        kind: 'preview', execution, timestamp,
+        channel: value['channel'], payload,
+        ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
+        ...(value['stream'] === undefined ? {} : { stream: value['stream'] as string }),
+        ...(value['frameIndex'] === undefined ? {} : { frameIndex: value['frameIndex'] as number }),
+        ...(value['frameCount'] === undefined ? {} : { frameCount: value['frameCount'] as number }),
         ...(value['fps'] === undefined ? {} : { fps: value['fps'] as number }),
       }
     }
     case 'nodeOutput':
-      if (
-        !workspaceString(value['runtimeNodeId']) ||
-        !workspaceRecord(value['output'])
-      )
-        return undefined
+      if (!workspaceString(value['runtimeNodeId']) || !workspaceRecord(value['output'])) return undefined
       return {
-        kind: 'nodeOutput',
-        execution,
-        timestamp,
-        runtimeNodeId: value['runtimeNodeId'],
-        output: value['output'],
+        kind: 'nodeOutput', execution, timestamp,
+        runtimeNodeId: value['runtimeNodeId'], output: value['output'],
       }
     case 'node.event': {
       const payload = value['payload']
-      if (
-        !workspaceString(value['name']) ||
+      if (!workspaceString(value['name']) ||
         (!(payload instanceof ArrayBuffer) && !workspaceRecord(payload)) ||
-        (value['runtimeNodeId'] !== undefined &&
-          !workspaceString(value['runtimeNodeId']))
-      )
-        return undefined
+        (value['runtimeNodeId'] !== undefined && !workspaceString(value['runtimeNodeId']))) return undefined
       return {
-        kind: 'node.event',
-        execution,
-        timestamp,
-        name: value['name'],
-        payload,
-        ...(value['runtimeNodeId'] === undefined
-          ? {}
-          : { runtimeNodeId: value['runtimeNodeId'] as string }),
+        kind: 'node.event', execution, timestamp,
+        name: value['name'], payload,
+        ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
       }
     }
     case 'activity': {
       const activity = decodeWorkspaceNodeActivity(value['activity'])
-      return activity === undefined
-        ? undefined
-        : { kind: 'activity', execution, timestamp, activity }
+      return activity === undefined ? undefined : { kind: 'activity', execution, timestamp, activity }
     }
     case 'valueDiagnostics': {
       const diagnostics = value['diagnostics']
-      if (!Array.isArray(diagnostics) || !diagnostics.every(isValueDiagnostic))
-        return undefined
+      if (!Array.isArray(diagnostics) || !diagnostics.every(isValueDiagnostic)) return undefined
       return { kind: 'valueDiagnostics', execution, timestamp, diagnostics }
     }
     case 'log':
-      if (
-        (value['level'] !== 'info' && value['level'] !== 'warning') ||
-        typeof value['message'] !== 'string' ||
-        !workspaceInteger(value['seq']) ||
-        (value['runtimeNodeId'] !== undefined &&
-          !workspaceString(value['runtimeNodeId'])) ||
-        (value['emittedAt'] !== undefined &&
-          !workspaceNumber(value['emittedAt'])) ||
-        (value['origin'] !== undefined &&
-          value['origin'] !== 'stdout' &&
-          value['origin'] !== 'stderr' &&
-          value['origin'] !== 'logging' &&
-          value['origin'] !== 'capture') ||
-        (value['logger'] !== undefined &&
-          typeof value['logger'] !== 'string') ||
-        (value['pythonLevel'] !== undefined &&
-          typeof value['pythonLevel'] !== 'string')
-      )
-        return undefined
+      if ((value['level'] !== 'info' && value['level'] !== 'warning') ||
+        typeof value['message'] !== 'string' || !workspaceInteger(value['seq']) ||
+        (value['runtimeNodeId'] !== undefined && !workspaceString(value['runtimeNodeId'])) ||
+        (value['emittedAt'] !== undefined && !workspaceNumber(value['emittedAt'])) ||
+        (value['origin'] !== undefined && value['origin'] !== 'stdout' && value['origin'] !== 'stderr' &&
+          value['origin'] !== 'logging' && value['origin'] !== 'capture') ||
+        (value['logger'] !== undefined && typeof value['logger'] !== 'string') ||
+        (value['pythonLevel'] !== undefined && typeof value['pythonLevel'] !== 'string')) return undefined
       return {
-        kind: 'log',
-        execution,
-        timestamp,
-        level: value['level'],
-        message: value['message'],
-        seq: value['seq'],
-        ...(value['runtimeNodeId'] === undefined
-          ? {}
-          : { runtimeNodeId: value['runtimeNodeId'] as string }),
-        ...(value['emittedAt'] === undefined
-          ? {}
-          : { emittedAt: value['emittedAt'] as number }),
-        ...(value['origin'] === undefined
-          ? {}
-          : {
-              origin: value['origin'] as
-                | 'stdout'
-                | 'stderr'
-                | 'logging'
-                | 'capture',
-            }),
-        ...(value['logger'] === undefined
-          ? {}
-          : { logger: value['logger'] as string }),
-        ...(value['pythonLevel'] === undefined
-          ? {}
-          : { pythonLevel: value['pythonLevel'] as string }),
+        kind: 'log', execution, timestamp,
+        level: value['level'], message: value['message'], seq: value['seq'],
+        ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
+        ...(value['emittedAt'] === undefined ? {} : { emittedAt: value['emittedAt'] as number }),
+        ...(value['origin'] === undefined ? {} : { origin: value['origin'] as 'stdout' | 'stderr' | 'logging' | 'capture' }),
+        ...(value['logger'] === undefined ? {} : { logger: value['logger'] as string }),
+        ...(value['pythonLevel'] === undefined ? {} : { pythonLevel: value['pythonLevel'] as string }),
       }
     case 'error': {
       const detail = decodeWorkspaceRuntimeError(value['detail'])
-      if (
-        detail === undefined ||
-        (value['runtimeNodeId'] !== undefined &&
-          !workspaceString(value['runtimeNodeId']))
-      )
-        return undefined
+      if (detail === undefined ||
+        (value['runtimeNodeId'] !== undefined && !workspaceString(value['runtimeNodeId']))) return undefined
       return {
-        kind: 'error',
-        execution,
-        timestamp,
-        detail,
-        ...(value['runtimeNodeId'] === undefined
-          ? {}
-          : { runtimeNodeId: value['runtimeNodeId'] as string }),
+        kind: 'error', execution, timestamp, detail,
+        ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
       }
     }
     default:
@@ -947,91 +698,39 @@ const sharedBackendClientId = (): string => {
   }
 }
 
-const REGION_DEFINITIONS: Readonly<
-  Record<RegionKind, FreshDefinitionInitializer>
-> = {
+const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer>> = {
   map: {
     nodes: { n0: { id: 'n0' as never, type: 'dinkster.float', values: {} } },
-    links: {},
-    nets: {},
-    reroutes: {},
+    links: {}, nets: {}, reroutes: {},
     boundary: {
-      inputs: [
-        {
-          id: 'item' as never,
-          displayName: 'Item',
-          binds: { kind: 'port', node: 'n0' as never, port: 'value' as never },
-        },
-      ],
-      outputs: [
-        {
-          id: 'result' as never,
-          displayName: 'Result',
-          binds: { kind: 'port', node: 'n0' as never, port: 'value' as never },
-        },
-      ],
+      inputs: [{ id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
+      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
     },
     nextOrdinal: 1,
   },
   fold: {
     nodes: { n0: { id: 'n0' as never, type: 'std.math.add_ints', values: {} } },
-    links: {},
-    nets: {},
-    reroutes: {},
+    links: {}, nets: {}, reroutes: {},
     boundary: {
       inputs: [
-        {
-          id: 'item' as never,
-          displayName: 'Item',
-          binds: { kind: 'port', node: 'n0' as never, port: 'a' as never },
-        },
-        {
-          id: 'state' as never,
-          displayName: 'State',
-          binds: { kind: 'port', node: 'n0' as never, port: 'b' as never },
-        },
+        { id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'a' as never } },
+        { id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'b' as never } },
       ],
-      outputs: [
-        {
-          id: 'result' as never,
-          displayName: 'Result',
-          binds: { kind: 'port', node: 'n0' as never, port: 'sum' as never },
-        },
-      ],
+      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'sum' as never } }],
     },
     nextOrdinal: 1,
   },
   while: {
     nodes: {
       n0: { id: 'n0' as never, type: 'dinkster.float', values: {} },
-      n1: {
-        id: 'n1' as never,
-        type: 'dinkster.boolean',
-        values: { value: true },
-      },
+      n1: { id: 'n1' as never, type: 'dinkster.boolean', values: { value: true } },
     },
-    links: {},
-    nets: {},
-    reroutes: {},
+    links: {}, nets: {}, reroutes: {},
     boundary: {
-      inputs: [
-        {
-          id: 'state' as never,
-          displayName: 'State',
-          binds: { kind: 'port', node: 'n0' as never, port: 'value' as never },
-        },
-      ],
+      inputs: [{ id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
       outputs: [
-        {
-          id: 'result' as never,
-          displayName: 'Result',
-          binds: { kind: 'port', node: 'n0' as never, port: 'value' as never },
-        },
-        {
-          id: 'continue' as never,
-          displayName: 'Continue',
-          binds: { kind: 'port', node: 'n1' as never, port: 'value' as never },
-        },
+        { id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } },
+        { id: 'continue' as never, displayName: 'Continue', binds: { kind: 'port', node: 'n1' as never, port: 'value' as never } },
       ],
     },
     nextOrdinal: 2,
@@ -1041,42 +740,25 @@ const REGION_DEFINITIONS: Readonly<
 const REGION_VIEWS = {
   map: { nodes: { n0: { position: { x: 80, y: 80 } } } },
   fold: { nodes: { n0: { position: { x: 80, y: 80 } } } },
-  while: {
-    nodes: {
-      n0: { position: { x: 80, y: 80 } },
-      n1: { position: { x: 320, y: 80 } },
-    },
-  },
+  while: { nodes: { n0: { position: { x: 80, y: 80 } }, n1: { position: { x: 320, y: 80 } } } },
 } as const
 
-const regionContract = (kind: RegionKind) =>
-  kind === 'map'
-    ? { kind, elementPorts: ['item'] as readonly string[] }
-    : kind === 'fold'
-      ? {
-          kind,
-          elementPorts: ['item'] as readonly string[],
-          statePorts: ['state'] as readonly string[],
-          outputRoles: {
-            result: { kind: 'state' as const, statePort: 'state' },
-          },
-        }
-      : {
-          kind,
-          statePorts: ['state'] as readonly string[],
-          outputRoles: {
-            result: { kind: 'state' as const, statePort: 'state' },
-          },
-          continueOutput: 'continue',
-          maxIterations: 100,
-        }
+const regionContract = (kind: RegionKind) => kind === 'map'
+  ? { kind, elementPorts: ['item'] as readonly string[] }
+  : kind === 'fold'
+    ? {
+        kind, elementPorts: ['item'] as readonly string[], statePorts: ['state'] as readonly string[],
+        outputRoles: { result: { kind: 'state' as const, statePort: 'state' } },
+      }
+    : {
+        kind, statePorts: ['state'] as readonly string[],
+        outputRoles: { result: { kind: 'state' as const, statePort: 'state' } },
+        continueOutput: 'continue', maxIterations: 100,
+      }
 
-const regionValues = (kind: RegionKind): JsonObject =>
-  kind === 'map'
-    ? { item: [] }
-    : kind === 'fold'
-      ? { item: [], state: 0 }
-      : { state: 0 }
+const regionValues = (kind: RegionKind): JsonObject => kind === 'map'
+  ? { item: [] }
+  : kind === 'fold' ? { item: [], state: 0 } : { state: 0 }
 
 /** Reserved single-user library scope (backend contract: explicit, never absent). */
 export const LIBRARY_SCOPE = 'local'
@@ -1099,15 +781,9 @@ export function workflowExportFilename(title: string): string {
   return `${stem || 'workflow'}.json`
 }
 
-export type {
-  AssetConsentRequest,
-  ImportAssetReference,
-  ImportAssetResolutionRequest,
-} from './dialog-requests.js'
+export type { AssetConsentRequest, ImportAssetReference, ImportAssetResolutionRequest } from './dialog-requests.js'
 
-function legacyAssetDigestHints(
-  json: unknown,
-): readonly ImportAssetDigestHint[] {
+function legacyAssetDigestHints(json: unknown): readonly ImportAssetDigestHint[] {
   if (typeof json !== 'object' || json === null) return []
   const models = (json as Record<string, unknown>)['models']
   if (!Array.isArray(models)) return []
@@ -1115,18 +791,10 @@ function legacyAssetDigestHints(
   for (const model of models) {
     if (typeof model !== 'object' || model === null) continue
     const record = model as Record<string, unknown>
-    if (
-      typeof record['name'] !== 'string' ||
-      typeof record['hash_type'] !== 'string' ||
-      record['hash_type'].toLowerCase() !== 'blake3' ||
-      typeof record['hash'] !== 'string' ||
-      !/^[0-9a-f]{64}$/i.test(record['hash'])
-    )
-      continue
-    hints.push({
-      name: record['name'],
-      digest: `blake3:${record['hash'].toLowerCase()}`,
-    })
+    if (typeof record['name'] !== 'string' || typeof record['hash_type'] !== 'string' ||
+      record['hash_type'].toLowerCase() !== 'blake3' || typeof record['hash'] !== 'string' ||
+      !/^[0-9a-f]{64}$/i.test(record['hash'])) continue
+    hints.push({ name: record['name'], digest: `blake3:${record['hash'].toLowerCase()}` })
   }
   return hints
 }
@@ -1174,24 +842,12 @@ export interface AdvancementPlan {
   readonly generations: ReadonlyMap<string, number>
 }
 
-type AdvancementInputLocation = Pick<
-  AdvancementStep,
-  'graphId' | 'nodeId' | 'inputId'
->
+type AdvancementInputLocation = Pick<AdvancementStep, 'graphId' | 'nodeId' | 'inputId'>
 
 const advancementInputKey = (step: AdvancementInputLocation): string =>
-  JSON.stringify([
-    'graphs',
-    step.graphId,
-    'nodes',
-    step.nodeId,
-    'values',
-    step.inputId,
-  ])
+  JSON.stringify(['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
 
-const controllerSourceLocation = (
-  source: ControllerInputSource,
-): AdvancementInputLocation => ({
+const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation => ({
   graphId: source.graph,
   nodeId: source.occurrence.node,
   inputId: source.valueKey,
@@ -1200,44 +856,39 @@ const controllerSourceLocation = (
 const controllerInputKey = (
   runtimeId: string,
   terminal: ControllerInputSource,
-): string =>
-  JSON.stringify([
-    runtimeId,
-    terminal.graph,
-    terminal.occurrence.instancePath,
-    terminal.occurrence.node,
-    terminal.valueKey,
-  ])
+): string => JSON.stringify([
+  runtimeId,
+  terminal.graph,
+  terminal.occurrence.instancePath,
+  terminal.occurrence.node,
+  terminal.valueKey,
+])
 
 // Promoted widget defaults mirror live fallback values, which the value CAS checks separately.
-const controllerSemanticsKey = (input: ControllerInputProvenance): string =>
-  canonicalJson({
-    runtimeId: input.runtimeId,
-    terminal: input.terminal,
-    sources: input.sources,
-    ownerPriority: input.ownerPriority,
-    optional: input.optional,
-    driven: input.driven,
-    widget: {
-      widgetType: input.widget.widgetType,
-      options: input.widget.options,
-      controller: input.widget.controller,
-      controllerInitial: input.widget.controllerInitial,
-    },
-  })
+const controllerSemanticsKey = (input: ControllerInputProvenance): string => canonicalJson({
+  runtimeId: input.runtimeId,
+  terminal: input.terminal,
+  sources: input.sources,
+  ownerPriority: input.ownerPriority,
+  optional: input.optional,
+  driven: input.driven,
+  widget: {
+    widgetType: input.widget.widgetType,
+    options: input.widget.options,
+    controller: input.widget.controller,
+    controllerInitial: input.widget.controllerInitial,
+  },
+})
 
 interface ControllerMutationState {
   next: number
-  readonly inputs: Map<
-    string,
-    {
-      readonly graphId: string
-      readonly nodeId: string
-      readonly inputId: string
-      value: Json | undefined
-      generation: number
-    }
-  >
+  readonly inputs: Map<string, {
+    readonly graphId: string
+    readonly nodeId: string
+    readonly inputId: string
+    value: Json | undefined
+    generation: number
+  }>
 }
 
 export interface ComboRefreshStep {
@@ -1266,54 +917,24 @@ export function comboRefreshAdvancementPlan(
 ): ComboRefreshPlan | undefined {
   const document = session.doc
   const steps: ComboRefreshStep[] = []
-  for (const graph of Object.values(document.graphs))
-    for (const node of Object.values(graph.nodes)) {
-      const schema = registry.resolve(node.type)
-      if (!schema) continue
-      for (const input of schema.items) {
-        const widget = input.kind === 'input' ? input.widget : undefined
-        if (
-          widget?.widgetType !== 'COMBO' ||
-          widget.controller !== 'after_refresh' ||
-          widget.remote?.route !== route
-        )
-          continue
-        const mode =
-          node.controllers?.[input.id] ??
-          widget.controllerInitial ??
-          'randomize'
-        if (mode === 'fixed') continue
-        const linkDriven =
-          Object.values(graph.links).some(
-            (link) =>
-              'port' in link.to &&
-              link.to.node === node.id &&
-              link.to.port === input.id,
-          ) ||
-          Object.values(graph.nets).some((net) =>
-            net.sinks.some(
-              (sink) => sink.node === node.id && sink.port === input.id,
-            ),
-          )
-        if (linkDriven) continue
-        const expected = node.values[input.id]
-        const effective = expected ?? effectiveWidgetDefault(widget)
-        if (typeof effective !== 'string' && typeof effective !== 'number')
-          continue
-        steps.push({
-          graphId: graph.id,
-          nodeId: node.id,
-          nodeType: node.type,
-          inputId: input.id,
-          expected,
-          current: String(effective),
-          mode,
-        })
-      }
+  for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+    const schema = registry.resolve(node.type)
+    if (!schema) continue
+    for (const input of schema.items) {
+      const widget = input.kind === 'input' ? input.widget : undefined
+      if (widget?.widgetType !== 'COMBO' || widget.controller !== 'after_refresh' || widget.remote?.route !== route) continue
+      const mode = node.controllers?.[input.id] ?? widget.controllerInitial ?? 'randomize'
+      if (mode === 'fixed') continue
+      const linkDriven = Object.values(graph.links).some((link) => 'port' in link.to && link.to.node === node.id && link.to.port === input.id)
+        || Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === node.id && sink.port === input.id))
+      if (linkDriven) continue
+      const expected = node.values[input.id]
+      const effective = expected ?? effectiveWidgetDefault(widget)
+      if (typeof effective !== 'string' && typeof effective !== 'number') continue
+      steps.push({ graphId: graph.id, nodeId: node.id, nodeType: node.type, inputId: input.id, expected, current: String(effective), mode })
     }
-  return steps.length > 0
-    ? { session, backend, registry, route, steps }
-    : undefined
+  }
+  return steps.length > 0 ? { session, backend, registry, route, steps } : undefined
 }
 
 export function comboRefreshAdvancement(
@@ -1327,70 +948,25 @@ export function comboRefreshAdvancement(
   const invocations: CommandInvocation[] = []
   for (const step of plan.steps) {
     const node = document.graphs[step.graphId]?.nodes[step.nodeId]
-    if (
-      !node ||
-      node.type !== step.nodeType ||
-      node.values[step.inputId] !== step.expected
-    )
-      continue
+    if (!node || node.type !== step.nodeType || node.values[step.inputId] !== step.expected) continue
     const graph = document.graphs[step.graphId]!
-    const linkDriven =
-      Object.values(graph.links).some(
-        (link) =>
-          'port' in link.to &&
-          link.to.node === node.id &&
-          link.to.port === step.inputId,
-      ) ||
-      Object.values(graph.nets).some((net) =>
-        net.sinks.some(
-          (sink) => sink.node === node.id && sink.port === step.inputId,
-        ),
-      )
+    const linkDriven = Object.values(graph.links).some((link) => 'port' in link.to && link.to.node === node.id && link.to.port === step.inputId)
+      || Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === node.id && sink.port === step.inputId))
     if (linkDriven) continue
-    const input = resolve(node.type)?.items.find(
-      (item) => item.kind === 'input' && item.id === step.inputId,
-    )
+    const input = resolve(node.type)?.items.find((item) => item.kind === 'input' && item.id === step.inputId)
     const widget = input?.kind === 'input' ? input.widget : undefined
-    if (
-      widget?.widgetType !== 'COMBO' ||
-      widget.controller !== 'after_refresh' ||
-      widget.remote?.route !== plan.route
-    )
-      continue
-    const mode =
-      node.controllers?.[step.inputId] ??
-      widget.controllerInitial ??
-      'randomize'
+    if (widget?.widgetType !== 'COMBO' || widget.controller !== 'after_refresh' || widget.remote?.route !== plan.route) continue
+    const mode = node.controllers?.[step.inputId] ?? widget.controllerInitial ?? 'randomize'
     if (mode !== step.mode) continue
     const index = options.indexOf(step.current)
-    const next =
-      mode === 'increment'
-        ? options[index < 0 ? 0 : (index + 1) % options.length]!
-        : mode === 'decrement'
-          ? options[
-              index < 0
-                ? options.length - 1
-                : (index + options.length - 1) % options.length
-            ]!
-          : options[
-              Math.min(
-                options.length - 1,
-                Math.max(0, Math.floor(random() * options.length)),
-              )
-            ]!
-    invocations.push({
-      command: 'node.setValue',
-      params: {
-        graphId: step.graphId,
-        nodeId: step.nodeId,
-        inputId: step.inputId,
-        value: next,
-      },
-    })
+    const next = mode === 'increment'
+      ? options[index < 0 ? 0 : (index + 1) % options.length]!
+      : mode === 'decrement'
+        ? options[index < 0 ? options.length - 1 : (index + options.length - 1) % options.length]!
+        : options[Math.min(options.length - 1, Math.max(0, Math.floor(random() * options.length)))]!
+    invocations.push({ command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: next } })
   }
-  return invocations.length > 0
-    ? { command: 'batch', params: { invocations } as unknown as Json }
-    : undefined
+  return invocations.length > 0 ? { command: 'batch', params: { invocations } as unknown as Json } : undefined
 }
 
 function effectiveControllerState(
@@ -1435,16 +1011,12 @@ export function controllerAdvancement(
 }
 
 /** The batch invocation for a set of advancement steps ([] -> undefined). */
-export function advancementInvocation(
-  steps: readonly AdvancementStep[],
-): CommandInvocation | undefined {
+export function advancementInvocation(steps: readonly AdvancementStep[]): CommandInvocation | undefined {
   const invocations = steps.map(({ graphId, nodeId, inputId, value }) => ({
     command: 'node.setValue',
     params: { graphId, nodeId, inputId, value },
   }))
-  return invocations.length > 0
-    ? { command: 'batch', params: { invocations } as unknown as Json }
-    : undefined
+  return invocations.length > 0 ? { command: 'batch', params: { invocations } as unknown as Json } : undefined
 }
 
 /**
@@ -1458,21 +1030,14 @@ export function controllerAdvancementPlan(
   random: () => number = Math.random,
 ): readonly AdvancementStep[] {
   const steps: AdvancementStep[] = []
-  const controllersByOwner = new Map<
-    string,
-    {
-      readonly owner: ControllerInputSource
-      readonly controllers: ControllerInputProvenance[]
-    }
-  >()
+  const controllersByOwner = new Map<string, {
+    readonly owner: ControllerInputSource
+    readonly controllers: ControllerInputProvenance[]
+  }>()
   for (const input of artifact.provenance.controllerInputs ?? []) {
     if (input.sources.length === 0) continue
     const owner = input.sources[0]!
-    const ownerKey = advancementInputKey({
-      graphId: owner.graph,
-      nodeId: owner.occurrence.node,
-      inputId: owner.valueKey,
-    })
+    const ownerKey = advancementInputKey({ graphId: owner.graph, nodeId: owner.occurrence.node, inputId: owner.valueKey })
     let group = controllersByOwner.get(ownerKey)
     if (group === undefined) {
       group = { owner, controllers: [] }
@@ -1486,62 +1051,32 @@ export function controllerAdvancementPlan(
     if (input === undefined) continue
     const node = document.graphs[owner.graph]?.nodes[owner.occurrence.node]
     if (!node) continue
-    const state = effectiveControllerState(
-      document,
-      input.sources,
-      input.widget,
-      input.optional,
-    )
+    const state = effectiveControllerState(document, input.sources, input.widget, input.optional)
     if (state.current === undefined || state.mode === 'fixed') continue
     let value: Json
     if (input.widget.widgetType === 'COMBO') {
       const options = input.widget.options['options']
-      if (
-        !Array.isArray(options) ||
-        !options.every((option) => typeof option === 'string') ||
-        options.length === 0 ||
-        typeof state.current !== 'string'
-      )
-        continue
+      if (!Array.isArray(options) || !options.every((option) => typeof option === 'string') || options.length === 0 || typeof state.current !== 'string') continue
       const index = options.indexOf(state.current)
-      value =
-        state.mode === 'increment'
-          ? options[index < 0 ? 0 : (index + 1) % options.length]!
-          : state.mode === 'decrement'
-            ? options[
-                index < 0
-                  ? options.length - 1
-                  : (index + options.length - 1) % options.length
-              ]!
-            : options[
-                Math.min(
-                  options.length - 1,
-                  Math.max(0, Math.floor(random() * options.length)),
-                )
-              ]!
+      value = state.mode === 'increment'
+        ? options[index < 0 ? 0 : (index + 1) % options.length]!
+        : state.mode === 'decrement'
+          ? options[index < 0 ? options.length - 1 : (index + options.length - 1) % options.length]!
+          : options[Math.min(options.length - 1, Math.max(0, Math.floor(random() * options.length)))]!
     } else {
       const current = state.current
-      if (
-        typeof current !== 'number' &&
-        (input.widget.widgetType !== 'INT' || !isIntegerWidgetValue(current))
-      )
-        continue
+      if (typeof current !== 'number' &&
+        (input.widget.widgetType !== 'INT' || !isIntegerWidgetValue(current))) continue
       const constraints = numericStepConstraints(input.widget)
-      value =
-        state.mode === 'increment'
-          ? stepNumericValue(current, 1, constraints)
-          : state.mode === 'decrement'
-            ? stepNumericValue(current, -1, constraints)
-            : randomNumericValue(constraints, random)
+      value = state.mode === 'increment'
+        ? stepNumericValue(current, 1, constraints)
+        : state.mode === 'decrement'
+          ? stepNumericValue(current, -1, constraints)
+          : randomNumericValue(constraints, random)
     }
     const valueSources = new Map<string, ControllerInputSource>()
     for (const controller of controllers) {
-      const candidateState = effectiveControllerState(
-        document,
-        controller.sources,
-        controller.widget,
-        controller.optional,
-      )
+      const candidateState = effectiveControllerState(document, controller.sources, controller.widget, controller.optional)
       for (const source of candidateState.valueSources) {
         const location = controllerSourceLocation(source)
         valueSources.set(advancementInputKey(location), source)
@@ -1568,14 +1103,8 @@ export function controllerAdvancementPlan(
  * option string; these are the ONLY strings normalizeLegacyBooleans rewrites.
  */
 const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
-  ['enable', true],
-  ['on', true],
-  ['true', true],
-  ['yes', true],
-  ['disable', false],
-  ['off', false],
-  ['false', false],
-  ['no', false],
+  ['enable', true], ['on', true], ['true', true], ['yes', true],
+  ['disable', false], ['off', false], ['false', false], ['no', false],
 ])
 
 /**
@@ -1589,10 +1118,7 @@ const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
  */
 export interface CanvasBridge {
   readonly selectedNodes: () => readonly string[]
-  readonly groupMembers: (
-    graphId: string,
-    groupId: string,
-  ) => readonly string[] | undefined
+  readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
   /** App-level actions live here so commands do not reach into renderer internals. */
   readonly deleteSelection: () => void
   readonly selectAll: () => void
@@ -1605,10 +1131,7 @@ export interface CanvasBridge {
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
   readonly createEmptySubgraph?: (position?: Vec2) => boolean
-  readonly createRegion?: (
-    kind: 'map' | 'fold' | 'while',
-    position?: Vec2,
-  ) => boolean
+  readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean
   /** Opens the naming prompt after snapshotting selection and group contents. */
   readonly extractSubgraph?: () => boolean
   /** Flattens the sole selected subgraph occurrence by one level. */
@@ -1630,11 +1153,7 @@ export interface CanvasSelectionSnapshot {
   readonly groups: readonly string[]
 }
 
-export const EMPTY_CANVAS_SELECTION: CanvasSelectionSnapshot = {
-  nodes: [],
-  links: [],
-  groups: [],
-}
+export const EMPTY_CANVAS_SELECTION: CanvasSelectionSnapshot = { nodes: [], links: [], groups: [] }
 
 /** The open widget editor as focus facts (see widgetFocus). */
 export interface WidgetFocus {
@@ -1656,19 +1175,12 @@ export interface DiagnosticFocusRequest {
 export type NodeMode = 'active' | 'muted' | 'bypassed'
 
 /** Toggle a mode for a whole selection: only an all-target selection turns off. */
-export function toggledSelectionMode(
-  modes: readonly NodeMode[],
-  target: Exclude<NodeMode, 'active'>,
-): NodeMode {
-  return modes.length > 0 && modes.every((mode) => mode === target)
-    ? 'active'
-    : target
+export function toggledSelectionMode(modes: readonly NodeMode[], target: Exclude<NodeMode, 'active'>): NodeMode {
+  return modes.length > 0 && modes.every((mode) => mode === target) ? 'active' : target
 }
 
 /** Minimize a mixed selection; restore only when every node is minimized. */
-export function toggledSelectionCollapsed(
-  collapsed: readonly boolean[],
-): boolean {
+export function toggledSelectionCollapsed(collapsed: readonly boolean[]): boolean {
   return collapsed.some((value) => !value)
 }
 
@@ -1789,35 +1301,22 @@ export interface CompositorEditorTarget {
 
 export const isCompositorEditorTarget = (
   target: ImageEditorTarget | CompositorEditorTarget,
-): target is CompositorEditorTarget =>
-  'mode' in target && target.mode === 'compositor'
+): target is CompositorEditorTarget => 'mode' in target && target.mode === 'compositor'
 
-export const isMaskPaintEditorTarget = (target: ImageEditorTarget): boolean =>
-  target.maskPaint !== undefined
+export const isMaskPaintEditorTarget = (target: ImageEditorTarget): boolean => target.maskPaint !== undefined
 
 const sameAssetRef = (left: AssetRef, right: AssetRef): boolean =>
-  left.digest === right.digest &&
-  left.name === right.name &&
-  left.size === right.size &&
-  left.mediaType === right.mediaType &&
-  left.virtualPath === right.virtualPath
+  left.digest === right.digest && left.name === right.name && left.size === right.size &&
+  left.mediaType === right.mediaType && left.virtualPath === right.virtualPath
 
-const schemaPortType = (
-  schema: NodeSchema | undefined,
-  kind: 'input' | 'output',
-  id: string,
-): string | undefined => {
+const schemaPortType = (schema: NodeSchema | undefined, kind: 'input' | 'output', id: string): string | undefined => {
   if (!schema) return undefined
-  const item = (kind === 'input' ? inputsOf(schema) : outputsOf(schema)).find(
-    (candidate) => candidate.id === id,
-  )
+  const item = (kind === 'input' ? inputsOf(schema) : outputsOf(schema)).find((candidate) => candidate.id === id)
   return item ? canonicalTypeIdOf(item.type) : undefined
 }
 
 const isSessionOnlyEditorKind = (kind: string): boolean =>
-  kind === IMAGE_EDITOR_KIND ||
-  kind === CURVE_EDITOR_KIND ||
-  kind === GLSL_EDITOR_KIND
+  kind === IMAGE_EDITOR_KIND || kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
 
 /** A tab's live shared-session membership (session-only; never persisted). */
 export interface CollabTabState {
@@ -1843,15 +1342,7 @@ function emptyWorkflowJson(): JsonObject {
     lineage,
     root,
     graphs: {
-      [root]: {
-        id: root,
-        name: 'root',
-        nodes: {},
-        links: {},
-        nets: {},
-        reroutes: {},
-        nextOrdinal: 1,
-      },
+      [root]: { id: root, name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 },
     },
     view: { graphs: { [root]: { nodes: {} } } },
   }
@@ -1879,10 +1370,7 @@ export type ProblemOwner = string | symbol
 export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
-  a.owner === b.owner &&
-  a.origin === b.origin &&
-  a.code === b.code &&
-  a.message === b.message
+  a.owner === b.owner && a.origin === b.origin && a.code === b.code && a.message === b.message
 
 /**
  * Report-ingress dedupe only: gesture refusals repeat the identical
@@ -1891,15 +1379,11 @@ const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
  * identical tuples there can carry distinct anchors that each need their
  * own activatable entry.
  */
-const dedupedReportDiagnostics = (
-  owner: ProblemOwner,
-  diagnostics: readonly Diagnostic[],
-): readonly OwnedDiagnostic[] => {
+const dedupedReportDiagnostics = (owner: ProblemOwner, diagnostics: readonly Diagnostic[]): readonly OwnedDiagnostic[] => {
   const entries: OwnedDiagnostic[] = []
   for (const diagnostic of diagnostics) {
     const entry: OwnedDiagnostic = { ...diagnostic, owner }
-    if (!entries.some((candidate) => sameProblemIdentity(candidate, entry)))
-      entries.push(entry)
+    if (!entries.some((candidate) => sameProblemIdentity(candidate, entry))) entries.push(entry)
   }
   return entries
 }
@@ -1922,9 +1406,7 @@ export const currentGraphId = (tab: Tab): string =>
   tab.graphStack.get()[tab.graphStack.get().length - 1] ?? tab.store.doc.root
 
 /** Subgraph definition the tab currently edits, if the Boundary panel applies. */
-export const editedSubgraphDefinition = (
-  tab: Tab | undefined,
-): GraphDef | undefined => {
+export const editedSubgraphDefinition = (tab: Tab | undefined): GraphDef | undefined => {
   if (!tab) return undefined
   const definition = tab.store.doc.graphs[currentGraphId(tab)]
   return definition?.boundary ? definition : undefined
@@ -1956,30 +1438,19 @@ export function reconcileGraphNavigation(tab: Tab): void {
   while (validHops < path.length && validHops + 1 < stack.length) {
     const node = tab.store.doc.graphs[graphId]?.nodes[path[validHops]!]
     const next = stack[validHops + 1]
-    if (
-      next === undefined ||
-      !occurrenceReferencesDefinition(node, next) ||
-      !tab.store.doc.graphs[next]
-    )
-      break
+    if (next === undefined || !occurrenceReferencesDefinition(node, next) || !tab.store.doc.graphs[next]) break
     graphId = next
     validHops += 1
   }
-  if (
-    stack[0] !== root ||
-    validHops !== path.length ||
-    stack.length !== path.length + 1
-  ) {
+  if (stack[0] !== root || validHops !== path.length || stack.length !== path.length + 1) {
     tab.instancePath.set(path.slice(0, validHops))
     tab.graphStack.set([root, ...stack.slice(1, validHops + 1)])
   }
 }
 
 /** The exact occurrence-hop predicate shared by navigation and occurrence-scoped panels. */
-export const occurrenceReferencesDefinition = (
-  node: NodeData | undefined,
-  definitionId: string,
-): boolean => node !== undefined && subgraphDefIdOf(node.type) === definitionId
+export const occurrenceReferencesDefinition = (node: NodeData | undefined, definitionId: string): boolean =>
+  node !== undefined && subgraphDefIdOf(node.type) === definitionId
 
 /**
  * Jump to a saved navigation context (camera bookmarks): replace BOTH
@@ -1987,11 +1458,7 @@ export const occurrenceReferencesDefinition = (
  * contract as pushGraph. Callers own validating the context against the
  * current document; this only performs the swap.
  */
-export function restoreNavigation(
-  tab: Tab,
-  graphStack: readonly string[],
-  instancePath: readonly string[],
-): void {
+export function restoreNavigation(tab: Tab, graphStack: readonly string[], instancePath: readonly string[]): void {
   tab.instancePath.set(instancePath)
   tab.graphStack.set(graphStack)
 }
@@ -2025,11 +1492,9 @@ export function diagnosticFocusPlan(
   anchor: DiagnosticAnchor | undefined,
   portInstancePath: readonly string[] = [],
 ): DiagnosticFocusPlan | undefined {
-  const occurrence =
-    anchor?.occurrence ??
-    (anchor?.port
-      ? { instancePath: portInstancePath.map(asNodeId), node: anchor.port.node }
-      : undefined)
+  const occurrence = anchor?.occurrence ?? (anchor?.port
+    ? { instancePath: portInstancePath.map(asNodeId), node: anchor.port.node }
+    : undefined)
   if (!occurrence) return undefined
   const resolved = resolveNodeOccurrence(doc, occurrence)
   return resolved === undefined
@@ -2047,16 +1512,12 @@ export function diagnosticFocusTarget(
   activeTabId: string,
   diagnostic: Diagnostic | OwnedDiagnostic,
 ): { readonly tab: Tab; readonly plan: DiagnosticFocusPlan } | undefined {
-  const owner =
-    'owner' in diagnostic && typeof diagnostic.owner === 'string'
-      ? diagnostic.owner
-      : activeTabId
+  const owner = 'owner' in diagnostic && typeof diagnostic.owner === 'string'
+    ? diagnostic.owner
+    : activeTabId
   const tab = tabs.find((candidate) => candidate.id === owner)
   const path = tab ? viewInstancePath(tab) : undefined
-  const plan =
-    tab && path !== undefined
-      ? diagnosticFocusPlan(tab.store.doc, diagnostic.anchor, path)
-      : undefined
+  const plan = tab && path !== undefined ? diagnosticFocusPlan(tab.store.doc, diagnostic.anchor, path) : undefined
   return tab && plan ? { tab, plan } : undefined
 }
 
@@ -2112,152 +1573,85 @@ const WORKSPACE_PERSISTENCE_LOCK = 'dinkster.openTabs.commit'
 // during bootstrap (before AppState construction) is what gets applied. The
 // default project resolves to the unprefixed names above.
 const tabsKey = (): string => scopedStorageKey(TABS_KEY)
-const tabsCandidatePrefix = (): string =>
-  scopedStorageKey(TABS_CANDIDATE_PREFIX)
-const documentCandidatePrefix = (): string =>
-  scopedStorageKey(DOCUMENT_CANDIDATE_PREFIX)
-const workspaceOperationPrefix = (): string =>
-  scopedStorageKey(WORKSPACE_OPERATION_PREFIX)
-const workspacePersistenceLock = (): string =>
-  scopedSharedName(WORKSPACE_PERSISTENCE_LOCK)
+const tabsCandidatePrefix = (): string => scopedStorageKey(TABS_CANDIDATE_PREFIX)
+const documentCandidatePrefix = (): string => scopedStorageKey(DOCUMENT_CANDIDATE_PREFIX)
+const workspaceOperationPrefix = (): string => scopedStorageKey(WORKSPACE_OPERATION_PREFIX)
+const workspacePersistenceLock = (): string => scopedSharedName(WORKSPACE_PERSISTENCE_LOCK)
 
-const LEGACY_TAB_VIEW_UPDATE: TabViewUpdate = {
-  updatedAt: 0,
-  sequence: 0,
-  actorId: '',
-}
+const LEGACY_TAB_VIEW_UPDATE: TabViewUpdate = { updatedAt: 0, sequence: 0, actorId: '' }
 
 function parseTabViewUpdate(value: unknown): TabViewUpdate | undefined {
-  if (value === null || typeof value !== 'object' || Array.isArray(value))
-    return undefined
-  const raw = value as {
-    updatedAt?: unknown
-    sequence?: unknown
-    actorId?: unknown
-  }
-  return Number.isSafeInteger(raw.updatedAt) &&
-    (raw.updatedAt as number) >= 0 &&
-    Number.isSafeInteger(raw.sequence) &&
-    (raw.sequence as number) >= 0 &&
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const raw = value as { updatedAt?: unknown; sequence?: unknown; actorId?: unknown }
+  return Number.isSafeInteger(raw.updatedAt) && (raw.updatedAt as number) >= 0 &&
+    Number.isSafeInteger(raw.sequence) && (raw.sequence as number) >= 0 &&
     typeof raw.actorId === 'string'
-    ? {
-        updatedAt: raw.updatedAt as number,
-        sequence: raw.sequence as number,
-        actorId: raw.actorId,
-      }
+    ? { updatedAt: raw.updatedAt as number, sequence: raw.sequence as number, actorId: raw.actorId }
     : undefined
 }
 
 function parseTabViewState(value: unknown): TabViewState | undefined {
-  if (value === null || typeof value !== 'object' || Array.isArray(value))
-    return undefined
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   const raw = value as {
     graphViewports?: unknown
     appScroll?: unknown
     appScrollTop?: unknown
     appScrollUpdate?: unknown
   }
-  const graphViewports =
-    raw.graphViewports !== null &&
-    typeof raw.graphViewports === 'object' &&
-    !Array.isArray(raw.graphViewports)
-      ? Object.fromEntries(
-          Object.entries(raw.graphViewports).flatMap(([graphId, candidate]) => {
-            if (
-              graphId.length === 0 ||
-              candidate === null ||
-              typeof candidate !== 'object' ||
-              Array.isArray(candidate)
-            )
-              return []
-            const viewport = candidate as {
-              x?: unknown
-              y?: unknown
-              scale?: unknown
-              update?: unknown
-            }
-            return Number.isFinite(viewport.x) &&
-              Number.isFinite(viewport.y) &&
-              Number.isFinite(viewport.scale) &&
-              (viewport.scale as number) >= MIN_SCALE &&
-              (viewport.scale as number) <= MAX_SCALE
-              ? [
-                  [
-                    graphId,
-                    {
-                      x: viewport.x as number,
-                      y: viewport.y as number,
-                      scale: viewport.scale as number,
-                      update:
-                        parseTabViewUpdate(viewport.update) ??
-                        LEGACY_TAB_VIEW_UPDATE,
-                    },
-                  ],
-                ]
-              : []
-          }),
-        )
-      : {}
-  const rawAppScroll =
-    raw.appScroll !== null &&
-    typeof raw.appScroll === 'object' &&
-    !Array.isArray(raw.appScroll)
-      ? (raw.appScroll as { scrollTop?: unknown; update?: unknown })
-      : undefined
+  const graphViewports = raw.graphViewports !== null && typeof raw.graphViewports === 'object' && !Array.isArray(raw.graphViewports)
+    ? Object.fromEntries(Object.entries(raw.graphViewports).flatMap(([graphId, candidate]) => {
+        if (graphId.length === 0 || candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) return []
+        const viewport = candidate as { x?: unknown; y?: unknown; scale?: unknown; update?: unknown }
+        return Number.isFinite(viewport.x) && Number.isFinite(viewport.y) &&
+          Number.isFinite(viewport.scale) && (viewport.scale as number) >= MIN_SCALE && (viewport.scale as number) <= MAX_SCALE
+          ? [[graphId, {
+              x: viewport.x as number,
+              y: viewport.y as number,
+              scale: viewport.scale as number,
+              update: parseTabViewUpdate(viewport.update) ?? LEGACY_TAB_VIEW_UPDATE,
+            }]]
+          : []
+      }))
+    : {}
+  const rawAppScroll = raw.appScroll !== null && typeof raw.appScroll === 'object' && !Array.isArray(raw.appScroll)
+    ? raw.appScroll as { scrollTop?: unknown; update?: unknown }
+    : undefined
   const rawAppScrollTop = rawAppScroll?.scrollTop ?? raw.appScrollTop
-  const validAppScrollTop =
-    Number.isFinite(rawAppScrollTop) && (rawAppScrollTop as number) >= 0
-  const appScrollTop = validAppScrollTop ? (rawAppScrollTop as number) : 0
+  const validAppScrollTop = Number.isFinite(rawAppScrollTop) && (rawAppScrollTop as number) >= 0
+  const appScrollTop = validAppScrollTop
+    ? rawAppScrollTop as number
+    : 0
   const appScrollUpdate = validAppScrollTop
-    ? (parseTabViewUpdate(rawAppScroll?.update) ??
-      parseTabViewUpdate(raw.appScrollUpdate) ??
-      (appScrollTop > 0 ? LEGACY_TAB_VIEW_UPDATE : undefined))
+    ? parseTabViewUpdate(rawAppScroll?.update) ?? parseTabViewUpdate(raw.appScrollUpdate) ??
+      (appScrollTop > 0 ? LEGACY_TAB_VIEW_UPDATE : undefined)
     : undefined
   return Object.keys(graphViewports).length > 0 || appScrollUpdate !== undefined
     ? {
         graphViewports,
-        ...(appScrollUpdate === undefined
-          ? {}
-          : {
-              appScroll: { scrollTop: appScrollTop, update: appScrollUpdate },
-            }),
+        ...(appScrollUpdate === undefined ? {} : { appScroll: { scrollTop: appScrollTop, update: appScrollUpdate } }),
       }
     : undefined
 }
 
-function compareTabViewUpdates(
-  left: TabViewUpdate,
-  right: TabViewUpdate,
-): number {
+function compareTabViewUpdates(left: TabViewUpdate, right: TabViewUpdate): number {
   // Time wins; sequence orders one window's same-tick writes and actor id breaks cross-window ties.
-  if (left.updatedAt !== right.updatedAt)
-    return left.updatedAt - right.updatedAt
+  if (left.updatedAt !== right.updatedAt) return left.updatedAt - right.updatedAt
   if (left.actorId === right.actorId) return left.sequence - right.sequence
   return left.actorId.localeCompare(right.actorId)
 }
 
-function mergeTabViewStates(
-  left: TabViewState | undefined,
-  right: TabViewState | undefined,
-): TabViewState | undefined {
+function mergeTabViewStates(left: TabViewState | undefined, right: TabViewState | undefined): TabViewState | undefined {
   if (left === undefined) return right
   if (right === undefined) return left
   const graphViewports = { ...left.graphViewports }
   for (const [graphId, viewport] of Object.entries(right.graphViewports)) {
     const current = graphViewports[graphId]
-    if (
-      current !== undefined &&
-      compareTabViewUpdates(viewport.update, current.update) < 0
-    )
-      continue
+    if (current !== undefined && compareTabViewUpdates(viewport.update, current.update) < 0) continue
     graphViewports[graphId] = viewport
   }
   let appScroll = left.appScroll
-  if (
-    right.appScroll !== undefined &&
-    (appScroll === undefined ||
-      compareTabViewUpdates(right.appScroll.update, appScroll.update) >= 0)
-  ) {
+  if (right.appScroll !== undefined &&
+    (appScroll === undefined || compareTabViewUpdates(right.appScroll.update, appScroll.update) >= 0)) {
     appScroll = right.appScroll
   }
   return {
@@ -2266,26 +1660,17 @@ function mergeTabViewStates(
   }
 }
 
-function tabViewStateForDocument(
-  state: TabViewState | undefined,
-  doc: unknown,
-): TabViewState | undefined {
+function tabViewStateForDocument(state: TabViewState | undefined, doc: unknown): TabViewState | undefined {
   if (state === undefined) return undefined
-  const graphs =
-    doc !== null && typeof doc === 'object' && !Array.isArray(doc)
-      ? (doc as { graphs?: unknown }).graphs
-      : undefined
-  const graphRecord =
-    graphs !== null && typeof graphs === 'object' && !Array.isArray(graphs)
-      ? (graphs as Readonly<Record<string, unknown>>)
-      : {}
-  const graphViewports = Object.fromEntries(
-    Object.entries(state.graphViewports).filter(([graphId]) =>
-      Object.prototype.hasOwnProperty.call(graphRecord, graphId),
-    ),
-  )
-  if (Object.keys(graphViewports).length === 0 && state.appScroll === undefined)
-    return undefined
+  const graphs = doc !== null && typeof doc === 'object' && !Array.isArray(doc)
+    ? (doc as { graphs?: unknown }).graphs
+    : undefined
+  const graphRecord = graphs !== null && typeof graphs === 'object' && !Array.isArray(graphs)
+    ? graphs as Readonly<Record<string, unknown>>
+    : {}
+  const graphViewports = Object.fromEntries(Object.entries(state.graphViewports)
+    .filter(([graphId]) => Object.prototype.hasOwnProperty.call(graphRecord, graphId)))
+  if (Object.keys(graphViewports).length === 0 && state.appScroll === undefined) return undefined
   return {
     graphViewports,
     ...(state.appScroll === undefined ? {} : { appScroll: state.appScroll }),
@@ -2327,70 +1712,37 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
     return {
       v: 1,
       active: typeof parsed.active === 'string' ? parsed.active : '',
-      ...(Number.isSafeInteger(parsed.workspaceRevision) &&
-      parsed.workspaceRevision! >= 0
+      ...(Number.isSafeInteger(parsed.workspaceRevision) && parsed.workspaceRevision! >= 0
         ? { workspaceRevision: parsed.workspaceRevision }
         : {}),
-      ...(parsed.documentCandidateStages !== null &&
-      typeof parsed.documentCandidateStages === 'object'
-        ? {
-            documentCandidateStages: Object.fromEntries(
-              Object.entries(parsed.documentCandidateStages).filter(
-                ([lineage, stageId]) =>
-                  lineage.length > 0 &&
-                  typeof stageId === 'string' &&
-                  stageId.length > 0,
-              ),
-            ),
-          }
+      ...(parsed.documentCandidateStages !== null && typeof parsed.documentCandidateStages === 'object'
+        ? { documentCandidateStages: Object.fromEntries(
+            Object.entries(parsed.documentCandidateStages).filter(([lineage, stageId]) =>
+              lineage.length > 0 && typeof stageId === 'string' && stageId.length > 0),
+          ) }
         : {}),
-      ...(parsed.workspaceOperationWatermarks !== null &&
-      typeof parsed.workspaceOperationWatermarks === 'object'
-        ? {
-            workspaceOperationWatermarks: Object.fromEntries(
-              Object.entries(parsed.workspaceOperationWatermarks).filter(
-                ([actorId, sequence]) =>
-                  actorId.length > 0 &&
-                  Number.isSafeInteger(sequence) &&
-                  sequence >= 0,
-              ),
-            ),
-          }
+      ...(parsed.workspaceOperationWatermarks !== null && typeof parsed.workspaceOperationWatermarks === 'object'
+        ? { workspaceOperationWatermarks: Object.fromEntries(
+            Object.entries(parsed.workspaceOperationWatermarks).filter(([actorId, sequence]) =>
+              actorId.length > 0 && Number.isSafeInteger(sequence) && sequence >= 0),
+          ) }
         : {}),
       tabs: parsed.tabs
         .filter(
-          (
-            t,
-          ): t is {
-            title: string
-            doc: unknown
-            documentRevision?: unknown
-            documentDirty?: unknown
-            stock?: unknown
-            editorKind?: unknown
-            viewState?: unknown
-          } =>
-            typeof t === 'object' &&
-            t !== null &&
-            typeof (t as { title?: unknown }).title === 'string',
+          (t): t is { title: string; doc: unknown; documentRevision?: unknown; documentDirty?: unknown; stock?: unknown; editorKind?: unknown; viewState?: unknown } =>
+            typeof t === 'object' && t !== null && typeof (t as { title?: unknown }).title === 'string',
         )
         .map((t) => {
           const viewState = parseTabViewState(t.viewState)
           return {
             title: t.title,
             doc: t.doc,
-            ...(typeof t.documentRevision === 'number' &&
-            Number.isSafeInteger(t.documentRevision) &&
-            t.documentRevision >= 0
+            ...(typeof t.documentRevision === 'number' && Number.isSafeInteger(t.documentRevision) && t.documentRevision >= 0
               ? { documentRevision: t.documentRevision }
               : {}),
-            ...(t.documentDirty === true
-              ? { documentDirty: true as const }
-              : {}),
+            ...(t.documentDirty === true ? { documentDirty: true as const } : {}),
             ...(t.stock === true ? { stock: true as const } : {}),
-            ...(typeof t.editorKind === 'string' &&
-            t.editorKind.length > 0 &&
-            !isSessionOnlyEditorKind(t.editorKind)
+            ...(typeof t.editorKind === 'string' && t.editorKind.length > 0 && !isSessionOnlyEditorKind(t.editorKind)
               ? { editorKind: t.editorKind }
               : {}),
             ...(viewState === undefined ? {} : { viewState }),
@@ -2402,9 +1754,7 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
   }
 }
 
-function persistedTabId(
-  tab: PersistedTabs['tabs'][number],
-): string | undefined {
+function persistedTabId(tab: PersistedTabs['tabs'][number]): string | undefined {
   if (typeof tab.doc !== 'object' || tab.doc === null) return undefined
   const lineage = (tab.doc as { lineage?: unknown }).lineage
   return typeof lineage === 'string' && lineage.length > 0 ? lineage : undefined
@@ -2424,23 +1774,13 @@ interface PersistedDocumentCandidate {
   readonly tab: PersistedTabs['tabs'][number]
 }
 
-function parsePersistedDocumentCandidate(
-  raw: string | null,
-): PersistedDocumentCandidate | undefined {
+function parsePersistedDocumentCandidate(raw: string | null): PersistedDocumentCandidate | undefined {
   try {
     if (!raw) return undefined
     const parsed = JSON.parse(raw) as Partial<PersistedDocumentCandidate>
-    if (
-      parsed.v !== 1 ||
-      typeof parsed.stageId !== 'string' ||
-      parsed.stageId.length === 0 ||
-      typeof parsed.tab !== 'object' ||
-      parsed.tab === null
-    )
-      return undefined
-    const tab = parsePersistedTabs(
-      JSON.stringify({ v: 1, active: '', tabs: [parsed.tab] }),
-    )?.tabs[0]
+    if (parsed.v !== 1 || typeof parsed.stageId !== 'string' || parsed.stageId.length === 0 ||
+      typeof parsed.tab !== 'object' || parsed.tab === null) return undefined
+    const tab = parsePersistedTabs(JSON.stringify({ v: 1, active: '', tabs: [parsed.tab] }))?.tabs[0]
     if (!tab) return undefined
     if (!persistedTabId(tab)) return undefined
     return { v: 1, stageId: parsed.stageId, tab }
@@ -2455,89 +1795,59 @@ function mergePersistedTabs(
 ): PersistedTabs | undefined {
   let workspace: PersistedTabs | undefined
   for (const state of states) {
-    if (
-      !workspace ||
-      (state.workspaceRevision ?? 0) >= (workspace.workspaceRevision ?? 0)
-    )
-      workspace = state
+    if (!workspace || (state.workspaceRevision ?? 0) >= (workspace.workspaceRevision ?? 0)) workspace = state
   }
   if (!workspace) return undefined
   const documents = new Map<string, PersistedTabs['tabs'][number]>()
   const viewStates = new Map<string, TabViewState>()
-  for (const state of states)
-    for (const tab of state.tabs) {
-      const id = persistedTabId(tab)
-      if (!id) continue
-      const mergedViewState = mergeTabViewStates(
-        viewStates.get(id),
-        tab.viewState,
-      )
-      if (mergedViewState !== undefined) viewStates.set(id, mergedViewState)
-      const current = documents.get(id)
-      if (!current) {
-        documents.set(
-          id,
-          committedPersistedTab(
-            tab,
-            (tab.documentRevision ?? 0) + (tab.documentDirty === true ? 1 : 0),
-          ),
-        )
-        continue
-      }
-      const incomingRevision = tab.documentRevision ?? 0
-      const currentRevision = current.documentRevision ?? 0
-      if (
-        tab.documentDirty === true &&
-        JSON.stringify(tab.doc) !== JSON.stringify(current.doc)
-      ) {
-        documents.set(id, committedPersistedTab(tab, currentRevision + 1))
-      } else if (incomingRevision > currentRevision) {
-        documents.set(id, committedPersistedTab(tab))
-      }
+  for (const state of states) for (const tab of state.tabs) {
+    const id = persistedTabId(tab)
+    if (!id) continue
+    const mergedViewState = mergeTabViewStates(viewStates.get(id), tab.viewState)
+    if (mergedViewState !== undefined) viewStates.set(id, mergedViewState)
+    const current = documents.get(id)
+    if (!current) {
+      documents.set(id, committedPersistedTab(
+        tab,
+        (tab.documentRevision ?? 0) + (tab.documentDirty === true ? 1 : 0),
+      ))
+      continue
     }
-  const documentCandidateStages = {
-    ...(states[0]?.documentCandidateStages ?? {}),
+    const incomingRevision = tab.documentRevision ?? 0
+    const currentRevision = current.documentRevision ?? 0
+    if (tab.documentDirty === true && JSON.stringify(tab.doc) !== JSON.stringify(current.doc)) {
+      documents.set(id, committedPersistedTab(tab, currentRevision + 1))
+    } else if (incomingRevision > currentRevision) {
+      documents.set(id, committedPersistedTab(tab))
+    }
   }
+  const documentCandidateStages = { ...(states[0]?.documentCandidateStages ?? {}) }
   for (const candidate of documentCandidates) {
     const id = persistedTabId(candidate.tab)
     if (!id || documentCandidateStages[id] === candidate.stageId) continue
     const current = documents.get(id)
     if (!current) continue
     if (JSON.stringify(candidate.tab.doc) !== JSON.stringify(current.doc)) {
-      documents.set(
-        id,
-        committedPersistedTab(
-          candidate.tab,
-          Math.max(
-            candidate.tab.documentRevision ?? 0,
-            current.documentRevision ?? 0,
-          ) + 1,
-        ),
-      )
+      documents.set(id, committedPersistedTab(
+        candidate.tab,
+        Math.max(candidate.tab.documentRevision ?? 0, current.documentRevision ?? 0) + 1,
+      ))
     }
     documentCandidateStages[id] = candidate.stageId
   }
   return {
     ...workspace,
-    ...(Object.keys(documentCandidateStages).length > 0
-      ? { documentCandidateStages }
-      : {}),
+    ...(Object.keys(documentCandidateStages).length > 0 ? { documentCandidateStages } : {}),
     tabs: workspace.tabs.map((tab) => {
       const id = persistedTabId(tab)
       const document = id ? documents.get(id) : undefined
-      const mergedTab = document
-        ? committedPersistedTab({
-            ...tab,
-            doc: document.doc,
-            ...(document.documentRevision === undefined
-              ? {}
-              : { documentRevision: document.documentRevision }),
-          })
-        : tab
+      const mergedTab = document ? committedPersistedTab({
+        ...tab,
+        doc: document.doc,
+        ...(document.documentRevision === undefined ? {} : { documentRevision: document.documentRevision }),
+      }) : tab
       const { viewState: _viewState, ...withoutViewState } = mergedTab
-      const viewState = id
-        ? tabViewStateForDocument(viewStates.get(id), mergedTab.doc)
-        : undefined
+      const viewState = id ? tabViewStateForDocument(viewStates.get(id), mergedTab.doc) : undefined
       return {
         ...withoutViewState,
         ...(viewState === undefined ? {} : { viewState }),
@@ -2563,11 +1873,7 @@ function loadPersistedTabStates(): {
       const key = storage.key(index)
       if (key?.startsWith(documentCandidatePrefix())) {
         const candidate = parsePersistedDocumentCandidate(storage.getItem(key))
-        if (
-          candidate &&
-          key ===
-            `${documentCandidatePrefix()}${encodeURIComponent(persistedTabId(candidate.tab)!)}`
-        ) {
+        if (candidate && key === `${documentCandidatePrefix()}${encodeURIComponent(persistedTabId(candidate.tab)!)}`) {
           documentCandidates.push(candidate)
         }
         continue
@@ -2592,10 +1898,7 @@ function loadPersistedTabs(): PersistedTabs | undefined {
 
 function persistWorkspaceOperation(mutation: WorkspaceTabMutation): void {
   try {
-    globalThis.localStorage?.setItem(
-      `${workspaceOperationPrefix()}${mutation.opId}`,
-      JSON.stringify(mutation),
-    )
+    globalThis.localStorage?.setItem(`${workspaceOperationPrefix()}${mutation.opId}`, JSON.stringify(mutation))
   } catch {
     // Storage unavailable/full: the live SharedWorker remains authoritative.
   }
@@ -2612,10 +1915,7 @@ function loadWorkspaceOperations(): readonly WorkspaceTabMutation[] {
       const raw = storage.getItem(key)
       if (!raw) continue
       const operation = JSON.parse(raw) as WorkspaceTabMutation
-      if (
-        typeof operation.opId === 'string' &&
-        key === `${workspaceOperationPrefix()}${operation.opId}`
-      ) {
+      if (typeof operation.opId === 'string' && key === `${workspaceOperationPrefix()}${operation.opId}`) {
         operations.push(operation)
       }
     }
@@ -2630,10 +1930,7 @@ export function orderWorkspaceOperations(
 ): readonly WorkspaceTabMutation[] {
   return [...operations].sort((left, right) => {
     if (left.actorId === right.actorId) return left.sequence - right.sequence
-    return (
-      left.baseRevision - right.baseRevision ||
-      left.actorId.localeCompare(right.actorId)
-    )
+    return left.baseRevision - right.baseRevision || left.actorId.localeCompare(right.actorId)
   })
 }
 
@@ -2658,35 +1955,22 @@ function commitPersistedTabs(
     for (const tab of state.tabs) {
       const id = persistedTabId(tab)
       if (!id || tab.documentDirty !== true) continue
-      const candidate: PersistedDocumentCandidate = {
-        v: 1,
-        stageId: randomWorkspaceId('stage'),
-        tab,
-      }
-      storage.setItem(
-        `${documentCandidatePrefix()}${encodeURIComponent(id)}`,
-        JSON.stringify(candidate),
-      )
+      const candidate: PersistedDocumentCandidate = { v: 1, stageId: randomWorkspaceId('stage'), tab }
+      storage.setItem(`${documentCandidatePrefix()}${encodeURIComponent(id)}`, JSON.stringify(candidate))
     }
     // pagehide cannot await Web Locks, so leave a synchronous workspace recovery source too.
-    storage.setItem(
-      `${tabsCandidatePrefix()}${actorId}`,
-      JSON.stringify({
-        ...state,
-        // Not a tacit callback: map would pass the index as documentRevision.
-        tabs: state.tabs.map((tab) => committedPersistedTab(tab)),
-      }),
-    )
+    storage.setItem(`${tabsCandidatePrefix()}${actorId}`, JSON.stringify({
+      ...state,
+      // Not a tacit callback: map would pass the index as documentRevision.
+      tabs: state.tabs.map((tab) => committedPersistedTab(tab)),
+    }))
   } catch {
     return
   }
   const commit = (): void => {
     try {
       const loaded = loadPersistedTabStates()
-      const merged = mergePersistedTabs(
-        loaded.states,
-        loaded.documentCandidates,
-      )
+      const merged = mergePersistedTabs(loaded.states, loaded.documentCandidates)
       if (!merged) return
       storage.setItem(tabsKey(), JSON.stringify(merged))
       const retired = acknowledged
@@ -2694,8 +1978,7 @@ function commitPersistedTabs(
         .map(({ opId }) => opId)
       for (const opId of retired) removeWorkspaceOperation(opId)
       for (const candidate of loaded.candidates) {
-        if (storage.getItem(candidate.key) === candidate.raw)
-          storage.removeItem(candidate.key)
+        if (storage.getItem(candidate.key) === candidate.raw) storage.removeItem(candidate.key)
       }
       onCommitted(retired, merged)
     } catch {
@@ -2704,9 +1987,7 @@ function commitPersistedTabs(
   }
   const locks = globalThis.navigator?.locks
   if (locks) {
-    void locks
-      .request(workspacePersistenceLock(), { mode: 'exclusive' }, commit)
-      .catch(() => undefined)
+    void locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, commit).catch(() => undefined)
   } else commit()
 }
 
@@ -2759,9 +2040,7 @@ interface PersistedBackends {
   readonly backends: readonly PersistedBackend[]
 }
 
-function decodePersistedBackends(
-  raw: string | null,
-): readonly PersistedBackend[] | undefined {
+function decodePersistedBackends(raw: string | null): readonly PersistedBackend[] | undefined {
   if (raw === null) return undefined
   try {
     const parsed = JSON.parse(raw) as Partial<PersistedBackends>
@@ -2811,22 +2090,12 @@ export function rebaseBackendLists(
   current: readonly PersistedBackend[],
   incoming: readonly PersistedBackend[],
 ): BackendListRebase {
-  const currentIds = new Set(
-    current.map((backend) => canonicalBackendUrl(backend.baseUrl)),
-  )
-  const incomingIds = new Set(
-    incoming.map((backend) => canonicalBackendUrl(backend.baseUrl)),
-  )
+  const currentIds = new Set(current.map((backend) => canonicalBackendUrl(backend.baseUrl)))
+  const incomingIds = new Set(incoming.map((backend) => canonicalBackendUrl(backend.baseUrl)))
   return {
-    adds: incoming.filter(
-      (backend) => !currentIds.has(canonicalBackendUrl(backend.baseUrl)),
-    ),
-    removes: current.filter(
-      (backend) => !incomingIds.has(canonicalBackendUrl(backend.baseUrl)),
-    ),
-    keeps: current.filter((backend) =>
-      incomingIds.has(canonicalBackendUrl(backend.baseUrl)),
-    ),
+    adds: incoming.filter((backend) => !currentIds.has(canonicalBackendUrl(backend.baseUrl))),
+    removes: current.filter((backend) => !incomingIds.has(canonicalBackendUrl(backend.baseUrl))),
+    keeps: current.filter((backend) => incomingIds.has(canonicalBackendUrl(backend.baseUrl))),
   }
 }
 
@@ -2898,9 +2167,7 @@ function loadPersistedCollabMemberships(): readonly PersistedCollabMembership[] 
   }
 }
 
-function savePersistedCollabMemberships(
-  sessions: readonly PersistedCollabMembership[],
-): void {
+function savePersistedCollabMemberships(sessions: readonly PersistedCollabMembership[]): void {
   try {
     globalThis.localStorage?.setItem(
       collabSessionsKey(),
@@ -2912,8 +2179,7 @@ function savePersistedCollabMemberships(
 }
 
 /** One membership identity: the same sessionId on two backends is two memberships. */
-const collabMembershipKey = (baseUrl: string, sessionId: string): string =>
-  `${baseUrl}\n${sessionId}`
+const collabMembershipKey = (baseUrl: string, sessionId: string): string => `${baseUrl}\n${sessionId}`
 
 /**
  * Rejoin refusal: the restored tab a rejoin would replace was closed (or
@@ -3007,14 +2273,8 @@ interface BackendBase {
  * types; narrowing is only needed for protocol-specific calls.
  */
 export type Backend =
-  | (BackendBase & {
-      readonly protocol: 'v1'
-      readonly connection: BackendConnection
-    })
-  | (BackendBase & {
-      readonly protocol: 'dinkster'
-      readonly connection: DinksterConnection
-    })
+  | (BackendBase & { readonly protocol: 'v1'; readonly connection: BackendConnection })
+  | (BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection })
 
 export interface AppLogEntry {
   readonly timestamp: number
@@ -3023,19 +2283,9 @@ export interface AppLogEntry {
   readonly message: string
 }
 
-const descriptorWithId = <T extends object>(
-  id: string,
-  descriptor: T,
-): T & { readonly id: string } => {
-  const copy = Object.defineProperties(
-    {},
-    Object.getOwnPropertyDescriptors(descriptor),
-  )
-  return Object.defineProperty(copy, 'id', {
-    configurable: true,
-    enumerable: true,
-    value: id,
-  }) as T & { readonly id: string }
+const descriptorWithId = <T extends object>(id: string, descriptor: T): T & { readonly id: string } => {
+  const copy = Object.defineProperties({}, Object.getOwnPropertyDescriptors(descriptor))
+  return Object.defineProperty(copy, 'id', { configurable: true, enumerable: true, value: id }) as T & { readonly id: string }
 }
 
 export class AppState {
@@ -3047,13 +2297,9 @@ export class AppState {
   /** UI-neutral live prompt inventory captured from the active tab's backend. */
   readonly liveEmbeddingAndLoraInventory: LiveEmbeddingAndLoraInventoryProvider
   readonly widgetRegistry = createWidgetRegistry()
-  readonly textEditorExtensionRegistry =
-    createTextWidgetEditorExtensionRegistry()
+  readonly textEditorExtensionRegistry = createTextWidgetEditorExtensionRegistry()
   /** Shared registration points used by core UI and extension packs alike. */
-  readonly settings = new SettingsRegistry(
-    globalThis.localStorage,
-    scopedStorageKey(SETTINGS_STORAGE_KEY),
-  )
+  readonly settings = new SettingsRegistry(globalThis.localStorage, scopedStorageKey(SETTINGS_STORAGE_KEY))
   readonly commands = new CommandRegistry()
   readonly keybindings = new KeybindingRegistry(this.settings)
   readonly hostUiContributions = new HostUiContributionRegistry()
@@ -3093,9 +2339,7 @@ export class AppState {
   readonly searchRegistry = createSearchRegistry()
   readonly searchOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
-  readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(
-    undefined,
-  )
+  readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)
   /**
    * Pending request to focus the Execution log panel on one scene node's
    * runtime occurrences (bottom-badge popover "Open in Execution log"). The
@@ -3104,8 +2348,7 @@ export class AppState {
    * remount never replays a stale one.
    */
   readonly executionLogFocus = createSignal<
-    | { readonly runtimeNodeIds: readonly string[]; readonly token: number }
-    | undefined
+    { readonly runtimeNodeIds: readonly string[]; readonly token: number } | undefined
   >(undefined)
 
   /**
@@ -3126,16 +2369,13 @@ export class AppState {
 
   /** The panel applied this focus request; stop it from replaying. */
   consumeExecutionLogFocus(token: number): void {
-    if (this.executionLogFocus.get()?.token === token)
-      this.executionLogFocus.set(undefined)
+    if (this.executionLogFocus.get()?.token === token) this.executionLogFocus.set(undefined)
   }
   readonly placementStatus = createSignal<string | undefined>(undefined)
   /** Short-lived operation feedback rendered by the status bar. */
   readonly transientStatus = createSignal<string | undefined>(undefined)
   private transientStatusTimer: ReturnType<typeof setTimeout> | undefined
-  readonly settingsOpenRequest = createSignal<
-    { readonly category: string; readonly id: string } | undefined
-  >(undefined)
+  readonly settingsOpenRequest = createSignal<{ readonly category: string; readonly id: string } | undefined>(undefined)
   /** Control-surface types; extensions register through the same public API. */
   readonly surfaceRegistry = createSurfaceRegistry([modePanelSurface])
   /**
@@ -3150,28 +2390,24 @@ export class AppState {
    */
   readonly editors = new EditorRegistry()
   readonly editorBindings = new EditorBindingRegistry()
-  readonly extensionToolbarPanels = createSignal<
-    readonly ExtensionPanelContributionV1[]
-  >([])
+  readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
   private readonly extensionEditorIds = new Set<string>()
   readonly frontendDoors = {
-    editor: (
-      id: string,
-      kind: Omit<EditorKindDescriptor, 'id'> | ExtensionEditorKind,
-    ): (() => void) =>
+    widgetKind: (_id: string, kind: Parameters<typeof this.widgetRegistry.registerKind>[0]): (() => void) =>
+      this.widgetRegistry.registerKind(kind),
+    widgetView: (_id: string, view: Parameters<typeof this.widgetRegistry.registerView>[0]): (() => void) =>
+      this.widgetRegistry.registerView(view),
+    previewRenderer: (_id: string, renderer: Parameters<typeof this.widgetRegistry.registerPreviewRenderer>[0]): (() => void) =>
+      this.widgetRegistry.registerPreviewRenderer(renderer),
+    command: (id: string, command: Omit<AppCommand, 'id'>): (() => void) =>
+      this.commands.register(descriptorWithId(id, command)),
+    editor: (id: string, kind: Omit<EditorKindDescriptor, 'id'> | ExtensionEditorKind): (() => void) =>
       'component' in kind
         ? this.editors.register(descriptorWithId(id, kind))
         : this.registerExtensionEditor({ ...kind, id }),
-    editorBinding: (
-      id: string,
-      binding: Omit<EditorBinding, 'id'>,
-    ): (() => void) => this.editorBindings.register({ ...binding, id }),
-    panel: (
-      id: string,
-      panel:
-        | Omit<PanelDescriptor, 'id'>
-        | Omit<ExtensionPanelContributionV1, 'id'>,
-    ): (() => void) =>
+    editorBinding: (id: string, binding: Omit<EditorBinding, 'id'>): (() => void) =>
+      this.editorBindings.register({ ...binding, id }),
+    panel: (id: string, panel: Omit<PanelDescriptor, 'id'> | Omit<ExtensionPanelContributionV1, 'id'>): (() => void) =>
       'component' in panel
         ? this.panels.register(descriptorWithId(id, panel))
         : this.registerExtensionPanel({ ...panel, id }),
@@ -3184,19 +2420,12 @@ export class AppState {
    * stays disabled across sessions.
    */
   readonly extensionRevision = createSignal(0)
-  readonly virtualNodeKinds = new Map(
-    CORE_VIRTUAL_NODE_KINDS.map((kind) => [kind.id, kind]),
-  )
+  readonly virtualNodeKinds = new Map(CORE_VIRTUAL_NODE_KINDS.map((kind) => [kind.id, kind]))
   virtualNodeSchema(type: string): NodeSchema | undefined {
     return this.virtualNodeKinds.get(type)?.schema
   }
-  private readonly virtualSchemaResolvers = new WeakMap<
-    CompileInput['resolve'],
-    CompileInput['resolve']
-  >()
-  private resolverWithVirtualNodes(
-    fallback: CompileInput['resolve'],
-  ): CompileInput['resolve'] {
+  private readonly virtualSchemaResolvers = new WeakMap<CompileInput['resolve'], CompileInput['resolve']>()
+  private resolverWithVirtualNodes(fallback: CompileInput['resolve']): CompileInput['resolve'] {
     let resolver = this.virtualSchemaResolvers.get(fallback)
     if (resolver === undefined) {
       resolver = Object.assign(
@@ -3214,8 +2443,7 @@ export class AppState {
     return resolver
   }
   private registerVirtualNode(kind: VirtualNodeKind): () => void {
-    if (this.virtualNodeKinds.has(kind.id))
-      throw new Error(`virtual node kind '${kind.id}' is already registered`)
+    if (this.virtualNodeKinds.has(kind.id)) throw new Error(`virtual node kind '${kind.id}' is already registered`)
     this.virtualNodeKinds.set(kind.id, kind)
     this.extensionRevision.update((revision) => revision + 1)
     return () => {
@@ -3224,52 +2452,38 @@ export class AppState {
       this.extensionRevision.update((revision) => revision + 1)
     }
   }
-  private readonly extensionTargets: ExtensionHostOptions<TextWidgetEditorExtension> =
-    {
-      changedSignal: this.extensionRevision,
-      menus: this.menuRegistry,
-      widgets: this.widgetRegistry,
-      registerTextEditorExtension: (extension) =>
-        this.textEditorExtensionRegistry.register(extension),
-      registerSetting: (setting) => this.settings.register(setting),
-      registerCommand: (command) => this.commands.register(command),
-      registerKeybinding: (binding) => this.keybindings.register(binding),
-      registerHostUi: (id, slot, provider, order, title) =>
-        this.hostUiContributions.register(id, slot, provider, order, title),
-      invalidateHostUi: (id) => this.hostUiContributions.invalidate(id),
-      registerSearchProvider: (provider) =>
-        this.searchRegistry.register(provider),
-      registerEditor: (kind) => this.frontendDoors.editor(kind.id, kind),
-      registerEditorBinding: (binding) =>
-        this.frontendDoors.editorBinding(binding.id, binding),
-      registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
-      registerVirtualNode: (kind) => this.registerVirtualNode(kind),
-      beginRegistryBatch: () => {
-        const finishSettings = this.settings.beginBatch()
-        const finishHostUi = this.hostUiContributions.beginBatch()
-        const finishSearch = this.searchRegistry.beginBatch()
-        return (commit) => {
-          finishSearch(commit)
-          finishHostUi(commit)
-          finishSettings(commit)
-        }
-      },
-      initialGates: loadGates(),
-      onGatesChanged: saveGates,
-    }
+  private readonly extensionTargets: ExtensionHostOptions<TextWidgetEditorExtension> = {
+    changedSignal: this.extensionRevision,
+    menus: this.menuRegistry,
+    widgets: this.widgetRegistry,
+    registerTextEditorExtension: (extension) => this.textEditorExtensionRegistry.register(extension),
+    registerSetting: (setting) => this.settings.register(setting),
+    registerCommand: (command) => this.frontendDoors.command(command.id, command),
+    registerKeybinding: (binding) => this.keybindings.register(binding),
+    registerHostUi: (id, slot, provider, order, title) => this.hostUiContributions.register(id, slot, provider, order, title),
+    invalidateHostUi: (id) => this.hostUiContributions.invalidate(id),
+    registerSearchProvider: (provider) => this.searchRegistry.register(provider),
+    registerEditor: (kind) => this.frontendDoors.editor(kind.id, kind),
+    registerEditorBinding: (binding) => this.frontendDoors.editorBinding(binding.id, binding),
+    registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
+    registerVirtualNode: (kind) => this.registerVirtualNode(kind),
+    beginRegistryBatch: () => {
+      const finishSettings = this.settings.beginBatch()
+      const finishHostUi = this.hostUiContributions.beginBatch()
+      const finishSearch = this.searchRegistry.beginBatch()
+      return (commit) => {
+        finishSearch(commit)
+        finishHostUi(commit)
+        finishSettings(commit)
+      }
+    },
+    initialGates: loadGates(),
+    onGatesChanged: saveGates,
+  }
   private readonly localExtensions = new ExtensionHost(this.extensionTargets)
-  private readonly extensionWorlds = new Map<
-    ConnectionId,
-    Map<string, ExtensionWorld>
-  >()
-  private readonly extensionWorldLoads = new WeakMap<
-    ExtensionWorld,
-    Promise<void>
-  >()
-  private readonly submissionWorlds = new Map<
-    AbortController,
-    { readonly tab: Tab; readonly world: ExtensionWorld | undefined }
-  >()
+  private readonly extensionWorlds = new Map<ConnectionId, Map<string, ExtensionWorld>>()
+  private readonly extensionWorldLoads = new WeakMap<ExtensionWorld, Promise<void>>()
+  private readonly submissionWorlds = new Map<AbortController, { readonly tab: Tab; readonly world: ExtensionWorld | undefined }>()
   private readonly deniedExtensionPrivileges: readonly FrontendPrivilege[]
   private selectedExtensionWorld: ExtensionWorld | undefined
 
@@ -3283,23 +2497,17 @@ export class AppState {
     const unregister = this.editors.register({
       id: kind.id,
       title: kind.title,
-      component: (host) =>
-        createComponent(ExtensionEditorHost, {
-          owner,
-          provider: kind.provider,
-          surface: 'editor',
-          get data() {
-            return {
-              editor: kind.id,
-              tabId: host?.tabId() ?? app.activeTabId.get() ?? null,
-              focused: host?.focused() ?? true,
-            }
-          },
-          commands: this.commands,
-          replaceProblems: (problemOwner, diagnostics) =>
-            this.replaceProblems(problemOwner, diagnostics),
-          errorText: 'Unable to render extension editor.',
-        }),
+      component: (host) => createComponent(ExtensionEditorHost, {
+        owner,
+        provider: kind.provider,
+        surface: 'editor',
+        get data() {
+          return { editor: kind.id, tabId: host?.tabId() ?? app.activeTabId.get() ?? null, focused: host?.focused() ?? true }
+        },
+        commands: this.commands,
+        replaceProblems: (problemOwner, diagnostics) => this.replaceProblems(problemOwner, diagnostics),
+        errorText: 'Unable to render extension editor.',
+      }),
     })
     this.extensionEditorIds.add(kind.id)
     return () => {
@@ -3308,28 +2516,13 @@ export class AppState {
     }
   }
 
-  private registerExtensionPanel(
-    panel: ExtensionPanelContributionV1,
-  ): () => void {
+  private registerExtensionPanel(panel: ExtensionPanelContributionV1): () => void {
     if (panel.slot === 'toolbar.canvas') {
-      this.extensionToolbarPanels.update((panels) =>
-        [...panels, panel].sort(
-          (left, right) =>
-            (left.order ?? 0) - (right.order ?? 0) ||
-            left.id.localeCompare(right.id),
-        ),
-      )
-      return () =>
-        this.extensionToolbarPanels.update((panels) =>
-          panels.filter((candidate) => candidate !== panel),
-        )
+      this.extensionToolbarPanels.update((panels) => [...panels, panel]
+        .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.id.localeCompare(right.id)))
+      return () => this.extensionToolbarPanels.update((panels) => panels.filter((candidate) => candidate !== panel))
     }
-    const placement =
-      panel.slot === 'sidebar.left'
-        ? 'dock'
-        : panel.slot === 'sidebar.right'
-          ? 'rail'
-          : 'bottom'
+    const placement = panel.slot === 'sidebar.left' ? 'dock' : panel.slot === 'sidebar.right' ? 'rail' : 'bottom'
     const owner = Symbol(`extension-panel:${panel.id}`)
     return this.panels.register({
       id: panel.id,
@@ -3337,82 +2530,51 @@ export class AppState {
       placement,
       allowedPlacements: [placement],
       order: panel.order ?? 0,
-      component: () =>
-        createComponent(HostUiProviderHost, {
-          owner,
-          provider: panel.provider,
-          surface: 'panel',
-          data: { panel: panel.id, slot: panel.slot },
-          commands: this.commands,
-          replaceProblems: (problemOwner, diagnostics) =>
-            this.replaceProblems(problemOwner, diagnostics),
-          errorText: 'Unable to render extension panel.',
-        }),
+      component: () => createComponent(HostUiProviderHost, {
+        owner,
+        provider: panel.provider,
+        surface: 'panel',
+        data: { panel: panel.id, slot: panel.slot },
+        commands: this.commands,
+        replaceProblems: (problemOwner, diagnostics) => this.replaceProblems(problemOwner, diagnostics),
+        errorText: 'Unable to render extension panel.',
+      }),
     })
   }
 
-  private async prepareExtensionWorld(
-    backend: Pick<Backend, 'id' | 'baseUrl'>,
-    registry: SchemaRegistry,
-  ): Promise<void> {
+  private async prepareExtensionWorld(backend: Pick<Backend, 'id' | 'baseUrl'>, registry: SchemaRegistry): Promise<void> {
     const pair = registry.extensionSnapshotPair
     if (pair === undefined || this.disposed) return
     const connection = backend.id
     let worlds = this.extensionWorlds.get(connection)
     const existing = worlds?.get(pair.digest)
     if (existing) return this.extensionWorldLoads.get(existing)
-    const world = new ExtensionWorld(
-      connection,
-      pair.digest,
-      { ...this.extensionTargets, initialGates: loadGates() },
-      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]),
-    )
+    const world = new ExtensionWorld(connection, pair.digest, { ...this.extensionTargets, initialGates: loadGates() },
+      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]))
     if (worlds === undefined) {
       worlds = new Map()
       this.extensionWorlds.set(connection, worlds)
     }
     worlds.set(pair.digest, world)
-    const loading = world.activate(
-      pair.snapshot,
-      backend.baseUrl,
-      this.deniedExtensionPrivileges,
-    )
+    const loading = world.activate(pair.snapshot, backend.baseUrl, this.deniedExtensionPrivileges)
     this.extensionWorldLoads.set(world, loading)
-    try {
-      await loading
-    } finally {
-      this.extensionWorldLoads.delete(world)
-    }
+    try { await loading } finally { this.extensionWorldLoads.delete(world) }
   }
 
   private pruneExtensionWorlds(): void {
     const retained = new Set<ExtensionWorld>()
-    for (const { world } of this.submissionWorlds.values())
-      if (world) retained.add(world)
-    const retain = (
-      connection: ConnectionId,
-      registry: SchemaRegistry | undefined,
-    ): void => {
+    for (const { world } of this.submissionWorlds.values()) if (world) retained.add(world)
+    const retain = (connection: ConnectionId, registry: SchemaRegistry | undefined): void => {
       const digest = registry?.extensionSnapshotPair?.digest
-      const world =
-        digest === undefined
-          ? undefined
-          : this.extensionWorlds.get(connection)?.get(digest)
+      const world = digest === undefined ? undefined : this.extensionWorlds.get(connection)?.get(digest)
       if (world) retained.add(world)
     }
-    for (const backend of this.backends.get())
-      retain(backend.id, backend.registry.get())
-    for (const execution of this.store.executions.get().values())
-      retain(execution.ref.connection, this.registryForExecution(execution.ref))
+    for (const backend of this.backends.get()) retain(backend.id, backend.registry.get())
+    for (const execution of this.store.executions.get().values()) retain(execution.ref.connection, this.registryForExecution(execution.ref))
     for (const [connection, worlds] of this.extensionWorlds) {
       for (const [digest, world] of worlds) {
-        if (
-          retained.has(world) ||
-          (this.backendFor(connection) && this.extensionWorldLoads.has(world))
-        )
-          continue
-        if (this.selectedExtensionWorld === world)
-          this.selectedExtensionWorld = undefined
+        if (retained.has(world) || (this.backendFor(connection) && this.extensionWorldLoads.has(world))) continue
+        if (this.selectedExtensionWorld === world) this.selectedExtensionWorld = undefined
         world.dispose()
         worlds.delete(digest)
       }
@@ -3421,20 +2583,10 @@ export class AppState {
   }
 
   /** A posted submission can outlive its tab and transfer ownership to a run. */
-  private retainSubmissionWorld(
-    tab: Tab,
-    artifact: CompileArtifact,
-  ): {
-    readonly signal: AbortSignal
-    readonly release: () => void
-    readonly markPosted: () => void
-  } {
+  private retainSubmissionWorld(tab: Tab, artifact: CompileArtifact): { readonly signal: AbortSignal; readonly release: () => void; readonly markPosted: () => void } {
     const registry = this.retainedRegistries.get(artifact)
     const digest = registry?.extensionSnapshotPair?.digest
-    const world =
-      digest === undefined
-        ? undefined
-        : this.extensionWorlds.get(artifact.connection)?.get(digest)
+    const world = digest === undefined ? undefined : this.extensionWorlds.get(artifact.connection)?.get(digest)
     const controller = new AbortController()
     let posted = false
     this.submissionWorlds.set(controller, { tab, world })
@@ -3443,35 +2595,16 @@ export class AppState {
       controller.abort()
       this.pruneExtensionWorlds()
     }
-    controller.signal.addEventListener(
-      'abort',
-      () => {
-        if (!posted) release()
-      },
-      { once: true },
-    )
-    return {
-      signal: controller.signal,
-      release,
-      markPosted: () => {
-        posted = true
-      },
-    }
+    controller.signal.addEventListener('abort', () => { if (!posted) release() }, { once: true })
+    return { signal: controller.signal, release, markPosted: () => { posted = true } }
   }
 
   private selectExtensionWorld(): void {
     const tab = this.activeTab()
-    const registry = tab
-      ? this.registryForTab(tab)
-      : this.backends.get()[0]?.registry.get()
-    const connection =
-      tab?.execution?.connection ??
-      (tab ? this.backendForTab(tab).id : this.backends.get()[0]?.id)
+    const registry = tab ? this.registryForTab(tab) : this.backends.get()[0]?.registry.get()
+    const connection = tab?.execution?.connection ?? (tab ? this.backendForTab(tab).id : this.backends.get()[0]?.id)
     const digest = registry?.extensionSnapshotPair?.digest
-    const next =
-      connection && digest
-        ? this.extensionWorlds.get(connection)?.get(digest)
-        : undefined
+    const next = connection && digest ? this.extensionWorlds.get(connection)?.get(digest) : undefined
     if (next === this.selectedExtensionWorld) return
     const finish = this.extensionTargets.beginRegistryBatch!()
     this.selectedExtensionWorld?.select(false)
@@ -3480,23 +2613,14 @@ export class AppState {
       next?.select(true)
     } catch (error) {
       this.selectedExtensionWorld = undefined
-      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'extension',
-          'extension.projection-failed',
-          String(error),
-        ),
-      ])
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'extension', 'extension.projection-failed', String(error))])
     } finally {
       finish(true)
       this.extensionRevision.update((value) => value + 1)
     }
   }
   /** Published by CanvasHost while mounted (see CanvasBridge). */
-  readonly canvasBridge: Signal<CanvasBridge | undefined> = createSignal<
-    CanvasBridge | undefined
-  >(undefined)
+  readonly canvasBridge: Signal<CanvasBridge | undefined> = createSignal<CanvasBridge | undefined>(undefined)
   /** Bumped on every canvas selection change (panels re-read the bridge). */
   readonly selectionTick: Signal<number> = createSignal(0)
   /**
@@ -3504,49 +2628,33 @@ export class AppState {
    * (problem-context.ts): selected node, link, and group ids of the graph
    * currently rendered. Empty while no canvas is mounted.
    */
-  readonly canvasSelection: Signal<CanvasSelectionSnapshot> =
-    createSignal<CanvasSelectionSnapshot>(EMPTY_CANVAS_SELECTION)
+  readonly canvasSelection: Signal<CanvasSelectionSnapshot> = createSignal<CanvasSelectionSnapshot>(EMPTY_CANVAS_SELECTION)
   /**
    * The widget editor currently open on canvas, reduced to focus facts for
    * the Context panel. Undefined while no widget editor is open.
    */
-  readonly widgetFocus: Signal<WidgetFocus | undefined> = createSignal<
-    WidgetFocus | undefined
-  >(undefined)
+  readonly widgetFocus: Signal<WidgetFocus | undefined> = createSignal<WidgetFocus | undefined>(undefined)
 
   /** Default backend's schema registry (single-backend code path). */
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
   /** Never serialized: identifies the active mask or graph-compositor image editing session. */
-  readonly imageEditorTarget: Signal<
-    ImageEditorTarget | CompositorEditorTarget | undefined
-  > = createSignal<ImageEditorTarget | CompositorEditorTarget | undefined>(
-    undefined,
-  )
+  readonly imageEditorTarget: Signal<ImageEditorTarget | CompositorEditorTarget | undefined> =
+    createSignal<ImageEditorTarget | CompositorEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the one input projected by the curve editor. */
-  readonly curveEditorTarget: Signal<CurveEditorTarget | undefined> =
-    createSignal<CurveEditorTarget | undefined>(undefined)
+  readonly curveEditorTarget: Signal<CurveEditorTarget | undefined> = createSignal<CurveEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the first-party GLSL source editor session. */
-  readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> =
-    createSignal<GlslEditorTarget | undefined>(undefined)
+  readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
    * Live tab ids whose current document revision has not been written to the
    * workflow library. A signal, rather than a derived read of DocumentStore,
    * keeps framework adapters honest when a command changes only a document.
    */
-  readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<
-    ReadonlySet<string>
-  >(new Set())
-  readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<
-    readonly OwnedDiagnostic[]
-  >([])
-  readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<
-    AssetConsentRequest | undefined
-  >(undefined)
-  readonly importAssetResolution: Signal<
-    ImportAssetResolutionRequest | undefined
-  > = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
+  readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
+  readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
+  readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
+  readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
   /**
    * Live solver diagnostics for the graph currently on the canvas (type
    * mismatches, stale DynamicSlot specializations, ...). Unlike the owned
@@ -3554,22 +2662,15 @@ export class AppState {
    * replaces it wholesale on every scene rebuild, so entries appear while
    * the condition holds and vanish when the document stops exhibiting it.
    */
-  readonly solveDiagnostics: Signal<readonly Diagnostic[]> = createSignal<
-    readonly Diagnostic[]
-  >([])
+  readonly solveDiagnostics: Signal<readonly Diagnostic[]> = createSignal<readonly Diagnostic[]>([])
   /** Problems-to-canvas handoff; CanvasHost revalidates the anchor before acting. */
-  readonly diagnosticFocus: Signal<DiagnosticFocusRequest | undefined> =
-    createSignal<DiagnosticFocusRequest | undefined>(undefined)
-  readonly logs: Signal<readonly AppLogEntry[]> = createSignal<
-    readonly AppLogEntry[]
-  >([])
+  readonly diagnosticFocus: Signal<DiagnosticFocusRequest | undefined> = createSignal<DiagnosticFocusRequest | undefined>(undefined)
+  readonly logs: Signal<readonly AppLogEntry[]> = createSignal<readonly AppLogEntry[]>([])
   /**
    * All connected backends; index 0 is the default (never removable). Most
    * users have exactly one and see none of the multi-backend chrome.
    */
-  readonly backends: Signal<readonly Backend[]> = createSignal<
-    readonly Backend[]
-  >([])
+  readonly backends: Signal<readonly Backend[]> = createSignal<readonly Backend[]>([])
   /**
    * Per-tab target backend (VIEW/session state, never serialized): live tab
    * id -> connection a queue submits to. Absent -> default backend. A stale
@@ -3584,14 +2685,16 @@ export class AppState {
    * default binding policy (most recent matching run). Central map rather
    * than per-tab signals so the shell subscribes once.
    */
-  readonly overlayPins: Signal<ReadonlyMap<string, ExecutionRef>> =
-    createSignal<ReadonlyMap<string, ExecutionRef>>(new Map())
+  readonly overlayPins: Signal<ReadonlyMap<string, ExecutionRef>> = createSignal<
+    ReadonlyMap<string, ExecutionRef>
+  >(new Map())
   /**
    * Browser-local editor positions keyed by live tab id. These persist with
    * open tabs, but never enter documents, WorkspaceTabRecord, or collab.
    */
-  private readonly tabViewStates: Signal<ReadonlyMap<string, TabViewState>> =
-    createSignal<ReadonlyMap<string, TabViewState>>(new Map())
+  private readonly tabViewStates: Signal<ReadonlyMap<string, TabViewState>> = createSignal<
+    ReadonlyMap<string, TabViewState>
+  >(new Map())
   /**
    * Per-tab canvas lens (VIEW state, never serialized): tab id -> active
    * lens. Absent -> 'standard'. Lenses change canvas presentation
@@ -3614,8 +2717,7 @@ export class AppState {
    * view of live memberships (never persisted - a reload rejoins explicitly
    * through the collab panel); the entry's session IS the tab's store.
    */
-  readonly collabTabs: Signal<ReadonlyMap<string, CollabTabState>> =
-    createSignal<ReadonlyMap<string, CollabTabState>>(new Map())
+  readonly collabTabs: Signal<ReadonlyMap<string, CollabTabState>> = createSignal<ReadonlyMap<string, CollabTabState>>(new Map())
   /** This browser's durable collab identity (joint actorId pin; collab.ts). */
   collabActorId: string
   readonly collabTransport: CollabTransport
@@ -3628,14 +2730,8 @@ export class AppState {
   private readonly collabPending = new Set<string>()
 
   /** Local multi-window sessions owned by the same-origin SharedWorker. */
-  private readonly workspaceSessions = new Map<
-    string,
-    { readonly tab: Tab; readonly session: SharedDocumentSession }
-  >()
-  private readonly workspacePromotions = new Map<
-    string,
-    { tab: Tab; promise: Promise<void> }
-  >()
+  private readonly workspaceSessions = new Map<string, { readonly tab: Tab; readonly session: SharedDocumentSession }>()
+  private readonly workspacePromotions = new Map<string, { tab: Tab; promise: Promise<void> }>()
   private readonly workspaceReplacements = new WeakSet<Tab>()
   private workspaceAuthorityEnabled = false
   private workspaceAuthorityDesired = false
@@ -3666,9 +2762,7 @@ export class AppState {
   private readonly backendClientId = sharedBackendClientId()
   private readonly workspaceEvents: WorkspaceEventChannel | undefined
   private readonly workspaceExecutionEvents = new Set<string>()
-  private readonly receiveWorkspaceEvent = (
-    event: MessageEvent<unknown>,
-  ): void => this.receiveWorkspaceExecution(event.data)
+  private readonly receiveWorkspaceEvent = (event: MessageEvent<unknown>): void => this.receiveWorkspaceExecution(event.data)
   private readonly handlePageHide = (event: PageTransitionEvent): void => {
     if (event.persisted) {
       this.flushPersistTabs(true)
@@ -3677,10 +2771,7 @@ export class AppState {
   }
   private readonly handlePageShow = (event: PageTransitionEvent): void => {
     if (event.persisted && !this.workspaceAuthorityEnabled) {
-      void this.enableWorkspaceAuthority(
-        this.workspacePortFactory,
-        this.workspaceTabsPortFactory,
-      )
+      void this.enableWorkspaceAuthority(this.workspacePortFactory, this.workspaceTabsPortFactory)
     }
   }
   private readonly receiveStorage = (event: StorageEvent): void => {
@@ -3688,23 +2779,13 @@ export class AppState {
     if (event.key !== backendsKey()) return
     const incoming = decodePersistedBackends(event.newValue)
     if (!incoming) return
-    const delta = rebaseBackendLists(
-      decodePersistedBackends(event.oldValue) ?? [],
-      incoming,
-    )
+    const delta = rebaseBackendLists(decodePersistedBackends(event.oldValue) ?? [], incoming)
     for (const removed of delta.removes) {
-      this.removeBackend(
-        asConnectionId(canonicalBackendUrl(removed.baseUrl)),
-        false,
-      )
+      this.removeBackend(asConnectionId(canonicalBackendUrl(removed.baseUrl)), false)
     }
     for (const added of delta.adds) {
       const id = asConnectionId(canonicalBackendUrl(added.baseUrl) || 'local')
-      if (
-        id === 'local' ||
-        this.backends.get().some((backend) => backend.id === id)
-      )
-        continue
+      if (id === 'local' || this.backends.get().some((backend) => backend.id === id)) continue
       this.addBackend(added.baseUrl, added.label, true, added.protocol, false)
     }
   }
@@ -3719,10 +2800,7 @@ export class AppState {
    * successful adoption, confirmed-gone (404), a restored tab closed before
    * the rejoin, or an explicit leave/end/close of the same membership.
    */
-  private readonly collabRejoinPending = new Map<
-    string,
-    PersistedCollabMembership
-  >()
+  private readonly collabRejoinPending = new Map<string, PersistedCollabMembership>()
 
   constructor(options?: {
     /**
@@ -3739,228 +2817,78 @@ export class AppState {
     /** Deployment restrictions can only subtract backend-authorized frontend privileges. */
     readonly deniedExtensionPrivileges?: readonly FrontendPrivilege[]
   }) {
-    this.deniedExtensionPrivileges = Object.freeze([
-      ...(options?.deniedExtensionPrivileges ?? []),
-    ])
+    this.deniedExtensionPrivileges = Object.freeze([...(options?.deniedExtensionPrivileges ?? [])])
     this.collabTransport = options?.collabTransport ?? httpCollabTransport
     this.collabActorId = stableActorId()
-    this.workspaceEvents =
-      options?.workspaceEvents ??
-      (typeof globalThis.SharedWorker === 'function' &&
-      typeof globalThis.BroadcastChannel === 'function'
-        ? new BroadcastChannel(
-            scopedSharedName('dinkster-workspace-executions'),
-          )
-        : undefined)
-    ;(
-      this.workspaceEvents as
-        | (WorkspaceEventChannel & { unref?: () => void })
-        | undefined
-    )?.unref?.()
-    this.workspaceEvents?.addEventListener(
-      'message',
-      this.receiveWorkspaceEvent,
+    this.workspaceEvents = options?.workspaceEvents ?? (
+      typeof globalThis.SharedWorker === 'function' && typeof globalThis.BroadcastChannel === 'function'
+        ? new BroadcastChannel(scopedSharedName('dinkster-workspace-executions'))
+        : undefined
     )
-    this.settings.register({
-      id: 'canvas.grid.visible',
-      get name() {
-        return t('settings.canvas.grid.visible')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
+    ;(this.workspaceEvents as WorkspaceEventChannel & { unref?: () => void } | undefined)?.unref?.()
+    this.workspaceEvents?.addEventListener('message', this.receiveWorkspaceEvent)
+    this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
     registerLocaleSetting(this.settings)
-    this.settings.register({
-      id: 'canvas.bookmarkTransitions',
-      get name() {
-        return t('settings.canvas.bookmarkTransitions')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
+    this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.scrollBehavior',
-      get name() {
-        return t('settings.canvas.scrollBehavior.name')
-      },
+      get name() { return t('settings.canvas.scrollBehavior.name') },
       type: 'combo',
       defaultValue: 'zoom',
-      get description() {
-        return t('settings.canvas.scrollBehavior.description')
-      },
+      get description() { return t('settings.canvas.scrollBehavior.description') },
       get options() {
         return [
-          {
-            value: 'zoom',
-            label: t('settings.canvas.scrollBehavior.option.zoom'),
-          },
-          {
-            value: 'pan',
-            label: t('settings.canvas.scrollBehavior.option.pan'),
-          },
+          { value: 'zoom', label: t('settings.canvas.scrollBehavior.option.zoom') },
+          { value: 'pan', label: t('settings.canvas.scrollBehavior.option.pan') },
         ]
       },
     })
-    this.settings.register({
-      id: 'canvas.minimap.bookmarks',
-      get name() {
-        return t('settings.canvas.minimap.bookmarks')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'canvas.minimap.visible',
-      get name() {
-        return t('settings.canvas.minimap.visible')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'canvas.minimap.nodes',
-      get name() {
-        return t('settings.canvas.minimap.nodes')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'canvas.minimap.bypass',
-      get name() {
-        return t('settings.canvas.minimap.bypass')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'canvas.minimap.noodles',
-      get name() {
-        return t('settings.canvas.minimap.noodles')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'canvas.minimap.groups',
-      get name() {
-        return t('settings.canvas.minimap.groups')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'canvas.minimap.reroutes',
-      get name() {
-        return t('settings.canvas.minimap.reroutes')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'canvas.minimap.errors',
-      get name() {
-        return t('settings.canvas.minimap.errors')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'features.namedNets.enabled',
-      get name() {
-        return t('settings.features.namedNets')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'features.seedController.enabled',
-      get name() {
-        return t('settings.features.seedController')
-      },
-      type: 'boolean',
-      defaultValue: true,
-    })
-    this.settings.register({
-      id: 'features.controlSurfaces.enabled',
-      get name() {
-        return t('settings.features.controlSurfaces')
-      },
-      type: 'boolean',
-      defaultValue: false,
-    })
-    this.settings.register({
-      id: 'tooltips.delayMs',
-      get name() {
-        return t('settings.tooltips.delayMs')
-      },
-      type: 'number',
-      defaultValue: 500,
-      min: 0,
-      max: 5000,
-      step: 50,
-    })
+    this.settings.register({ id: 'canvas.minimap.bookmarks', get name() { return t('settings.canvas.minimap.bookmarks') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.visible', get name() { return t('settings.canvas.minimap.visible') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.nodes', get name() { return t('settings.canvas.minimap.nodes') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.bypass', get name() { return t('settings.canvas.minimap.bypass') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.noodles', get name() { return t('settings.canvas.minimap.noodles') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.groups', get name() { return t('settings.canvas.minimap.groups') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.reroutes', get name() { return t('settings.canvas.minimap.reroutes') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'features.controlSurfaces.enabled', get name() { return t('settings.features.controlSurfaces') }, type: 'boolean', defaultValue: false })
+    this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
-      get name() {
-        return t('settings.execution.previews.name')
-      },
+      get name() { return t('settings.execution.previews.name') },
       type: 'combo',
       // Off by default: previews cost compute/VRAM on every sampling step,
       // so they are opt-in globally (workflow/node overrides still apply).
       defaultValue: 'off',
-      get description() {
-        return t('settings.execution.previews.description')
-      },
+      get description() { return t('settings.execution.previews.description') },
       get options() {
         return [
           { value: 'off', label: t('settings.execution.previews.option.off') },
-          {
-            value: 'cheap',
-            label: t('settings.execution.previews.option.cheap'),
-          },
-          {
-            value: 'quality',
-            label: t('settings.execution.previews.option.quality'),
-          },
-          {
-            value: 'auto',
-            label: t('settings.execution.previews.option.auto'),
-          },
+          { value: 'cheap', label: t('settings.execution.previews.option.cheap') },
+          { value: 'quality', label: t('settings.execution.previews.option.quality') },
+          { value: 'auto', label: t('settings.execution.previews.option.auto') },
         ]
       },
     })
     this.settings.register({
       id: 'execution.mirrorPreviews',
-      get name() {
-        return t('settings.execution.mirrorPreviews.name')
-      },
+      get name() { return t('settings.execution.mirrorPreviews.name') },
       type: 'boolean',
       defaultValue: true,
-      get description() {
-        return t('settings.execution.mirrorPreviews.description')
-      },
+      get description() { return t('settings.execution.mirrorPreviews.description') },
     })
     this.settings.register({
       id: 'execution.previewAnimation',
-      get name() {
-        return t('settings.execution.previewAnimation.name')
-      },
+      get name() { return t('settings.execution.previewAnimation.name') },
       type: 'combo',
       defaultValue: 'ring',
-      get description() {
-        return t('settings.execution.previewAnimation.description')
-      },
+      get description() { return t('settings.execution.previewAnimation.description') },
       get options() {
         return [
-          {
-            value: 'ring',
-            label: t('settings.execution.previewAnimation.option.ring'),
-          },
-          {
-            value: 'encoded',
-            label: t('settings.execution.previewAnimation.option.encoded'),
-          },
+          { value: 'ring', label: t('settings.execution.previewAnimation.option.ring') },
+          { value: 'encoded', label: t('settings.execution.previewAnimation.option.encoded') },
         ]
       },
     })
@@ -3968,82 +2896,36 @@ export class AppState {
     // the settings dialog keeps opening on the canvas category.
     this.shell = new ShellLayout(this.settings)
     this.dock = new DockLayout(this.settings, () =>
-      this.panels
-        .all()
-        .map(({ id, placement, allowedPlacements, order }) => ({
-          id,
-          placement,
-          allowedPlacements,
-          order,
-        })),
-    )
+      this.panels.all().map(({ id, placement, allowedPlacements, order }) =>
+        ({ id, placement, allowedPlacements, order })))
     this.editorSplits = new EditorSplitStore(this.settings)
     // Stale-modal guard (see modalPanel above): registry churn that removes
     // the open modal's panel - or moves it off 'modal' - closes the modal
     // state itself, so a later re-register can never resurrect the dialog.
     this.panels.changed.subscribe(() => {
       const id = this.modalPanel.get()
-      if (id !== '' && this.panels.placementOf(id) !== 'modal')
-        this.modalPanel.set('')
+      if (id !== '' && this.panels.placementOf(id) !== 'modal') this.modalPanel.set('')
     })
     const activeTabNow = () => this.activeTab()
-    const register = (
-      id: string,
-      labelKey: string,
-      combo: string,
-      run: () => void,
-      enabled?: () => boolean,
-    ) => {
-      this.commands.register({
-        id,
-        get label() {
-          return t(labelKey)
-        },
-        run,
-        ...(enabled ? { enabled } : {}),
-      })
+    const register = (id: string, labelKey: string, combo: string, run: () => void, enabled?: () => boolean) => {
+      this.frontendDoors.command(id, { get label() { return t(labelKey) }, run, ...(enabled ? { enabled } : {}) })
       this.keybindings.register({ command: id, combo })
     }
-    register('workflow.queue', 'command.workflow.queue', 'Ctrl+Enter', () => {
+    register('workflow.queue', 'command.workflow.queue', 'Ctrl+Enter', () => { const tab = activeTabNow(); if (tab) void this.queue(tab) })
+    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => { const tab = activeTabNow(); if (tab) void this.saveWorkflow(tab.id) }, () => {
       const tab = activeTabNow()
-      if (tab) void this.queue(tab)
+      return tab !== undefined && tab.execution === undefined && this.backendForTab(tab).protocol === 'dinkster'
     })
-    register(
-      'workflow.save',
-      'command.workflow.save',
-      'Ctrl+S',
-      () => {
-        const tab = activeTabNow()
-        if (tab) void this.saveWorkflow(tab.id)
-      },
-      () => {
-        const tab = activeTabNow()
-        return (
-          tab !== undefined &&
-          tab.execution === undefined &&
-          this.backendForTab(tab).protocol === 'dinkster'
-        )
-      },
-    )
     register('workflow.open', 'command.workflow.open', 'Ctrl+O', () => {
       setPanelOpen(this.panels, this.dock, 'library', 'left', true)
     })
-    this.commands.register({
-      id: 'workflow.importFile',
-      get label() {
-        return t('command.workflow.importFile')
-      },
+    this.frontendDoors.command('workflow.importFile', {
+      get label() { return t('command.workflow.importFile') },
       run: () => this.openWorkflowFilePicker(),
     })
-    this.commands.register({
-      id: 'workflow.export',
-      get label() {
-        return t('command.workflow.export')
-      },
-      run: () => {
-        const tab = activeTabNow()
-        if (tab) this.exportWorkflow(tab.id)
-      },
+    this.frontendDoors.command('workflow.export', {
+      get label() { return t('command.workflow.export') },
+      run: () => { const tab = activeTabNow(); if (tab) this.exportWorkflow(tab.id) },
       enabled: () => {
         const tab = activeTabNow()
         return tab !== undefined && tab.execution === undefined
@@ -4051,136 +2933,48 @@ export class AppState {
     })
     // Alt+ combo: Ctrl+Shift+P/A are browser-reserved (private window, tab
     // search) and the Alt band already hosts view commands (zoom).
-    register(
-      'view.toggleAppView',
-      'command.view.toggleAppView',
-      'Alt+V',
-      () => {
-        const tab = activeTabNow()
-        if (tab)
-          this.setTabEditorKind(
-            tab.id,
-            tab.editorKind === APP_EDITOR_KIND
-              ? GRAPH_EDITOR_KIND
-              : APP_EDITOR_KIND,
-          )
-      },
-    )
-    register(
-      'edit.selectAll',
-      'command.edit.selectAll',
-      'Ctrl+A',
-      () => this.canvasBridge.get()?.selectAll(),
-      () => this.canvasBridge.get() !== undefined,
-    )
-    register(
-      'edit.delete',
-      'command.edit.delete',
-      'Delete',
-      () => this.canvasBridge.get()?.deleteSelection(),
-      () => this.canvasBridge.get() !== undefined,
-    )
-    register(
-      'edit.deleteBackspace',
-      'command.edit.deleteBackspace',
-      'Backspace',
-      () => this.canvasBridge.get()?.deleteSelection(),
-      () => this.canvasBridge.get() !== undefined,
-    )
-    register(
-      'edit.undo',
-      'command.edit.undo',
-      'Ctrl+Z',
-      () => {
-        const tab = activeTabNow()
-        if (tab?.store.undo()) reconcileGraphNavigation(tab)
-      },
-      () => activeTabNow()?.store.canUndo === true,
-    )
-    register(
-      'edit.redo',
-      'command.edit.redo',
-      'Ctrl+Shift+Z',
-      () => activeTabNow()?.store.redo(),
-      () => activeTabNow()?.store.canRedo === true,
-    )
-    register(
-      'edit.redoLegacy',
-      'command.edit.redoLegacy',
-      'Ctrl+Y',
-      () => activeTabNow()?.store.redo(),
-      () => activeTabNow()?.store.canRedo === true,
-    )
-    register(
-      'node.bypass',
-      'command.node.bypass',
-      'Ctrl+B',
-      () => this.canvasBridge.get()?.setSelectedMode('bypassed'),
-      () => this.canvasBridge.get() !== undefined,
-    )
-    register(
-      'node.mute',
-      'command.node.mute',
-      'Ctrl+M',
-      () => this.canvasBridge.get()?.setSelectedMode('muted'),
-      () => this.canvasBridge.get() !== undefined,
-    )
-    register(
-      'node.minimize',
-      'command.node.minimize',
-      'Alt+C',
-      () => this.canvasBridge.get()?.toggleSelectedCollapsed(),
-      () => this.canvasBridge.get() !== undefined,
-    )
-    const selectedNodeHelp = ():
-      | { readonly tab: Tab; readonly type: string }
-      | undefined => {
+    register('view.toggleAppView', 'command.view.toggleAppView', 'Alt+V', () => {
+      const tab = activeTabNow()
+      if (tab) this.setTabEditorKind(tab.id, tab.editorKind === APP_EDITOR_KIND ? GRAPH_EDITOR_KIND : APP_EDITOR_KIND)
+    })
+    register('edit.selectAll', 'command.edit.selectAll', 'Ctrl+A', () => this.canvasBridge.get()?.selectAll(), () => this.canvasBridge.get() !== undefined)
+    register('edit.delete', 'command.edit.delete', 'Delete', () => this.canvasBridge.get()?.deleteSelection(), () => this.canvasBridge.get() !== undefined)
+    register('edit.deleteBackspace', 'command.edit.deleteBackspace', 'Backspace', () => this.canvasBridge.get()?.deleteSelection(), () => this.canvasBridge.get() !== undefined)
+    register('edit.undo', 'command.edit.undo', 'Ctrl+Z', () => {
+      const tab = activeTabNow()
+      if (tab?.store.undo()) reconcileGraphNavigation(tab)
+    }, () => activeTabNow()?.store.canUndo === true)
+    register('edit.redo', 'command.edit.redo', 'Ctrl+Shift+Z', () => activeTabNow()?.store.redo(), () => activeTabNow()?.store.canRedo === true)
+    register('edit.redoLegacy', 'command.edit.redoLegacy', 'Ctrl+Y', () => activeTabNow()?.store.redo(), () => activeTabNow()?.store.canRedo === true)
+    register('node.bypass', 'command.node.bypass', 'Ctrl+B', () => this.canvasBridge.get()?.setSelectedMode('bypassed'), () => this.canvasBridge.get() !== undefined)
+    register('node.mute', 'command.node.mute', 'Ctrl+M', () => this.canvasBridge.get()?.setSelectedMode('muted'), () => this.canvasBridge.get() !== undefined)
+    register('node.minimize', 'command.node.minimize', 'Alt+C', () => this.canvasBridge.get()?.toggleSelectedCollapsed(), () => this.canvasBridge.get() !== undefined)
+    const selectedNodeHelp = (): { readonly tab: Tab; readonly type: string } | undefined => {
       const tab = activeTabNow()
       const selected = this.canvasBridge.get()?.selectedNodes() ?? []
       if (tab === undefined || selected.length !== 1) return undefined
-      const node =
-        tab.store.doc.graphs[currentGraphId(tab)]?.nodes[selected[0]!]
+      const node = tab.store.doc.graphs[currentGraphId(tab)]?.nodes[selected[0]!]
       return node === undefined ? undefined : { tab, type: node.type }
     }
-    register(
-      'node.help',
-      'nodeHelp.command.open',
-      'F1',
-      () => {
-        const target = selectedNodeHelp()
-        if (target) this.openNodeHelp(target.tab, target.type)
-      },
-      () => {
-        const target = selectedNodeHelp()
-        if (target === undefined) return false
-        const schema = this.registryForTab(target.tab)?.resolve(target.type)
-        return (
-          schema?.hasDocs === true &&
-          schema.pack !== undefined &&
-          this.backendForTab(target.tab).protocol === 'dinkster'
-        )
-      },
-    )
-    this.commands.register({
-      id: 'subgraph.createEmpty',
-      get label() {
-        return t('command.subgraph.createEmpty')
-      },
+    register('node.help', 'nodeHelp.command.open', 'F1', () => {
+      const target = selectedNodeHelp()
+      if (target) this.openNodeHelp(target.tab, target.type)
+    }, () => {
+      const target = selectedNodeHelp()
+      if (target === undefined) return false
+      const schema = this.registryForTab(target.tab)?.resolve(target.type)
+      return schema?.hasDocs === true && schema.pack !== undefined && this.backendForTab(target.tab).protocol === 'dinkster'
+    })
+    this.frontendDoors.command('subgraph.createEmpty', {
+      get label() { return t('command.subgraph.createEmpty') },
       run: () => this.canvasBridge.get()?.createEmptySubgraph?.(),
-      enabled: () =>
-        activeTabNow()?.execution === undefined &&
-        this.canvasBridge.get()?.createEmptySubgraph !== undefined,
+      enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createEmptySubgraph !== undefined,
     })
     for (const kind of ['map', 'fold', 'while'] as const) {
-      this.commands.register({
-        id: `region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`,
-        get label() {
-          return t(`command.region.create.${kind}`)
-        },
+      this.frontendDoors.command(`region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`, {
+        get label() { return t(`command.region.create.${kind}`) },
         run: () => this.canvasBridge.get()?.createRegion?.(kind),
-        enabled: () =>
-          activeTabNow()?.execution === undefined &&
-          this.canvasBridge.get()?.createRegion !== undefined,
+        enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createRegion !== undefined,
       })
     }
     register(
@@ -4188,90 +2982,43 @@ export class AppState {
       'command.subgraph.extract',
       'Ctrl+Shift+E',
       () => this.canvasBridge.get()?.extractSubgraph?.(),
-      () =>
-        activeTabNow()?.execution === undefined &&
-        this.canvasBridge.get()?.canExtractSubgraph?.() === true,
+      () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.canExtractSubgraph?.() === true,
     )
     register(
       'subgraph.flatten',
       'command.subgraph.flatten',
       'Ctrl+Shift+F',
       () => this.canvasBridge.get()?.flattenSubgraph?.(),
-      () =>
-        activeTabNow()?.execution === undefined &&
-        this.canvasBridge.get()?.canFlattenSubgraph?.() === true,
+      () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.canFlattenSubgraph?.() === true,
     )
-    this.commands.register({
-      id: 'subgraph.manageDefinitions',
-      get label() {
-        return t('command.subgraph.manageDefinitions')
-      },
+    this.frontendDoors.command('subgraph.manageDefinitions', {
+      get label() { return t('command.subgraph.manageDefinitions') },
       run: () => this.modalPanel.set('subgraph-definitions'),
-      enabled: () =>
-        activeTabNow() !== undefined && activeTabNow()?.execution === undefined,
+      enabled: () => activeTabNow() !== undefined && activeTabNow()?.execution === undefined,
     })
-    register(
-      'view.zoomIn',
-      'command.view.zoomIn',
-      'Alt+=',
-      () => this.canvasBridge.get()?.zoomBy(1.2),
-      () => this.canvasBridge.get() !== undefined,
-    )
-    register(
-      'view.zoomOut',
-      'command.view.zoomOut',
-      'Alt+-',
-      () => this.canvasBridge.get()?.zoomBy(1 / 1.2),
-      () => this.canvasBridge.get() !== undefined,
-    )
+    register('view.zoomIn', 'command.view.zoomIn', 'Alt+=', () => this.canvasBridge.get()?.zoomBy(1.2), () => this.canvasBridge.get() !== undefined)
+    register('view.zoomOut', 'command.view.zoomOut', 'Alt+-', () => this.canvasBridge.get()?.zoomBy(1 / 1.2), () => this.canvasBridge.get() !== undefined)
     // The bridge intentionally falls back to fitting the whole scene when
     // there is no selection, so selection emptiness does not disable this.
-    register(
-      'view.fitSelection',
-      'command.view.fitSelection',
-      '.',
-      () => this.canvasBridge.get()?.fitSelection(),
-      () => this.canvasBridge.get() !== undefined,
-    )
-    this.commands.register({
-      id: 'layout.customize',
-      get label() {
-        return t('command.layout.customize')
-      },
+    register('view.fitSelection', 'command.view.fitSelection', '.', () => this.canvasBridge.get()?.fitSelection(), () => this.canvasBridge.get() !== undefined)
+    this.frontendDoors.command('layout.customize', {
+      get label() { return t('command.layout.customize') },
       run: () => this.modalPanel.set('customize-layout'),
     })
-    this.commands.register({
-      id: 'backend.open',
-      get label() {
-        return t('command.backend.open')
-      },
-      run: () => {
-        setPanelOpen(this.panels, this.dock, 'backends', 'left', true)
-      },
+    this.frontendDoors.command('backend.open', {
+      get label() { return t('command.backend.open') },
+      run: () => { setPanelOpen(this.panels, this.dock, 'backends', 'left', true) },
     })
     register('settings.open', 'command.settings.open', 'Ctrl+,', () => {
       this.settingsOpenRequest.set(undefined)
       this.modalPanel.set('settings')
     })
-    register('search.open', 'command.search.open', 'Ctrl+K', () =>
-      this.searchOpen.set(true),
-    )
-    this.settings.register({
-      id: 'search.recentActivations',
-      get name() {
-        return t('settings.search.recentActivations')
-      },
-      category: 'search',
-      type: 'string',
-      defaultValue: '[]',
-    })
-    registerCoreWidgets(this.widgetRegistry)
+    register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
+    this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
+    registerCoreWidgets(this.frontendDoors)
     registerCoreWidgetEditors(this.widgetRegistry)
-    this.textEditorExtensionRegistry.register(
-      new SchemaTextCompletionProvider(),
-    )
-    for (const contribution of coreMenuContributions())
-      this.menuRegistry.register(contribution)
+    this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
+    for (const contribution of coreMenuContributions()) this.menuRegistry.register(contribution)
     // Reset-to-default items are schema-aware: they resolve through the
     // ACTIVE tab's target backend (defaults differ per backend registry).
     for (const contribution of resetMenuContributions(() => {
@@ -4290,24 +3037,20 @@ export class AppState {
     this.connection = local.connection
     this.registry = local.registry
     this.scopedClient = local.scopedClient
-    this.liveEmbeddingAndLoraInventory =
-      new LiveEmbeddingAndLoraInventoryProvider({
-        capture: () => {
-          const tab = this.activeTab()
-          if (tab === undefined || tab.execution !== undefined) return undefined
-          const backend = this.backendForTab(tab)
-          return {
-            id: JSON.stringify([tab.id, backend.id]),
-            source: {
-              choices: (route, options) =>
-                backend.scopedClient.remoteChoices(route, options),
-            },
-            isCurrent: () =>
-              this.activeTabId.get() === tab.id &&
-              this.backendForTab(tab) === backend,
-          }
-        },
-      })
+    this.liveEmbeddingAndLoraInventory = new LiveEmbeddingAndLoraInventoryProvider({
+      capture: () => {
+        const tab = this.activeTab()
+        if (tab === undefined || tab.execution !== undefined) return undefined
+        const backend = this.backendForTab(tab)
+        return {
+          id: JSON.stringify([tab.id, backend.id]),
+          source: {
+            choices: (route, options) => backend.scopedClient.remoteChoices(route, options),
+          },
+          isCurrent: () => this.activeTabId.get() === tab.id && this.backendForTab(tab) === backend,
+        }
+      },
+    })
     // Restore user-added backends (URL/label/protocol as discovered when
     // added). Not connected here - start() connects every backend at once.
     // A stale record aliasing the same-origin default (canonicalizes to '')
@@ -4326,10 +3069,7 @@ export class AppState {
         if (persistedExecutions.has(execution)) continue
         persistedExecutions.add(execution)
         const backend = this.backendFor(execution.ref.connection)
-        const identity =
-          backend === undefined
-            ? undefined
-            : this.executionResultIdentity(backend)
+        const identity = backend === undefined ? undefined : this.executionResultIdentity(backend)
         if (identity !== undefined) saveExecutionResult(execution, identity)
       }
     })
@@ -4350,11 +3090,7 @@ export class AppState {
       previousProblems = problems
     })
     const executionStatuses = new Map<string, ExecutionStatus>()
-    const terminal: readonly ExecutionStatus[] = [
-      'completed',
-      'error',
-      'interrupted',
-    ]
+    const terminal: readonly ExecutionStatus[] = ['completed', 'error', 'interrupted']
     this.store.executions.subscribe((executions) => {
       // Evicted executions drop their status memory and any captured plan.
       for (const key of [...executionStatuses.keys()]) {
@@ -4380,10 +3116,8 @@ export class AppState {
         if (execution.status === 'completed') this.applyAdvancement(key)
         else if (
           execution.status === 'error' ||
-          (execution.status === 'interrupted' &&
-            !this.store.isProvisionallyLost(execution.ref))
-        )
-          this.advancementPlans.delete(key)
+          (execution.status === 'interrupted' && !this.store.isProvisionallyLost(execution.ref))
+        ) this.advancementPlans.delete(key)
         if (
           previous !== undefined &&
           previous !== execution.status &&
@@ -4391,8 +3125,7 @@ export class AppState {
         ) {
           this.log(
             execution.status === 'error' ? 'error' : 'info',
-            this.backendFor(execution.ref.connection)?.label ??
-              String(execution.ref.connection),
+            this.backendFor(execution.ref.connection)?.label ?? String(execution.ref.connection),
             `job ${execution.ref.prompt} ${execution.status}`,
           )
         }
@@ -4406,19 +3139,13 @@ export class AppState {
     const persisted = loadPersistedTabs()
     this.workspacePersistedRevision = persisted?.workspaceRevision ?? 0
     this.workspaceCausalRevision = this.workspacePersistedRevision
-    this.workspaceOperationWatermarks =
-      persisted?.workspaceOperationWatermarks ?? {}
+    this.workspaceOperationWatermarks = persisted?.workspaceOperationWatermarks ?? {}
     const tabs: Tab[] = []
     const tabViewStates = new Map<string, TabViewState>()
     for (const entry of persisted?.tabs ?? []) {
       const loaded = loadDocument(entry.doc)
       if (!loaded.document) continue
-      const tab = this.makeTab(
-        loaded.document,
-        entry.title,
-        undefined,
-        entry.editorKind ?? GRAPH_EDITOR_KIND,
-      )
+      const tab = this.makeTab(loaded.document, entry.title, undefined, entry.editorKind ?? GRAPH_EDITOR_KIND)
       if (entry.viewState === undefined) tabViewStates.delete(tab.id)
       else tabViewStates.set(tab.id, entry.viewState)
       this.documentPersistenceRevisions.set(tab.id, entry.documentRevision ?? 0)
@@ -4438,8 +3165,7 @@ export class AppState {
     if (tabs.length === 0) {
       if (local.protocol === 'dinkster') {
         const loaded = loadDocument(emptyWorkflowJson())
-        if (loaded.document)
-          tabs.push(this.makeTab(loaded.document, 'Untitled'))
+        if (loaded.document) tabs.push(this.makeTab(loaded.document, 'Untitled'))
       } else {
         for (const [title, json] of [
           ['Basic', seedBasic],
@@ -4457,13 +3183,8 @@ export class AppState {
     }
     this.tabViewStates.set(tabViewStates)
     this.tabs.set(tabs)
-    this.dirtyTabs.set(
-      new Set(tabs.filter((tab) => !tab.execution).map((tab) => tab.id)),
-    )
-    const active =
-      persisted !== undefined && tabs.some((t) => t.id === persisted.active)
-        ? persisted.active
-        : (tabs[0]?.id ?? '')
+    this.dirtyTabs.set(new Set(tabs.filter((tab) => !tab.execution).map((tab) => tab.id)))
+    const active = persisted !== undefined && tabs.some((t) => t.id === persisted.active) ? persisted.active : (tabs[0]?.id ?? '')
     this.activeTabId.set(active)
     // Seed tabs open before any backend has schemas; upgrade them (and any
     // other pending tab) when a registry arrives or refreshes.
@@ -4492,29 +3213,18 @@ export class AppState {
       const imageTarget = this.imageEditorTarget.get()
       const curveTarget = this.curveEditorTarget.get()
       const glslTarget = this.glslEditorTarget.get()
-      if (imageTarget && imageTarget.tabId !== activeId)
-        this.imageEditorTarget.set(undefined)
-      if (curveTarget && curveTarget.tabId !== activeId)
-        this.curveEditorTarget.set(undefined)
-      if (glslTarget && glslTarget.tabId !== activeId)
-        this.glslEditorTarget.set(undefined)
-      if (
-        (imageTarget && imageTarget.tabId !== activeId) ||
-        (curveTarget && curveTarget.tabId !== activeId) ||
-        (glslTarget && glslTarget.tabId !== activeId)
-      ) {
-        this.tabs.update((list) =>
-          list.map((tab) =>
-            (tab.id === imageTarget?.tabId &&
-              tab.editorKind === IMAGE_EDITOR_KIND) ||
-            (tab.id === curveTarget?.tabId &&
-              tab.editorKind === CURVE_EDITOR_KIND) ||
-            (tab.id === glslTarget?.tabId &&
-              tab.editorKind === GLSL_EDITOR_KIND)
-              ? { ...tab, editorKind: GRAPH_EDITOR_KIND }
-              : tab,
-          ),
-        )
+      if (imageTarget && imageTarget.tabId !== activeId) this.imageEditorTarget.set(undefined)
+      if (curveTarget && curveTarget.tabId !== activeId) this.curveEditorTarget.set(undefined)
+      if (glslTarget && glslTarget.tabId !== activeId) this.glslEditorTarget.set(undefined)
+      if ((imageTarget && imageTarget.tabId !== activeId) ||
+          (curveTarget && curveTarget.tabId !== activeId) ||
+          (glslTarget && glslTarget.tabId !== activeId)) {
+        this.tabs.update((list) => list.map((tab) =>
+          (tab.id === imageTarget?.tabId && tab.editorKind === IMAGE_EDITOR_KIND) ||
+          (tab.id === curveTarget?.tabId && tab.editorKind === CURVE_EDITOR_KIND) ||
+          (tab.id === glslTarget?.tabId && tab.editorKind === GLSL_EDITOR_KIND)
+            ? { ...tab, editorKind: GRAPH_EDITOR_KIND }
+            : tab))
       }
       this.schedulePersistTabs()
       this.syncWorkspaceTabs()
@@ -4529,8 +3239,7 @@ export class AppState {
     globalThis.window?.addEventListener('pageshow', this.handlePageShow)
     this.unsubscribePackLocale = activeLocale.subscribe(() => {
       for (const backend of this.backends.get()) {
-        if (backend.protocol === 'dinkster')
-          void this.refreshPackLocaleOverlay(backend)
+        if (backend.protocol === 'dinkster') void this.refreshPackLocaleOverlay(backend)
       }
     })
   }
@@ -4541,8 +3250,7 @@ export class AppState {
     this.unsubscribePackLocale()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
     this.submissionWorlds.clear()
-    for (const worlds of this.extensionWorlds.values())
-      for (const world of worlds.values()) world.dispose()
+    for (const worlds of this.extensionWorlds.values()) for (const world of worlds.values()) world.dispose()
     this.extensionWorlds.clear()
     this.selectedExtensionWorld = undefined
     this.workspaceAuthorityDesired = false
@@ -4552,10 +3260,7 @@ export class AppState {
     this.persistTimer = undefined
     for (const watcher of this.persistWatchers.values()) watcher.unsubscribe()
     this.persistWatchers.clear()
-    this.workspaceEvents?.removeEventListener?.(
-      'message',
-      this.receiveWorkspaceEvent,
-    )
+    this.workspaceEvents?.removeEventListener?.('message', this.receiveWorkspaceEvent)
     this.workspaceEvents?.close?.()
     globalThis.removeEventListener?.('storage', this.receiveStorage)
     globalThis.window?.removeEventListener('pagehide', this.handlePageHide)
@@ -4580,16 +3285,12 @@ export class AppState {
     this.workspaceTabsPortFactory = workspacePortFactory
     const openingRecords = this.workspaceTabRecords()
     const activeTab = this.activeTab()
-    const liveActive = activeTab?.execution
-      ? this.liveTabFor(activeTab.store.doc.lineage)?.id
-      : activeTab?.id
-    const openingActive =
-      liveActive !== undefined &&
-      openingRecords.some((tab) => tab.id === liveActive)
-        ? liveActive
-        : openingRecords.some((tab) => tab.id === this.workspaceActiveBaseline)
-          ? this.workspaceActiveBaseline
-          : (openingRecords[0]?.id ?? '')
+    const liveActive = activeTab?.execution ? this.liveTabFor(activeTab.store.doc.lineage)?.id : activeTab?.id
+    const openingActive = liveActive !== undefined && openingRecords.some((tab) => tab.id === liveActive)
+      ? liveActive
+      : openingRecords.some((tab) => tab.id === this.workspaceActiveBaseline)
+        ? this.workspaceActiveBaseline
+        : (openingRecords[0]?.id ?? '')
     this.workspaceTabBaseline = openingRecords
     this.workspaceActiveBaseline = openingActive
     try {
@@ -4600,29 +3301,18 @@ export class AppState {
         openingActive,
         this.workspaceOperationWatermarks,
       )
-      if (
-        !this.workspaceAuthorityEnabled ||
-        generation !== this.workspaceAuthorityGeneration
-      ) {
+      if (!this.workspaceAuthorityEnabled || generation !== this.workspaceAuthorityGeneration) {
         opened.connection.close()
         return
       }
       this.workspaceTabConnection = opened.connection
-      this.unsubscribeWorkspaceSnapshots = opened.connection.onSnapshot(
-        (snapshot) => this.receiveWorkspaceTabSnapshot(snapshot),
-      )
-      this.unsubscribeWorkspaceDisconnect = opened.connection.onDisconnect(
-        (error) => {
-          if (this.workspaceTabConnection === opened.connection)
-            void this.reconnectWorkspaceAuthority(error)
-        },
-      )
+      this.unsubscribeWorkspaceSnapshots = opened.connection.onSnapshot((snapshot) => this.receiveWorkspaceTabSnapshot(snapshot))
+      this.unsubscribeWorkspaceDisconnect = opened.connection.onDisconnect((error) => {
+        if (this.workspaceTabConnection === opened.connection) void this.reconnectWorkspaceAuthority(error)
+      })
       this.applyWorkspaceTabSnapshot(opened.snapshot)
       for (const operation of loadWorkspaceOperations()) {
-        if (
-          (opened.snapshot.operationWatermarks[operation.actorId] ?? -1) <
-          operation.sequence
-        ) {
+        if ((opened.snapshot.operationWatermarks[operation.actorId] ?? -1) < operation.sequence) {
           this.submitWorkspaceTabMutation(operation)
         } else removeWorkspaceOperation(operation.opId)
       }
@@ -4634,36 +3324,23 @@ export class AppState {
       })
     } catch (error) {
       this.workspaceAuthorityEnabled = false
-      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'command',
-          'workspace.tabs.failed',
-          `Shared tab workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-      ])
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+        'error', 'command', 'workspace.tabs.failed',
+        `Shared tab workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      )])
       throw error
     }
     await this.promoteWorkspaceTabs()
   }
 
-  private workspaceTabRecords(
-    tabs: readonly Tab[] = this.tabs.get(),
-  ): readonly WorkspaceTabRecord[] {
-    return tabs
-      .filter((tab) => !tab.execution)
-      .map((tab) => ({
-        id: tab.id,
-        title: tab.title,
-        document: tab.store.doc,
-        ...(tab.editorKind !== GRAPH_EDITOR_KIND &&
-        !isSessionOnlyEditorKind(tab.editorKind)
-          ? { editorKind: tab.editorKind }
-          : {}),
-        ...(this.stockPending.has(tab.id) && tab.store.revision === 0
-          ? { stock: true as const }
-          : {}),
-      }))
+  private workspaceTabRecords(tabs: readonly Tab[] = this.tabs.get()): readonly WorkspaceTabRecord[] {
+    return tabs.filter((tab) => !tab.execution).map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      document: tab.store.doc,
+      ...(tab.editorKind !== GRAPH_EDITOR_KIND && !isSessionOnlyEditorKind(tab.editorKind) ? { editorKind: tab.editorKind } : {}),
+      ...(this.stockPending.has(tab.id) && tab.store.revision === 0 ? { stock: true as const } : {}),
+    }))
   }
 
   private workspaceTabMutation(
@@ -4675,36 +3352,23 @@ export class AppState {
     const oldById = new Map(before.map((tab) => [tab.id, tab]))
     const newById = new Map(after.map((tab) => [tab.id, tab]))
     const additions = after.filter((tab) => !oldById.has(tab.id))
-    const removals = before
-      .filter((tab) => !newById.has(tab.id))
-      .map((tab) => tab.id)
-    const updates = after
-      .filter((tab) => {
-        const old = oldById.get(tab.id)
-        return (
-          old !== undefined &&
-          (old.title !== tab.title ||
-            old.editorKind !== tab.editorKind ||
-            old.stock !== tab.stock)
-        )
-      })
-      .map(({ id, title, editorKind, stock }) => ({
-        id,
-        title,
-        editorKind: editorKind ?? null,
-        stock: stock === true,
-      }))
+    const removals = before.filter((tab) => !newById.has(tab.id)).map((tab) => tab.id)
+    const updates = after.filter((tab) => {
+      const old = oldById.get(tab.id)
+      return old !== undefined && (
+        old.title !== tab.title || old.editorKind !== tab.editorKind || old.stock !== tab.stock
+      )
+    }).map(({ id, title, editorKind, stock }) => ({
+      id,
+      title,
+      editorKind: editorKind ?? null,
+      stock: stock === true,
+    }))
     const order = after.map((tab) => tab.id)
     const oldOrder = before.map((tab) => tab.id)
-    if (
-      additions.length === 0 &&
-      removals.length === 0 &&
-      updates.length === 0 &&
-      order.length === oldOrder.length &&
-      order.every((id, index) => oldOrder[index] === id) &&
-      beforeActive === afterActive
-    )
-      return undefined
+    if (additions.length === 0 && removals.length === 0 && updates.length === 0 &&
+      order.length === oldOrder.length && order.every((id, index) => oldOrder[index] === id) &&
+      beforeActive === afterActive) return undefined
     return {
       opId: `${this.workspaceActorId}-tabs-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
       actorId: this.workspaceActorId,
@@ -4722,9 +3386,7 @@ export class AppState {
     if (this.applyingWorkspaceTabs || !this.workspaceAuthorityDesired) return
     const next = this.workspaceTabRecords()
     const active = this.activeTabId.get()
-    const synchronizedActive = next.some((tab) => tab.id === active)
-      ? active
-      : this.workspaceActiveBaseline
+    const synchronizedActive = next.some((tab) => tab.id === active) ? active : this.workspaceActiveBaseline
     const mutation = this.workspaceTabMutation(
       this.workspaceTabBaseline,
       next,
@@ -4743,50 +3405,33 @@ export class AppState {
     if (!connection) return
     persistWorkspaceOperation(mutation)
     this.workspaceTabPending += 1
-    void connection
-      .mutate(mutation)
-      .then(
-        (snapshot) => {
-          if (this.workspaceTabConnection === connection) {
-            this.workspaceAcknowledgedOperations.set(
-              mutation.opId,
-              snapshot.revision,
-            )
-            this.workspaceTabBuffered = this.newerWorkspaceSnapshot(
-              this.workspaceTabBuffered,
-              snapshot,
-            )
-          }
-        },
-        (error: unknown) => {
-          if (this.workspaceTabConnection === connection)
-            this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-              diag(
-                'error',
-                'command',
-                'workspace.tabs.mutationFailed',
-                `Shared tab change failed: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-            ])
-        },
-      )
-      .finally(() => {
-        if (this.workspaceTabConnection !== connection) return
-        this.workspaceTabPending -= 1
-        if (this.workspaceTabPending === 0 && this.workspaceTabBuffered) {
-          const snapshot = this.workspaceTabBuffered
-          this.workspaceTabBuffered = undefined
-          this.applyWorkspaceTabSnapshot(snapshot)
+    void connection.mutate(mutation).then(
+      (snapshot) => {
+        if (this.workspaceTabConnection === connection) {
+          this.workspaceAcknowledgedOperations.set(mutation.opId, snapshot.revision)
+          this.workspaceTabBuffered = this.newerWorkspaceSnapshot(this.workspaceTabBuffered, snapshot)
         }
-      })
+      },
+      (error: unknown) => {
+        if (this.workspaceTabConnection === connection) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+          'error', 'command', 'workspace.tabs.mutationFailed',
+          `Shared tab change failed: ${error instanceof Error ? error.message : String(error)}`,
+        )])
+      },
+    ).finally(() => {
+      if (this.workspaceTabConnection !== connection) return
+      this.workspaceTabPending -= 1
+      if (this.workspaceTabPending === 0 && this.workspaceTabBuffered) {
+        const snapshot = this.workspaceTabBuffered
+        this.workspaceTabBuffered = undefined
+        this.applyWorkspaceTabSnapshot(snapshot)
+      }
+    })
   }
 
   private receiveWorkspaceTabSnapshot(snapshot: WorkspaceTabSnapshot): void {
     if (this.workspaceTabPending > 0) {
-      this.workspaceTabBuffered = this.newerWorkspaceSnapshot(
-        this.workspaceTabBuffered,
-        snapshot,
-      )
+      this.workspaceTabBuffered = this.newerWorkspaceSnapshot(this.workspaceTabBuffered, snapshot)
     } else this.applyWorkspaceTabSnapshot(snapshot)
   }
 
@@ -4794,43 +3439,27 @@ export class AppState {
     current: WorkspaceTabSnapshot | undefined,
     incoming: WorkspaceTabSnapshot,
   ): WorkspaceTabSnapshot {
-    return current === undefined || incoming.revision > current.revision
-      ? incoming
-      : current
+    return current === undefined || incoming.revision > current.revision ? incoming : current
   }
 
   private applyWorkspaceTabSnapshot(snapshot: WorkspaceTabSnapshot): void {
-    if (
-      !this.workspaceAuthorityEnabled ||
-      snapshot.revision < this.workspaceTabRevision
-    )
-      return
+    if (!this.workspaceAuthorityEnabled || snapshot.revision < this.workspaceTabRevision) return
     const opening = this.workspaceTabRevision < 0
     this.workspaceTabRevision = snapshot.revision
     this.workspacePersistedRevision = snapshot.revision
-    this.workspaceCausalRevision = Math.max(
-      this.workspaceCausalRevision,
-      snapshot.revision,
-    )
+    this.workspaceCausalRevision = Math.max(this.workspaceCausalRevision, snapshot.revision)
     this.workspaceOperationWatermarks = snapshot.operationWatermarks
     this.workspaceTabBaseline = snapshot.tabs
     this.workspaceActiveBaseline = snapshot.active
     const current = this.tabs.get()
-    const liveById = new Map(
-      current.filter((tab) => !tab.execution).map((tab) => [tab.id, tab]),
-    )
+    const liveById = new Map(current.filter((tab) => !tab.execution).map((tab) => [tab.id, tab]))
     const nextLive: Tab[] = []
     this.applyingWorkspaceTabs = true
     try {
       for (const record of snapshot.tabs) {
         let tab = liveById.get(record.id)
         if (!tab) {
-          tab = this.makeTab(
-            record.document,
-            record.title,
-            undefined,
-            record.editorKind ?? GRAPH_EDITOR_KIND,
-          )
+          tab = this.makeTab(record.document, record.title, undefined, record.editorKind ?? GRAPH_EDITOR_KIND)
           this.markTabDirty(tab.id)
         } else {
           const editorKind = isSessionOnlyEditorKind(tab.editorKind)
@@ -4845,9 +3474,7 @@ export class AppState {
         nextLive.push(tab)
       }
       const retained = new Set(snapshot.tabs.map((tab) => tab.id))
-      for (const tab of current)
-        if (!tab.execution && !retained.has(tab.id))
-          this.cleanupClosedTab(tab.id)
+      for (const tab of current) if (!tab.execution && !retained.has(tab.id)) this.cleanupClosedTab(tab.id)
       // A shared live tab whose lineage collides with a local frozen tab id
       // displaces the frozen view; drop it and release its pin exactly once,
       // or the duplicate id would leak the pin when the tab closes.
@@ -4859,17 +3486,9 @@ export class AppState {
       })
       const nextTabs = [...nextLive, ...frozen]
       this.tabs.set(nextTabs)
-      const localFrozenActive = frozen.some(
-        (tab) => tab.id === this.activeTabId.get(),
-      )
-      if (
-        opening &&
-        !localFrozenActive &&
-        nextLive.some((tab) => tab.id === snapshot.active)
-      )
-        this.activeTabId.set(snapshot.active)
-      else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get()))
-        this.activeTabId.set(nextLive[0]?.id ?? '')
+      const localFrozenActive = frozen.some((tab) => tab.id === this.activeTabId.get())
+      if (opening && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
+      else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
     } finally {
       this.applyingWorkspaceTabs = false
     }
@@ -4893,21 +3512,10 @@ export class AppState {
       for (const [id, entry] of this.workspaceSessions) {
         // entry.tab can lag a metadata-only replacement until the next
         // promotion sweep; the live tab carries the current metadata.
-        const source =
-          this.tabs
-            .get()
-            .find((tab) => tab.id === id && tab.store === entry.session) ??
-          entry.tab
+        const source = this.tabs.get().find((tab) => tab.id === id && tab.store === entry.session) ?? entry.tab
         const local: Tab = {
-          ...this.makeTab(
-            entry.session.doc,
-            source.title,
-            undefined,
-            source.editorKind,
-          ),
-          ...(source.appArrange !== undefined
-            ? { appArrange: source.appArrange }
-            : {}),
+          ...this.makeTab(entry.session.doc, source.title, undefined, source.editorKind),
+          ...(source.appArrange !== undefined ? { appArrange: source.appArrange } : {}),
         }
         local.graphStack.set(source.graphStack.get())
         local.instancePath.set(source.instancePath.get())
@@ -4915,9 +3523,7 @@ export class AppState {
       }
       this.applyingWorkspaceTabs = true
       try {
-        this.tabs.set(
-          this.tabs.get().map((tab) => replacements.get(tab.id) ?? tab),
-        )
+        this.tabs.set(this.tabs.get().map((tab) => replacements.get(tab.id) ?? tab))
       } finally {
         this.applyingWorkspaceTabs = false
       }
@@ -4933,29 +3539,19 @@ export class AppState {
   }
 
   private async reconnectWorkspaceAuthority(error: Error): Promise<void> {
-    if (
-      this.disposed ||
-      !this.workspaceAuthorityDesired ||
-      this.workspaceReconnectPromise
-    )
-      return
-    this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-      diag(
-        'warning',
-        'command',
-        'workspace.tabs.reconnecting',
-        `Shared tab workspace reconnecting: ${error.message}`,
-      ),
-    ])
+    if (this.disposed || !this.workspaceAuthorityDesired || this.workspaceReconnectPromise) return
+    this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+      'warning',
+      'command',
+      'workspace.tabs.reconnecting',
+      `Shared tab workspace reconnecting: ${error.message}`,
+    )])
     this.disableWorkspaceAuthority(true)
     let delay = 250
     const reconnect = async (): Promise<void> => {
       while (this.workspaceAuthorityDesired && !this.disposed) {
         try {
-          await this.enableWorkspaceAuthority(
-            this.workspacePortFactory,
-            this.workspaceTabsPortFactory,
-          )
+          await this.enableWorkspaceAuthority(this.workspacePortFactory, this.workspaceTabsPortFactory)
           return
         } catch {
           if (!this.workspaceAuthorityDesired || this.disposed) return
@@ -4979,20 +3575,17 @@ export class AppState {
       // as their store, and closing it would strand the live tab on a dead
       // session. Adopt the replacement Tab object instead.
       if (live !== undefined && live.store === entry.session) {
-        if (live !== entry.tab)
-          this.workspaceSessions.set(id, { tab: live, session: entry.session })
+        if (live !== entry.tab) this.workspaceSessions.set(id, { tab: live, session: entry.session })
         continue
       }
       entry.session.close()
       this.workspaceSessions.delete(id)
     }
     const pending = current
-      .filter(
-        (tab) =>
-          tab.execution === undefined &&
-          this.workspaceSessions.get(tab.id)?.tab !== tab &&
-          !('status' in tab.store),
-      )
+      .filter((tab) =>
+        tab.execution === undefined &&
+        this.workspaceSessions.get(tab.id)?.tab !== tab &&
+        !('status' in tab.store))
       .map((tab) => this.startWorkspaceTabPromotion(tab))
     await Promise.all(pending)
   }
@@ -5002,38 +3595,24 @@ export class AppState {
     if (existing?.tab === tab) return existing.promise
     const generation = this.workspaceAuthorityGeneration
     const promise = this.promoteWorkspaceTab(tab, generation).finally(() => {
-      if (this.workspacePromotions.get(tab.id)?.promise === promise)
-        this.workspacePromotions.delete(tab.id)
+      if (this.workspacePromotions.get(tab.id)?.promise === promise) this.workspacePromotions.delete(tab.id)
     })
     this.workspacePromotions.set(tab.id, { tab, promise })
     return promise
   }
 
-  private async promoteWorkspaceTab(
-    tab: Tab,
-    generation: number,
-  ): Promise<void> {
+  private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
-    const fallback: SchemaResolver = Object.assign(
-      (type: string): NodeSchema | undefined => {
-        const live = this.tabs
-          .get()
-          .find((candidate) => candidate.id === tab.id)
-        return live ? this.registryForTab(live)?.resolve(type) : undefined
-      },
-      {
-        forEditorRole: (role: string) => {
-          const live = this.tabs
-            .get()
-            .find((candidate) => candidate.id === tab.id)
-          return live
-            ? this.registryForTab(live)?.resolve.forEditorRole?.(role)
-            : undefined
-        },
-      },
+    const registry = (): SchemaRegistry | undefined => {
+      const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
+      return live ? this.registryForTab(live) : undefined
+    }
+    const resolve = this.resolverWithVirtualNodes(
+      Object.assign((type: string) => registry()?.resolve(type), {
+        forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
+      }),
     )
-    const resolve = this.resolverWithVirtualNodes(fallback)
     let session: SharedDocumentSession | undefined
     try {
       session = await connectSharedWorkerSession(
@@ -5043,44 +3622,27 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
-          onConflict: (conflict) =>
-            this.reportProblems(tab.id, conflict.diagnostics),
-          onError: (message) =>
-            this.reportProblems(tab.id, [
-              diag('error', 'command', 'workspace.authority.failed', message),
-            ]),
+          onConflict: (conflict) => this.reportProblems(tab.id, conflict.diagnostics),
+          onError: (message) => this.reportProblems(tab.id, [
+            diag('error', 'command', 'workspace.authority.failed', message),
+          ]),
         },
         this.workspacePortFactory,
-        () =>
-          this.tabs.get().find((candidate) => candidate.id === tab.id) === tab
-            ? tab.store.doc
-            : undefined,
+        () => this.tabs.get().find((candidate) => candidate.id === tab.id) === tab ? tab.store.doc : undefined,
         this.workspaceReplacements.has(tab),
       )
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
-      const sourceChanged =
-        tab.store.doc !== sourceDocument ||
-        tab.store.revision !== sourceRevision
-      const sameDocument =
-        JSON.stringify(session.doc) === JSON.stringify(tab.store.doc)
+      const sourceChanged = tab.store.doc !== sourceDocument || tab.store.revision !== sourceRevision
+      const sameDocument = JSON.stringify(session.doc) === JSON.stringify(tab.store.doc)
       const latestWasAdopted = !sourceChanged || sameDocument
-      if (
-        generation !== this.workspaceAuthorityGeneration ||
-        !this.workspaceAuthorityEnabled ||
-        live !== tab ||
-        this.collabTabs.get().has(tab.id) ||
-        !latestWasAdopted
-      ) {
+      if (generation !== this.workspaceAuthorityGeneration || !this.workspaceAuthorityEnabled ||
+        live !== tab || this.collabTabs.get().has(tab.id) || !latestWasAdopted) {
         session.close()
         if (live === tab && sourceChanged) {
-          this.reportProblems(tab.id, [
-            diag(
-              'error',
-              'command',
-              'workspace.authority.changedDuringOpen',
-              'The workflow changed while its shared workspace was opening; the local edit was kept.',
-            ),
-          ])
+          this.reportProblems(tab.id, [diag(
+            'error', 'command', 'workspace.authority.changedDuringOpen',
+            'The workflow changed while its shared workspace was opening; the local edit was kept.',
+          )])
         }
         return
       }
@@ -5099,28 +3661,18 @@ export class AppState {
       // publishes the document.
       this.sessionContinuations.set(tab.store, session)
       this.adoptControllerMutations(tab.store, session)
-      this.reconcileDocumentPersistenceRevision(
-        tab.id,
-        tab.store.doc,
-        session.doc,
-      )
+      this.reconcileDocumentPersistenceRevision(tab.id, tab.store.doc, session.doc)
       reconcileGraphNavigation(replacement)
       this.workspaceSessions.set(tab.id, { tab: replacement, session })
-      this.tabs.set(
-        this.tabs
-          .get()
-          .map((candidate) => (candidate === tab ? replacement : candidate)),
-      )
+      this.tabs.set(this.tabs.get().map((candidate) => candidate === tab ? replacement : candidate))
     } catch (error) {
       session?.close()
-      this.reportProblems(tab.id, [
-        diag(
-          'error',
-          'command',
-          'workspace.authority.failed',
-          `Shared workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-      ])
+      this.reportProblems(tab.id, [diag(
+        'error',
+        'command',
+        'workspace.authority.failed',
+        `Shared workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      )])
     }
   }
 
@@ -5133,13 +3685,10 @@ export class AppState {
    * the old session would silently stop persisting (and dirty-marking)
    * the replacement's edits.
    */
-  private readonly persistWatchers = new Map<
-    string,
-    {
-      tab: Tab
-      unsubscribe: () => void
-    }
-  >()
+  private readonly persistWatchers = new Map<string, {
+    tab: Tab
+    unsubscribe: () => void
+  }>()
   private persistTimer: ReturnType<typeof setTimeout> | undefined
 
   private markDocumentPersistenceDirty(tabId: string): void {
@@ -5160,12 +3709,7 @@ export class AppState {
    * tabs and REBIND watchers whose tab id now names a different session.
    */
   private watchTabDocuments(): void {
-    const live = new Map(
-      this.tabs
-        .get()
-        .filter((t) => !t.execution)
-        .map((t) => [t.id, t]),
-    )
+    const live = new Map(this.tabs.get().filter((t) => !t.execution).map((t) => [t.id, t]))
     for (const [id, watcher] of this.persistWatchers) {
       if (live.get(id) === watcher.tab) continue // same session, still good
       watcher.unsubscribe()
@@ -5179,8 +3723,7 @@ export class AppState {
           // Signal notification snapshots its listeners, so an unsubscribe
           // cannot cancel a callback already in flight: re-check ownership
           // rather than trusting teardown ordering.
-          if (this.tabs.get().find((candidate) => candidate.id === id) !== tab)
-            return
+          if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
           this.documentPersistenceDirty.add(id)
           reconcileGraphNavigation(tab)
           this.markTabDirty(id)
@@ -5212,23 +3755,16 @@ export class AppState {
   }
 
   private persistTabsNow(forceStage = false): void {
-    if (
-      !forceStage &&
-      this.workspaceAuthorityEnabled &&
-      this.workspaceTabPending > 0
-    ) {
+    if (!forceStage && this.workspaceAuthorityEnabled && this.workspaceTabPending > 0) {
       if (!this.disposed) this.schedulePersistTabs()
       return
     }
     const state: PersistedTabs = {
       v: 1,
-      active: this.workspaceAuthorityEnabled
-        ? this.workspaceActiveBaseline
-        : this.activeTabId.get(),
+      active: this.workspaceAuthorityEnabled ? this.workspaceActiveBaseline : this.activeTabId.get(),
       workspaceRevision: this.workspacePersistedRevision,
       workspaceOperationWatermarks: this.workspaceOperationWatermarks,
-      tabs: this.tabs
-        .get()
+      tabs: this.tabs.get()
         .filter((t) => !t.execution)
         .map((t) => {
           const localViewState = this.tabViewStates.get().get(t.id)
@@ -5237,79 +3773,44 @@ export class AppState {
             title: t.title,
             doc: t.store.doc as unknown,
             documentRevision: this.documentPersistenceRevisions.get(t.id) ?? 0,
-            ...(this.documentPersistenceDirty.has(t.id)
-              ? { documentDirty: true as const }
-              : {}),
+            ...(this.documentPersistenceDirty.has(t.id) ? { documentDirty: true as const } : {}),
             // Stock provenance survives ONLY while pristine: an edited seed
             // must never regain silent-migration status after a reload resets
             // its revision counter.
-            ...(this.stockPending.has(t.id) && t.store.revision === 0
-              ? { stock: true as const }
-              : {}),
-            ...(t.editorKind !== GRAPH_EDITOR_KIND &&
-            !isSessionOnlyEditorKind(t.editorKind)
-              ? { editorKind: t.editorKind }
-              : {}),
+            ...(this.stockPending.has(t.id) && t.store.revision === 0 ? { stock: true as const } : {}),
+            ...(t.editorKind !== GRAPH_EDITOR_KIND && !isSessionOnlyEditorKind(t.editorKind) ? { editorKind: t.editorKind } : {}),
             ...(viewState === undefined ? {} : { viewState }),
           }
         }),
     }
-    const acknowledged = [...this.workspaceAcknowledgedOperations].map(
-      ([opId, revision]) => ({ opId, revision }),
-    )
-    commitPersistedTabs(
-      state,
-      this.workspaceActorId,
-      acknowledged,
-      (retired, committed) => {
-        for (const tab of committed.tabs) {
-          const id = persistedTabId(tab)
-          if (!id) continue
-          this.documentPersistenceRevisions.set(id, tab.documentRevision ?? 0)
-          const live = this.tabs.get().find((candidate) => candidate.id === id)
-          if (
-            live &&
-            JSON.stringify(live.store.doc) === JSON.stringify(tab.doc)
-          )
-            this.documentPersistenceDirty.delete(id)
+    const acknowledged = [...this.workspaceAcknowledgedOperations].map(([opId, revision]) => ({ opId, revision }))
+    commitPersistedTabs(state, this.workspaceActorId, acknowledged, (retired, committed) => {
+      for (const tab of committed.tabs) {
+        const id = persistedTabId(tab)
+        if (!id) continue
+        this.documentPersistenceRevisions.set(id, tab.documentRevision ?? 0)
+        const live = this.tabs.get().find((candidate) => candidate.id === id)
+        if (live && JSON.stringify(live.store.doc) === JSON.stringify(tab.doc)) this.documentPersistenceDirty.delete(id)
+      }
+      if (!this.disposed && this.tabs.get().some((tab) => this.documentPersistenceDirty.has(tab.id))) {
+        this.schedulePersistTabs()
+      }
+      for (const opId of retired) {
+        if ((this.workspaceAcknowledgedOperations.get(opId) ?? Infinity) <= this.workspacePersistedRevision) {
+          this.workspaceAcknowledgedOperations.delete(opId)
         }
-        if (
-          !this.disposed &&
-          this.tabs
-            .get()
-            .some((tab) => this.documentPersistenceDirty.has(tab.id))
-        ) {
-          this.schedulePersistTabs()
-        }
-        for (const opId of retired) {
-          if (
-            (this.workspaceAcknowledgedOperations.get(opId) ?? Infinity) <=
-            this.workspacePersistedRevision
-          ) {
-            this.workspaceAcknowledgedOperations.delete(opId)
-          }
-        }
-      },
-    )
+      }
+    })
   }
 
-  private log(
-    severity: AppLogEntry['severity'],
-    source: string,
-    message: string,
-  ): void {
-    this.logs.update((entries) =>
-      [...entries, { timestamp: Date.now(), severity, source, message }].slice(
-        -500,
-      ),
-    )
+  private log(severity: AppLogEntry['severity'], source: string, message: string): void {
+    this.logs.update((entries) => [
+      ...entries,
+      { timestamp: Date.now(), severity, source, message },
+    ].slice(-500))
   }
 
-  recordHostLog(
-    severity: AppLogEntry['severity'],
-    source: string,
-    message: string,
-  ): void {
+  recordHostLog(severity: AppLogEntry['severity'], source: string, message: string): void {
     this.log(severity, source, message)
   }
 
@@ -5322,17 +3823,8 @@ export class AppState {
    * ExecutionStore (refs carry the connection id, so nothing collides), a
    * reconcile pass on every (re)connect, and tick bumps for the shell.
    */
-  private createBackend(
-    id: ConnectionId,
-    label: string,
-    baseUrl: string,
-  ): Backend & { protocol: 'v1' }
-  private createBackend(
-    id: ConnectionId,
-    label: string,
-    baseUrl: string,
-    protocol: BackendProtocol,
-  ): Backend
+  private createBackend(id: ConnectionId, label: string, baseUrl: string): Backend & { protocol: 'v1' }
+  private createBackend(id: ConnectionId, label: string, baseUrl: string, protocol: BackendProtocol): Backend
   private createBackend(
     id: ConnectionId,
     label: string,
@@ -5349,9 +3841,7 @@ export class AppState {
       ? `${baseUrl.replace(/^http/, 'ws')}${wsPath}?clientId=${encodeURIComponent(clientId)}`
       : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${baseUrl}${wsPath}?clientId=${encodeURIComponent(clientId)}`
     const registry = createSignal<SchemaRegistry | undefined>(undefined)
-    const workerCatalog = createSignal<WorkerCatalogState>({
-      status: 'unsupported',
-    })
+    const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
     const scopedClient = createScopedClient({ baseUrl })
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
     let refreshDiagnostics = (): void => {}
@@ -5404,35 +3894,18 @@ export class AppState {
           // emit them; refreshForEpoch exists only for the native protocol.
           switch (e.kind) {
             case 'extensionEvent': {
-              const pinned = this.registryForExecution(e.execution)
-                ?.extensionSnapshotPair?.digest
-              if (pinned !== undefined && pinned !== e.extensionSnapshotDigest)
-                return
-              this.extensionWorlds
-                .get(e.execution.connection)
-                ?.get(e.extensionSnapshotDigest)
-                ?.deliver(e)
+              const pinned = this.registryForExecution(e.execution)?.extensionSnapshotPair?.digest
+              if (pinned !== undefined && pinned !== e.extensionSnapshotDigest) return
+              this.extensionWorlds.get(e.execution.connection)?.get(e.extensionSnapshotDigest)?.deliver(e)
               return
             }
             case 'schemaChanged':
-              this.log(
-                'info',
-                label,
-                `schema surface changed (epoch ${e.epoch})`,
-              )
+              this.log('info', label, `schema surface changed (epoch ${e.epoch})`)
               refreshForEpoch?.(e.epoch)
               return
             case 'compositionProgress':
-              this.log(
-                'info',
-                label,
-                `composing packs ${e.done}/${e.total}${e.phase ? ` (${e.phase})` : ''}`,
-              )
-              base.composition.set({
-                done: e.done,
-                total: e.total,
-                ...(e.phase ? { phase: e.phase } : {}),
-              })
+              this.log('info', label, `composing packs ${e.done}/${e.total}${e.phase ? ` (${e.phase})` : ''}`)
+              base.composition.set({ done: e.done, total: e.total, ...(e.phase ? { phase: e.phase } : {}) })
               return
             case 'compositionComplete':
               this.log(
@@ -5446,18 +3919,9 @@ export class AppState {
               return
             case 'packFailed':
               compositionRequest += 1
-              this.log(
-                'warn',
-                label,
-                `pack "${e.pack}" failed to load: ${e.error}`,
-              )
+              this.log('warn', label, `pack "${e.pack}" failed to load: ${e.error}`)
               this.reportProblems(packProblemsOwner, [
-                diag(
-                  'error',
-                  'schema',
-                  'schema.packFailed',
-                  `[${label}] pack "${e.pack}" failed to load: ${e.error}`,
-                ),
+                diag('error', 'schema', 'schema.packFailed', `[${label}] pack "${e.pack}" failed to load: ${e.error}`),
               ])
               return
             default:
@@ -5480,12 +3944,7 @@ export class AppState {
             // A failed reconcile must be visible, not vanish into a void
             // promise: executions would silently stay 'running' forever.
             this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-              diag(
-                'error',
-                'runtime',
-                'reconcile.failed',
-                `[${label}] failed to reconcile executions after reconnect: ${e instanceof Error ? e.message : String(e)}`,
-              ),
+              diag('error', 'runtime', 'reconcile.failed', `[${label}] failed to reconcile executions after reconnect: ${e instanceof Error ? e.message : String(e)}`),
             ])
           })
         }),
@@ -5493,32 +3952,17 @@ export class AppState {
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
         }),
-        base.workerCatalog.subscribe(() =>
-          this.backendsTick.update((v) => v + 1),
-        ),
-        base.schemaState.subscribe(() =>
-          this.backendsTick.update((v) => v + 1),
-        ),
-        base.replacementProblems.subscribe(() =>
-          this.backendsTick.update((v) => v + 1),
-        ),
-        base.compatSkips.subscribe(() =>
-          this.backendsTick.update((v) => v + 1),
-        ),
+        base.workerCatalog.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.compatSkips.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.supervisor.subscribe(() => this.backendsTick.update((v) => v + 1)),
-        base.composition.subscribe(() =>
-          this.backendsTick.update((v) => v + 1),
-        ),
+        base.composition.subscribe(() => this.backendsTick.update((v) => v + 1)),
       ]
       return () => unsubs.forEach((u) => u())
     }
     if (protocol === 'dinkster') {
-      const connection = new DinksterConnection({
-        id,
-        baseUrl,
-        clientId,
-        wsUrl,
-      })
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl })
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -5550,21 +3994,11 @@ export class AppState {
       const requestCompositionProblems = (gen: number): void => {
         const request = ++compositionRequest
         void connection.fetchCompositionFailures().then((failures) => {
-          if (
-            failures === undefined ||
-            gen !== staleGen ||
-            request !== compositionRequest
-          )
-            return
+          if (failures === undefined || gen !== staleGen || request !== compositionRequest) return
           this.replaceProblems(
             packProblemsOwner,
             failures.map(({ pack, error }) =>
-              diag(
-                'error',
-                'schema',
-                'schema.packFailed',
-                `[${label}] pack "${pack}" failed to load: ${error}`,
-              ),
+              diag('error', 'schema', 'schema.packFailed', `[${label}] pack "${pack}" failed to load: ${error}`),
             ),
           )
         })
@@ -5601,8 +4035,7 @@ export class AppState {
             requestCurrentDiagnostics(gen)
             freshGen = gen
             // Older backend without epochs: one refetch is the best we can do.
-            if (fresh.epoch === undefined || fresh.epoch >= targetEpoch)
-              return targetEpoch
+            if (fresh.epoch === undefined || fresh.epoch >= targetEpoch) return targetEpoch
             // No progress and no newer ping arrived: stop rather than spin.
             if (targetEpoch === goal) return goal
           }
@@ -5635,27 +4068,17 @@ export class AppState {
               // Supervisor-managed restart: the poll narrates the wait, and
               // the ready transition's composition ping refetches (gate
               // bypassed), mirroring the startup 503 gate.
-              this.log(
-                'info',
-                label,
-                `engine not ready (${e.state}); deferring /api/nodes refresh`,
-              )
+              this.log('info', label, `engine not ready (${e.state}); deferring /api/nodes refresh`)
               return
             }
             this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-              diag(
-                'error',
-                'schema',
-                'schema.refreshFailed',
-                `[${label}] failed to refresh /api/nodes after ${why}: ${e instanceof Error ? e.message : String(e)}`,
-              ),
+              diag('error', 'schema', 'schema.refreshFailed', `[${label}] failed to refresh /api/nodes after ${why}: ${e instanceof Error ? e.message : String(e)}`),
             ])
           },
         )
       }
       const refreshForEpoch = (epoch: number): void => {
-        if (freshGen >= staleGen && (registry.get()?.epoch ?? 0) >= epoch)
-          return
+        if (freshGen >= staleGen && (registry.get()?.epoch ?? 0) >= epoch) return
         // The ping itself retires choice authority. Do not wait for schema
         // refetch success: a failed refetch must not leave old choices live.
         if (epoch > targetEpoch) {
@@ -5675,10 +4098,7 @@ export class AppState {
         // the new life actually advertises.
         const held = registry.get()
         connection.invalidateExtensionSnapshotPair()
-        if (
-          held?.graphFeatures !== undefined ||
-          held?.extensionSnapshotPair !== undefined
-        ) {
+        if (held?.graphFeatures !== undefined || held?.extensionSnapshotPair !== undefined) {
           const stripped = { ...held }
           delete stripped.graphFeatures
           delete stripped.extensionSnapshotPair
@@ -5699,18 +4119,16 @@ export class AppState {
         handleStatusChange,
       )
       const disposeCompletionHydration = connection.onLiveCompletion((ref) => {
-        hydrateDinksterCompletedExecution(connection, this.store, ref).catch(
-          (error: unknown) => {
-            this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-              diag(
-                'error',
-                'runtime',
-                'execution.artifactHydrationFailed',
-                `[${label}] failed to hydrate completed execution artifacts: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-            ])
-          },
-        )
+        hydrateDinksterCompletedExecution(connection, this.store, ref).catch((error: unknown) => {
+          this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+            diag(
+              'error',
+              'runtime',
+              'execution.artifactHydrationFailed',
+              `[${label}] failed to hydrate completed execution artifacts: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          ])
+        })
       })
       nativeBackend = {
         ...base,
@@ -5728,9 +4146,7 @@ export class AppState {
       return nativeBackend
     }
     const connection = new BackendConnection({ id, baseUrl, clientId, wsUrl })
-    const disposeConnection = wire(connection, () =>
-      reconcileExecutions(connection, this.store),
-    )
+    const disposeConnection = wire(connection, () => reconcileExecutions(connection, this.store))
     return {
       ...base,
       protocol,
@@ -5758,21 +4174,11 @@ export class AppState {
     const id = asConnectionId(trimmed || 'local')
     if (this.backends.get().some((b) => b.id === id)) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'schema',
-          'backend.duplicate',
-          `backend '${trimmed}' is already connected`,
-        ),
+        diag('error', 'schema', 'backend.duplicate', `backend '${trimmed}' is already connected`),
       ])
       return undefined
     }
-    const entry = this.createBackend(
-      id,
-      label?.trim() || trimmed,
-      trimmed,
-      protocol,
-    )
+    const entry = this.createBackend(id, label?.trim() || trimmed, trimmed, protocol)
     this.retiredBackends.delete(id) // re-adding revives the live entry
     this.backends.update((list) => [...list, entry])
     this.log('info', 'Backends', `backend added: ${entry.label}`)
@@ -5807,12 +4213,7 @@ export class AppState {
       // The live probe never throws, but an injected discovery can; keep
       // the named-problem contract instead of an unhandled rejection.
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'schema',
-          'backend.discovery-failed',
-          `'${trimmed}': discovery failed: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        diag('error', 'schema', 'backend.discovery-failed', `'${trimmed}': discovery failed: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return undefined
     }
@@ -5844,8 +4245,7 @@ export class AppState {
       return
     }
     const id = canonicalBackendUrl(added.baseUrl)
-    if (current.some((backend) => canonicalBackendUrl(backend.baseUrl) === id))
-      return
+    if (current.some((backend) => canonicalBackendUrl(backend.baseUrl) === id)) return
     savePersistedBackends([
       ...current,
       { baseUrl: added.baseUrl, label: added.label, protocol: added.protocol },
@@ -5866,14 +4266,11 @@ export class AppState {
 
   /** Current live fallback used only to repair an unreadable envelope. */
   private persistableBackends(): readonly PersistedBackend[] {
-    return this.backends
-      .get()
-      .slice(1)
-      .map((backend) => ({
-        baseUrl: backend.baseUrl,
-        label: backend.label,
-        protocol: backend.protocol,
-      }))
+    return this.backends.get().slice(1).map((backend) => ({
+      baseUrl: backend.baseUrl,
+      label: backend.label,
+      protocol: backend.protocol,
+    }))
   }
 
   /**
@@ -5914,14 +4311,8 @@ export class AppState {
    * one, and never a same-hash impostor (extra-schema layering can replace
    * `schemas`/`resolve` while keeping the raw backend hash).
    */
-  private readonly retainedRegistries = new WeakMap<
-    CompileArtifact,
-    SchemaRegistry
-  >()
-  private readonly pendingWorkspaceRegistrations = new Map<
-    string,
-    WorkspaceRegistration
-  >()
+  private readonly retainedRegistries = new WeakMap<CompileArtifact, SchemaRegistry>()
+  private readonly pendingWorkspaceRegistrations = new Map<string, WorkspaceRegistration>()
 
   /**
    * The registry a frozen execution view must resolve with. Preference order
@@ -5987,8 +4378,7 @@ export class AppState {
    */
   backendForTab(tab: Tab): Backend {
     const fallback = this.backends.get()[0]!
-    if (tab.execution)
-      return this.backendFor(tab.execution.connection) ?? fallback
+    if (tab.execution) return this.backendFor(tab.execution.connection) ?? fallback
     const target = this.tabTargets.get().get(tab.id)
     return (target && this.backendFor(target)) ?? fallback
   }
@@ -5997,17 +4387,8 @@ export class AppState {
   openNodeHelp(tab: Tab, nodeType: string): boolean {
     const schema = this.registryForTab(tab)?.resolve(nodeType)
     const backend = this.backendForTab(tab)
-    if (
-      schema?.hasDocs !== true ||
-      schema.pack === undefined ||
-      backend.protocol !== 'dinkster'
-    )
-      return false
-    this.nodeHelpRequest.set({
-      backendId: backend.id,
-      pack: schema.pack,
-      nodeType,
-    })
+    if (schema?.hasDocs !== true || schema.pack === undefined || backend.protocol !== 'dinkster') return false
+    this.nodeHelpRequest.set({ backendId: backend.id, pack: schema.pack, nodeType })
     setPanelOpen(this.panels, this.dock, 'node-help', 'right', true)
     return true
   }
@@ -6023,10 +4404,8 @@ export class AppState {
   widgetRegistryForTab(tab: Tab | undefined): typeof this.widgetRegistry {
     const registry = tab === undefined ? undefined : this.registryForTab(tab)
     const digest = registry?.extensionSnapshotPair?.digest
-    return digest === undefined
-      ? this.widgetRegistry
-      : (this.extensionWorlds.get(registry!.connection)?.get(digest)?.widgets ??
-          this.widgetRegistry)
+    return digest === undefined ? this.widgetRegistry
+      : this.extensionWorlds.get(registry!.connection)?.get(digest)?.widgets ?? this.widgetRegistry
   }
 
   private replacementSchemaOf(
@@ -6035,11 +4414,9 @@ export class AppState {
     role: 'source' | 'target',
   ): NodeSchema | undefined {
     if (role === 'target') return registry?.resolve(type)
-    return (
-      registry?.comfyAliases?.sourceSchemas.get(type) ??
+    return registry?.comfyAliases?.sourceSchemas.get(type) ??
       registry?.comfyGroups?.groupSchemas.get(type) ??
       registry?.resolve(type)
-    )
   }
 
   // -- Deprecation + replacement --------------------------------------------
@@ -6051,10 +4428,7 @@ export class AppState {
   readonly reviewReplacements: Signal<boolean> = createSignal(false)
 
   /** Rules registered by packs/extensions; layered under schema rules. */
-  private readonly extraRules: {
-    layer: 'pack' | 'core'
-    rule: ReplacementRule
-  }[] = []
+  private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
   private extraRulesVersion = 0
   /** Per-SchemaRegistry rule cache. Weak: a refreshed/replaced registry's
    * entry must not pin the old registry (or its rules) alive. */
@@ -6120,10 +4494,7 @@ export class AppState {
    * 'core' layer is the frontend's own historical-rename table). Malformed
    * rules are rejected with diagnostics and land in Problems.
    */
-  registerReplacementRule(
-    layer: 'pack' | 'core',
-    rule: ReplacementRule,
-  ): readonly Diagnostic[] {
+  registerReplacementRule(layer: 'pack' | 'core', rule: ReplacementRule): readonly Diagnostic[] {
     const probe = createReplacementRegistry()
     const diags = probe.register(layer, rule)
     if (diags.length > 0) {
@@ -6142,8 +4513,7 @@ export class AppState {
    */
   private replacementRegistryFor(reg: SchemaRegistry): ReplacementRegistry {
     const cached = this.replacementRegistries.get(reg)
-    if (cached && cached.version === this.extraRulesVersion)
-      return cached.registry
+    if (cached && cached.version === this.extraRulesVersion) return cached.registry
     const registry = createReplacementRegistry()
     const diags = [...registerSchemaRules(registry, reg.schemas.values())]
     for (const record of reg.comfyAliases?.records ?? []) {
@@ -6152,18 +4522,13 @@ export class AppState {
     for (const record of reg.comfyGroups?.records ?? []) {
       diags.push(...registry.register('pack', record.replacement))
     }
-    for (const { layer, rule } of this.extraRules)
-      diags.push(...registry.register(layer, rule))
+    for (const { layer, rule } of this.extraRules) diags.push(...registry.register(layer, rule))
     // Synthesized legacy-name rules last, at the lowest-precedence layer:
     // an explicit schema/pack/core rule for the same legacy name always
     // wins over the derived rename (see replace/alias-rules.ts).
-    for (const rule of synthesizeAliasRules(reg.schemas.values()))
-      diags.push(...registry.register('core', rule))
+    for (const rule of synthesizeAliasRules(reg.schemas.values())) diags.push(...registry.register('core', rule))
     this.reportProblems(GLOBAL_PROBLEMS_OWNER, diags)
-    this.replacementRegistries.set(reg, {
-      registry,
-      version: this.extraRulesVersion,
-    })
+    this.replacementRegistries.set(reg, { registry, version: this.extraRulesVersion })
     return registry
   }
 
@@ -6175,13 +4540,8 @@ export class AppState {
     if (tab.execution) return []
     const reg = this.registryForTab(tab)
     if (!reg) return []
-    const resolve: ReplacementSchemaResolver = (type, role) =>
-      this.replacementSchemaOf(reg, type, role)
-    return scanReplacements(
-      tab.store.doc,
-      this.replacementRegistryFor(reg),
-      resolve,
-    )
+    const resolve: ReplacementSchemaResolver = (type, role) => this.replacementSchemaOf(reg, type, role)
+    return scanReplacements(tab.store.doc, this.replacementRegistryFor(reg), resolve)
   }
 
   /**
@@ -6228,8 +4588,7 @@ export class AppState {
     // it resolves natively) keeps stock provenance: the entitlement to a
     // silent migration must survive until a backend actually claims it.
     if (items.length === 0) return
-    const stockPristine =
-      this.stockPending.has(tab.id) && tab.store.revision === 0
+    const stockPristine = this.stockPending.has(tab.id) && tab.store.revision === 0
     this.stockPending.delete(tab.id) // engaged: silent or loud, provenance is spent
     const review = this.reviewReplacements.get()
     const firstHop = (item: ReplacementScanItem): ReplacementScanItem => {
@@ -6245,82 +4604,59 @@ export class AppState {
         safe: hop.diagnostics.every((entry) => entry.severity === 'info'),
       }
     }
-    const nodeKey = (item: ReplacementScanItem): string =>
-      JSON.stringify([item.graphId, item.nodeId])
+    const nodeKey = (item: ReplacementScanItem): string => JSON.stringify([item.graphId, item.nodeId])
     const appliedMigrations: ReplacementScanItem[] = []
     const failedMigrationNodes = new Set<string>()
     const failedFallbackNodes = new Set<string>()
     let remainingItems = items
     for (;;) {
-      const candidate = remainingItems.find(
-        (item) =>
-          item.hops.some((hop) => hop.rule.migration !== undefined) &&
-          (review
-            ? item.hops[0]?.plan.migrationFallback === true
-            : item.hops.some(
-                (hop, index) =>
-                  hop.plan.migrationFallback === true &&
-                  item.hops
-                    .slice(0, index)
-                    .every((prefix) =>
-                      prefix.diagnostics.every(
-                        (entry) => entry.severity === 'info',
-                      ),
-                    ),
-              ) || item.safe) &&
-          !failedMigrationNodes.has(nodeKey(item)),
+      const candidate = remainingItems.find((item) =>
+        item.hops.some((hop) => hop.rule.migration !== undefined) &&
+        (review
+          ? item.hops[0]?.plan.migrationFallback === true
+          : item.hops.some((hop, index) =>
+              hop.plan.migrationFallback === true &&
+              item.hops.slice(0, index).every((prefix) =>
+                prefix.diagnostics.every((entry) => entry.severity === 'info')),
+            ) || item.safe) &&
+        !failedMigrationNodes.has(nodeKey(item)),
       )
       if (candidate === undefined) break
       const step = firstHop(candidate)
       if (!this.applyReplacements(tab, [step])) {
         failedMigrationNodes.add(nodeKey(candidate))
-        if (step.plan?.migrationFallback === true)
-          failedFallbackNodes.add(nodeKey(candidate))
+        if (step.plan?.migrationFallback === true) failedFallbackNodes.add(nodeKey(candidate))
         continue
       }
       appliedMigrations.push(step)
       remainingItems = this.scanTabReplacements(tab)
     }
-    remainingItems = remainingItems.filter(
-      (item) =>
-        !(
-          failedFallbackNodes.has(nodeKey(item)) &&
-          item.hops[0]?.plan.migrationFallback === true
-        ),
+    remainingItems = remainingItems.filter((item) =>
+      !(failedFallbackNodes.has(nodeKey(item)) && item.hops[0]?.plan.migrationFallback === true),
     )
     const migrationSucceeded = failedMigrationNodes.size === 0
 
     const maintainedItems = remainingItems.filter((item) => {
       const registry = this.registryForTab(tab)
-      return (
-        registry?.comfyAliases?.recordsBySourceType.has(item.sourceType) ===
-          true ||
+      return registry?.comfyAliases?.recordsBySourceType.has(item.sourceType) === true ||
         registry?.comfyGroups?.recordsByGroupType.has(item.sourceType) === true
-      )
     })
     const maintainedCohortSafe = maintainedItems.every((item) => item.safe)
     const ordinaryAuto = review
       ? []
-      : remainingItems.filter(
-          (item) =>
-            !failedMigrationNodes.has(nodeKey(item)) &&
-            item.safe &&
-            (maintainedCohortSafe || !maintainedItems.includes(item)),
+      : remainingItems.filter((item) =>
+          !failedMigrationNodes.has(nodeKey(item)) &&
+          item.safe &&
+          (maintainedCohortSafe || !maintainedItems.includes(item)),
         )
-    const ordinarySucceeded =
-      ordinaryAuto.length === 0 || this.applyReplacements(tab, ordinaryAuto)
+    const ordinarySucceeded = ordinaryAuto.length === 0 || this.applyReplacements(tab, ordinaryAuto)
     const rest = ordinarySucceeded
       ? remainingItems.filter((item) => !ordinaryAuto.includes(item))
       : remainingItems
     // Stock content stays silent only when every engaged replacement was
     // applied safely. Migration hops run separately so plans that share old
     // graph state cannot invalidate and roll back one another.
-    const silentEligible =
-      stockPristine &&
-      !review &&
-      migrationSucceeded &&
-      ordinarySucceeded &&
-      rest.length === 0
+    const silentEligible = stockPristine && !review && migrationSucceeded && ordinarySucceeded && rest.length === 0
     const applied = [
       ...appliedMigrations,
       ...(ordinarySucceeded ? ordinaryAuto : []),
@@ -6332,21 +4668,13 @@ export class AppState {
         tab.store.clearHistory()
       } else {
         this.reportProblems(tab.id, [
-          ...applied.flatMap((item) =>
-            item.diagnostics.filter((entry) => entry.severity === 'info'),
-          ),
-          diag(
-            'info',
-            'command',
-            'replace.applied',
-            `applied ${applied.length} replacement step(s) automatically`,
-          ),
+          ...applied.flatMap((item) => item.diagnostics.filter((entry) => entry.severity === 'info')),
+          diag('info', 'command', 'replace.applied', `applied ${applied.length} replacement step(s) automatically`),
         ])
       }
     }
     if (rest.length > 0) {
-      this.reportProblems(
-        tab.id,
+      this.reportProblems(tab.id,
         rest.map((i) =>
           diag(
             'warning',
@@ -6374,23 +4702,20 @@ export class AppState {
     const registry = this.registryForTab(tab)
     if (!registry) return
     const missing = new Map<string, number>()
-    for (const graph of Object.values(tab.store.doc.graphs))
-      for (const node of Object.values(graph.nodes)) {
-        if (
-          node.type.startsWith('#') ||
-          (node.virtual === true &&
-            this.virtualNodeSchema(node.type)?.virtual === true) ||
-          registry.resolve(node.type) ||
-          registry.comfyAliases?.sourceSchemas.has(node.type) === true ||
-          registry.comfyGroups?.groupSchemas.has(node.type) === true
-        )
-          continue
-        missing.set(node.type, (missing.get(node.type) ?? 0) + 1)
-      }
+    for (const graph of Object.values(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
+      if (
+        node.type.startsWith('#') ||
+        (node.virtual === true && this.virtualNodeSchema(node.type)?.virtual === true) ||
+        registry.resolve(node.type) ||
+        registry.comfyAliases?.sourceSchemas.has(node.type) === true ||
+        registry.comfyGroups?.groupSchemas.has(node.type) === true
+      )
+        continue
+      missing.set(node.type, (missing.get(node.type) ?? 0) + 1)
+    }
     if (missing.size === 0) return
     const backend = this.backendForTab(tab)
-    this.reportProblems(
-      tab.id,
+    this.reportProblems(tab.id,
       [...missing].map(([type, count]) =>
         diag(
           'warning',
@@ -6416,53 +4741,29 @@ export class AppState {
     const registry = this.registryForTab(tab)
     if (!registry) return
     const invocations: CommandInvocation[] = []
-    for (const [graphId, graph] of Object.entries(tab.store.doc.graphs))
-      for (const node of Object.values(graph.nodes)) {
-        const schema = registry.resolve(node.type)
-        if (!schema) continue
-        for (const item of schema.items) {
-          if (item.kind !== 'input' || item.widget?.widgetType !== 'BOOLEAN')
-            continue
-          const value = node.values[item.id]
-          if (typeof value !== 'string') continue
-          const mapped = LEGACY_BOOLEAN_TOKENS.get(value.toLowerCase())
-          if (mapped === undefined) continue
-          invocations.push({
-            command: 'node.setValue',
-            params: {
-              graphId,
-              nodeId: node.id,
-              inputId: item.id,
-              value: mapped,
-            },
-          })
-        }
+    for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
+      const schema = registry.resolve(node.type)
+      if (!schema) continue
+      for (const item of schema.items) {
+        if (item.kind !== 'input' || item.widget?.widgetType !== 'BOOLEAN') continue
+        const value = node.values[item.id]
+        if (typeof value !== 'string') continue
+        const mapped = LEGACY_BOOLEAN_TOKENS.get(value.toLowerCase())
+        if (mapped === undefined) continue
+        invocations.push({ command: 'node.setValue', params: { graphId, nodeId: node.id, inputId: item.id, value: mapped } })
       }
+    }
     if (invocations.length === 0) return
-    if (
-      this.dispatchTo(tab, {
-        command: 'batch',
-        params: { invocations } as unknown as Json,
-      }).ok
-    ) {
+    if (this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json }).ok) {
       this.reportProblems(tab.id, [
-        diag(
-          'info',
-          'command',
-          'upgrade.legacyBoolean',
-          `converted ${invocations.length} legacy boolean string value(s) to real booleans (one undo step)`,
-        ),
+        diag('info', 'command', 'upgrade.legacyBoolean', `converted ${invocations.length} legacy boolean string value(s) to real booleans (one undo step)`),
       ])
     }
   }
 
   graphViewport(tabId: string, graphId: string): Viewport | undefined {
-    const viewport = this.tabViewStates.get().get(tabId)?.graphViewports[
-      graphId
-    ]
-    return viewport === undefined
-      ? undefined
-      : { x: viewport.x, y: viewport.y, scale: viewport.scale }
+    const viewport = this.tabViewStates.get().get(tabId)?.graphViewports[graphId]
+    return viewport === undefined ? undefined : { x: viewport.x, y: viewport.y, scale: viewport.scale }
   }
 
   private nextTabViewUpdate(): TabViewUpdate {
@@ -6472,49 +4773,21 @@ export class AppState {
       this.tabViewUpdateTime = updatedAt
       this.tabViewUpdateSequence = 0
     }
-    return {
-      updatedAt,
-      sequence: this.tabViewUpdateSequence,
-      actorId: this.workspaceActorId,
-    }
+    return { updatedAt, sequence: this.tabViewUpdateSequence, actorId: this.workspaceActorId }
   }
 
   setGraphViewport(tabId: string, graphId: string, viewport: Viewport): void {
-    const tab = this.tabs
-      .get()
-      .find(
-        (candidate) =>
-          candidate.id === tabId && candidate.execution === undefined,
-      )
-    if (
-      !tab ||
-      tab.store.doc.graphs[graphId] === undefined ||
-      !Number.isFinite(viewport.x) ||
-      !Number.isFinite(viewport.y) ||
-      !Number.isFinite(viewport.scale) ||
-      viewport.scale < MIN_SCALE ||
-      viewport.scale > MAX_SCALE
-    )
-      return
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId && candidate.execution === undefined)
+    if (!tab || tab.store.doc.graphs[graphId] === undefined || !Number.isFinite(viewport.x) ||
+      !Number.isFinite(viewport.y) || !Number.isFinite(viewport.scale) ||
+      viewport.scale < MIN_SCALE || viewport.scale > MAX_SCALE) return
     const current = this.tabViewStates.get().get(tabId)
     const previous = current?.graphViewports[graphId]
-    if (
-      previous?.x === viewport.x &&
-      previous.y === viewport.y &&
-      previous.scale === viewport.scale
-    )
-      return
-    this.tabViewStates.update((states) =>
-      new Map(states).set(tabId, {
-        graphViewports: {
-          ...current?.graphViewports,
-          [graphId]: { ...viewport, update: this.nextTabViewUpdate() },
-        },
-        ...(current?.appScroll === undefined
-          ? {}
-          : { appScroll: current.appScroll }),
-      }),
-    )
+    if (previous?.x === viewport.x && previous.y === viewport.y && previous.scale === viewport.scale) return
+    this.tabViewStates.update((states) => new Map(states).set(tabId, {
+      graphViewports: { ...current?.graphViewports, [graphId]: { ...viewport, update: this.nextTabViewUpdate() } },
+      ...(current?.appScroll === undefined ? {} : { appScroll: current.appScroll }),
+    }))
     this.schedulePersistTabs()
   }
 
@@ -6523,24 +4796,14 @@ export class AppState {
   }
 
   setAppScrollTop(tabId: string, appScrollTop: number): void {
-    const tab = this.tabs
-      .get()
-      .find(
-        (candidate) =>
-          candidate.id === tabId && candidate.execution === undefined,
-      )
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId && candidate.execution === undefined)
     if (!tab || !Number.isFinite(appScrollTop) || appScrollTop < 0) return
     const current = this.tabViewStates.get().get(tabId)
     if ((current?.appScroll?.scrollTop ?? 0) === appScrollTop) return
-    this.tabViewStates.update((states) =>
-      new Map(states).set(tabId, {
-        graphViewports: current?.graphViewports ?? {},
-        appScroll: {
-          scrollTop: appScrollTop,
-          update: this.nextTabViewUpdate(),
-        },
-      }),
-    )
+    this.tabViewStates.update((states) => new Map(states).set(tabId, {
+      graphViewports: current?.graphViewports ?? {},
+      appScroll: { scrollTop: appScrollTop, update: this.nextTabViewUpdate() },
+    }))
     this.schedulePersistTabs()
   }
 
@@ -6584,8 +4847,7 @@ export class AppState {
     // nothing, so provenance was kept) must still get its silent baseline
     // migration when the user points it at a native backend. User-edited
     // documents keep the badge/review flow.
-    if (this.stockPending.has(tabId) && tab.store.revision === 0)
-      this.upgradePending.add(tabId)
+    if (this.stockPending.has(tabId) && tab.store.revision === 0) this.upgradePending.add(tabId)
     this.backendsTick.update((v) => v + 1)
   }
 
@@ -6599,42 +4861,21 @@ export class AppState {
    */
   setTabEditorKind(tabId: string, editorKind: string): void {
     const tab = this.tabs.get().find((t) => t.id === tabId)
-    if (!tab || tab.execution !== undefined || tab.editorKind === editorKind)
-      return
-    if (
-      editorKind !== IMAGE_EDITOR_KIND &&
-      this.imageEditorTarget.get()?.tabId === tabId
-    )
-      this.imageEditorTarget.set(undefined)
-    if (
-      editorKind !== CURVE_EDITOR_KIND &&
-      this.curveEditorTarget.get()?.tabId === tabId
-    )
-      this.curveEditorTarget.set(undefined)
-    if (
-      editorKind !== GLSL_EDITOR_KIND &&
-      this.glslEditorTarget.get()?.tabId === tabId
-    )
-      this.glslEditorTarget.set(undefined)
-    this.tabs.update((list) =>
-      list.map((t) => (t.id === tabId ? { ...t, editorKind } : t)),
-    )
+    if (!tab || tab.execution !== undefined || tab.editorKind === editorKind) return
+    if (editorKind !== IMAGE_EDITOR_KIND && this.imageEditorTarget.get()?.tabId === tabId) this.imageEditorTarget.set(undefined)
+    if (editorKind !== CURVE_EDITOR_KIND && this.curveEditorTarget.get()?.tabId === tabId) this.curveEditorTarget.set(undefined)
+    if (editorKind !== GLSL_EDITOR_KIND && this.glslEditorTarget.get()?.tabId === tabId) this.glslEditorTarget.set(undefined)
+    this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, editorKind } : t)))
     this.schedulePersistTabs()
   }
 
   openEditorForBinding(tabId: string, context: EditorBindingContext): boolean {
-    const binding = this.editorBindings.resolve(
-      context,
-      (candidate) =>
-        this.extensionEditorIds.has(candidate.editor) &&
-        this.editors.get(candidate.editor) !== undefined,
-    )
+    const binding = this.editorBindings.resolve(context, (candidate) =>
+      this.extensionEditorIds.has(candidate.editor) && this.editors.get(candidate.editor) !== undefined)
     if (!binding) return false
     this.setTabEditorKind(tabId, binding.editor)
     this.activeTabId.set(tabId)
-    return this.tabs
-      .get()
-      .some((tab) => tab.id === tabId && tab.editorKind === binding.editor)
+    return this.tabs.get().some((tab) => tab.id === tabId && tab.editorKind === binding.editor)
   }
 
   /**
@@ -6644,34 +4885,20 @@ export class AppState {
    */
   setTabAppArrange(tabId: string, appArrange: boolean): void {
     const tab = this.tabs.get().find((t) => t.id === tabId)
-    if (
-      !tab ||
-      tab.execution !== undefined ||
-      (tab.appArrange === true) === appArrange
-    )
-      return
-    this.tabs.update((list) =>
-      list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)),
-    )
+    if (!tab || tab.execution !== undefined || (tab.appArrange === true) === appArrange) return
+    this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)))
   }
 
   /** Resolve the bounded selected-node entry. Ambiguous, driven, frozen, and non-image inputs refuse. */
-  imageTargetForSelection(
-    tab: Tab,
-    graphId: string,
-    selectedNodeIds: readonly string[],
-  ): ImageEditorTarget | undefined {
-    if (tab.execution !== undefined || selectedNodeIds.length !== 1)
-      return undefined
+  imageTargetForSelection(tab: Tab, graphId: string, selectedNodeIds: readonly string[]): ImageEditorTarget | undefined {
+    if (tab.execution !== undefined || selectedNodeIds.length !== 1) return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[selectedNodeIds[0]!]
     if (!graph || !node) return undefined
     const resolve = this.registryForTab(tab)?.resolve
     if (resolve?.(node.type)?.editorRole === 'mask-paint') {
       const loaderNodeId = maskPaintSourceNodeId(node)
-      return loaderNodeId
-        ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image')
-        : undefined
+      return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
     }
     const candidates = imageInputCandidates({
       schema: resolve?.(node.type),
@@ -6679,26 +4906,16 @@ export class AppState {
       values: node.values,
       drivenInputIds: new Set([
         ...Object.values(graph.links).flatMap((link) =>
-          'node' in link.to && 'port' in link.to && link.to.node === node.id
-            ? [link.to.port]
-            : [],
-        ),
-        ...Object.values(graph.nets).flatMap((net) =>
-          net.sinks.flatMap((sink) =>
-            sink.node === node.id ? [sink.port] : [],
-          ),
-        ),
+          'node' in link.to && 'port' in link.to && link.to.node === node.id ? [link.to.port] : []),
+        ...Object.values(graph.nets).flatMap((net) => net.sinks.flatMap((sink) =>
+          sink.node === node.id ? [sink.port] : [])),
       ]),
     })
     const candidate = candidates.length === 1 ? candidates[0] : undefined
     return candidate ? this.maskPaintTarget(tab, graphId, candidate) : undefined
   }
 
-  private maskPaintTarget(
-    tab: Tab,
-    graphId: string,
-    candidate: ReturnType<typeof imageInputCandidates>[number],
-  ): ImageEditorTarget | undefined {
+  private maskPaintTarget(tab: Tab, graphId: string, candidate: ReturnType<typeof imageInputCandidates>[number]): ImageEditorTarget | undefined {
     const base: ImageEditorTarget = { tabId: tab.id, graphId, ...candidate }
     const graph = tab.store.doc.graphs[graphId]
     const loader = graph?.nodes[candidate.nodeId]
@@ -6706,182 +4923,85 @@ export class AppState {
     const loaderSchema = loader ? registry?.resolve(loader.type) : undefined
     const paintSchema = registry?.resolve.forEditorRole?.('mask-paint')
     if (!graph) return base
-    const associated = Object.values(graph.nodes).filter(
-      (node) =>
-        registry?.resolve(node.type)?.editorRole === 'mask-paint' &&
-        maskPaintSourceNodeId(node) === candidate.nodeId,
-    )
+    const associated = Object.values(graph.nodes).filter((node) =>
+      registry?.resolve(node.type)?.editorRole === 'mask-paint' && maskPaintSourceNodeId(node) === candidate.nodeId)
     if (associated.length > 1) return undefined
     const paint = associated[0]
     const paintSource = paint?.values.source
-    const paintRecipe =
-      typeof paint?.values.operations === 'string'
-        ? parseMaskPaintRecipe(paint.values.operations)
-        : undefined
-    if (
-      paint &&
-      (!isAssetRef(paintSource) ||
-        !sameAssetRef(paintSource, candidate.sourceRef) ||
-        !paintRecipe ||
-        paintRecipe.sourceDigest !== candidate.sourceRef.digest)
-    )
-      return undefined
-    const hasOccurrenceTopology = Object.values(
-      tab.store.doc.occurrenceTopologies ?? {},
-    ).some((topology) => topology.bodyGraph === graphId)
-    if (
-      loaderSchema?.editorRole !== 'image-source' ||
-      candidate.inputId !== 'image' ||
-      hasOccurrenceTopology ||
-      schemaPortType(loaderSchema, 'input', 'image') !==
-        'asset<dinkster.image>' ||
-      schemaPortType(loaderSchema, 'output', 'image') !== 'dinkster.image' ||
-      schemaPortType(loaderSchema, 'output', 'mask') !== 'dinkster.mask' ||
-      schemaPortType(paintSchema, 'input', 'source') !==
-        'asset<dinkster.image>' ||
-      schemaPortType(paintSchema, 'input', 'operations') !== 'core.string' ||
-      inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget
-        ?.widgetType !== 'STRING' ||
-      inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget
-        ?.options.multiline !== true ||
-      schemaPortType(paintSchema, 'output', 'mask') !== 'dinkster.mask'
-    )
-      return paint ? undefined : base
+    const paintRecipe = typeof paint?.values.operations === 'string' ? parseMaskPaintRecipe(paint.values.operations) : undefined
+    if (paint && (!isAssetRef(paintSource) || !sameAssetRef(paintSource, candidate.sourceRef) ||
+        !paintRecipe || paintRecipe.sourceDigest !== candidate.sourceRef.digest)) return undefined
+    const hasOccurrenceTopology = Object.values(tab.store.doc.occurrenceTopologies ?? {})
+      .some((topology) => topology.bodyGraph === graphId)
+    if (loaderSchema?.editorRole !== 'image-source' || candidate.inputId !== 'image' || hasOccurrenceTopology ||
+        schemaPortType(loaderSchema, 'input', 'image') !== 'asset<dinkster.image>' ||
+        schemaPortType(loaderSchema, 'output', 'image') !== 'dinkster.image' ||
+        schemaPortType(loaderSchema, 'output', 'mask') !== 'dinkster.mask' ||
+        schemaPortType(paintSchema, 'input', 'source') !== 'asset<dinkster.image>' ||
+        schemaPortType(paintSchema, 'input', 'operations') !== 'core.string' ||
+        inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.widgetType !== 'STRING' ||
+        inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.options.multiline !== true ||
+        schemaPortType(paintSchema, 'output', 'mask') !== 'dinkster.mask') return paint ? undefined : base
     const source = { node: candidate.nodeId, port: 'mask' }
-    const expectedMaskLinkIds = Object.values(graph.links)
-      .filter(
-        (link) =>
-          'node' in link.from &&
-          'port' in link.from &&
-          link.from.node === source.node &&
-          link.from.port === source.port,
-      )
-      .map((link) => link.id)
-      .sort()
-    const expectedMaskNetIds = Object.values(graph.nets)
-      .filter(
-        (net) =>
-          net.source.node === source.node && net.source.port === source.port,
-      )
-      .map((net) => net.id)
-      .sort()
-    if (
-      !paint &&
-      expectedMaskLinkIds.length === 0 &&
-      expectedMaskNetIds.length === 0
-    )
-      return base
+    const expectedMaskLinkIds = Object.values(graph.links).filter((link) =>
+      'node' in link.from && 'port' in link.from && link.from.node === source.node && link.from.port === source.port).map((link) => link.id).sort()
+    const expectedMaskNetIds = Object.values(graph.nets).filter((net) =>
+      net.source.node === source.node && net.source.port === source.port).map((net) => net.id).sort()
+    if (!paint && expectedMaskLinkIds.length === 0 && expectedMaskNetIds.length === 0) return base
     return {
       ...base,
       maskPaint: {
         expectedMaskLinkIds,
         expectedMaskNetIds,
         paintNodeId: paint?.id ?? null,
-        expectedPaintOperations:
-          (paint?.values.operations as string | undefined) ?? null,
+        expectedPaintOperations: paint?.values.operations as string | undefined ?? null,
       },
     }
   }
 
   /** Explicit image-ASSET row entry, revalidated against the current document and schema. */
-  imageTargetForInput(
-    tab: Tab,
-    graphId: string,
-    nodeId: string,
-    inputId: string,
-  ): ImageEditorTarget | undefined {
+  imageTargetForInput(tab: Tab, graphId: string, nodeId: string, inputId: string): ImageEditorTarget | undefined {
     if (tab.execution !== undefined) return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
-    if (
-      node &&
-      this.registryForTab(tab)?.resolve(node.type)?.editorRole ===
-        'mask-paint' &&
-      inputId === 'source'
-    ) {
+    if (node && this.registryForTab(tab)?.resolve(node.type)?.editorRole === 'mask-paint' && inputId === 'source') {
       const loaderNodeId = maskPaintSourceNodeId(node)
-      return loaderNodeId
-        ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image')
-        : undefined
+      return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
     }
-    const schema = node
-      ? this.registryForTab(tab)?.resolve(node.type)
+    const schema = node ? this.registryForTab(tab)?.resolve(node.type) : undefined
+    const driven = graph && (Object.values(graph.links).some((link) =>
+      'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
+      Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === nodeId && sink.port === inputId)))
+    const candidate = node && !driven
+      ? imageInputCandidates({ schema, nodeId, values: node.values }).find((item) => item.inputId === inputId)
       : undefined
-    const driven =
-      graph &&
-      (Object.values(graph.links).some(
-        (link) =>
-          'node' in link.to &&
-          'port' in link.to &&
-          link.to.node === nodeId &&
-          link.to.port === inputId,
-      ) ||
-        Object.values(graph.nets).some((net) =>
-          net.sinks.some(
-            (sink) => sink.node === nodeId && sink.port === inputId,
-          ),
-        ))
-    const candidate =
-      node && !driven
-        ? imageInputCandidates({ schema, nodeId, values: node.values }).find(
-            (item) => item.inputId === inputId,
-          )
-        : undefined
     return candidate ? this.maskPaintTarget(tab, graphId, candidate) : undefined
   }
 
   /** Re-resolve a target against current schema, topology, and the complete source ref. */
-  validateImageTarget(
-    target: ImageEditorTarget,
-  ): ImageEditorTarget | undefined {
-    const tab = this.tabs
-      .get()
-      .find((candidate) => candidate.id === target.tabId)
+  validateImageTarget(target: ImageEditorTarget): ImageEditorTarget | undefined {
+    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
     if (!tab) return undefined
-    const current = this.imageTargetForInput(
-      tab,
-      target.graphId,
-      target.nodeId,
-      target.inputId,
-    )
+    const current = this.imageTargetForInput(tab, target.graphId, target.nodeId, target.inputId)
     if (!current) return undefined
-    const left = current.sourceRef,
-      right = target.sourceRef
-    return left.digest === right.digest &&
-      left.name === right.name &&
-      left.size === right.size &&
-      left.mediaType === right.mediaType &&
-      left.virtualPath === right.virtualPath
-      ? current
-      : undefined
+    const left = current.sourceRef, right = target.sourceRef
+    return left.digest === right.digest && left.name === right.name && left.size === right.size &&
+      left.mediaType === right.mediaType && left.virtualPath === right.virtualPath ? current : undefined
   }
 
   openImageEditor(target: ImageEditorTarget): boolean {
     const validated = this.validateImageTarget(target)
-    const tab = validated
-      ? this.tabs.get().find((candidate) => candidate.id === validated.tabId)
-      : undefined
+    const tab = validated ? this.tabs.get().find((candidate) => candidate.id === validated.tabId) : undefined
     if (!tab || !validated) return false
     const previous = this.imageEditorTarget.get()
     if (previous && previous.tabId !== validated.tabId) {
-      this.tabs.update((list) =>
-        list.map((candidate) =>
-          candidate.id === previous.tabId &&
-          candidate.editorKind === IMAGE_EDITOR_KIND
-            ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-            : candidate,
-        ),
-      )
+      this.tabs.update((list) => list.map((candidate) =>
+        candidate.id === previous.tabId && candidate.editorKind === IMAGE_EDITOR_KIND ? { ...candidate, editorKind: GRAPH_EDITOR_KIND } : candidate))
     }
     this.imageEditorTarget.set(validated)
     this.setTabEditorKind(tab.id, IMAGE_EDITOR_KIND)
     this.activeTabId.set(tab.id)
-    return this.tabs
-      .get()
-      .some(
-        (candidate) =>
-          candidate.id === tab.id && candidate.editorKind === IMAGE_EDITOR_KIND,
-      )
+    return this.tabs.get().some((candidate) => candidate.id === tab.id && candidate.editorKind === IMAGE_EDITOR_KIND)
   }
 
   closeImageEditor(target: ImageEditorTarget | CompositorEditorTarget): void {
@@ -6901,43 +5021,20 @@ export class AppState {
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
     const resolver = this.registryForTab(tab)?.resolve
-    const input = node
-      ? resolver?.(node.type)?.items.find(
-          (item) => item.kind === 'input' && item.id === inputId,
-        )
-      : undefined
-    const definitionDriven =
-      graph &&
-      (Object.values(graph.links).some(
-        (link) =>
-          'node' in link.to &&
-          'port' in link.to &&
-          link.to.node === nodeId &&
-          link.to.port === inputId,
-      ) ||
-        Object.values(graph.nets).some((net) =>
-          net.sinks.some(
-            (sink) =>
-              'port' in sink && sink.node === nodeId && sink.port === inputId,
-          ),
-        ))
+    const input = node ? resolver?.(node.type)?.items.find((item) =>
+      item.kind === 'input' && item.id === inputId) : undefined
+    const definitionDriven = graph && (Object.values(graph.links).some((link) =>
+      'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
+      Object.values(graph.nets).some((net) => net.sinks.some((sink) =>
+        'port' in sink && sink.node === nodeId && sink.port === inputId)))
     let occurrenceDriven = false
     if (instancePath.length > 0 && graph && resolver) {
       const owner = {
         instancePath: instancePath.slice(0, -1).map(asNodeId),
         node: asNodeId(instancePath.at(-1)!),
       }
-      const effective = effectiveOccurrenceTopology(
-        tab.store.doc,
-        resolver,
-        owner,
-      )
-      if (
-        effective.diagnostics.some(
-          (diagnostic) => diagnostic.severity === 'error',
-        )
-      )
-        return undefined
+      const effective = effectiveOccurrenceTopology(tab.store.doc, resolver, owner)
+      if (effective.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
       occurrenceDriven = effectiveTopologyDrivesPort(
         effective,
         graph.id,
@@ -6945,10 +5042,8 @@ export class AppState {
         { node: asNodeId(nodeId), port: asPortId(inputId) },
       )
     }
-    return !definitionDriven &&
-      !occurrenceDriven &&
-      input?.kind === 'input' &&
-      input.widget?.widgetType === 'COMPOSITOR'
+    return !definitionDriven && !occurrenceDriven &&
+      input?.kind === 'input' && input.widget?.widgetType === 'COMPOSITOR'
       ? {
           mode: 'compositor',
           tabId: tab.id,
@@ -6961,53 +5056,27 @@ export class AppState {
       : undefined
   }
 
-  validateCompositorTarget(
-    target: CompositorEditorTarget,
-  ): CompositorEditorTarget | undefined {
-    const tab = this.tabs
-      .get()
-      .find((candidate) => candidate.id === target.tabId)
-    const current =
-      tab &&
-      this.compositorTargetForInput(
-        tab,
-        target.graphId,
-        target.nodeId,
-        target.inputId,
-        target.instancePath,
-      )
-    if (
-      !current ||
-      (current.openedStoredValue === undefined) !==
-        (target.openedStoredValue === undefined)
+  validateCompositorTarget(target: CompositorEditorTarget): CompositorEditorTarget | undefined {
+    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
+    const current = tab && this.compositorTargetForInput(
+      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
     )
-      return undefined
-    if (
-      current.openedStoredValue !== undefined &&
-      target.openedStoredValue !== undefined &&
-      canonicalJson(current.openedStoredValue) !==
-        canonicalJson(target.openedStoredValue)
-    )
-      return undefined
+    if (!current || (current.openedStoredValue === undefined) !== (target.openedStoredValue === undefined)) return undefined
+    if (current.openedStoredValue !== undefined && target.openedStoredValue !== undefined &&
+        canonicalJson(current.openedStoredValue) !== canonicalJson(target.openedStoredValue)) return undefined
     return current
   }
 
   openCompositorEditor(target: CompositorEditorTarget): boolean {
     const current = this.validateCompositorTarget(target)
-    const tab = current
-      ? this.tabs.get().find((candidate) => candidate.id === current.tabId)
-      : undefined
+    const tab = current ? this.tabs.get().find((candidate) => candidate.id === current.tabId) : undefined
     if (!tab || !current) return false
     const previous = this.imageEditorTarget.get()
     if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) =>
-        list.map((candidate) =>
-          candidate.id === previous.tabId &&
-          candidate.editorKind === IMAGE_EDITOR_KIND
-            ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-            : candidate,
-        ),
-      )
+      this.tabs.update((list) => list.map((candidate) =>
+        candidate.id === previous.tabId && candidate.editorKind === IMAGE_EDITOR_KIND
+          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
+          : candidate))
     }
     this.imageEditorTarget.set(current)
     this.setTabEditorKind(tab.id, IMAGE_EDITOR_KIND)
@@ -7026,81 +5095,29 @@ export class AppState {
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
     const resolve = this.registryForTab(tab)?.resolve
-    const input = node
-      ? resolve?.(node.type)?.items.find(
-          (item) => item.kind === 'input' && item.id === inputId,
-        )
-      : undefined
-    const driven =
-      graph &&
-      (Object.values(graph.links).some(
-        (link) =>
-          'node' in link.to &&
-          'port' in link.to &&
-          link.to.node === nodeId &&
-          link.to.port === inputId,
-      ) ||
-        Object.values(graph.nets).some((net) =>
-          net.sinks.some(
-            (sink) =>
-              'port' in sink && sink.node === nodeId && sink.port === inputId,
-          ),
-        ))
+    const input = node ? resolve?.(node.type)?.items.find((item) => item.kind === 'input' && item.id === inputId) : undefined
+    const driven = graph && (Object.values(graph.links).some((link) => 'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
+      Object.values(graph.nets).some((net) => net.sinks.some((sink) => 'port' in sink && sink.node === nodeId && sink.port === inputId)))
     const stored = node?.values[inputId]
-    const fallback =
-      input?.kind === 'input' && input.widget
-        ? effectiveWidgetDefault(input.widget)
-        : undefined
-    const value = isCurveValue(stored)
-      ? stored
-      : isCurveValue(fallback)
-        ? fallback
-        : undefined
-    if (
-      input?.kind !== 'input' ||
-      input.widget?.widgetType !== 'CURVE' ||
-      !value
-    )
-      return undefined
-    if (
-      driven &&
-      graph &&
-      node &&
-      resolve?.(node.type)?.editorRole === 'curve'
-    ) {
+    const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
+    const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
+    if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
+    if (driven && graph && node && resolve?.(node.type)?.editorRole === 'curve') {
       const sources = companionSourcesOf(graph, undefined, undefined, resolve)
       const envelopeSource = sources.get(nodeId)?.get(inputId)
-      const envelope =
-        envelopeSource?.kind === 'producer' && envelopeSource.output === 'curve'
-          ? graph.nodes[envelopeSource.node]
-          : undefined
-      const envelopeCurve =
-        envelope &&
-        resolve?.(envelope.type)?.items.find(
-          (item) =>
-            item.kind === 'output' &&
-            item.id === 'curve' &&
-            item.type.kind === 'concrete' &&
-            item.type.name === 'dinkster.curve',
-        )
-      const audioSource =
-        envelope && resolve?.(envelope.type)?.editorRole === 'audio-envelope'
-          ? sources.get(envelope.id)?.get('audio')
-          : undefined
-      const audio =
-        audioSource?.kind === 'producer'
-          ? graph.nodes[audioSource.node]
-          : undefined
-      const audioOutput =
-        audio && audioSource?.kind === 'producer'
-          ? resolve?.(audio.type)?.items.find(
-              (item) =>
-                item.kind === 'output' &&
-                item.id === audioSource.output &&
-                item.type.kind === 'concrete' &&
-                item.type.name === 'comfy.AUDIO',
-            )
-          : undefined
+      const envelope = envelopeSource?.kind === 'producer' && envelopeSource.output === 'curve'
+        ? graph.nodes[envelopeSource.node]
+        : undefined
+      const envelopeCurve = envelope && resolve?.(envelope.type)?.items.find((item) =>
+        item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'dinkster.curve')
+      const audioSource = envelope && resolve?.(envelope.type)?.editorRole === 'audio-envelope'
+        ? sources.get(envelope.id)?.get('audio')
+        : undefined
+      const audio = audioSource?.kind === 'producer' ? graph.nodes[audioSource.node] : undefined
+      const audioOutput = audio && audioSource?.kind === 'producer'
+        ? resolve?.(audio.type)?.items.find((item) =>
+            item.kind === 'output' && item.id === audioSource.output && item.type.kind === 'concrete' && item.type.name === 'comfy.AUDIO')
+        : undefined
       if (envelopeCurve && audioSource?.kind === 'producer' && audioOutput) {
         return {
           tabId: tab.id,
@@ -7135,29 +5152,17 @@ export class AppState {
   }
 
   openCurveEditor(target: CurveEditorTarget): boolean {
-    const tab = this.tabs
-      .get()
-      .find((candidate) => candidate.id === target.tabId)
-    const current =
-      tab &&
-      this.curveTargetForInput(
-        tab,
-        target.graphId,
-        target.nodeId,
-        target.inputId,
-        target.instancePath,
-      )
+    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
+    const current = tab && this.curveTargetForInput(
+      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
+    )
     if (!tab || !current) return false
     const previous = this.curveEditorTarget.get()
     if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) =>
-        list.map((candidate) =>
-          candidate.id === previous.tabId &&
-          candidate.editorKind === CURVE_EDITOR_KIND
-            ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-            : candidate,
-        ),
-      )
+      this.tabs.update((list) => list.map((candidate) =>
+        candidate.id === previous.tabId && candidate.editorKind === CURVE_EDITOR_KIND
+          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
+          : candidate))
     }
     this.curveEditorTarget.set(current)
     this.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
@@ -7178,47 +5183,25 @@ export class AppState {
     inputId: string,
     instancePath: readonly string[] = [],
   ): GlslEditorTarget | undefined {
-    if (tab.execution !== undefined || inputId !== 'fragment_shader')
-      return undefined
+    if (tab.execution !== undefined || inputId !== 'fragment_shader') return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
     const resolver = this.registryForTab(tab)?.resolve
     if (!node || resolver?.(node.type)?.editorRole !== 'glsl') return undefined
-    const input = resolver?.(node.type)?.items.find(
-      (item) => item.kind === 'input' && item.id === inputId,
-    )
-    const definitionDriven =
-      graph &&
-      (Object.values(graph.links).some(
-        (link) =>
-          'node' in link.to &&
-          'port' in link.to &&
-          link.to.node === nodeId &&
-          link.to.port === inputId,
-      ) ||
-        Object.values(graph.nets).some((net) =>
-          net.sinks.some(
-            (sink) =>
-              'port' in sink && sink.node === nodeId && sink.port === inputId,
-          ),
-        ))
+    const input = resolver?.(node.type)?.items.find((item) =>
+      item.kind === 'input' && item.id === inputId)
+    const definitionDriven = graph && (Object.values(graph.links).some((link) =>
+      'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
+      Object.values(graph.nets).some((net) => net.sinks.some((sink) =>
+        'port' in sink && sink.node === nodeId && sink.port === inputId)))
     let occurrenceDriven = false
     if (instancePath.length > 0 && graph && resolver) {
       const owner = {
         instancePath: instancePath.slice(0, -1).map(asNodeId),
         node: asNodeId(instancePath.at(-1)!),
       }
-      const effective = effectiveOccurrenceTopology(
-        tab.store.doc,
-        resolver,
-        owner,
-      )
-      if (
-        effective.diagnostics.some(
-          (diagnostic) => diagnostic.severity === 'error',
-        )
-      )
-        return undefined
+      const effective = effectiveOccurrenceTopology(tab.store.doc, resolver, owner)
+      if (effective.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
       occurrenceDriven = effectiveTopologyDrivesPort(
         effective,
         graph.id,
@@ -7227,21 +5210,16 @@ export class AppState {
       )
     }
     const stored = node.values[inputId]
-    const fallback =
-      input?.kind === 'input' && input.widget
-        ? effectiveWidgetDefault(input.widget)
+    const fallback = input?.kind === 'input' && input.widget
+      ? effectiveWidgetDefault(input.widget)
+      : undefined
+    const value = typeof stored === 'string'
+      ? stored
+      : typeof fallback === 'string'
+        ? fallback
         : undefined
-    const value =
-      typeof stored === 'string'
-        ? stored
-        : typeof fallback === 'string'
-          ? fallback
-          : undefined
-    return !definitionDriven &&
-      !occurrenceDriven &&
-      value !== undefined &&
-      input?.kind === 'input' &&
-      input.widget?.widgetType === 'STRING' &&
+    return !definitionDriven && !occurrenceDriven && value !== undefined &&
+      input?.kind === 'input' && input.widget?.widgetType === 'STRING' &&
       input.widget.options['multiline'] === true
       ? {
           tabId: tab.id,
@@ -7257,60 +5235,31 @@ export class AppState {
   }
 
   validateGlslTarget(target: GlslEditorTarget): GlslEditorTarget | undefined {
-    const tab = this.tabs
-      .get()
-      .find((candidate) => candidate.id === target.tabId)
-    const current =
-      tab &&
-      this.glslTargetForInput(
-        tab,
-        target.graphId,
-        target.nodeId,
-        target.inputId,
-        target.instancePath,
-      )
-    if (
-      !current ||
-      (current.openedStoredValue === undefined) !==
-        (target.openedStoredValue === undefined) ||
-      (current.openedSchemaDefault === undefined) !==
-        (target.openedSchemaDefault === undefined) ||
-      current.openedValue !== target.openedValue
+    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
+    const current = tab && this.glslTargetForInput(
+      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
     )
-      return undefined
-    if (
-      current.openedStoredValue !== undefined &&
-      target.openedStoredValue !== undefined &&
-      canonicalJson(current.openedStoredValue) !==
-        canonicalJson(target.openedStoredValue)
-    )
-      return undefined
-    if (
-      current.openedSchemaDefault !== undefined &&
-      target.openedSchemaDefault !== undefined &&
-      canonicalJson(current.openedSchemaDefault) !==
-        canonicalJson(target.openedSchemaDefault)
-    )
-      return undefined
+    if (!current ||
+        (current.openedStoredValue === undefined) !== (target.openedStoredValue === undefined) ||
+        (current.openedSchemaDefault === undefined) !== (target.openedSchemaDefault === undefined) ||
+        current.openedValue !== target.openedValue) return undefined
+    if (current.openedStoredValue !== undefined && target.openedStoredValue !== undefined &&
+        canonicalJson(current.openedStoredValue) !== canonicalJson(target.openedStoredValue)) return undefined
+    if (current.openedSchemaDefault !== undefined && target.openedSchemaDefault !== undefined &&
+        canonicalJson(current.openedSchemaDefault) !== canonicalJson(target.openedSchemaDefault)) return undefined
     return current
   }
 
   openGlslEditor(target: GlslEditorTarget): boolean {
     const current = this.validateGlslTarget(target)
-    const tab = current
-      ? this.tabs.get().find((candidate) => candidate.id === current.tabId)
-      : undefined
+    const tab = current ? this.tabs.get().find((candidate) => candidate.id === current.tabId) : undefined
     if (!tab || !current) return false
     const previous = this.glslEditorTarget.get()
     if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) =>
-        list.map((candidate) =>
-          candidate.id === previous.tabId &&
-          candidate.editorKind === GLSL_EDITOR_KIND
-            ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-            : candidate,
-        ),
-      )
+      this.tabs.update((list) => list.map((candidate) =>
+        candidate.id === previous.tabId && candidate.editorKind === GLSL_EDITOR_KIND
+          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
+          : candidate))
     }
     this.glslEditorTarget.set(current)
     this.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
@@ -7336,34 +5285,22 @@ export class AppState {
       // Frozen tabs resolve with their execution's compile-time registry; a
       // lineage lookup would hand them the LIVE tab's current schemas.
       if (execution) return this.registryForExecution(execution)
-      const tab = this.tabs
-        .get()
-        .find(
-          (candidate) =>
-            !candidate.execution &&
-            candidate.store.doc.lineage === document.lineage,
-        )
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
       return tab ? this.registryForTab(tab) : initialRegistry
     }
-    const fallback: SchemaResolver = Object.assign(
-      (type: string) => registry()?.resolve(type),
-      {
-        forEditorRole: (role: string) =>
-          registry()?.resolve.forEditorRole?.(role),
-      },
+    const resolve = this.resolverWithVirtualNodes(
+      Object.assign((type: string) => registry()?.resolve(type), {
+        forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
+      }),
     )
-    const resolve = this.resolverWithVirtualNodes(fallback)
     return {
       id: execution ? `frozen:${executionKey(execution)}` : document.lineage,
       title,
       editorKind,
       // A caller-provided store (shared session) replaces the local default.
-      store:
-        store ??
-        createLocalSession(document, coreCommandRegistry([], resolve), {
-          schemaResolverFor: (currentDoc) =>
-            documentResolver(currentDoc, resolve),
-        }),
+      store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
+        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
+      }),
       graphStack: createSignal<readonly string[]>([document.root]),
       instancePath: createSignal<readonly string[]>([]),
       ...(execution ? { execution } : {}),
@@ -7396,18 +5333,14 @@ export class AppState {
   reportProblems(owner: ProblemOwner, diags: readonly Diagnostic[]): void {
     if (diags.length === 0) return
     this.problems.update((problems) => {
-      const additions = dedupedReportDiagnostics(owner, diags).filter(
-        (entry) =>
-          !problems.some((candidate) => sameProblemIdentity(candidate, entry)),
-      )
+      const additions = dedupedReportDiagnostics(owner, diags)
+        .filter((entry) => !problems.some((candidate) => sameProblemIdentity(candidate, entry)))
       return additions.length === 0 ? problems : [...problems, ...additions]
     })
   }
 
   clearProblems(owner: ProblemOwner): void {
-    this.problems.update((problems) =>
-      problems.filter((problem) => problem.owner !== owner),
-    )
+    this.problems.update((problems) => problems.filter((problem) => problem.owner !== owner))
   }
 
   /**
@@ -7427,21 +5360,15 @@ export class AppState {
     this.problems.update((p) => p.filter((d) => d.owner !== owner))
   }
 
-  private countAwareValueInvocations(
-    tab: Tab,
-    invocation: CommandInvocation,
-  ): readonly CommandInvocation[] {
+  private countAwareValueInvocations(tab: Tab, invocation: CommandInvocation): readonly CommandInvocation[] {
     if (
-      (invocation.command !== 'node.setValue' &&
-        invocation.command !== 'node.setValues') ||
+      (invocation.command !== 'node.setValue' && invocation.command !== 'node.setValues') ||
       typeof invocation.params !== 'object' ||
       invocation.params === null ||
       Array.isArray(invocation.params)
-    )
-      return [invocation]
+    ) return [invocation]
     const params = invocation.params as JsonObject
-    const graphId =
-      typeof params.graphId === 'string' ? params.graphId : undefined
+    const graphId = typeof params.graphId === 'string' ? params.graphId : undefined
     const nodeId = typeof params.nodeId === 'string' ? params.nodeId : undefined
     if (graphId === undefined || nodeId === undefined) return [invocation]
     const node = tab.store.doc.graphs[graphId]?.nodes[nodeId]
@@ -7451,24 +5378,19 @@ export class AppState {
     if (schema === undefined) return [invocation]
     const countInputs = new Set(outputCountInputsOf(schema))
     if (invocation.command === 'node.setValue') {
-      const inputId =
-        typeof params.inputId === 'string' ? params.inputId : undefined
-      if (inputId === undefined || !countInputs.has(inputId))
-        return [invocation]
-      return [
-        {
-          ...invocation,
-          command: 'node.setOutputCount',
-          params: { ...params, removedLinks: 'preserve' },
-        },
-      ]
+      const inputId = typeof params.inputId === 'string' ? params.inputId : undefined
+      if (inputId === undefined || !countInputs.has(inputId)) return [invocation]
+      return [{
+        ...invocation,
+        command: 'node.setOutputCount',
+        params: { ...params, removedLinks: 'preserve' },
+      }]
     }
     if (
       typeof params.values !== 'object' ||
       params.values === null ||
       Array.isArray(params.values)
-    )
-      return [invocation]
+    ) return [invocation]
     const countValues: [string, Json][] = []
     const ordinaryValues: Record<string, Json> = {}
     for (const [inputId, value] of Object.entries(params.values)) {
@@ -7478,10 +5400,7 @@ export class AppState {
     if (countValues.length === 0) return [invocation]
     const normalized: CommandInvocation[] = []
     if (Object.keys(ordinaryValues).length > 0) {
-      normalized.push({
-        ...invocation,
-        params: { ...params, values: ordinaryValues },
-      })
+      normalized.push({ ...invocation, params: { ...params, values: ordinaryValues } })
     }
     for (const [inputId, value] of countValues) {
       normalized.push({
@@ -7492,10 +5411,7 @@ export class AppState {
     return normalized
   }
 
-  private countAwareValueInvocation(
-    tab: Tab,
-    invocation: CommandInvocation,
-  ): CommandInvocation {
+  private countAwareValueInvocation(tab: Tab, invocation: CommandInvocation): CommandInvocation {
     if (
       invocation.command === 'batch' &&
       typeof invocation.params === 'object' &&
@@ -7511,27 +5427,15 @@ export class AppState {
           candidate === null ||
           Array.isArray(candidate) ||
           typeof candidate.command !== 'string'
-        )
-          return invocation
-        normalized.push(
-          ...this.countAwareValueInvocations(
-            tab,
-            candidate as unknown as CommandInvocation,
-          ),
-        )
+        ) return invocation
+        normalized.push(...this.countAwareValueInvocations(tab, candidate as unknown as CommandInvocation))
       }
-      return {
-        ...invocation,
-        params: { ...params, invocations: normalized } as unknown as Json,
-      }
+      return { ...invocation, params: { ...params, invocations: normalized } as unknown as Json }
     }
     const normalized = this.countAwareValueInvocations(tab, invocation)
     return normalized.length === 1
       ? normalized[0]!
-      : {
-          command: 'batch',
-          params: { invocations: normalized } as unknown as Json,
-        }
+      : { command: 'batch', params: { invocations: normalized } as unknown as Json }
   }
 
   /**
@@ -7549,11 +5453,7 @@ export class AppState {
   }
 
   /** Plan, commit, then drill into one fresh empty definition. */
-  createEmptySubgraph(
-    tab: Tab,
-    graphId: string,
-    position: Vec2,
-  ): CommandOutcome {
+  createEmptySubgraph(tab: Tab, graphId: string, position: Vec2): CommandOutcome {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const occurrenceNodeId = tab.store.predictedNodeId(graphId)
     if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
@@ -7573,12 +5473,7 @@ export class AppState {
   }
 
   /** Plan and commit one fresh region occurrence and body definition. */
-  createRegion(
-    tab: Tab,
-    graphId: string,
-    position: Vec2,
-    kind: RegionKind,
-  ): CommandOutcome {
+  createRegion(tab: Tab, graphId: string, position: Vec2, kind: RegionKind): CommandOutcome {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const occurrenceNodeId = tab.store.predictedNodeId(graphId)
     if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
@@ -7632,8 +5527,7 @@ export class AppState {
     const remaining = this.tabs.get().filter((t) => t.id !== id)
     this.tabs.set(remaining)
     this.cleanupClosedTab(id)
-    if (this.activeTabId.get() === id)
-      this.activeTabId.set(remaining[0]?.id ?? '')
+    if (this.activeTabId.get() === id) this.activeTabId.set(remaining[0]?.id ?? '')
   }
 
   /**
@@ -7652,12 +5546,9 @@ export class AppState {
   }
 
   private cleanupClosedTab(id: string): void {
-    if (this.imageEditorTarget.get()?.tabId === id)
-      this.imageEditorTarget.set(undefined)
-    if (this.curveEditorTarget.get()?.tabId === id)
-      this.curveEditorTarget.set(undefined)
-    if (this.glslEditorTarget.get()?.tabId === id)
-      this.glslEditorTarget.set(undefined)
+    if (this.imageEditorTarget.get()?.tabId === id) this.imageEditorTarget.set(undefined)
+    if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
+    if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
     this.dropProblems(id) // its diagnostics may not outlive the tab
     this.followLatestExecution(id) // drop view state; no leak for reused ids
@@ -7700,8 +5591,7 @@ export class AppState {
   /** Create and activate a structurally valid empty workflow. */
   createWorkflow(): Tab {
     const diagnostics = this.openDocument(emptyWorkflowJson(), 'Untitled')
-    if (diagnostics.length > 0)
-      throw new Error('internal empty workflow did not validate')
+    if (diagnostics.length > 0) throw new Error('internal empty workflow did not validate')
     return this.activeTab()!
   }
 
@@ -7715,8 +5605,7 @@ export class AppState {
    */
   collabBackend(): Backend | undefined {
     const active = this.activeTab()
-    const preferred =
-      active !== undefined ? this.backendForTab(active) : undefined
+    const preferred = active !== undefined ? this.backendForTab(active) : undefined
     if (preferred?.protocol === 'dinkster') return preferred
     return this.backends.get().find((b) => b.protocol === 'dinkster')
   }
@@ -7729,11 +5618,8 @@ export class AppState {
   async listCollabSessions(): Promise<readonly CollabSessionDescriptor[]> {
     const backend = this.collabBackend()
     if (backend === undefined) return []
-    return (
-      await this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE)
-    ).filter(
-      (descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow',
-    )
+    return (await this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE))
+      .filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow')
   }
 
   /**
@@ -7744,13 +5630,10 @@ export class AppState {
    */
   async shareActiveTab(): Promise<string | undefined> {
     const tab = this.activeTab()
-    if (tab === undefined || tab.execution !== undefined)
-      return 'only a live workflow tab can be shared'
-    if (this.collabTabs.get().has(tab.id))
-      return 'this tab is already in a shared session'
+    if (tab === undefined || tab.execution !== undefined) return 'only a live workflow tab can be shared'
+    if (this.collabTabs.get().has(tab.id)) return 'this tab is already in a shared session'
     const backend = this.collabBackend()
-    if (backend === undefined)
-      return 'no Dinkster backend connected (collaboration is native-only)'
+    if (backend === undefined) return 'no Dinkster backend connected (collaboration is native-only)'
     const key = `share:${tab.id}`
     if (this.collabPending.has(key)) return 'this tab is already being shared'
     this.collabPending.add(key)
@@ -7765,17 +5648,13 @@ export class AppState {
         snapshot: tab.store.doc,
       })
       try {
-        await this.adoptCollabSession(descriptor, backend.baseUrl, tab.title, {
-          expect,
-        })
+        await this.adoptCollabSession(descriptor, backend.baseUrl, tab.title, { expect })
         return undefined
       } catch (e) {
         // The server session was created but nobody adopted it: it must not
         // linger in the discovery list. Best-effort - a failed DELETE leaves
         // an empty session the backend's retention rules own.
-        void this.collabTransport
-          .end(backend.baseUrl, descriptor.sessionId)
-          .catch(() => undefined)
+        void this.collabTransport.end(backend.baseUrl, descriptor.sessionId).catch(() => undefined)
         throw e
       }
     } catch (e) {
@@ -7790,31 +5669,20 @@ export class AppState {
    * of joined twice (one membership per session per app).
    */
   async joinCollabSession(sessionId: string): Promise<string | undefined> {
-    const existing = [...this.collabTabs.get().entries()].find(
-      ([, s]) => s.descriptor.sessionId === sessionId,
-    )
+    const existing = [...this.collabTabs.get().entries()].find(([, s]) => s.descriptor.sessionId === sessionId)
     if (existing !== undefined) {
       this.activeTabId.set(existing[0])
       return undefined
     }
     const backend = this.collabBackend()
-    if (backend === undefined)
-      return 'no Dinkster backend connected (collaboration is native-only)'
+    if (backend === undefined) return 'no Dinkster backend connected (collaboration is native-only)'
     const key = `join:${sessionId}`
-    if (this.collabPending.has(key))
-      return 'joining this session is already in progress'
+    if (this.collabPending.has(key)) return 'joining this session is already in progress'
     this.collabPending.add(key)
     try {
-      const descriptor = await this.collabTransport.get(
-        backend.baseUrl,
-        sessionId,
-      )
+      const descriptor = await this.collabTransport.get(backend.baseUrl, sessionId)
       if (descriptor === undefined) return 'that session no longer exists'
-      await this.adoptCollabSession(
-        descriptor,
-        backend.baseUrl,
-        descriptor.documentId,
-      )
+      await this.adoptCollabSession(descriptor, backend.baseUrl, descriptor.documentId)
       return undefined
     } catch (e) {
       return e instanceof Error ? e.message : String(e)
@@ -7839,12 +5707,7 @@ export class AppState {
     const tab = this.tabs.get().find((t) => t.id === tabId)
     this.dropCollabFor(tabId)
     if (tab === undefined) return
-    const local = this.makeTab(
-      entry.session.doc,
-      tab.title,
-      undefined,
-      tab.editorKind,
-    )
+    const local = this.makeTab(entry.session.doc, tab.title, undefined, tab.editorKind)
     // The session's doc is the stack's document: every drilled graph exists.
     local.graphStack.set(tab.graphStack.get())
     local.instancePath.set(tab.instancePath.get())
@@ -7863,8 +5726,7 @@ export class AppState {
     // Only downgrade the membership DELETE targeted: if the tab left and
     // joined another session while the DELETE was in flight, this stale
     // completion must not tear the new membership down.
-    if (this.collabTabs.get().get(tabId) === entry)
-      this.leaveCollabSession(tabId)
+    if (this.collabTabs.get().get(tabId) === entry) this.leaveCollabSession(tabId)
     return undefined
   }
 
@@ -7889,10 +5751,7 @@ export class AppState {
        * time. Joins pass no expectation: a joiner takes the session's document
        * as truth by definition.
        */
-      readonly expect?: {
-        readonly store: DocumentSession
-        readonly revision: number
-      }
+      readonly expect?: { readonly store: DocumentSession; readonly revision: number }
       /**
        * Rejoin guard: adoption commits only while the restored tab's exact
        * DocumentSession still owns its id - a tab the user closed or
@@ -7908,14 +5767,8 @@ export class AppState {
     },
   ): Promise<void> {
     const expect = opts?.expect
-    const actorId =
-      this.collabTransport.bindActor === undefined
-        ? this.collabActorId
-        : await this.collabTransport.bindActor(
-            baseUrl,
-            descriptor.sessionId,
-            this.collabActorId,
-          )
+    const actorId = this.collabTransport.bindActor === undefined ? this.collabActorId
+      : await this.collabTransport.bindActor(baseUrl, descriptor.sessionId, this.collabActorId)
     this.collabActorId = actorId
     const connection = this.collabTransport.connect({
       baseUrl,
@@ -7926,47 +5779,26 @@ export class AppState {
     // the sinks read it lazily. Nothing can fire before it is set: conflicts
     // and errors need ingress, which needs the session to exist.
     let owner: string | undefined
-    const report = (d: Diagnostic) =>
-      this.reportProblems(owner ?? GLOBAL_PROBLEMS_OWNER, [d])
+    const report = (d: Diagnostic) => this.reportProblems(owner ?? GLOBAL_PROBLEMS_OWNER, [d])
     const sessionRegistry = (): SchemaRegistry | undefined => {
-      const tab = this.tabs
-        .get()
-        .find(
-          (candidate) =>
-            !candidate.execution && candidate.store.doc.lineage === owner,
-        )
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
       return tab ? this.registryForTab(tab) : undefined
     }
-    const fallback: SchemaResolver = Object.assign(
-      (type: string) => sessionRegistry()?.resolve(type),
-      {
-        forEditorRole: (role: string) =>
-          sessionRegistry()?.resolve.forEditorRole?.(role),
-      },
+    const sessionResolver = this.resolverWithVirtualNodes(
+      Object.assign((type: string) => sessionRegistry()?.resolve(type), {
+        forEditorRole: (role: string) => sessionRegistry()?.resolve.forEditorRole?.(role),
+      }),
     )
-    const resolve = this.resolverWithVirtualNodes(fallback)
     let session: SharedDocumentSession
     try {
-      session = await connectSharedSession(
-        connection,
-        coreCommandRegistry([], resolve),
-        {
-          actorId,
-          schemaResolverFor: (currentDoc) =>
-            documentResolver(currentDoc, resolve),
-          onConflict: (conflict: SessionConflict) =>
-            report(
-              diag(
-                'warning',
-                'collab',
-                `collab.conflict.${conflict.during}`,
-                `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`,
-              ),
-            ),
-          onError: (message: string) =>
-            report(diag('error', 'collab', 'collab.session', message)),
-        },
-      )
+      session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
+        actorId,
+        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
+        onConflict: (conflict: SessionConflict) =>
+          report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
+            `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
+        onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
+      })
     } catch (e) {
       connection.close() // a failed join must not leak a retrying socket
       throw e
@@ -7979,15 +5811,8 @@ export class AppState {
       session.close()
       throw new CollabSessionEndedDuringJoinError()
     }
-    const prior = this.tabs
-      .get()
-      .find((t) => t.id === owner && t.execution === undefined)
-    if (
-      expect !== undefined &&
-      (prior === undefined ||
-        prior.store !== expect.store ||
-        expect.store.revision !== expect.revision)
-    ) {
+    const prior = this.tabs.get().find((t) => t.id === owner && t.execution === undefined)
+    if (expect !== undefined && (prior === undefined || prior.store !== expect.store || expect.store.revision !== expect.revision)) {
       session.close()
       throw new Error(
         prior === undefined
@@ -7995,38 +5820,19 @@ export class AppState {
           : 'the workflow changed while sharing was being set up; share it again',
       )
     }
-    if (
-      opts?.requireStore !== undefined &&
-      prior?.store !== opts.requireStore
-    ) {
+    if (opts?.requireStore !== undefined && prior?.store !== opts.requireStore) {
       session.close()
       throw new CollabRejoinTabGoneError()
     }
-    if (
-      expect !== undefined &&
-      JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)
-    ) {
+    if (expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)) {
       session.adoptHistory(expect.store.historySnapshot())
     }
     this.dropCollabFor(owner) // re-adopting over a shared tab closes the old session
     if (prior !== undefined) {
-      this.reconcileDocumentPersistenceRevision(
-        owner,
-        prior.store.doc,
-        session.doc,
-      )
+      this.reconcileDocumentPersistenceRevision(owner, prior.store.doc, session.doc)
     }
-    const tab = this.makeTab(
-      session.doc,
-      title,
-      undefined,
-      prior?.editorKind ?? GRAPH_EDITOR_KIND,
-      session,
-    )
-    if (
-      prior !== undefined &&
-      prior.graphStack.get().every((g) => session.doc.graphs[g] !== undefined)
-    ) {
+    const tab = this.makeTab(session.doc, title, undefined, prior?.editorKind ?? GRAPH_EDITOR_KIND, session)
+    if (prior !== undefined && prior.graphStack.get().every((g) => session.doc.graphs[g] !== undefined)) {
       tab.graphStack.set(prior.graphStack.get())
       tab.instancePath.set(prior.instancePath.get())
     }
@@ -8035,9 +5841,7 @@ export class AppState {
     this.followLatestExecution(tab.id)
     this.releaseFrozenPin(tab.id) // a displaced frozen view drops its pin
     this.tabs.update((tabs) =>
-      tabs.some((t) => t.id === tab.id)
-        ? tabs.map((t) => (t.id === tab.id ? tab : t))
-        : [...tabs, tab],
+      tabs.some((t) => t.id === tab.id) ? tabs.map((t) => (t.id === tab.id ? tab : t)) : [...tabs, tab],
     )
     if (opts?.activate !== false) this.activeTabId.set(tab.id)
     const presence = new PresenceChannel(session, actorId)
@@ -8056,10 +5860,7 @@ export class AppState {
         // path, where dropCollabFor removes the entry BEFORE closing the
         // session. A terminal ERROR keeps the membership: the red status
         // stays visible and the user chooses when to leave.
-        if (
-          status === 'closed' &&
-          this.collabTabs.get().get(tab.id)?.session === session
-        ) {
+        if (status === 'closed' && this.collabTabs.get().get(tab.id)?.session === session) {
           this.leaveCollabSession(tab.id)
         }
       }
@@ -8069,9 +5870,7 @@ export class AppState {
       unwatch()
       presence.dispose()
     }
-    this.collabTabs.update((m) =>
-      new Map(m).set(tab.id, { descriptor, baseUrl, session, presence }),
-    )
+    this.collabTabs.update((m) => new Map(m).set(tab.id, { descriptor, baseUrl, session, presence }))
     this.persistCollabMemberships()
     connection.onEvent((event) => {
       if (event.kind === 'denial') void session.settle().catch(() => {})
@@ -8124,18 +5923,12 @@ export class AppState {
       sessionId: entry.descriptor.sessionId,
       baseUrl: entry.baseUrl,
       documentId: entry.descriptor.documentId,
-      title:
-        this.tabs.get().find((t) => t.id === tabId)?.title ??
-        entry.descriptor.documentId,
+      title: this.tabs.get().find((t) => t.id === tabId)?.title ?? entry.descriptor.documentId,
     }))
-    const liveKeys = new Set(
-      live.map((r) => collabMembershipKey(r.baseUrl, r.sessionId)),
-    )
+    const liveKeys = new Set(live.map((r) => collabMembershipKey(r.baseUrl, r.sessionId)))
     savePersistedCollabMemberships([
       ...live,
-      ...[...this.collabRejoinPending.entries()]
-        .filter(([key]) => !liveKeys.has(key))
-        .map(([, r]) => r),
+      ...[...this.collabRejoinPending.entries()].filter(([key]) => !liveKeys.has(key)).map(([, r]) => r),
     ])
   }
 
@@ -8162,80 +5955,60 @@ export class AppState {
   async rejoinCollabSessions(): Promise<void> {
     const persisted = loadPersistedCollabMemberships()
     if (persisted.length === 0) return
-    await Promise.all(
-      persisted.map(async (record) => {
-        const key = collabMembershipKey(record.baseUrl, record.sessionId)
-        const flight = `rejoin:${key}`
-        if (this.collabPending.has(flight)) return // already being rejoined
-        this.collabPending.add(flight)
-        let restored: Tab | undefined
-        try {
-          if (
-            [...this.collabTabs.get().values()].some(
-              (e) =>
-                e.baseUrl === record.baseUrl &&
-                e.descriptor.sessionId === record.sessionId,
-            )
-          ) {
-            this.collabRejoinPending.delete(key) // already live: nothing pending
-            return
-          }
-          restored = this.tabs
-            .get()
-            .find(
-              (t) => t.id === record.documentId && t.execution === undefined,
-            )
-          if (restored === undefined) {
-            this.collabRejoinPending.delete(key) // its tab was not restored: record dies
-            return
-          }
-          // Unresolved counts as pending FROM HERE: any persist that runs while
-          // the probe/connect is in flight (another membership adopting, an
-          // unrelated tab closing, even a crash before this settles) must keep
-          // writing this record - it has no live entry yet to represent it.
-          this.collabRejoinPending.set(key, record)
-          const descriptor = await this.collabTransport.get(
-            record.baseUrl,
-            record.sessionId,
+    await Promise.all(persisted.map(async (record) => {
+      const key = collabMembershipKey(record.baseUrl, record.sessionId)
+      const flight = `rejoin:${key}`
+      if (this.collabPending.has(flight)) return // already being rejoined
+      this.collabPending.add(flight)
+      let restored: Tab | undefined
+      try {
+        if (
+          [...this.collabTabs.get().values()].some(
+            (e) => e.baseUrl === record.baseUrl && e.descriptor.sessionId === record.sessionId,
           )
-          if (descriptor === undefined) {
-            this.collabRejoinPending.delete(key) // session gone (404): record dies
-            return
-          }
-          // Rejoin must not steal focus: the reload restored the user's active
-          // tab, and adoption of a background membership must leave it active.
-          await this.adoptCollabSession(
-            descriptor,
-            record.baseUrl,
-            record.title,
-            {
-              requireStore: restored.store,
-              activate: false,
-            },
-          )
-          this.collabRejoinPending.delete(key)
-        } catch (e) {
-          // Transient failures keep the record for the next reload - but only
-          // while the restored store still owns the document. A tab closed or
-          // replaced during the flight is a definite outcome regardless of how
-          // the flight itself ended.
-          const current = this.tabs
-            .get()
-            .find(
-              (t) => t.id === record.documentId && t.execution === undefined,
-            )
-          if (
-            e instanceof CollabRejoinTabGoneError ||
-            e instanceof CollabSessionEndedDuringJoinError ||
-            current?.store !== restored?.store
-          ) {
-            this.collabRejoinPending.delete(key)
-          }
-        } finally {
-          this.collabPending.delete(flight)
+        ) {
+          this.collabRejoinPending.delete(key) // already live: nothing pending
+          return
         }
-      }),
-    )
+        restored = this.tabs.get().find((t) => t.id === record.documentId && t.execution === undefined)
+        if (restored === undefined) {
+          this.collabRejoinPending.delete(key) // its tab was not restored: record dies
+          return
+        }
+        // Unresolved counts as pending FROM HERE: any persist that runs while
+        // the probe/connect is in flight (another membership adopting, an
+        // unrelated tab closing, even a crash before this settles) must keep
+        // writing this record - it has no live entry yet to represent it.
+        this.collabRejoinPending.set(key, record)
+        const descriptor = await this.collabTransport.get(record.baseUrl, record.sessionId)
+        if (descriptor === undefined) {
+          this.collabRejoinPending.delete(key) // session gone (404): record dies
+          return
+        }
+        // Rejoin must not steal focus: the reload restored the user's active
+        // tab, and adoption of a background membership must leave it active.
+        await this.adoptCollabSession(descriptor, record.baseUrl, record.title, {
+          requireStore: restored.store,
+          activate: false,
+        })
+        this.collabRejoinPending.delete(key)
+      } catch (e) {
+        // Transient failures keep the record for the next reload - but only
+        // while the restored store still owns the document. A tab closed or
+        // replaced during the flight is a definite outcome regardless of how
+        // the flight itself ended.
+        const current = this.tabs.get().find((t) => t.id === record.documentId && t.execution === undefined)
+        if (
+          e instanceof CollabRejoinTabGoneError ||
+          e instanceof CollabSessionEndedDuringJoinError ||
+          current?.store !== restored?.store
+        ) {
+          this.collabRejoinPending.delete(key)
+        }
+      } finally {
+        this.collabPending.delete(flight)
+      }
+    }))
     this.persistCollabMemberships() // drops dead records, keeps pending ones
   }
 
@@ -8254,8 +6027,7 @@ export class AppState {
 
   /** Publish polite, auto-clearing operation feedback in the status bar. */
   showTransientStatus(message: string): void {
-    if (this.transientStatusTimer !== undefined)
-      clearTimeout(this.transientStatusTimer)
+    if (this.transientStatusTimer !== undefined) clearTimeout(this.transientStatusTimer)
     this.transientStatus.set(message)
     const timer = setTimeout(() => {
       if (this.transientStatusTimer !== timer) return
@@ -8273,12 +6045,7 @@ export class AppState {
    * on failure; on success, non-fatal translation warnings land in the
    * problems panel for review.
    */
-  openDocument(
-    json: unknown,
-    title: string,
-    importVia?: Backend,
-    forkOnCollision = false,
-  ): readonly Diagnostic[] {
+  openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false): readonly Diagnostic[] {
     const legacy = detectFormat(json) === 'litegraph-workflow'
     const digestHints = legacy ? legacyAssetDigestHints(json) : []
     // A legacy document is translated through the schemas of the backend it
@@ -8287,15 +6054,10 @@ export class AppState {
     // back to the active tab's backend, then the default.
     const active = this.activeTab()
     const importBackend = legacy
-      ? (importVia ??
-        (active !== undefined
-          ? this.backendForTab(active)
-          : this.backends.get()[0]))
+      ? importVia ?? (active !== undefined ? this.backendForTab(active) : this.backends.get()[0])
       : undefined
     const importRegistry = importBackend?.registry.get()
-    const legacyLoaded = legacy
-      ? this.importLegacy(json, importRegistry)
-      : undefined
+    const legacyLoaded = legacy ? this.importLegacy(json, importRegistry) : undefined
     const loaded = legacyLoaded ?? loadDocument(json)
     if (!loaded.document) {
       // No tab exists to own a failed load; the errors are app-scoped
@@ -8304,43 +6066,21 @@ export class AppState {
       return loaded.diagnostics
     }
     let document = loaded.document
-    if (
-      forkOnCollision &&
-      this.tabs
-        .get()
-        .some((tab) => !tab.execution && tab.id === document.lineage)
-    ) {
+    if (forkOnCollision && this.tabs.get().some((tab) => !tab.execution && tab.id === document.lineage)) {
       let lineage: LineageId
-      do
-        lineage = asLineageId(
-          `${document.lineage}-import-${Date.now()}-${++newWorkflowOrdinal}`,
-        )
+      do lineage = asLineageId(`${document.lineage}-import-${Date.now()}-${++newWorkflowOrdinal}`)
       while (this.tabs.get().some((tab) => tab.id === lineage))
       document = { ...document, lineage }
     }
-    const replacesExisting = this.tabs
-      .get()
-      .some(
-        (candidate) =>
-          !candidate.execution && candidate.id === document.lineage,
-      )
+    const replacesExisting = this.tabs.get().some((candidate) => !candidate.execution && candidate.id === document.lineage)
     if (replacesExisting) {
       this.markDocumentPersistenceDirty(document.lineage)
     }
-    const tab = this.makeTab(
-      document,
-      title,
-      undefined,
-      GRAPH_EDITOR_KIND,
-      undefined,
-      importRegistry,
-    )
+    const tab = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
     if (replacesExisting) this.workspaceReplacements.add(tab)
     let loadDiagnostics = loaded.diagnostics
     if (legacyLoaded?.groupTranslation !== undefined) {
-      const outcome = tab.store.dispatch(
-        legacyLoaded.groupTranslation.invocation,
-      )
+      const outcome = tab.store.dispatch(legacyLoaded.groupTranslation.invocation)
       loadDiagnostics = outcome.ok
         ? legacyLoaded.groupTranslation.successDiagnostics
         : [
@@ -8370,37 +6110,23 @@ export class AppState {
     this.legacyBooleanPending.add(tab.id)
     this.drainLegacyBooleans() // immediate when schemas are already loaded
     this.drainUpgrades()
-    if (legacy && importBackend?.protocol === 'dinkster')
-      void this.offerImportAssetResolution(tab, importBackend, digestHints)
+    if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
     return []
   }
 
-  private legacyAssetReferences(
-    tab: Tab,
-    backend: Backend,
-  ): readonly ImportAssetReference[] {
+  private legacyAssetReferences(tab: Tab, backend: Backend): readonly ImportAssetReference[] {
     const registry = backend.registry.get()
     if (!registry) return []
     const refs: ImportAssetReference[] = []
-    for (const [graphId, graph] of Object.entries(tab.store.doc.graphs))
-      for (const node of Object.values(graph.nodes)) {
-        const schema =
-          registry.comfyAliases?.sourceSchemas.get(node.type) ??
-          registry.resolve(node.type)
-        if (!schema) continue
-        for (const item of schema.items) {
-          if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET')
-            continue
-          const value = node.values[item.id]
-          if (typeof value === 'string')
-            refs.push({
-              graphId,
-              nodeId: node.id,
-              inputId: item.id,
-              name: value,
-            })
-        }
+    for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
+      const schema = registry.comfyAliases?.sourceSchemas.get(node.type) ?? registry.resolve(node.type)
+      if (!schema) continue
+      for (const item of schema.items) {
+        if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET') continue
+        const value = node.values[item.id]
+        if (typeof value === 'string') refs.push({ graphId, nodeId: node.id, inputId: item.id, name: value })
       }
+    }
     return refs
   }
 
@@ -8413,83 +6139,45 @@ export class AppState {
     const refs = this.legacyAssetReferences(tab, backend)
     const names = [...new Set(refs.map((ref) => ref.name))]
     if (names.length === 0) return
-    const liveTab = (): Tab | undefined =>
-      this.tabs
-        .get()
-        .find(
-          (candidate) =>
-            candidate.id === tab.id &&
-            candidate.graphStack === tab.graphStack &&
-            candidate.instancePath === tab.instancePath,
-        )
+    const liveTab = (): Tab | undefined => this.tabs.get().find((candidate) =>
+      candidate.id === tab.id &&
+      candidate.graphStack === tab.graphStack &&
+      candidate.instancePath === tab.instancePath)
     const basenameNames = importAssetBasenamesForNames(names)
     try {
-      const matches = await backend.connection.guessAssets(
-        names,
-        importAssetDigestHintsForNames(names, digestHints),
-      )
-      const basenameMatches =
-        basenameNames.length > 0
-          ? await backend.connection.guessAssets(basenameNames)
-          : []
+      const matches = await backend.connection.guessAssets(names, importAssetDigestHintsForNames(names, digestHints))
+      const basenameMatches = basenameNames.length > 0 ? await backend.connection.guessAssets(basenameNames) : []
       const current = liveTab()
       if (current === undefined || backend.registry.get() !== registry) return
-      const liveRefs = refs.filter(
-        (ref) =>
-          current.store.doc.graphs[ref.graphId]?.nodes[ref.nodeId]?.values[
-            ref.inputId
-          ] === ref.name,
-      )
+      const liveRefs = refs.filter((ref) =>
+        current.store.doc.graphs[ref.graphId]?.nodes[ref.nodeId]?.values[ref.inputId] === ref.name)
       if (liveRefs.length === 0) return
       const liveNames = [...new Set(liveRefs.map((ref) => ref.name))]
-      const plan = planImportAssetAutoresolution(
-        liveRefs,
-        matches,
-        digestHints,
-        basenameMatches,
-      )
+      const plan = planImportAssetAutoresolution(liveRefs, matches, digestHints, basenameMatches)
       const invocations: CommandInvocation[] = []
       for (const ref of liveRefs) {
-        const candidate = Object.prototype.hasOwnProperty.call(
-          plan.auto,
-          ref.name,
-        )
-          ? plan.auto[ref.name]
-          : undefined
+        const candidate = Object.prototype.hasOwnProperty.call(plan.auto, ref.name) ? plan.auto[ref.name] : undefined
         if (!candidate) continue
         const value = assetGuessCandidateToRef(candidate)
         if (!value) continue
-        invocations.push({
-          command: 'node.setValue',
-          params: {
-            graphId: ref.graphId,
-            nodeId: ref.nodeId,
-            inputId: ref.inputId,
-            value: { ...value },
-          },
-        })
+        invocations.push({ command: 'node.setValue', params: {
+          graphId: ref.graphId,
+          nodeId: ref.nodeId,
+          inputId: ref.inputId,
+          value: { ...value },
+        } })
       }
       const appliedNames = new Set<string>()
       if (invocations.length > 0) {
-        const outcome = this.dispatchTo(current, {
-          command: 'batch',
-          params: { invocations } as unknown as Json,
-        })
+        const outcome = this.dispatchTo(current, { command: 'batch', params: { invocations } as unknown as Json })
         if (outcome.ok) {
-          for (const name of liveNames)
-            if (Object.prototype.hasOwnProperty.call(plan.auto, name))
-              appliedNames.add(name)
-          this.reportProblems(
-            current.id,
-            plan.provenance.map((entry) =>
-              diag(
-                'info',
-                'import',
-                'import.assets.autoResolved',
-                `${entry.original} -> ${entry.candidate.virtualPath} (${entry.candidate.digest})`,
-              ),
-            ),
-          )
+          for (const name of liveNames) if (Object.prototype.hasOwnProperty.call(plan.auto, name)) appliedNames.add(name)
+          this.reportProblems(current.id, plan.provenance.map((entry) => diag(
+            'info',
+            'import',
+            'import.assets.autoResolved',
+            `${entry.original} -> ${entry.candidate.virtualPath} (${entry.candidate.digest})`,
+          )))
         }
       }
       const leftoverNames = liveNames.filter((name) => !appliedNames.has(name))
@@ -8498,11 +6186,7 @@ export class AppState {
       // The navigation signals identify this document owner across a shared
       // workspace promotion while excluding a same-lineage replacement.
       installImportAssetResolution({
-        matches: importAssetMatchesForNames(
-          leftoverNames,
-          matches,
-          basenameMatches,
-        ),
+        matches: importAssetMatchesForNames(leftoverNames, matches, basenameMatches),
         refs: leftoverRefs,
         reasons: plan.prompt,
         slot: this.importAssetResolution,
@@ -8515,14 +6199,7 @@ export class AppState {
     } catch (error) {
       const owner = liveTab()
       if (owner === undefined) return
-      this.reportProblems(owner.id, [
-        diag(
-          'warning',
-          'import',
-          'import.assets.guessFailed',
-          error instanceof Error ? error.message : String(error),
-        ),
-      ])
+      this.reportProblems(owner.id, [diag('warning', 'import', 'import.assets.guessFailed', error instanceof Error ? error.message : String(error))])
     }
   }
 
@@ -8549,12 +6226,9 @@ export class AppState {
     let url: string | undefined
     let anchor: HTMLAnchorElement | undefined
     try {
-      const blob = new Blob(
-        [`${JSON.stringify(this.stampedDocumentOf(tab), null, 2)}\n`],
-        {
-          type: WORKFLOW_MEDIA_TYPE,
-        },
-      )
+      const blob = new Blob([`${JSON.stringify(this.stampedDocumentOf(tab), null, 2)}\n`], {
+        type: WORKFLOW_MEDIA_TYPE,
+      })
       url = URL.createObjectURL(blob)
       anchor = document.createElement('a')
       anchor.href = url
@@ -8567,12 +6241,7 @@ export class AppState {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'validation',
-          'workflow.exportFailed',
-          `failed to export workflow: ${message}`,
-        ),
+        diag('error', 'validation', 'workflow.exportFailed', `failed to export workflow: ${message}`),
       ])
       this.showTransientStatus(`Could not export ${filename}: ${message}`)
       return false
@@ -8592,24 +6261,14 @@ export class AppState {
    * ingress also detects full LiteGraph/ComfyUI workflows and imports them
    * through the schema-aware legacy translator.
    */
-  async importWorkflowFile(
-    file: Pick<File, 'name' | 'text'>,
-    stillOwned: () => boolean = () => true,
-  ): Promise<boolean> {
+  async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true): Promise<boolean> {
     try {
       const title = file.name.replace(/\.json$/i, '') || 'Imported workflow'
       const text = await file.text()
       if (!stillOwned()) return false
-      const diagnostics = this.openDocument(
-        JSON.parse(text) as unknown,
-        title,
-        undefined,
-        true,
-      )
+      const diagnostics = this.openDocument(JSON.parse(text) as unknown, title, undefined, true)
       if (diagnostics.length > 0) {
-        this.showTransientStatus(
-          `Could not import ${file.name}: invalid workflow document`,
-        )
+        this.showTransientStatus(`Could not import ${file.name}: invalid workflow document`)
         return false
       }
       this.showTransientStatus(`Imported ${file.name}`)
@@ -8617,12 +6276,7 @@ export class AppState {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'validation',
-          'workflow.importFailed',
-          `failed to import workflow file: ${message}`,
-        ),
+        diag('error', 'validation', 'workflow.importFailed', `failed to import workflow file: ${message}`),
       ])
       this.showTransientStatus(`Could not import ${file.name}: ${message}`)
       return false
@@ -8641,18 +6295,12 @@ export class AppState {
       input.remove()
       window.removeEventListener('focus', removeAfterFocus)
     }
-    const removeAfterFocus = (): void => {
-      setTimeout(remove, 0)
-    }
-    input.addEventListener(
-      'change',
-      () => {
-        const file = input.files?.[0]
-        remove()
-        if (file) void this.importWorkflowFile(file)
-      },
-      { once: true },
-    )
+    const removeAfterFocus = (): void => { setTimeout(remove, 0) }
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]
+      remove()
+      if (file) void this.importWorkflowFile(file)
+    }, { once: true })
     input.addEventListener('cancel', remove, { once: true })
     document.body.append(input)
     window.addEventListener('focus', removeAfterFocus, { once: true })
@@ -8662,16 +6310,9 @@ export class AppState {
       remove()
       const message = error instanceof Error ? error.message : String(error)
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'validation',
-          'workflow.importFailed',
-          `failed to open workflow file picker: ${message}`,
-        ),
+        diag('error', 'validation', 'workflow.importFailed', `failed to open workflow file picker: ${message}`),
       ])
-      this.showTransientStatus(
-        `Could not open workflow file picker: ${message}`,
-      )
+      this.showTransientStatus(`Could not open workflow file picker: ${message}`)
     }
   }
 
@@ -8700,10 +6341,7 @@ export class AppState {
    * never patch record ids into a different backend's library.
    * View/session state, never serialized.
    */
-  private readonly libraryLinks = new Map<
-    string,
-    { recordId: string; revision: number; connectionId: ConnectionId }
-  >()
+  private readonly libraryLinks = new Map<string, { recordId: string; revision: number; connectionId: ConnectionId }>()
 
   /**
    * Per-tab digest of the last uploaded source document, validated by the
@@ -8729,9 +6367,7 @@ export class AppState {
   libraryBackend(): Extract<Backend, { protocol: 'dinkster' }> | undefined {
     const tab = this.activeTab()
     const backend = tab ? this.backendForTab(tab) : this.backends.get()[0]
-    return backend !== undefined && backend.protocol === 'dinkster'
-      ? backend
-      : undefined
+    return backend !== undefined && backend.protocol === 'dinkster' ? backend : undefined
   }
 
   /**
@@ -8742,18 +6378,11 @@ export class AppState {
    * fails into Problems - it never falls back to whatever backend the
    * active tab happens to target when the click lands.
    */
-  private ownedLibraryBackend(
-    owner: string,
-  ): Extract<Backend, { protocol: 'dinkster' }> | undefined {
+  private ownedLibraryBackend(owner: string): Extract<Backend, { protocol: 'dinkster' }> | undefined {
     const backend = this.backends.get().find((b) => b.id === owner)
     if (backend !== undefined && backend.protocol === 'dinkster') return backend
     this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-      diag(
-        'error',
-        'validation',
-        'library.ownerGone',
-        'the backend this entry came from is no longer connected',
-      ),
+      diag('error', 'validation', 'library.ownerGone', 'the backend this entry came from is no longer connected'),
     ])
     return undefined
   }
@@ -8772,12 +6401,7 @@ export class AppState {
   private ownerStillLive(backend: Backend): boolean {
     if (this.backends.get().includes(backend)) return true
     this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-      diag(
-        'error',
-        'validation',
-        'library.ownerGone',
-        'the backend this entry came from is no longer connected',
-      ),
+      diag('error', 'validation', 'library.ownerGone', 'the backend this entry came from is no longer connected'),
     ])
     return false
   }
@@ -8853,29 +6477,17 @@ export class AppState {
       // backend's record stays untouched under its own link semantics).
       if (link !== undefined && link.connectionId === backend.id) {
         const patch = { scope: LIBRARY_SCOPE, revision: link.revision, digest }
-        const first = await backend.connection.patchLibraryRecord(
-          link.recordId,
-          patch,
-        )
+        const first = await backend.connection.patchLibraryRecord(link.recordId, patch)
         if (first.ok) {
           record = first.record
         } else {
-          const fresh = await backend.connection.getLibraryRecord(
-            link.recordId,
-            LIBRARY_SCOPE,
-          )
+          const fresh = await backend.connection.getLibraryRecord(link.recordId, LIBRARY_SCOPE)
           if (fresh !== undefined) {
-            const retry = await backend.connection.patchLibraryRecord(
-              link.recordId,
-              {
-                ...patch,
-                revision: fresh.revision,
-              },
-            )
-            if (!retry.ok)
-              throw new Error(
-                'library record changed concurrently - save again',
-              )
+            const retry = await backend.connection.patchLibraryRecord(link.recordId, {
+              ...patch,
+              revision: fresh.revision,
+            })
+            if (!retry.ok) throw new Error('library record changed concurrently - save again')
             record = retry.record
           }
           // fresh undefined: the record was deleted elsewhere; create anew.
@@ -8884,8 +6496,7 @@ export class AppState {
       if (record === undefined) {
         // Drop only the link WE read: a replacement tab sharing this id may
         // have established its own link during the awaits above.
-        if (link !== undefined && this.libraryLinks.get(tab.id) === link)
-          this.libraryLinks.delete(tab.id)
+        if (link !== undefined && this.libraryLinks.get(tab.id) === link) this.libraryLinks.delete(tab.id)
         record = await backend.connection.createLibraryRecord({
           scope: LIBRARY_SCOPE,
           name: tab.title,
@@ -8900,21 +6511,15 @@ export class AppState {
       // the id but not identity - it must not inherit the link, and its
       // dirty flag is not ours to clear.
       if (!this.tabs.get().includes(tab)) return true
-      this.libraryLinks.set(tab.id, {
-        recordId: record.id,
-        revision: record.revision,
-        connectionId: backend.id,
-      })
+      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
       // Clean only when nothing was committed since the uploaded snapshot:
       // an edit made during the awaits keeps the tab dirty.
       const unchanged = tab.store.revision === revision
       if (unchanged) this.markTabClean(tab.id)
       const background = this.activeTab()?.id === tab.id ? '' : ` ${tab.title}`
-      this.showTransientStatus(
-        unchanged
-          ? `Saved${background} to ${backend.label} library`
-          : `Saved${background} snapshot to ${backend.label} library; newer changes remain unsaved`,
-      )
+      this.showTransientStatus(unchanged
+        ? `Saved${background} to ${backend.label} library`
+        : `Saved${background} snapshot to ${backend.label} library; newer changes remain unsaved`)
       return true
     } catch (e) {
       // Exact-object liveness after the awaits: a late failure from a
@@ -8923,16 +6528,9 @@ export class AppState {
       // closed owner's entries.
       if (!this.tabs.get().includes(tab)) return false
       this.reportProblems(tab.id, [
-        diag(
-          'error',
-          'validation',
-          'library.saveFailed',
-          `failed to save workflow: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        diag('error', 'validation', 'library.saveFailed', `failed to save workflow: ${e instanceof Error ? e.message : String(e)}`),
       ])
-      this.showTransientStatus(
-        `Save failed on ${backend.label}: ${e instanceof Error ? e.message : String(e)}`,
-      )
+      this.showTransientStatus(`Save failed on ${backend.label}: ${e instanceof Error ? e.message : String(e)}`)
       return false
     }
   }
@@ -8948,10 +6546,7 @@ export class AppState {
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
-      const record = await backend.connection.getLibraryRecord(
-        recordId,
-        LIBRARY_SCOPE,
-      )
+      const record = await backend.connection.getLibraryRecord(recordId, LIBRARY_SCOPE)
       // Liveness BEFORE payload checks: an empty answer from a retired
       // backend must still report ownerGone, not silently return.
       if (!this.ownerStillLive(backend)) return false
@@ -8959,19 +6554,11 @@ export class AppState {
       const text = await backend.connection.fetchAssetText(record.digest)
       if (!this.ownerStillLive(backend)) return false
       if (text === undefined) return false
-      const diagnostics = this.openDocument(
-        JSON.parse(text) as unknown,
-        record.name,
-        backend,
-      )
+      const diagnostics = this.openDocument(JSON.parse(text) as unknown, record.name, backend)
       if (diagnostics.length > 0) return false
       const tab = this.activeTab()
       if (tab) {
-        this.libraryLinks.set(tab.id, {
-          recordId: record.id,
-          revision: record.revision,
-          connectionId: backend.id,
-        })
+        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
         this.markTabClean(tab.id)
         // The tab follows its workflow home: saves patch the record it came
         // from and queues target the backend that served it.
@@ -8983,12 +6570,7 @@ export class AppState {
       // an ownership loss, not a transport diagnosis worth surfacing.
       if (this.ownerStillLive(backend)) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag(
-            'error',
-            'validation',
-            'library.openFailed',
-            `failed to open workflow from library: ${e instanceof Error ? e.message : String(e)}`,
-          ),
+          diag('error', 'validation', 'library.openFailed', `failed to open workflow from library: ${e instanceof Error ? e.message : String(e)}`),
         ])
       }
       return false
@@ -9000,19 +6582,11 @@ export class AppState {
    * The template is fetched from the backend that served its descriptor
    * (owner) - pack/template ids are that backend's namespace.
    */
-  async openTemplate(
-    packId: string,
-    templateId: string,
-    title: string,
-    owner: string,
-  ): Promise<boolean> {
+  async openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean> {
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
-      const document = await backend.connection.fetchTemplateBody(
-        packId,
-        templateId,
-      )
+      const document = await backend.connection.fetchTemplateBody(packId, templateId)
       // Liveness BEFORE payload checks (see openFromLibrary).
       if (!this.ownerStillLive(backend)) return false
       if (!document) return false
@@ -9022,12 +6596,7 @@ export class AppState {
         // overlay stays open and shape errors alone don't say which
         // template produced them).
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag(
-            'error',
-            'validation',
-            'template.openFailed',
-            `template ${packId}/${templateId} is not a loadable workflow document - see the load errors above`,
-          ),
+          diag('error', 'validation', 'template.openFailed', `template ${packId}/${templateId} is not a loadable workflow document - see the load errors above`),
         ])
         return false
       }
@@ -9036,14 +6605,7 @@ export class AppState {
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
-        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag(
-            'error',
-            'validation',
-            'template.openFailed',
-            `failed to open template: ${e instanceof Error ? e.message : String(e)}`,
-          ),
-        ])
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', `failed to open template: ${e instanceof Error ? e.message : String(e)}`)])
       }
       return false
     }
@@ -9067,12 +6629,7 @@ export class AppState {
       if (!run) return false
       if (run.sourceDocument === undefined) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag(
-            'warning',
-            'validation',
-            'history.unstamped',
-            'this run was submitted without a source document - the producing workflow was not recorded',
-          ),
+          diag('warning', 'validation', 'history.unstamped', 'this run was submitted without a source document - the producing workflow was not recorded'),
         ])
         return false
       }
@@ -9081,10 +6638,7 @@ export class AppState {
       if (text === undefined) return false
       const json = JSON.parse(text) as unknown
       const meta = (json as { meta?: { title?: unknown } }).meta
-      const title =
-        typeof meta?.title === 'string'
-          ? meta.title
-          : `Run ${run.jobId.slice(0, 8)}`
+      const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
       const diagnostics = this.openDocument(json, title, backend)
       if (diagnostics.length > 0) return false
       const tab = this.activeTab()
@@ -9093,12 +6647,7 @@ export class AppState {
     } catch (e) {
       if (this.ownerStillLive(backend)) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag(
-            'error',
-            'validation',
-            'history.openFailed',
-            `failed to open run workflow: ${e instanceof Error ? e.message : String(e)}`,
-          ),
+          diag('error', 'validation', 'history.openFailed', `failed to open run workflow: ${e instanceof Error ? e.message : String(e)}`),
         ])
       }
       return false
@@ -9131,10 +6680,7 @@ export class AppState {
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
-      const deleted = await backend.connection.deleteHistoryRun(
-        runId,
-        LIBRARY_SCOPE,
-      )
+      const deleted = await backend.connection.deleteHistoryRun(runId, LIBRARY_SCOPE)
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
         this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
@@ -9142,12 +6688,7 @@ export class AppState {
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'validation',
-          'history.deleteFailed',
-          `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return false
     }
@@ -9162,20 +6703,13 @@ export class AppState {
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return 0
     try {
-      const deleted = await backend.connection.clearHistory({
-        scope: LIBRARY_SCOPE,
-      })
+      const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
       if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'validation',
-          'history.clearFailed',
-          `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return 0
     }
@@ -9196,19 +6730,14 @@ export class AppState {
     const revision = tab.store.revision
     const schemaHash = this.registryForTab(tab)?.hash
     const cached = this.sourceDocCache.get(tab)
-    if (
-      cached &&
-      cached.revision === revision &&
-      cached.schemaHash === schemaHash
-    ) {
+    if (cached && cached.revision === revision && cached.schemaHash === schemaHash) {
       return { sourceDocument: cached.digest }
     }
     try {
       const digest = await backend.connection.uploadAsset(
         JSON.stringify(this.stampedDocumentOf(tab)),
       )
-      if (schemaHash !== undefined)
-        this.sourceDocCache.set(tab, { revision, schemaHash, digest })
+      if (schemaHash !== undefined) this.sourceDocCache.set(tab, { revision, schemaHash, digest })
       return { sourceDocument: digest }
     } catch {
       return undefined // absence of a stamp is fully valid
@@ -9232,10 +6761,7 @@ export class AppState {
     this.reportProblems(tab.id, drift)
   }
 
-  private importLegacy(
-    json: unknown,
-    registry = this.registry.get(),
-  ): {
+  private importLegacy(json: unknown, registry = this.registry.get()): {
     readonly document?: WorkflowDocument
     readonly diagnostics: readonly Diagnostic[]
     readonly groupTranslation?: {
@@ -9246,12 +6772,7 @@ export class AppState {
     if (!registry) {
       return {
         diagnostics: [
-          diag(
-            'error',
-            'import',
-            'import.registryMissing',
-            'cannot translate a legacy litegraph workflow before node schemas are loaded',
-          ),
+          diag('error', 'import', 'import.registryMissing', 'cannot translate a legacy litegraph workflow before node schemas are loaded'),
         ],
       }
     }
@@ -9265,81 +6786,62 @@ export class AppState {
       registry.comfyAliases?.recordsByNodeClass.has(authoredType) === true
     const importGroups = (
       shouldCollapse: (record: ComfyGroupRecord, anchorId: number) => boolean,
-    ) =>
-      importLitegraph(
-        json as JsonObject,
-        resolve,
-        maintainedAlias,
-        registry.comfyGroups,
-        shouldCollapse,
-      )
+    ) => importLitegraph(
+      json as JsonObject,
+      resolve,
+      maintainedAlias,
+      registry.comfyGroups,
+      shouldCollapse,
+    )
     const source = importGroups(() => false)
     if (source.document === undefined) return source
 
     const confidenceDiagnostics = (
       extraRecords: readonly ComfyGroupRecord[],
     ): readonly Diagnostic[] => {
-      const importedRecords = new Map<
-        string,
-        ComfyAliasRecord | ComfyGroupRecord
-      >(extraRecords.map((record) => [record.id, record]))
+      const importedRecords = new Map<string, ComfyAliasRecord | ComfyGroupRecord>(
+        extraRecords.map((record) => [record.id, record]),
+      )
       for (const graph of Object.values(source.document!.graphs)) {
         for (const node of Object.values(graph.nodes)) {
-          const record = registry.comfyAliases?.recordsBySourceType.get(
-            node.type,
-          )
+          const record = registry.comfyAliases?.recordsBySourceType.get(node.type)
           if (record !== undefined) importedRecords.set(record.id, record)
         }
       }
       const diagnostics: Diagnostic[] = []
       for (const mappingKind of ['op', 'family'] as const) {
-        const records = [...importedRecords.values()].filter(
-          (record) => record.mappingKind === mappingKind,
-        )
+        const records = [...importedRecords.values()].filter((record) => record.mappingKind === mappingKind)
         if (records.length === 0) continue
         const confidence = ['exact', 'parametric', 'equivalent', 'grouped']
-          .map(
-            (tier) =>
-              `${tier}=${records.filter((record) => record.confidence.tier === tier).length}`,
-          )
+          .map((tier) => `${tier}=${records.filter((record) => record.confidence.tier === tier).length}`)
           .join(', ')
-        const familyAvailability =
-          mappingKind === 'family'
-            ? records.map((record) => {
-                const provider = record.family?.provider
-                const sourceName =
-                  'nodeClass' in record.source
-                    ? record.source.nodeClass
-                    : record.source.name
-                return provider === undefined
-                  ? `${sourceName}:unknown`
-                  : `${sourceName}:${registry.packs?.has(provider) === true ? 'available' : 'unavailable'}`
-              })
-            : []
+        const familyAvailability = mappingKind === 'family'
+          ? records.map((record) => {
+              const provider = record.family?.provider
+              const sourceName = 'nodeClass' in record.source
+                ? record.source.nodeClass
+                : record.source.name
+              return provider === undefined
+                ? `${sourceName}:unknown`
+                : `${sourceName}:${registry.packs?.has(provider) === true ? 'available' : 'unavailable'}`
+            })
+          : []
         const availabilityCounts = ['available', 'unavailable', 'unknown']
-          .map(
-            (status) =>
-              `${status}=${familyAvailability.filter((entry) => entry.endsWith(`:${status}`)).length}`,
-          )
+          .map((status) => `${status}=${familyAvailability.filter((entry) => entry.endsWith(`:${status}`)).length}`)
           .join(', ')
-        diagnostics.push(
-          diag(
-            'info',
-            'import',
-            `import.comfyAlias.confidence.${mappingKind}`,
-            `ComfyUI ${mappingKind}-level mappings: total=${records.length}; confidence ${confidence}${familyAvailability.length > 0 ? `; family providers ${availabilityCounts}; ${familyAvailability.join(', ')}` : ''}`,
-          ),
-        )
+        diagnostics.push(diag(
+          'info',
+          'import',
+          `import.comfyAlias.confidence.${mappingKind}`,
+          `ComfyUI ${mappingKind}-level mappings: total=${records.length}; confidence ${confidence}${familyAvailability.length > 0 ? `; family providers ${availabilityCounts}; ${familyAvailability.join(', ')}` : ''}`,
+        ))
       }
       return diagnostics
     }
 
     const catalog = registry.comfyGroups
     if (catalog === undefined || catalog.records.length === 0) {
-      return {
-        ...source,
-        diagnostics: [...source.diagnostics, ...confidenceDiagnostics([])],
-      }
+      return { ...source, diagnostics: [...source.diagnostics, ...confidenceDiagnostics([])] }
     }
     const tentative = importGroups(() => true)
     if (tentative.document === undefined) {
@@ -9367,60 +6869,40 @@ export class AppState {
     ).filter((item) => catalog.recordsByGroupType.has(item.sourceType))
     const review = this.reviewReplacements.get()
     const selectedIds = new Set(
-      tentativeItems
-        .filter((item) => item.safe && !review)
-        .map((item) => item.nodeId),
+      tentativeItems.filter((item) => item.safe && !review).map((item) => item.nodeId),
     )
     const reviewDiagnostics = tentativeItems
       .filter((item) => !selectedIds.has(item.nodeId))
-      .map((item) =>
-        diag(
-          'warning',
-          'import',
-          'import.comfyGroup.review',
-          review
-            ? `ComfyUI node group '${item.sourceType}' was left unchanged for replacement review`
-            : `ComfyUI node group '${item.sourceType}' was left unchanged because native replacement was not lossless: ${item.diagnostics.map((entry) => entry.message).join('; ')}`,
-        ),
-      )
+      .map((item) => diag(
+        'warning',
+        'import',
+        'import.comfyGroup.review',
+        review
+          ? `ComfyUI node group '${item.sourceType}' was left unchanged for replacement review`
+          : `ComfyUI node group '${item.sourceType}' was left unchanged because native replacement was not lossless: ${item.diagnostics.map((entry) => entry.message).join('; ')}`,
+      ))
     if (selectedIds.size === 0) {
       return {
         ...source,
-        diagnostics: [
-          ...source.diagnostics,
-          ...reviewDiagnostics,
-          ...confidenceDiagnostics([]),
-        ],
+        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
       }
     }
 
-    const collapsed =
-      selectedIds.size === tentativeItems.length
-        ? tentative
-        : importGroups((_record, anchorId) => selectedIds.has(`n${anchorId}`))
+    const collapsed = selectedIds.size === tentativeItems.length
+      ? tentative
+      : importGroups((_record, anchorId) => selectedIds.has(`n${anchorId}`))
     if (collapsed.document === undefined) {
       return {
         ...source,
-        diagnostics: [
-          ...source.diagnostics,
-          ...reviewDiagnostics,
-          ...confidenceDiagnostics([]),
-        ],
+        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
       }
     }
     const finalItems = scanReplacements(
       collapsed.document,
       replacementRegistry,
       resolveReplacement,
-    ).filter(
-      (item) =>
-        selectedIds.has(item.nodeId) &&
-        catalog.recordsByGroupType.has(item.sourceType),
-    )
-    if (
-      finalItems.length !== selectedIds.size ||
-      finalItems.some((item) => !item.safe)
-    ) {
+    ).filter((item) => selectedIds.has(item.nodeId) && catalog.recordsByGroupType.has(item.sourceType))
+    if (finalItems.length !== selectedIds.size || finalItems.some((item) => !item.safe)) {
       return {
         ...source,
         diagnostics: [
@@ -9437,19 +6919,11 @@ export class AppState {
       }
     }
     const plans = finalItems.flatMap((item) => item.hops.map((hop) => hop.plan))
-    const invocation = comfyGroupReplacementInvocation(
-      source.document,
-      collapsed.document,
-      plans,
-    )
+    const invocation = comfyGroupReplacementInvocation(source.document, collapsed.document, plans)
     if (invocation === undefined) {
       return {
         ...source,
-        diagnostics: [
-          ...source.diagnostics,
-          ...reviewDiagnostics,
-          ...confidenceDiagnostics([]),
-        ],
+        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
       }
     }
     const appliedRecords = finalItems.flatMap((item) => {
@@ -9458,11 +6932,7 @@ export class AppState {
     })
     return {
       ...source,
-      diagnostics: [
-        ...source.diagnostics,
-        ...reviewDiagnostics,
-        ...confidenceDiagnostics([]),
-      ],
+      diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
       groupTranslation: {
         invocation,
         successDiagnostics: [
@@ -9498,13 +6968,9 @@ export class AppState {
     if (this.extraSchemas.size === 0) return reg
     const extras = new Map(this.extraSchemas)
     const schemas = new Map([...reg.schemas, ...extras])
-    const resolve = Object.assign(
-      (type: string) => extras.get(type) ?? reg.resolve(type),
-      {
-        forEditorRole: (role: string) =>
-          schemaForEditorRole(schemas.values(), role),
-      },
-    )
+    const resolve = Object.assign((type: string) => extras.get(type) ?? reg.resolve(type), {
+      forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+    })
     return {
       ...reg,
       schemas,
@@ -9523,35 +6989,24 @@ export class AppState {
     if (base === undefined || base.packs === undefined) return
     const locale = activeLocale.get().tag
     const catalogsByPack = new Map<string, readonly PackLocaleCatalog[]>()
-    await Promise.all(
-      [...base.packs].map(async ([packId, pack]) => {
-        if (pack.locales === undefined) return
-        const catalogs: PackLocaleCatalog[] = []
-        for (const key of preferredPackLocaleKeys(
-          locale,
-          Object.keys(pack.locales),
-        )) {
-          const digest = pack.locales[key]
-          if (digest === undefined) continue
-          try {
-            const payload = await backend.connection.fetchPackLocaleCatalog(
-              packId,
-              digest,
-            )
-            if (payload !== undefined)
-              catalogs.push(decodePackLocaleCatalog(payload))
-          } catch {
-            // One unavailable or malformed immutable catalog falls through to
-            // the next advertised locale without making the schema unusable.
-          }
+    await Promise.all([...base.packs].map(async ([packId, pack]) => {
+      if (pack.locales === undefined) return
+      const catalogs: PackLocaleCatalog[] = []
+      for (const key of preferredPackLocaleKeys(locale, Object.keys(pack.locales))) {
+        const digest = pack.locales[key]
+        if (digest === undefined) continue
+        try {
+          const payload = await backend.connection.fetchPackLocaleCatalog(packId, digest)
+          if (payload !== undefined) catalogs.push(decodePackLocaleCatalog(payload))
+        } catch {
+          // One unavailable or malformed immutable catalog falls through to
+          // the next advertised locale without making the schema unusable.
         }
-        if (catalogs.length > 0) catalogsByPack.set(packId, catalogs)
-      }),
-    )
+      }
+      if (catalogs.length > 0) catalogsByPack.set(packId, catalogs)
+    }))
     if (!current() || activeLocale.get().tag !== locale) return
-    backend.registry.set(
-      this.layerExtraSchemas(overlayPackLocales(base, catalogsByPack)),
-    )
+    backend.registry.set(this.layerExtraSchemas(overlayPackLocales(base, catalogsByPack)))
     backend.invalidateRemoteChoices()
   }
 
@@ -9577,8 +7032,7 @@ export class AppState {
     backend: Backend,
     registry: SchemaRegistry | undefined = backend.registry.get(),
   ): ExecutionResultBackendIdentity | undefined {
-    if (backend.protocol !== 'dinkster' || registry?.server === undefined)
-      return undefined
+    if (backend.protocol !== 'dinkster' || registry?.server === undefined) return undefined
     return {
       connection: backend.id,
       baseUrl: backend.baseUrl,
@@ -9592,43 +7046,22 @@ export class AppState {
     backend: Backend & { readonly protocol: 'dinkster' },
     registry: SchemaRegistry,
     result: PersistedExecutionResult,
-  ): Promise<
-    Parameters<ExecutionStore['restoreCompleted']>[0] | null | undefined
-  > {
-    if (
-      result.ref.connection !== backend.id ||
-      result.proof.connection !== backend.id ||
-      result.proof.schemaHash !== registry.hash
-    )
-      return undefined
-    const history = await backend.connection.getHistoryRun(
-      result.jobRef,
-      LIBRARY_SCOPE,
-    )
-    if (
-      history === undefined ||
-      history.state !== 'completed' ||
+  ): Promise<Parameters<ExecutionStore['restoreCompleted']>[0] | null | undefined> {
+    if (result.ref.connection !== backend.id || result.proof.connection !== backend.id ||
+      result.proof.schemaHash !== registry.hash) return undefined
+    const history = await backend.connection.getHistoryRun(result.jobRef, LIBRARY_SCOPE)
+    if (history === undefined || history.state !== 'completed' ||
       (history.jobRef ?? history.runId) !== result.jobRef ||
-      history.clientId !== result.backend.clientId ||
-      history.jobId !== result.ref.prompt ||
+      history.clientId !== result.backend.clientId || history.jobId !== result.ref.prompt ||
       history.sourceDocument !== result.sourceDocument ||
       history.principalId !== result.submittedBy?.principalId ||
-      history.principalKind !== result.submittedBy?.kind
-    )
-      return undefined
+      history.principalKind !== result.submittedBy?.kind) return undefined
     const job = await backend.connection.fetchJob(result.ref.prompt)
-    if (
-      job === undefined ||
-      job.state !== 'completed' ||
-      job.jobRef !== result.jobRef ||
-      job.sourceDocument !== result.sourceDocument ||
+    if (job === undefined || job.state !== 'completed' ||
+      job.jobRef !== result.jobRef || job.sourceDocument !== result.sourceDocument ||
       job.submittedBy?.principalId !== result.submittedBy?.principalId ||
-      job.submittedBy?.kind !== result.submittedBy?.kind
-    )
-      return undefined
-    const source = await backend.connection.fetchAssetText(
-      result.sourceDocument,
-    )
+      job.submittedBy?.kind !== result.submittedBy?.kind) return undefined
+    const source = await backend.connection.fetchAssetText(result.sourceDocument)
     if (source === undefined) return undefined
     let loaded
     try {
@@ -9637,12 +7070,10 @@ export class AppState {
       return undefined
     }
     if (loaded.document === undefined) return undefined
-    const choices = new Map(
-      (result.proof.choices ?? []).map((choice) => [
-        JSON.stringify([choice.graph, choice.selector]),
-        choice.candidate,
-      ]),
-    )
+    const choices = new Map((result.proof.choices ?? []).map((choice) => [
+      JSON.stringify([choice.graph, choice.selector]),
+      choice.candidate,
+    ]))
     const compiled = compile({
       document: loaded.document,
       revision: result.proof.revision,
@@ -9652,27 +7083,17 @@ export class AppState {
       schemaHash: registry.hash,
       candidateOverride: ({ graph, selector, candidates }) => {
         const choice = choices.get(JSON.stringify([graph, selector]))
-        return choice !== undefined && candidates.includes(choice)
-          ? choice
-          : undefined
+        return choice !== undefined && candidates.includes(choice) ? choice : undefined
       },
       pickCandidate: () => 0,
-      ...(registry.graphFeatures === undefined
-        ? {}
-        : { graphFeatures: registry.graphFeatures }),
+      ...(registry.graphFeatures === undefined ? {} : { graphFeatures: registry.graphFeatures }),
     })
-    if (
-      !compiled.ok ||
-      canonicalJson(persistedCompileProof(compiled.artifact)) !==
-        canonicalJson(result.proof)
-    ) {
+    if (!compiled.ok || canonicalJson(persistedCompileProof(compiled.artifact)) !== canonicalJson(result.proof)) {
       return undefined
     }
 
     const queries = new Map<string, Set<string>>()
-    const addQueries = (
-      byNode: Readonly<Record<string, Readonly<Record<string, unknown>>>>,
-    ): void => {
+    const addQueries = (byNode: Readonly<Record<string, Readonly<Record<string, unknown>>>>): void => {
       for (const [nodeId, outputs] of Object.entries(byNode)) {
         let ids = queries.get(nodeId)
         if (!ids) queries.set(nodeId, (ids = new Set()))
@@ -9680,22 +7101,12 @@ export class AppState {
       }
     }
     addQueries(result.outputs)
-    addQueries(
-      Object.fromEntries(
-        Object.entries(result.nodes).map(([nodeId, progress]) => [
-          nodeId,
-          progress.outputs ?? {},
-        ]),
-      ),
-    )
-    if (workspaceRecord(job.outputs))
-      addQueries(
-        job.outputs as Readonly<
-          Record<string, Readonly<Record<string, unknown>>>
-        >,
-      )
-    if ([...queries.values()].reduce((total, ids) => total + ids.size, 0) > 512)
-      return undefined
+    addQueries(Object.fromEntries(Object.entries(result.nodes).map(([nodeId, progress]) => [
+      nodeId,
+      progress.outputs ?? {},
+    ])))
+    if (workspaceRecord(job.outputs)) addQueries(job.outputs as Readonly<Record<string, Readonly<Record<string, unknown>>>>)
+    if ([...queries.values()].reduce((total, ids) => total + ids.size, 0) > 512) return undefined
 
     const jobNodes = nodeStatesFromDinksterJob(job)
     const nodes: Record<string, NodeProgress> = {}
@@ -9710,25 +7121,15 @@ export class AppState {
           outputId,
         })
         if (!peek.available) {
-          if (
-            peek.status === 0 ||
-            peek.status === 408 ||
-            peek.status === 429 ||
-            peek.status >= 500 ||
-            peek.reason === 'malformed-response'
-          )
-            return null
+          if (peek.status === 0 || peek.status === 408 || peek.status === 429 ||
+            peek.status >= 500 || peek.reason === 'malformed-response') return null
           continue
         }
         const descriptor = peek.descriptor
         const summary: NodeOutputSummary = {
           typeId: descriptor.typeId,
-          ...(descriptor.length === undefined
-            ? {}
-            : { length: descriptor.length }),
-          ...(descriptor.value === undefined
-            ? {}
-            : { value: descriptor.value }),
+          ...(descriptor.length === undefined ? {} : { length: descriptor.length }),
+          ...(descriptor.value === undefined ? {} : { value: descriptor.value }),
         }
         nodes[nodeId] = {
           ...progress,
@@ -9739,10 +7140,7 @@ export class AppState {
     }
     for (const artifact of job.artifacts ?? []) {
       const progress = jobNodes[artifact.nodeId]
-      if (
-        (progress?.state === 'done' || progress?.state === 'cached') &&
-        nodes[artifact.nodeId] === undefined
-      ) {
+      if ((progress?.state === 'done' || progress?.state === 'cached') && nodes[artifact.nodeId] === undefined) {
         nodes[artifact.nodeId] = progress
       }
     }
@@ -9753,9 +7151,7 @@ export class AppState {
       nodes,
       outputs,
       artifacts: job.artifacts ?? [],
-      ...(result.submittedBy === undefined
-        ? {}
-        : { submittedBy: result.submittedBy }),
+      ...(result.submittedBy === undefined ? {} : { submittedBy: result.submittedBy }),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
       queuedAt: result.queuedAt,
@@ -9771,11 +7167,7 @@ export class AppState {
     if (identity === undefined) return
     for (const result of loadExecutionResults(identity)) {
       try {
-        const restored = await this.validatedExecutionResult(
-          backend,
-          registry,
-          result,
-        )
+        const restored = await this.validatedExecutionResult(backend, registry, result)
         if (restored === undefined) removeExecutionResult(result)
         else if (restored !== null) {
           this.retainedRegistries.set(restored.artifact, registry)
@@ -9804,10 +7196,7 @@ export class AppState {
     backend.workerCatalog.set({ status: 'unsupported' })
   }
 
-  private refreshWorkerCatalog(
-    backend: Backend,
-    registry: SchemaRegistry,
-  ): void {
+  private refreshWorkerCatalog(backend: Backend, registry: SchemaRegistry): void {
     const request = {}
     this.workerRequests.set(backend, request)
     if (
@@ -9819,8 +7208,7 @@ export class AppState {
     }
     backend.workerCatalog.set({ status: 'loading' })
     const current = (): boolean =>
-      this.backends.get().includes(backend) &&
-      this.workerRequests.get(backend) === request
+      this.backends.get().includes(backend) && this.workerRequests.get(backend) === request
     void backend.connection.fetchWorkers().then(
       (workers) => {
         if (current()) backend.workerCatalog.set({ status: 'ready', workers })
@@ -9844,8 +7232,7 @@ export class AppState {
     this.invalidateWorkerCatalog(backend)
     backend.schemaState.set({ status: 'loading' })
     const current = (): boolean =>
-      this.backends.get().includes(backend) &&
-      this.schemaRequests.get(backend) === request
+      this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request
     try {
       const registry = await backend.connection.fetchSchemas()
       if (!current()) return
@@ -9859,17 +7246,12 @@ export class AppState {
       // Advisory and non-blocking: older native backends without the endpoint
       // simply report no problems, while v1's implementation is a no-op.
       backend.refreshDiagnostics()
-      if (backend.protocol === 'dinkster')
-        void this.refreshPackLocaleOverlay(backend, registry)
+      if (backend.protocol === 'dinkster') void this.refreshPackLocaleOverlay(backend, registry)
     } catch (e) {
       if (!current()) return
       if (e instanceof EngineNotReadyError && backend.protocol === 'dinkster') {
         backend.schemaState.set({ status: 'waiting' })
-        this.log(
-          'info',
-          backend.label,
-          `engine not ready (${e.state}); waiting for the supervisor`,
-        )
+        this.log('info', backend.label, `engine not ready (${e.state}); waiting for the supervisor`)
         return
       }
       const message = e instanceof Error ? e.message : String(e)
@@ -9905,8 +7287,7 @@ export class AppState {
       onReady: () => {
         // The 503 gate may have rejected the startup schema fetch; the
         // engine answering healthy is the moment to try again.
-        if (backend.registry.get() === undefined)
-          void this.loadBackendSchemas(backend)
+        if (backend.registry.get() === undefined) void this.loadBackendSchemas(backend)
       },
     })
     this.supervisorPolls.set(backend.id, () => {
@@ -9929,12 +7310,7 @@ export class AppState {
     if (!result.ok) {
       this.log('error', backend.label, `engine restart failed: ${result.error}`)
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag(
-          'error',
-          'runtime',
-          'supervisor.restartFailed',
-          `[${backend.label}] engine restart failed: ${result.error}`,
-        ),
+        diag('error', 'runtime', 'supervisor.restartFailed', `[${backend.label}] engine restart failed: ${result.error}`),
       ])
       return
     }
@@ -9949,10 +7325,7 @@ export class AppState {
    * they can never disagree on capabilities - a $typed-lowered workflow
    * must not preview as an error closure while the actual queue succeeds.
    */
-  compileInputForTab(
-    tab: Tab,
-    scope: ExecutionScope,
-  ): CompileInput | undefined {
+  compileInputForTab(tab: Tab, scope: ExecutionScope): CompileInput | undefined {
     const backend = this.backendForTab(tab)
     const registry = backend.registry.get()
     if (!registry) return undefined
@@ -9965,17 +7338,12 @@ export class AppState {
       schemaHash: registry.hash,
       // Capability-negotiated graph wire forms (e.g. $typed) are gated on
       // the TARGET backend's advertised features, exactly like the registry.
-      ...(registry.graphFeatures
-        ? { graphFeatures: registry.graphFeatures }
-        : {}),
+      ...(registry.graphFeatures ? { graphFeatures: registry.graphFeatures } : {}),
     }
   }
 
   /** Compile against the tab's TARGET backend: its registry, its identity. */
-  compileTab(
-    tab: Tab,
-    scope: ExecutionScope = { kind: 'full' },
-  ): CompileResult | undefined {
+  compileTab(tab: Tab, scope: ExecutionScope = { kind: 'full' }): CompileResult | undefined {
     // Same registry read compileInputForTab makes (signals are synchronous):
     // captured here so the retained-registry association below is exact.
     const registry = this.backendForTab(tab).registry.get()
@@ -10019,11 +7387,7 @@ export class AppState {
     const registry = this.registryForTab(tab)
     if (!registry) return undefined
     const cached = this.comparisonCompiles.get(tab)
-    if (
-      cached &&
-      cached.revision === tab.store.revision &&
-      cached.schemaHash === registry.hash
-    ) {
+    if (cached && cached.revision === tab.store.revision && cached.schemaHash === registry.hash) {
       return cached.result
     }
     const result = this.compileTab(tab)
@@ -10055,14 +7419,12 @@ export class AppState {
     if (!input) return undefined
     const graphFeatures = JSON.stringify(input.graphFeatures ?? [])
     const cached = this.scopeClosures.get(tab)
-    if (
-      cached &&
+    if (cached &&
       cached.revision === tab.store.revision &&
       cached.schemaHash === input.schemaHash &&
       cached.connection === input.connection &&
       cached.graphFeatures === graphFeatures &&
-      cached.resolve === input.resolve
-    ) {
+      cached.resolve === input.resolve) {
       return cached.closure
     }
     // A full would-run compile per revision is only worth paying when the
@@ -10088,23 +7450,14 @@ export class AppState {
    * subgraph instance expands to its descendant output occurrences because
    * instances themselves do not survive prompt flattening.
    */
-  selectionExecutionScopes(
-    tab: Tab,
-    nodeIds: readonly string[],
-  ): SelectionExecutionScopes | undefined {
+  selectionExecutionScopes(tab: Tab, nodeIds: readonly string[]): SelectionExecutionScopes | undefined {
     const def = tab.store.doc.graphs[tab.store.doc.root]
     const registry = this.registryForTab(tab)
     if (!def || !registry) return undefined
-    const analysis = analyzeSelectionExecution(
-      def,
-      nodeIds.filter((id) => {
-        const node = def.nodes[id]
-        return (
-          node?.virtual !== true ||
-          this.virtualNodeKinds.get(node.type)?.schema.virtual !== true
-        )
-      }),
-    )
+    const analysis = analyzeSelectionExecution(def, nodeIds.filter((id) => {
+      const node = def.nodes[id]
+      return node?.virtual !== true || this.virtualNodeKinds.get(node.type)?.schema.virtual !== true
+    }))
     if (analysis.selected.size === 0) return { analysis }
     const resolve = documentResolver(tab.store.doc, registry.resolve)
     const expand = (nodeId: string, outputsOnly: boolean): Occurrence[] => {
@@ -10120,58 +7473,35 @@ export class AppState {
         const child = tab.store.doc.graphs[childId]
         if (!child) return
         const childPath = [...path, asNodeId(id)]
-        const childTargets = new Set(
-          outputsOnly
-            ? []
-            : (child.boundary?.outputs.map((item) => item.binds.node) ?? []),
-        )
-        for (const inner of Object.values(child.nodes))
-          if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
-        for (const childTarget of [...childTargets].sort())
-          visit(childId, childPath, childTarget)
+        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.map((item) => item.binds.node) ?? [])
+        for (const inner of Object.values(child.nodes)) if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
+        for (const childTarget of [...childTargets].sort()) visit(childId, childPath, childTarget)
       }
       visit(tab.store.doc.root, [], nodeId)
       return targets
     }
-    const scope = (
-      ids: Iterable<string>,
-      outputsOnly = false,
-    ): ExecutionScope | undefined => {
-      const targets = [...ids]
-        .flatMap((id) => expand(id, outputsOnly))
-        .filter(
-          (target, index, all) =>
-            all.findIndex(
-              (candidate) =>
-                candidate.node === target.node &&
-                candidate.instancePath.length === target.instancePath.length &&
-                candidate.instancePath.every(
-                  (id, i) => id === target.instancePath[i],
-                ),
-            ) === index,
-        )
+    const scope = (ids: Iterable<string>, outputsOnly = false): ExecutionScope | undefined => {
+      const targets = [...ids].flatMap((id) => expand(id, outputsOnly)).filter((target, index, all) =>
+        all.findIndex((candidate) =>
+          candidate.node === target.node &&
+          candidate.instancePath.length === target.instancePath.length &&
+          candidate.instancePath.every((id, i) => id === target.instancePath[i]),
+        ) === index,
+      )
       return targets.length > 0 ? { kind: 'partial', targets } : undefined
     }
     const outputIds = [...analysis.downstream]
       .filter((id) => resolve(def.nodes[id]!.type)?.isOutputNode === true)
       .sort()
-    const selectedCycle = [...analysis.selected].some((id) =>
-      analysis.cyclicNodes.has(id),
-    )
-    const upToRootCycle = [...analysis.upstream].some((id) =>
-      analysis.cyclicNodes.has(id),
-    )
-    const outputRootCycle = [...analysis.upstreamOf(outputIds)].some((id) =>
-      analysis.cyclicNodes.has(id),
-    )
+    const selectedCycle = [...analysis.selected].some((id) => analysis.cyclicNodes.has(id))
+    const upToRootCycle = [...analysis.upstream].some((id) => analysis.cyclicNodes.has(id))
+    const outputRootCycle = [...analysis.upstreamOf(outputIds)].some((id) => analysis.cyclicNodes.has(id))
     const cycleNodesByGraph = new Map<string, ReadonlySet<string>>()
     const cycleNodesFor = (graphId: string): ReadonlySet<string> => {
       let cycleNodes = cycleNodesByGraph.get(graphId)
       if (!cycleNodes) {
         const graph = tab.store.doc.graphs[graphId]
-        cycleNodes = graph
-          ? analyzeSelectionExecution(graph, []).cyclicNodes
-          : new Set()
+        cycleNodes = graph ? analyzeSelectionExecution(graph, []).cyclicNodes : new Set()
         cycleNodesByGraph.set(graphId, cycleNodes)
       }
       return cycleNodes
@@ -10182,9 +7512,7 @@ export class AppState {
         let graphId: string = tab.store.doc.root
         for (const instanceId of occurrence.instancePath) {
           if (cycleNodesFor(graphId).has(instanceId)) return true
-          const childId = subgraphDefIdOf(
-            tab.store.doc.graphs[graphId]?.nodes[instanceId]?.type ?? '',
-          )
+          const childId = subgraphDefIdOf(tab.store.doc.graphs[graphId]?.nodes[instanceId]?.type ?? '')
           if (!childId) break
           graphId = childId
         }
@@ -10197,34 +7525,28 @@ export class AppState {
       const input = this.compileInputForTab(tab, candidate)
       if (!input) return undefined
       const closure = scopeClosure(input)
-      return closure
-        ? { scope: candidate, cyclic: closureContainsCycle(closure.included) }
-        : undefined
+      return closure ? { scope: candidate, cyclic: closureContainsCycle(closure.included) } : undefined
     }
     const upToCandidate = scope(analysis.first)
-    const betweenCandidate = analysis.contiguous
-      ? scope(analysis.sinks)
-      : undefined
+    const betweenCandidate = analysis.contiguous ? scope(analysis.sinks) : undefined
     const fromOnwardsCandidate = scope(outputIds, true)
     const inspectedUpTo = inspect(upToCandidate)
     const inspectedBetween = inspect(betweenCandidate)
     const inspectedFromOnwards = inspect(fromOnwardsCandidate)
-    const upToReason =
-      analysis.first.length === 0 || selectedCycle
-        ? 'selection is inside a cycle'
-        : upToRootCycle || inspectedUpTo?.cyclic
-          ? 'upstream of the selection contains a cycle'
-          : !inspectedUpTo
-            ? 'selection has no executable targets'
-            : undefined
-    const fromOnwardsReason =
-      outputIds.length === 0
-        ? 'no output node is downstream of the selection'
-        : outputRootCycle || inspectedFromOnwards?.cyclic
-          ? 'the downstream output execution closure contains a cycle'
-          : !inspectedFromOnwards
-            ? 'selection has no executable targets'
-            : undefined
+    const upToReason = analysis.first.length === 0 || selectedCycle
+      ? 'selection is inside a cycle'
+      : upToRootCycle || inspectedUpTo?.cyclic
+        ? 'upstream of the selection contains a cycle'
+        : !inspectedUpTo
+          ? 'selection has no executable targets'
+        : undefined
+    const fromOnwardsReason = outputIds.length === 0
+      ? 'no output node is downstream of the selection'
+      : outputRootCycle || inspectedFromOnwards?.cyclic
+        ? 'the downstream output execution closure contains a cycle'
+        : !inspectedFromOnwards
+          ? 'selection has no executable targets'
+        : undefined
     const betweenReason = selectedCycle
       ? 'the selected range execution closure contains a cycle'
       : !analysis.contiguous
@@ -10235,10 +7557,8 @@ export class AppState {
             ? 'the selected range execution closure contains a cycle'
             : undefined
     const upTo = upToReason === undefined ? inspectedUpTo?.scope : undefined
-    const between =
-      betweenReason === undefined ? inspectedBetween?.scope : undefined
-    const fromOnwards =
-      fromOnwardsReason === undefined ? inspectedFromOnwards?.scope : undefined
+    const between = betweenReason === undefined ? inspectedBetween?.scope : undefined
+    const fromOnwards = fromOnwardsReason === undefined ? inspectedFromOnwards?.scope : undefined
     return {
       analysis,
       ...(upTo ? { upTo } : {}),
@@ -10257,22 +7577,15 @@ export class AppState {
   }
 
   /** Queue the direct in-selection sinks of a contiguous selected range. */
-  async queueSelectionBetween(
-    tab: Tab,
-    nodeIds: readonly string[],
-  ): Promise<void> {
+  async queueSelectionBetween(tab: Tab, nodeIds: readonly string[]): Promise<void> {
     const scope = this.selectionExecutionScopes(tab, nodeIds)?.between
     if (scope) await this.queue(tab, scope)
   }
 
   /** Queue outputs downstream of the selection maxima. */
-  async queueSelectionOnwards(
-    tab: Tab,
-    nodeIds: readonly string[],
-  ): Promise<void> {
+  async queueSelectionOnwards(tab: Tab, nodeIds: readonly string[]): Promise<void> {
     const scopes = this.selectionExecutionScopes(tab, nodeIds)
-    if (scopes?.fromOnwards)
-      await this.queue(tab, scopes.fromOnwards, scopes.analysis.last)
+    if (scopes?.fromOnwards) await this.queue(tab, scopes.fromOnwards, scopes.analysis.last)
   }
 
   /**
@@ -10292,21 +7605,12 @@ export class AppState {
    * Controller intent remains compared by EFFECTIVE mode: explicitly
    * storing the same default mode is deliberately not an intent change.
    */
-  private readonly controllerMutations = new WeakMap<
-    DocumentSession,
-    ControllerMutationState
-  >()
+  private readonly controllerMutations = new WeakMap<DocumentSession, ControllerMutationState>()
 
-  private trackControllerMutations(
-    session: DocumentSession,
-    state: ControllerMutationState,
-  ): void {
+  private trackControllerMutations(session: DocumentSession, state: ControllerMutationState): void {
     session.document.subscribe((document) => {
       for (const input of state.inputs.values()) {
-        const value =
-          document.graphs[input.graphId]?.nodes[input.nodeId]?.values[
-            input.inputId
-          ]
+        const value = document.graphs[input.graphId]?.nodes[input.nodeId]?.values[input.inputId]
         if (!Object.is(value, input.value)) {
           input.value = value
           input.generation = ++state.next
@@ -10322,20 +7626,14 @@ export class AppState {
    * promoted session's edits, or an ABA edit made after promotion (change,
    * then restore the queue-time value) becomes invisible to the guard.
    */
-  private adoptControllerMutations(
-    previous: DocumentSession,
-    session: DocumentSession,
-  ): void {
+  private adoptControllerMutations(previous: DocumentSession, session: DocumentSession): void {
     const state = this.controllerMutations.get(previous)
     if (!state || this.controllerMutations.has(session)) return
     this.controllerMutations.set(session, state)
     this.trackControllerMutations(session, state)
   }
 
-  private controllerMutationGeneration(
-    session: DocumentSession,
-    step: AdvancementInputLocation,
-  ): number {
+  private controllerMutationGeneration(session: DocumentSession, step: AdvancementInputLocation): number {
     let state = this.controllerMutations.get(session)
     if (!state) {
       state = { next: 0, inputs: new Map() }
@@ -10349,10 +7647,7 @@ export class AppState {
         graphId: step.graphId,
         nodeId: step.nodeId,
         inputId: step.inputId,
-        value:
-          session.doc.graphs[step.graphId]?.nodes[step.nodeId]?.values[
-            step.inputId
-          ],
+        value: session.doc.graphs[step.graphId]?.nodes[step.nodeId]?.values[step.inputId],
         generation: state.next,
       }
       state.inputs.set(key, input)
@@ -10361,54 +7656,28 @@ export class AppState {
   }
 
   /** Mutation token for async widget compare-and-set plans (closes ABA edits). */
-  widgetValueMutationGeneration(
-    tab: Tab,
-    graphId: string,
-    nodeId: string,
-    inputId: string,
-  ): number {
-    return this.controllerMutationGeneration(tab.store, {
-      graphId,
-      nodeId,
-      inputId,
-    })
+  widgetValueMutationGeneration(tab: Tab, graphId: string, nodeId: string, inputId: string): number {
+    return this.controllerMutationGeneration(tab.store, { graphId, nodeId, inputId })
   }
 
   private readonly completedComboRefreshPlans = new WeakSet<ComboRefreshPlan>()
 
   prepareComboRefresh(tab: Tab, route: string): ComboRefreshPlan | undefined {
     if (tab.execution || !this.tabs.get().includes(tab)) return undefined
-    if (!this.settings.get<boolean>('features.seedController.enabled'))
-      return undefined
+    if (!this.settings.get<boolean>('features.seedController.enabled')) return undefined
     const backend = this.backendForTab(tab)
     const registry = this.registryForTab(tab)
-    return registry
-      ? comboRefreshAdvancementPlan(tab.store, route, backend, registry)
-      : undefined
+    return registry ? comboRefreshAdvancementPlan(tab.store, route, backend, registry) : undefined
   }
 
-  completeComboRefresh(
-    plan: ComboRefreshPlan | undefined,
-    options: readonly string[],
-    random: () => number = Math.random,
-  ): void {
+  completeComboRefresh(plan: ComboRefreshPlan | undefined, options: readonly string[], random: () => number = Math.random): void {
     if (!plan || this.completedComboRefreshPlans.has(plan)) return
     this.completedComboRefreshPlans.add(plan)
     if (!this.settings.get<boolean>('features.seedController.enabled')) return
     const tab = this.liveTabContinuing(plan.session)
     if (!tab) return
-    if (
-      this.backendForTab(tab) !== plan.backend ||
-      this.registryForTab(tab) !== plan.registry
-    )
-      return
-    const invocation = comboRefreshAdvancement(
-      tab.store.doc,
-      plan,
-      options,
-      plan.registry.resolve,
-      random,
-    )
+    if (this.backendForTab(tab) !== plan.backend || this.registryForTab(tab) !== plan.registry) return
+    const invocation = comboRefreshAdvancement(tab.store.doc, plan, options, plan.registry.resolve, random)
     if (invocation) this.dispatchTo(tab, invocation)
   }
 
@@ -10420,15 +7689,8 @@ export class AppState {
    * tab at registration time; queue() prepares its plan at COMPILE time
    * instead, before any await, from the artifact's occurrence provenance.
    */
-  registerRun(
-    tab: Tab,
-    ref: ExecutionRef,
-    artifact: CompileArtifact,
-    timestamp?: number,
-  ): void {
-    const plan = tab.execution
-      ? undefined
-      : this.preparedAdvancement(tab.store, artifact)
+  registerRun(tab: Tab, ref: ExecutionRef, artifact: CompileArtifact, timestamp?: number): void {
+    const plan = tab.execution ? undefined : this.preparedAdvancement(tab.store, artifact)
     this.installRun(ref, artifact, plan, timestamp)
   }
 
@@ -10441,21 +7703,13 @@ export class AppState {
     session: DocumentSession,
     artifact: CompileArtifact,
   ): AdvancementPlan | undefined {
-    if (!this.settings.get<boolean>('features.seedController.enabled'))
-      return undefined
+    if (!this.settings.get<boolean>('features.seedController.enabled')) return undefined
     const steps = controllerAdvancementPlan(artifact.snapshot, artifact)
     if (steps.length === 0) return undefined
-    const generations = new Map(
-      steps.flatMap((step) =>
-        step.valueSources.map((source) => {
-          const location = controllerSourceLocation(source)
-          return [
-            advancementInputKey(location),
-            this.controllerMutationGeneration(session, location),
-          ] as const
-        }),
-      ),
-    )
+    const generations = new Map(steps.flatMap((step) => step.valueSources.map((source) => {
+      const location = controllerSourceLocation(source)
+      return [advancementInputKey(location), this.controllerMutationGeneration(session, location)] as const
+    })))
     return { session, artifact, steps, generations }
   }
 
@@ -10480,8 +7734,7 @@ export class AppState {
     // may be a same-hash impostor (layered replacement) by registration time.
     if (!this.retainedRegistries.has(artifact)) {
       const registry = this.backendFor(ref.connection)?.registry.get()
-      if (registry && registry.hash === artifact.schemaHash)
-        this.retainedRegistries.set(artifact, registry)
+      if (registry && registry.hash === artifact.schemaHash) this.retainedRegistries.set(artifact, registry)
     }
     this.store.register(ref, artifact, timestamp, identity)
     this.workspaceEvents?.postMessage({
@@ -10491,19 +7744,12 @@ export class AppState {
       artifact: projectWorkspaceCompileArtifact(artifact),
       ...(timestamp === undefined ? {} : { timestamp }),
       ...(identity?.jobRef === undefined ? {} : { jobRef: identity.jobRef }),
-      ...(identity?.sourceDocument === undefined
-        ? {}
-        : { sourceDocument: identity.sourceDocument }),
+      ...(identity?.sourceDocument === undefined ? {} : { sourceDocument: identity.sourceDocument }),
     } satisfies WorkspaceExecutionMessage)
   }
 
   private receiveWorkspaceExecution(raw: unknown): void {
-    if (
-      !workspaceRecord(raw) ||
-      !workspaceString(raw['source']) ||
-      raw['source'] === this.workspaceActorId
-    )
-      return
+    if (!workspaceRecord(raw) || !workspaceString(raw['source']) || raw['source'] === this.workspaceActorId) return
     if (raw['kind'] === 'event') {
       const event = decodeWorkspaceExecutionEvent(raw['event'])
       if (event === undefined) return
@@ -10520,32 +7766,22 @@ export class AppState {
     this.pendingWorkspaceRegistrations.delete(key)
     this.pendingWorkspaceRegistrations.set(key, registration)
     if (this.pendingWorkspaceRegistrations.size > 200) {
-      const oldest = this.pendingWorkspaceRegistrations.keys().next().value as
-        | string
-        | undefined
-      if (oldest !== undefined)
-        this.pendingWorkspaceRegistrations.delete(oldest)
+      const oldest = this.pendingWorkspaceRegistrations.keys().next().value as string | undefined
+      if (oldest !== undefined) this.pendingWorkspaceRegistrations.delete(oldest)
     }
     this.flushWorkspaceRegistrations(registration.ref.connection)
   }
 
   private flushWorkspaceRegistrations(connection: ConnectionId): void {
-    const backend =
-      this.backendFor(connection) ?? this.retiredBackends.get(connection)
+    const backend = this.backendFor(connection) ?? this.retiredBackends.get(connection)
     const registry = backend?.registry.get()
     if (registry === undefined) return
     for (const [key, registration] of this.pendingWorkspaceRegistrations) {
-      if (
-        registration.ref.connection !== connection ||
-        registration.schemaHash !== registry.hash
-      )
-        continue
-      const choices = new Map(
-        registration.choices.map((choice) => [
-          JSON.stringify([choice.graph, choice.selector]),
-          choice.candidate,
-        ]),
-      )
+      if (registration.ref.connection !== connection || registration.schemaHash !== registry.hash) continue
+      const choices = new Map(registration.choices.map((choice) => [
+        JSON.stringify([choice.graph, choice.selector]),
+        choice.candidate,
+      ]))
       const result = compile({
         document: registration.snapshot,
         revision: registration.revision,
@@ -10555,27 +7791,18 @@ export class AppState {
         schemaHash: registry.hash,
         candidateOverride: ({ graph, selector, candidates }) => {
           const selected = choices.get(JSON.stringify([graph, selector]))
-          return selected !== undefined && candidates.includes(selected)
-            ? selected
-            : undefined
+          return selected !== undefined && candidates.includes(selected) ? selected : undefined
         },
         pickCandidate: () => 0,
-        ...(registry.graphFeatures
-          ? { graphFeatures: registry.graphFeatures }
-          : {}),
+        ...(registry.graphFeatures ? { graphFeatures: registry.graphFeatures } : {}),
       })
       if (!result.ok) continue
       const artifact = projectWorkspaceCompileArtifact(result.artifact)
-      if (canonicalJson(artifact) !== canonicalJson(registration.artifact))
-        continue
+      if (canonicalJson(artifact) !== canonicalJson(registration.artifact)) continue
       this.retainedRegistries.set(artifact, registry)
       this.store.register(registration.ref, artifact, registration.timestamp, {
-        ...(registration.jobRef === undefined
-          ? {}
-          : { jobRef: registration.jobRef }),
-        ...(registration.sourceDocument === undefined
-          ? {}
-          : { sourceDocument: registration.sourceDocument }),
+        ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
+        ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
       })
       this.pendingWorkspaceRegistrations.delete(key)
     }
@@ -10591,16 +7818,13 @@ export class AppState {
     // Log records carry a per-job envelope seq: the only identity stable
     // across windows and replays (each window stamps its own arrival
     // timestamp at normalization, so clock-derived keys would double-apply).
-    const key =
-      event.kind === 'log'
-        ? `${executionKey(event.execution)}:log:${event.seq}`
-        : `${executionKey(event.execution)}:${event.timestamp}:${JSON.stringify(event.activity)}`
+    const key = event.kind === 'log'
+      ? `${executionKey(event.execution)}:log:${event.seq}`
+      : `${executionKey(event.execution)}:${event.timestamp}:${JSON.stringify(event.activity)}`
     if (this.workspaceExecutionEvents.has(key)) return false
     this.workspaceExecutionEvents.add(key)
     if (this.workspaceExecutionEvents.size > 2_000) {
-      const oldest = this.workspaceExecutionEvents.values().next().value as
-        | string
-        | undefined
+      const oldest = this.workspaceExecutionEvents.values().next().value as string | undefined
       if (oldest !== undefined) this.workspaceExecutionEvents.delete(oldest)
     }
     this.store.apply(event)
@@ -10624,71 +7848,42 @@ export class AppState {
     if (!tab) return // no live tab continues the planned document: never advance another one
     const input = this.compileInputForTab(tab, plan.artifact.scope)
     if (!input) return
-    const choices = new Map(
-      (plan.artifact.choices ?? []).map((choice) => [
-        JSON.stringify([choice.graph, choice.selector]),
-        choice.candidate,
-      ]),
-    )
+    const choices = new Map((plan.artifact.choices ?? []).map((choice) => [
+      JSON.stringify([choice.graph, choice.selector]),
+      choice.candidate,
+    ]))
     const current = compile({
       ...input,
       candidateOverride: ({ graph, selector, candidates }) => {
         const selected = choices.get(JSON.stringify([graph, selector]))
-        return selected !== undefined && candidates.includes(selected)
-          ? selected
-          : undefined
+        return selected !== undefined && candidates.includes(selected) ? selected : undefined
       },
       pickCandidate: ({ graph, selector }) => {
         const selected = choices.get(JSON.stringify([graph, selector]))
-        const candidates =
-          tab.store.doc.graphs[graph]?.selectors?.[selector]?.candidates
-        const index =
-          selected === undefined
-            ? -1
-            : (candidates?.findIndex(
-                (candidate) => candidate.id === selected,
-              ) ?? -1)
+        const candidates = tab.store.doc.graphs[graph]?.selectors?.[selector]?.candidates
+        const index = selected === undefined ? -1 : candidates?.findIndex((candidate) => candidate.id === selected) ?? -1
         return index < 0 ? 0 : index
       },
     })
     if (!current.ok) return
-    const liveControllerInputs = new Map(
-      (current.artifact.provenance.controllerInputs ?? []).map((controller) => [
-        controllerInputKey(controller.runtimeId, controller.terminal),
-        controller,
-      ]),
-    )
+    const liveControllerInputs = new Map((current.artifact.provenance.controllerInputs ?? []).map((controller) => [
+      controllerInputKey(controller.runtimeId, controller.terminal),
+      controller,
+    ]))
     const doc = tab.store.doc
     const applicable = plan.steps.filter((step) => {
       const node = doc.graphs[step.graphId]?.nodes[step.nodeId]
-      if (node === undefined || node.values[step.inputId] !== step.expected)
-        return false
+      if (node === undefined || node.values[step.inputId] !== step.expected) return false
       const liveController = step.controllers.flatMap((queued) => {
-        const live = liveControllerInputs.get(
-          controllerInputKey(queued.runtimeId, queued.terminal),
-        )
-        return live !== undefined &&
-          controllerSemanticsKey(live) === controllerSemanticsKey(queued)
-          ? [live]
-          : []
+        const live = liveControllerInputs.get(controllerInputKey(queued.runtimeId, queued.terminal))
+        return live !== undefined && controllerSemanticsKey(live) === controllerSemanticsKey(queued) ? [live] : []
       })[0]
       if (liveController === undefined) return false
-      if (
-        step.valueSources.some((source) => {
-          const location = controllerSourceLocation(source)
-          return (
-            this.controllerMutationGeneration(plan.session, location) !==
-            plan.generations.get(advancementInputKey(location))
-          )
-        })
-      )
-        return false
-      const state = effectiveControllerState(
-        doc,
-        liveController.sources,
-        liveController.widget,
-        liveController.optional,
-      )
+      if (step.valueSources.some((source) => {
+        const location = controllerSourceLocation(source)
+        return this.controllerMutationGeneration(plan.session, location) !== plan.generations.get(advancementInputKey(location))
+      })) return false
+      const state = effectiveControllerState(doc, liveController.sources, liveController.widget, liveController.optional)
       return state.mode === step.mode && Object.is(state.current, step.current)
     })
     const invocation = advancementInvocation(applicable)
@@ -10703,21 +7898,13 @@ export class AppState {
    * on this backend, and that unresolved nodes are excluded from execution.
    * Core stays queue-agnostic; the wording lives here.
    */
-  private queueRefusalDiagnostics(
-    tab: Tab,
-    diagnostics: readonly Diagnostic[],
-  ): readonly Diagnostic[] {
+  private queueRefusalDiagnostics(tab: Tab, diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
     const backend = this.backendForTab(tab)
     return diagnostics.map((diagnostic) => {
-      if (
-        diagnostic.code !== 'compile.schema.unknown' ||
-        diagnostic.severity !== 'error'
-      )
-        return diagnostic
+      if (diagnostic.code !== 'compile.schema.unknown' || diagnostic.severity !== 'error') return diagnostic
       const nodeType = diagnostic.data?.['nodeType']
       const occurrence = diagnostic.anchor?.occurrence
-      if (typeof nodeType !== 'string' || occurrence === undefined)
-        return diagnostic
+      if (typeof nodeType !== 'string' || occurrence === undefined) return diagnostic
       const node = [...occurrence.instancePath, occurrence.node].join('.')
       return {
         ...diagnostic,
@@ -10726,20 +7913,11 @@ export class AppState {
     })
   }
 
-  private connectedPlacementWorker(
-    backend: Backend,
-    workerName: string,
-  ): WorkerInfo | undefined {
-    if (
-      backend.protocol !== 'dinkster' ||
-      backend.connection.status.get() !== 'connected'
-    )
-      return undefined
+  private connectedPlacementWorker(backend: Backend, workerName: string): WorkerInfo | undefined {
+    if (backend.protocol !== 'dinkster' || backend.connection.status.get() !== 'connected') return undefined
     const catalog = backend.workerCatalog.get()
     if (catalog.status !== 'ready') return undefined
-    return catalog.workers.find(
-      (worker) => worker.name === workerName && worker.status === 'connected',
-    )
+    return catalog.workers.find((worker) => worker.name === workerName && worker.status === 'connected')
   }
 
   private placementIsCurrent(
@@ -10750,24 +7928,20 @@ export class AppState {
   ): boolean {
     const registry = backend.registry.get()
     const root = compiledDocument.graphs[compiledDocument.root]
-    return (
-      this.tabs.get().includes(tab) &&
+    return this.tabs.get().includes(tab) &&
       this.backendForTab(tab) === backend &&
-      registry?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_PLACEMENT) ===
-        true &&
+      registry?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_PLACEMENT) === true &&
       root !== undefined &&
       Object.entries(placement).every(([nodeId, workerName]) => {
         if (!Object.hasOwn(root.nodes, nodeId)) return false
         const node = root.nodes[nodeId]!
         const worker = this.connectedPlacementWorker(backend, workerName)
-        return (
-          worker !== undefined &&
-          (node.region !== undefined ||
-            (subgraphDefIdOf(node.type) === undefined &&
-              worker.routedNodeTypes.includes(node.type)))
+        return worker !== undefined && (
+          node.region !== undefined || (
+            subgraphDefIdOf(node.type) === undefined && worker.routedNodeTypes.includes(node.type)
+          )
         )
       })
-    )
   }
 
   private placementStillAvailable(
@@ -10777,8 +7951,7 @@ export class AppState {
     placement: Readonly<Record<string, string>>,
     diagnostics: readonly Diagnostic[],
   ): boolean {
-    if (this.placementIsCurrent(tab, backend, compiledDocument, placement))
-      return true
+    if (this.placementIsCurrent(tab, backend, compiledDocument, placement)) return true
     if (this.tabs.get().includes(tab)) {
       this.replaceProblems(tab.id, [
         ...diagnostics,
@@ -10793,59 +7966,35 @@ export class AppState {
     return false
   }
 
-  async queueOnWorker(
-    tab: Tab,
-    nodeIds: readonly string[],
-    workerName: string,
-  ): Promise<void> {
+  async queueOnWorker(tab: Tab, nodeIds: readonly string[], workerName: string): Promise<void> {
     if (tab.execution || currentGraphId(tab) !== tab.store.doc.root) return
     const graph = tab.store.doc.graphs[tab.store.doc.root]
-    const selected =
-      graph === undefined
-        ? []
-        : [...new Set(nodeIds)].flatMap((nodeId) => {
-            if (!Object.hasOwn(graph.nodes, nodeId)) return []
-            const node = graph.nodes[nodeId]!
-            return node !== undefined &&
-              (node.region !== undefined ||
-                subgraphDefIdOf(node.type) === undefined)
-              ? [node]
-              : []
-          })
+    const selected = graph === undefined ? [] : [...new Set(nodeIds)].flatMap((nodeId) => {
+      if (!Object.hasOwn(graph.nodes, nodeId)) return []
+      const node = graph.nodes[nodeId]!
+      return node !== undefined && (node.region !== undefined || subgraphDefIdOf(node.type) === undefined)
+        ? [node]
+        : []
+    })
     const backend = this.backendForTab(tab)
     const worker = this.connectedPlacementWorker(backend, workerName)
     const routed = new Set(worker?.routedNodeTypes ?? [])
-    const unroutable = selected.filter(
-      (node) => node.region === undefined && !routed.has(node.type),
-    )
-    if (
-      selected.length === 0 ||
-      worker?.status !== 'connected' ||
-      unroutable.length > 0
-    ) {
-      this.replaceProblems(tab.id, [
-        diag(
-          'error',
-          'compile',
-          'submit.workerUnavailable',
-          selected.length === 0
-            ? 'Run on machine requires at least one ordinary root node or region'
-            : worker?.status !== 'connected'
-              ? `worker '${workerName}' is not connected`
-              : `worker '${workerName}' does not route every selected node type`,
-        ),
-      ])
+    const unroutable = selected.filter((node) => node.region === undefined && !routed.has(node.type))
+    if (selected.length === 0 || worker?.status !== 'connected' || unroutable.length > 0) {
+      this.replaceProblems(tab.id, [diag(
+        'error',
+        'compile',
+        'submit.workerUnavailable',
+        selected.length === 0
+          ? 'Run on machine requires at least one ordinary root node or region'
+          : worker?.status !== 'connected'
+            ? `worker '${workerName}' is not connected`
+            : `worker '${workerName}' does not route every selected node type`,
+      )])
       return
     }
-    const placement = Object.fromEntries(
-      selected.map((node) => [node.id, workerName]),
-    )
-    await this.queue(
-      tab,
-      { kind: 'full' },
-      selected.map((node) => node.id),
-      placement,
-    )
+    const placement = Object.fromEntries(selected.map((node) => [node.id, workerName]))
+    await this.queue(tab, { kind: 'full' }, selected.map((node) => node.id), placement)
   }
 
   async queue(
@@ -10867,8 +8016,7 @@ export class AppState {
     // different document lineage session - it must not queue, and its late
     // results must not touch the replacement's Problems entries.
     if (!this.tabs.get().includes(tab)) return
-    const requestedPlacement =
-      placement === undefined ? undefined : { ...placement }
+    const requestedPlacement = placement === undefined ? undefined : { ...placement }
     const compiledDocument = tab.store.doc
     const result = this.compileTab(tab, scope)
     if (!result) return
@@ -10876,32 +8024,23 @@ export class AppState {
       // Queueing refreshes THIS tab's Problems entries (compile results
       // supersede open-time/previous-queue entries); other tabs' entries
       // and app-scoped entries are untouched.
-      this.replaceProblems(
-        tab.id,
-        this.queueRefusalDiagnostics(tab, result.diagnostics),
-      )
+      this.replaceProblems(tab.id, this.queueRefusalDiagnostics(tab, result.diagnostics))
       return
     }
-    const missingRequired = requiredRootNodes.filter(
-      (required) =>
-        !Object.values(result.artifact.provenance.toSource).some((key) => {
-          const occurrence = parseOccurrenceKey(key)
-          return (
-            occurrence.instancePath[0] === required ||
-            (occurrence.instancePath.length === 0 &&
-              occurrence.node === required)
-          )
-        }),
+    const missingRequired = requiredRootNodes.filter((required) =>
+      !Object.values(result.artifact.provenance.toSource).some((key) => {
+        const occurrence = parseOccurrenceKey(key)
+        return occurrence.instancePath[0] === required ||
+          (occurrence.instancePath.length === 0 && occurrence.node === required)
+      }),
     )
     if (missingRequired.length > 0) {
-      this.replaceProblems(tab.id, [
-        diag(
-          'error',
-          'compile',
-          'compile.scope.inactiveSelection',
-          `selected node${missingRequired.length === 1 ? '' : 's'} ${missingRequired.map((id) => `'${id}'`).join(', ')} did not survive executable branch lowering`,
-        ),
-      ])
+      this.replaceProblems(tab.id, [diag(
+        'error',
+        'compile',
+        'compile.scope.inactiveSelection',
+        `selected node${missingRequired.length === 1 ? '' : 's'} ${missingRequired.map((id) => `'${id}'`).join(', ')} did not survive executable branch lowering`,
+      )])
       return
     }
     this.replaceProblems(tab.id, result.artifact.diagnostics)
@@ -10919,46 +8058,36 @@ export class AppState {
       // producing document (environment stamp inside) as a content-addressed
       // asset, so history can answer "which document made this run".
       const backend = this.backendForTab(tab)
-      const sourceDocument =
-        backend.protocol === 'dinkster'
-          ? await this.sourceDocumentFor(tab, backend)
-          : undefined
+      const sourceDocument = backend.protocol === 'dinkster'
+        ? await this.sourceDocumentFor(tab, backend)
+        : undefined
       if (lease.signal.aborted) return
       // The advisory source-document upload is an await between compile and
       // POST. If the document changed there, re-run only the conservative
       // wire-15 mode gate against current state; identical document objects
       // stay on the zero-work fast path. Never send the captured artifact
       // once the current document has entered the unsupported combination.
-      if (this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument))
-        return
-      if (
-        requestedPlacement !== undefined &&
-        !this.placementStillAvailable(
-          tab,
-          backend,
-          compiledDocument,
-          requestedPlacement,
-          result.artifact.diagnostics,
-        )
-      )
-        return
+      if (this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument)) return
+      if (requestedPlacement !== undefined && !this.placementStillAvailable(
+        tab,
+        backend,
+        compiledDocument,
+        requestedPlacement,
+        result.artifact.diagnostics,
+      )) return
       lease.markPosted()
       const submitted =
         backend.protocol === 'dinkster'
           ? await backend.connection.submit(result.artifact, {
               ...sourceDocument,
-              ...(requestedPlacement !== undefined
-                ? { placement: requestedPlacement }
-                : {}),
+              ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
               // Overrides come from the artifact snapshot (the exact document
               // that compiled), layered global < workflow < node.
               previews: resolvePreviewPolicy(
                 result.artifact.snapshot,
                 result.artifact.provenance,
                 this.settings.get<PreviewMode>('execution.previews'),
-                this.settings.get<PreviewAnimation>(
-                  'execution.previewAnimation',
-                ),
+                this.settings.get<PreviewAnimation>('execution.previewAnimation'),
               ),
             })
           : await backend.connection.submit(result.artifact)
@@ -10971,10 +8100,7 @@ export class AppState {
           if (!this.tabs.get().includes(tab)) return
           this.openAssetConsent(
             tab,
-            submitted as Extract<
-              DinksterSubmitResult,
-              { assetsMissing: unknown }
-            >,
+            submitted as Extract<DinksterSubmitResult, { assetsMissing: unknown }>,
             result.artifact,
             plan,
             scope,
@@ -10991,24 +8117,15 @@ export class AppState {
         // rejection must not clobber (or resurrect entries under) the
         // replacement session that reuses this tab id.
         if (this.tabs.get().includes(tab)) {
-          this.replaceProblems(tab.id, [
-            ...result.artifact.diagnostics,
-            ...submitted.diagnostics,
-          ])
+          this.replaceProblems(tab.id, [...result.artifact.diagnostics, ...submitted.diagnostics])
         }
         return
       }
       this.installRun(submitted.execution, result.artifact, plan, undefined, {
         ...(submitted.jobRef === undefined ? {} : { jobRef: submitted.jobRef }),
-        ...(sourceDocument?.sourceDocument === undefined
-          ? {}
-          : { sourceDocument: sourceDocument.sourceDocument }),
+        ...(sourceDocument?.sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
       })
-      this.log(
-        'info',
-        backend.label,
-        `job submitted: ${submitted.execution.prompt}`,
-      )
+      this.log('info', backend.label, `job submitted: ${submitted.execution.prompt}`)
     } catch (e) {
       // Network/transport failures must land in Problems, never vanish -
       // unless the tab is gone (exact object), in which case there is no
@@ -11046,9 +8163,8 @@ export class AppState {
     if (tab.store.doc === compiledDocument) return false
     const current = this.compileTab(tab, scope)
     if (current === undefined || current.ok) return false
-    const gate = current.diagnostics.filter(
-      (diagnostic) => diagnostic.code === 'compile.wire15.modesUnsupported',
-    )
+    const gate = current.diagnostics.filter((diagnostic) =>
+      diagnostic.code === 'compile.wire15.modesUnsupported')
     if (gate.length === 0) return false
     this.replaceProblems(tab.id, gate)
     return true
@@ -11084,14 +8200,13 @@ export class AppState {
       // the same document and placement safety gates before every retry stage.
       beforeRetry: () =>
         !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument) &&
-        (placement === undefined ||
-          this.placementStillAvailable(
-            tab,
-            backend,
-            compiledDocument,
-            placement,
-            artifact.diagnostics,
-          )),
+        (placement === undefined || this.placementStillAvailable(
+          tab,
+          backend,
+          compiledDocument,
+          placement,
+          artifact.diagnostics,
+        )),
       onSubmitted: (ok) => {
         if (this.disposed) return
         this.installRun(ok.execution, artifact, plan, undefined, {
@@ -11100,40 +8215,25 @@ export class AppState {
         })
         this.log(
           'info',
-          this.backendFor(ok.execution.connection)?.label ??
-            String(ok.execution.connection),
+          this.backendFor(ok.execution.connection)?.label ?? String(ok.execution.connection),
           `job submitted: ${ok.execution.prompt}`,
         )
       },
       onRejected: (diagnostics) => {
-        if (tabLive())
-          this.replaceProblems(tab.id, [
-            ...artifact.diagnostics,
-            ...diagnostics,
-          ])
+        if (tabLive()) this.replaceProblems(tab.id, [...artifact.diagnostics, ...diagnostics])
       },
-      onTransportError: (message) => {
-        if (tabLive())
-          this.reportProblems(tab.id, [
-            diag(
-              'error',
-              'validation',
-              'submit.transportFailed',
-              `failed to submit prompt: ${message}`,
-            ),
-          ])
-      },
-      onSuperseded: (assets) => {
-        if (tabLive())
-          this.reportProblems(tab.id, [
-            diag(
-              'warning',
-              'validation',
-              'submit.assetsStillMissing',
-              `submission still missing ${assets.length} asset(s); its consent dialog was superseded - queue again to retry`,
-            ),
-          ])
-      },
+      onTransportError: (message) => { if (tabLive()) this.reportProblems(tab.id, [diag(
+        'error',
+        'validation',
+        'submit.transportFailed',
+        `failed to submit prompt: ${message}`,
+      )]) },
+      onSuperseded: (assets) => { if (tabLive()) this.reportProblems(tab.id, [diag(
+        'warning',
+        'validation',
+        'submit.assetsStillMissing',
+        `submission still missing ${assets.length} asset(s); its consent dialog was superseded - queue again to retry`,
+      )]) },
     })
   }
 
@@ -11145,9 +8245,7 @@ export class AppState {
    * events, so its outputs exist only in server history. Hydrate them once
    * per completed execution that has none.
    */
-  private hydrateCachedOutputs(
-    execs: ReadonlyMap<string, ExecutionState>,
-  ): void {
+  private hydrateCachedOutputs(execs: ReadonlyMap<string, ExecutionState>): void {
     for (const state of execs.values()) {
       if (state.status !== 'completed') continue
       if (Object.keys(state.outputs).length > 0) continue
@@ -11165,8 +8263,7 @@ export class AppState {
           : backend.connection.fetchHistoryOutputs(state.ref.prompt)
       void fetched
         .then((outputs) => {
-          if (Object.keys(outputs).length > 0)
-            this.store.hydrateOutputs(state.ref, outputs)
+          if (Object.keys(outputs).length > 0) this.store.hydrateOutputs(state.ref, outputs)
         })
         .catch(() => this.hydrated.delete(state.key))
     }
@@ -11187,9 +8284,7 @@ export class AppState {
   }
 
   executionList(): readonly ExecutionState[] {
-    return [...this.store.executions.get().values()].sort(
-      (a, b) => b.queuedAt - a.queuedAt,
-    )
+    return [...this.store.executions.get().values()].sort((a, b) => b.queuedAt - a.queuedAt)
   }
 
   /**
@@ -11204,9 +8299,7 @@ export class AppState {
       return state ? [state] : []
     }
     const lineage = tab.store.doc.lineage
-    return this.executionList().filter(
-      (state) => state.artifact?.snapshot.lineage === lineage,
-    )
+    return this.executionList().filter((state) => state.artifact?.snapshot.lineage === lineage)
   }
 
   /**
@@ -11216,10 +8309,7 @@ export class AppState {
    */
   executionForTab(tab: Tab): ExecutionState | undefined {
     if (tab.execution) return this.store.get(tab.execution)
-    return (
-      this.pinnedExecutionFor(tab) ??
-      this.latestExecutionFor(tab.store.doc.lineage)
-    )
+    return this.pinnedExecutionFor(tab) ?? this.latestExecutionFor(tab.store.doc.lineage)
   }
 
   /**
@@ -11233,8 +8323,7 @@ export class AppState {
     const ref = this.overlayPins.get().get(tab.id)
     if (!ref) return undefined
     const state = this.store.get(ref)
-    if (state?.artifact?.snapshot.lineage !== tab.store.doc.lineage)
-      return undefined
+    if (state?.artifact?.snapshot.lineage !== tab.store.doc.lineage) return undefined
     return state
   }
 
@@ -11253,8 +8342,7 @@ export class AppState {
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution) return false
     const state = this.store.get(ref)
-    if (state?.artifact?.snapshot.lineage !== tab.store.doc.lineage)
-      return false
+    if (state?.artifact?.snapshot.lineage !== tab.store.doc.lineage) return false
     this.overlayPins.update((pins) => new Map(pins).set(tabId, ref))
     return true
   }
@@ -11271,9 +8359,7 @@ export class AppState {
 
   /** The live (editable) tab of a lineage, if it is open. */
   liveTabFor(lineage: LineageId): Tab | undefined {
-    return this.tabs
-      .get()
-      .find((t) => !t.execution && t.store.doc.lineage === lineage)
+    return this.tabs.get().find((t) => !t.execution && t.store.doc.lineage === lineage)
   }
 
   /**
@@ -11283,10 +8369,7 @@ export class AppState {
    * plans captured against the closed session must never advance the
    * fresh one, even though the lineage matches.
    */
-  private readonly sessionContinuations = new WeakMap<
-    DocumentSession,
-    DocumentSession
-  >()
+  private readonly sessionContinuations = new WeakMap<DocumentSession, DocumentSession>()
 
   /**
    * The live tab whose editing session continues `session`: the tab still
@@ -11296,16 +8379,10 @@ export class AppState {
    */
   private liveTabContinuing(session: DocumentSession): Tab | undefined {
     let current = session
-    for (
-      let next = this.sessionContinuations.get(current);
-      next;
-      next = this.sessionContinuations.get(current)
-    ) {
+    for (let next = this.sessionContinuations.get(current); next; next = this.sessionContinuations.get(current)) {
       current = next
     }
-    return this.tabs
-      .get()
-      .find((tab) => !tab.execution && tab.store === current)
+    return this.tabs.get().find((tab) => !tab.execution && tab.store === current)
   }
 
   /**
@@ -11314,10 +8391,7 @@ export class AppState {
    * session's hash; closed tabs collect without bookkeeping), validated
    * by document revision.
    */
-  private readonly hashCache = new WeakMap<
-    Tab,
-    { revision: number; hash: string }
-  >()
+  private readonly hashCache = new WeakMap<Tab, { revision: number; hash: string }>()
 
   private semanticHashOfTab(tab: Tab): string {
     const cached = this.hashCache.get(tab)
@@ -11341,9 +8415,7 @@ export class AppState {
     if (!artifact) return undefined
     const live = this.liveTabFor(tab.store.doc.lineage)
     if (!live) return 'no-live-tab'
-    return this.semanticHashOfTab(live) === artifact.semanticHash
-      ? 'in-sync'
-      : 'diverged'
+    return this.semanticHashOfTab(live) === artifact.semanticHash ? 'in-sync' : 'diverged'
   }
 
   /**
@@ -11352,14 +8424,12 @@ export class AppState {
    * false` means edits landed after that submission - progress overlays may
    * not match what actually runs; the frozen view is the truth.
    */
-  liveSyncStatus(tab: Tab):
-    | {
-        ref: ExecutionRef
-        status: ExecutionStatus
-        inSync: boolean
-        mode: 'latest' | 'pinned'
-      }
-    | undefined {
+  liveSyncStatus(tab: Tab): {
+    ref: ExecutionRef
+    status: ExecutionStatus
+    inSync: boolean
+    mode: 'latest' | 'pinned'
+  } | undefined {
     if (tab.execution) return undefined
     const pinned = this.pinnedExecutionFor(tab)
     const shown = pinned ?? this.latestExecutionFor(tab.store.doc.lineage)

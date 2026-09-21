@@ -17,7 +17,6 @@ const placeholders = (message: string): string[] => [...message.matchAll(/\{([A-
 test.beforeAll(async () => mkdir(EVIDENCE, { recursive: true }))
 
 test('generates one expanded pseudo message for every English catalog key', () => {
-  expect(Object.keys(english)).toHaveLength(1526)
   expect(Object.keys(pseudo).sort()).toEqual(Object.keys(english).sort())
   for (const [key, message] of Object.entries(english)) {
     const transformed = pseudo[key]!

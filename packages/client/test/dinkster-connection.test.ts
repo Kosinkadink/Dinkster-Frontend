@@ -312,6 +312,40 @@ describe('mount listing decode', () => {
     expect(mounts.map((m) => m.entryCount)).toEqual([3, undefined])
   })
 
+  it('decodes bounded mount scan progress and rejects malformed counters', async () => {
+    const progress = {
+      filesDone: 4,
+      filesTotal: 10,
+      bytesDone: 1024,
+      bytesTotal: 4096,
+      elapsedSeconds: 2.5,
+    }
+    const mounts = await connectionWith([
+      { id: 'scanning', mode: 'read', state: 'scanning', scanProgress: progress },
+      {
+        id: 'impossible-files',
+        mode: 'read',
+        state: 'scanning',
+        scanProgress: { ...progress, filesDone: 11 },
+      },
+      {
+        id: 'impossible-bytes',
+        mode: 'read',
+        state: 'scanning',
+        scanProgress: { ...progress, bytesDone: 4097 },
+      },
+      {
+        id: 'fractional-files',
+        mode: 'read',
+        state: 'scanning',
+        scanProgress: { ...progress, filesDone: 1.5 },
+      },
+    ]).listMounts()
+    expect(mounts).toEqual([
+      { id: 'scanning', mode: 'read', state: 'scanning', scanProgress: progress },
+    ])
+  })
+
   it('drops rows with an unknown mode or malformed shape, keeps the rest', async () => {
     const mounts = await connectionWith([
       { id: 'good', mode: 'read', state: 'ready' },
