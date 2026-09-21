@@ -8,6 +8,9 @@ const yaml = createRequire(import.meta.url)('js-yaml') as {
   load(source: string): unknown
 }
 interface Step {
+  id?: string
+  name?: string
+  if?: string
   uses?: string
   run?: string
   with?: Record<string, unknown>
@@ -41,6 +44,12 @@ const load = async (name: string): Promise<Workflow> =>
 const fast = await load('ci.yml')
 const full = await load('full-validation.yml')
 const workflowText = `${await workflowSource('ci.yml')}\n${await workflowSource('full-validation.yml')}`
+const privateDependencyAction = yaml.load(
+  await readFile(
+    resolve(root, '.github/actions/check-private-dependencies/action.yml'),
+    'utf8',
+  ),
+) as { runs: { steps: { run: string }[] } }
 const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
 const appMain = await readFile(
   resolve(root, 'packages/app/src/main.tsx'),
@@ -78,7 +87,20 @@ describe('fast pull-request and full validation workflows', () => {
   })
 
   it('runs exactly one bounded job without a PR label path', () => {
-    expect(fast.on).toEqual({ pull_request: null, workflow_dispatch: null })
+    expect(fast.on).toEqual({
+      pull_request: null,
+      workflow_dispatch: {
+        inputs: {
+          'simulate-fork': {
+            description:
+              'Run the fork pull-request policy without repository secrets',
+            required: true,
+            default: false,
+            type: 'boolean',
+          },
+        },
+      },
+    })
     expect(fast.concurrency).toEqual({
       group: 'ci-${{ github.workflow }}-${{ github.ref }}',
       'cancel-in-progress': true,
@@ -87,7 +109,7 @@ describe('fast pull-request and full validation workflows', () => {
     const job = fast.jobs['fast']!
     expect(job['timeout-minutes']).toBe(5)
     expect(job['runs-on']).toBe(
-      '${{ fromJSON(vars.DINKSTER_PR_RUNNER || \'["self-hosted", "linux", "x64"]\') }}',
+      '${{ fromJSON(((github.event_name == \'pull_request\' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && \'["ubuntu-latest"]\' || (vars.DINKSTER_PR_RUNNER || \'["self-hosted", "linux", "x64"]\')) }}',
     )
     expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
       'pnpm install --frozen-lockfile',
@@ -95,12 +117,30 @@ describe('fast pull-request and full validation workflows', () => {
     ])
     expect(job.steps!.flatMap((step) => step.uses ?? [])).toEqual([
       'actions/checkout@v4',
+      './.github/actions/check-private-dependencies',
       './.github/actions/configure-private-repository',
       'actions/checkout@v4',
       'actions/setup-python@v5',
       'pnpm/action-setup@v4',
       'actions/setup-node@v4',
     ])
+    expect(job.steps![1]).toEqual({
+      name: 'Check private dependency access',
+      id: 'private-dependencies',
+      uses: './.github/actions/check-private-dependencies',
+      with: {
+        'secret-name-1': 'DINKSTER_REPOSITORY_DEPLOY_KEY',
+        'secret-value-1': '${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}',
+        'force-not-run': '${{ inputs.simulate-fork }}',
+      },
+    })
+    for (const step of job.steps!.slice(2))
+      expect(step.if).toBe(
+        "steps.private-dependencies.outputs.available == 'true'",
+      )
+    expect(privateDependencyAction.runs.steps[0]!.run).toContain(
+      'not run: requires repository secret $name',
+    )
     expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
     expect(script).toContain("['typecheck']")
@@ -241,7 +281,15 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.jobs['fast']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name == 'push'",
     )
-    expect(full.jobs['fast']!.steps).toEqual(fast.jobs['fast']!.steps)
+    const trustedFastSteps = fast.jobs['fast']!.steps!.filter(
+      (step) => step.uses !== './.github/actions/check-private-dependencies',
+    ).map(({ if: _privateDependencyGuard, ...step }) => step)
+    expect(full.jobs['fast']!.steps).toEqual(trustedFastSteps)
+    expect(full.jobs['fast']!.steps).not.toContainEqual(
+      expect.objectContaining({
+        uses: './.github/actions/check-private-dependencies',
+      }),
+    )
     expect(full.jobs['ci']!.needs).toBe('validation-plan')
     expect(full.jobs['ci']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push'",
