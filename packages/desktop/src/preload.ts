@@ -21,6 +21,7 @@ const bridge: DesktopBridge = {
   checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates') as Promise<void>,
   installUpdate: () => ipcRenderer.invoke('desktop:install-update') as Promise<void>,
   chooseDirectory: () => ipcRenderer.invoke('desktop:choose-directory') as Promise<string | undefined>,
+  revealFile: (path) => ipcRenderer.invoke('desktop:reveal-file', path) as Promise<void>,
   exportSnapshot: () => ipcRenderer.invoke('desktop:export-snapshot') as Promise<string | undefined>,
   importSnapshot: () => ipcRenderer.invoke('desktop:import-snapshot') as Promise<unknown | undefined>,
   systemCheck: () => ipcRenderer.invoke('desktop:system-check') as Promise<DesktopSystemCheck>,

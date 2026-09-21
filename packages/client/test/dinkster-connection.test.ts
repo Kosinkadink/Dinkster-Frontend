@@ -300,8 +300,19 @@ async function snapshotFixture(id: string): Promise<{ body: string; digest: stri
 }
 
 describe('mount listing decode', () => {
-  const connectionWith = (mounts: unknown): DinksterConnection =>
-    new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts }) })
+  const connectionWith = (mounts: unknown, outputMount?: unknown): DinksterConnection =>
+    new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, ...(outputMount === undefined ? {} : { outputMount }) }) })
+
+  it('decodes the selected output mount and host path', async () => {
+    const settings = await connectionWith([
+      { id: 'output', mode: 'readwrite', state: 'ready', path: '/library/output' },
+    ], 'output').fetchMountSettings()
+    expect(settings).toEqual({
+      outputMount: 'output',
+      mounts: [{ id: 'output', mode: 'readwrite', state: 'ready', path: '/library/output' }],
+    })
+    await expect(connectionWith([], 42).fetchMountSettings()).rejects.toThrow('malformed output mount')
+  })
 
   it("decodes the server vocabulary: 'read' and 'readwrite'", async () => {
     // The real server (dinkster_assets MOUNT_MODES) says 'read', never
@@ -380,6 +391,19 @@ describe('mount listing decode', () => {
       init: { method: 'POST', body: JSON.stringify({ id: 'shared-models', path: 'D:\\Models', mode: 'read' }) },
     })
     expect(requests[1]).toMatchObject({ url: 'http://native/api/mounts/shared-models', init: { method: 'DELETE' } })
+  })
+
+  it('selects the default output mount with the settings route', async () => {
+    const requests: { url: string; init?: RequestInit }[] = []
+    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+      requests.push({ url: String(url), ...(init ? { init } : {}) })
+      return jsonResponse(200, { outputMount: 'renders' })
+    } })
+    await connection.selectOutputMount('renders')
+    expect(requests).toEqual([{
+      url: 'http://native/api/mounts/output',
+      init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'renders' }) },
+    }])
   })
 })
 

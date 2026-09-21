@@ -19,7 +19,7 @@ afterEach(() => {
 
 const images: ExecutedImage[] = [
   { key: 'a', runtimeId: 'node-1', outputId: 'images', descriptorIndex: 0, url: '/a.png', name: 'a.png', kind: 'v1', mediaType: 'image (legacy descriptor)', subfolder: 'long/output/path', fileType: 'output' },
-  { key: 'b', runtimeId: 'node-2', outputId: 'image', descriptorIndex: 0, url: '/b.png', digest: `blake3:${'b'.repeat(64)}`, kind: 'asset', mediaType: 'image/png' },
+  { key: 'b', runtimeId: 'node-2', outputId: 'image', descriptorIndex: 0, url: '/b.png', digest: `blake3:${'b'.repeat(64)}`, virtualPath: 'mounts/output/ComfyUI_00001.png', kind: 'asset', mediaType: 'image/png' },
 ]
 
 const provenance = {
@@ -49,11 +49,11 @@ describe('executionOutputProvenance', () => {
   })
 })
 
-function mount(initialIndex = 0) {
+function mount(initialIndex = 0, onReveal?: (image: ExecutedImage) => void) {
   const root = document.createElement('div')
   document.body.append(root)
   const close = vi.fn()
-  const dispose = render(() => <ExecutedImageViewer images={images} initialIndex={initialIndex} provenance={provenance} onRequestClose={close} />, root)
+  const dispose = render(() => <ExecutedImageViewer images={images} initialIndex={initialIndex} provenance={provenance} {...(onReveal === undefined ? {} : { onReveal })} onRequestClose={close} />, root)
   return { root, close, dispose }
 }
 
@@ -115,6 +115,16 @@ describe('ExecutedImageViewer', () => {
     expect(facts).toContain('long/output/path')
     mounted.root.querySelector('img')!.dispatchEvent(new Event('load'))
     expect(mounted.root.querySelector('.output-facts')?.textContent).toContain('Available')
+    mounted.dispose()
+  })
+
+  it('shows the mounted path and offers the Desktop reveal action', () => {
+    const reveal = vi.fn()
+    const mounted = mount(1, reveal)
+    expect(mounted.root.querySelector('.output-facts')?.textContent).toContain('mounts/output/ComfyUI_00001.png')
+    const revealButton = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Show in folder')
+    revealButton!.click()
+    expect(reveal).toHaveBeenCalledWith(images[1])
     mounted.dispose()
   })
 
