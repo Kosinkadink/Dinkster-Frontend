@@ -105,6 +105,7 @@ export class ExtensionWorld {
       registerEditorBinding: (value) => stage(() => () => {}, () => target.registerEditorBinding!(value)),
       registerPanel: (value) => stage(() => () => {}, () => target.registerPanel!(value)),
       registerVirtualNode: (value) => stage(() => () => {}, () => target.registerVirtualNode!(value)),
+      registerCanvasLayer: (value) => stage(() => () => {}, () => target.registerCanvasLayer!(value)),
       registerEventConsumer: (id, consume) => {
         if (!this.eventBindings.has(id)) throw new Error(`event consumer '${id}' has no snapshot declaration`)
         const consumer: EventConsumer = { consume, queue: [], active: true, draining: false, failed: false }

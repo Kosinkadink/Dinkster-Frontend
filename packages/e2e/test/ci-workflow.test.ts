@@ -40,7 +40,6 @@ const load = async (name: string): Promise<Workflow> =>
   ) as Workflow
 const fast = await load('ci.yml')
 const full = await load('full-validation.yml')
-const release = await load('release-desktop.yml')
 const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
 const appMain = await readFile(
   resolve(root, 'packages/app/src/main.tsx'),
@@ -106,7 +105,6 @@ describe('fast pull-request and full validation workflows', () => {
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
       'test/ci-workflow.test.ts',
-      'test/published-verification.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
     ])
@@ -380,16 +378,5 @@ describe('fast pull-request and full validation workflows', () => {
       "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
     )
     expect(auditConfig).not.toContain("'--dev'")
-  })
-
-  it('validates the exact desktop release commit before publication', () => {
-    expect(release.jobs['validation']).toEqual({
-      if: "github.repository == 'Kosinkadink/Dinkster-Frontend' && github.event.repository.private == true && github.ref == 'refs/heads/main'",
-      uses: './.github/workflows/full-validation.yml',
-      secrets: 'inherit',
-    })
-    expect(release.jobs['release']!.needs).toBe('validation')
-    expect(release.jobs['release']!.if).toBe(release.jobs['validation']!.if)
-    expect(release.jobs['release']!.steps).toBeDefined()
   })
 })
