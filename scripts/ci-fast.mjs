@@ -36,6 +36,8 @@ for (const args of [
     'test/format.schema.test.ts',
     'test/dinkster-graph.test.ts',
     'test/dinkster-inline-value.test.ts',
+    'test/object-info.golden.test.ts',
+    'test/events.golden.test.ts',
   ],
   [
     '--filter',

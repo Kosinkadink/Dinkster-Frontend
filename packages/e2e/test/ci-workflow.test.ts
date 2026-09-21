@@ -106,6 +106,8 @@ describe('fast pull-request and full validation workflows', () => {
       'test/format.schema.test.ts',
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
+      'test/object-info.golden.test.ts',
+      'test/events.golden.test.ts',
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
