@@ -54,7 +54,7 @@ import {
   type ToolboxRow,
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
-import { canvasDetailLevel, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 
 /** Pin color for a declared type: canonical id (closed lists included) when
@@ -1363,7 +1363,11 @@ export class CanvasRenderer {
     if (w <= 0 || h <= 0) return
     const spanX = Math.max(1, bounds.maxX - bounds.minX)
     const spanY = Math.max(1, bounds.maxY - bounds.minY)
-    const scale = Math.min(2, Math.max(0.1, Math.min((w - margin * 2) / spanX, (h - margin * 2) / spanY)))
+    const fitScale = Math.min((w - margin * 2) / spanX, (h - margin * 2) / spanY)
+    const detailFits =
+      (spanX + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= w &&
+      (spanY + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= h
+    const scale = Math.min(2, Math.max(0.1, detailFits ? Math.max(CANVAS_DETAIL_MIN_SCALE, fitScale) : fitScale))
     this.setViewport({
       x: (w - spanX * scale) / 2 - bounds.minX * scale,
       y: (h - spanY * scale) / 2 - bounds.minY * scale,
@@ -2635,8 +2639,18 @@ export class CanvasRenderer {
       )
     }
 
-    // Text and chips are omitted in the overview tier; structural state and
-    // typed connectivity remain visible without paying per-node text cost.
+    if (!contentDetail) {
+      ctx.font = `${l.titleRenamed ? 'italic ' : ''}600 ${t.titleFontSize}px ${t.fontFamily}`
+      if (measureWidth(ctx, l.title) <= l.width - t.padX * 2) {
+        ctx.fillStyle = t.colors.title
+        ctx.textBaseline = 'middle'
+        ctx.textAlign = 'left'
+        ctx.fillText(l.title, node.x + t.padX, node.y + l.headerHeight / 2)
+      }
+    }
+
+    // Detailed text and chips are omitted in the overview tier; structural
+    // state, fitting titles, and typed connectivity remain visible.
     if (contentDetail) {
       // Title (truncated only for badges that occupy the header lane).
       ctx.fillStyle = t.colors.title
