@@ -647,7 +647,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1030,
+      "line": 1032,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -655,7 +655,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1034,
+      "line": 1036,
       "column": 34,
       "symbol": "widgetType:ASSET",
       "issue": 122

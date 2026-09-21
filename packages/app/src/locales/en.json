@@ -1310,6 +1310,8 @@
   "settingsDialog.keybinding.resetAria": "Reset {name} shortcut to default",
   "settingsDialog.keybinding.shortcutAria": "Shortcut for {name}: {shortcut}",
   "settingsDialog.keybinding.unbound": "Unbound",
+  "settingsDialog.pack.loading": "Loading pack settings...",
+  "settingsDialog.pack.saving": "Saving...",
   "settingsDialog.search.allResults": "All results",
   "settingsDialog.search.allResultsAria": "All results, {count} results",
   "settingsDialog.search.categoryResultsAria": "{category}, {count} results",

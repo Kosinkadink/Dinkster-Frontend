@@ -352,6 +352,87 @@ export interface RuntimeSettings {
   readonly settings: Readonly<Record<string, RuntimeSettingSection>>
 }
 
+export interface PackSettingSchema {
+  readonly type: 'string' | 'integer' | 'number' | 'boolean'
+  readonly title: string
+  readonly description?: string
+  readonly default: string | number | boolean
+  readonly enum?: readonly string[]
+  readonly minimum?: number
+  readonly maximum?: number
+  readonly multipleOf?: number
+}
+
+export interface PackSettings {
+  readonly packId: string
+  readonly displayName: string
+  readonly schema: {
+    readonly type: 'object'
+    readonly additionalProperties: false
+    readonly properties: Readonly<Record<string, PackSettingSchema>>
+    readonly required: readonly string[]
+  }
+  readonly values: Readonly<Record<string, string | number | boolean>>
+}
+
+function validPackSettingValue(field: PackSettingSchema, value: unknown): value is string | number | boolean {
+  if (field.type === 'string') return typeof value === 'string' && (field.enum === undefined || field.enum.includes(value))
+  if (field.type === 'boolean') return typeof value === 'boolean'
+  if (typeof value !== 'number' || !Number.isFinite(value) || (field.type === 'integer' && !Number.isSafeInteger(value))) return false
+  return (field.minimum === undefined || value >= field.minimum)
+    && (field.maximum === undefined || value <= field.maximum)
+    && (field.multipleOf === undefined || Math.abs(value / field.multipleOf - Math.round(value / field.multipleOf)) <= 1e-12)
+}
+
+function decodePackSettings(raw: unknown): PackSettings | undefined {
+  if (!record(raw) || !exactKeys(raw, ['packId', 'displayName', 'schema', 'values'])
+    || typeof raw['packId'] !== 'string' || raw['packId'] === ''
+    || typeof raw['displayName'] !== 'string' || raw['displayName'] === ''
+    || !record(raw['schema']) || !record(raw['values'])) return undefined
+  const schema = raw['schema']
+  if (!exactKeys(schema, ['type', 'additionalProperties', 'properties', 'required'])
+    || schema['type'] !== 'object' || schema['additionalProperties'] !== false
+    || !record(schema['properties']) || !Array.isArray(schema['required'])) return undefined
+  const schemaProperties = schema['properties']
+  const required = schema['required']
+  if (!required.every((name): name is string => typeof name === 'string')
+    || required.length !== Object.keys(schemaProperties).length
+    || required.some((name, index) => name !== Object.keys(schemaProperties)[index])) return undefined
+  const properties: Record<string, PackSettingSchema> = {}
+  for (const [name, candidate] of Object.entries(schemaProperties)) {
+    if (!record(candidate)
+      || !requiredAndOptionalKeys(candidate, ['type', 'title', 'default'], ['description', 'enum', 'minimum', 'maximum', 'multipleOf'])
+      || typeof candidate['title'] !== 'string' || candidate['title'] === ''
+      || !['string', 'integer', 'number', 'boolean'].includes(String(candidate['type']))
+      || !Object.hasOwn(candidate, 'default')) return undefined
+    const type = candidate['type'] as PackSettingSchema['type']
+    if ((candidate['description'] !== undefined && typeof candidate['description'] !== 'string')
+      || (candidate['enum'] !== undefined && (!Array.isArray(candidate['enum']) || !candidate['enum'].every((value) => typeof value === 'string')))
+      || (candidate['enum'] !== undefined && (type !== 'string' || new Set(candidate['enum']).size !== candidate['enum'].length))
+      || ['minimum', 'maximum', 'multipleOf'].some((key) => candidate[key] !== undefined && (typeof candidate[key] !== 'number' || !Number.isFinite(candidate[key])))
+      || (type === 'string' || type === 'boolean') && ['minimum', 'maximum', 'multipleOf'].some((key) => candidate[key] !== undefined)
+      || typeof candidate['multipleOf'] === 'number' && candidate['multipleOf'] <= 0
+      || typeof candidate['minimum'] === 'number' && typeof candidate['maximum'] === 'number' && candidate['minimum'] > candidate['maximum']) return undefined
+    const field = candidate as unknown as PackSettingSchema
+    if (!validPackSettingValue(field, candidate['default'])) return undefined
+    properties[name] = field
+  }
+  const values: Record<string, string | number | boolean> = {}
+  if (Object.keys(raw['values']).length !== required.length) return undefined
+  for (const name of required) {
+    const field = properties[name]
+    const value = raw['values'][name]
+    if (field === undefined || !validPackSettingValue(field, value)) return undefined
+    values[name] = value
+  }
+  return {
+    packId: raw['packId'],
+    displayName: raw['displayName'],
+    schema: { type: 'object', additionalProperties: false, properties, required },
+    values,
+  }
+}
+
 export interface P2PSettings {
   readonly downloadsEnabled: boolean
   readonly seedingEnabled: boolean
@@ -2081,6 +2162,32 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/settings`)
     if (!res.ok) throw new RuntimeSettingsError(res.status, undefined)
     return await res.json() as RuntimeSettings
+  }
+
+  async fetchPackSettings(packId: string): Promise<PackSettings> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`)
+    if (!res.ok) throw new Error(`pack settings request failed: ${res.status}`)
+    const decoded = decodePackSettings(await res.json())
+    if (decoded === undefined) throw new Error('pack settings response is malformed')
+    return decoded
+  }
+
+  async updatePackSettings(
+    packId: string,
+    values: Readonly<Record<string, string | number | boolean>>,
+  ): Promise<PackSettings> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(values),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => undefined) as { error?: unknown } | undefined
+      throw new Error(typeof body?.error === 'string' ? body.error : `pack settings update failed: ${res.status}`)
+    }
+    const decoded = decodePackSettings(await res.json())
+    if (decoded === undefined) throw new Error('pack settings response is malformed')
+    return decoded
   }
 
   async fetchP2PStatus(): Promise<P2PStatus> {

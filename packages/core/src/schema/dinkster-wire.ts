@@ -2487,6 +2487,7 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
       assets?: unknown
       blueprints?: unknown
       locales?: unknown
+      settings?: unknown
     }
     const opt = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
     const abbr = opt(e.abbr)
@@ -2617,6 +2618,7 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
       ...(assets.length > 0 ? { assets } : {}),
       ...(blueprints.length > 0 ? { blueprints } : {}),
       ...(locales !== undefined ? { locales } : {}),
+      ...(e.settings === true ? { settings: true as const } : {}),
     })
   }
   return out

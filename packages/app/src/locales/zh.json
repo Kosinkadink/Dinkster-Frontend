@@ -1,4 +1,6 @@
 {
+  "settingsDialog.pack.loading": "\u6b63\u5728\u52a0\u8f7d\u6269\u5c55\u5305\u8bbe\u7f6e...",
+  "settingsDialog.pack.saving": "\u6b63\u5728\u4fdd\u5b58...",
   "activityLog.aria.contents": "活动内容",
   "activityLog.aria.events": "活动事件",
   "activityLog.clearArmed": "清除操作已准备好。请在 4 秒内再次选择“清除”以移除{count, plural, one {# 个条目} other {# 个条目}}。",

@@ -452,6 +452,7 @@ export function App(props: {
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
   const settingsTick = useSignal(app.settings.changed)
+  const defaultRegistry = useSignal(app.registry)
   const searchShortcut = (): string | undefined => {
     settingsTick()
     return app.keybindings.combo('search.open')
@@ -1506,6 +1507,12 @@ export function App(props: {
         keybindings={app.keybindings}
         request={app.settingsOpenRequest.get()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+        packSettings={'fetchPackSettings' in app.connection ? {
+          client: app.connection,
+          packs: () => [...(defaultRegistry()?.packs ?? [])]
+            .filter(([, info]) => info.settings === true)
+            .map(([id, info]) => ({ id, displayName: info.displayName })),
+        } : undefined}
       />,
     }),
     registerBuiltinPanel({
