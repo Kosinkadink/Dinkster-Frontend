@@ -391,7 +391,10 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
     expect(hostedConfig).toContain("stubV1Entry === '1' ? 'native' : 'legacy'")
     expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
-    expect(hostedConfig).toContain('DINKSTER_E2E_ALLOW_PACK_FAILURES')
+    expect(hostedConfig).toContain(
+      "stubV1Entry === '1' ? ['--no-default-packs'] : []",
+    )
+    expect(hostedConfig).toContain('...nativePackSelection')
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",

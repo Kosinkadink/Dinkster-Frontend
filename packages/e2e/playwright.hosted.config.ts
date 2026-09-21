@@ -9,7 +9,7 @@ const stockV1Only = selectedProject === 'v1-compatibility'
 // Route-mocked specs normally stay on v1 even when live native coverage is enabled.
 // The native dependency-boundary project must keep every page on the native path.
 process.env['DINKSTER_E2E_FIXTURE_MODE'] = stubV1Entry === '1' ? 'native' : 'legacy'
-process.env['DINKSTER_E2E_ALLOW_PACK_FAILURES'] = stubV1Entry
+const nativePackSelection = stubV1Entry === '1' ? ['--no-default-packs'] : []
 
 const requiredDirectory = (name: string): string => {
   const value = process.env[name]
@@ -63,6 +63,7 @@ export default defineConfig({
         '--host 127.0.0.1',
         `--port ${nativePort}`,
         '--disable-p2p',
+        ...nativePackSelection,
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/native-library'))}`,

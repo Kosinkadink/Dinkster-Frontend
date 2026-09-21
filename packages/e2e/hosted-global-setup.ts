@@ -22,7 +22,7 @@ export default async function waitForNativeComposition(): Promise<void> {
         const packs = Object.entries(composition.packs ?? {})
         if (!composition.composing && packs.length > 0) {
           const failed = packs.filter(([, pack]) => pack.state !== 'announced')
-          if (failed.length > 0 && process.env['DINKSTER_E2E_ALLOW_PACK_FAILURES'] !== '1') {
+          if (failed.length > 0) {
             throw new Error(`native composition failed: ${JSON.stringify(Object.fromEntries(failed))}`)
           }
           return
