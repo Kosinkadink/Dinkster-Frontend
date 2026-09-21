@@ -10,6 +10,7 @@
  */
 import { createMemo, createSignal, For, onMount, Show } from 'solid-js'
 import { activeLocale, type MessageParams } from '@dinkster/core'
+import type { PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown, initialSettingsCategory } from './settings.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, type SettingsSearchItem } from './settings-search.js'
@@ -19,6 +20,85 @@ import { ProductCheckbox } from './ProductControls.js'
 import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
+
+export interface PackSettingsClient {
+  fetchPackSettings(packId: string): Promise<PackSettings>
+  updatePackSettings(
+    packId: string,
+    values: Readonly<Record<string, string | number | boolean>>,
+  ): Promise<PackSettings>
+}
+
+function PackSettingsPanel(props: {
+  readonly packId: string
+  readonly client: PackSettingsClient
+}) {
+  const message = useAppMessage()
+  const [settings, setSettings] = createSignal<PackSettings>()
+  const [error, setError] = createSignal<string>()
+  const [saving, setSaving] = createSignal(false)
+  onMount(() => {
+    void props.client.fetchPackSettings(props.packId).then(setSettings).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
+  })
+  const update = async (name: string, value: string | number | boolean): Promise<void> => {
+    const current = settings()
+    if (current === undefined) return
+    setSaving(true)
+    setError(undefined)
+    try {
+      setSettings(await props.client.updatePackSettings(props.packId, { ...current.values, [name]: value }))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return <Show when={settings()} fallback={
+    <p class="pack-settings-status" role="status">
+      {error() ?? message('settingsDialog.pack.loading')}
+    </p>
+  }>{(loaded) => <div class="pack-settings" data-pack-id={props.packId}>
+    <div class="pack-settings-heading">
+      <h2>{loaded().displayName}</h2>
+      <span aria-live="polite">{saving() ? message('settingsDialog.pack.saving') : ''}</span>
+    </div>
+    <Show when={error()}>{(text) => <p class="pack-settings-error" role="alert">{text()}</p>}</Show>
+    <For each={loaded().schema.required}>{(name) => {
+      const field = loaded().schema.properties[name]!
+      const controlId = `pack-setting-${props.packId}-${name}`
+      const ids = productFieldIds(controlId)
+      const value = () => settings()?.values[name] ?? field.default
+      const describedBy = field.description === undefined ? undefined : ids.description
+      const commitNumber = (raw: string): void => {
+        const value = Number(raw)
+        if (!Number.isFinite(value) || (field.type === 'integer' && !Number.isSafeInteger(value))) return
+        void update(name, value)
+      }
+      return <ProductField
+        controlId={controlId}
+        label={field.title}
+        description={field.description}
+        metadata={<code>{name}</code>}
+        dataAttributes={{ 'data-pack-setting-id': name }}
+      >
+        <Show when={field.type === 'boolean'}>
+          <ProductCheckbox id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} checked={value() as boolean} disabled={saving()} onChange={(next) => { void update(name, next) }} />
+        </Show>
+        <Show when={field.type === 'number' || field.type === 'integer'}>
+          <ProductNumberInput id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} value={value() as number} min={field.minimum} max={field.maximum} step={field.multipleOf} integer={field.type === 'integer'} disabled={saving()} onCommit={commitNumber} />
+        </Show>
+        <Show when={field.type === 'string' && field.enum !== undefined}>
+          <ProductSelect id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} disabled={saving()} options={(field.enum ?? []).map((option) => ({ id: option, label: option, value: option }))} selectedId={String(value())} onSelect={(option) => { void update(name, option.value) }} />
+        </Show>
+        <Show when={field.type === 'string' && field.enum === undefined}>
+          <input id={controlId} aria-labelledby={ids.label} aria-describedby={describedBy} disabled={saving()} value={String(value())} onChange={(event) => { void update(name, event.currentTarget.value) }} />
+        </Show>
+      </ProductField>
+    }}</For>
+  </div>}</Show>
+}
 
 function fallbackCategoryLabel(category: string): string {
   return category
@@ -118,6 +198,10 @@ export function SettingsDialog(props: {
   readonly keybindings: KeybindingRegistry
   readonly request?: { readonly category: string; readonly id: string } | undefined
   readonly onRequestConsumed?: () => void
+  readonly packSettings?: {
+    readonly client: PackSettingsClient
+    readonly packs: () => readonly { readonly id: string; readonly displayName: string }[]
+  } | undefined
 }) {
   const message = useAppMessage()
   let root!: HTMLDivElement
@@ -126,7 +210,12 @@ export function SettingsDialog(props: {
   const locale = useSignal(activeLocale)
   const [query, setQuery] = createSignal('')
   const definitions = () => { changed(); return searchableSettingsDefinitions(props.settings.list()) }
-  const categories = () => [...new Set(definitions().map((d) => props.settings.categoryOf(d))), 'keybindings']
+  const packCategories = () => new Map((props.packSettings?.packs() ?? []).map((pack) => [`pack:${pack.id}`, pack.displayName]))
+  const categories = () => [
+    ...new Set(definitions().map((d) => props.settings.categoryOf(d))),
+    'keybindings',
+    ...packCategories().keys(),
+  ]
   // Derived categories are intentionally specific (for example canvas.grid), so select a real category rather than inventing a parent grouping.
   const [category, setCategory] = createSignal(initialSettingsCategory(definitions(), (d) => props.settings.categoryOf(d)))
   const [searchCategory, setSearchCategory] = createSignal<string>()
@@ -166,6 +255,8 @@ export function SettingsDialog(props: {
   })
   const matchCount = (candidate: string): number => matchCounts().get(candidate) ?? 0
   const categoryLabel = (candidate: string): string => {
+    const packName = packCategories().get(candidate)
+    if (packName !== undefined) return packName
     const key = `settingsDialog.category.${candidate.replaceAll('.', '_')}`
     const translated = message(key)
     return translated === key ? fallbackCategoryLabel(candidate) : translated
@@ -263,13 +354,21 @@ export function SettingsDialog(props: {
             <For each={categories()}>{(c) => <button type="button" aria-label={searching() ? message('settingsDialog.search.categoryResultsAria', { category: categoryLabel(c), count: matchCount(c) }) : categoryLabel(c)} aria-current={(searching() ? searchCategory() === c : category() === c) ? 'page' : undefined} disabled={searching() && matchCount(c) === 0} classList={{ active: searching() ? searchCategory() === c : category() === c }} onClick={() => selectCategory(c)}><span>{categoryLabel(c)}</span><Show when={searching()}><span class="settings-category-count" aria-hidden="true">{matchCount(c)}</span></Show></button>}</For>
           </nav>
           <main class="settings-content">
-            <Show when={searching()} fallback={<Show when={category() !== 'keybindings'} fallback={
-              <div class="keybinding-table">
-                <For each={props.commands.list()}>{keybindingRow}</For>
-              </div>
+            <Show when={searching()} fallback={
+              <Show when={category().startsWith('pack:')} fallback={
+                <Show when={category() !== 'keybindings'} fallback={
+                  <div class="keybinding-table">
+                    <For each={props.commands.list()}>{keybindingRow}</For>
+                  </div>
+                }>
+                  <For each={visible()}>{settingRow}</For>
+                </Show>
+              }>
+                <Show when={props.packSettings}>{(packSettings) =>
+                  <PackSettingsPanel packId={category().slice(5)} client={packSettings().client} />
+                }</Show>
+              </Show>
             }>
-              <For each={visible()}>{settingRow}</For>
-            </Show>}>
               <div class="settings-results">
                 <p class="settings-result-status" role="status" aria-live="polite">{searchSummary()}</p>
                 <Show when={shownMatchCount() > 0} fallback={<div class="settings-empty-results"><strong>{message('settingsDialog.search.emptyTitle')}</strong><span>{message('settingsDialog.search.emptyBody')}</span></div>}>

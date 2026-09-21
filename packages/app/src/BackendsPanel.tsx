@@ -6,6 +6,7 @@ import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { useAppMessage } from './locale.js'
 import { ProductNotice } from './ProductForm.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
+import { OutputMountSettings } from './OutputMountSettings.js'
 import { useSignal } from './solid-adapter.js'
 
 function BackendCard(props: {
@@ -140,6 +141,7 @@ function BackendCard(props: {
 
       <Show when={props.backend.protocol === 'dinkster' ? props.backend : undefined}>
         {(native) => <>
+          <OutputMountSettings connection={native().connection} />
           <RuntimeSettingsPanel connection={native().connection} backendLabel={props.backend.label} />
           <AgentPermissionsPanel connection={native().connection} backendLabel={props.backend.label} />
         </>}

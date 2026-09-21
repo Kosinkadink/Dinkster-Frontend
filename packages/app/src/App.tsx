@@ -109,7 +109,8 @@ import {
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { ExecutedImageFacts, ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
-import { executedImageInventory, executedImageLabel } from './executed-image-inventory.js'
+import { canRevealOutput, revealExecutedImage } from './output-file.js'
+import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
 import {
   beginTabDragModel,
   moveTabDragModel,
@@ -451,6 +452,7 @@ export function App(props: {
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
   const settingsTick = useSignal(app.settings.changed)
+  const defaultRegistry = useSignal(app.registry)
   const searchShortcut = (): string | undefined => {
     settingsTick()
     return app.keybindings.combo('search.open')
@@ -1505,6 +1507,12 @@ export function App(props: {
         keybindings={app.keybindings}
         request={app.settingsOpenRequest.get()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+        packSettings={'fetchPackSettings' in app.connection ? {
+          client: app.connection,
+          packs: () => [...(defaultRegistry()?.packs ?? [])]
+            .filter(([, info]) => info.settings === true)
+            .map(([id, info]) => ({ id, displayName: info.displayName })),
+        } : undefined}
       />,
     }),
     registerBuiltinPanel({
@@ -2901,6 +2909,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     const backend = props.app.backendFor(props.execution.ref.connection)
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
+  const reveal = (image: ExecutedImage): void => {
+    const backend = props.app.backendFor(props.execution.ref.connection)
+    if (backend?.protocol === 'dinkster') void revealExecutedImage(backend.connection, image)
+  }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()
     const layers = new Set<string>()
@@ -3037,7 +3049,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         </For>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} {...(canRevealOutput() ? { onReveal: reveal } : {})} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>
     </>
   )
