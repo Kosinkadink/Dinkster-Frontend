@@ -14,21 +14,23 @@
 import {
   asPromptId,
   canonicalJson,
-  ComfyV1Normalizer,
   diag,
   fnv1a64,
-  parseObjectInfo,
   parseOccurrenceKey,
   type CompileArtifact,
   type ConnectionId,
   type Diagnostic,
   type NormalizedEvent,
-  type ObjectInfoEntry,
   type PromptId,
-  type RawJsonMessage,
-  type RawMessage,
   type ReadonlySignal,
 } from '@dinkster/core'
+import {
+  ComfyV1Normalizer,
+  parseObjectInfo,
+  type ObjectInfoEntry,
+  type RawJsonMessage,
+  type RawMessage,
+} from '@dinkster/core/comfy-v1'
 import type { FetchLike, SchemaRegistry, SubmitResult } from './connection-contract.js'
 import {
   ReconnectingSocket,

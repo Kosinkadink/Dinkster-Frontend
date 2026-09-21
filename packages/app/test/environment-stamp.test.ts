@@ -15,8 +15,8 @@ import {
   DINKSTER_SCHEMA_WIRE_VERSION,
   type DinksterNodesPayload,
   type ExecutionRef,
-  type ObjectInfoEntry,
 } from '@dinkster/core'
+import type { ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Tab } from '../src/app-state.js'
 import { buildSchemaRegistry } from '../src/v1-connection-kind.js'

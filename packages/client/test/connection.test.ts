@@ -15,9 +15,9 @@ import {
   compile,
   loadDocument,
   type NormalizedEvent,
-  type ObjectInfoEntry,
   type WorkflowDocument,
 } from '@dinkster/core'
+import type { ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import {
   type FetchLike,
   type WebSocketLike,
