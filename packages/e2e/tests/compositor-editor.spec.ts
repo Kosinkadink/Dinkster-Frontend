@@ -1,9 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-400/', import.meta.url))
 
 interface Point {
   readonly x: number
@@ -282,8 +281,8 @@ test('edits, executes, persists, and falls back safely when compositor sources c
   const screenshot = await editor.screenshot({ animations: 'disabled' })
   await testInfo.attach('native-compositor-editor', { body: screenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
-    mkdirSync(evidenceDir, { recursive: true })
-    writeFileSync(`${evidenceDir}/graph-native-compositor.png`, screenshot)
+    mkdirSync(evidenceGroupDir('issue-400'), { recursive: true })
+    writeFileSync(evidencePath('issue-400', 'graph-native-compositor.png'), screenshot)
   }
 
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)

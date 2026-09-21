@@ -88,15 +88,15 @@ const workspacePackages = (root) => {
       throw new Error(`workspace pattern has no directory: ${pattern}`)
     }
     const matches = readdirSync(parent, { withFileTypes: true }).filter(
-      (entry) => entry.isDirectory(),
+      (entry) =>
+        entry.isDirectory() &&
+        existsSync(join(parent, entry.name, 'package.json')),
     )
     if (matches.length === 0)
       throw new Error(`workspace pattern matches no packages: ${pattern}`)
     for (const entry of matches) {
       const directory = join(parent, entry.name)
       const manifestPath = join(directory, 'package.json')
-      if (!existsSync(manifestPath))
-        throw new Error(`${repoPath(root, directory)} has no package.json`)
       const manifest = readJson(manifestPath)
       if (typeof manifest.name !== 'string' || !manifest.name) {
         throw new Error(`${repoPath(root, manifestPath)} has no package name`)

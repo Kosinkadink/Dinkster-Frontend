@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from './fixtures.js'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
-const proofDir = fileURLToPath(new URL('../../../docs/evidence/issue-387/', import.meta.url))
 const objectInfo = JSON.parse(readFileSync(
   fileURLToPath(new URL('../../core/fixtures/object_info.json', import.meta.url)),
   'utf8',
@@ -65,8 +65,8 @@ async function capture(page: Page, name: string, projectName: string, outputPath
   writeFileSync(outputPath, image)
   await attach(outputPath)
   if (process.env['DINKSTER_CAPTURE_ISSUE_387'] === '1') {
-    mkdirSync(proofDir, { recursive: true })
-    writeFileSync(`${proofDir}/${projectName}-${name}.png`, image)
+    mkdirSync(evidenceGroupDir('issue-387'), { recursive: true })
+    writeFileSync(evidencePath('issue-387', `${projectName}-${name}.png`), image)
   }
 }
 

@@ -111,6 +111,12 @@ test('accepts one explicit V1 connection-kind entry', () =>
     assert.doesNotThrow(() => checkV1Boundary(root))
   }))
 
+test('ignores non-package directories matched by a workspace glob', () =>
+  withFixture((root) => {
+    write(root, 'packages/removed-package/node_modules/.keep', '')
+    assert.doesNotThrow(() => checkV1Boundary(root))
+  }))
+
 test('rejects direct and transitive native imports of V1 code', () =>
   withFixture((root) => {
     write(root, 'packages/core/src/index.ts', "export * from './comfy-v1.js'\n")

@@ -62,7 +62,7 @@ const nativeComfySelection =
     ? []
     : [
         `--comfy-root ${JSON.stringify(comfyRoot)}`,
-        `--comfy-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
+        `--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
       ]
 const frontendPort = port('DINKSTER_E2E_PORT', 5410)
 const comfyPort = port('DINKSTER_E2E_COMFY_PORT', 5411)
