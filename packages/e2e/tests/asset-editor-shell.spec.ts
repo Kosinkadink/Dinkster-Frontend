@@ -163,7 +163,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'asset-editor-shell-proof', schemaWire: 22 },
+    dinkster: { version: 'asset-editor-shell-proof', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))

@@ -121,20 +121,13 @@ export function widgetRepresentationAddress(
 
 /**
  * Live-preview capability callback for menu gating, or undefined when the
- * backend cannot declare capability. Backends at schema wire 24+ declare
- * `emitsPreviews` on capable node types (and skip preview work for the
- * rest), so the negotiated wire version - not catalog contents - decides
- * whether gating applies: a wire-24 catalog may legitimately contain zero
- * flagged schemas, and layered frontend schemas must not make an older
- * backend look flag-aware. Below wire 24 (or for v1 backends with no
- * server identity) the callback stays undefined and every node keeps the
- * menu.
+ * schema resolver is unavailable. Current backends declare `emitsPreviews`
+ * on capable node types and skip preview work for the rest.
  */
 export function previewCapabilityOf(
-  registry: { readonly server?: { readonly schemaWire: number } } | undefined,
   resolve: ((nodeType: string) => { readonly emitsPreviews?: boolean } | undefined) | undefined,
 ): ((nodeType: string) => boolean) | undefined {
-  if (resolve === undefined || (registry?.server?.schemaWire ?? 0) < 24) return undefined
+  if (resolve === undefined) return undefined
   return (nodeType) => resolve(nodeType)?.emitsPreviews === true
 }
 

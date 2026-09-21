@@ -123,23 +123,18 @@ at the workflow root and on individual nodes; absent means inherit. A workflow
 tab context submenu and a node context submenu ("Live Previews") expose the
 modes with the current state checked.
 
-The node submenu is gated by schema capability. Backends at schema wire 24 or
-later declare `emitsPreviews: true` on node types that emit live sampling
-previews; the menu appears only on nodes whose type declares the flag. A
+The node submenu is gated by schema capability. Backends declare
+`emitsPreviews: true` on node types that emit live sampling previews; the menu
+appears only on nodes whose type declares the flag. A
 subgraph instance keeps the menu when any inner node (at any nesting depth)
 is capable, because the derived boundary schema aggregates the flag the same
 way it aggregates output-node status. A mixed selection acts on the capable
 nodes only.
 
-Gating applies iff the negotiated schema wire version is 24 or later - the
-backend's declared version, not catalog contents, decides: a wire-24 catalog
-may legitimately flag nothing (then no node offers the menu), and a flagged
-frontend-registered schema never makes an older backend look flag-aware. On
-backends below wire 24 (including v1) every node keeps the menu, preserving
-the older show-everywhere behavior. Known tradeoff: a custom node that emits
-previews without declaring `emitsPreviews` in its schema loses the menu on
-flag-aware backends (false negative); the backend also skips preview work for
-such nodes, so the menu truthfully reflects that no previews will arrive.
+A catalog may legitimately flag nothing, in which case no node offers the
+menu. A custom node that emits previews without declaring `emitsPreviews` in
+its schema loses the menu; the backend also skips preview work for such nodes,
+so the menu truthfully reflects that no previews will arrive.
 
 ## States and geometry
 

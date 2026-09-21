@@ -6,7 +6,7 @@ test('proves product numeric, slider, and color controls without native chrome',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'audit-f3-proof', schemaWire: 21 },
+    dinkster: { version: 'audit-f3-proof', schemaWire: 1 },
     packs: {},
     nodes: {},
   } }))

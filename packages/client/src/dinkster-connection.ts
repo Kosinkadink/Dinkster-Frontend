@@ -31,8 +31,7 @@ import {
   comfyGroupCatalogFromDinksterWire,
   decodeEffectiveExtensionSnapshot,
   diag,
-  DINKSTER_ACCEPTED_WIRE_VERSIONS,
-  DINKSTER_ADVERTISED_WIRE_VERSIONS,
+  DINKSTER_SCHEMA_WIRE_VERSION,
   DINKSTER_GRAPH_FEATURE_REGIONS,
   DinksterNormalizer,
   decodeDinksterBinaryFrame,
@@ -1493,6 +1492,9 @@ export interface TemplateDescriptor {
   readonly name: string
   readonly description?: string
   readonly tags?: readonly string[]
+  readonly family?: string
+  readonly models?: readonly string[]
+  readonly thumbnail?: { readonly digest: string; readonly mediaType: string }
   /** Pack-local asset ids, joined against PackInfo.assets by consumers. */
   readonly assets?: readonly string[]
   readonly digest: string
@@ -1513,6 +1515,13 @@ const templateDescriptor = (value: unknown): TemplateDescriptor | undefined => {
     pack: r['pack'], id: r['id'], name: r['name'], digest: r['digest'],
     ...(typeof r['description'] === 'string' ? { description: r['description'] } : {}),
     ...(strings(r['tags']) !== undefined ? { tags: strings(r['tags'])! } : {}),
+    ...(typeof r['family'] === 'string' ? { family: r['family'] } : {}),
+    ...(strings(r['models']) !== undefined ? { models: strings(r['models'])! } : {}),
+    ...(typeof r['thumbnail'] === 'object' && r['thumbnail'] !== null &&
+      typeof (r['thumbnail'] as Record<string, unknown>)['digest'] === 'string' &&
+      typeof (r['thumbnail'] as Record<string, unknown>)['mediaType'] === 'string'
+      ? { thumbnail: r['thumbnail'] as { digest: string; mediaType: string } }
+      : {}),
     ...(strings(r['assets']) !== undefined ? { assets: strings(r['assets'])! } : {}),
   }
 }
@@ -1869,11 +1878,9 @@ export class DinksterConnection {
 
   // -- Schemas ----------------------------------------------------------------
 
-  async fetchSchemas(
-    requestedWireVersions: readonly number[] = DINKSTER_ADVERTISED_WIRE_VERSIONS,
-  ): Promise<SchemaRegistry> {
+  async fetchSchemas(): Promise<SchemaRegistry> {
     const generation = ++this.schemaRequestGeneration
-    const promise = this.fetchSchemasPass(generation, requestedWireVersions)
+    const promise = this.fetchSchemasPass(generation)
     this.newestSchemaFetch = { generation, promise }
     // A superseded invocation must hand back the registry the connection
     // actually committed, not its own stale decode: follow the newest fetch
@@ -1900,34 +1907,15 @@ export class DinksterConnection {
 
   private async fetchSchemasPass(
     generation: number,
-    requestedWireVersions: readonly number[],
     pairingAttempts = 3,
   ): Promise<SchemaRegistry> {
-    // ?wire= (Dinkster 3a858e5): advertise the versions requested by this document.
-    // The server answers with one version it can encode, or a machine-
-    // readable 406 refusal - loud and diagnosable instead of a decode
-    // failure. Pre-negotiation servers ignore the parameter unchanged.
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/nodes?wire=${requestedWireVersions.join(',')}`,
-    )
+    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`)
     if (res.status === 503) {
       // A supervisor gates every proxied route with 503 engine-not-ready
       // until the engine answers healthy. Surface that as its own error so
       // the app renders "starting", never a connection failure.
       const gate = parseEngineNotReady(await res.json().catch(() => undefined))
       if (gate) throw new EngineNotReadyError(gate.state)
-    }
-    if (res.status === 406) {
-      const refusal = (await res.json().catch(() => undefined)) as
-        | Record<string, unknown>
-        | undefined
-      const supported = Array.isArray(refusal?.['supported'])
-        ? (refusal['supported'] as unknown[]).filter((v) => typeof v === 'number').join(', ')
-        : undefined
-      throw new Error(
-        `schema wire version mismatch: this build decodes ${requestedWireVersions.join(', ')}` +
-          (supported !== undefined ? `; the server encodes ${supported}` : ''),
-      )
     }
     if (!res.ok) throw new Error(`GET /api/nodes failed: ${res.status}`)
     const raw: unknown = await res.json()
@@ -1939,9 +1927,9 @@ export class DinksterConnection {
     // top-level schemaVersion is the API surface version there. Older shapes
     // carry the wire version top-level. Same resolution as parseDinksterNodes.
     const wireVersion = serverInfoFromDinksterWire(payload)?.schemaWire ?? payload.schemaVersion
-    if (!requestedWireVersions.includes(wireVersion as number)) {
+    if (wireVersion !== DINKSTER_SCHEMA_WIRE_VERSION) {
       throw new Error(
-        `schema wire version mismatch: this build decodes ${requestedWireVersions.join(', ')}; the server encodes ${String(wireVersion)}`,
+        `schema wire version mismatch: this build decodes ${DINKSTER_SCHEMA_WIRE_VERSION}; the server encodes ${String(wireVersion)}`,
       )
     }
     if (typeof payload.nodes !== 'object' || payload.nodes === null || Array.isArray(payload.nodes)) {
@@ -1960,7 +1948,7 @@ export class DinksterConnection {
       const actualDigest = await sha256Digest(snapshotBuffer)
       if (actualDigest !== extensionSnapshotDigest) {
         if (pairingAttempts > 1) {
-          return this.fetchSchemasPass(generation, requestedWireVersions, pairingAttempts - 1)
+          return this.fetchSchemasPass(generation, pairingAttempts - 1)
         }
         throw new Error(`schema/snapshot pairing failed: schema names '${extensionSnapshotDigest}', snapshot hashes to '${actualDigest}'`)
       }
@@ -1979,12 +1967,11 @@ export class DinksterConnection {
       this.id,
       payload,
       extensionSnapshotPair,
-      requestedWireVersions,
     )
     if (registry.diagnostics.some((entry) => entry.code === 'schema.dinkster.wireVersion')) {
       const selected = serverInfoFromDinksterWire(payload)?.schemaWire ?? payload.schemaVersion
       throw new Error(
-        `schema wire version mismatch: this build decodes ${requestedWireVersions.join(', ')}; the server encodes ${String(selected)}`,
+        `schema wire version mismatch: this build decodes ${DINKSTER_SCHEMA_WIRE_VERSION}; the server encodes ${String(selected)}`,
       )
     }
     if (generation === this.schemaRequestGeneration) {
@@ -2953,7 +2940,7 @@ export class DinksterConnection {
     return pending
   }
 
-  /** Fetch one immutable wire-44 locale catalog by its advertised digest. */
+  /** Fetch one immutable locale catalog by its advertised digest. */
   async fetchPackLocaleCatalog(packId: string, digest: string): Promise<unknown | undefined> {
     const key = `${packId}\u0000${digest}`
     const cached = this.packLocaleCatalogs.get(key)
@@ -3343,11 +3330,10 @@ export function buildDinksterRegistry(
   connection: ConnectionId,
   raw: DinksterNodesPayload,
   extensionSnapshotPair?: { readonly digest: string; readonly snapshot: EffectiveExtensionSnapshot },
-  allowedWireVersions: readonly number[] = DINKSTER_ACCEPTED_WIRE_VERSIONS,
 ): SchemaRegistry {
-  const parsed = parseDinksterNodes(raw, allowedWireVersions)
-  const aliases = comfyAliasCatalogFromDinksterWire(raw, parsed.schemas, allowedWireVersions)
-  const groups = comfyGroupCatalogFromDinksterWire(raw, parsed.schemas, allowedWireVersions)
+  const parsed = parseDinksterNodes(raw)
+  const aliases = comfyAliasCatalogFromDinksterWire(raw, parsed.schemas)
+  const groups = comfyGroupCatalogFromDinksterWire(raw, parsed.schemas)
   const schemas = new Map(parsed.schemas)
   for (const record of aliases.catalog.records) {
     const carrier = schemas.get(record.carrier)
@@ -3424,7 +3410,6 @@ function schemaIdentityWithoutWidgetPresentation(
   const comboWidget = record['type'] === 'COMBO' || record['type'] === 'MULTI_COMBO'
   const multiComboWidget = record['type'] === 'MULTI_COMBO'
   return Object.fromEntries(Object.entries(value).flatMap(([key, entry]) =>
-    key === 'schemaSkips' ||
     key === 'hasDocs' ||
     (record['role'] === 'input' && (key === 'acceptsStorage' || key === 'acceptsStream') && entry === false) ||
     (comboOption && COMBO_OPTION_PRESENTATION_FIELDS.has(key)) ||

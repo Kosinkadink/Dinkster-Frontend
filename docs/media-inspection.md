@@ -41,17 +41,15 @@ active locale in place without changing diagnostic row identity or requesting
 new schema, diagnostic or backend data. Diagnostic codes, node/output/input IDs
 and expected or actual polarity remain exact backend values.
 
-Schema wire 39 preserves ordinary inputs that accept storage-backed values.
-Schema wire 40 preserves declared alpha policies, mask polarity and mask
-semantics on typed ports and in registry identity. Older schema versions do
-not accept their respective declarations. The inspector reports value metadata
-rather than inferring pixel properties from a port policy.
+The schema preserves ordinary inputs that accept storage-backed values and
+declared alpha policies, mask polarity, and mask semantics on typed ports and
+in registry identity. The inspector reports value metadata rather than
+inferring pixel properties from a port policy.
 
-Schema wire 41 adds recursive `stream<element>` types, ordinary-input
-`acceptsStream`, and scoped `chunkSafe` declarations while retaining wire 39
-storage/descriptors and wire 40 media policies. Stream acceptance is Boolean:
-false normalizes to omission; non-Booleans and any field presence below wire
-41 are refused. Stream acceptance declares a range-aware consumer, not a
+The schema includes recursive `stream<element>` types, ordinary-input
+`acceptsStream`, and scoped `chunkSafe` declarations alongside storage
+descriptors and media policies. Stream acceptance is Boolean: false normalizes
+to omission and non-Booleans are refused. Stream acceptance declares a range-aware consumer, not a
 separate cardinality. Chunk safety declares frame/sample-range preservation,
 names existing inputs/outputs and may be scoped to DynamicCombo options.
 Uncovered options lose chunk-safety and stream-acceptance claims; materialization
@@ -59,8 +57,8 @@ is backend-owned. These declarations survive catalog loading and registry identi
 they do not invent a browser stream endpoint, polling ticket, chunk events,
 or a full-source download fallback.
 
-STRING presentation fields introduced at wire 19 remain valid on later wires
-without an explicit multiline flag, including native video path placeholders.
+STRING presentation fields remain valid without an explicit multiline flag,
+including native video path placeholders.
 Malformed descriptors and unknown alias metadata remain refused.
 
 The values client accepts frame indices or second timestamps, thumbnail counts,

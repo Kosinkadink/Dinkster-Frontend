@@ -586,8 +586,8 @@ async function installSnapshot(page: Page, options: { source?: string; privilege
   await page.route(`${baseUrl}/api/**`, async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path === `${baseUrl}/api/nodes`) return route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, extensionSnapshotDigest: digest, dinkster: { version: 'proof', schemaWire: 23 },
-      nodes: { 'video-preview.initialize': { schemaVersion: 23, displayName: 'Video preview initialization', interface: [] } },
+      schemaVersion: 1, epoch: 1, extensionSnapshotDigest: digest, dinkster: { version: 'proof', schemaWire: 1 },
+      nodes: { 'video-preview.initialize': { schemaVersion: 1, displayName: 'Video preview initialization', interface: [] } },
     } })
     if (path === `${baseUrl}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${baseUrl}/api/extensions/${previewPack}/routes/preview-policy`) {

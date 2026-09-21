@@ -18,7 +18,7 @@ const asset = {
 }
 
 const loadImageWire31 = {
-  schemaVersion: 31,
+  schemaVersion: 1,
   nodeType: 'dinkster.load_image',
   displayName: 'Load Image',
   category: 'image',
@@ -66,7 +66,7 @@ test('an uploaded selected asset estimates its represented output before executi
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'represented-output-proof', schemaWire: 31 },
+    dinkster: { version: 'represented-output-proof', schemaWire: 1 },
     nodes: { 'dinkster.load_image': loadImageWire31 },
   } }))
   await page.route('**/api/assets/**', async (route) => {
