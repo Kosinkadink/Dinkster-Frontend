@@ -15,12 +15,11 @@ import {
   asPortId,
   asRerouteId,
   documentResolver,
-  parseObjectInfo,
   type GraphDef,
   type NodeSchema,
-  type ObjectInfoEntry,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { buildScene, REROUTE_SOCKET_OFFSET, sceneEndId, type Scene } from '../src/scene.js'
 import {
   hitTest,

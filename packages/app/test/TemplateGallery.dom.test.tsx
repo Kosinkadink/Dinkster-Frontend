@@ -19,6 +19,44 @@ afterEach(() => {
 })
 
 describe('TemplateGallery', () => {
+  it('matches Stable Diffusion starter aliases', async () => {
+    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const backend = app.libraryBackend()!
+    vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({
+      templates: [
+        {
+          pack: 'native', id: 'sd15', name: 'Stable Diffusion 1.5', digest: 'sha256:a',
+          family: 'dinkster.sd15', tags: ['starter'],
+        },
+        {
+          pack: 'native', id: 'sdxl', name: 'Stable Diffusion XL', digest: 'sha256:b',
+          family: 'dinkster.sdxl', tags: ['starter'],
+        },
+      ],
+    })
+
+    for (const [query, expected] of [
+      ['SD 1.5', 'Stable Diffusion 1.5'],
+      ['sd1.5', 'Stable Diffusion 1.5'],
+      ['SD15', 'Stable Diffusion 1.5'],
+      ['SDXL', 'Stable Diffusion XL'],
+      ['Stable Diffusion XL', 'Stable Diffusion XL'],
+      ['Stable-Diffusion XL', 'Stable Diffusion XL'],
+    ] as const) {
+      const page = await templatesSource(app).page({ query, limit: 10 })
+      expect(page.items.map((entry) => entry.title), query).toEqual([expected])
+    }
+    for (const query of ['stable', 'diffusion']) {
+      const page = await templatesSource(app).page({ query, limit: 10 })
+      expect(page.items.map((entry) => entry.title), query).toEqual([
+        'Stable Diffusion 1.5',
+        'Stable Diffusion XL',
+      ])
+    }
+    const diffusion15 = await templatesSource(app).page({ query: 'diffusion 1.5', limit: 10 })
+    expect(diffusion15.items.map((entry) => entry.title)).toEqual(['Stable Diffusion 1.5'])
+  })
+
   it('groups templates by family and shows the exact missing model list', async () => {
     const app = new AppState({ defaultProtocol: 'dinkster' })
     const backend = app.libraryBackend()!
@@ -52,6 +90,14 @@ describe('TemplateGallery', () => {
     document.body.append(host)
     const dispose = render(() => <TemplateGallery app={app} visible={() => true} onClose={close} />, host)
 
+    await vi.waitFor(() => expect(host.querySelectorAll('[data-testid="template-card"]')).toHaveLength(2))
+    const search = host.querySelector<HTMLInputElement>('[data-testid="template-gallery-search"]')!
+    search.value = 'SD 1.5'
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    await vi.waitFor(() => expect(host.querySelectorAll('[data-testid="template-card"]')).toHaveLength(1))
+    expect(host.querySelector('[data-testid="template-card"]')?.textContent).toContain('Stable Diffusion 1.5')
+    search.value = ''
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
     await vi.waitFor(() => expect(host.querySelectorAll('[data-testid="template-card"]')).toHaveLength(2))
     expect([...host.querySelectorAll('.template-family h3')].map((node) => node.textContent)).toEqual([
       'dinkster.sd15',
