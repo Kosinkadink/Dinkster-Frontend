@@ -5,10 +5,9 @@
  * a section collapses the zone back to one section. Universal dockability:
  * panels that once lived only in one zone now dock in any zone.
  */
-import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
 type DockZone = 'left' | 'right' | 'bottom'
 interface SectionedTestApp {
@@ -26,11 +25,9 @@ interface SectionedTestApp {
   }
 }
 
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-169/', import.meta.url))
 const capture = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_169'] !== '1') return
-  mkdirSync(evidenceDir, { recursive: true })
-  await page.screenshot({ path: `${evidenceDir}/${name}.png`, animations: 'disabled' })
+  await page.screenshot({ path: evidencePath('issue-169', `${name}.png`), animations: 'disabled' })
 }
 
 const zoneTab = (page: Page, zone: DockZone, id: string): Locator =>

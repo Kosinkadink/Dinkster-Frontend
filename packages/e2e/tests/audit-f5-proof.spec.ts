@@ -1,9 +1,10 @@
 import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f5-proof', schemaWire: 21 },
+  dinkster: { version: 'audit-f5-proof', schemaWire: 1 },
   packs: {},
   nodes: {},
 }
@@ -107,7 +108,7 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
     })
   })
   const dialog = page.getByTestId('import-asset-resolution-dialog')
-  await dialog.screenshot({ path: '../../docs/evidence/issue-457/import-asset-resolution-i18n-en.png' })
+  await dialog.screenshot({ path: evidencePath('issue-457', 'import-asset-resolution-i18n-en.png') })
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
   expect(i18nModule).toBeDefined()
@@ -152,7 +153,7 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
   await expect(dialog).toContainText('models/complete.safetensors')
   await expect(page.getByTestId('import-assets-selection-status')).toHaveText('[0 Ersetzungen ausgewahlt; 1 Name bleibt unaufgelost.]')
   await expect(page.getByTestId('import-assets-accept')).toHaveText('[Auswahl annehmen]')
-  await dialog.screenshot({ path: '../../docs/evidence/issue-457/import-asset-resolution-i18n-de-DE.png' })
+  await dialog.screenshot({ path: evidencePath('issue-457', 'import-asset-resolution-i18n-de-DE.png') })
   await page.evaluate(async ({ i18nModule }) => {
     const { setLocale } = await import(i18nModule)
     setLocale('en')

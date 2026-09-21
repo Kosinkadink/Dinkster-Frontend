@@ -17,7 +17,7 @@ const identity: ExecutionResultBackendIdentity = {
   baseUrl: 'http://native',
   clientId: 'workspace:native',
   serverVersion: '1.2.3',
-  schemaWire: 32,
+  schemaWire: 1,
 }
 
 const makeStorage = (maxBytes = Number.POSITIVE_INFINITY): Storage => {
@@ -168,7 +168,7 @@ describe('execution result persistence', () => {
       { ...identity, baseUrl: 'http://different' },
       { ...identity, clientId: 'different-client' },
       { ...identity, serverVersion: '2.0.0' },
-      { ...identity, schemaWire: 33 },
+      { ...identity, schemaWire: 2 },
     ]
     for (const changed of changedIdentities) {
       saveExecutionResult(completed('job-1'), identity)

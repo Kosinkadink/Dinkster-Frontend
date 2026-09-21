@@ -15,10 +15,11 @@ import {
   DINKSTER_SCHEMA_WIRE_VERSION,
   type DinksterNodesPayload,
   type ExecutionRef,
-  type ObjectInfoEntry,
 } from '@dinkster/core'
-import { buildDinksterRegistry, buildSchemaRegistry } from '@dinkster/client'
+import type { ObjectInfoEntry } from '@dinkster/core/comfy-v1'
+import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Tab } from '../src/app-state.js'
+import { buildSchemaRegistry } from '../src/v1-connection-kind.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -34,7 +35,7 @@ const objectInfo = JSON.parse(
 /** A Dinkster /api/nodes payload with the full environment surface (5b58c53). */
 const nodesPayload: DinksterNodesPayload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
-  dinkster: { version: '0.9.0', schemaWire: 3 },
+  dinkster: { version: '0.9.0', schemaWire: 1 },
   packs: {
     core: { displayName: 'Dinkster Core', version: '1.2.0' },
     'vhs.video': {
@@ -95,7 +96,7 @@ describe('exportDocument', () => {
     const tab = open(docJson('lin-stamp', ['std.a']))
     const out = app.exportDocument(tab.id)!
     expect(out.environment).toEqual({
-      dinkster: { version: '0.9.0', schemaWire: 3 },
+      dinkster: { version: '0.9.0', schemaWire: 1 },
       frontend: { version: FRONTEND_VERSION },
       packs: { core: { version: '1.2.0' } }, // vhs.video unused -> absent
       nodes: { 'std.a': { pack: 'core', signature: 'sig-a-1' } },

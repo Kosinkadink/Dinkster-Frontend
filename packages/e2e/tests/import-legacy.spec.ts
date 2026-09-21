@@ -9,9 +9,9 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, openRailPanel, test } from './fixtures.js'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
-const groupEvidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-681/', import.meta.url))
 const importEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-381/', import.meta.url))
 const comboEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-118/', import.meta.url))
 const clientModuleUrl = `/@fs${fileURLToPath(new URL('../../client/src/index.ts', import.meta.url))}`
@@ -104,7 +104,7 @@ const exactGroupPayload = (): Record<string, unknown> => {
 }
 
 test.beforeAll(() => {
-  mkdirSync(groupEvidenceDir, { recursive: true })
+  mkdirSync(evidenceGroupDir('issue-681'), { recursive: true })
   if (process.env['DINKSTER_CAPTURE_ISSUE_381_IMPORT'] === '1') {
     mkdirSync(importEvidenceDir, { recursive: true })
   }
@@ -491,7 +491,7 @@ test('collapses an exact maintained group into its native replacement', async ({
     await page.mouse.move(0, 0)
     await page.waitForTimeout(350)
     await page.screenshot({
-      path: `${groupEvidenceDir}/exact-group-import.png`,
+      path: evidencePath('issue-681', 'exact-group-import.png'),
       fullPage: true,
       animations: 'disabled',
     })
@@ -499,7 +499,7 @@ test('collapses an exact maintained group into its native replacement', async ({
 })
 
 test('native alias import is canonical before badges, save/reopen, and submission', async ({ page }) => {
-  const served = await page.request.get(`${NATIVE_BACKEND}/api/nodes?wire=3,4,5,6,10,11,12,13,14,15,16`).catch(() => null)
+  const served = await page.request.get(`${NATIVE_BACKEND}/api/nodes`).catch(() => null)
   test.skip(served === null || !served.ok(), `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
 
   // This spec intentionally exercises the live native backend through the
@@ -573,7 +573,7 @@ test('native alias import is canonical before badges, save/reopen, and submissio
     'dinkster.empty_latent_image',
     'dinkster.ksampler',
     'dinkster.vae_decode',
-    'comfy.PreviewImage',
+    'dinkster.preview_image',
   ])
   expect(graph.links['l4']).toMatchObject({
     from: { node: 'n2', port: 'conditioning' },

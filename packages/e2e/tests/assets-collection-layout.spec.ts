@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { evidencePath } from './evidence-output.js'
 
 const PROOF = '/tmp/assets-collection-layout-proof'
 const FOLLOWUP_PROOF = '/tmp/assets-picker-layout-followup-proof'
@@ -54,7 +55,7 @@ async function installBaseRoutes(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'assets-collection-layout', schemaWire: 22 },
+    dinkster: { version: 'assets-collection-layout', schemaWire: 1 },
     nodes: {},
   } }))
 }
@@ -150,7 +151,6 @@ test('global Assets separates a catalog failure from asset results', async ({ pa
 })
 
 test('open Assets source and health chrome update when the active locale changes', async ({ page, request }) => {
-  await mkdir('../../docs/evidence/issue-457', { recursive: true })
   await page.setViewportSize({ width: 1600, height: 950 })
   await installBaseRoutes(page)
   await page.route('**/api/mounts', (route) => route.fulfill({ json: { mounts: [
@@ -181,7 +181,7 @@ test('open Assets source and health chrome update when the active locale changes
   await expect(health).toContainText('2 issues')
   await expect(health.locator('[data-source="mount:RAW-empty-cache"]')).toContainText('LoRAs')
   await expect(health.locator('[data-source="mount:RAW-offline-cache"]')).toContainText('offline')
-  await page.screenshot({ path: '../../docs/evidence/issue-457/assets-source-i18n-en.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'assets-source-i18n-en.png'), fullPage: true })
   const requestsBeforeLocale = catalogRequests
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
@@ -224,11 +224,10 @@ test('open Assets source and health chrome update when the active locale changes
   await expect(assets.locator('[data-collection-state="empty"]')).toContainText('[Noch keine Assets]')
   await expect(assets.locator('[data-collection-state="empty"]')).toContainText('[Keine Assets in [Alle Assets].]')
   expect(catalogRequests).toBe(requestsBeforeLocale)
-  await page.screenshot({ path: '../../docs/evidence/issue-457/assets-source-i18n-de-DE.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'assets-source-i18n-de-DE.png'), fullPage: true })
 })
 
 test('open Assets selection details update when the active locale changes', async ({ page, request }) => {
-  await mkdir('../../docs/evidence/issue-457', { recursive: true })
   await page.setViewportSize({ width: 1600, height: 950 })
   await installWidgetRoutes(page, 'sparse', 'RAW-layout-images')
   await page.route('**/api/catalog', (route) => route.fulfill({ body: '' }))
@@ -250,7 +249,7 @@ test('open Assets selection details update when the active locale changes', asyn
   await expect(details).toContainText('Kindmedia/image')
   await expect(details).toContainText('MountRAW-layout-images')
   await expect(details.getByRole('button', { name: 'Copy digest' })).toBeVisible()
-  await page.screenshot({ path: '../../docs/evidence/issue-457/assets-detail-i18n-en.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'assets-detail-i18n-en.png'), fullPage: true })
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
@@ -284,7 +283,7 @@ test('open Assets selection details update when the active locale changes', asyn
   await expect(details).toContainText('[Virtueller Asset-Pfad]images/layout-01.png')
   await expect(details).toContainText('RAW-layout-images')
   await expect(details.getByRole('button', { name: '[Digest kopieren]' })).toHaveText('[Digestwert kopieren]')
-  await page.screenshot({ path: '../../docs/evidence/issue-457/assets-detail-i18n-de-DE.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'assets-detail-i18n-de-DE.png'), fullPage: true })
 })
 
 const mountEntry = (index: number) => {

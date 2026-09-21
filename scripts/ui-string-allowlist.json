@@ -108,7 +108,8 @@
     "text:if (state.kind === 'no-compatible') return",
     "text:if (state.kind === 'no-match') return",
     "text:part.length",
-    "text:return"
+    "text:return",
+    "text:| undefined let outputTimer: ReturnType"
   ],
   "AudioRecorder.tsx": [
     "attribute:aria-label:Record audio",
@@ -273,7 +274,7 @@
     "text:outputImagePreviewByKey().get(key) const [outputViewerKey, setOutputViewerKey] = createSolidSignal",
     "text:props.app.settings.get",
     "text:props.app.settings.get",
-    "text:props.host?.focused() ?? true const executions = useSignal(props.app.store.executions) const overlayPins = useSignal(props.app.overlayPins) const lenses = useSignal(props.app.lenses) const backendsTick = useSignal(props.app.backendsTick) const tabTargets = useSignal(props.app.tabTargets) const settingsTick = useSignal(props.app.settings.changed) const collabTabs = useSignal(props.app.collabTabs) const modalPanel = useSignal(props.app.modalPanel) const diagnosticFocus = useSignal(props.app.diagnosticFocus) const problems = useSignal(props.app.problems) // Scene/widget diagnostics for THIS editor instance. The app-level // solveDiagnostics signal mirrors the focused instance only, so an // unfocused split sibling keeps its own rail without clobbering the // Problems panel. const [instanceDiagnostics, setInstanceDiagnostics] = createSolidSignal",
+    "text:props.host?.focused() ?? true const executions = useSignal(props.app.store.executions) const overlayPins = useSignal(props.app.overlayPins) const lenses = useSignal(props.app.lenses) const backendsTick = useSignal(props.app.backendsTick) const tabTargets = useSignal(props.app.tabTargets) const settingsTick = useSignal(props.app.settings.changed) const extensionRevision = useSignal(props.app.extensionRevision) const collabTabs = useSignal(props.app.collabTabs) const modalPanel = useSignal(props.app.modalPanel) const diagnosticFocus = useSignal(props.app.diagnosticFocus) const problems = useSignal(props.app.problems) // Scene/widget diagnostics for THIS editor instance. The app-level // solveDiagnostics signal mirrors the focused instance only, so an // unfocused split sibling keeps its own rail without clobbering the // Problems panel. const [instanceDiagnostics, setInstanceDiagnostics] = createSolidSignal",
     "text:readonly endpointTypes: ReadonlyMap",
     "text:readonly key: string readonly pathKey: string readonly registry: ReturnType",
     "text:rect.right || client.y",
@@ -657,6 +658,10 @@
   "OutputDescriptorEditor.tsx": [
     "text:() const [busy, setBusy] = createSignal(false) const [raw, setRaw] = createSignal(false) const [probeCurrent, setProbeCurrent] = createSignal"
   ],
+  "OutputMountSettings.tsx": [
+    "text:(); const [selected, setSelected] = createSignal(\"\"); const [saving, setSaving] = createSignal(false); const [error, setError] = createSignal(\"\"); const load = async (): Promise",
+    "text:mount.mode === \"readwrite\") ?? []; const save = async (): Promise"
+  ],
   "P2PPanel.tsx": [
     "text:() const [draft, setDraft] = createSignal",
     "text:() const [loading, setLoading] = createSignal(true) const [busy, setBusy] = createSignal(false) const [notice, setNotice] = createSignal('') const [error, setError] = createSignal('') const [invalid, setInvalid] = createSignal",
@@ -721,8 +726,11 @@
   ],
   "SettingsDialog.tsx": [
     "text:() const [capture, setCapture] = createSignal",
+    "text:() const [error, setError] = createSignal",
+    "text:, ): Promise",
     "text:capture()?.command === command.id ? capture()?.pending || message('settingsDialog.keybinding.pressKeys') : combo() ?? message('settingsDialog.keybinding.unbound') const ids = productFieldIds(controlId) return",
-    "text:props.settings.categoryOf(d))) const [searchCategory, setSearchCategory] = createSignal"
+    "text:props.settings.categoryOf(d))) const [searchCategory, setSearchCategory] = createSignal",
+    "text:updatePackSettings( packId: string, values: Readonly"
   ],
   "ShellChrome.tsx": [
     "text:('.dock-zone-actions') const actionGap = actions === null ? 0 : Number.parseFloat(getComputedStyle(actions).columnGap) || 0 const overflowWidth = overflowRoot !== undefined && root.contains(overflowRoot) ? overflowRoot.getBoundingClientRect().width + actionGap : 0 const widthWithoutOverflow = tablist.clientWidth + overflowWidth const allFloorsWidth = count * floor + Math.max(0, count - 1) * gap const visibleCount = allFloorsWidth",

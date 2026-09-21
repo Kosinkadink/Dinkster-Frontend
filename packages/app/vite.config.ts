@@ -19,6 +19,8 @@ import { semanticCssRoot } from '../core/src/ui/tokens.js'
 const NATIVE = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:3639'
 const V1 =
   process.env['DINKSTER_V1_BACKEND'] ?? process.env['DINKSTER_BACKEND'] ?? 'http://127.0.0.1:8199'
+const STUB_V1_ENTRY = process.env['DINKSTER_STUB_V1_ENTRY'] === '1'
+const V1_STUB_ID = '\0dinkster-v1-connection-kind-stub'
 
 // ComfyUI's origin-check middleware 403s requests whose Origin header does
 // not match its own host, so the proxy must rewrite Origin to the target.
@@ -27,6 +29,25 @@ const nativeHttp = { target: NATIVE, changeOrigin: true }
 
 export default defineConfig({
   plugins: [
+    {
+      name: 'dinkster-v1-connection-kind-stub',
+      enforce: 'pre',
+      resolveId(source, importer) {
+        if (STUB_V1_ENTRY && source === './v1-connection-kind.js' && importer?.endsWith('/app-state.ts')) return V1_STUB_ID
+        return null
+      },
+      load(id) {
+        if (id !== V1_STUB_ID) return null
+        return `
+          globalThis.__dinksterV1EntryStubbed = true
+          const unavailable = () => { throw new Error('stock ComfyUI V1 compatibility is unavailable') }
+          export class BackendConnection { constructor() { unavailable() } }
+          export const buildSchemaRegistry = unavailable
+          export const reconcileExecutions = unavailable
+          export const v1ViewUrl = unavailable
+        `
+      },
+    },
     {
       name: 'dinkster-semantic-tokens',
       transformIndexHtml: {

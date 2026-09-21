@@ -1,8 +1,6 @@
-import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-41/', import.meta.url))
 const MOCK = 'http://asset-guesses.test'
 const RAW_MODEL = 'v1-5-pruned-emaonly-fp16.safetensors'
 const RAW_IMAGE = 'missing.png'
@@ -34,11 +32,10 @@ const capture = async (page: Page, name: string): Promise<void> => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await page.mouse.move(0, 0)
     await page.waitForTimeout(350)
-    await page.screenshot({ path: `${evidenceDir}/${name}.png`, fullPage: true, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-41', `${name}.png`), fullPage: true, animations: 'disabled' })
   }
 }
 
-test.beforeAll(() => mkdirSync(evidenceDir, { recursive: true }))
 
 const workflow = (model = RAW_MODEL, image = RAW_IMAGE) => ({
   last_node_id: 2, last_link_id: 0,
@@ -64,10 +61,10 @@ const modelOnlyWorkflow = (model = RAW_MODEL) => ({
 
 async function setup(page: Page, guesses: Guesses): Promise<void> {
   await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 22 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 },
     nodes: {
-      TestModelLoader: { schemaVersion: 22, nodeType: 'TestModelLoader', displayName: 'Test Model Loader', interface: [{ role: 'input', id: 'model', type: { kind: 'asset', element: { kind: 'concrete', types: ['core.asset'] } }, widget: { type: 'ASSET', accept: ['*/*'] } }] },
-      TestImageLoader: { schemaVersion: 22, nodeType: 'TestImageLoader', displayName: 'Test Image Loader', interface: [{ role: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', types: ['core.asset'] } }, widget: { type: 'ASSET', accept: ['image/*'] } }] },
+      TestModelLoader: { schemaVersion: 1, nodeType: 'TestModelLoader', displayName: 'Test Model Loader', interface: [{ role: 'input', id: 'model', type: { kind: 'asset', element: { kind: 'concrete', types: ['core.asset'] } }, widget: { type: 'ASSET', accept: ['*/*'] } }] },
+      TestImageLoader: { schemaVersion: 1, nodeType: 'TestImageLoader', displayName: 'Test Image Loader', interface: [{ role: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', types: ['core.asset'] } }, widget: { type: 'ASSET', accept: ['image/*'] } }] },
     },
   } }))
   await page.route(`${MOCK}/api/assets/guess`, async (route) => {

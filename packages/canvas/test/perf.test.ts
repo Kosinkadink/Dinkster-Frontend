@@ -11,11 +11,10 @@ import { describe, expect, it } from 'vitest'
 import {
   documentResolver,
   loadDocument,
-  parseObjectInfo,
   syntheticWorkflow,
-  type ObjectInfoEntry,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { buildScene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'

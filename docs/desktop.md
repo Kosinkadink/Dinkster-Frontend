@@ -6,6 +6,11 @@ integration. Renderer permission requests are denied by default. A narrow
 preload reports local-engine setup state; backend and frontend requests stay
 on loopback.
 
+The Electron host, local engine lifecycle, packaging, and release automation
+are owned by [Dinkster-Desktop](https://github.com/Kosinkadink/Dinkster-Desktop).
+Paths and commands in the build and release sections are relative to that
+repository. Dinkster-Frontend owns the embedded browser application.
+
 ## Install and platform support
 
 Dinkster Desktop has not been released. There is no installer download,
@@ -27,12 +32,12 @@ the engine library and models are separate from the application binaries.
 
 The installed app opens the workspace after the local engine is ready:
 
-![Installed Desktop workspace](evidence/issue-1244/installed-workspace.png)
+![Installed Desktop workspace](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-1244/installed-workspace.png)
 
 An incompatible native profile stops startup without changing the existing
 environment:
 
-![Native profile mismatch diagnostic](evidence/issue-1244/native-profile-mismatch.png)
+![Native profile mismatch diagnostic](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-1244/native-profile-mismatch.png)
 
 On first launch, the app verifies its pinned Dinkster source payload, downloads a
 pinned and checksummed uv release, detects the host accelerator as CPU, CUDA,
@@ -156,12 +161,12 @@ writes through an older open descriptor or replaces the live path at any later
 point. A conflict is reported when detected. Close manual editors before editing
 in Desktop; retained files can be removed after their contents are reconciled.
 
-![Remote worker management](evidence/issue-368/desktop-remote-worker-management.png)
+![Remote worker management](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-368/desktop-remote-worker-management.png)
 
 The worker daemon and its credential files are installed separately. The
 packaged engine speaks remote-worker protocol 8; the protocol has no backwards
 compatibility negotiation. Install and run `dinkster_workers.service` from matching
-Dinkster commit recorded in [the backend release pin](../packages/desktop/src/backend-release.json).
+Dinkster commit recorded in [the backend release pin](https://github.com/Kosinkadink/Dinkster-Desktop/blob/main/packages/desktop/src/backend-release.json).
 In-flight work survives a
 connection loss when the same engine process reconnects to the same daemon
 process within the daemon's `--resume-grace` window, which defaults to 120
@@ -220,7 +225,7 @@ chooses a destination.
 
 The single backend pin is `packages/desktop/src/backend-release.json`, copied
 from a compatible backend release manifest. Mirror its `desktopWindowsRuntime.aimdo`
-and `desktopWindowsRuntime.cudaTorch` objects into the frontend pin's `aimdo` and
+and `desktopWindowsRuntime.cudaTorch` objects into the Desktop pin's `aimdo` and
 `cudaTorch` fields without editing their values. The pin records the immutable
 backend main commit, vendored identity commit,
 release tags, artifact SHA256 values and remote-worker protocol. Packaging consumes
@@ -230,7 +235,7 @@ in the installer.
 
 After verifying the original ZIP checksum, packaging reads
 `dinkster-backend-<commit>/scripts/desktop_windows_runtime.json` from that archive.
-Its `aimdo` and `cudaTorch` objects must exactly match the frontend pin structurally;
+Its `aimdo` and `cudaTorch` objects must exactly match the Desktop pin structurally;
 missing, malformed or differing profiles fail before existing outputs are changed.
 There is no fallback for older archives without this source-owned profile.
 
@@ -288,13 +293,13 @@ archive extraction succeeds.
 
 Maintainers release only from `main` using **Private Windows Desktop release**
 in Actions. Configure the `DINKSTER_RELEASE_READ_TOKEN` Actions secret in
-`Kosinkadink/Dinkster-Frontend` using a dedicated fine-grained token restricted to
+`Kosinkadink/Dinkster-Desktop` using a dedicated fine-grained token restricted to
 `Kosinkadink/Dinkster` and `Kosinkadink/dinkster-aimdo`, with repository **Contents:
 read-only** (and GitHub's required read-only metadata access). It needs no write,
-administration or organization-wide access. The frontend's automatic
+administration or organization-wide access. The Desktop repository's automatic
 `GITHUB_TOKEN` cannot read those other private repositories. The **Download
 pinned private backend and Aimdo** step alone consumes the read token; **Create
-private release** uses the workflow's own frontend-repository token instead.
+private release** uses the workflow's own Desktop-repository token instead.
 Without the cross-repository secret, the workflow fails immediately after checkout,
 before tool setup, tests or downloads. Do not substitute the broad
 workspace PAT, put tokens in source or artifacts, or require them at first launch.
@@ -318,7 +323,7 @@ dispatching. This workflow does not sign binaries or publish a public feed.
 
 **Verify published private Desktop 0.2.0** (`verify-published-desktop.yml`) is a
 separate, manual, main-only Windows CPU check. It downloads the existing
-`desktop-v0.2.0` installer using the frontend's read-only `github.token`, not
+`desktop-v0.2.0` installer using the Desktop repository's read-only `github.token`, not
 the cross-repository PAT. The backend and Aimdo download step alone uses
 `DINKSTER_RELEASE_READ_TOKEN`; the first step checks that secret before checkout
 or release API access and never falls back. Use the same two-repository,
@@ -328,7 +333,7 @@ an existing version.
 
 The committed `packages/desktop/scripts/published-desktop.json` pins the
 published installer bytes and original backend revision. A separate checkout
-is fixed to the published frontend source revision.
+is fixed to the published Desktop source revision.
 Its lockfile, backend/Aimdo pin, native-profile helper, installed harness and
 wire parser are used together; later main changes cannot silently replace them.
 All three SHA256/size checks and the existing
@@ -463,9 +468,9 @@ validation server, not a production service.
 compiled browser assets. Set it explicitly: the default is port 3639. Native
 `/api`, `/memory` and `/supervisor` requests stay same-origin; event and session
 WebSockets are proxied too. If the UI does not connect, compare
-`/api/nodes?wire=38` on the backend and browser ports. Both should return the
-same JSON, not the SPA's HTML. A 406 response lists supported wire versions;
-use a mutually supported version or install matching frontend/backend releases.
+`/api/nodes` on the backend and browser ports. Both should return the same JSON,
+not the SPA's HTML. Before public release both sides speak wire 1; install
+matching frontend/backend releases after compatibility versioning begins.
 
 ### Production static hosting and proxy
 

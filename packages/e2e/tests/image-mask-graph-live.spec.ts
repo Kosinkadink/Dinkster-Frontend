@@ -1,9 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
-const EVIDENCE_DIR = fileURLToPath(new URL('../../../docs/evidence/issue-400/', import.meta.url))
 
 interface UploadedAsset {
   readonly digest: string
@@ -186,13 +185,13 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
   const graphEditorScreenshot = await page.getByTestId('image-editor').screenshot({ animations: 'disabled' })
   await testInfo.attach('graph-mask-editor', { body: graphEditorScreenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
-    mkdirSync(EVIDENCE_DIR, { recursive: true })
-    writeFileSync(`${EVIDENCE_DIR}/graph-mask-editor.png`, graphEditorScreenshot)
+    mkdirSync(evidenceGroupDir('issue-400'), { recursive: true })
+    writeFileSync(evidencePath('issue-400', 'graph-mask-editor.png'), graphEditorScreenshot)
   }
   const graphMaskDetail = await page.locator('.image-canvas-stack').screenshot({ animations: 'disabled' })
   await testInfo.attach('graph-mask-detail', { body: graphMaskDetail, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
-    writeFileSync(`${EVIDENCE_DIR}/graph-mask-detail.png`, graphMaskDetail)
+    writeFileSync(evidencePath('issue-400', 'graph-mask-detail.png'), graphMaskDetail)
   }
   await page.getByRole('button', { name: 'Clear' }).click()
   await paintStroke(page)
@@ -276,8 +275,8 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
   const workspaceScreenshot = await workspace.screenshot({ animations: 'disabled' })
   await testInfo.attach('graph-mask-authoritative-document', { body: workspaceScreenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
-    mkdirSync(EVIDENCE_DIR, { recursive: true })
-    writeFileSync(`${EVIDENCE_DIR}/graph-mask-authoritative-document.png`, workspaceScreenshot)
+    mkdirSync(evidenceGroupDir('issue-400'), { recursive: true })
+    writeFileSync(evidencePath('issue-400', 'graph-mask-authoritative-document.png'), workspaceScreenshot)
   }
   await testInfo.attach('graph-mask-live-receipts', {
     body: JSON.stringify({ backend: NATIVE_BACKEND, submitted, receipt, paintNode: graphState.paint, baked }, null, 2),

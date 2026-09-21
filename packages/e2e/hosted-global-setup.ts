@@ -5,7 +5,8 @@ const requiredNativeBackend = (): string => {
 }
 
 export default async function waitForNativeComposition(): Promise<void> {
-  const url = `${requiredNativeBackend()}/api/composition`
+  const backend = requiredNativeBackend()
+  const url = `${backend}/api/composition`
   const deadline = Date.now() + 180_000
   let lastFailure = 'native backend did not answer'
 

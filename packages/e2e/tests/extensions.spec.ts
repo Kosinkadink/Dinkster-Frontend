@@ -9,8 +9,8 @@
  */
 import { mkdirSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
 import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 const editorProofDir = process.env['DINKSTER_EXTENSION_EDITOR_PROOF_DIR']
@@ -308,7 +308,7 @@ test('mounted Extensions management chrome localizes without changing extension 
   const changedBeforeLocale = await page.evaluate(() =>
     (window.__dinksterTest!.app.extensions as unknown as { changed: { get(): number } }).changed.get())
   const requestsBeforeLocale = backendRequests
-  await page.screenshot({ path: join('../../docs/evidence/issue-457', 'extensions-panel-i18n-en.png'), fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'extensions-panel-i18n-en.png'), fullPage: true })
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
@@ -366,7 +366,7 @@ test('mounted Extensions management chrome localizes without changing extension 
   expect(await page.evaluate(() =>
     (window.__dinksterTest!.app.extensions as unknown as { changed: { get(): number } }).changed.get())).toBe(changedBeforeLocale)
   expect(backendRequests).toBe(requestsBeforeLocale)
-  await page.screenshot({ path: join('../../docs/evidence/issue-457', 'extensions-panel-i18n-de-DE.png'), fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'extensions-panel-i18n-de-DE.png'), fullPage: true })
 
   await categoryToggle.click()
   await expect(categoryToggle).toHaveAttribute('aria-checked', 'false')
@@ -586,8 +586,8 @@ async function installSnapshot(page: Page, options: { source?: string; privilege
   await page.route(`${baseUrl}/api/**`, async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path === `${baseUrl}/api/nodes`) return route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, extensionSnapshotDigest: digest, dinkster: { version: 'proof', schemaWire: 23 },
-      nodes: { 'video-preview.initialize': { schemaVersion: 23, displayName: 'Video preview initialization', interface: [] } },
+      schemaVersion: 1, epoch: 1, extensionSnapshotDigest: digest, dinkster: { version: 'proof', schemaWire: 1 },
+      nodes: { 'video-preview.initialize': { schemaVersion: 1, displayName: 'Video preview initialization', interface: [] } },
     } })
     if (path === `${baseUrl}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${baseUrl}/api/extensions/${previewPack}/routes/preview-policy`) {

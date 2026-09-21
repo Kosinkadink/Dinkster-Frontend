@@ -1,9 +1,5 @@
-import { mkdir } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-
-const EVIDENCE = '../../docs/evidence/issue-92'
-
-test.beforeAll(async () => mkdir(EVIDENCE, { recursive: true }))
+import { evidencePath } from './evidence-output.js'
 
 test('a post-ready engine death surfaces restart and returns to ready', async ({ page }) => {
   let state: 'ready' | 'failed' | 'starting' = 'ready'
@@ -26,7 +22,7 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'desktop-recovery-test', schemaWire: 22 },
+    dinkster: { version: 'desktop-recovery-test', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('**/api/**', (route) => route.fulfill({ json: {} }))
@@ -38,7 +34,7 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
   const banner = page.getByTestId('engine-banner')
   await expect(banner).toHaveAttribute('data-state', 'failed', { timeout: 7000 })
   await expect(banner).toContainText('Engine failed - engine exited with code 3')
-  await page.screenshot({ path: `${EVIDENCE}/desktop-engine-recovery.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-92', 'desktop-engine-recovery.png'), fullPage: true })
   await page.getByTestId('engine-restart').click()
   await expect.poll(() => restarts).toBe(1)
   await expect(banner).toBeHidden({ timeout: 7000 })

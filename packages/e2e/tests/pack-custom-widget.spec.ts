@@ -25,13 +25,13 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('/api/composition', (route) => route.fulfill({ json: {} }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 44,
+    schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'pack-custom-widget-e2e', schemaWire: 44 },
+    dinkster: { version: 'pack-custom-widget-e2e', schemaWire: 1 },
     packs: { isopack: { displayName: 'Isolated Pack' } },
     nodes: {
       'iso.blob_out': {
-        schemaVersion: 44,
+        schemaVersion: 1,
         displayName: 'Blob Out',
         category: 'test',
         pack: 'isopack',

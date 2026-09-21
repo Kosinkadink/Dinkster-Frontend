@@ -14,7 +14,7 @@ missing a selected node type remain visible but disabled. Regions remain
 selectable because the backend validates their bodies recursively. Plain
 subgraph occurrences and drilled subgraph views do not offer the action.
 
-![Run on machine menu with connected and disconnected machines](evidence/issue-298/run-on-machine-menu.png)
+![Run on machine menu with connected and disconnected machines](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-298/run-on-machine-menu.png)
 
 Choosing a machine submits the complete workflow and adds placement only for
 the selected nodes or regions. Placement is transient job input: it does not

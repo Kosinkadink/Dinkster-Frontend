@@ -49,7 +49,7 @@ test('legacy named family literal editing advances the ghost through compaction'
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'family-literal-proof', schemaWire: 21 },
+    dinkster: { version: 'family-literal-proof', schemaWire: 1 },
     packs: {},
     nodes: {},
   } }))

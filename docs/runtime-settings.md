@@ -21,6 +21,12 @@ belong to that server; each backend has an independent section. The section
 fetches when opened and can be updated with **Refresh**. It does not poll, and
 a refresh leaves previously loaded values visible if the new request fails.
 
+Native backend cards also provide **Saved image location**. Choose any
+read-write library mount to change where Save Image writes when its target is
+not set. Applying the selection persists it in the backend's `mounts.toml`.
+Execution output details show the mounted path immediately after a save. The
+Desktop app can reveal that path in the operating system's file browser.
+
 Every category displays its effective JSON value, source, and server-reported
 mutability. `on-worker-restart` means an edit applies to workers started after
 the change, not workers that are already running. Categories unknown to this
@@ -71,5 +77,11 @@ the server could not persist it, an in-memory-only note remains visible.
 Universal search includes the **Open Backends** command as a low-cost route to
 the panel. Backend runtime categories are intentionally not indexed as local
 application settings because they are discovered per server.
+
+Packs may declare application settings in their manifests. Packs with declared
+settings appear by display name in the application **Settings** dialog. The
+backend supplies each field's label, description, type, constraints, and
+effective value; edits are validated and stored by that backend. These pack
+settings are separate from the per-backend runtime controls described above.
 
 The wire contract is jointly owned with `Dinkster/docs/settings-api.md`.

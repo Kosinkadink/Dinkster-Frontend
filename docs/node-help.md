@@ -1,8 +1,8 @@
 # Node help
 
-Schema wire 42 adds the present-only `hasDocs: true` marker to documented
-nodes. The marker lets the canvas expose Help synchronously without putting
-documentation descriptors in the node catalog. Older wires omit the marker.
+The schema uses the present-only `hasDocs: true` marker for documented nodes.
+The marker lets the canvas expose Help synchronously without putting
+documentation descriptors in the node catalog.
 
 Help is available from a documented node's context menu, palette preview, and
 the F1 command when exactly one documented node is selected. The full page

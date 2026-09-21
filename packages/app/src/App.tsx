@@ -24,7 +24,7 @@ import { ActivityLog } from './ActivityLog.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
-import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource } from './collections.js'
+import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard } from './ExecutionActivityCard.js'
 import { ExecutionLogPanel } from './ExecutionLogPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
@@ -33,7 +33,7 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
-import { builtinEditorBindings } from './builtin-bindings.js'
+import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { ImageEditor } from './ImageEditor.js'
 import { ImageDocumentWorkspace } from './ImageDocumentWorkspace.js'
@@ -44,6 +44,7 @@ import { ProductActionFooter } from './ProductForm.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { SurfacePanel } from './SurfacePanel.js'
+import { TemplateGallery } from './TemplateGallery.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
@@ -108,7 +109,8 @@ import {
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { ExecutedImageFacts, ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
-import { executedImageInventory, executedImageLabel } from './executed-image-inventory.js'
+import { canRevealOutput, revealExecutedImage } from './output-file.js'
+import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
 import {
   beginTabDragModel,
   moveTabDragModel,
@@ -450,6 +452,7 @@ export function App(props: {
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
   const settingsTick = useSignal(app.settings.changed)
+  const defaultRegistry = useSignal(app.registry)
   const searchShortcut = (): string | undefined => {
     settingsTick()
     return app.keybindings.combo('search.open')
@@ -592,10 +595,13 @@ export function App(props: {
     }
     if (sourceId === 'templates' && actionId === 'open') {
       if (entry.owner === undefined) return
-      const split = entry.id.indexOf('/')
-      const pack = entry.id.slice(0, split)
-      const id = entry.id.slice(split + 1)
-      void app.openTemplate(pack, id, entry.title, entry.owner).then((ok) => {
+      const ref = entry.ref as TemplateCollectionRef | undefined
+      const opening = ref?.kind === 'remote'
+        ? app.openRemoteTemplate(ref.template, entry.title)
+        : ref?.kind === 'local'
+          ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
+          : Promise.resolve(false)
+      void opening.then((ok) => {
         if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
       })
       return
@@ -1485,7 +1491,9 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 60,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
-        compatSkips={() => activeBackend().compatSkips.get()} onShowInContext={showProblemInContext} />,
+        compatSkips={() => activeBackend().compatSkips.get()}
+        packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
+        onShowInContext={showProblemInContext} />,
     }),
     // Settings is the modal host's proving resident: the body is
     // placement-agnostic (SettingsDialog owns content, the host owns
@@ -1501,6 +1509,12 @@ export function App(props: {
         keybindings={app.keybindings}
         request={app.settingsOpenRequest.get()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+        packSettings={'fetchPackSettings' in app.connection ? {
+          client: app.connection,
+          packs: () => [...(defaultRegistry()?.packs ?? [])]
+            .filter(([, info]) => info.settings === true)
+            .map(([id, info]) => ({ id, displayName: info.displayName })),
+        } : undefined}
       />,
     }),
     registerBuiltinPanel({
@@ -1545,30 +1559,67 @@ export function App(props: {
   })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
+  const GraphEditor = (editorProps: { readonly host?: EditorHostContext }) => {
+    const tabs = useSignal(app.tabs)
+    const globalActiveTabId = useSignal(app.activeTabId)
+    const galleryRequested = useSignal(app.templateGalleryOpen)
+    const [documentRevision, setDocumentRevision] = createSolidSignal(0)
+    const [dismissed, setDismissed] = createSolidSignal<ReadonlySet<string>>(new Set())
+    const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
+    const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
+    createEffect(() => {
+      const tab = activeEditorTab()
+      if (tab === undefined) return
+      setDocumentRevision((value) => value + 1)
+      const unsubscribe = tab.store.document.subscribe(() => setDocumentRevision((value) => value + 1))
+      onCleanup(unsubscribe)
+    })
+    const empty = (): boolean => {
+      documentRevision()
+      const tab = activeEditorTab()
+      if (tab === undefined) return false
+      const root = tab.store.doc.graphs[tab.store.doc.root]
+      return root !== undefined && Object.keys(root.nodes).length === 0
+    }
+    const visible = (): boolean => galleryRequested() || (empty() && !dismissed().has(activeTabId()))
+    const close = (): void => {
+      app.templateGalleryOpen.set(false)
+      setDismissed((current) => new Set([...current, activeTabId()]))
+    }
+    return <div class="graph-editor-with-gallery">
+      <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
+        {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
+        {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />
+      <TemplateGallery app={app} visible={visible} onClose={close} />
+    </div>
+  }
   const unregisterEditors = app.frontendDoors.editor(GRAPH_EDITOR_KIND, {
+    roles: builtinEditorRoles(GRAPH_EDITOR_KIND),
     get title() { return message('shell.editor.graph') },
-    component: (host) => <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
-      {...(host !== undefined ? { host } : {})}
-      {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />,
+    component: (host) => <GraphEditor {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterEditors)
   // The form-style app view uses the same public descriptor API.
   const unregisterAppEditor = app.frontendDoors.editor(APP_EDITOR_KIND, {
+    roles: builtinEditorRoles(APP_EDITOR_KIND),
     get title() { return message('shell.editor.appView') },
     component: (host) => <AppView app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterAppEditor)
   const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
+    roles: builtinEditorRoles(IMAGE_EDITOR_KIND),
     get title() { return message('shell.editor.image') },
     component: (host) => <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterImageEditor)
   const unregisterCurveEditor = app.frontendDoors.editor(CURVE_EDITOR_KIND, {
+    roles: builtinEditorRoles(CURVE_EDITOR_KIND),
     get title() { return message('shell.editor.curve') },
     component: (host) => <CurveEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterCurveEditor)
   const unregisterGlslEditor = app.frontendDoors.editor(GLSL_EDITOR_KIND, {
+    roles: builtinEditorRoles(GLSL_EDITOR_KIND),
     get title() { return message('shell.editor.glsl') },
     component: (host) => <GlslEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
@@ -2860,6 +2911,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     const backend = props.app.backendFor(props.execution.ref.connection)
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
+  const reveal = (image: ExecutedImage): void => {
+    const backend = props.app.backendFor(props.execution.ref.connection)
+    if (backend?.protocol === 'dinkster') void revealExecutedImage(backend.connection, image)
+  }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()
     const layers = new Set<string>()
@@ -2996,7 +3051,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         </For>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} {...(canRevealOutput() ? { onReveal: reveal } : {})} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>
     </>
   )

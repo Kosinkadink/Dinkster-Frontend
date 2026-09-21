@@ -1,9 +1,8 @@
 import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-679/', import.meta.url))
 const digest = `blake3:${'ab'.repeat(32)}`
 const sourcePng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGP4z8DAAMIM/4EAAB/uBfsL2WiLAAAAAElFTkSuQmCC',
@@ -18,7 +17,7 @@ const asset = {
 }
 
 const loadImageWire31 = {
-  schemaVersion: 31,
+  schemaVersion: 1,
   nodeType: 'dinkster.load_image',
   displayName: 'Load Image',
   category: 'image',
@@ -66,7 +65,7 @@ test('an uploaded selected asset estimates its represented output before executi
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'represented-output-proof', schemaWire: 31 },
+    dinkster: { version: 'represented-output-proof', schemaWire: 1 },
     nodes: { 'dinkster.load_image': loadImageWire31 },
   } }))
   await page.route('**/api/assets/**', async (route) => {
@@ -141,8 +140,8 @@ test('an uploaded selected asset estimates its represented output before executi
 
   await page.screenshot({ path: testInfo.outputPath('represented-output-estimate.png'), animations: 'disabled' })
   if (process.env['DINKSTER_CAPTURE_ISSUE_679'] === '1') {
-    mkdirSync(evidenceDir, { recursive: true })
-    await page.screenshot({ path: `${evidenceDir}/represented-output-estimate.png`, animations: 'disabled' })
+    mkdirSync(evidenceGroupDir('issue-679'), { recursive: true })
+    await page.screenshot({ path: evidencePath('issue-679', 'represented-output-estimate.png'), animations: 'disabled' })
   }
 
   await page.evaluate(() => {

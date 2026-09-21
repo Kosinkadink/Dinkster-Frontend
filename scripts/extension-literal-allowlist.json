@@ -1,173 +1,13 @@
 {
   "ceilings": {
-    "nodeIdLiteral": 20,
-    "widgetTypeComparison": 100
+    "nodeIdLiteral": 0,
+    "widgetTypeComparison": 93
   },
   "sites": [
     {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 11,
-      "column": 14,
-      "symbol": "dinkster.mask.paint",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 15,
-      "column": 22,
-      "symbol": "dinkster.route.switch_by_name",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 16,
-      "column": 10,
-      "symbol": "dinkster.curve.editor",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 17,
-      "column": 18,
-      "symbol": "dinkster.audio.envelope",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 18,
-      "column": 9,
-      "symbol": "dinkster.image.glsl_shader",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 19,
-      "column": 15,
-      "symbol": "dinkster.layers.load",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 20,
-      "column": 18,
-      "symbol": "dinkster.layers.flatten",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 21,
-      "column": 15,
-      "symbol": "dinkster.layers.edit",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 22,
-      "column": 14,
-      "symbol": "dinkster.video.trim",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/builtin-bindings.ts",
-      "line": 23,
-      "column": 14,
-      "symbol": "dinkster.video.crop",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1050,
-      "column": 48,
-      "symbol": "dinkster.mask.paint",
-      "issue": 94
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1076,
-      "column": 23,
-      "symbol": "dinkster.mask.paint",
-      "issue": 94
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1085,
-      "column": 17,
-      "symbol": "dinkster.mask.paint",
-      "issue": 94
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1094,
-      "column": 38,
-      "symbol": "dinkster.mask.paint",
-      "issue": 94
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1125,
-      "column": 41,
-      "symbol": "dinkster.layers.load",
-      "issue": 94
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1126,
-      "column": 44,
-      "symbol": "dinkster.layers.flatten",
-      "issue": 94
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1190,
-      "column": 41,
-      "symbol": "dinkster.layers.edit",
-      "issue": 94
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1191,
-      "column": 44,
-      "symbol": "dinkster.layers.flatten",
-      "issue": 94
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1188,
-      "column": 35,
-      "symbol": "dinkster.video.trim",
-      "issue": 104
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1189,
-      "column": 22,
-      "symbol": "dinkster.video.crop",
-      "issue": 104
-    },
-    {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 925,
+      "line": 930,
       "column": 11,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -175,7 +15,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 958,
+      "line": 963,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -183,7 +23,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1057,
+      "line": 1062,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -191,7 +31,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1069,
+      "line": 1074,
       "column": 10,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -199,7 +39,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 4737,
+      "line": 4785,
       "column": 38,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -207,7 +47,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 4937,
+      "line": 4979,
       "column": 9,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -215,7 +55,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5041,
+      "line": 5083,
       "column": 34,
       "symbol": "widgetType:COMPOSITOR",
       "issue": 122
@@ -223,7 +63,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5099,
+      "line": 5141,
       "column": 36,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -231,7 +71,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5217,
+      "line": 5259,
       "column": 34,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -239,7 +79,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6118,
+      "line": 6162,
       "column": 38,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -319,7 +159,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4220,
+      "line": 4234,
       "column": 15,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -327,7 +167,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4695,
+      "line": 4709,
       "column": 27,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -335,23 +175,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4762,
-      "column": 11,
-      "symbol": "widgetType:CURVE",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4766,
-      "column": 11,
-      "symbol": "widgetType:COMPOSITOR",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4784,
+      "line": 4805,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -359,7 +183,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4865,
+      "line": 4886,
       "column": 36,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -367,7 +191,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4882,
+      "line": 4903,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -375,7 +199,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 6641,
+      "line": 6684,
       "column": 19,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -519,7 +343,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/pack-locales.ts",
-      "line": 174,
+      "line": 181,
       "column": 32,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -527,7 +351,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/pack-locales.ts",
-      "line": 174,
+      "line": 181,
       "column": 65,
       "symbol": "widgetType:MULTI_COMBO",
       "issue": 122
@@ -679,7 +503,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 2849,
+      "line": 2899,
       "column": 27,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -687,7 +511,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 2849,
+      "line": 2899,
       "column": 60,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -695,7 +519,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3907,
+      "line": 3957,
       "column": 21,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -703,7 +527,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3907,
+      "line": 3957,
       "column": 54,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -711,7 +535,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3981,
+      "line": 4031,
       "column": 19,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -719,7 +543,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3981,
+      "line": 4031,
       "column": 52,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -727,47 +551,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1060,
-      "column": 11,
-      "symbol": "widgetType:STRING",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1131,
-      "column": 38,
-      "symbol": "widgetType:ASSET",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1211,
-      "column": 9,
-      "symbol": "widgetType:COMBO",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1214,
-      "column": 9,
-      "symbol": "widgetType:INT",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 1332,
-      "column": 38,
-      "symbol": "widgetType:COMPOSITOR",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/commands/core-commands.ts",
-      "line": 3196,
+      "line": 2716,
       "column": 37,
       "symbol": "widgetType:string",
       "issue": 122
@@ -775,7 +559,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 3208,
+      "line": 2728,
       "column": 9,
       "symbol": "widgetType:string",
       "issue": 122
@@ -783,7 +567,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/compile/compile.ts",
-      "line": 1846,
+      "line": 1851,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -847,7 +631,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1253,
+      "line": 1205,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -863,7 +647,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1023,
+      "line": 1032,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -871,7 +655,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1027,
+      "line": 1036,
       "column": 34,
       "symbol": "widgetType:ASSET",
       "issue": 122

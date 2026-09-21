@@ -25,7 +25,7 @@ Controllers in active DynamicCombo branches, DynamicSlot dependents, and autogro
 
 Completion verifies each controller against the current compiled occurrence view. If a schema refresh removes a controller while a run is in flight, that retired item stays unchanged while other valid controllers can still advance.
 
-Inspected before-and-after screenshots of two promoted occurrences are under `docs/evidence/issue-308/`.
+Inspected before-and-after screenshots of two promoted occurrences are under `dinkster-evidence/frontend/issue-308/`.
 
 ## Remote combo refresh
 

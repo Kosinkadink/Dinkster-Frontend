@@ -26,7 +26,7 @@ replayed only when its document digest matches the current layer document. If
 sources change, execution uses native graph placements instead, marks the result
 stale, and leaves the saved delta untouched.
 
-Schema wire 41 retains the exact fieldless `COMPOSITOR` widget descriptor only
+The current schema retains the exact fieldless `COMPOSITOR` widget descriptor only
 on concrete `dinkster.compositor`. Its exact empty default is
 `{"version":2,"documentDigest":null,"commands":[]}`. A configured delta binds
 typed canvas, layer, transform, mask-transform, and reorder commands to the
@@ -34,5 +34,5 @@ runtime document digest. Pixel content remains in digest-owned ImageDocument
 resources and never enters the workflow value. The compositor and persistent
 image workspace therefore share the same asset-backed layer document model.
 
-The [live compositor editor](evidence/issue-400/graph-native-compositor.png)
+The [live compositor editor](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-native-compositor.png)
 shows the two-layer native execution state and edited placement.

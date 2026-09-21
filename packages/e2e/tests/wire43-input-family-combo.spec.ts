@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { evidencePath } from './evidence-output.js'
 
 const REQUIRED = process.env['DINKSTER_REQUIRE_BACKEND'] === '1'
 
@@ -18,7 +19,7 @@ async function clickChoiceRow(page: Page): Promise<void> {
 }
 
 test('wire 43 Route Switch by Name edits labels but stores stable member ids', async ({ page }) => {
-  const catalog = await page.request.get('/api/nodes?wire=43', { timeout: 5_000 }).catch(() => undefined)
+  const catalog = await page.request.get('/api/nodes', { timeout: 5_000 }).catch(() => undefined)
   if ((!catalog?.ok() || catalog === undefined) && !REQUIRED) {
     test.skip(true, 'no wire-43 Dinkster backend reachable through the dev proxy')
   }
@@ -58,7 +59,7 @@ test('wire 43 Route Switch by Name edits labels but stores stable member ids', a
   await clickChoiceRow(page)
   await expect(page.getByTestId('input-family-labels')).toContainText('Stable ID: m7')
   await expect(page.getByRole('option', { name: 'Background', exact: true })).toBeVisible()
-  await page.screenshot({ path: '../../docs/evidence/issue-456/wire43-branch-labels.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-456', 'wire43-branch-labels.png'), fullPage: true })
 
   await page.getByTestId('input-family-label-m2').fill('Background')
   await expect(page.getByTestId('input-family-label-error')).toHaveText('Duplicate branch labels are not allowed')

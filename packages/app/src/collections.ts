@@ -16,6 +16,7 @@ import {
 import { HISTORY_STATES, type ExecutionState, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
 import { runAttributionLabel, type RunAttribution } from './run-attribution.js'
+import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 
 const COLLECTION_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
   year: 'numeric',
@@ -190,6 +191,38 @@ export function templateAssetLines(descriptor: TemplateDescriptor, backend: Back
   })
 }
 
+export type TemplateCollectionRef =
+  | { readonly kind: 'local'; readonly pack: string; readonly id: string }
+  | { readonly kind: 'remote'; readonly template: RemoteTemplateDescriptor }
+
+const allLocalTemplates = async (
+  backend: Extract<Backend, { protocol: 'dinkster' }>,
+): Promise<readonly TemplateDescriptor[]> => {
+  const templates: TemplateDescriptor[] = []
+  let cursor: string | undefined
+  do {
+    const page = await backend.connection.listTemplates({ limit: 200, ...(cursor === undefined ? {} : { cursor }) })
+    templates.push(...page.templates)
+    cursor = page.cursor
+  } while (cursor !== undefined)
+  return templates
+}
+
+const templateModels = (template: TemplateDescriptor, backend: Backend): readonly string[] => [
+  ...(template.models ?? []),
+  ...templateAssetLines(template, backend).map((line) => line.split(' - ', 1)[0]!),
+]
+
+const normalizeTemplateSearch = (value: string): string => value
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '')
+
+const templateSearchTerms = (value: string): readonly string[] => {
+  const normalized = normalizeTemplateSearch(value)
+  const alias = normalizeTemplateSearch(value.replace(/\bstable[^a-z0-9]+diffusion\b/gi, 'sd'))
+  return alias === normalized ? [normalized] : [normalized, alias]
+}
+
 export function templatesSource(app: AppState): CollectionSource {
   return {
     id: 'templates',
@@ -204,34 +237,70 @@ export function templatesSource(app: AppState): CollectionSource {
     page: async (req) => {
       const backend = app.libraryBackend()
       if (!backend) return { items: [], total: 0 }
-      const cursor = decodeOwnedCursor(backend.id, req.cursor)
+      const rawOffset = decodeOwnedCursor(backend.id, req.cursor)
+      const offset = rawOffset === undefined ? 0 : Number(rawOffset)
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('invalid template continuation')
       const pack = req.filters?.['pack']
-      const page = await backend.connection.listTemplates({
-        q: req.query,
-        ...(pack !== undefined && pack !== '' ? { pack } : {}),
-        limit: req.limit,
-        ...(cursor !== undefined ? { cursor } : {}),
-      })
-      const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
+      const catalog = new RemoteTemplateCatalog(app.settings.get<string>('templates.registryUrl'))
+      const [local, remote] = await Promise.all([allLocalTemplates(backend), catalog.list()])
+      const query = templateSearchTerms(req.query.trim())
+      const templates = [
+        ...local.map((template) => ({ template, ref: { kind: 'local', pack: template.pack, id: template.id } as TemplateCollectionRef })),
+        ...remote.map((template) => ({ template, ref: { kind: 'remote', template } as TemplateCollectionRef })),
+      ].filter(({ template }) =>
+        (pack === undefined || pack === '' || template.pack === pack) &&
+        (query[0] === '' || [template.id, template.name, template.description ?? '', template.family ?? '', ...(template.tags ?? [])]
+          .some((value) => templateSearchTerms(value)
+            .some((candidate) => query.some((term) => candidate.includes(term))))))
+      const modelNames = [...new Set(templates.flatMap(({ template }) => templateModels(template, backend)))]
+      const matches = modelNames.length > 0 ? await backend.connection.guessAssets(modelNames) : []
+      const held = new Map(matches.map((match) => [match.query, match.candidates.some((candidate) => candidate.held)]))
+      const nextOffset = offset + req.limit
+      const nextCursor = encodeOwnedCursor(
+        backend.id,
+        nextOffset < templates.length ? String(nextOffset) : undefined,
+      )
       return {
         owner: backend.id,
-        items: page.templates.map((template) => ({
-          id: `${template.pack}/${template.id}`,
-          owner: backend.id,
-          title: template.name,
-          ...(template.description !== undefined ? { subtitle: template.description } : {}),
-          badges: [template.pack, ...(template.tags ?? [])],
-          details: [
-            { label: 'template id', text: template.id },
-            { label: 'pack', text: template.pack },
-            { label: 'backend', text: backend.label },
-            { label: 'digest', text: template.digest },
-            ...(template.tags?.length ? [{ label: 'tags', text: template.tags.join(', ') }] : []),
-            ...templateAssetLines(template, backend).map((text) => ({ label: 'requires', text })),
-          ],
-          actions: [{ id: 'open', label: 'Open template' }],
-        })),
+        total: templates.length,
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
+        items: templates.slice(offset, nextOffset).map(({ template, ref }) => {
+          const models = templateModels(template, backend)
+          const missing = models.filter((model) => !held.get(model))
+          const remoteTemplate = ref.kind === 'remote' ? ref.template : undefined
+          const thumbUrl = remoteTemplate === undefined
+            ? template.thumbnail === undefined
+              ? undefined
+              : `${backend.baseUrl}/api/packs/${encodeURIComponent(template.pack)}/templates/${encodeURIComponent(template.id)}/thumbnail`
+            : catalog.thumbnailUrl(remoteTemplate)
+          return {
+            id: ref.kind === 'remote'
+              ? `remote/${template.pack}/${remoteTemplate!.version}/${template.id}`
+              : `${template.pack}/${template.id}`,
+            owner: backend.id,
+            title: template.name,
+            ...(template.description !== undefined ? { subtitle: template.description } : {}),
+            badges: [
+              template.family ?? template.pack,
+              ref.kind === 'remote' ? 'remote' : 'built-in',
+              ...(missing.length > 0 ? [`${missing.length} model${missing.length === 1 ? '' : 's'} missing`] : []),
+            ],
+            ...(thumbUrl === undefined ? {} : { thumbUrl }),
+            details: [
+              { label: 'template id', text: template.id },
+              { label: 'pack', text: template.pack },
+              ...(template.family !== undefined ? [{ label: 'family', text: template.family }] : []),
+              ...(remoteTemplate !== undefined ? [{ label: 'version', text: remoteTemplate.version }] : []),
+              { label: 'backend', text: backend.label },
+              { label: 'digest', text: template.digest },
+              ...(template.tags?.length ? [{ label: 'tags', text: template.tags.join(', ') }] : []),
+              ...templateAssetLines(template, backend).map((text) => ({ label: 'requires', text })),
+              ...models.map((model) => ({ label: held.get(model) ? 'model ready' : 'model missing', text: model })),
+            ],
+            actions: [{ id: 'open', label: 'Open template' }],
+            ref,
+          }
+        }),
       }
     },
   }

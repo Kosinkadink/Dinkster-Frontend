@@ -1,15 +1,15 @@
 import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from './fixtures.js'
+import { evidenceGroupDir } from './evidence-output.js'
 
-const proofDir = process.env['DINKSTER_IMAGE_DOCUMENT_PROOF_DIR'] ??
-  fileURLToPath(new URL('../../../docs/evidence/issue-310/', import.meta.url))
-const localeProofDir = fileURLToPath(new URL('../../../docs/evidence/issue-457/', import.meta.url))
+const proofDir = (): string =>
+  process.env['DINKSTER_IMAGE_DOCUMENT_PROOF_DIR'] ?? evidenceGroupDir('issue-310')
+const localeProofDir = (): string => evidenceGroupDir('issue-457')
 
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'image-document-e2e', schemaWire: 23 },
+  dinkster: { version: 'image-document-e2e', schemaWire: 1 },
   packs: {},
   nodes: {},
 }
@@ -60,7 +60,7 @@ async function rasterFile(
 }
 
 test('edits and recovers a durable layered image document', async ({ page }) => {
-  mkdirSync(proofDir, { recursive: true })
+  mkdirSync(proofDir(), { recursive: true })
   await page.goto('/')
   const graphCanvas = page.getByTestId('graph-canvas')
   const graphLens = await graphCanvas.getAttribute('data-lens')
@@ -105,7 +105,7 @@ test('edits and recovers a durable layered image document', async ({ page }) => 
   await expect(workspace).not.toContainText('Preview failed')
   await workspace.getByRole('button', { name: 'Save draft' }).click()
   await expect(page.getByTestId('status-bar')).toContainText('Saved image draft')
-  await workspace.screenshot({ path: `${proofDir}/image-document-workspace.png`, animations: 'disabled' })
+  await workspace.screenshot({ path: `${proofDir()}/image-document-workspace.png`, animations: 'disabled' })
   await workspace.getByRole('button', { name: 'Back to workflows' }).click()
   await expect(workspace).toBeHidden()
   await expect(page.getByTestId('editor-split-region')).toBeVisible()
@@ -121,8 +121,8 @@ test('edits and recovers a durable layered image document', async ({ page }) => 
 })
 
 test('renders the current ImageDocument and changes mounted editor chrome locale', async ({ page, request }) => {
-  mkdirSync(proofDir, { recursive: true })
-  mkdirSync(localeProofDir, { recursive: true })
+  mkdirSync(proofDir(), { recursive: true })
+  mkdirSync(localeProofDir(), { recursive: true })
   await page.setViewportSize({ width: 1600, height: 1400 })
   let outputDigest = ''
   let assetRequests = 0
@@ -266,7 +266,7 @@ test('renders the current ImageDocument and changes mounted editor chrome locale
   )
   await expect(result.getByRole('img', { name: 'Authoritative ImageDocument output' }))
     .toHaveJSProperty('naturalWidth', 900)
-  await page.screenshot({ path: `${localeProofDir}/image-document-editor-i18n-en.png`, fullPage: true })
+  await page.screenshot({ path: `${localeProofDir()}/image-document-editor-i18n-en.png`, fullPage: true })
   const requestsBeforeLocale = assetRequests
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
@@ -333,9 +333,9 @@ test('renders the current ImageDocument and changes mounted editor chrome locale
   await expect(result).toContainText(outputDigest)
   await expect(result).toContainText('dinkster-image-document-v2-cpu-reference')
   expect(assetRequests).toBe(requestsBeforeLocale)
-  await page.screenshot({ path: `${localeProofDir}/image-document-editor-i18n-de-DE.png`, fullPage: true })
+  await page.screenshot({ path: `${localeProofDir()}/image-document-editor-i18n-de-DE.png`, fullPage: true })
   await workspace.screenshot({
-    path: `${proofDir}/image-document-authoritative-render.png`,
+    path: `${proofDir()}/image-document-authoritative-render.png`,
     animations: 'disabled',
   })
 
@@ -344,8 +344,8 @@ test('renders the current ImageDocument and changes mounted editor chrome locale
 })
 
 test('shares an image document and confirms ending it for everyone', async ({ page, request }) => {
-  mkdirSync(proofDir, { recursive: true })
-  mkdirSync(localeProofDir, { recursive: true })
+  mkdirSync(proofDir(), { recursive: true })
+  mkdirSync(localeProofDir(), { recursive: true })
   await page.setViewportSize({ width: 1600, height: 950 })
   let sessionRequests = 0
   let snapshot: unknown
@@ -410,10 +410,10 @@ test('shares an image document and confirms ending it for everyone', async ({ pa
   await workspace.getByRole('button', { name: 'End', exact: true }).click()
   await expect(workspace.getByRole('dialog', { name: 'End shared image session?' })).toBeVisible()
   await workspace.screenshot({
-    path: `${proofDir}/image-document-collaboration-confirm.png`,
+    path: `${proofDir()}/image-document-collaboration-confirm.png`,
     animations: 'disabled',
   })
-  await page.screenshot({ path: `${localeProofDir}/image-document-workspace-shell-en.png`, fullPage: true })
+  await page.screenshot({ path: `${localeProofDir()}/image-document-workspace-shell-en.png`, fullPage: true })
   const requestsBeforeLocale = sessionRequests
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
@@ -446,5 +446,5 @@ test('shares an image document and confirms ending it for everyone', async ({ pa
   await expect(workspace.getByTestId('image-collab-end-cancel')).toHaveText('[Abbrechen]')
   await expect(workspace).toContainText('shared-canvas')
   expect(sessionRequests).toBe(requestsBeforeLocale)
-  await page.screenshot({ path: `${localeProofDir}/image-document-workspace-shell-de-DE.png`, fullPage: true })
+  await page.screenshot({ path: `${localeProofDir()}/image-document-workspace-shell-de-DE.png`, fullPage: true })
 })

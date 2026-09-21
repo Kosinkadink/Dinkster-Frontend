@@ -1,9 +1,7 @@
 import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from './fixtures.js'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-41/', import.meta.url))
-const localeEvidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-457/', import.meta.url))
 const digest = (character: string) => `blake3:${character.repeat(64)}`
 const plans = {
   fetchable: [
@@ -15,7 +13,7 @@ const plans = {
 
 async function prepare(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'asset-consent-e2e', schemaWire: 22 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'asset-consent-e2e', schemaWire: 1 }, nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('**/api/assets', (route) => route.fulfill({ status: 404, body: 'source document storage unavailable in isolated proof' }))
@@ -51,11 +49,10 @@ const capture = async (page: Page, name: string): Promise<void> => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await page.mouse.move(0, 0)
     await page.waitForTimeout(350)
-    await page.screenshot({ path: `${evidenceDir}/${name}.png`, fullPage: true, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-41', `${name}.png`), fullPage: true, animations: 'disabled' })
   }
 }
 
-test.beforeAll(() => mkdirSync(evidenceDir, { recursive: true }))
 
 test('selects exact digests, updates the mounted locale, and closes after successful consent retry', async ({ page }) => {
   await prepare(page)
@@ -78,8 +75,8 @@ test('selects exact digests, updates the mounted locale, and closes after succes
   await first.evaluate((element) => { element.dataset['localeIdentity'] = 'retained' })
   await first.focus()
   if (process.env['DINKSTER_CAPTURE_ISSUE_457'] === '1') {
-    mkdirSync(localeEvidenceDir, { recursive: true })
-    await page.screenshot({ path: `${localeEvidenceDir}/asset-consent-i18n-en.png`, animations: 'disabled' })
+    mkdirSync(evidenceGroupDir('issue-457'), { recursive: true })
+    await page.screenshot({ path: evidencePath('issue-457', 'asset-consent-i18n-en.png'), animations: 'disabled' })
   }
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as { settings: { set(id: string, value: unknown): void } }
@@ -102,7 +99,7 @@ test('selects exact digests, updates the mounted locale, and closes after succes
   await expect(page.getByTestId('asset-consent-selection-status')).toHaveText('\u5728 2 \u4e2a\u53ef\u7528\u8d44\u4ea7\u4e2d\u5df2\u9009\u62e9 1 \u4e2a\u3002')
   expect(bodies).toHaveLength(1)
   if (process.env['DINKSTER_CAPTURE_ISSUE_457'] === '1') {
-    await page.screenshot({ path: `${localeEvidenceDir}/asset-consent-i18n-zh.png`, animations: 'disabled' })
+    await page.screenshot({ path: evidencePath('issue-457', 'asset-consent-i18n-zh.png'), animations: 'disabled' })
   }
   await capture(page, 'after-consent-wide-mixed')
   await page.getByTestId('asset-consent-acquire').click()

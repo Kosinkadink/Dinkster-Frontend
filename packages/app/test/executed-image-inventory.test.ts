@@ -61,6 +61,16 @@ describe('executedImageInventory', () => {
     expect(result[0]).toMatchObject({ runtimeId: 'b', outputId: 'image', name: 'b.png' })
   })
 
+  it('retains the mounted path returned by a saved asset', () => {
+    const base = asset(digest('c'), 'ComfyUI_00001.png')
+    const saved = { ...base, meta: { ...base.meta, virtualPath: 'mounts/output/ComfyUI_00001.png' } }
+    const result = executedImageInventory(execution({ save: { assets: saved } }), {
+      viewUrlForExecution: () => 'view',
+      assetUrlForExecution: () => 'asset',
+    })
+    expect(result[0]?.virtualPath).toBe('mounts/output/ComfyUI_00001.png')
+  })
+
   it('rejects malformed typed assets and falls back from unusable V1 entries to native output', () => {
     const valid = digest('d')
     const nested = { ...asset(digest('f'), 'nested.png'), typeId: 'asset<list<comfy.IMAGE>>' }

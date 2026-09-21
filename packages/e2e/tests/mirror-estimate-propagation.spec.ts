@@ -2,8 +2,8 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-679/', import.meta.url))
 const adjustWire = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_adjust_wire29.json', import.meta.url)), 'utf8'),
 ) as Record<string, unknown>
@@ -25,7 +25,7 @@ const assetA = { digest: digestA, name: 'source-a.png', size: imageA.length, med
 const assetB = { digest: digestB, name: 'source-b.png', size: imageB.length, mediaType: 'image/png', virtualPath: 'source-b.png' }
 
 const representedSourceWire = {
-  schemaVersion: 31,
+  schemaVersion: 1,
   nodeType: 'e2e.represented-source',
   displayName: 'Load Image',
   category: 'test',
@@ -68,11 +68,11 @@ test('represented estimates propagate and recompute after connect and reconnect'
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-propagation-proof', schemaWire: 31 },
+    dinkster: { version: 'mirror-propagation-proof', schemaWire: 1 },
     nodes: {
       'e2e.represented-source': representedSourceWire,
-      'dinkster.image.adjust': { ...adjustWire, schemaVersion: 31 },
-      'dinkster.image.filter': { ...filterWire, schemaVersion: 31 },
+      'dinkster.image.adjust': { ...adjustWire, schemaVersion: 1 },
+      'dinkster.image.filter': { ...filterWire, schemaVersion: 1 },
     },
   } }))
 
@@ -160,8 +160,8 @@ test('represented estimates propagate and recompute after connect and reconnect'
 
   await page.screenshot({ path: testInfo.outputPath('mirror-estimate-propagation.png'), animations: 'disabled' })
   if (process.env['DINKSTER_CAPTURE_ISSUE_679'] === '1') {
-    mkdirSync(evidenceDir, { recursive: true })
-    await page.screenshot({ path: `${evidenceDir}/mirror-estimate-propagation.png`, animations: 'disabled' })
+    mkdirSync(evidenceGroupDir('issue-679'), { recursive: true })
+    await page.screenshot({ path: evidencePath('issue-679', 'mirror-estimate-propagation.png'), animations: 'disabled' })
   }
   expect(pageErrors).toEqual([])
 })

@@ -1,6 +1,10 @@
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
 const MOCK = 'http://templates.test'
+const proofDir = process.env['DINKSTER_TEMPLATE_PROOF_DIR']
+if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
 const TEMPLATE_DOC = {
   format: 'dinkster-workflow', formatVersion: 1, lineage: 'template-lineage', root: 'g0',
   graphs: { g0: { id: 'g0', name: 'Template', nodes: {
@@ -14,17 +18,23 @@ const TEMPLATE_DOC = {
 
 async function openTemplatesPanel(page: Page): Promise<void> {
   await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 22 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 },
     packs: { demo: { displayName: 'Demo Pack', assets: [{ id: 'model', name: 'Demo Model', digest: 'blake3:x', kind: 'model/checkpoint', size: 1024 }] } },
     nodes: { 'demo.node': { displayName: 'Demo Node', pack: 'demo', signature: 's', interface: [] } },
   } }))
   await page.route(`${MOCK}/api/templates*`, (route) => {
     const q = new URL(route.request().url()).searchParams.get('q')?.toLowerCase() ?? ''
     const rows = [
-      { pack: 'demo', id: 'starter', name: 'Starter Image', description: 'Two expected nodes', tags: ['image'], assets: ['model'], digest: 'sha256:a' },
+      { pack: 'demo', id: 'starter', name: 'Stable Diffusion 1.5', description: 'Two expected nodes', tags: ['image', 'sd15'], assets: ['model'], digest: 'sha256:a' },
       { pack: 'demo', id: 'audio', name: 'Audio Flow', digest: 'sha256:b' },
     ].filter((row) => JSON.stringify(row).toLowerCase().includes(q))
     void route.fulfill({ json: { templates: rows } })
+  })
+  await page.route(`${MOCK}/api/assets/guess`, async (route) => {
+    const request = route.request().postDataJSON() as { names: string[] }
+    await route.fulfill({
+      json: { matches: request.names.map((query) => ({ query, candidates: [] })) },
+    })
   })
   await page.route(`${MOCK}/api/packs/demo/templates/starter`, (route) => void route.fulfill({ json: TEMPLATE_DOC }))
 
@@ -46,13 +56,13 @@ async function openTemplatesPanel(page: Page): Promise<void> {
 test('searches templates and opens the body as a new document', async ({ page }) => {
   await openTemplatesPanel(page)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  const starter = page.getByRole('option', { name: /Starter Image/ })
+  const starter = page.getByRole('option', { name: /Stable Diffusion 1.5/ })
   await expect(starter).not.toHaveAttribute('title')
   await starter.hover()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Starter Image', { timeout: 1_500 })
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stable Diffusion 1.5', { timeout: 1_500 })
   await starter.focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Two expected nodes')
-  await page.getByTestId('collection-search').fill('starter')
+  await page.getByTestId('collection-search').fill('SD 1.5')
   const search = page.getByTestId('collection-search')
   const clearSearch = page.getByRole('button', { name: 'Clear search templates', exact: true })
   await expect(clearSearch).toBeVisible()
@@ -66,12 +76,18 @@ test('searches templates and opens the body as a new document', async ({ page })
   await expect(search).toHaveValue('')
   await expect(search).toBeFocused()
   await expect(clearSearch).toHaveCount(0)
-  await search.fill('starter')
+  await search.fill('SD 1.5')
   await search.press('Escape')
   await expect(search).toHaveValue('')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-  await search.fill('starter')
+  await search.fill('SD 1.5')
   await expect(page.getByTestId('collection-entry')).toHaveCount(1)
+  if (proofDir !== undefined) {
+    await page.getByTestId('library-overlay').screenshot({
+      path: join(proofDir, 'library-template-search-sd15.png'),
+      animations: 'disabled',
+    })
+  }
   await page.getByTestId('collection-entry').click()
   await expect(page.getByTestId('collection-entry')).toContainText('Demo Model - model/checkpoint - 1 KiB')
   await page.locator('[data-testid=collection-action][data-action=open]').click()
@@ -85,7 +101,7 @@ test('Enter on a nested entry action clicks the action, not the row', async ({ p
   // have no click-activation), the action strip would vanish, and the
   // template could never open by keyboard. Native button Enter must win.
   await openTemplatesPanel(page)
-  await page.getByTestId('collection-search').fill('starter')
+  await page.getByTestId('collection-search').fill('SD 1.5')
   await expect(page.getByTestId('collection-entry')).toHaveCount(1)
   await page.getByTestId('collection-entry').click()
   const action = page.locator('[data-testid=collection-action][data-action=open]')

@@ -1,4 +1,4 @@
-import type { FetchLike } from './connection.js'
+import type { FetchLike } from './connection-contract.js'
 
 export interface CollabCredentials {
   readonly token?: string | undefined

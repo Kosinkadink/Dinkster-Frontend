@@ -63,6 +63,15 @@ id breaks ties; an unavailable editor cannot shadow a usable pack binding.
 chrome, rendering, Problems reporting, gating, and cleanup. Packs supply no
 DOM, CSS, Solid components, or lifecycle callbacks through these doors.
 
+Node-specific editing commands use the same schema-owned roles. Core composes
+its generic commands with registered command extensions for mask paint, image
+documents, and compositing. Each extension owns its command ids, required
+roles, schema capability checks, and compatibility node ids. When a schema
+resolver supports role lookup, that lookup is authoritative and a missing or
+ambiguous role fails closed. Node ids are consulted only for schema snapshots
+that predate role lookup, keeping backend-specific literals out of the generic
+command module.
+
 The `virtualNode` contribution is the pack door for frontend-only workflow
 nodes. Its `VirtualNodeKind` provides a widget schema, defaults, and a pure
 render model; the host owns node creation, canvas rendering, editing,
@@ -70,6 +79,19 @@ serialization, clipboard, collaboration, and compiler exclusion. It requires
 `graph-editor-canvas`, is independently gateable, and follows the same
 transactional registration and cleanup rules as other contributions. See
 `virtual-nodes.md` for the document and execution contract.
+
+## Canvas layers
+
+Packs with `graph-editor-canvas` privilege can register an ordered background
+or foreground painter with `canvasLayer(id, layer)`. The draw callback receives
+the host's world-transformed 2D context, visible world viewport, scale, and a
+frozen projection of scene node identity and geometry. The host saves and
+restores canvas state around every callback, isolates failures, and reports a
+failed layer once without stopping core rendering. A background layer is the
+bounded equivalent of ComfyUI's `beforeDrawGraph`; a foreground layer is the
+bounded equivalent of `afterDrawGraph`. Layers are manifest-first,
+independently gateable, and removed with their pack. The built-in graph grid is
+registered through the same door.
 
 Host contributions remain manifest-first and independently gateable.
 Registration is transactional: activation or identity failure rolls back the
@@ -161,7 +183,8 @@ The four privileges are independent: `schema-widget`, `graph-editor-canvas`,
 restrictions, and initial user gates are checked before imports. The frozen
 activation context exposes identity, exact declarations and grants, scoped
 registration methods, an abort signal, and `onDispose`. It exposes no app store,
-DOM, canvas, socket, route client, or legacy pack APIs. Declaration or activation
+DOM, socket, route client, or legacy pack APIs. A canvas layer receives only its
+draw-time 2D context and frozen scene projection. Declaration or activation
 failure rolls back every admitted entry in the pack. Entry activation is
 synchronous; asynchronous work belongs behind registered callbacks.
 

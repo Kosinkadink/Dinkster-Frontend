@@ -327,6 +327,7 @@ interface DinksterTestBridge {
     refreshBackendSchemas(backend: ReturnType<DinksterTestBridge['app']['backends']['get']>[number]): Promise<void>
     backendForTab(tab: DinksterBridgeTab): ReturnType<DinksterTestBridge['app']['backends']['get']>[number]
     registerSchemas(schemas: readonly unknown[]): void
+    openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean>
     openEditorForBinding(tabId: string, context: { editorRole?: string; nodeId?: string; widgetType?: string; valueType?: string }): boolean
     dock: {
       activate(zone: 'left' | 'right' | 'bottom', panelId: string): void
@@ -672,5 +673,6 @@ interface DinksterTestBridge {
 }
 
 interface Window {
+  __dinksterV1EntryStubbed?: boolean
   __dinksterTest?: DinksterTestBridge
 }

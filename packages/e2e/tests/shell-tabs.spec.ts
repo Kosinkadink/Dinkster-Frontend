@@ -3,17 +3,13 @@
  * client-only: it changes persisted shell/tab view state but never submits
  * work to the shared backend.
  */
-import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
-
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-170/', import.meta.url))
+import { evidencePath } from './evidence-output.js'
 
 const captureDragGhost = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_170'] !== '1') return
-  mkdirSync(evidenceDir, { recursive: true })
-  await page.screenshot({ path: `${evidenceDir}/${name}.png`, animations: 'disabled' })
+  await page.screenshot({ path: evidencePath('issue-170', `${name}.png`), animations: 'disabled' })
 }
 
 const tab = (page: Page, title: string): Locator =>

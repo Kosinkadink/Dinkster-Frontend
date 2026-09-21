@@ -834,10 +834,15 @@ describe('graph image document opening', () => {
         }
         const backend = { protocol: 'dinkster', connection: remote.connection }
         const dispatchTo = vi.fn()
+        const loadSchema = { type: 'synthetic.load', editorRole: 'layers-load', items: [] }
+        const flattenSchema = { type: 'synthetic.flatten', editorRole: 'layers-flatten', items: [] }
+        const resolve = Object.assign(() => undefined, {
+          forEditorRole: (role: string) => role === 'layers-load' ? loadSchema : role === 'layers-flatten' ? flattenSchema : undefined,
+        })
         const app = {
           activeTab: () => moved && change === 'tab' ? undefined : tab,
           backendForTab: () => moved && change === 'backend' ? { ...backend } : backend,
-          registryForTab: () => ({ resolve: () => ({}) }),
+          registryForTab: () => ({ resolve }),
           dispatchTo,
         } as unknown as AppState
         const adopt = remote.methods.adoptImageDocument.getMockImplementation()!

@@ -28,7 +28,7 @@ test('uses the configured All assets source while preserving curated per-mount b
   let catalogRequests = 0
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audit', schemaWire: 22 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audit', schemaWire: 1 }, nodes: {} } }))
   await page.route('**/api/mounts', (route) => route.fulfill({ json: { mounts: [
     { id: 'comfy-model-checkpoints-1', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 2 },
     { id: 'comfy-model-checkpoints-2', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 1 },

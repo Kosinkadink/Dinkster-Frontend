@@ -17,13 +17,20 @@ const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!nativeFrontend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the native-only frontend')
 test.use({ baseURL: nativeFrontend })
 
+test('native compatibility matrix replaces the V1 connection entry', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'native-without-v1', 'runs only in the native compatibility matrix')
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterV1EntryStubbed)).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol)).toBe('dinkster')
+})
+
 const NATIVE_TABLE = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'e2e', schemaWire: 23 },
+  dinkster: { version: 'e2e', schemaWire: 1 },
   packs: { demo: { displayName: 'Demo Pack' } },
   nodes: {
-    'demo.node': { schemaVersion: 23, displayName: 'Demo Node', pack: 'demo', signature: 's', interface: [] },
+    'demo.node': { schemaVersion: 1, displayName: 'Demo Node', pack: 'demo', signature: 's', interface: [] },
   },
 }
 
@@ -32,16 +39,16 @@ const RICH_NATIVE_TABLE = {
   nodes: {
     ...NATIVE_TABLE.nodes,
     'comfy.EmptyImage': {
-      schemaVersion: 23, displayName: 'Empty Image', pack: 'comfy', signature: 'empty', aliases: ['EmptyImage'], interface: [],
+      schemaVersion: 1, displayName: 'Empty Image', pack: 'comfy', signature: 'empty', aliases: ['EmptyImage'], interface: [],
     },
     'comfy.PreviewImage': {
-      schemaVersion: 23, displayName: 'Preview Image', pack: 'comfy', signature: 'preview', aliases: ['PreviewImage'], interface: [],
+      schemaVersion: 1, displayName: 'Preview Image', pack: 'comfy', signature: 'preview', aliases: ['PreviewImage'], interface: [],
     },
   },
 }
 
 const lazyNode = (id: string, lazy?: boolean) => ({
-  schemaVersion: 23,
+  schemaVersion: 1,
   displayName: 'Lazy Socket',
   category: 'test',
   interface: [{
@@ -54,7 +61,7 @@ const lazyNode = (id: string, lazy?: boolean) => ({
 const CURRENT_LAZY_TABLE = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'e2e-current', schemaWire: 23 },
+  dinkster: { version: 'e2e-current', schemaWire: 1 },
   nodes: {
     'test.lazy_absent': lazyNode('value'),
     'test.lazy_false': lazyNode('value', false),
@@ -63,7 +70,7 @@ const CURRENT_LAZY_TABLE = {
 }
 
 const previewNode = (preview?: boolean) => ({
-  schemaVersion: 23,
+  schemaVersion: 1,
   displayName: 'Preview Output',
   category: 'test',
   interface: [{
@@ -75,7 +82,7 @@ const previewNode = (preview?: boolean) => ({
 const CURRENT_PREVIEW_TABLE = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'e2e-current-preview', schemaWire: 23 },
+  dinkster: { version: 'e2e-current-preview', schemaWire: 1 },
   nodes: {
     'test.preview_absent': previewNode(),
     'test.preview_false': previewNode(false),
@@ -83,7 +90,7 @@ const CURRENT_PREVIEW_TABLE = {
   },
 }
 
-test('same-origin native launch makes no v1 discovery request', async ({ page }) => {
+test('same-origin native launch keeps the compatibility probe bounded', async ({ page }, testInfo) => {
   let v1Requests = 0
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),
@@ -117,7 +124,7 @@ test('same-origin native launch makes no v1 discovery request', async ({ page })
       }),
     )
     .toEqual({ protocol: 'dinkster', schemas: 1, title: 'Untitled', nodes: 0 })
-  expect(v1Requests).toBe(0)
+  expect(v1Requests).toBe(testInfo.project.name === 'native-without-v1' ? 0 : 1)
 })
 
 test('native clean startup stays blank with a richer compatibility catalog', async ({ page }) => {

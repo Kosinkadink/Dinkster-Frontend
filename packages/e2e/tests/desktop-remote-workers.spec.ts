@@ -1,8 +1,5 @@
-import { mkdir } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import { expect, test } from './fixtures.js'
-
-const evidenceDirectory = resolve(import.meta.dirname, '../../../docs/evidence/issue-457')
+import { evidencePath } from './evidence-output.js'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -38,6 +35,7 @@ test.beforeEach(async ({ page }) => {
       checkForUpdates: async () => {},
       installUpdate: async () => {},
       chooseDirectory: async () => undefined,
+      revealFile: async () => {},
       exportSnapshot: async () => undefined,
       importSnapshot: async () => undefined,
       systemCheck: async () => { calls.systemCheck += 1; return {
@@ -93,7 +91,6 @@ test('edits a guided remote-worker profile across a mounted locale change', asyn
   await expect(section).toContainText('An empty list allows no node types')
   await expect(section).toContainText('token contents never enter the renderer')
 
-  await mkdir(evidenceDirectory, { recursive: true })
   await page.locator('.modal-surface').evaluate((element) => { element.style.maxHeight = 'none' })
   await page.locator('.desktop-management').evaluate((element) => { element.style.overflow = 'visible' })
   await section.evaluate((element) => { element.dataset['localeIdentity'] = 'worker-section' })
@@ -104,7 +101,7 @@ test('edits a guided remote-worker profile across a mounted locale change', asyn
   await address.focus()
   const callsBeforeLocale = await page.evaluate(() => (window as typeof window & { __desktopLocaleCalls: unknown }).__desktopLocaleCalls)
   await section.screenshot({
-    path: resolve(evidenceDirectory, 'desktop-management-i18n-en.png'),
+    path: evidencePath('issue-457', 'desktop-management-i18n-en.png'),
     animations: 'disabled',
   })
 
@@ -128,7 +125,7 @@ test('edits a guided remote-worker profile across a mounted locale change', asyn
   await expect(section.locator('.desktop-worker-form textarea').nth(0)).toHaveValue('')
   await expect.poll(async () => page.evaluate(() => (window as typeof window & { __desktopLocaleCalls: unknown }).__desktopLocaleCalls)).toEqual(callsBeforeLocale)
   await section.screenshot({
-    path: resolve(evidenceDirectory, 'desktop-management-i18n-zh.png'),
+    path: evidencePath('issue-457', 'desktop-management-i18n-zh.png'),
     animations: 'disabled',
   })
 

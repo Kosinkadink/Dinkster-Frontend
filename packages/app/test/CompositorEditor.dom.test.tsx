@@ -2,7 +2,7 @@
 
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it } from 'vitest'
-import { asConnectionId, asPromptId, EMPTY_COMPOSITOR_RECIPE, registerCatalog, setLocale, type DinksterNodesPayload, type Json } from '@dinkster/core'
+import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, EMPTY_COMPOSITOR_RECIPE, registerCatalog, setLocale, type DinksterNodesPayload, type Json } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { CompositorEditor } from '../src/CompositorEditor.js'
@@ -29,14 +29,15 @@ const imageDocument = {
 const state = { version: 2 as const, document: imageDocument, documentDigest: assetDigest, stale: false, layerStreams: ['compositor.layer.0', 'compositor.layer.1'] }
 
 const payload = {
-  schemaVersion: 37,
+  schemaVersion: 1,
   nodes: {
     Compositor: {
-      schemaVersion: 37,
+      schemaVersion: 1,
       displayName: 'Create Layered Image',
       category: 'image/compositing',
       idempotent: false,
       outputNode: true,
+      editorRole: 'compositor',
       interface: [
         {
           role: 'input', id: 'recipe', required: false,
@@ -58,6 +59,10 @@ function mount(options: {
   const tab = app.tabs.get()[0]!
   app.registry.set(buildDinksterRegistry(asConnectionId('local'), payload))
   const graphId = tab.store.doc.root
+  const seedNodeIds = Object.keys(tab.store.doc.graphs[graphId]!.nodes)
+  if (seedNodeIds.length > 0 && !app.dispatchTo(tab, {
+    command: 'node.remove', params: { graphId, nodeIds: seedNodeIds },
+  }).ok) throw new Error('failed to clear compositor fixture graph')
   const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
   if (!app.dispatchTo(tab, {
     command: 'node.add', params: { graphId, type: 'Compositor', position: { x: 20, y: 30 } },

@@ -1,6 +1,5 @@
 import { expect, test } from './fixtures.js'
-
-const PROOF = '../../docs/evidence/issue-457'
+import { evidencePath } from './evidence-output.js'
 
 test('canvas view menus localize in place without changing registry data or app state', async ({ page, request }) => {
   let schemaRequests = 0
@@ -10,7 +9,7 @@ test('canvas view menus localize in place without changing registry data or app 
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'canvas-view-i18n-e2e', schemaWire: 42 },
+      dinkster: { version: 'canvas-view-i18n-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })
@@ -41,7 +40,7 @@ test('canvas view menus localize in place without changing registry data or app 
   await viewMenu.evaluate((element) => { element.dataset['localeIdentity'] = 'view-menu' })
   await graphItem.evaluate((element) => { element.dataset['localeIdentity'] = 'graph-item' })
   const requestsBeforeLocale = { schema: schemaRequests, diagnostics: diagnosticRequests }
-  await page.screenshot({ path: `${PROOF}/canvas-view-controls-i18n-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'canvas-view-controls-i18n-en.png'), fullPage: true })
 
   await page.evaluate(async ({ i18nModule }) => {
     const { registerCatalog, setLocale } = await import(i18nModule)
@@ -75,7 +74,7 @@ test('canvas view menus localize in place without changing registry data or app 
   await expect(viewMenu).toContainText('[ALLE ALS KURVEN]')
   await expect(viewMenu).toContainText('[ALLE VERBINDUNGEN ALS KURVEN ZEICHNEN]')
   await expect(viewMenu).toContainText('[ALLE ALS TAGS UND LEITKURVEN]')
-  await page.screenshot({ path: `${PROOF}/canvas-view-controls-i18n-de-DE.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'canvas-view-controls-i18n-de-DE.png'), fullPage: true })
 
   await page.getByTestId('views-switcher').click()
   await expect(page.getByTestId('views-switcher')).toHaveAttribute('data-tooltip-label', '[BEARBEITUNGSANSICHT WAHLEN]')
@@ -116,7 +115,7 @@ test('shell, App View, and runtime settings update from the active locale catalo
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'host-i18n-e2e', schemaWire: 42 },
+    dinkster: { version: 'host-i18n-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
@@ -135,11 +134,11 @@ test('shell, App View, and runtime settings update from the active locale catalo
   await expect(page.getByTestId('review-upgrades-toggle')).toContainText('Review upgrades: off')
   await page.getByTestId('dinkster-menu-button').click()
   await expect(page.locator('[data-item-id="workflow.open"]')).toContainText('Open workflow library')
-  await page.screenshot({ path: `${PROOF}/host-i18n-app-view-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'host-i18n-app-view-en.png'), fullPage: true })
   await page.getByTestId('dinkster-menu-button').click()
   await page.getByTestId('settings-button').click()
   await expect(page.locator('[data-setting-id="canvas.grid.visible"]')).toContainText('Show dot grid')
-  await page.screenshot({ path: `${PROOF}/host-i18n-settings-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'host-i18n-settings-en.png'), fullPage: true })
 
   await page.evaluate(async ({ i18nModule }) => {
     const { registerCatalog, setLocale } = await import(i18nModule)
@@ -183,7 +182,7 @@ test('shell, App View, and runtime settings update from the active locale catalo
   }, { i18nModule: new URL(i18nModule!, page.url()).href })
 
   await expect(page.locator('[data-setting-id="canvas.grid.visible"]')).toContainText('[Punktraster anzeigen]')
-  await page.screenshot({ path: `${PROOF}/host-i18n-settings-de-DE.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'host-i18n-settings-de-DE.png'), fullPage: true })
   await page.getByTestId('modal-close').click()
   await expect(page.getByTestId('left-panel-toggle')).toHaveAttribute('aria-label', '[Linken Bereich umschalten]')
   await expect(page.getByTestId('projects-button')).toHaveAttribute('aria-label', '[Projects-DE]')
@@ -195,7 +194,7 @@ test('shell, App View, and runtime settings update from the active locale catalo
   await expect(page.getByTestId('dinkster-menu-button')).toHaveAttribute('aria-expanded', 'false')
   await page.getByTestId('dinkster-menu-button').click()
   await expect(page.locator('[data-item-id="workflow.open"]')).toContainText('[Arbeitsablaufbibliothek offnen]')
-  await page.screenshot({ path: `${PROOF}/host-i18n-app-view-de-DE-final.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'host-i18n-app-view-de-DE-final.png'), fullPage: true })
 
   const mainModule = await (await request.get('/src/main.tsx')).text()
   const renderModule = mainModule.match(/from "([^"]*solid-js_web[^"]*)"/)?.[1]
@@ -219,14 +218,14 @@ test('shell, App View, and runtime settings update from the active locale catalo
   }, { i18nModule: new URL(i18nModule!, page.url()).href, renderModule: new URL(renderModule!, page.url()).href })
   await expect(page.locator('#runtime-i18n-proof')).toContainText('Runtime settings')
   await expect(page.locator('#runtime-i18n-proof')).toContainText('Maximum running jobs')
-  await page.screenshot({ path: `${PROOF}/host-i18n-runtime-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'host-i18n-runtime-en.png'), fullPage: true })
   await page.evaluate(async ({ i18nModule }) => {
     const { setLocale } = await import(i18nModule)
     setLocale('de-DE')
   }, { i18nModule: new URL(i18nModule!, page.url()).href })
   await expect(page.locator('#runtime-i18n-proof')).toContainText('[Laufzeiteinstellungen]')
   await expect(page.locator('#runtime-i18n-proof')).toContainText('[Maximal laufende Auftrage]')
-  await page.screenshot({ path: `${PROOF}/host-i18n-runtime-de-DE.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'host-i18n-runtime-de-DE.png'), fullPage: true })
 })
 
 test('panel host chrome updates in place without backend requests', async ({ page, request }) => {
@@ -237,7 +236,7 @@ test('panel host chrome updates in place without backend requests', async ({ pag
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'shell-panel-host-i18n-e2e', schemaWire: 42 },
+      dinkster: { version: 'shell-panel-host-i18n-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })
@@ -323,7 +322,7 @@ test('panel host chrome updates in place without backend requests', async ({ pag
   await expect(floatingDock).toHaveText('Dock')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('context-menu')).toHaveCount(0)
-  await proof.screenshot({ path: `${PROOF}/shell-panel-host-i18n-en.png` })
+  await proof.screenshot({ path: evidencePath('issue-457', 'shell-panel-host-i18n-en.png') })
   await floatingDock.focus()
   await floatingDock.press('Shift+F10')
   await expect(page.getByTestId('context-menu')).toContainText('Move to new window')
@@ -366,7 +365,7 @@ test('panel host chrome updates in place without backend requests', async ({ pag
   expect({ schema: schemaRequests, diagnostics: diagnosticRequests }).toEqual(requestsBeforeLocale)
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('context-menu')).toHaveCount(0)
-  await proof.screenshot({ path: `${PROOF}/shell-panel-host-i18n-de-DE.png` })
+  await proof.screenshot({ path: evidencePath('issue-457', 'shell-panel-host-i18n-de-DE.png') })
 })
 
 test('workflow tab chrome and an open preview menu update without backend requests', async ({ page, request }) => {
@@ -377,7 +376,7 @@ test('workflow tab chrome and an open preview menu update without backend reques
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'workflow-tabs-i18n-e2e', schemaWire: 42 },
+      dinkster: { version: 'workflow-tabs-i18n-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })
@@ -456,7 +455,7 @@ test('workflow tab chrome and an open preview menu update without backend reques
     ;(window as unknown as { __workflowMenuProofNodes: readonly Element[] }).__workflowMenuProofNodes = [root, submenu]
   })
   const requestsBeforeLocale = { schema: schemaRequests, diagnostics: diagnosticRequests }
-  await page.screenshot({ path: `${PROOF}/workflow-tabs-i18n-en.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'workflow-tabs-i18n-en.png'), fullPage: true })
 
   await page.evaluate(async ({ i18nModule }) => {
     const { registerCatalog, setLocale } = await import(i18nModule)
@@ -512,5 +511,5 @@ test('workflow tab chrome and an open preview menu update without backend reques
   })).toEqual({ rootStable: true, submenuStable: true })
   expect({ schema: schemaRequests, diagnostics: diagnosticRequests }).toEqual(requestsBeforeLocale)
   await expect(page.locator('.context-menu-cascade')).toBeFocused()
-  await page.screenshot({ path: `${PROOF}/workflow-tabs-i18n-de-DE.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'workflow-tabs-i18n-de-DE.png'), fullPage: true })
 })

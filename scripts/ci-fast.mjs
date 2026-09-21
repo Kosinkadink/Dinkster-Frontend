@@ -21,10 +21,11 @@ for (const args of [
     '--single-quote',
     '--no-semi',
     'scripts/ci-fast.mjs',
-    'packages/desktop/test/ci-workflow.test.ts',
+    'packages/e2e/test/ci-workflow.test.ts',
   ],
   ['check:extension-literals'],
   ['check:ui-strings'],
+  ['check:v1-boundary'],
   ['typecheck'],
   [
     '--filter',
@@ -35,15 +36,16 @@ for (const args of [
     'test/format.schema.test.ts',
     'test/dinkster-graph.test.ts',
     'test/dinkster-inline-value.test.ts',
+    'test/object-info.golden.test.ts',
+    'test/events.golden.test.ts',
   ],
   [
     '--filter',
-    '@dinkster/desktop',
+    '@dinkster/e2e',
     'exec',
     'vitest',
     'run',
     'test/ci-workflow.test.ts',
-    'test/published-verification.test.ts',
   ],
   [
     '--filter',
@@ -52,6 +54,7 @@ for (const args of [
     'vitest',
     'run',
     'test/extension-dogfooding.test.ts',
+    'test/extension-world.test.ts',
   ],
   [
     'exec',
@@ -60,6 +63,7 @@ for (const args of [
     'scripts/check-extension-literals.test.mjs',
     'scripts/check-ui-strings.test.mjs',
     'scripts/check-path-case.test.mjs',
+    'scripts/check-v1-boundary.test.mjs',
   ],
 ]) {
   execFileSync(process.execPath, [process.env.npm_execpath, ...args], {
