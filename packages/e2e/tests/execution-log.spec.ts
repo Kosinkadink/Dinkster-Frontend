@@ -1,10 +1,9 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_EXECUTION_LOG_PROOF_DIR']
-const localeProofDir = fileURLToPath(new URL('../../../docs/evidence/issue-457/', import.meta.url))
 if (proofDir) mkdirSync(proofDir, { recursive: true })
 
 const settlePaint = (page: Page): Promise<void> => page.evaluate(() =>
@@ -98,7 +97,6 @@ test('execution log panel shows live records and changes mounted chrome locale',
   page.on('request', (event) => {
     if (new URL(event.url()).pathname === '/object_info') objectInfoRequests += 1
   })
-  mkdirSync(localeProofDir, { recursive: true })
   await page.setViewportSize({ width: 1600, height: 1000 })
   const seed = await seedRun(page)
   await page.getByTestId('execution-log-toggle').click()
@@ -116,7 +114,7 @@ test('execution log panel shows live records and changes mounted chrome locale',
   await expect(rows.nth(0)).toHaveAttribute('data-origin', 'logging')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
-  await page.getByTestId('execution-log-panel').screenshot({ path: join(localeProofDir, 'execution-log-i18n-en.png'), animations: 'disabled' })
+  await page.getByTestId('execution-log-panel').screenshot({ path: evidencePath('issue-457', 'execution-log-i18n-en.png'), animations: 'disabled' })
 
   if (proofDir) {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
@@ -181,7 +179,7 @@ test('execution log panel shows live records and changes mounted chrome locale',
   expect(objectInfoRequests).toBe(objectInfoRequestsBeforeLocaleChange)
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
-  await panel.screenshot({ path: join(localeProofDir, 'execution-log-i18n-de-DE.png'), animations: 'disabled' })
+  await panel.screenshot({ path: evidencePath('issue-457', 'execution-log-i18n-de-DE.png'), animations: 'disabled' })
 
   // A row's node chip focuses that node on canvas (diagnostic focus path).
   await page.getByTestId('execution-log-node').first().click()

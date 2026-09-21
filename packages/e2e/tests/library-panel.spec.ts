@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_LIBRARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -270,7 +271,7 @@ test('an open Library panel updates host chrome when the active locale changes',
   await expect(library.locator('[data-collection-state="empty"]')).toContainText('No templates available')
   await expect(library.locator('.library-backend-context')).toContainText('Backend')
   await expect(library.getByTestId('collection-search')).toHaveAttribute('aria-label', 'Search templates')
-  await page.screenshot({ path: '../../docs/evidence/issue-457/library-panel-i18n-en.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'library-panel-i18n-en.png'), fullPage: true })
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
@@ -298,7 +299,7 @@ test('an open Library panel updates host chrome when the active locale changes',
   await expect(library.getByTestId('library-detail-rail')).toContainText('[Wahle einen Eintrag fur Identitat, Herkunft und Aktionen.]')
   await expect(library.locator('[data-testid="collection-source"][data-source="templates"]')).toContainText('Templates')
   await expect(library.locator('.library-backend-context')).toContainText('Local')
-  await page.screenshot({ path: '../../docs/evidence/issue-457/library-panel-i18n-de-DE.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'library-panel-i18n-de-DE.png'), fullPage: true })
 })
 
 test('an open generic collection keeps content and paging state across a locale change', async ({ page, request }) => {
@@ -322,7 +323,7 @@ test('an open generic collection keeps content and paging state across a locale 
   await expect(entries.first()).toHaveAttribute('aria-selected', 'false')
   await page.getByTestId('dock-zone-left').locator('.product-tabpanel:not([hidden])').evaluate((element) => { element.scrollTop = element.scrollHeight })
   await expect(library.getByTestId('collection-more')).toBeInViewport()
-  await page.screenshot({ path: '../../docs/evidence/issue-457/collection-panel-i18n-en.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'collection-panel-i18n-en.png'), fullPage: true })
 
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
@@ -345,5 +346,5 @@ test('an open generic collection keeps content and paging state across a locale 
   await expect(entries.first()).toContainText('Fixture Template 01')
   expect(fixture.templateRequestCount()).toBe(requestsBeforeLocale)
   await expect(library.getByTestId('collection-more')).toBeInViewport()
-  await page.screenshot({ path: '../../docs/evidence/issue-457/collection-panel-i18n-de-DE.png', fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'collection-panel-i18n-de-DE.png'), fullPage: true })
 })

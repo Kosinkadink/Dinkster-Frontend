@@ -1,10 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
 import { expect, test } from './fixtures.js'
 import { pseudoCatalog, pseudoMessage } from './pseudo-catalog.js'
 import { auditLayout } from './ui-audit.js'
+import { evidencePath } from './evidence-output.js'
 
-const EVIDENCE = '../../docs/evidence/issue-457'
 const english = JSON.parse(readFileSync(
   new URL('../../app/src/locales/en.json', import.meta.url),
   'utf8',
@@ -13,8 +12,6 @@ const pseudo = pseudoCatalog(english)
 const placeholders = (message: string): string[] => [...message.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)(?=,|\})/g)]
   .map((match) => match[1]!)
   .sort()
-
-test.beforeAll(async () => mkdir(EVIDENCE, { recursive: true }))
 
 test('generates one expanded pseudo message for every English catalog key', () => {
   expect(Object.keys(pseudo).sort()).toEqual(Object.keys(english).sort())
@@ -123,7 +120,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
     }
   })).toEqual(stateBeforeLocale)
   expect(await auditLayout(page, '[data-testid="modal-surface"][data-modal="settings"]')).toEqual([])
-  await page.screenshot({ path: `${EVIDENCE}/full-pseudo-locale-wide.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'full-pseudo-locale-wide.png'), fullPage: true })
 
   await page.getByTestId('modal-close').click()
   await expect(page.getByTestId('app-view-arrange-toggle')).toContainText(pseudo['appView.arrange']!)
@@ -154,5 +151,5 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   await expect(page.getByTestId('palette-search')).toBeFocused()
   await expect.poll(() => auditLayout(page, '[data-testid="node-palette"]')).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  await page.screenshot({ path: `${EVIDENCE}/full-pseudo-locale-constrained.png`, fullPage: true })
+  await page.screenshot({ path: evidencePath('issue-457', 'full-pseudo-locale-constrained.png'), fullPage: true })
 })

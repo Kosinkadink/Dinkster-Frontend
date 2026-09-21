@@ -79,4 +79,4 @@ bottom-right minimap.
   `e2e/tests/execution-progress.spec.ts` prove normalized step progress paints
   on the running node, reacts alongside the shell aggregate, animates only
   while running, and becomes static under reduced motion. Inspected receipts
-  are under `docs/evidence/issue-140/` and `docs/evidence/issue-141/`.
+  are under `dinkster-evidence/frontend/issue-140/` and `dinkster-evidence/frontend/issue-141/`.
