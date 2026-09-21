@@ -408,7 +408,9 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
     expect(hostedConfig).toContain("stubV1Entry === '1' ? 'native' : 'legacy'")
     expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
-    expect(hostedConfig).toContain('if (!stockV1Only)')
+    expect(hostedConfig).toContain(
+      "if (selectedProject === 'native-without-v1')",
+    )
     expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
     )
