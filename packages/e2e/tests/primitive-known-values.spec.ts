@@ -9,7 +9,7 @@ const primitiveSchema = (
   defaultValue: string | number | boolean,
   widget?: Record<string, unknown>,
 ) => ({
-  schemaVersion: 34,
+  schemaVersion: 1,
   nodeType,
   displayName,
   category: 'test/primitives',
@@ -33,7 +33,7 @@ const primitiveSchema = (
 })
 
 const sinkSchema = {
-  schemaVersion: 34,
+  schemaVersion: 1,
   nodeType: 'e2e.known-value-sink',
   displayName: 'Known value results',
   category: 'test',
@@ -74,7 +74,7 @@ test('wire-34 primitive identity declarations show typed values before execution
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'primitive-known-values-proof', schemaWire: 34 },
+    dinkster: { version: 'primitive-known-values-proof', schemaWire: 1 },
     nodes: {
       'e2e.identity.integer': primitiveSchema(
         'e2e.identity.integer', 'Integer identity', 'core.int', 0,

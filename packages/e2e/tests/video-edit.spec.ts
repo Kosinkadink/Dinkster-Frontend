@@ -526,7 +526,7 @@ test(liveTestTitle, async ({ page, request }, info) => {
   test.setTimeout(120_000)
   expect(nativeBackendCommit).toMatch(/^[0-9a-f]{40}$/)
 
-  const catalogResponse = await fetch(`${nativeBackend}/api/nodes?wire=41`, { signal: AbortSignal.timeout(5_000) })
+  const catalogResponse = await fetch(`${nativeBackend}/api/nodes`, { signal: AbortSignal.timeout(5_000) })
   expect(catalogResponse.ok).toBe(true)
   const liveCatalog = await catalogResponse.json() as { nodes: Record<string, unknown> }
   for (const type of ['dinkster.image.generate', 'dinkster.video.assemble', 'dinkster.video.trim', 'dinkster.video.crop', 'dinkster.video.disassemble']) {

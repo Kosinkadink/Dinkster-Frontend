@@ -125,7 +125,7 @@ async function openWorkflow(page: Page): Promise<void> {
 
 test('outside per-family ghost growth advances, persists, drills, and refuses family fan-out atomically', async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'audit-proof', schemaWire: 21 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'audit-proof', schemaWire: 1 }, nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

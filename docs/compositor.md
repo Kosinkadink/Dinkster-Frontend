@@ -26,7 +26,7 @@ replayed only when its document digest matches the current layer document. If
 sources change, execution uses native graph placements instead, marks the result
 stale, and leaves the saved delta untouched.
 
-Schema wire 41 retains the exact fieldless `COMPOSITOR` widget descriptor only
+The current schema retains the exact fieldless `COMPOSITOR` widget descriptor only
 on concrete `dinkster.compositor`. Its exact empty default is
 `{"version":2,"documentDigest":null,"commands":[]}`. A configured delta binds
 typed canvas, layer, transform, mask-transform, and reorder commands to the

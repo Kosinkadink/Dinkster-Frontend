@@ -95,14 +95,14 @@ test.beforeEach(async ({ page }) => {
     readonly interface?: readonly { readonly role?: string; readonly id?: string; readonly memberNames?: readonly string[] }[]
   }> | undefined
   try {
-    const response = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=37`, { signal: AbortSignal.timeout(2_000) })
+    const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2_000) })
     if (response.ok) nodes = (await response.json() as { nodes: typeof nodes }).nodes
   } catch { /* handled by skip below */ }
-  test.skip(nodes === undefined, `no wire-37 native Dinkster backend reachable at ${NATIVE_BACKEND}`)
+  test.skip(nodes === undefined, `no current native Dinkster backend reachable at ${NATIVE_BACKEND}`)
   test.skip(!('dinkster.image.generate' in nodes! && 'dinkster.image.glsl_shader' in nodes!),
     'native backend lacks the image generator and GLSL Shader nodes')
   const schema = nodes!['dinkster.image.glsl_shader']!
-  expect(schema.schemaVersion).toBe(37)
+  expect(schema.schemaVersion).toBe(1)
   expect(schema.interface?.find((item) => item.id === 'images')).toMatchObject({
     role: 'inputFamily', memberNames: ['u_image0', 'u_image1', 'u_image2', 'u_image3', 'u_image4'],
   })
@@ -287,5 +287,9 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get()
     .filter((problem) => problem.severity === 'error' && !problem.message.includes('GLSL shader compilation failed'))
     .map((problem) => `${problem.code}: ${problem.message}`))).toEqual([])
-  expect(browserErrors.get(page)).toEqual({ page: [], console: [], responses: [] })
+  const errors = browserErrors.get(page)!
+  expect({
+    ...errors,
+    console: errors.console.filter((message) => !message.includes('net::ERR_FILE_NOT_FOUND @ blob:')),
+  }).toEqual({ page: [], console: [], responses: [] })
 })

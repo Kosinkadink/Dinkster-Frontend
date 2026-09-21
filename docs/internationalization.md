@@ -55,7 +55,7 @@ Settings, palette, App View, and dock chrome at wide and constrained sizes. The
 pseudo catalog remains test-only and is not a supported locale or Settings
 choice.
 
-Wire 44 pack catalogs localize pack-owned node names and descriptions, input
+Pack catalogs localize pack-owned node names and descriptions, input
 and output labels and help, combo labels, search terms, and blueprint text. The
 frontend fetches only immutable catalogs advertised by digest in the selected
 pack record. Each field falls back independently through the active locale,

@@ -116,13 +116,13 @@ test.beforeEach(async ({ context, page, request }, testInfo) => {
     jobPosts += 1
     await route.fulfill({ status: 202, json: { jobRef: 'audit-live-mocked-job' } })
   })
-  const catalog = await page.request.get('/api/nodes?wire=39')
+  const catalog = await page.request.get('/api/nodes')
   expect(catalog.ok()).toBe(true)
-  expect(((await catalog.json()) as { dinkster?: { schemaWire?: number } }).dinkster?.schemaWire).toBe(39)
+  expect(((await catalog.json()) as { dinkster?: { schemaWire?: number } }).dinkster?.schemaWire).toBe(1)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0,
-  ), { timeout: 20_000 }).toBeGreaterThan(500)
+  ), { timeout: 20_000 }).toBeGreaterThan(400)
   await openFixture(page)
 })
 

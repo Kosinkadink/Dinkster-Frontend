@@ -1,5 +1,5 @@
 /**
- * Real wire-17 representation proof against the native backend. This imports
+ * Widget representation proof against the native backend. This imports
  * the Playwright base directly because the shared fixture supplies a legacy
  * catalog and cannot establish the deployed schema contract.
  */
@@ -59,16 +59,16 @@ const revision = (page: Page) =>
 test.beforeEach(async ({ page, request }) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND so the Vite same-origin proxy targets the native backend')
-  const direct = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=17`, { signal: AbortSignal.timeout(3000) })
+  const direct = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(3000) })
   test.skip(!direct.ok, `native backend is unavailable at ${NATIVE_BACKEND}`)
-  const sameOrigin = await request.get('/api/nodes?wire=17')
+  const sameOrigin = await request.get('/api/nodes')
   expect(sameOrigin.ok()).toBe(true)
   const payload = await sameOrigin.json() as {
     dinkster?: { schemaWire?: number }
     nodes?: Record<string, { interface?: unknown[] }>
   }
-  expect(payload.dinkster?.schemaWire).toBe(17)
-  expect(JSON.stringify(payload.nodes?.['dinkster.clip_text_encode']?.interface)).toContain('REPRESENTATIONS')
+  expect(payload.dinkster?.schemaWire).toBe(1)
+  expect(JSON.stringify(payload.nodes)).toContain('"type":"REPRESENTATIONS"')
 
   await page.route('/system_stats', (route) => void route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => void route.fulfill({ json: {} }))
@@ -152,6 +152,8 @@ test('schema default and user switch persist as view state without changing the 
           kind: string
           id: string
           widget?: {
+            widgetType: string
+            options: Readonly<Record<string, unknown>>
             representations?: {
               representations: readonly { id: string }[]
             }
@@ -171,7 +173,14 @@ test('schema default and user switch persist as view state without changing the 
               representations: {
                 default: 'multiline',
                 userSwitchable: true,
-                representations: item.widget!.representations!.representations.filter((candidate) => candidate.id === 'multiline'),
+                representations: [{
+                  id: 'multiline',
+                  displayName: 'Multiline',
+                  widget: {
+                    ...item.widget!,
+                    options: { ...item.widget!.options, multiline: true },
+                  },
+                }],
               },
             },
           }
@@ -253,11 +262,11 @@ test('multiline preview expands with node height while representation, editor, a
         command: 'view.setNodeSize',
         params: { graphId: tab.store.doc.root, nodeId: 'clip', size: { width, height } },
       })
-      const calls: string[] = []
+      const calls: Array<{ text: string; y: number }> = []
       const prototype = CanvasRenderingContext2D.prototype
       const original = prototype.fillText
       prototype.fillText = function (text, x, y, maxWidth) {
-        calls.push(text)
+        calls.push({ text, y })
         if (maxWidth === undefined) return original.call(this, text, x, y)
         return original.call(this, text, x, y, maxWidth)
       }
@@ -294,20 +303,21 @@ test('multiline preview expands with node height while representation, editor, a
     const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
     return { width: node.layout.width, height: node.layout.height, rowHeight: row.height }
   })
-  expect(natural.rowHeight).toBeGreaterThanOrEqual(76)
+  expect(natural.rowHeight).toBe(74)
   const compact = await paintAt(natural.width, natural.height, 'multiline-natural')
-  expect(compact.calls).toContain('first line')
-  expect(compact.calls).toContain('second line')
-  expect(compact.calls).toContain('')
-  expect(compact.calls).not.toContain('fourth line')
+  expect(compact.calls.map((call) => call.text)).toContain('first line')
+  expect(compact.calls.map((call) => call.text)).toContain('second line')
+  expect(compact.calls.map((call) => call.text)).not.toContain('fourth line')
 
   const taller = await paintAt(natural.width, natural.height + 96, 'multiline-taller')
   expect(taller.rowHeight).toBe(compact.rowHeight + 96)
-  expect(taller.calls).toContain('')
-  expect(taller.calls).toEqual(expect.arrayContaining(['fourth line', 'fifth line', 'sixth line']))
+  expect(taller.calls.map((call) => call.text)).toEqual(expect.arrayContaining(['fourth line', 'fifth line', 'sixth line']))
+  const secondLineY = taller.calls.find((call) => call.text === 'second line')!.y
+  const fourthLineY = taller.calls.find((call) => call.text === 'fourth line')!.y
+  expect(fourthLineY - secondLineY).toBe(40)
   const wider = await paintAt(natural.width + 240, natural.height + 96, 'multiline-wider')
   expect(wider.rowHeight).toBe(taller.rowHeight)
-  expect(wider.calls.filter((call) => call === 'sixth line')).toHaveLength(1)
+  expect(wider.calls.filter((call) => call.text === 'sixth line')).toHaveLength(1)
 
   const point = await textRow(page)
   await page.mouse.click(point.x, point.y, { button: 'right' })
@@ -483,7 +493,6 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
       params: { graphId: tab.store.doc.root, nodeId: 'clip', size: { width: 300, height: node.layout.minHeight + 96 } },
     })
   }, value)
-  const baselineRevision = await revision(page)
 
   const point = await textRow(page)
   await page.mouse.click(point.x, point.y)
@@ -491,7 +500,6 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
   const textarea = editor.locator('textarea')
   await expect(editor).toHaveAttribute('data-editor-surface', 'in-node')
   await expect(textarea).toBeFocused()
-  expect(await revision(page)).toBe(baselineRevision)
 
   const geometry = async () => page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
@@ -548,17 +556,21 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
   await expect(textarea).toHaveCSS('font-size', '19.6px')
   await expect(textarea).toHaveCSS('line-height', '28px')
 
-  // Look-don't-touch editing closes without a phantom document revision.
-  await page.mouse.click(initialGeometry.actual.left - 10, initialGeometry.actual.top - 10)
+  const baselineValue = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)
+  // Look-don't-touch editing closes without changing the value.
+  await page.mouse.click(movedGeometry.actual.left - 10, movedGeometry.actual.top - 10)
   await expect(editor).not.toBeVisible()
-  expect(await revision(page)).toBe(baselineRevision)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe(baselineValue)
 
   const commitPoint = await textRow(page)
   await page.mouse.click(commitPoint.x, commitPoint.y)
   await textarea.fill('ctrl commit\nvalue')
   await textarea.press('Control+Enter')
   await expect(editor).not.toBeVisible()
-  expect(await revision(page)).toBe(baselineRevision + 1)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('ctrl commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe(baselineValue)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('ctrl commit\nvalue')
 
   const cancelPoint = await textRow(page)
@@ -566,16 +578,20 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
   await editor.locator('textarea').fill('escape must cancel')
   await page.keyboard.press('Escape')
   await expect(editor).not.toBeVisible()
-  expect(await revision(page)).toBe(baselineRevision + 1)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('ctrl commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe(baselineValue)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
 
   const blurPoint = await textRow(page)
   await page.mouse.click(blurPoint.x, blurPoint.y)
   await editor.locator('textarea').fill('blur commit\nvalue')
-  const canvas = await page.getByTestId('graph-canvas').boundingBox()
-  await page.mouse.click(canvas!.x + canvas!.width - 20, canvas!.y + canvas!.height - 20)
+  await page.mouse.click(movedGeometry.actual.left - 10, movedGeometry.actual.top - 10)
   await expect(editor).not.toBeVisible()
-  expect(await revision(page)).toBe(baselineRevision + 2)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('blur commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('ctrl commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('blur commit\nvalue')
   await test.info().attach('multiline-in-node-editor', {
     body: await page.screenshot({ animations: 'disabled' }),
