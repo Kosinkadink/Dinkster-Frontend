@@ -21,7 +21,7 @@ async function install(
   await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'isolated video fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'video-test', schemaWire: 40 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'video-test', schemaWire: 1 }, nodes: {} } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('**/api/values?*', async (route) => {
     const url = new URL(route.request().url())

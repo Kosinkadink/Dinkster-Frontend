@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 test('keeps the no-contract All assets fan-out behavior', async ({ page }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audit-fallback', schemaWire: 22 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audit-fallback', schemaWire: 1 }, nodes: {} } }))
   await page.route('**/api/mounts', (route) => route.fulfill({ json: { mounts: [
     { id: 'alpha', mode: 'read', state: 'ready', kind: 'media/image', entryCount: 1 },
     { id: 'beta', mode: 'read', state: 'ready', kind: 'media/image', entryCount: 1 },

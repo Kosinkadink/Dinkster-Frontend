@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { _electron as electron } from '@playwright/test'
 import backend from '../../desktop/src/backend-release.json' with { type: 'json' }
 import { ENGINE_RELEASE } from '../../desktop/src/release.ts'
-import { DINKSTER_ADVERTISED_WIRE_VERSIONS, parseDinksterNodes } from '../../core/src/schema/dinkster-wire.ts'
+import { parseDinksterNodes } from '../../core/src/schema/dinkster-wire.ts'
 
 const executablePath = process.env.DINKSTER_DESKTOP_EXECUTABLE
 const directory = process.env.DINKSTER_DESKTOP_VERIFY_ROOT
@@ -130,12 +130,12 @@ for (const launch of ['first-run', 'restart', 'mismatched-profile']) {
       return response.json()
     })
     assert.equal(health.state, 'ready')
-    const catalog = await page.evaluate(async (versions) => {
-      const response = await fetch(`/api/nodes?wire=${versions.join(',')}`)
+    const catalog = await page.evaluate(async () => {
+      const response = await fetch('/api/nodes')
       if (!response.ok) throw new Error(`Catalog request failed: ${response.status}`)
       return response.json()
-    }, DINKSTER_ADVERTISED_WIRE_VERSIONS)
-    const parsed = parseDinksterNodes(catalog, DINKSTER_ADVERTISED_WIRE_VERSIONS)
+    })
+    const parsed = parseDinksterNodes(catalog)
     assert.ok(parsed.schemas.size > 0, 'Installed backend must provide usable nodes')
     assert.deepEqual(parsed.diagnostics.filter((entry) => entry.severity === 'error'), [])
     const nativeEnvironments = await inspectNativeEnvironments()

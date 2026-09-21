@@ -26,10 +26,10 @@ test('proves remote COMBO editing implementation consumer states and OOV authori
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'remote-combo-m1-proof', schemaWire: 21 },
+    dinkster: { version: 'remote-combo-m1-proof', schemaWire: 1 },
     packs: { test: { displayName: 'Test' } },
     nodes: { RemoteComboProof: {
-      schemaVersion: 21,
+      schemaVersion: 1,
       nodeType: 'RemoteComboProof',
       displayName: 'Remote COMBO editing implementation',
       category: 'test',

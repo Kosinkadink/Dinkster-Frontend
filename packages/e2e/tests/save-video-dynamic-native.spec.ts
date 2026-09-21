@@ -50,7 +50,7 @@ async function expandAdvanced(page: Page, nodeId: string): Promise<void> {
 }
 
 function assertWireContract(schema: SaveVideoWire): void {
-  expect(schema.schemaVersion).toBe(38)
+  expect(schema.schemaVersion).toBe(1)
   expect(schema.version).toBe(4)
   expect(schema.outputNode).toBe(true)
   expect(schema.executionArms).toContain('native')
@@ -74,7 +74,7 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
     'set DINKSTER_E2E_USE_NATIVE=1 and DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
   test.setTimeout(90_000)
 
-  const catalogResponse = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=38`, {
+  const catalogResponse = await fetch(`${NATIVE_BACKEND}/api/nodes`, {
     signal: AbortSignal.timeout(5_000),
   })
   expect(catalogResponse.ok).toBe(true)
@@ -82,6 +82,10 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
   expect('dinkster.image.generate' in catalog.nodes).toBe(true)
   expect('dinkster.video.assemble' in catalog.nodes).toBe(true)
   assertWireContract(catalog.nodes['dinkster.save_video'] as SaveVideoWire)
+  const mountsResponse = await request.get('/api/mounts')
+  const mounts = mountsResponse.ok() ? await mountsResponse.json() as { mounts?: Array<{ id?: string; name?: string }> } : {}
+  test.skip(!mounts.mounts?.some((mount) => mount.id === 'comfy-output' || mount.name === 'comfy-output'),
+    'native backend has no ready comfy-output mount')
 
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -234,8 +238,9 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
     .map((problem) => `${problem.code}: ${problem.message}`))).toEqual([])
   await expect.poll(() => page.evaluate(() => {
     const executions = [...window.__dinksterTest!.app.store.executions.get().values()]
-    return executions.sort((a, b) => b.queuedAt - a.queuedAt)[0]?.status
-  }), { timeout: 60_000, intervals: [250, 500, 1_000] }).toBe('completed')
+    const execution = executions.sort((a, b) => b.queuedAt - a.queuedAt)[0]
+    return execution === undefined ? undefined : { status: execution.status, errors: execution.errors }
+  }), { timeout: 60_000, intervals: [250, 500, 1_000] }).toEqual({ status: 'completed', errors: [] })
 
   expect(submitted).toBeDefined()
   const submittedNodes = submitted!.graph.nodes as Record<string, {
@@ -335,7 +340,7 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
 
   const evidence = {
     contract: {
-      schemaWire: 38,
+      schemaWire: 1,
       migration: {
         selectionSource: 'dynamic.format.selected',
         selectionDestination: 'values.format',

@@ -17,7 +17,7 @@ const payloadWithTransform = structuredClone(nodesPayload) as unknown as {
   nodes: Record<string, unknown>
 }
 payloadWithTransform.nodes['comfy.ImageInvert'] = {
-  schemaVersion: 14,
+  schemaVersion: 1,
   nodeType: 'comfy.ImageInvert',
   version: 1,
   displayName: 'Image Invert',
@@ -33,7 +33,7 @@ payloadWithTransform.nodes['comfy.ImageInvert'] = {
   signature: 'test-image-invert',
 }
 payloadWithTransform.nodes['comfy.MultiPreview'] = {
-  schemaVersion: 14,
+  schemaVersion: 1,
   nodeType: 'comfy.MultiPreview',
   version: 1,
   displayName: 'Multi Preview',

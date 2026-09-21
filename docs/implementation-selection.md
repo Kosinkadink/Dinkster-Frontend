@@ -30,5 +30,5 @@ an actionable capability error instead of presenting an empty selector. The
 error names and highlights the responsible node, explains the missing
 human-facing capability, and tells the user how to make it available.
 
-Schema wire 38 carries the hidden compatibility marker. Advertised older wire
-versions remain frozen and reject that marker.
+The schema carries the hidden compatibility marker as part of the single
+supported wire contract.

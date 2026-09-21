@@ -5,7 +5,7 @@ const concrete = (type: string) => ({ kind: 'concrete', types: [type] })
 // Exact wire-29 shape of the backend's scalar dinkster.math.expression schema,
 // including its declared expression mirror.
 const mathExpressionNode = {
-  schemaVersion: 29,
+  schemaVersion: 1,
   nodeType: 'dinkster.math.expression',
   version: 1,
   displayName: 'Math Expression',
@@ -49,7 +49,7 @@ const mathExpressionNode = {
 
 const scalarChainNode = (nodeType: string, inputType: string) => ({
   ...mathExpressionNode,
-  schemaVersion: 34,
+  schemaVersion: 1,
   nodeType,
   interface: mathExpressionNode.interface.map((item) => item.role === 'inputFamily'
     ? {
@@ -63,7 +63,7 @@ const scalarChainIntNode = scalarChainNode('e2e.math.expression.scalar-chain-int
 const scalarChainFloatNode = scalarChainNode('e2e.math.expression.scalar-chain-float', 'core.float')
 
 const knownIntNode = {
-  schemaVersion: 34,
+  schemaVersion: 1,
   nodeType: 'e2e.identity.int',
   version: 1,
   displayName: 'Integer',
@@ -81,7 +81,7 @@ const knownIntNode = {
 }
 
 const sinkNode = {
-  schemaVersion: 29,
+  schemaVersion: 1,
   nodeType: 'e2e.mirror.sink',
   displayName: 'Sink',
   category: 'test',
@@ -99,10 +99,10 @@ const sinkNode = {
   ],
 }
 
-const scalarChainSinkNode = { ...sinkNode, schemaVersion: 34 }
+const scalarChainSinkNode = { ...sinkNode, schemaVersion: 1 }
 
 const socketSinkNode = {
-  schemaVersion: 29,
+  schemaVersion: 1,
   nodeType: 'e2e.mirror.socket-sink',
   displayName: 'Socket-only destination',
   category: 'test',
@@ -142,7 +142,7 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-estimates-proof', schemaWire: 29 },
+    dinkster: { version: 'mirror-estimates-proof', schemaWire: 1 },
     nodes: {
       'dinkster.math.expression': mathExpressionNode,
       'e2e.mirror.sink': sinkNode,
@@ -352,7 +352,7 @@ test('scalar estimates propagate through calculated outputs with truthful proven
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'scalar-propagation-proof', schemaWire: 34 },
+    dinkster: { version: 'scalar-propagation-proof', schemaWire: 1 },
     nodes: {
       'e2e.identity.int': knownIntNode,
       'e2e.math.expression.scalar-chain-int': scalarChainIntNode,

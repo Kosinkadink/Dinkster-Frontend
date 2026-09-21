@@ -52,7 +52,7 @@ async function installMockBackend(page: Page, requests: Request[]): Promise<void
   await page.route('**/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'test', schemaWire: 22 },
+    dinkster: { version: 'test', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('**/api/mounts**', async (route) => {

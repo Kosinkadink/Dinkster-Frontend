@@ -66,10 +66,10 @@ test('wire 27 resize groups change visible rows without dropping stored values',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'wire27-conditional-widgets', schemaWire: 27 },
+    dinkster: { version: 'wire27-conditional-widgets', schemaWire: 1 },
     nodes: {
       'dinkster.image.resize': {
-        schemaVersion: 27,
+        schemaVersion: 1,
         nodeType: 'dinkster.image.resize',
         displayName: 'Resize Image',
         category: 'image/geometry',
