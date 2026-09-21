@@ -1,5 +1,12 @@
 import type { SchemaRegistry } from '@dinkster/client'
-import type { InputSpec, InterfaceItem, NodeSchema, PackInfo, WidgetSpec } from '@dinkster/core'
+import {
+  schemaForEditorRole,
+  type InputSpec,
+  type InterfaceItem,
+  type NodeSchema,
+  type PackInfo,
+  type WidgetSpec,
+} from '@dinkster/core'
 
 export interface PackLocalePort {
   readonly displayName?: string
@@ -303,11 +310,13 @@ export function overlayPackLocales(
     ...registry,
     schemas,
     ...(packs === undefined ? {} : { packs }),
-    resolve: (type) => {
+    resolve: Object.assign((type: string) => {
       const canonical = schemas.get(type)
       if (canonical !== undefined) return canonical
       const resolved = registry.resolve(type)
       return resolved === undefined ? undefined : schemas.get(resolved.type)
-    },
+    }, {
+      forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+    }),
   }
 }
