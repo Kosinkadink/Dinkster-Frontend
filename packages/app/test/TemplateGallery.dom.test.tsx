@@ -36,10 +36,20 @@ describe('TemplateGallery', () => {
       ['SD15', 'Stable Diffusion 1.5'],
       ['SDXL', 'Stable Diffusion XL'],
       ['Stable Diffusion XL', 'Stable Diffusion XL'],
+      ['Stable-Diffusion XL', 'Stable Diffusion XL'],
     ] as const) {
       const page = await templatesSource(app).page({ query, limit: 10 })
       expect(page.items.map((entry) => entry.title), query).toEqual([expected])
     }
+    for (const query of ['stable', 'diffusion']) {
+      const page = await templatesSource(app).page({ query, limit: 10 })
+      expect(page.items.map((entry) => entry.title), query).toEqual([
+        'Stable Diffusion 1.5',
+        'Stable Diffusion XL',
+      ])
+    }
+    const diffusion15 = await templatesSource(app).page({ query: 'diffusion 1.5', limit: 10 })
+    expect(diffusion15.items.map((entry) => entry.title)).toEqual(['Stable Diffusion 1.5'])
   })
 
   it('groups templates by family and shows the exact missing model list', async () => {
