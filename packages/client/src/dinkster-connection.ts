@@ -322,6 +322,52 @@ export interface CompatSkip {
 export interface DinksterDiagnostics {
   readonly replacementProblems: readonly ReplacementProblem[]
   readonly compatSkips: readonly CompatSkip[]
+  readonly packInferenceUnavailable: readonly PackInferenceUnavailable[]
+}
+
+/**
+ * A pack whose declared inference entries could not bind: its nodes, routes
+ * and events composed normally, but no native sampling worker was live at
+ * composition, so plan-time use of its sampler/scheduler ids is refused at
+ * composition time (the server's inference.worker-required doctor finding).
+ * Decoded from /api/diagnostics' packInferenceUnavailable list; each row names
+ * its pack in its own ``packId`` field.
+ */
+export interface PackInferenceUnavailable {
+  readonly pack: string
+  readonly reason: string
+  readonly entry?: string
+  readonly worker?: string
+  readonly providers: readonly { readonly registry: string; readonly id: string }[]
+}
+
+function emptyDiagnostics(): DinksterDiagnostics {
+  return { replacementProblems: [], compatSkips: [], packInferenceUnavailable: [] }
+}
+
+function readUnavailableInference(value: unknown): Omit<PackInferenceUnavailable, 'pack'> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record['reason'] !== 'string') return undefined
+  if (record['entry'] !== undefined && typeof record['entry'] !== 'string') return undefined
+  if (record['worker'] !== undefined && typeof record['worker'] !== 'string') return undefined
+  const providers = record['providers']
+  if (!Array.isArray(providers)) return undefined
+  const readable = providers.every((provider) => {
+    if (typeof provider !== 'object' || provider === null || Array.isArray(provider)) return false
+    const row = provider as Record<string, unknown>
+    return typeof row['registry'] === 'string' && typeof row['id'] === 'string'
+  })
+  if (!readable) return undefined
+  return {
+    reason: record['reason'],
+    ...(typeof record['entry'] === 'string' ? { entry: record['entry'] } : {}),
+    ...(typeof record['worker'] === 'string' ? { worker: record['worker'] } : {}),
+    providers: providers.map((provider) => {
+      const row = provider as { registry: string; id: string }
+      return { registry: row.registry, id: row.id }
+    }),
+  }
 }
 
 /** One process-lifetime pack failure retained by GET /api/composition. */
@@ -2110,8 +2156,25 @@ export class DinksterConnection {
   async fetchDiagnostics(): Promise<DinksterDiagnostics> {
     try {
       const res = await this.fetchFn(`${this.baseUrl}/api/diagnostics`)
-      if (!res.ok) return { replacementProblems: [], compatSkips: [] }
-      const raw = (await res.json()) as { replacementProblems?: unknown; compatSkips?: unknown }
+      if (!res.ok) return emptyDiagnostics()
+      const raw = (await res.json()) as {
+        replacementProblems?: unknown
+        compatSkips?: unknown
+        packInferenceUnavailable?: unknown
+      }
+      const packInferenceUnavailable: PackInferenceUnavailable[] = []
+      if (Array.isArray(raw.packInferenceUnavailable)) {
+        for (const value of raw.packInferenceUnavailable) {
+          if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+            continue
+          }
+          const pack = (value as Record<string, unknown>)['packId']
+          const payload = readUnavailableInference(value)
+          if (payload !== undefined && typeof pack === 'string' && pack !== '') {
+            packInferenceUnavailable.push({ pack, ...payload })
+          }
+        }
+      }
       return {
         replacementProblems: Array.isArray(raw.replacementProblems)
           ? raw.replacementProblems.filter(isReplacementProblem)
@@ -2119,9 +2182,10 @@ export class DinksterConnection {
         compatSkips: Array.isArray(raw.compatSkips)
           ? raw.compatSkips.filter(isCompatSkip)
           : [],
+        packInferenceUnavailable,
       }
     } catch {
-      return { replacementProblems: [], compatSkips: [] }
+      return emptyDiagnostics()
     }
   }
 

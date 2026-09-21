@@ -214,4 +214,56 @@ describe('ProblemsPanel', () => {
     expect(html).not.toContain('Compat skips')
     expect(html).toContain('None.')
   })
+
+  it('renders one row per degraded pack with its reason and refused provider ids', () => {
+    const reason = 'No live native sampling worker (dinkster.ksampler) is registered.'
+    const html = renderToString(() => (
+      <ProblemsPanel
+        app={app}
+        diagnostics={() => []}
+        compatSkips={() => []}
+        packInferenceUnavailable={() => [
+          { pack: 'pack.degraded', reason, worker: 'dinkster.ksampler', providers: [
+            { registry: 'sampler', id: 'euler' },
+            { registry: 'scheduler', id: 'beta' },
+          ] },
+          { pack: 'pack.other', reason: 'worker missing', providers: [] },
+        ]}
+      />
+    ))
+
+    expect(html).toContain('Pack inference unavailable')
+    expect(html).toContain('aria-label="Pack inference unavailable"')
+    expect(html).toContain('data-testid="pack-inference-unavailable-group"')
+    expect(html).toContain('data-severity="warning"')
+    expect(html).toContain('These packs composed their nodes, routes and events')
+    expect(html.match(/class="problem inference-unavailable"/g)).toHaveLength(2)
+    expect(html).toContain('<strong>pack.degraded</strong>')
+    expect(html).toContain('<strong>pack.other</strong>')
+    expect(html).toContain(reason)
+    // Provider ids render with a zero-width space after each dot so long
+    // ids wrap on boundaries.
+    expect(html).toContain('sampler.\u200Beuler')
+    expect(html).toContain('scheduler.\u200Bbeta')
+    expect(html).not.toContain('data-activatable')
+    expect(html).not.toContain('None.')
+  })
+
+  it('omits the degraded pack section and keeps the empty state when none are reported', () => {
+    const html = renderToString(() => (
+      <ProblemsPanel app={app} diagnostics={() => []} compatSkips={() => []} packInferenceUnavailable={() => []} />
+    ))
+
+    expect(html).not.toContain('Pack inference unavailable')
+    expect(html).toContain('None.')
+  })
+
+  it('renders no degraded pack section for hosts that do not supply the surface', () => {
+    const html = renderToString(() => (
+      <ProblemsPanel app={app} diagnostics={() => []} compatSkips={() => []} />
+    ))
+
+    expect(html).not.toContain('Pack inference unavailable')
+    expect(html).toContain('None.')
+  })
 })

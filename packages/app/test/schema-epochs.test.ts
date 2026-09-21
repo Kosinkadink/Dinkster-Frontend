@@ -66,6 +66,7 @@ describe('schema_changed epoch invalidation', () => {
     vi.spyOn(backend.connection, 'fetchDiagnostics').mockResolvedValue({
       replacementProblems: [],
       compatSkips: [{ packId: 'comfy', nodeId: 'CreateList', reason: 'unsupported nested marker' }],
+      packInferenceUnavailable: [],
     })
 
     push(backend, { type: 'schema_changed', epoch: 2 })
@@ -90,11 +91,13 @@ describe('schema_changed epoch invalidation', () => {
     resolveNewer({
       replacementProblems: [],
       compatSkips: [{ packId: 'comfy', nodeId: 'Newer', reason: 'newer reason' }],
+      packInferenceUnavailable: [],
     })
     await flush()
     resolveOlder({
       replacementProblems: [],
       compatSkips: [{ packId: 'comfy', nodeId: 'Older', reason: 'older reason' }],
+      packInferenceUnavailable: [],
     })
     await flush()
 
@@ -428,6 +431,7 @@ describe('composition narration and pack failures', () => {
     vi.spyOn(nativeConnection(), 'fetchDiagnostics').mockResolvedValue({
       replacementProblems: [],
       compatSkips: [],
+      packInferenceUnavailable: [],
     })
     vi.mocked(nativeConnection().fetchCompositionFailures).mockResolvedValue([
       { pack: 'dinkster-nodes-generation', error: 'schema-only nodes have no provider' },
@@ -465,6 +469,7 @@ describe('composition narration and pack failures', () => {
     vi.spyOn(nativeConnection(), 'fetchDiagnostics').mockResolvedValue({
       replacementProblems: [],
       compatSkips: [],
+      packInferenceUnavailable: [],
     })
     app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
       { severity: 'error', origin: 'schema', code: 'other.problem', message: 'keep me' },
