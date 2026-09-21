@@ -9,7 +9,6 @@ export default async function waitForNativeComposition(): Promise<void> {
   const url = `${backend}/api/composition`
   const deadline = Date.now() + 180_000
   let lastFailure = 'native backend did not answer'
-  const reloadAttempts = new Map<string, number>()
 
   while (Date.now() < deadline) {
     try {
@@ -25,28 +24,6 @@ export default async function waitForNativeComposition(): Promise<void> {
         if (!composition.composing && packs.length > 0) {
           const failed = packs.filter(([, pack]) => pack.state !== 'announced')
           if (failed.length > 0) {
-            const retryable = process.env['DINKSTER_E2E_RELOAD_FAILED_PACKS'] === '1'
-              ? failed.filter(([packId]) => (reloadAttempts.get(packId) ?? 0) < 3)
-              : []
-            if (retryable.length > 0) {
-              for (const [packId] of retryable) {
-                reloadAttempts.set(packId, (reloadAttempts.get(packId) ?? 0) + 1)
-                const response = await fetch(`${backend}/api/packs/${encodeURIComponent(packId)}/reload`, {
-                  method: 'POST',
-                  signal: AbortSignal.timeout(30_000),
-                })
-                if (!response.ok) {
-                  throw new Error(`reload ${packId} returned ${response.status}: ${await response.text()}`)
-                }
-              }
-              lastFailure = 'retrying packs that announced before their dependencies'
-              await new Promise((resolve) => setTimeout(resolve, 100))
-              continue
-            }
-            if (
-              process.env['DINKSTER_E2E_RELOAD_FAILED_PACKS'] === '1'
-              && failed.every(([packId]) => (reloadAttempts.get(packId) ?? 0) >= 3)
-            ) return
             throw new Error(`native composition failed: ${JSON.stringify(Object.fromEntries(failed))}`)
           }
           return
