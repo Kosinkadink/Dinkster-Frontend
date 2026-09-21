@@ -31,7 +31,7 @@ import {
   type Scene,
   type SceneNode,
 } from '../src/scene.js'
-import { CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, previewSurfaceAffordanceRect, rerouteTargetKey, sceneVisualBounds, widgetRowAffordanceRect, type PresenceActor } from '../src/renderer.js'
+import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, previewSurfaceAffordanceRect, rerouteTargetKey, sceneVisualBounds, widgetRowAffordanceRect, type PresenceActor } from '../src/renderer.js'
 import {
   BADGE_SIZE,
   badgeRect,
@@ -1616,6 +1616,7 @@ describe('diagnostic paint on the live renderer', () => {
     const frame = (setup?: (r: CanvasRenderer) => void) => {
       const { ctx, calls } = recordingCtx()
       const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+      renderer.setCanvasLayers([canvasGridLayer(defaultTokens)])
       renderer.setScene(empty)
       setup?.(renderer)
       renderer.renderNow()
