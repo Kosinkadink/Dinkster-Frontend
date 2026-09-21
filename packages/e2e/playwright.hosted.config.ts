@@ -3,9 +3,12 @@ import { resolve } from 'node:path'
 import { defineConfig } from '@playwright/test'
 import baseConfig from './playwright.config.js'
 
-const selectedProject = process.argv
+const argumentProject = process.argv
   .find((arg) => arg.startsWith('--project='))
   ?.slice('--project='.length)
+if (argumentProject) process.env['DINKSTER_E2E_PROJECT'] = argumentProject
+const selectedProject =
+  argumentProject ?? process.env['DINKSTER_E2E_PROJECT']
 const stubV1Entry = selectedProject === 'native-without-v1' ? '1' : '0'
 const stockV1Only = selectedProject === 'v1-compatibility'
 const probeV1 = stubV1Entry === '1' ? '0' : '1'
