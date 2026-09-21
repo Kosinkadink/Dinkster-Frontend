@@ -42,7 +42,7 @@ const comfyRoot = requiredDirectory('DINKSTER_E2E_COMFY_ROOT')
 const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
 const nativeOutput = resolve(nativeLibrary, 'output')
-if (selectedProject === 'native-without-v1') {
+if (argumentProject) {
   rmSync(nativeLibrary, { recursive: true, force: true })
   mkdirSync(nativeOutput, { recursive: true })
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })

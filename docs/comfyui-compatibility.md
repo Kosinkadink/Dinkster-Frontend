@@ -33,8 +33,9 @@ commit; a fixture passing by itself is not a live compatibility claim.
 
 `pnpm check:v1-boundary` parses every workspace manifest and the static import
 graph. It fails closed on malformed manifests, missing workspaces, syntax
-errors, unresolved local imports, and non-literal dynamic imports. No native
-entry in `packages/core` or `packages/app` may reach `connection.ts`,
+errors, unresolved local imports, and non-literal dynamic imports other than
+explicit Vite external-runtime imports. No native entry in `packages/core` or
+`packages/app` may reach `connection.ts`,
 `events/comfy-v1.ts`, `schema/object-info.ts`, or `schema/compat.ts`. The only
 allowed app edge is the explicit V1 connection-kind entry.
 
@@ -52,6 +53,15 @@ The initial native edges and their dispositions are:
 | `search-filters.ts -> schema/compat.ts`                         | Uses native type compatibility                                     |
 | `value-source.ts -> schema/compat.ts`                           | Uses native type compatibility                                     |
 | `format/import-litegraph-subgraphs.ts -> schema/object-info.ts` | Decodes imported boundary slot types without the V1 schema decoder |
+| `client/index.ts -> connection.ts`                              | Removed; exported only by `@dinkster/client/comfy-v1`              |
+| `client/index.ts -> reconcile.ts`                               | Removed; exported only by `@dinkster/client/comfy-v1`              |
+| `client/collab-connection.ts -> connection.ts`                  | Shared fetch contract moved to `connection-contract.ts`            |
+| `client/credentials.ts -> connection.ts`                        | Shared fetch contract moved to `connection-contract.ts`            |
+| `client/dinkster-connection.ts -> connection.ts`                | Shared connection contracts moved to `connection-contract.ts`      |
+| `client/discovery.ts -> connection.ts`                          | Shared fetch contract moved to `connection-contract.ts`            |
+| `client/supervisor.ts -> connection.ts`                         | Shared fetch contract moved to `connection-contract.ts`            |
+| `client/values.ts -> connection.ts`                             | Shared fetch contract moved to `connection-contract.ts`            |
+| `app/app-state.ts -> client index -> connection/reconcile`      | Replaced by the explicit `v1-connection-kind.ts` edge              |
 
 `packages/client/src/connection.ts` is the optional V1 implementation and is
 intentionally reachable only through `@dinkster/client/comfy-v1`. No native

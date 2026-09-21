@@ -416,9 +416,7 @@ describe('fast pull-request and full validation workflows', () => {
       "argumentProject ?? process.env['DINKSTER_E2E_PROJECT']",
     )
     expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
-    expect(hostedConfig).toContain(
-      "if (selectedProject === 'native-without-v1')",
-    )
+    expect(hostedConfig).toContain('if (argumentProject)')
     expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
     )
