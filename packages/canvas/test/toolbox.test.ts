@@ -10,10 +10,9 @@ import { describe, expect, it } from 'vitest'
 import {
   documentResolver,
   loadDocument,
-  parseObjectInfo,
-  type ObjectInfoEntry,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { boundarySceneId, buildScene, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'

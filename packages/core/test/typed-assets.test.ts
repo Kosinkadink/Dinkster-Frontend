@@ -14,7 +14,7 @@
  * - type variables unify through the asset constructor (asset<T> binds T)
  */
 import { describe, expect, it } from 'vitest'
-import { assetCoercible, coercionTargetsOf, typesCompatible } from '../src/schema/compat.js'
+import { assetCoercible, coercionTargetsOf, typesCompatible } from '../src/schema/type-compatibility.js'
 import { compile } from '../src/compile/compile.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asNodeId, asPortId } from '../src/ids.js'

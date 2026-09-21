@@ -10,10 +10,9 @@ import { describe, expect, it } from 'vitest'
 import {
   documentResolver,
   loadDocument,
-  parseObjectInfo,
-  type ObjectInfoEntry,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import {
   BADGE_RIGHT_INSET,
   BADGE_SIZE,

@@ -137,13 +137,17 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
+    expect(script).toContain("['check:v1-boundary']")
     expect(script).toContain("['typecheck']")
+    expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")
     expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.ts/g)).toEqual([
       'test/format.schema.test.ts',
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
+      'test/object-info.golden.test.ts',
+      'test/events.golden.test.ts',
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
@@ -155,6 +159,7 @@ describe('fast pull-request and full validation workflows', () => {
 
   it('runs every heavy lane through one guarded reusable workflow', async () => {
     expect(full.on).toEqual({
+      pull_request: null,
       push: { branches: ['main'] },
       schedule: [
         { cron: '0 6-22/2 * * *', timezone: 'America/Los_Angeles' },
@@ -192,6 +197,8 @@ describe('fast pull-request and full validation workflows', () => {
       "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true },",
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
+      "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '', pullRequest: true },",
+      "{ name: 'native without V1', project: 'native-without-v1', shard: '', pullRequest: true },",
     ])
     for (const required of [
       "context.eventName !== 'schedule'",
@@ -203,6 +210,8 @@ describe('fast pull-request and full validation workflows', () => {
       'latestDurable?.head_sha === context.sha',
       "context.eventName === 'push'",
       'fullMatrix.filter((entry) => entry.push)',
+      "context.eventName === 'pull_request'",
+      'fullMatrix.filter((entry) => entry.pullRequest)',
       "core.setOutput('e2e-matrix', JSON.stringify({ include: selected }))",
     ])
       expect(planScript).toContain(required)
@@ -265,8 +274,25 @@ describe('fast pull-request and full validation workflows', () => {
     expect(durablePlan.requests).toBe(1)
     expect(durablePlan.outputs['run-heavy']).toBe('false')
     expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
-      7,
+      9,
     )
+    const pullRequestPlan = await executePlan('pull_request', [])
+    expect(pullRequestPlan.requests).toBe(0)
+    expect(JSON.parse(pullRequestPlan.outputs['e2e-matrix']!).include).toEqual([
+      {
+        name: 'stock ComfyUI V1',
+        project: 'v1-compatibility',
+        shard: '',
+        pullRequest: true,
+      },
+      {
+        name: 'native without V1',
+        project: 'native-without-v1',
+        shard: '',
+        pullRequest: true,
+      },
+    ])
+    expect(pullRequestPlan.outputs['run-heavy']).toBe('true')
     expect(
       (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
         .outputs['run-heavy'],
@@ -286,7 +312,7 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(full.jobs['ci']!.needs).toBe('validation-plan')
     expect(full.jobs['ci']!.if).toBe(
-      "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push'",
+      "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push' && github.event_name != 'pull_request'",
     )
     expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
     expect(full.jobs['e2e-suite']!.if).toBe(
@@ -303,6 +329,7 @@ describe('fast pull-request and full validation workflows', () => {
       'fail-fast': false,
       matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
     })
+    expect(full.jobs['e2e-suite']!['timeout-minutes']).toBe(30)
     expect(full.jobs['e2e']!.if).toBe(
       "always() && needs.validation-plan.outputs.run-heavy == 'true'",
     )
@@ -400,6 +427,14 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_PORT: '15420',
           DINKSTER_E2E_NATIVE_PORT: '15421',
         })
+        const recordedFixtures = steps.find(
+          (step) => step.name === 'Replay recorded stock ComfyUI fixtures',
+        )!
+        expect(recordedFixtures.if).toBe("matrix.name == 'stock ComfyUI V1'")
+        expect(recordedFixtures.run).toContain(
+          'test/object-info.golden.test.ts',
+        )
+        expect(recordedFixtures.run).toContain('test/events.golden.test.ts')
       }
     }
     expect(appMain).toContain(
@@ -407,8 +442,64 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
-    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(baseConfig).toContain("name: 'v1-compatibility'")
+    expect(baseConfig).toContain("name: 'native-without-v1'")
+    const nativeWithoutV1Specs =
+      /const NATIVE_WITHOUT_V1_SPECS = \[([\s\S]*?)\n\]/.exec(baseConfig)?.[1]
+    expect(nativeWithoutV1Specs).toBeDefined()
+    for (const spec of [
+      'audit-float-paste-live.spec.ts',
+      'audit-noodle-live.spec.ts',
+      'audit-tap-boundary-live.spec.ts',
+      'audit-widget-parity-live.spec.ts',
+      'fixture-discovery.spec.ts',
+      'import-legacy.spec.ts',
+      'midgraph-preview-live.spec.ts',
+      'native-catalog-decode.spec.ts',
+      'native-catalog-presentation.spec.ts',
+      'native-family-port-quality.spec.ts',
+      'node-help.spec.ts',
+      'rowj-live.spec.ts',
+      'widget-representations-wire17.spec.ts',
+      'widget-value-presentation.spec.ts',
+      'wire43-input-family-combo.spec.ts',
+    ]) {
+      expect(nativeWithoutV1Specs).toContain(`'${spec}'`)
+    }
+    expect(baseConfig.match(/'output-mount-live\.spec\.ts'/g)).toHaveLength(2)
+    expect(baseConfig.match(/'pack-assets-settings\.spec\.ts'/g)).toHaveLength(
+      1,
+    )
+    expect(hostedConfig).toContain(
+      "const probeV1 = stubV1Entry === '1' ? '0' : '1'",
+    )
+    expect(hostedConfig).toContain('VITE_DINKSTER_E2E_PROBE_V1: probeV1')
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
+    expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
+    expect(hostedConfig).toContain(
+      "process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'",
+    )
+    expect(hostedConfig).toContain(
+      "process.env['DINKSTER_E2E_PROJECT'] = argumentProject",
+    )
+    expect(hostedConfig).toContain(
+      "argumentProject ?? process.env['DINKSTER_E2E_PROJECT']",
+    )
+    expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
+    expect(hostedConfig).toContain('if (argumentProject)')
+    expect(hostedConfig).toContain(
+      "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
+    )
+    expect(hostedConfig).toContain(
+      '`--allow-origin http://127.0.0.1:${nativeFrontendPort}`',
+    )
+    expect(hostedConfig).not.toContain("'--no-default-packs'")
+    expect(hostedConfig).toContain(
+      '`--comfy-root ${JSON.stringify(comfyRoot)}`',
+    )
+    expect(hostedConfig).toContain(
+      "`--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`",
+    )
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",

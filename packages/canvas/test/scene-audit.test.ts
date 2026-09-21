@@ -12,11 +12,10 @@ import {
   documentResolver,
   importLitegraph,
   loadDocument,
-  parseObjectInfo,
   type JsonObject,
-  type ObjectInfoEntry,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { auditScene, type SceneFinding } from '../src/scene-audit.js'
 import { buildScene, type Scene, type SceneLink, type SceneNode } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'

@@ -673,5 +673,6 @@ interface DinksterTestBridge {
 }
 
 interface Window {
+  __dinksterV1EntryStubbed?: boolean
   __dinksterTest?: DinksterTestBridge
 }
