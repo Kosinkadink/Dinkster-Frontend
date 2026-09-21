@@ -101,7 +101,7 @@ describe('fast pull-request and full validation workflows', () => {
     })
     expect(Object.keys(fast.jobs)).toEqual(['fast'])
     const job = fast.jobs['fast']!
-    expect(job['timeout-minutes']).toBe(5)
+    expect(job['timeout-minutes']).toBe(10)
     expect(job['runs-on']).toBe(
       '${{ fromJSON(((github.event_name == \'pull_request\' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && \'["ubuntu-latest"]\' || (vars.DINKSTER_PR_RUNNER || \'["self-hosted", "linux", "x64"]\')) }}',
     )
