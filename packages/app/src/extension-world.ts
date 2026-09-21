@@ -3,7 +3,7 @@ import {
   type ConnectionId, type ContributionCategory, type Diagnostic, type EffectiveExtensionSnapshot, type EffectiveFrontendModule,
   type ExtensionEvent, type ExtensionHostOptions, type FrontendPrivilege, type PackActivationApi, type PackManifest, type PackJsonObject,
 } from '@dinkster/core'
-import { createTextWidgetEditorExtensionRegistry, createWidgetRegistry, registerCoreWidgets, type TextWidgetEditorExtension } from '@dinkster/widgets'
+import { createTextWidgetEditorExtensionRegistry, createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors, type TextWidgetEditorExtension } from '@dinkster/widgets'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
 import { HostUiContributionRegistry } from './host-ui.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry } from './settings.js'
@@ -65,7 +65,7 @@ export class ExtensionWorld {
     private readonly target: ExtensionHostOptions<TextWidgetEditorExtension>,
     private readonly report: (diagnostic: Diagnostic) => void = () => {},
   ) {
-    registerCoreWidgets(this.widgets)
+    registerCoreWidgets(widgetRegistrationDoors(this.widgets))
     registerCoreWidgetEditors(this.widgets)
     const menus = createMenuRegistry()
     const text = createTextWidgetEditorExtensionRegistry()
@@ -104,6 +104,7 @@ export class ExtensionWorld {
       registerEditor: (value) => stage(() => () => {}, () => target.registerEditor!(value)),
       registerEditorBinding: (value) => stage(() => () => {}, () => target.registerEditorBinding!(value)),
       registerPanel: (value) => stage(() => () => {}, () => target.registerPanel!(value)),
+      registerVirtualNode: (value) => stage(() => () => {}, () => target.registerVirtualNode!(value)),
       registerEventConsumer: (id, consume) => {
         if (!this.eventBindings.has(id)) throw new Error(`event consumer '${id}' has no snapshot declaration`)
         const consumer: EventConsumer = { consume, queue: [], active: true, draining: false, failed: false }

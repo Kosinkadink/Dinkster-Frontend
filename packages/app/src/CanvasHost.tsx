@@ -130,6 +130,7 @@ import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDispla
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
+import { pendingClipboardText, writeClipboardText } from './clipboard-text.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
@@ -2225,6 +2226,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // Backend schemas + this document's subgraph definitions, one flat list.
   // Extensions add entries by registering schemas, not by patching the UI.
   const paletteEntries = (): PaletteEntry[] => {
+    props.app.extensionRevision.get()
     const entries: PaletteEntry[] = [
       {
         type: '__dinkster.reroute',
@@ -2244,6 +2246,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ],
       })),
     ]
+    for (const kind of props.app.virtualNodeKinds.values()) {
+      entries.push({
+        type: kind.id,
+        name: kind.title,
+        category: 'Notes',
+        ...(kind.description !== undefined ? { description: kind.description } : {}),
+        kind: 'node',
+        schema: kind.schema,
+        fields: nodeSearchFields(kind.schema),
+      })
+    }
     const reg = registry()
     if (reg) {
       for (const s of reg.schemas.values()) {
@@ -3850,16 +3863,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (expectedId === undefined) return
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema: NodeSchema | undefined = entry.schema ?? resolve(entry.type)
+      const virtualKind = props.app.virtualNodeKinds.get(entry.type)
       // Registry state can change after the palette opens. Preserve the old
       // unresolved-node fallback rather than turning that narrow race into a
       // silent no-op; only known schemas can contribute defaults or state.
-      const values = schema ? (defaultValuesOf(schema) as Record<string, Json>) : {}
+      const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record<string, Json>) : {})
       const dynamic = schema ? initialDynamicStateOf(schema) : {}
       const addInvocation = {
         command: 'node.add',
         params: {
           graphId,
           type: entry.type,
+          ...(virtualKind !== undefined ? { virtual: true } : {}),
           position: { x: Math.round(p.worldX), y: Math.round(p.worldY) },
           values,
           ...(Object.keys(dynamic).length > 0 ? { dynamic } : {}),
@@ -4001,13 +4016,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ? updateSceneNodePositions(scene, previousBuild.document, doc, graphId)
         : undefined
       const built = repositioned ?? (() => {
-        const resolve = reg ? documentResolver(doc, reg.resolve) : () => undefined
+        props.app.extensionRevision.get()
+        const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
         return buildScene({
           document: doc,
           seedControllerEnabled,
           graphId,
           resolve,
+          renderVirtualNode: (node) => props.app.virtualNodeKinds.get(node.type)?.render(node),
           tokens: defaultTokens,
           measure,
           widgetMeasure,
@@ -5455,10 +5472,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       const text = JSON.stringify(envelope)
       clipboardFallback = text
-      try { await navigator.clipboard.writeText(text) } catch { /* in-memory fallback remains available */ }
+      await writeClipboardText((value) => navigator.clipboard.writeText(value), text)
     }
 
-    const pasteSelection = async (anchor = pointerWorld, connectInputs = false): Promise<void> => {
+    const pasteSelection = async (
+      anchor = pointerWorld,
+      connectInputs = false,
+      internalText?: string,
+    ): Promise<void> => {
       // Owner capture BEFORE the clipboard await; the helper refuses to
       // commit if the tab closed, navigated, or froze during the read.
       // Selection is a view concern of the CURRENT canvas, so it only
@@ -5478,6 +5499,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       try {
         await pasteClipboardIntoTab({
           readText: async () => {
+            if (internalText !== undefined) return internalText
             try { return await navigator.clipboard.readText() } catch { return clipboardFallback }
           },
           graphId,
@@ -5528,6 +5550,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       if (!tab || frozen()) return
       const graphId = currentGraphId(tab)
+      const internalText = pendingClipboardText()
+      if (internalText !== undefined) {
+        await pasteSelection(anchor, connectInputs, internalText)
+        return
+      }
       const image = await readClipboardImage(() => navigator.clipboard.read())
       if (activeTab() !== tab || currentGraphId(tab) !== graphId || tab.execution !== undefined) return
       if (image === undefined) {

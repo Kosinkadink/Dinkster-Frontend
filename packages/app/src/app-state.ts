@@ -6,6 +6,7 @@
  */
 
 import {
+  CORE_VIRTUAL_NODE_KINDS,
   DINKSTER_ADVERTISED_WIRE_VERSIONS,
   activeLocale,
   analyzeSelectionExecution,
@@ -119,6 +120,7 @@ import {
   type GraphDef,
   type Signal,
   type WorkflowDocument,
+  type VirtualNodeKind,
   type WorkspaceCompileArtifact,
   type WidgetSpec,
   type Vec2,
@@ -201,7 +203,7 @@ import { PanelRegistry, type PanelDescriptor } from './panels.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
-import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY } from './settings.js'
+import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
@@ -359,7 +361,10 @@ const decodeWorkspaceChoices = (value: unknown): readonly SelectorChoice[] | und
   return choices.length === value.length ? choices : undefined
 }
 
-const decodeWorkspaceRegistration = (value: Readonly<Record<string, unknown>>): WorkspaceRegistration | undefined => {
+const decodeWorkspaceRegistration = (
+  value: Readonly<Record<string, unknown>>,
+  isVirtualType: (type: string) => boolean,
+): WorkspaceRegistration | undefined => {
   const ref = decodeWorkspaceExecutionRef(value['ref'])
   const rawArtifact = workspaceOwnedRecord(value['artifact'])
   const timestamp = value['timestamp']
@@ -378,7 +383,7 @@ const decodeWorkspaceRegistration = (value: Readonly<Record<string, unknown>>): 
   const choices = decodeWorkspaceChoices(rawArtifact['choices'])
   if (scope === undefined || choices === undefined || validateDocumentShape(rawArtifact['snapshot']).length > 0) return undefined
   const snapshot = rawArtifact['snapshot'] as WorkflowDocument
-  if (rawArtifact['semanticHash'] !== semanticHashOf(snapshot)) return undefined
+  if (rawArtifact['semanticHash'] !== semanticHashOf(snapshot, isVirtualType)) return undefined
   const artifact = projectWorkspaceCompileArtifact(rawArtifact as unknown as CompileArtifact)
   return {
     ref,
@@ -2388,6 +2393,14 @@ export class AppState {
   readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
   private readonly extensionEditorIds = new Set<string>()
   readonly frontendDoors = {
+    widgetKind: (_id: string, kind: Parameters<typeof this.widgetRegistry.registerKind>[0]): (() => void) =>
+      this.widgetRegistry.registerKind(kind),
+    widgetView: (_id: string, view: Parameters<typeof this.widgetRegistry.registerView>[0]): (() => void) =>
+      this.widgetRegistry.registerView(view),
+    previewRenderer: (_id: string, renderer: Parameters<typeof this.widgetRegistry.registerPreviewRenderer>[0]): (() => void) =>
+      this.widgetRegistry.registerPreviewRenderer(renderer),
+    command: (id: string, command: Omit<AppCommand, 'id'>): (() => void) =>
+      this.commands.register(descriptorWithId(id, command)),
     editor: (id: string, kind: Omit<EditorKindDescriptor, 'id'> | ExtensionEditorKind): (() => void) =>
       'component' in kind
         ? this.editors.register(descriptorWithId(id, kind))
@@ -2406,14 +2419,37 @@ export class AppState {
    * Gate overrides persist locally (browser storage), so a disabled panel
    * stays disabled across sessions.
    */
-  private readonly extensionRevision = createSignal(0)
+  readonly extensionRevision = createSignal(0)
+  readonly virtualNodeKinds = new Map(CORE_VIRTUAL_NODE_KINDS.map((kind) => [kind.id, kind]))
+  virtualNodeSchema(type: string): NodeSchema | undefined {
+    return this.virtualNodeKinds.get(type)?.schema
+  }
+  private readonly virtualSchemaResolvers = new WeakMap<CompileInput['resolve'], CompileInput['resolve']>()
+  private resolverWithVirtualNodes(fallback: CompileInput['resolve']): CompileInput['resolve'] {
+    let resolver = this.virtualSchemaResolvers.get(fallback)
+    if (resolver === undefined) {
+      resolver = (type) => this.virtualNodeSchema(type) ?? fallback(type)
+      this.virtualSchemaResolvers.set(fallback, resolver)
+    }
+    return resolver
+  }
+  private registerVirtualNode(kind: VirtualNodeKind): () => void {
+    if (this.virtualNodeKinds.has(kind.id)) throw new Error(`virtual node kind '${kind.id}' is already registered`)
+    this.virtualNodeKinds.set(kind.id, kind)
+    this.extensionRevision.update((revision) => revision + 1)
+    return () => {
+      if (this.virtualNodeKinds.get(kind.id) !== kind) return
+      this.virtualNodeKinds.delete(kind.id)
+      this.extensionRevision.update((revision) => revision + 1)
+    }
+  }
   private readonly extensionTargets: ExtensionHostOptions<TextWidgetEditorExtension> = {
     changedSignal: this.extensionRevision,
     menus: this.menuRegistry,
     widgets: this.widgetRegistry,
     registerTextEditorExtension: (extension) => this.textEditorExtensionRegistry.register(extension),
     registerSetting: (setting) => this.settings.register(setting),
-    registerCommand: (command) => this.commands.register(command),
+    registerCommand: (command) => this.frontendDoors.command(command.id, command),
     registerKeybinding: (binding) => this.keybindings.register(binding),
     registerHostUi: (id, slot, provider, order, title) => this.hostUiContributions.register(id, slot, provider, order, title),
     invalidateHostUi: (id) => this.hostUiContributions.invalidate(id),
@@ -2421,6 +2457,7 @@ export class AppState {
     registerEditor: (kind) => this.frontendDoors.editor(kind.id, kind),
     registerEditorBinding: (binding) => this.frontendDoors.editorBinding(binding.id, binding),
     registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
+    registerVirtualNode: (kind) => this.registerVirtualNode(kind),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()
@@ -2862,7 +2899,7 @@ export class AppState {
     })
     const activeTabNow = () => this.activeTab()
     const register = (id: string, labelKey: string, combo: string, run: () => void, enabled?: () => boolean) => {
-      this.commands.register({ id, get label() { return t(labelKey) }, run, ...(enabled ? { enabled } : {}) })
+      this.frontendDoors.command(id, { get label() { return t(labelKey) }, run, ...(enabled ? { enabled } : {}) })
       this.keybindings.register({ command: id, combo })
     }
     register('workflow.queue', 'command.workflow.queue', 'Ctrl+Enter', () => { const tab = activeTabNow(); if (tab) void this.queue(tab) })
@@ -2873,13 +2910,11 @@ export class AppState {
     register('workflow.open', 'command.workflow.open', 'Ctrl+O', () => {
       setPanelOpen(this.panels, this.dock, 'library', 'left', true)
     })
-    this.commands.register({
-      id: 'workflow.importFile',
+    this.frontendDoors.command('workflow.importFile', {
       get label() { return t('command.workflow.importFile') },
       run: () => this.openWorkflowFilePicker(),
     })
-    this.commands.register({
-      id: 'workflow.export',
+    this.frontendDoors.command('workflow.export', {
       get label() { return t('command.workflow.export') },
       run: () => { const tab = activeTabNow(); if (tab) this.exportWorkflow(tab.id) },
       enabled: () => {
@@ -2921,15 +2956,13 @@ export class AppState {
       const schema = this.registryForTab(target.tab)?.resolve(target.type)
       return schema?.hasDocs === true && schema.pack !== undefined && this.backendForTab(target.tab).protocol === 'dinkster'
     })
-    this.commands.register({
-      id: 'subgraph.createEmpty',
+    this.frontendDoors.command('subgraph.createEmpty', {
       get label() { return t('command.subgraph.createEmpty') },
       run: () => this.canvasBridge.get()?.createEmptySubgraph?.(),
       enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createEmptySubgraph !== undefined,
     })
     for (const kind of ['map', 'fold', 'while'] as const) {
-      this.commands.register({
-        id: `region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`,
+      this.frontendDoors.command(`region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`, {
         get label() { return t(`command.region.create.${kind}`) },
         run: () => this.canvasBridge.get()?.createRegion?.(kind),
         enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createRegion !== undefined,
@@ -2949,8 +2982,7 @@ export class AppState {
       () => this.canvasBridge.get()?.flattenSubgraph?.(),
       () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.canFlattenSubgraph?.() === true,
     )
-    this.commands.register({
-      id: 'subgraph.manageDefinitions',
+    this.frontendDoors.command('subgraph.manageDefinitions', {
       get label() { return t('command.subgraph.manageDefinitions') },
       run: () => this.modalPanel.set('subgraph-definitions'),
       enabled: () => activeTabNow() !== undefined && activeTabNow()?.execution === undefined,
@@ -2960,13 +2992,11 @@ export class AppState {
     // The bridge intentionally falls back to fitting the whole scene when
     // there is no selection, so selection emptiness does not disable this.
     register('view.fitSelection', 'command.view.fitSelection', '.', () => this.canvasBridge.get()?.fitSelection(), () => this.canvasBridge.get() !== undefined)
-    this.commands.register({
-      id: 'layout.customize',
+    this.frontendDoors.command('layout.customize', {
       get label() { return t('command.layout.customize') },
       run: () => this.modalPanel.set('customize-layout'),
     })
-    this.commands.register({
-      id: 'backend.open',
+    this.frontendDoors.command('backend.open', {
       get label() { return t('command.backend.open') },
       run: () => { setPanelOpen(this.panels, this.dock, 'backends', 'left', true) },
     })
@@ -2976,7 +3006,7 @@ export class AppState {
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
-    registerCoreWidgets(this.widgetRegistry)
+    registerCoreWidgets(this.frontendDoors)
     registerCoreWidgetEditors(this.widgetRegistry)
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
     for (const contribution of coreMenuContributions()) this.menuRegistry.register(contribution)
@@ -3565,10 +3595,10 @@ export class AppState {
   private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
-    const resolve = (type: string): NodeSchema | undefined => {
+    const resolve = this.resolverWithVirtualNodes((type) => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live)?.resolve(type) : undefined
-    }
+    })
     let session: SharedDocumentSession | undefined
     try {
       session = await connectSharedWorkerSession(
@@ -4664,6 +4694,7 @@ export class AppState {
     for (const graph of Object.values(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       if (
         node.type.startsWith('#') ||
+        (node.virtual === true && this.virtualNodeSchema(node.type)?.virtual === true) ||
         registry.resolve(node.type) ||
         registry.comfyAliases?.sourceSchemas.has(node.type) === true ||
         registry.comfyGroups?.groupSchemas.has(node.type) === true
@@ -5245,13 +5276,13 @@ export class AppState {
     store?: DocumentSession,
     initialRegistry?: SchemaRegistry,
   ): Tab {
-    const resolve = (type: string): NodeSchema | undefined => {
+    const resolve = this.resolverWithVirtualNodes((type) => {
       // Frozen tabs resolve with their execution's compile-time registry; a
       // lineage lookup would hand them the LIVE tab's current schemas.
       if (execution) return this.registryForExecution(execution)?.resolve(type)
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
       return (tab ? this.registryForTab(tab) : initialRegistry)?.resolve(type)
-    }
+    })
     return {
       id: execution ? `frozen:${executionKey(execution)}` : document.lineage,
       title,
@@ -5739,17 +5770,15 @@ export class AppState {
     // and errors need ingress, which needs the session to exist.
     let owner: string | undefined
     const report = (d: Diagnostic) => this.reportProblems(owner ?? GLOBAL_PROBLEMS_OWNER, [d])
+    const resolve = this.resolverWithVirtualNodes((type) => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
+      return tab ? this.registryForTab(tab)?.resolve(type) : undefined
+    })
     let session: SharedDocumentSession
     try {
-      session = await connectSharedSession(connection, coreCommandRegistry([], (type) => {
-        const tab = this.tabs.get().find((c) => !c.execution && c.store.doc.lineage === owner)
-        return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-      }), {
+      session = await connectSharedSession(connection, coreCommandRegistry([], resolve), {
         actorId,
-        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, (type) => {
-          const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === owner)
-          return tab ? this.registryForTab(tab)?.resolve(type) : undefined
-        }),
+        schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
             `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
@@ -7309,7 +7338,7 @@ export class AppState {
     return {
       document: tab.store.doc,
       revision: tab.store.revision,
-      resolve: registry.resolve,
+      resolve: this.resolverWithVirtualNodes(registry.resolve),
       scope,
       connection: backend.id,
       schemaHash: registry.hash,
@@ -7431,7 +7460,10 @@ export class AppState {
     const def = tab.store.doc.graphs[tab.store.doc.root]
     const registry = this.registryForTab(tab)
     if (!def || !registry) return undefined
-    const analysis = analyzeSelectionExecution(def, nodeIds)
+    const analysis = analyzeSelectionExecution(def, nodeIds.filter((id) => {
+      const node = def.nodes[id]
+      return node?.virtual !== true || this.virtualNodeKinds.get(node.type)?.schema.virtual !== true
+    }))
     if (analysis.selected.size === 0) return { analysis }
     const resolve = documentResolver(tab.store.doc, registry.resolve)
     const expand = (nodeId: string, outputsOnly: boolean): Occurrence[] => {
@@ -7731,7 +7763,10 @@ export class AppState {
       return
     }
     if (raw['kind'] !== 'register') return
-    const registration = decodeWorkspaceRegistration(raw)
+    const registration = decodeWorkspaceRegistration(
+      raw,
+      (type) => this.virtualNodeSchema(type)?.virtual === true,
+    )
     if (registration === undefined) return
     const key = executionKey(registration.ref)
     this.pendingWorkspaceRegistrations.delete(key)
@@ -8367,7 +8402,10 @@ export class AppState {
   private semanticHashOfTab(tab: Tab): string {
     const cached = this.hashCache.get(tab)
     if (cached && cached.revision === tab.store.revision) return cached.hash
-    const hash = semanticHashOf(tab.store.doc)
+    const hash = semanticHashOf(
+      tab.store.doc,
+      (type) => this.virtualNodeSchema(type)?.virtual === true,
+    )
     this.hashCache.set(tab, { revision: tab.store.revision, hash })
     return hash
   }

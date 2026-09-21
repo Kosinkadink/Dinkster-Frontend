@@ -18,10 +18,10 @@
  *   from widgets_values; the effective spec derives from consumers, exactly
  *   how the legacy node adopted its widget - architecture 5b). Backend
  *   PrimitiveInt/Float/... are ordinary compute nodes and import as nodes.
- * - Note/MarkdownNote nodes: preserved under view ext (not rendered yet)
+ * - Note/MarkdownNote nodes: translated to frontend virtual nodes
  * - groups: imported as view groups
- * - node sizes are NOT imported: the row model auto-sizes; manual resize
- *   remains available but stale litegraph pixel sizes would fight it
+ * - node sizes are not imported for executable nodes; note geometry is
+ *   presentation authored by the user and is preserved
  */
 
 import { canonicalJson } from '../compile/hash.js'
@@ -81,6 +81,8 @@ interface LgNode {
   }>
   readonly widgets_values?: readonly Json[] | Readonly<Record<string, Json>>
   readonly properties?: JsonObject
+  readonly color?: string
+  readonly bgcolor?: string
 }
 
 /** [id, fromNode, fromSlot, toNode, toSlot, type] */
@@ -1724,7 +1726,6 @@ function importLitegraphGraph(
   // -- Nodes ------------------------------------------------------------------
   const nodes: Record<string, Json> = {}
   const viewNodes: Record<string, NodeViewState> = {}
-  const notes: Json[] = []
   const importedInputEndpoints = new Map<number, Map<number, JsonObject>>()
   const importedOutputEndpoints = new Map<number, Map<number, JsonObject>>()
   let maxOrdinal = 0
@@ -1745,7 +1746,23 @@ function importLitegraphGraph(
     if (PRIMITIVE_TYPES.has(n.type)) continue // materialized as value sources below
     if (NOTE_TYPES.has(n.type)) {
       const text = Array.isArray(n.widgets_values) ? n.widgets_values[0] : undefined
-      notes.push({ position: posOf(n), text: typeof text === 'string' ? text : '' })
+      const id = `n${n.id}`
+      nodes[id] = {
+        id,
+        type: n.type === 'MarkdownNote' ? 'dinkster.markdown_note' : 'dinkster.note',
+        virtual: true,
+        values: { text: typeof text === 'string' ? text : '' },
+        ...(n.title !== undefined ? { title: n.title } : {}),
+      }
+      const size = n.size
+      const sizeObject = size as Readonly<Record<string, number>> | undefined
+      const width = Array.isArray(size) ? size[0] : sizeObject?.['0']
+      const height = Array.isArray(size) ? size[1] : sizeObject?.['1']
+      viewNodes[id] = {
+        position: posOf(n),
+        ...(typeof width === 'number' && typeof height === 'number' ? { size: { width, height } } : {}),
+        ...(typeof n.color === 'string' || typeof n.bgcolor === 'string' ? { color: n.color ?? n.bgcolor } : {}),
+      }
       continue
     }
 
@@ -2239,10 +2256,6 @@ function importLitegraphGraph(
       }
     }
   }
-  if (notes.length > 0) {
-    diags.push(imp('info', 'import.notes.parked', `${notes.length} note(s) preserved under view ext (not rendered yet)`))
-  }
-
   // Native (non-node) litegraph reroutes live in extra.reroutes as pure
   // geometry waypoints; the links themselves are still direct node-to-node,
   // so dropping them loses layout only, never topology.
@@ -2282,7 +2295,6 @@ function importLitegraphGraph(
           ...(Object.keys(viewReroutes).length > 0 ? { reroutes: viewReroutes } : {}),
           ...(Object.keys(viewValueSources).length > 0 ? { valueSources: viewValueSources } : {}),
           ...(Object.keys(groups).length > 0 ? { groups } : {}),
-          ...(notes.length > 0 ? { ext: { 'importer.notes': notes } } : {}),
         },
       },
     },

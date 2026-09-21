@@ -108,6 +108,7 @@
   "assets.source.kind.video": "Videos",
   "assets.source.label": "Source",
   "assets.source.mountDetail": "Mount {id}",
+  "assets.source.scanProgress": "Indexed {filesDone}/{filesTotal} files, {bytesDone}/{bytesTotal}, {elapsed}s elapsed",
   "assets.source.section.inputOutput": "Input/Output",
   "assets.source.section.media": "Media",
   "assets.source.section.models": "Models",

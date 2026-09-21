@@ -31,6 +31,7 @@ interface Workflow {
   on: Record<string, unknown>
   permissions: Record<string, string>
   concurrency?: Record<string, string>
+  env?: Record<string, string>
   jobs: Record<string, Job>
 }
 const load = async (name: string): Promise<Workflow> =>
@@ -49,6 +50,10 @@ const hostedConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.hosted.config.ts'),
   'utf8',
 )
+const extensionContractConfig = await readFile(
+  resolve(root, 'packages/e2e/playwright.extension-contract.config.ts'),
+  'utf8',
+)
 const baseConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.config.ts'),
   'utf8',
@@ -62,8 +67,17 @@ const testingDocs = (
 ).replace(/\r?\n/g, ' ')
 
 describe('fast pull-request and full validation workflows', () => {
+  it('pins both workflows to the same backend commit', () => {
+    expect(fast.env?.['DINKSTER_REF']).toMatch(/^[0-9a-f]{40}$/)
+    expect(full.env?.['DINKSTER_REF']).toBe(fast.env?.['DINKSTER_REF'])
+  })
+
   it('runs exactly one bounded job without a PR label path', () => {
     expect(fast.on).toEqual({ pull_request: null, workflow_dispatch: null })
+    expect(fast.concurrency).toEqual({
+      group: 'ci-${{ github.workflow }}-${{ github.ref }}',
+      'cancel-in-progress': true,
+    })
     expect(Object.keys(fast.jobs)).toEqual(['fast'])
     const job = fast.jobs['fast']!
     expect(job['timeout-minutes']).toBe(5)
@@ -93,6 +107,7 @@ describe('fast pull-request and full validation workflows', () => {
       'test/dinkster-inline-value.test.ts',
       'test/ci-workflow.test.ts',
       'test/published-verification.test.ts',
+      'test/extension-dogfooding.test.ts',
     ])
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
@@ -113,7 +128,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.concurrency).toEqual({
       group:
         "ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && 'push' || 'durable' }}",
-      'cancel-in-progress': "${{ github.event_name == 'push' }}",
+      'cancel-in-progress': false,
     })
     expect(Object.keys(full.jobs)).toEqual([
       'validation-plan',
@@ -233,6 +248,10 @@ describe('fast pull-request and full validation workflows', () => {
     expect(testingDocs).toContain(
       '`on.schedule` cron list in that file is the single schedule definition',
     )
+    expect(testingDocs).toContain(
+      'one active push run and only the newest pending push run',
+    )
+    expect(testingDocs).toContain('git merge-base --is-ancestor')
     expect(full.jobs['e2e-suite']!.strategy).toEqual({
       'fail-fast': false,
       matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
@@ -321,18 +340,45 @@ describe('fast pull-request and full validation workflows', () => {
         expect(compatibilityInstall.run).toContain(
           'dinkster-kitchen dinkster-aimdo sentencepiece tokenizers',
         )
+        const extensionProof = steps.find(
+          (step) =>
+            step.name === 'Prove the ordinary third-party pack contract',
+        )!
+        expect(extensionProof.if).toBe("matrix.name == 'backend serial 1/2'")
+        expect(extensionProof.run).toContain(
+          'playwright.extension-contract.config.ts',
+        )
+        expect(extensionProof.env).toEqual({
+          DINKSTER_E2E_DINKSTER_ROOT: '${{ github.workspace }}/.ci/Dinkster',
+          DINKSTER_E2E_PORT: '15420',
+          DINKSTER_E2E_NATIVE_PORT: '15421',
+        })
       }
     }
     expect(appMain).toContain(
       "probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1'",
     )
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
+    expect(extensionContractConfig).toContain("'--no-default-packs'")
+    expect(extensionContractConfig).toContain(
+      "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
+    )
+    expect(hostedConfig).toContain(
+      "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
+    )
+    expect(hostedConfig).not.toContain("'--dev'")
     expect(auditConfig).toContain(
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
     expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(auditConfig).toContain(
+      "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
+    )
+    expect(auditConfig).not.toContain("'--dev'")
   })
 
   it('validates the exact desktop release commit before publication', () => {

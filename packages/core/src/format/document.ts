@@ -306,6 +306,8 @@ export interface NodeData {
    * schema is derived from the definition boundary.
    */
   readonly type: string
+  /** Frontend-owned document node excluded from execution. */
+  readonly virtual?: true
   /** Input values keyed by schema input id. Only present for widget-backed inputs. */
   readonly values: Readonly<Record<string, Json>>
   /** Controller modes keyed by input id (only inputs whose spec has a controller slot). */

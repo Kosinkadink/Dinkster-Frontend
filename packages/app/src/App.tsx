@@ -1611,13 +1611,11 @@ export function App(props: {
     queueMicrotask(() => document.getElementById(splitPanelDomId(next.id))?.focus())
   }
   const unregisterGroupFocus = [
-    app.commands.register({
-      id: 'view.focusNextEditorGroup',
+    app.frontendDoors.command('view.focusNextEditorGroup', {
       get label() { return message('command.view.focusNextEditorGroup') },
       run: () => focusEditorGroupByOffset(1),
     }),
-    app.commands.register({
-      id: 'view.focusPreviousEditorGroup',
+    app.frontendDoors.command('view.focusPreviousEditorGroup', {
       get label() { return message('command.view.focusPreviousEditorGroup') },
       run: () => focusEditorGroupByOffset(-1),
     }),

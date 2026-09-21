@@ -103,6 +103,7 @@
     "text:() const [mounts, setMounts] = createSignal",
     "text:() const [sourceFailures, setSourceFailures] = createSignal",
     "text:([]) const [discoveryError, setDiscoveryError] = createSignal",
+    "text:= 1024 && unit",
     "text:if (state.kind === 'error') return",
     "text:if (state.kind === 'no-compatible') return",
     "text:if (state.kind === 'no-match') return",
@@ -280,7 +281,7 @@
     "text:rect.right || e.clientY",
     "text:root-graph node ids (a subgraph instance is \"in // scope\" when ANY of its inner occurrences is). const rootIds = new Set",
     "text:schemas from this run are unavailable - nodes render without definitions",
-    "text:undefined const schema: NodeSchema | undefined = entry.schema ?? resolve(entry.type) // Registry state can change after the palette opens. Preserve the old // unresolved-node fallback rather than turning that narrow race into a // silent no-op; only known schemas can contribute defaults or state. const values = schema ? (defaultValuesOf(schema) as Record"
+    "text:undefined const schema: NodeSchema | undefined = entry.schema ?? resolve(entry.type) const virtualKind = props.app.virtualNodeKinds.get(entry.type) // Registry state can change after the palette opens. Preserve the old // unresolved-node fallback rather than turning that narrow race into a // silent no-op; only known schemas can contribute defaults or state. const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record"
   ],
   "CanvasSemanticNavigator.tsx": [
     "attribute:aria-label:Canvas scene navigator",

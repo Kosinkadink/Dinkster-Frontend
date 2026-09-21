@@ -9,9 +9,17 @@ After `pnpm install --frozen-lockfile`, reproduce it with:
 pnpm ci:fast
 ```
 
-This command runs the existing `check-ui-strings` and `typecheck` scripts
-(the latter also runs `check-path-case`) and a fixed unit subset. Its
-Prettier check is limited to `scripts/ci-fast.mjs` and
+This command runs `check-extension-literals`, `check-ui-strings`, and
+`typecheck` (the latter also runs `check-path-case`) and a fixed unit subset.
+The extension check pins every intentional backend node-id literal and widget
+type comparison to an exact source location, owning issue, and non-increasing
+ceiling. The committed ceilings are 20 node-id literals and 100 widget-type
+comparisons; new and stale entries fail the check, and raising a ceiling
+requires an explicit reviewed edit. After merging main, run
+`node scripts/check-extension-literals.mjs --write`, review that only expected
+line or column coordinates changed and no ceiling changed, then run
+`pnpm ci:fast`. The Prettier check is limited
+to `scripts/ci-fast.mjs` and
 `packages/desktop/test/ci-workflow.test.ts`; it does not impose formatting
 on existing application files. There is no repository-wide formatter or
 linter configuration.
@@ -29,8 +37,10 @@ The subset uses synthetic inputs and checked-in fixtures:
 - Desktop `published-verification.test.ts`: read-only release verification
   contracts, without installing or launching a published application. Its
   existing Windows-only safety cases stay platform-gated.
-- `scripts/check-ui-strings.test.mjs` and `scripts/check-path-case.test.mjs`:
-  regression tests for source checks.
+- App `extension-dogfooding.test.ts`: built-in widget, command, and editor
+  registrations use the same public doors available to packs.
+- `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
+  and `scripts/check-path-case.test.mjs`: regression tests for source checks.
 
 Selection does not depend on changed files, labels, model availability or a
 running service. The job defaults to `[self-hosted, linux, x64]`; repository
@@ -45,9 +55,16 @@ dispatch, and when called by the desktop release workflow. The `on.schedule`
 cron list in that file is the single schedule definition; change its first
 cron line to change the two-hour cadence. Scheduled runs skip the heavy jobs
 when the latest successful durable main run already validated the same commit;
-reduced push runs do not satisfy that check. Push runs cancel superseded push
-runs, while scheduled and called runs use a separate non-cancelling concurrency
-group. To test an unmerged branch that contains the workflow:
+reduced push runs do not satisfy that check. Main pushes use one non-cancelling
+concurrency group. GitHub keeps one active push run and only the newest pending
+push run, replacing older pending runs as new commits arrive. A merge whose
+pending run is replaced is covered by the next completed run at a descendant
+head. Find candidate runs in the Actions `Full validation` history, then confirm
+coverage from a local clone with
+`git merge-base --is-ancestor <merge-sha> <run-head-sha>`. Scheduled,
+dispatched and release-called runs use a separate non-cancelling durable group,
+so push traffic neither queues nor replaces them. To test an unmerged branch
+that contains the workflow:
 
 ```bash
 gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <branch>
@@ -62,12 +79,12 @@ and each remains behind its host's counted-suite launcher so Actions and owner
 gates share one admission limit. The jobs retain their existing assertions
 and dependency pins:
 
-| Job | Checks |
-| --- | --- |
-| `fast` | Push-only formatting, typecheck, UI-string and contract subset |
-| `ci` | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite |
-| `e2e-suite` | Two representative lanes on pushes; four parallel-safe shards, two backend-serial shards and the performance browser job for durable runs |
-| `e2e` | Always evaluates the aggregate and requires every E2E matrix leg to succeed |
+| Job         | Checks                                                                                                                                                                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fast`      | Push-only formatting, typecheck, UI-string and contract subset                                                                                                                                                                                        |
+| `ci`        | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                          |
+| `e2e-suite` | Two representative lanes on pushes; four parallel-safe shards, two backend-serial shards and the performance browser job for durable runs. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
+| `e2e`       | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                           |
 
 `release-desktop.yml` calls full validation before its release job, so the
 exact selected main commit must pass before publication begins.
@@ -78,7 +95,12 @@ clean checkouts without persisted credentials, counted-suite launcher and
 pinned Dinkster checkout and uses frontend/native ports 15376/15377. Full E2E
 uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
 compatibility dependencies into the pinned ComfyUI interpreter used by its
-full composition. Both run inside the isolated network. Base, hosted and audit
+full composition. Its contract proof separately starts Dinkster with
+`--no-default-packs --pack tests/fixtures/extension-contract-pack/dinkster-pack.toml`
+on ports 15420/15421, activates the fixture pack's immutable frontend module,
+renders two custom nodes linked through the pack's custom value type, executes
+the consumer, and observes its typed route and event in host-owned UI.
+Both browser modes run inside the isolated network. Base, hosted and audit
 Playwright servers explicitly enable the v1 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing
 development server is reused or stopped.
