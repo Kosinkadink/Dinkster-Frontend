@@ -663,7 +663,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2747,
+      "line": 2716,
       "column": 37,
       "symbol": "widgetType:string",
       "issue": 122
@@ -671,7 +671,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2759,
+      "line": 2728,
       "column": 9,
       "symbol": "widgetType:string",
       "issue": 122

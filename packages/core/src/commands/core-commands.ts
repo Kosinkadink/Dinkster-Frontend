@@ -19,7 +19,7 @@
  */
 
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
-import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
+import { type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import { PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
 import { NET_VIEWS_EXT_KEY, removeNetViewPositions, updateNetViewPositions, type NetViewGeometry, type NetViewPosition } from '../format/net-views.js'
 import { canonicalTypeIdOf, inputsOf, isImageAssetInput, outputCountInputsOf, outputsOf, type CountBoundOutputAutogrowSpec, type NodeSchema } from '../schema/model.js'
@@ -31,7 +31,7 @@ import { asDynamicMemberId, asNodeId, asPortId, asSelectorId, isPortEndpoint, is
 import { subgraphDefIdOf } from '../invariants.js'
 import { allocateOne, graphAllocator } from './alloc.js'
 import { buildRerouteIndex, rerouteDriverOf, wouldCreateRerouteCycle, wouldCreateSelectorCycle, wouldCreateTapCycle } from '../reroute.js'
-import { createTransactionBuilder, executeCommand, type CommandDefinition, type CommandExecutionContext, type TransactionBuilder } from './contract.js'
+import { createTransactionBuilder, executeCommand, type CommandDefinition, type TransactionBuilder } from './contract.js'
 import { BOUNDARY_COMMANDS } from './boundary-commands.js'
 import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
 import { DYNAMIC_COMMANDS } from './dynamic-commands.js'
@@ -46,21 +46,13 @@ import { occurrenceBoundaryTargets, occurrenceEndpointReferencesDefinition } fro
 import { pruneNetDisplayState, removeAuthoredNetViews, removeNetDeliverySuppressions, removeProjectedLinkSuppressions } from './occurrence-cleanup.js'
 import { spliceDiff, transformSplice } from './text-splice.js'
 import { registeredExtensionCommands } from '../extensions/commands/registry.js'
-
-const err = (code: string, message: string, refs?: readonly DiagnosticRef[]): Diagnostic =>
-  diag('error', 'command', code, message, refs === undefined ? undefined : { refs })
-
-const isObj = (v: Json | undefined): v is JsonObject =>
-  typeof v === 'object' && v !== null && !Array.isArray(v)
-
-const commandSchemaOf = (
-  doc: WorkflowDocument,
-  nodeType: string,
-  context: CommandExecutionContext,
-  resolve?: (type: string) => NodeSchema | undefined,
-): NodeSchema | undefined => context.kind === 'initial'
-  ? context.schemaResolverFor?.(doc)(nodeType) ?? resolve?.(nodeType)
-  : resolve?.(nodeType)
+import {
+  commandError as err,
+  commandSchemaOf,
+  ensureCommandViewGraph as ensureViewGraph,
+  isCommandObject as isObj,
+  isCompleteAssetRef,
+} from './command-support.js'
 
 export interface OutputCountSchemaPlan {
   readonly nodeType: string
@@ -92,21 +84,6 @@ const outputCountSchemaPlanFrom = (value: Json | undefined): OutputCountSchemaPl
     schemaSnapshot,
     schemaPlanDigest: value.schemaPlanDigest,
   }
-}
-
-const isCompleteAssetRef = (value: Json | undefined): value is JsonObject & {
-  readonly digest: string
-  readonly name: string
-  readonly size: number
-  readonly mediaType: string
-  readonly virtualPath: string
-} => {
-  if (!isObj(value) || Object.keys(value).length !== 5) return false
-  return /^blake3:[0-9a-f]{64}$/.test(typeof value.digest === 'string' ? value.digest : '') &&
-    typeof value.name === 'string' &&
-    typeof value.size === 'number' && Number.isSafeInteger(value.size) && value.size >= 0 &&
-    typeof value.mediaType === 'string' &&
-    typeof value.virtualPath === 'string'
 }
 
 // Finite only (CO2): NaN/Infinity are not JSON and would poison geometry.
@@ -232,12 +209,6 @@ function graphOf(doc: WorkflowDocument, graphId: Json | undefined): GraphDef | u
 function removeDefinitionLink(graphId: string, linkId: string, tx: TransactionBuilder): void {
   removeProjectedLinkSuppressions(graphId, linkId, tx)
   tx.remove(['graphs', graphId, 'links', linkId])
-}
-
-/** Ensure view.graphs[graphId] exists before writing under it. */
-function ensureViewGraph(tx: TransactionBuilder, graphId: string): void {
-  const view = tx.current.view.graphs[graphId]
-  if (!view) tx.set(['view', 'graphs', graphId], { nodes: {} })
 }
 
 function regionFromJson(value: Json | undefined): RegionContract | undefined {
@@ -892,9 +863,7 @@ function imageApplyAssetOf(resolve?: (type: string) => NodeSchema | undefined): 
       if (!def) return [err('graph.missing', `image.applyAsset: unknown graph '${params.graphId}'`)]
       const node = def.nodes[params.nodeId]
       if (!node) return [err('node.missing', `image.applyAsset: unknown node '${params.nodeId}'`)]
-      const schema = context.kind === 'initial'
-        ? context.schemaResolverFor?.(doc)(node.type) ?? resolve?.(node.type)
-        : resolve?.(node.type)
+      const schema = commandSchemaOf(doc, node.type, context, resolve)
       if (!schema) return [err('schema.missing', `image.applyAsset: no schema for '${node.type}'`)]
       const input = schema.items.find((item) => item.kind === 'input' && item.id === params.inputId)
       if (input?.kind !== 'input' || !isImageAssetInput(input)) {

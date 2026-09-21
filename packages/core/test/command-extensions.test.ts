@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkflowDocument } from '../src/format/document.js'
 import type { SchemaResolver } from '../src/schema/derive-boundary.js'
-import type { NodeSchema } from '../src/schema/model.js'
+import { schemaForEditorRole, type NodeSchema } from '../src/schema/model.js'
 import { REGISTERED_COMMAND_EXTENSIONS, registeredExtensionCommands } from '../src/extensions/commands/registry.js'
 import { schemaForCommandRole } from '../src/extensions/commands/schema-role.js'
 
@@ -70,5 +70,11 @@ describe('registered command extensions', () => {
     expect(
       schemaForCommandRole({} as WorkflowDocument, { role: 'image-save', fallbackNodeId: fallback.type }, { kind: 'shared-replay' }, resolve),
     ).toBe(fallback)
+  })
+
+  it('rejects ambiguous schemas for an editor role', () => {
+    const selected = schema('selected', 'image-save')
+    expect(schemaForEditorRole([selected], 'image-save')).toBe(selected)
+    expect(schemaForEditorRole([selected, schema('duplicate', 'image-save')], 'image-save')).toBeUndefined()
   })
 })

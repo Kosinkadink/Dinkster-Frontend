@@ -1,10 +1,11 @@
-import { diag, type Diagnostic } from '../diagnostics.js'
+import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import type { Json, JsonObject, WorkflowDocument } from '../format/document.js'
 import type { NodeSchema } from '../schema/model.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import type { CommandExecutionContext, TransactionBuilder } from './contract.js'
 
-export const commandError = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
+export const commandError = (code: string, message: string, refs?: readonly DiagnosticRef[]): Diagnostic =>
+  diag('error', 'command', code, message, refs === undefined ? undefined : { refs })
 
 export const isCommandObject = (value: Json | undefined): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -47,7 +48,7 @@ export const commandSchemaOf = (
   doc: WorkflowDocument,
   nodeType: string,
   context: CommandExecutionContext,
-  resolve?: (type: string) => NodeSchema | undefined,
+  resolve?: SchemaResolver,
 ): NodeSchema | undefined => schemaResolverForCommand(doc, context, resolve)?.(nodeType)
 
 export function ensureCommandViewGraph(tx: TransactionBuilder, graphId: string): void {

@@ -1,5 +1,6 @@
 import type { WorkflowDocument } from '../../format/document.js'
 import type { NodeSchema } from '../../schema/model.js'
+import type { SchemaResolver } from '../../schema/derive-boundary.js'
 import type { CommandExecutionContext } from '../../commands/contract.js'
 import { schemaResolverForCommand } from '../../commands/command-support.js'
 
@@ -12,7 +13,7 @@ export function schemaForCommandRole(
   doc: WorkflowDocument,
   registration: CommandSchemaRole,
   context: CommandExecutionContext,
-  resolve?: (type: string) => NodeSchema | undefined,
+  resolve?: SchemaResolver,
 ): NodeSchema | undefined {
   const resolver = schemaResolverForCommand(doc, context, resolve)
   if (resolver === undefined) return undefined
@@ -24,7 +25,9 @@ export function nodeHasCommandRole(
   nodeType: string,
   registration: CommandSchemaRole,
   context: CommandExecutionContext,
-  resolve?: (type: string) => NodeSchema | undefined,
+  resolve?: SchemaResolver,
 ): boolean {
-  return schemaForCommandRole(doc, registration, context, resolve)?.type === nodeType
+  const resolver = schemaResolverForCommand(doc, context, resolve)
+  if (resolver === undefined) return nodeType === registration.fallbackNodeId
+  return schemaForCommandRole(doc, registration, context, resolver)?.type === nodeType
 }
