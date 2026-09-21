@@ -20,7 +20,7 @@ requires an explicit reviewed edit. After merging main, run
 line or column coordinates changed and no ceiling changed, then run
 `pnpm ci:fast`. The Prettier check is limited
 to `scripts/ci-fast.mjs` and
-`packages/desktop/test/ci-workflow.test.ts`; it does not impose formatting
+`packages/e2e/test/ci-workflow.test.ts`; it does not impose formatting
 on existing application files. There is no repository-wide formatter or
 linter configuration.
 
@@ -32,11 +32,8 @@ The subset uses synthetic inputs and checked-in fixtures:
 - Core `format.schema.test.ts`: document schema/runtime validator agreement.
 - Core `dinkster-graph.test.ts`: graph validation and wire type round trips.
 - Core `dinkster-inline-value.test.ts`: scalar event decoding and invalid inputs.
-- Desktop `ci-workflow.test.ts`: workflow triggers, unit selection, credentials
+- E2E `ci-workflow.test.ts`: workflow triggers, unit selection, credentials
   and browser-isolation contracts.
-- Desktop `published-verification.test.ts`: read-only release verification
-  contracts, without installing or launching a published application. Its
-  existing Windows-only safety cases stay platform-gated.
 - App `extension-dogfooding.test.ts`: built-in widget, command, and editor
   registrations use the same public doors available to packs.
 - `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
@@ -50,8 +47,8 @@ variable `DINKSTER_PR_RUNNER` can select hosted Linux with the JSON string
 ## Full validation
 
 `.github/workflows/full-validation.yml` runs on pushes to main, every two
-hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, on manual
-dispatch, and when called by the desktop release workflow. The `on.schedule`
+hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, and on manual
+dispatch. The `on.schedule`
 cron list in that file is the single schedule definition; change its first
 cron line to change the two-hour cadence. Scheduled runs skip the heavy jobs
 when the latest successful durable main run already validated the same commit;
@@ -62,7 +59,7 @@ pending run is replaced is covered by the next completed run at a descendant
 head. Find candidate runs in the Actions `Full validation` history, then confirm
 coverage from a local clone with
 `git merge-base --is-ancestor <merge-sha> <run-head-sha>`. Scheduled,
-dispatched and release-called runs use a separate non-cancelling durable group,
+dispatched runs use a separate non-cancelling durable group,
 so push traffic neither queues nor replaces them. To test an unmerged branch
 that contains the workflow:
 
@@ -73,7 +70,7 @@ gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <
 The dispatch ref selects both the workflow and frontend checkout. Main pushes
 run the fast formatting, type, UI-string and contract subset plus parallel-safe
 shard 4/4 and backend-serial shard 1/2. The latter retains the software Vulkan
-check. Scheduled, dispatched and release-called runs keep the complete matrix.
+check. Scheduled and dispatched runs keep the complete matrix.
 All seven durable E2E lanes may run concurrently across the Linux runner pool,
 and each remains behind its host's counted-suite launcher so Actions and owner
 gates share one admission limit. The jobs retain their existing assertions
@@ -85,9 +82,6 @@ and dependency pins:
 | `ci`        | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                          |
 | `e2e-suite` | Two representative lanes on pushes; four parallel-safe shards, two backend-serial shards and the performance browser job for durable runs. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
 | `e2e`       | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                           |
-
-`release-desktop.yml` calls full validation before its release job, so the
-exact selected main commit must pass before publication begins.
 
 The heavy jobs retain the shared memory-only dependency identity action,
 clean checkouts without persisted credentials, counted-suite launcher and

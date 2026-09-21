@@ -21,7 +21,7 @@ for (const args of [
     '--single-quote',
     '--no-semi',
     'scripts/ci-fast.mjs',
-    'packages/desktop/test/ci-workflow.test.ts',
+    'packages/e2e/test/ci-workflow.test.ts',
   ],
   ['check:extension-literals'],
   ['check:ui-strings'],
@@ -38,12 +38,11 @@ for (const args of [
   ],
   [
     '--filter',
-    '@dinkster/desktop',
+    '@dinkster/e2e',
     'exec',
     'vitest',
     'run',
     'test/ci-workflow.test.ts',
-    'test/published-verification.test.ts',
   ],
   [
     '--filter',
