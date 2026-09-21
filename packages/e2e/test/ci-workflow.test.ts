@@ -396,6 +396,28 @@ describe('fast pull-request and full validation workflows', () => {
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(baseConfig).toContain("name: 'v1-compatibility'")
     expect(baseConfig).toContain("name: 'native-without-v1'")
+    const nativeWithoutV1Specs =
+      /const NATIVE_WITHOUT_V1_SPECS = \[([\s\S]*?)\n\]/.exec(baseConfig)?.[1]
+    expect(nativeWithoutV1Specs).toBeDefined()
+    for (const spec of [
+      'audit-float-paste-live.spec.ts',
+      'audit-noodle-live.spec.ts',
+      'audit-tap-boundary-live.spec.ts',
+      'audit-widget-parity-live.spec.ts',
+      'fixture-discovery.spec.ts',
+      'import-legacy.spec.ts',
+      'midgraph-preview-live.spec.ts',
+      'native-catalog-decode.spec.ts',
+      'native-catalog-presentation.spec.ts',
+      'native-family-port-quality.spec.ts',
+      'node-help.spec.ts',
+      'rowj-live.spec.ts',
+      'widget-representations-wire17.spec.ts',
+      'widget-value-presentation.spec.ts',
+      'wire43-input-family-combo.spec.ts',
+    ]) {
+      expect(nativeWithoutV1Specs).toContain(`'${spec}'`)
+    }
     expect(baseConfig.match(/'output-mount-live\.spec\.ts'/g)).toHaveLength(2)
     expect(baseConfig.match(/'pack-assets-settings\.spec\.ts'/g)).toHaveLength(
       1,
