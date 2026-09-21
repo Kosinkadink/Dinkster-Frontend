@@ -517,6 +517,62 @@ describe('runtime settings transport', () => {
   })
 })
 
+describe('pack settings transport', () => {
+  const response = {
+    packId: 'pack/one',
+    displayName: 'Pack One',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        enabled: { type: 'boolean', title: 'Enabled', default: true },
+        quality: { type: 'integer', title: 'Quality', default: 2, minimum: 1, maximum: 5 },
+      },
+      required: ['enabled', 'quality'],
+    },
+    values: { enabled: true, quality: 2 },
+  }
+
+  it('GETs and PUTs the encoded pack route with a complete values object', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const connection = new DinksterConnection({
+      id: C0,
+      baseUrl: 'http://native',
+      clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike,
+      fetchFn: async (url, init) => {
+        calls.push({ url: String(url), ...(init ? { init } : {}) })
+        return jsonResponse(200, calls.length === 1 ? response : { ...response, values: { enabled: false, quality: 4 } })
+      },
+    })
+    await expect(connection.fetchPackSettings('pack/one')).resolves.toEqual(response)
+    await expect(connection.updatePackSettings('pack/one', { enabled: false, quality: 4 })).resolves.toMatchObject({ values: { enabled: false, quality: 4 } })
+    expect(calls).toEqual([
+      { url: 'http://native/api/packs/pack%2Fone/settings' },
+      { url: 'http://native/api/packs/pack%2Fone/settings', init: expect.objectContaining({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"enabled":false,"quality":4}' }) },
+    ])
+  })
+
+  it('rejects malformed schemas and values instead of exposing partial settings', async () => {
+    const replies = [
+      { ...response, schema: { ...response.schema, future: true } },
+      { ...response, values: { enabled: true, quality: 9 } },
+      { ...response, values: { enabled: true, quality: 2**53 } },
+    ]
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => jsonResponse(200, replies.shift()) })
+    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings response is malformed')
+    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings response is malformed')
+    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings response is malformed')
+  })
+
+  it('surfaces read status and backend mutation errors', async () => {
+    const replies = [jsonResponse(503, {}), jsonResponse(400, { error: 'quality must be at most 5' })]
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => replies.shift()! })
+    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings request failed: 503')
+    await expect(connection.updatePackSettings('pack', { enabled: true, quality: 9 })).rejects.toThrow('quality must be at most 5')
+  })
+})
+
 describe('P2P transport', () => {
   const digest = `blake3:${'a'.repeat(64)}`
   const grantId = 'b'.repeat(64)
