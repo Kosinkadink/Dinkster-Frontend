@@ -150,6 +150,7 @@ import {
   type DinksterSubmitResult,
   type PreviewMode,
   type CompatSkip,
+  type PackInferenceUnavailable,
   type RefreshableScopedClient,
   type ReplacementProblem,
   type SchemaRegistry,
@@ -2243,6 +2244,9 @@ interface BackendBase {
   /** ComfyUI compatibility nodes omitted from the native catalog, with the
    * server's verbatim advisory reason. Always [] on v1 backends. */
   readonly compatSkips: Signal<readonly CompatSkip[]>
+  /** Packs whose inference entries degraded (no native sampling worker was
+   * live at composition). Always [] when no backend reports the surface. */
+  readonly packInferenceUnavailable: Signal<readonly PackInferenceUnavailable[]>
   /** Request the latest native advisory snapshot; a no-op on v1 backends. */
   readonly refreshDiagnostics: () => void
   readonly scopedClient: RefreshableScopedClient
@@ -3900,6 +3904,7 @@ export class AppState {
       >({ status: 'idle' }),
       replacementProblems: createSignal<readonly ReplacementProblem[]>([]),
       compatSkips: createSignal<readonly CompatSkip[]>([]),
+      packInferenceUnavailable: createSignal<readonly PackInferenceUnavailable[]>([]),
       refreshDiagnostics: () => refreshDiagnostics(),
       scopedClient,
       invalidateRemoteChoices,
@@ -4018,6 +4023,7 @@ export class AppState {
           if (gen !== staleGen || request !== diagnosticsRequest) return
           base.replacementProblems.set(diagnostics.replacementProblems)
           base.compatSkips.set(diagnostics.compatSkips)
+          base.packInferenceUnavailable.set(diagnostics.packInferenceUnavailable)
         })
       }
       const requestCompositionProblems = (gen: number): void => {

@@ -1491,7 +1491,9 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 60,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
-        compatSkips={() => activeBackend().compatSkips.get()} onShowInContext={showProblemInContext} />,
+        compatSkips={() => activeBackend().compatSkips.get()}
+        packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
+        onShowInContext={showProblemInContext} />,
     }),
     // Settings is the modal host's proving resident: the body is
     // placement-agnostic (SettingsDialog owns content, the host owns
