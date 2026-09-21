@@ -1,6 +1,6 @@
 # Curve editor
 
-Inputs declared as concrete `dinkster.curve` with the schema-wire-35 `CURVE` widget render a compact curve summary. Activating the row opens a center editor bound to that input.
+Inputs declared as concrete `dinkster.curve` with the `CURVE` widget render a compact curve summary. Activating the row opens a center editor bound to that input.
 
 Double-click the graph to add a point, drag points to change position and value, and select a point before deleting it. At least one point is retained. Position and value are clamped to 0..1 while editing, and positions stay strictly increasing. Choose Linear or Monotone cubic interpolation, then Apply to create one undoable document command. Legacy values without `interpolation` open as Linear; Apply always stores it explicitly.
 

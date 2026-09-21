@@ -87,7 +87,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'text-completion-proof', schemaWire: 22 },
+    dinkster: { version: 'text-completion-proof', schemaWire: 1 },
     packs: {},
     nodes: {},
   } }))

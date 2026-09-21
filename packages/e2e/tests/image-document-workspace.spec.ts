@@ -9,7 +9,7 @@ const localeProofDir = (): string => evidenceGroupDir('issue-457')
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'image-document-e2e', schemaWire: 23 },
+  dinkster: { version: 'image-document-e2e', schemaWire: 1 },
   packs: {},
   nodes: {},
 }

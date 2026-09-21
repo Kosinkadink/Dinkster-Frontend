@@ -85,7 +85,7 @@ async function installPaletteFixture(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'palette-proof', schemaWire: 21 },
+    dinkster: { version: 'palette-proof', schemaWire: 1 },
     nodes: {},
   } }))
   await page.goto('/')

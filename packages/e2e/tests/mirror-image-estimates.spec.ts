@@ -23,7 +23,7 @@ const sourcePng = Buffer.from(
 )
 
 const imageSourceNode = {
-  schemaVersion: 29,
+  schemaVersion: 1,
   nodeType: 'e2e.image.source',
   displayName: 'Image Source',
   category: 'test',
@@ -49,7 +49,7 @@ test('glsl mirrors paint GPU image estimates gated by execution.mirrorPreviews',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-image-estimates-proof', schemaWire: 29 },
+    dinkster: { version: 'mirror-image-estimates-proof', schemaWire: 1 },
     nodes: {
       'e2e.image.source': imageSourceNode,
       'dinkster.image.adjust': adjustWire,

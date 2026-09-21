@@ -22,7 +22,7 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'desktop-recovery-test', schemaWire: 22 },
+    dinkster: { version: 'desktop-recovery-test', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('**/api/**', (route) => route.fulfill({ json: {} }))

@@ -13,7 +13,7 @@ const plans = {
 
 async function prepare(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'asset-consent-e2e', schemaWire: 22 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'asset-consent-e2e', schemaWire: 1 }, nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('**/api/assets', (route) => route.fulfill({ status: 404, body: 'source document storage unavailable in isolated proof' }))

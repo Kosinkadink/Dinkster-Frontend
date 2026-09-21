@@ -4,7 +4,7 @@ import { evidencePath } from './evidence-output.js'
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f5-proof', schemaWire: 21 },
+  dinkster: { version: 'audit-f5-proof', schemaWire: 1 },
   packs: {},
   nodes: {},
 }

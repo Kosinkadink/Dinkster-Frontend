@@ -9,7 +9,7 @@ async function installRoutes(page: Page, onCandidateRequest: () => void): Promis
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 22 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 1 }, nodes: {} } }))
   await page.route('**/api/mounts', (route) => route.fulfill({ json: { mounts: [
     { id: 'comfy-input', mode: 'read', state: 'ready', kind: 'media/image' },
     { id: 'comfy-output', mode: 'read', state: 'ready', kind: 'media/image' },

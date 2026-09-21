@@ -4,14 +4,14 @@ import { openRailPanel } from './fixtures.js'
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'provider-ux-proof', schemaWire: 38 },
+  dinkster: { version: 'provider-ux-proof', schemaWire: 1 },
   packs: {
     'dinkster-nodes-image': { displayName: 'Dinkster Image Nodes', abbr: 'DN' },
     'dinkster-nodes-generation': { displayName: 'Dinkster Generation', abbr: 'DG' },
   },
   nodes: {
     'test.ImageSource': {
-      schemaVersion: 38,
+      schemaVersion: 1,
       nodeType: 'test.ImageSource',
       displayName: 'Load Test Image',
       category: 'test',
@@ -19,7 +19,7 @@ const catalog = {
       signature: 'provider-ux-image-source',
     },
     'test.ImageSink': {
-      schemaVersion: 38,
+      schemaVersion: 1,
       nodeType: 'test.ImageSink',
       displayName: 'Preview Image',
       category: 'test',
@@ -28,7 +28,7 @@ const catalog = {
       signature: 'provider-ux-image-sink',
     },
     'test.AdvancedControls': {
-      schemaVersion: 38,
+      schemaVersion: 1,
       nodeType: 'test.AdvancedControls',
       displayName: 'Advanced Controls',
       category: 'test',
@@ -51,7 +51,7 @@ const catalog = {
       signature: 'advanced-controls-proof',
     },
     'dinkster.preprocess.model_depth': {
-      schemaVersion: 38,
+      schemaVersion: 1,
       displayName: 'Preprocess Model Depth',
       category: 'Image',
       pack: 'dinkster-nodes-image',
@@ -78,7 +78,7 @@ const catalog = {
       ],
     },
     'dinkster.preprocess.lineart_realistic': {
-      schemaVersion: 38,
+      schemaVersion: 1,
       displayName: 'Preprocess Realistic Line Art',
       category: 'Image',
       pack: 'dinkster-vision-hed',
@@ -101,7 +101,7 @@ const catalog = {
       ],
     },
     'dinkster.text_generate': {
-      schemaVersion: 38,
+      schemaVersion: 1,
       displayName: 'Generate Text',
       category: 'Generation',
       pack: 'dinkster-nodes-generation',
@@ -148,6 +148,9 @@ test('node cards show intent controls without provider, arm, or pack leakage', a
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dinkster.preprocess.model_depth') ?? false,
+  )).toBe(true)
 
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({

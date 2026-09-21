@@ -86,7 +86,7 @@ opacity preserves contrast. This token is separate from selection, progress,
 and data-type blues. An unstored widget-tap source resolves through the same
 schema default used by compact paint and execution, so storing an equivalent
 `0`, empty string, or other dormant local value never changes the presentation
-mode. Schema wire 34 lets a primitive identity output name its same-typed
+mode. A primitive identity output can name its same-typed
 integer, float, string, or boolean input. The frontend then follows that input
 generically and presents an exact literal before execution; connected inputs
 retain their upstream executed, cached, stale, or estimated provenance. Known
@@ -205,7 +205,7 @@ and an AbortSignal. It returns labels, optional detail text, and replacement
 ranges only. Providers never receive the input element, document store, or
 command dispatcher.
 
-Schema wire 36 lets backend and custom-node authors declare static completion
+The schema lets backend and custom-node authors declare static completion
 items on any STRING widget. Each item supplies a matching value, visible label,
 inserted text, optional detail, and either identifier or operator token
 semantics. A declaration can also name dynamic input families; their current
@@ -352,7 +352,7 @@ The footer supplies the only Cancel and Commit actions.
 
 ## Schema-selected widget representations
 
-Schema wire 17 can declare a finite `REPRESENTATIONS` set around one canonical
+The schema can declare a finite `REPRESENTATIONS` set around one canonical
 widget value/socket. Each alternative has a stable id, display name, and closed
 widget descriptor. The schema's declared default chooses the initial compact
 and expanded presentation. If and only if the schema sets `userSwitchable`,
@@ -398,8 +398,7 @@ schema refresh, but it never changes the canonical value, TypeExpr, links,
 compiled literal, job payload, semantic hash, or execution identity. A stale
 stored id is retained for a possible later schema refresh while rendering falls
 back to the current schema default; it is never fabricated as a valid menu
-choice. Non-switchable sets and predecessor wire schemas have no switcher and
-retain their singular/default widget behavior.
+choice. Non-switchable sets retain their singular/default widget behavior.
 
 The native picker exposes one `Text` primitive. Its STRING value can use either
 view. The legacy `dinkster.string_multiline` type remains loadable for existing
@@ -408,11 +407,9 @@ create a duplicate picker entry.
 
 ## Registered widget inventory and expanded disposition
 
-Supported schema wires inherit widget contracts from their introduction:
-NUMBER display from wire 18, MULTI_COMBO from wire 21, structured combo choices
-from wire 23, and exact decimal integer bounds from wire 33. Wires 39 and 40
-retain these fields without losing options or rounding seed bounds. Older wires
-keep their existing grammar and invalid descriptors keep their diagnostics.
+The current schema includes NUMBER display, MULTI_COMBO, structured combo
+choices, and exact decimal integer bounds without losing options or rounding
+seed bounds. Invalid descriptors keep their diagnostics.
 
 This table inventories every family registered by `registerCoreWidgets`. The
 schema column names only metadata currently carried by `WidgetSpec`; absence is
@@ -422,7 +419,7 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | --- | --- | --- | --- | --- |
 | `INT` | `core.number`: right-aligned exact integer, finite-bounds range fill for safe numeric ranges, independent immediate edge steppers, and optional controller chip/menu | Anchored exact-text popover with visible min/max/step summary, validation, and commit/cancel; no duplicate +/- or controller controls | `default`, exact `min`, `max`, and positive `step` from signed 64-bit minimum through unsigned 64-bit maximum, display name, after-generate controller and initial mode | `core/test/dinkster-wire33.golden.test.ts`, `core/test/numeric-step.test.ts`, `widgets/test/widgets.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ProductNumberInput.dom.test.tsx`, `app/test/widget-commit.test.ts`, `app/test/controller-advancement.test.ts`, `e2e/widget-editors.spec.ts`, `e2e/seed-controller.spec.ts` |
 | `FLOAT` | `core.number`: step-precision fixed text (at least one fractional digit), finite-bounds range fill, and independent immediate edge steppers | Anchored full-precision text popover with visible min/max/step summary and validation; no duplicate +/- controls | `default`, `min`, `max`, positive `step`, display name, after-generate controller and initial mode | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts` |
-| `STRING` | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit wire-17 representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Value-source text and raw JSON remain popovers | `default`, `multiline`, display name; optional wire-17 stable representation ids/default/userSwitchable; optional wire-36 completion items and dynamic input-family sources; no schema max-length constraint exists | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
+| `STRING` | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Value-source text and raw JSON remain popovers | `default`, `multiline`, display name; optional stable representation ids/default/userSwitchable; optional completion items and dynamic input-family sources; no schema max-length constraint exists | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
 | `BOOLEAN` | `core.toggle` with a state-bearing track/thumb and optional true/false labels | Undoable inline toggle; explicit **no-modal** disposition because there is no additional complete control to present | `default`, `labelOn`, `labelOff`, display name | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts` |
 | `COLOR` | `core.color`: filled square swatch and exact hex value | Anchored HSV/hex popover for visual picking and validated exact entry | `default`, display name; accepted value grammar is `#rgb`, `#rrggbb`, or `#rrggbbaa`; no backend color-space or alpha-slider semantics exist | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts` |
 | `COMPOSITOR` | `core.compositor`: saved command count, or a run-first prompt | Existing full-center Image editor in Compositor mode; selected-run ImageDocument and bounded layer previews plus layer order, visibility, opacity, all declared blends, transform, flips, canvas, background, and atomic Apply | Exact fieldless descriptor on concrete `dinkster.compositor`; version 2 commands bound to the runtime document digest and at most 50 layers | `core/test/compositor.test.ts`, `core/test/dinkster-wire41.golden.test.ts`, `widgets/test/widgets.test.ts`, `app/test/CompositorEditor.dom.test.tsx`, `e2e/compositor-editor.spec.ts` |
@@ -475,7 +472,7 @@ inferred by splitting a value or label. Remote choice routes continue to
 supply flat string lists.
 
 DynamicCombo selectors use the same editor, but their value controls which
-branch rows exist. On a fresh node, a wire-15-or-later DynamicCombo displays
+branch rows exist. On a fresh node, a DynamicCombo displays
 and stores the first option in schema order, matching Comfy's stock combo
 lifecycle. DynamicCombo descriptor defaults do not override that choice. An
 older imported document with absent state displays and submits the same first
@@ -602,7 +599,7 @@ truncation workaround is part of this contract.
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest
 route. This includes native `asset<comfy.VIDEO>` inputs without a
-`sourceFilename` binding. Wire-22 `sourceFilename` declarations remain the
+`sourceFilename` binding. `sourceFilename` declarations remain the
 legacy classifier. The editor posts the original File bytes to
 `/api/assets/media` with that media kind and a bounded display basename, then
 adopts the returned canonical AssetRef verbatim. Model kinds and opaque assets

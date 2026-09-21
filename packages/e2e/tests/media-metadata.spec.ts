@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated test' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'media-test', schemaWire: 40 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'media-test', schemaWire: 1 }, nodes: {} } }))
   await page.routeWebSocket('**/api/events?*', () => {})
 })
 

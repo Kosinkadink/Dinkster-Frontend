@@ -14,7 +14,7 @@ const TEMPLATE_DOC = {
 
 async function openTemplatesPanel(page: Page): Promise<void> {
   await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 22 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 },
     packs: { demo: { displayName: 'Demo Pack', assets: [{ id: 'model', name: 'Demo Model', digest: 'blake3:x', kind: 'model/checkpoint', size: 1024 }] } },
     nodes: { 'demo.node': { displayName: 'Demo Node', pack: 'demo', signature: 's', interface: [] } },
   } }))

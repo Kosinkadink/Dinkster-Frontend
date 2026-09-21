@@ -5,7 +5,7 @@ const digest = (character: string): string => `blake3:${character.repeat(64)}`
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f4-proof', schemaWire: 21 },
+  dinkster: { version: 'audit-f4-proof', schemaWire: 1 },
   packs: {},
   nodes: {},
 }

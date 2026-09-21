@@ -19,7 +19,7 @@ async function clickChoiceRow(page: Page): Promise<void> {
 }
 
 test('wire 43 Route Switch by Name edits labels but stores stable member ids', async ({ page }) => {
-  const catalog = await page.request.get('/api/nodes?wire=43', { timeout: 5_000 }).catch(() => undefined)
+  const catalog = await page.request.get('/api/nodes', { timeout: 5_000 }).catch(() => undefined)
   if ((!catalog?.ok() || catalog === undefined) && !REQUIRED) {
     test.skip(true, 'no wire-43 Dinkster backend reachable through the dev proxy')
   }

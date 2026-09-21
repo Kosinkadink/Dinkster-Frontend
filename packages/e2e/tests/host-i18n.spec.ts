@@ -9,7 +9,7 @@ test('canvas view menus localize in place without changing registry data or app 
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'canvas-view-i18n-e2e', schemaWire: 42 },
+      dinkster: { version: 'canvas-view-i18n-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })
@@ -115,7 +115,7 @@ test('shell, App View, and runtime settings update from the active locale catalo
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'host-i18n-e2e', schemaWire: 42 },
+    dinkster: { version: 'host-i18n-e2e', schemaWire: 1 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
@@ -236,7 +236,7 @@ test('panel host chrome updates in place without backend requests', async ({ pag
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'shell-panel-host-i18n-e2e', schemaWire: 42 },
+      dinkster: { version: 'shell-panel-host-i18n-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })
@@ -376,7 +376,7 @@ test('workflow tab chrome and an open preview menu update without backend reques
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'workflow-tabs-i18n-e2e', schemaWire: 42 },
+      dinkster: { version: 'workflow-tabs-i18n-e2e', schemaWire: 1 },
       nodes: {},
     } })
   })

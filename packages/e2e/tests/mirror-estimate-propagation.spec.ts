@@ -25,7 +25,7 @@ const assetA = { digest: digestA, name: 'source-a.png', size: imageA.length, med
 const assetB = { digest: digestB, name: 'source-b.png', size: imageB.length, mediaType: 'image/png', virtualPath: 'source-b.png' }
 
 const representedSourceWire = {
-  schemaVersion: 31,
+  schemaVersion: 1,
   nodeType: 'e2e.represented-source',
   displayName: 'Load Image',
   category: 'test',
@@ -68,11 +68,11 @@ test('represented estimates propagate and recompute after connect and reconnect'
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-propagation-proof', schemaWire: 31 },
+    dinkster: { version: 'mirror-propagation-proof', schemaWire: 1 },
     nodes: {
       'e2e.represented-source': representedSourceWire,
-      'dinkster.image.adjust': { ...adjustWire, schemaVersion: 31 },
-      'dinkster.image.filter': { ...filterWire, schemaVersion: 31 },
+      'dinkster.image.adjust': { ...adjustWire, schemaVersion: 1 },
+      'dinkster.image.filter': { ...filterWire, schemaVersion: 1 },
     },
   } }))
 

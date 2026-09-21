@@ -21,11 +21,11 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'guide-proof', schemaWire: 44 },
+      dinkster: { version: 'guide-proof', schemaWire: 1 },
       packs: { foundation: { displayName: 'Foundation' } },
       nodes: {
         'demo.node': {
-          schemaVersion: 44, displayName: 'Demo Node', category: 'demo', pack: 'foundation',
+          schemaVersion: 1, displayName: 'Demo Node', category: 'demo', pack: 'foundation',
           interface: [],
         },
       },
