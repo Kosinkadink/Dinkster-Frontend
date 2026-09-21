@@ -365,6 +365,53 @@ function assetValueFromCandidate(candidate: ResolvedCandidate): Record<string, u
   }
 }
 
+async function applyDocumentedModelResolutions(
+  page: Page,
+  row: StarterRow,
+  resolutions: readonly ModelResolution[],
+): Promise<void> {
+  for (const resolution of resolutions) {
+    if (resolution.applied !== 'documented') continue
+    const locations = await page.evaluate((name) => {
+      const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+      return Object.entries(doc.graphs).flatMap(([graphId, graph]) =>
+        Object.values(graph.nodes).flatMap((node) =>
+          Object.entries(node.values)
+            .filter(([, value]) => {
+              if (value === name) return true
+              return (
+                typeof value === 'object' &&
+                value !== null &&
+                (value as Record<string, unknown>)['name'] === name
+              )
+            })
+            .map(([inputId, value]) => ({
+              graphId,
+              nodeId: node.id,
+              inputId,
+              unresolved: value === name,
+            })),
+        ),
+      )
+    }, resolution.documented)
+    expect(
+      locations,
+      `document for '${row.family}' does not use advertised model '${resolution.documented}'`,
+    ).not.toEqual([])
+    const value = assetValueFromCandidate(resolution.candidate)
+    for (const location of locations) {
+      if (!location.unresolved) continue
+      await dispatchSetValue(
+        page,
+        location.graphId,
+        location.nodeId,
+        location.inputId,
+        value,
+      )
+    }
+  }
+}
+
 /**
  * Apply one family's overrides through the ordinary document command
  * (node.setValue) before compilation, refusing stale or misplaced rows.
@@ -583,6 +630,7 @@ for (const row of STARTER_ROWS) {
     // replacements) must each resolve to exactly one held candidate
     // BEFORE compilation.
     const resolutions = await resolveDocumentedModels(page, entry, familyOverride)
+    await applyDocumentedModelResolutions(page, row, resolutions)
     const applied =
       familyOverride === undefined
         ? []
