@@ -63,6 +63,15 @@ id breaks ties; an unavailable editor cannot shadow a usable pack binding.
 chrome, rendering, Problems reporting, gating, and cleanup. Packs supply no
 DOM, CSS, Solid components, or lifecycle callbacks through these doors.
 
+Node-specific editing commands use the same schema-owned roles. Core composes
+its generic commands with registered command extensions for mask paint, image
+documents, and compositing. Each extension owns its command ids, required
+roles, schema capability checks, and compatibility node ids. When a schema
+resolver supports role lookup, that lookup is authoritative and a missing or
+ambiguous role fails closed. Node ids are consulted only for schema snapshots
+that predate role lookup, keeping backend-specific literals out of the generic
+command module.
+
 The `virtualNode` contribution is the pack door for frontend-only workflow
 nodes. Its `VirtualNodeKind` provides a widget schema, defaults, and a pure
 render model; the host owns node creation, canvas rendering, editing,
