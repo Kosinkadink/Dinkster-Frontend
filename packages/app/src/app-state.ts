@@ -203,6 +203,7 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
+import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import { scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
@@ -2337,6 +2338,7 @@ export class AppState {
   readonly menuRegistry = createMenuRegistry()
   readonly searchRegistry = createSearchRegistry()
   readonly searchOpen = createSignal(false)
+  readonly templateGalleryOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
   readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)
   /**
@@ -2844,6 +2846,14 @@ export class AppState {
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.controlSurfaces.enabled', get name() { return t('settings.features.controlSurfaces') }, type: 'boolean', defaultValue: false })
+    this.settings.register({
+      id: 'templates.registryUrl',
+      get name() { return t('settings.templates.registryUrl.name') },
+      get description() { return t('settings.templates.registryUrl.description') },
+      category: 'templates',
+      type: 'string',
+      defaultValue: '',
+    })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
@@ -2908,6 +2918,11 @@ export class AppState {
     })
     register('workflow.open', 'command.workflow.open', 'Ctrl+O', () => {
       setPanelOpen(this.panels, this.dock, 'library', 'left', true)
+    })
+    this.frontendDoors.command('workflow.openTemplateGallery', {
+      get label() { return t('command.workflow.openTemplateGallery') },
+      run: () => this.templateGalleryOpen.set(true),
+      enabled: () => activeTabNow() !== undefined && activeTabNow()?.execution === undefined,
     })
     this.frontendDoors.command('workflow.importFile', {
       get label() { return t('command.workflow.importFile') },
@@ -6576,11 +6591,41 @@ export class AppState {
         return false
       }
       const tab = this.activeTab()
-      if (tab) this.setTabTarget(tab.id, backend.id)
+      if (tab) {
+        this.setTabTarget(tab.id, backend.id)
+        void this.offerImportAssetResolution(tab, backend, [])
+      }
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', `failed to open template: ${e instanceof Error ? e.message : String(e)}`)])
+      }
+      return false
+    }
+  }
+
+  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
+    const backend = this.libraryBackend()
+    if (backend?.protocol !== 'dinkster') return false
+    const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
+    try {
+      const document = await catalog.fetchBody(template)
+      if (!this.ownerStillLive(backend) || document === undefined) return false
+      if (this.openDocument(document, title, backend).length > 0) return false
+      const tab = this.activeTab()
+      if (tab) {
+        this.setTabTarget(tab.id, backend.id)
+        void this.offerImportAssetResolution(tab, backend, [])
+      }
+      return true
+    } catch (error) {
+      if (this.ownerStillLive(backend)) {
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+          'error',
+          'validation',
+          'template.openFailed',
+          `failed to open remote template: ${error instanceof Error ? error.message : String(error)}`,
+        )])
       }
       return false
     }

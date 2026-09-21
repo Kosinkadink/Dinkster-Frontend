@@ -103,7 +103,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 924,
+      "line": 925,
       "column": 11,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -111,7 +111,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 957,
+      "line": 958,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -119,7 +119,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1056,
+      "line": 1057,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -127,7 +127,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1068,
+      "line": 1069,
       "column": 10,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -135,7 +135,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 4733,
+      "line": 4748,
       "column": 38,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -143,7 +143,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 4926,
+      "line": 4941,
       "column": 9,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -151,7 +151,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5030,
+      "line": 5045,
       "column": 34,
       "symbol": "widgetType:COMPOSITOR",
       "issue": 122
@@ -159,7 +159,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5088,
+      "line": 5103,
       "column": 36,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -167,7 +167,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5206,
+      "line": 5221,
       "column": 34,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -175,7 +175,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6100,
+      "line": 6115,
       "column": 38,
       "symbol": "widgetType:ASSET",
       "issue": 122
