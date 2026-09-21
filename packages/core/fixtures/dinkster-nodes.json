@@ -112,6 +112,36 @@
       "schemaVersion": 1,
       "version": 1
     },
+    "test.editor_metadata": {
+      "category": "test",
+      "description": "",
+      "displayName": "Editor Metadata",
+      "editorRole": "video-edit",
+      "idempotent": true,
+      "interface": [
+        {
+          "id": "edit",
+          "required": false,
+          "role": "input",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "comfy.VIDEO_EDIT"
+            ]
+          },
+          "widget": {
+            "features": [
+              "trim",
+              "crop"
+            ],
+            "type": "VIDEO_EDIT"
+          }
+        }
+      ],
+      "nodeType": "test.editor_metadata",
+      "schemaVersion": 1,
+      "version": 1
+    },
     "test.families": {
       "category": "test",
       "description": "",

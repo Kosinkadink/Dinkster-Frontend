@@ -46,6 +46,7 @@ import {
   mergeableTypesFromDinksterWire,
   serverInfoFromDinksterWire,
   parseOccurrenceKey,
+  schemaForEditorRole,
   validateDinksterGraph,
   type CompileArtifact,
   type ConnectionId,
@@ -1086,11 +1087,17 @@ export interface MountDescriptor {
    */
   readonly mode: 'read' | 'readwrite'
   readonly state: string
+  readonly path?: string
   /** Optional semantic scope for homogeneous mounts (for example model/checkpoint). */
   readonly kind?: string
   /** Server-reported catalog size when the mount index provides it. */
   readonly entryCount?: number
   readonly scanProgress?: MountScanProgress
+}
+
+export interface MountSettings {
+  readonly mounts: readonly MountDescriptor[]
+  readonly outputMount?: string
 }
 
 export interface MountScanProgress {
@@ -2721,12 +2728,13 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
-  async listMounts(): Promise<readonly MountDescriptor[]> {
+  async fetchMountSettings(): Promise<MountSettings> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts`)
     if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
-    const rows = (await res.json() as { mounts?: unknown }).mounts
+    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown }
+    const rows = payload.mounts
     if (!Array.isArray(rows)) throw new Error('GET /api/mounts: malformed response')
-    return rows.filter((value): value is MountDescriptor => {
+    const mounts = rows.filter((value): value is MountDescriptor => {
       if (typeof value !== 'object' || value === null) return false
       const row = value as Record<string, unknown>
       const scanProgress = row['scanProgress']
@@ -2741,9 +2749,25 @@ export class DinksterConnection {
         progress['elapsedSeconds'] >= 0 && (progress['filesDone'] as number) <= (progress['filesTotal'] as number) &&
         (progress['bytesDone'] as number) <= (progress['bytesTotal'] as number))
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
-        typeof row['state'] === 'string' && (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
+        (row['kind'] === undefined || typeof row['kind'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
+    if (payload.outputMount !== undefined && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
+    return { mounts, ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}) }
+  }
+
+  async listMounts(): Promise<readonly MountDescriptor[]> {
+    return (await this.fetchMountSettings()).mounts
+  }
+
+  async selectOutputMount(id: string): Promise<void> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/output`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    if (!res.ok) throw new Error(`PUT /api/mounts/output failed: ${res.status}`)
   }
 
   async addMount(id: string, path: string, mode: 'read' | 'readwrite' = 'read'): Promise<MountDescriptor> {
@@ -3374,12 +3398,15 @@ export function buildDinksterRegistry(
   // (surface generation), composing is present-only-when-true.
   const epoch =
     typeof raw.epoch === 'number' && Number.isInteger(raw.epoch) && raw.epoch > 0 ? raw.epoch : undefined
+  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type) ?? aliasMap.get(type), {
+    forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+  })
   return {
     connection,
     hash: fnv1a64(canonicalJson(schemaIdentityWithoutWidgetPresentation(raw) as Json)),
     schemas,
     diagnostics: [...parsed.diagnostics, ...aliasDiags, ...aliases.diagnostics, ...groups.diagnostics],
-    resolve: (type) => schemas.get(type) ?? aliasMap.get(type),
+    resolve,
     packs: packsFromDinksterWire(raw),
     ...(aliases.catalog.records.length > 0 ? { comfyAliases: aliases.catalog } : {}),
     ...(groups.catalog.records.length > 0 ? { comfyGroups: groups.catalog } : {}),

@@ -35,6 +35,7 @@ test.beforeEach(async ({ page }) => {
       checkForUpdates: async () => {},
       installUpdate: async () => {},
       chooseDirectory: async () => undefined,
+      revealFile: async () => {},
       exportSnapshot: async () => undefined,
       importSnapshot: async () => undefined,
       systemCheck: async () => { calls.systemCheck += 1; return {

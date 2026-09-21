@@ -56,6 +56,8 @@ export interface EditorKindDescriptor {
   /** Stable kind id, e.g. 'graph'. Tabs reference editors by this id. */
   readonly id: string
   readonly title: string
+  /** Backend schema roles that open this editor kind. */
+  readonly roles?: readonly string[]
   /**
    * Renders the editor for one center-region group. Mounted once per kind
    * per group and kept alive across same-kind tab switches (the component
@@ -104,22 +106,35 @@ export class EditorBindingRegistry {
 
 export class EditorRegistry {
   private readonly editors = new Map<string, EditorKindDescriptor>()
+  private readonly editorKindsByRole = new Map<string, string>()
   /** Bumped on every register/unregister. */
   readonly changed: Signal<number> = createSignal(0)
 
   /** Register an editor kind; returns the unregister function. Duplicate ids refuse loudly. */
   register(desc: EditorKindDescriptor): () => void {
     if (this.editors.has(desc.id)) throw new Error(`editor kind already registered: ${desc.id}`)
+    for (const role of desc.roles ?? []) {
+      if (this.editorKindsByRole.has(role)) throw new Error(`editor role already registered: ${role}`)
+    }
     this.editors.set(desc.id, desc)
+    for (const role of desc.roles ?? []) this.editorKindsByRole.set(role, desc.id)
     this.changed.update((v) => v + 1)
     return () => {
       this.editors.delete(desc.id)
+      for (const role of desc.roles ?? []) {
+        if (this.editorKindsByRole.get(role) === desc.id) this.editorKindsByRole.delete(role)
+      }
       this.changed.update((v) => v + 1)
     }
   }
 
   get(id: string): EditorKindDescriptor | undefined {
     return this.editors.get(id)
+  }
+
+  forRole(role: string): EditorKindDescriptor | undefined {
+    const id = this.editorKindsByRole.get(role)
+    return id === undefined ? undefined : this.editors.get(id)
   }
 
   kinds(): readonly EditorKindDescriptor[] {
