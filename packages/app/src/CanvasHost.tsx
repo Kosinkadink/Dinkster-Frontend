@@ -1422,6 +1422,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
+  const extensionRevision = useSignal(props.app.extensionRevision)
   const collabTabs = useSignal(props.app.collabTabs)
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
@@ -2553,6 +2554,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       settingsTick()
       renderer.setGridVisible(props.app.settings.get('canvas.grid.visible'))
       repaintMinimap?.()
+    })
+    createEffect(() => {
+      extensionRevision()
+      renderer.setCanvasLayers(props.app.canvasLayers.get(), (id, error) => {
+        props.app.reportProblems(`canvas-layer:${id}`, [
+          diag('error', 'extension', 'extension.canvas-layer-failed', `canvas layer '${id}' failed to draw: ${String(error)}`),
+        ])
+      })
     })
 
     // -- presence egress (shared sessions) ---------------------------------
