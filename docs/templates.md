@@ -8,6 +8,8 @@ Each row shows the template name, pack, description, tags, and declared asset re
 
 Select a row and choose **Open template** to fetch its immutable body and load it through the normal native-document pipeline as a new, unsaved tab targeted at the serving backend. Opening does not acquire assets. Missing assets remain behind the existing submit-time consent flow. The selected row also exposes the exact template id, pack, backend, digest, tags, and declared requirements in the Library detail presentation.
 
+Opening a template fits and centers its graph. When the complete graph fits at the canvas detail threshold, the fitted view keeps that threshold so node content remains readable even if the usual outer margin must shrink. Larger graphs still fit completely at overview scale, where node titles remain visible when their full text fits the node header.
+
 ## Remote catalog
 
 Set **Template registry URL** in Settings to combine templates from a registry with the installed templates. The frontend consumes catalog version 1:

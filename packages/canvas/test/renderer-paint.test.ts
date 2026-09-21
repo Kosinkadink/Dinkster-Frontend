@@ -395,7 +395,7 @@ describe('typed overview detail', () => {
     const link = scene.links[0]!
     for (const [scale, contentDetail] of [[0.49, false], [0.5, true]] as const) {
       const calls = paintWith(scene, (renderer) => renderer.setViewport({ x: 0, y: 0, scale }))
-      expect(calls.some((call) => call.method === 'fillText' && call.args[0] === node.layout.title)).toBe(contentDetail)
+      expect(calls.some((call) => call.method === 'fillText' && call.args[0] === node.layout.title)).toBe(true)
       expect(calls.some((call) =>
         call.method === 'arc' &&
         call.args[0] === (link.x1 + link.x2) / 2 &&
@@ -405,7 +405,27 @@ describe('typed overview detail', () => {
     }
   })
 
-  it('omits text controls while retaining screen-sized structure, type, state, and selection cues', () => {
+  it('only paints overview titles that fit their node width', () => {
+    const base = fixtureScene('clean')
+    const node = base.nodes[0]!
+    const fittingTitle = 'ImgSrc'
+    const oversizedTitle = 'This title is wider than its node'
+    const scene = {
+      ...base,
+      nodes: [
+        { ...node, layout: { ...node.layout, title: fittingTitle } },
+        { ...node, id: 'oversized-title', x: node.x + node.layout.width + 20, layout: { ...node.layout, title: oversizedTitle } },
+      ],
+      links: [],
+    }
+    const calls = paintWith(scene, (renderer) =>
+      renderer.setViewport({ x: 0, y: 0, scale: CANVAS_DETAIL_MIN_SCALE - 0.01 }))
+
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === fittingTitle)).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === oversizedTitle)).toBe(false)
+  })
+
+  it('omits detailed controls while retaining screen-sized structure, type, state, and selection cues', () => {
     const scene = fixtureScene('clean')
     const selected = scene.nodes.find((node) => node.id === 'c1')!
     const pending = scene.nodes.find((node) => node.id === 'c2')!
@@ -416,9 +436,6 @@ describe('typed overview detail', () => {
       renderer.setOverlay({ selection: new Set([selected.id]) })
     })
 
-    for (const node of scene.nodes) {
-      expect(calls).not.toContainEqual(expect.objectContaining({ method: 'fillText', args: expect.arrayContaining([node.layout.title]) }))
-    }
     for (const link of scene.links) {
       expect(calls).not.toContainEqual(expect.objectContaining({
         method: 'arc',
@@ -1115,6 +1132,31 @@ describe('scene visual bounds and fitting', () => {
     renderer.setScene(scene)
     renderer.fitToScene()
     expect(renderer.getViewport()).toEqual(fitted)
+    renderer.dispose()
+  })
+
+  it('keeps a fitting scene at the content-detail threshold even when the requested margin would shrink it below', () => {
+    const { ctx } = recordingCtx()
+    const tracked = mutableCanvas(ctx, 800, 600)
+    const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1576, height: 1000 }] }))
+
+    renderer.fitToScene(50)
+
+    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: CANVAS_DETAIL_MIN_SCALE })
+    renderer.dispose()
+  })
+
+  it('still fits a scene below the detail threshold when it cannot fit the viewport at that scale', () => {
+    const { ctx } = recordingCtx()
+    const tracked = mutableCanvas(ctx, 800, 600)
+    const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1577, height: 1000 }] }))
+
+    renderer.fitToScene(50)
+
+    expect(renderer.getViewport().scale).toBeCloseTo(700 / 1577)
+    expect(renderer.getViewport().scale).toBeLessThan(CANVAS_DETAIL_MIN_SCALE)
     renderer.dispose()
   })
 
