@@ -1,9 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-680/', import.meta.url))
 const CURVE = {
   interpolation: 'linear',
   points: [{ position: 0, value: 0 }, { position: 1, value: 1 }],
@@ -237,8 +236,8 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
   const screenshot = await editor.screenshot({ animations: 'disabled' })
   await testInfo.attach('native-glsl-shader-editor', { body: screenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
-    mkdirSync(evidenceDir, { recursive: true })
-    writeFileSync(`${evidenceDir}/native-glsl-shader-editor.png`, screenshot)
+    mkdirSync(evidenceGroupDir('issue-680'), { recursive: true })
+    writeFileSync(evidencePath('issue-680', 'native-glsl-shader-editor.png'), screenshot)
   }
   await editor.getByRole('button', { name: 'Apply', exact: true }).click()
   await expect(editor).toHaveCount(0)

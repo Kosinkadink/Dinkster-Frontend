@@ -1,6 +1,5 @@
 import { expect, test, type WebSocketRoute } from '@playwright/test'
-
-const PROOF = '../../docs/evidence/issue-457'
+import { evidencePath } from './evidence-output.js'
 
 const descriptors = {
   image: { typeId: 'comfy.IMAGE', fingerprint: 'image-source', meta: { channels: { layout: 'rgba', alpha: 'straight' }, dtype: 'float32', color: { primaries: 1, transfer: 13, range: 2 }, storage_dtype: 'fp32' } },
@@ -114,7 +113,7 @@ test('inspects every media kind through the owning value API without mutating th
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
   expect(i18nModule).toBeDefined()
-  await page.getByTestId('outputs-panel').screenshot({ path: `${PROOF}/media-inspector-i18n-en.png` })
+  await page.getByTestId('outputs-panel').screenshot({ path: evidencePath('issue-457', 'media-inspector-i18n-en.png') })
 
   await page.evaluate(async ({ i18nModule }) => {
     const { registerCatalog, setLocale } = await import(i18nModule)
@@ -166,7 +165,7 @@ test('inspects every media kind through the owning value API without mutating th
   await expect(mountedDiagnostics).toContainText('transparency')
   expect(backendRequests).toEqual(beforeLocaleRequests)
   expect(requests).toHaveLength(beforeLocaleValueRequests)
-  await page.getByTestId('outputs-panel').screenshot({ path: `${PROOF}/media-inspector-i18n-de-DE.png` })
+  await page.getByTestId('outputs-panel').screenshot({ path: evidencePath('issue-457', 'media-inspector-i18n-de-DE.png') })
   expect(await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'media-metadata-run')!.status)).toBe('completed')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   expect(await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'media-metadata-run')!.outputs)).toEqual(outputs)

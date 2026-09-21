@@ -1,9 +1,6 @@
-import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { expect, openRailPanel, test } from './fixtures.js'
+import { evidencePath } from './evidence-output.js'
 
-const localeProofDir = fileURLToPath(new URL('../../../docs/evidence/issue-457/', import.meta.url))
 
 test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) =>
@@ -123,11 +120,10 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
   await expect(warning).not.toHaveAttribute('open', '')
   await warning.locator('summary').click()
 
-  mkdirSync(localeProofDir, { recursive: true })
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
-  await panel.screenshot({ path: join(localeProofDir, 'problems-static-i18n-en.png'), animations: 'disabled' })
+  await panel.screenshot({ path: evidencePath('issue-457', 'problems-static-i18n-en.png'), animations: 'disabled' })
 
   const errorSummary = error.locator('summary')
   await errorSummary.evaluate((summary) => {
@@ -196,7 +192,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('runtime.browserProof')
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '0')
   await page.evaluate(() => document.getSelection()?.removeAllRanges())
-  await panel.screenshot({ path: join(localeProofDir, 'problems-static-i18n-de-DE.png'), animations: 'disabled' })
+  await panel.screenshot({ path: evidencePath('issue-457', 'problems-static-i18n-de-DE.png'), animations: 'disabled' })
 
   await error.locator('summary').click()
   await expect(error).not.toHaveAttribute('open', '')

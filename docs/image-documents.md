@@ -221,9 +221,9 @@ deterministic allocation, resource-aware history, hostile ids, and local
 session operation envelopes. `packages/app/test/image-document-recipe.test.ts`
 proves crop, resize, and output-policy parity between workspace state and graph
 recipe execution.
-The inspected controls are captured for [crop](evidence/issue-486/crop.png),
-[resize](evidence/issue-486/resize.png), and
-[output policy](evidence/issue-486/output-policy.png).
+The inspected controls are captured for [crop](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/crop.png),
+[resize](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/resize.png), and
+[output policy](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/output-policy.png).
 `packages/core/test/image-document-shared-session.test.ts` covers concurrent
 rebase, actor-scoped allocation, and document-kind isolation. The image
 workspace component test covers resource upload ordering, membership recovery,
@@ -243,11 +243,11 @@ that its decoded alpha matches the flatten transparency mask.
 stroke through graph-visible `dinkster.mask.paint` and explicit bake paths, then
 proves executed-node receipts, source AssetRef preservation, PNG alpha parity,
 transparency polarity, and authoritative document-render byte equality.
-The acceptance captures the [graph mask editor](evidence/issue-400/graph-mask-editor.png),
-a [painted-mask detail](evidence/issue-400/graph-mask-detail.png), and the
-[authoritative document](evidence/issue-400/graph-mask-authoritative-document.png).
+The acceptance captures the [graph mask editor](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-editor.png),
+a [painted-mask detail](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-detail.png), and the
+[authoritative document](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-authoritative-document.png).
 Graph-opening unit tests cover exact value identity and bytes, missing headers
 and capabilities, stale fingerprints, adoption/render refusals, resource
 validation and protection of existing local edits. The route-mocked
 authoritative display is captured in
-[graph-layer-open-authoritative.png](evidence/issue-402/graph-layer-open-authoritative.png).
+[graph-layer-open-authoritative.png](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-402/graph-layer-open-authoritative.png).

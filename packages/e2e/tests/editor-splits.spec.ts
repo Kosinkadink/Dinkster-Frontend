@@ -3,17 +3,13 @@
  * side, driven by the pure split tree in editor-layout.ts. Client-only: the
  * spec changes persisted layout state but never submits work to the backend.
  */
-import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
-
-const evidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-165/', import.meta.url))
+import { evidencePath } from './evidence-output.js'
 
 const capture = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_165'] !== '1') return
-  mkdirSync(evidenceDir, { recursive: true })
-  await page.screenshot({ path: `${evidenceDir}/${name}.png`, animations: 'disabled' })
+  await page.screenshot({ path: evidencePath('issue-165', `${name}.png`), animations: 'disabled' })
 }
 
 const groups = (page: Page): Locator => page.getByTestId('editor-group')

@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
+import { evidenceGroupDir, evidencePath } from "./evidence-output.js";
 
 const backend = process.env["DINKSTER_NATIVE_BACKEND"];
 if (!backend)
@@ -17,7 +18,6 @@ test.use({ baseURL: nativeFrontend, viewport: { width: 1600, height: 900 } });
 const frontendRoot = resolve(import.meta.dirname, "../../..");
 const library = resolve(frontendRoot, ".ci/native-library");
 const alternateOutput = resolve(library, "renders");
-const evidence = resolve(frontendRoot, "docs/evidence/issue-145");
 
 function tinyPng(): Buffer {
   const crc = (buffer: Buffer): number => {
@@ -122,7 +122,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   page,
   request,
 }) => {
-  await mkdir(evidence, { recursive: true });
+  await mkdir(evidenceGroupDir("issue-145"), { recursive: true });
   await mkdir(alternateOutput, { recursive: true });
   const added = await request.post(`${backend}/api/mounts`, {
     data: { id: "renders", path: alternateOutput, mode: "readwrite" },
@@ -174,7 +174,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     "ComfyUI_00001.png",
   );
   await page.screenshot({
-    path: resolve(evidence, "default-output.png"),
+    path: evidencePath("issue-145", "default-output.png"),
     fullPage: true,
   });
 
@@ -191,7 +191,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     'output-mount = "renders"',
   );
   await page.screenshot({
-    path: resolve(evidence, "alternate-output-setting.png"),
+    path: evidencePath("issue-145", "alternate-output-setting.png"),
     fullPage: true,
   });
 

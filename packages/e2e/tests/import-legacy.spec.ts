@@ -9,9 +9,9 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, openRailPanel, test } from './fixtures.js'
+import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
-const groupEvidenceDir = fileURLToPath(new URL('../../../docs/evidence/issue-681/', import.meta.url))
 const importEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-381/', import.meta.url))
 const comboEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-118/', import.meta.url))
 const clientModuleUrl = `/@fs${fileURLToPath(new URL('../../client/src/index.ts', import.meta.url))}`
@@ -104,7 +104,7 @@ const exactGroupPayload = (): Record<string, unknown> => {
 }
 
 test.beforeAll(() => {
-  mkdirSync(groupEvidenceDir, { recursive: true })
+  mkdirSync(evidenceGroupDir('issue-681'), { recursive: true })
   if (process.env['DINKSTER_CAPTURE_ISSUE_381_IMPORT'] === '1') {
     mkdirSync(importEvidenceDir, { recursive: true })
   }
@@ -491,7 +491,7 @@ test('collapses an exact maintained group into its native replacement', async ({
     await page.mouse.move(0, 0)
     await page.waitForTimeout(350)
     await page.screenshot({
-      path: `${groupEvidenceDir}/exact-group-import.png`,
+      path: evidencePath('issue-681', 'exact-group-import.png'),
       fullPage: true,
       animations: 'disabled',
     })
