@@ -114,16 +114,29 @@ function catalogEntries(): Promise<readonly TemplateCatalogEntry[]> {
 
 /**
  * Require an exact one-to-one family matrix between the native catalog and
- * the reviewed starter rows before anything executes. Absent Qwen Image,
- * TripoSplat, Wan 2.1 or Wan 2.2 templates are a composition blocker
- * (wrapper issue 248: those packs do not compose in a normal launch);
- * every other gap is an ordinary failure. No skipping, reloading, or pack
- * retries.
+ * the reviewed starter rows before anything executes, regardless of any
+ * family filter. Absent Qwen Image, TripoSplat, Wan 2.1 or Wan 2.2 templates
+ * are reported as the issue 248 composition blocker without preventing the
+ * available rows from executing. Every other gap, duplicate, id drift or
+ * unlisted family is an ordinary failure. No pack reloads or retries.
  */
+interface CatalogMatrix {
+  readonly catalog: ReadonlyMap<string, TemplateCatalogEntry>
+  readonly compositionBlockers: readonly string[]
+}
+
+function compositionBlockerMessage(families: readonly string[]): string {
+  return (
+    `composition blocker: the native catalog at ${NATIVE_BACKEND} is missing the ${families.join(', ')} ` +
+    'starter template(s) because their packs do not compose in a normal launch; tracked by wrapper ' +
+    'issue 248 (https://github.com/Kosinkadink/comfy-vibe-station/issues/248). Pack reloads and retries ' +
+    'are disabled by design.'
+  )
+}
+
 function requireCatalogMatrix(
   entries: readonly TemplateCatalogEntry[],
-  rows: readonly StarterRow[],
-): ReadonlyMap<string, TemplateCatalogEntry> {
+): CatalogMatrix {
   const byFamily = new Map<string, TemplateCatalogEntry>()
   for (const entry of entries) {
     if (typeof entry.family !== 'string' || !entry.family.startsWith('dinkster.')) continue
@@ -133,31 +146,27 @@ function requireCatalogMatrix(
     ).toBe(false)
     byFamily.set(entry.family, entry)
   }
-  const blockers = rows.filter((row) => !byFamily.has(row.family) && COMPOSITION_BLOCKER_FAMILIES.includes(row.family))
+  const missing = STARTER_ROWS.filter((row) => !byFamily.has(row.family))
+  const blockers = missing
+    .filter((row) => COMPOSITION_BLOCKER_FAMILIES.includes(row.family))
+    .map((row) => row.family)
   expect(
-    blockers,
-    `composition blocker: the native catalog at ${NATIVE_BACKEND} is missing the ` +
-      `${blockers.map((row) => row.family).join(', ')} starter template(s) because their packs do not ` +
-      'compose in a normal launch; tracked by wrapper issue 248 ' +
-      '(https://github.com/Kosinkadink/comfy-vibe-station/issues/248). Pack reloads and retries are disabled by design.',
-  ).toEqual([])
-  expect(
-    rows.filter((row) => !byFamily.has(row.family)).map((row) => row.family),
+    missing
+      .filter((row) => !COMPOSITION_BLOCKER_FAMILIES.includes(row.family))
+      .map((row) => row.family),
     `template catalog gaps at ${NATIVE_BACKEND}`,
   ).toEqual([])
   expect(
-    rows
-      .filter((row) => byFamily.get(row.family)?.id !== row.templateId)
+    STARTER_ROWS
+      .filter((row) => byFamily.has(row.family) && byFamily.get(row.family)!.id !== row.templateId)
       .map((row) => `${row.family}: catalog serves '${String(byFamily.get(row.family)?.id)}'`),
     'template ids drifted from the execution matrix',
   ).toEqual([])
-  if (rows.length === STARTER_ROWS.length) {
-    expect(
-      [...byFamily.keys()].filter((family) => !STARTER_FAMILIES.includes(family)),
-      'unlisted starter families appeared in the catalog; extend the execution matrix',
-    ).toEqual([])
-  }
-  return byFamily
+  expect(
+    [...byFamily.keys()].filter((family) => !STARTER_FAMILIES.includes(family)),
+    'unlisted starter families appeared in the catalog; extend the execution matrix',
+  ).toEqual([])
+  return { catalog: byFamily, compositionBlockers: blockers }
 }
 
 async function resolveHeldCandidate(page: Page, name: string): Promise<ResolvedCandidate> {
@@ -500,13 +509,30 @@ function receiptEnvironment(): Record<string, string> {
   return receiptEnvironmentCache
 }
 
-test('preflights the complete default starter pack composition', async () => {
-  test.skip(
-    !EXECUTION_ENABLED,
-    'live starter execution is opt-in: set DINKSTER_STARTER_EXECUTION_E2E=1 to run it against the real native backend',
-  )
-  requireCatalogMatrix(await catalogEntries(), STARTER_ROWS)
-})
+function executionTimestamp(terminal: Record<string, unknown>): string {
+  const submittedAt = terminal['submittedAt']
+  if (typeof submittedAt === 'string') return submittedAt
+  if (typeof submittedAt === 'number' && Number.isFinite(submittedAt)) {
+    return new Date(submittedAt * 1000).toISOString()
+  }
+  return `unknown: ${JSON.stringify(submittedAt)}`
+}
+
+function invocationRecord(): Record<string, unknown> {
+  return {
+    command: process.env['DINKSTER_STARTER_EXACT_COMMAND'],
+    worker: process.argv
+      .map((argument) => (argument.includes(' ') ? JSON.stringify(argument) : argument))
+      .join(' '),
+    environment: {
+      DINKSTER_NATIVE_BACKEND: NATIVE_BACKEND,
+      DINKSTER_STARTER_EXECUTION_E2E: process.env['DINKSTER_STARTER_EXECUTION_E2E'],
+      DINKSTER_STARTER_EXECUTION_FAMILY: FAMILY_FILTER,
+      DINKSTER_STARTER_OVERRIDES: process.env['DINKSTER_STARTER_OVERRIDES'],
+      DINKSTER_STARTER_RECEIPT_DIR: RECEIPT_DIR,
+    },
+  }
+}
 
 for (const row of STARTER_ROWS) {
   test(`executes the ${row.templateId} starter end to end through the real backend`, async ({
@@ -530,12 +556,17 @@ for (const row of STARTER_ROWS) {
     const startedAt = new Date().toISOString()
 
     const entries = await catalogEntries()
-    const rows =
-      FAMILY_FILTER === undefined
-        ? STARTER_ROWS
-        : STARTER_ROWS.filter((candidate) => candidate.family === FAMILY_FILTER)
-    const catalog = requireCatalogMatrix(entries, rows)
-    const entry = catalog.get(row.family)!
+    const { catalog, compositionBlockers } = requireCatalogMatrix(entries)
+    if (compositionBlockers.length > 0) {
+      await test.info().attach('starter-composition-blockers', {
+        body: compositionBlockerMessage(compositionBlockers),
+        contentType: 'text/plain',
+      })
+    }
+    const entry = catalog.get(row.family)
+    if (entry === undefined) {
+      throw new Error(compositionBlockerMessage([row.family]))
+    }
     const familyOverride = starterOverrides()?.get(row.family)
 
     await connect(page)
@@ -676,7 +707,10 @@ for (const row of STARTER_ROWS) {
     if (RECEIPT_DIR !== undefined) {
       const receipt = {
         family: row.family,
+        executedAt: executionTimestamp(terminal),
+        invocation: invocationRecord(),
         template: { id: entry.id, name: entry.name, pack: entry.pack, digest: entry.digest },
+        compositionBlockers,
         outputKind: row.outputKind,
         saveNodeType: row.saveNodeType,
         saveTargetPrefix: row.saveTargetPrefix,
