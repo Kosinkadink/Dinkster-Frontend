@@ -14,7 +14,7 @@ import {
 } from '@dinkster/canvas'
 import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type PreviewRenderer, type ReplacementScanItem, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
-import { createWidgetRegistry, registerCoreWidgets } from '@dinkster/widgets'
+import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
 
@@ -51,7 +51,7 @@ const noLoader: PreviewLoader = {
 }
 
 const previewRegistry = createWidgetRegistry()
-registerCoreWidgets(previewRegistry)
+registerCoreWidgets(widgetRegistrationDoors(previewRegistry))
 
 const base = {
   scene: scene([]),

@@ -204,18 +204,27 @@ describe('asset collection source paging', () => {
 })
 
 describe('mount source discovery', () => {
-  it("browses every ready mount, 'read' and 'readwrite' alike", async () => {
+  it('browses ready and scanning mounts while excluding pending and failed mounts', async () => {
     // The live server exposed comfy-input and comfy-models as mode 'read';
     // a filter written against the invented 'readonly' vocabulary silently
     // hid both, leaving only comfy-output browsable.
-    const connection = { listMounts: () => Promise.resolve([
-      { id: 'comfy-input', mode: 'read', state: 'ready' },
-      { id: 'comfy-models', mode: 'read', state: 'ready' },
-      { id: 'comfy-output', mode: 'readwrite', state: 'ready' },
-      { id: 'indexing', mode: 'read', state: 'scanning' },
-    ]) } as unknown as DinksterConnection
+    const listMountEntries = vi.fn().mockResolvedValue({ entries: [item.rawRef] })
+    const connection = {
+      listMounts: () => Promise.resolve([
+        { id: 'comfy-input', mode: 'read', state: 'ready' },
+        { id: 'comfy-models', mode: 'read', state: 'ready' },
+        { id: 'comfy-output', mode: 'readwrite', state: 'ready' },
+        { id: 'indexing', mode: 'read', state: 'scanning' },
+        { id: 'queued', mode: 'read', state: 'pending' },
+        { id: 'broken', mode: 'read', state: 'failed' },
+      ]),
+      listMountEntries,
+    } as unknown as DinksterConnection
     const sources = await mountAssetSources(connection)
-    expect(sources.map((source) => source.label)).toEqual(['comfy-input', 'comfy-models', 'comfy-output'])
+    expect(sources.map((source) => source.label)).toEqual(['comfy-input', 'comfy-models', 'comfy-output', 'indexing'])
+    const scanningPage = await sources[3]!.page({ query: '', limit: 24 })
+    expect(scanningPage.items.map((entry) => entry.name)).toEqual(['a.png'])
+    expect(listMountEntries).toHaveBeenCalledWith('indexing', { path: '', recursive: false, limit: 24 })
   })
 
   it('scopes typed pickers to matching typed mounts and matching content in generic mounts', async () => {
@@ -228,6 +237,7 @@ describe('mount source discovery', () => {
         { id: 'checkpoints', mode: 'read', state: 'ready', kind: 'model/checkpoint' },
         { id: 'vae', mode: 'read', state: 'ready', kind: 'model/vae' },
         { id: 'comfy-output', mode: 'readwrite', state: 'ready' },
+        { id: 'indexing-empty', mode: 'read', state: 'scanning' },
       ]),
       listMountEntries,
     } as unknown as DinksterConnection
@@ -235,11 +245,12 @@ describe('mount source discovery', () => {
     expect(imageSources.map((source) => source.label)).toEqual(['comfy-input'])
     expect(listMountEntries).toHaveBeenNthCalledWith(1, 'comfy-input', { path: '', recursive: true, limit: 1, kind: 'media/image' })
     expect(listMountEntries).toHaveBeenNthCalledWith(2, 'comfy-output', { path: '', recursive: true, limit: 1, kind: 'media/image' })
+    expect(listMountEntries).toHaveBeenNthCalledWith(3, 'indexing-empty', { path: '', recursive: true, limit: 1, kind: 'media/image' })
 
     listMountEntries.mockClear()
     const checkpointSources = await mountAssetSources(connection, 'model/checkpoint')
     expect(checkpointSources.map((source) => source.label)).toEqual(['checkpoints'])
-    expect(listMountEntries).toHaveBeenCalledTimes(2)
+    expect(listMountEntries).toHaveBeenCalledTimes(3)
   })
 
   it('keeps matching typed mounts when one generic-mount probe fails', async () => {

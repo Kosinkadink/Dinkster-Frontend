@@ -47,8 +47,10 @@ export async function mountAssetSources(
   discoveredMounts?: readonly MountDescriptor[],
 ): Promise<readonly AssetSourceAdapter[]> {
   // Every decoded mount mode ('read' | 'readwrite') is browsable; the
-  // decoder owns the vocabulary. Only readiness gates browsing here.
-  const mounts = (discoveredMounts ?? await connection.listMounts()).filter((mount) => mount.state === 'ready')
+  // decoder owns the vocabulary. A scan does not invalidate entries that
+  // have already reached the live catalog.
+  const mounts = (discoveredMounts ?? await connection.listMounts())
+    .filter((mount) => mount.state === 'ready' || mount.state === 'scanning')
   if (kind === undefined) return mounts.map((mount) => mountAssetSource(connection, mount.id))
   const scoped = await Promise.all(mounts.map(async (mount) => {
     if (mount.kind !== undefined) return kindMatches(mount.kind, kind) ? mount : undefined

@@ -127,3 +127,48 @@ test('global Assets browse surface is aggregated, honest, persistent, and read-o
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(reloadRevision)
   await page.screenshot({ path: `${PROOF}/08-read-only-final.png`, fullPage: true })
 })
+
+test('mount scan progress stays visible while the scan is active', async ({ page }) => {
+  const proof = '/tmp/dinkster-116-proof/mount-scan-progress.png'
+  await mkdir('/tmp/dinkster-116-proof', { recursive: true })
+  await page.route('/supervisor/status', (route) => void route.fulfill({ status: 502, body: 'no supervisor' }))
+  await page.route('/system_stats', (route) => void route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
+  await page.route('/api/nodes*', (route) => void route.fulfill({ json: {
+    schemaVersion: 1,
+    epoch: 1,
+    dinkster: { version: 'mount-scan-progress-e2e', schemaWire: 22 },
+    nodes: {},
+  } }))
+  await page.route('**/api/mounts', (route) => void route.fulfill({ json: { mounts: [{
+    id: 'checkpoints',
+    mode: 'read',
+    state: 'scanning',
+    entryCount: 37,
+    scanProgress: {
+      filesDone: 37,
+      filesTotal: 120,
+      bytesDone: 4_831_838_208,
+      bytesTotal: 19_327_352_832,
+      elapsedSeconds: 48.7,
+    },
+  }] } }))
+  await page.route('**/api/mounts/checkpoints/entries?*', (route) => void route.fulfill({ json: { entries: [{
+    virtualPath: 'models/indexed.ckpt',
+    name: 'indexed.ckpt',
+    digest: digest('d'),
+    size: 2048,
+    mediaType: 'application/octet-stream',
+    kind: 'model/checkpoint',
+  }] } }))
+
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol ?? 'pending')).toBe('dinkster')
+  await page.getByTestId('assets-toggle').click()
+  await expect(page.getByRole('option', { name: /indexed\.ckpt/ })).toBeVisible()
+  const health = page.getByTestId('asset-source-health')
+  await health.locator('summary').click()
+  const scanning = health.locator('[data-source="mount:checkpoints"]')
+  await expect(scanning).toHaveAttribute('data-state', 'scanning')
+  await expect(scanning).toContainText('Indexed 37/120 files, 4.5 GiB/18 GiB, 48s elapsed')
+  await page.screenshot({ path: proof, fullPage: true })
+})

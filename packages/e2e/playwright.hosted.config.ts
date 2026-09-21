@@ -31,8 +31,10 @@ writeFileSync(checkpointFixture, 'Dinkster hosted E2E checkpoint fixture\n')
 const frontendPort = port('DINKSTER_E2E_PORT', 5410)
 const comfyPort = port('DINKSTER_E2E_COMFY_PORT', 5411)
 const nativePort = port('DINKSTER_E2E_NATIVE_PORT', 5412)
-if (new Set([frontendPort, comfyPort, nativePort]).size !== 3) throw new Error('hosted E2E ports must differ')
+const nativeFrontendPort = port('DINKSTER_E2E_NATIVE_FRONTEND_PORT', frontendPort + 3)
+if (new Set([frontendPort, comfyPort, nativePort, nativeFrontendPort]).size !== 4) throw new Error('hosted E2E ports must differ')
 const nativeBackend = `http://127.0.0.1:${nativePort}`
+process.env['DINKSTER_E2E_NATIVE_FRONTEND'] = `http://127.0.0.1:${nativeFrontendPort}`
 
 export default defineConfig({
   ...baseConfig,
@@ -78,6 +80,18 @@ export default defineConfig({
         VITE_DINKSTER_E2E_PROBE_V1: '1',
       },
       url: `http://127.0.0.1:${frontendPort}`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+    },
+    {
+      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${nativeFrontendPort} --strictPort`,
+      cwd: frontendRoot,
+      env: {
+        ...process.env,
+        DINKSTER_NATIVE_BACKEND: nativeBackend,
+        VITE_DINKSTER_E2E_PROBE_V1: '0',
+      },
+      url: `http://127.0.0.1:${nativeFrontendPort}`,
       reuseExistingServer: false,
       timeout: 180_000,
     },
