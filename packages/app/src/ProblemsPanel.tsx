@@ -1,6 +1,6 @@
 import { createMemo, createSignal, For, Show } from 'solid-js'
 import type { Diagnostic } from '@dinkster/core'
-import type { CompatSkip } from '@dinkster/client'
+import type { CompatSkip, PackInferenceUnavailable } from '@dinkster/client'
 import { currentGraphId, diagnosticFocusTarget, type AppState } from './app-state.js'
 import { groupProblemDiagnostics, problemDisplay, type ProblemGroup } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
@@ -41,6 +41,11 @@ export interface ProblemsPanelProps {
   readonly app: AppState
   readonly diagnostics: () => readonly Diagnostic[]
   readonly compatSkips: () => readonly CompatSkip[]
+  /** Packs whose nodes, routes and events composed but whose declared
+   * samplers/schedulers could not bind because no native sampling worker
+   * was live; their ids are refused at plan time until a worker connects.
+   * Absent hosts (older backends, unit harnesses) render no such group. */
+  readonly packInferenceUnavailable?: () => readonly PackInferenceUnavailable[]
   /** Injectable so the Node-rendered component contract can drive disclosure state. */
   readonly disclosure?: ProblemsDisclosure
   /**
@@ -53,6 +58,9 @@ export interface ProblemsPanelProps {
 
 export function ProblemsPanel(props: ProblemsPanelProps) {
   const message = useAppMessage()
+  const inferenceUnavailable = (): readonly PackInferenceUnavailable[] => {
+    return props.packInferenceUnavailable?.() ?? []
+  }
   const disclosure = props.disclosure ?? createProblemsDisclosure()
   const groups = createMemo<readonly ProblemGroup[]>((previous) => {
     const tab = props.app.activeTab()
@@ -76,7 +84,10 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
       <h2>{message('shell.panel.problems.title')}</h2>
       {/* Problems are owner-scoped: the caller supplies only visible canvases'
           entries plus app-scoped globals and the active execution's errors. */}
-      <Show when={groups().length > 0 || props.compatSkips().length > 0} fallback={<p class="empty">{message('problems.empty')}</p>}>
+      <Show
+        when={groups().length > 0 || props.compatSkips().length > 0 || inferenceUnavailable().length > 0}
+        fallback={<p class="empty">{message('problems.empty')}</p>}
+      >
         <For each={groups()}>
           {(group, index) => {
             const contentId = () => `problems-group-${index()}`
@@ -158,6 +169,36 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                   <div class="problem compat-skip" data-severity="info">
                     <strong>{`${skip.packId}: ${skip.nodeId}`}</strong>
                     <div class="compat-skip-reason">{skip.reason}</div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </section>
+        </Show>
+        <Show when={inferenceUnavailable().length > 0}>
+          <section
+            class="problems-group inference-unavailable-group"
+            data-severity="warning"
+            data-testid="pack-inference-unavailable-group"
+            aria-label={message('problems.inferenceUnavailable.title')}
+          >
+            <div class="problems-group-header inference-unavailable-header">
+              <span class="problems-group-title">{message('problems.inferenceUnavailable.title')}</span>
+              <span class="problems-group-count">{inferenceUnavailable().length}</span>
+              <span class="problems-group-severity">{message('problems.inferenceUnavailable.warning')}</span>
+            </div>
+            <p class="inference-unavailable-explanation">{message('problems.inferenceUnavailable.description')}</p>
+            <div class="problems-group-items">
+              <For each={inferenceUnavailable()}>
+                {(unavailable) => (
+                  <div class="problem inference-unavailable" data-severity="warning">
+                    <strong>{unavailable.pack}</strong>
+                    <div class="inference-unavailable-reason">{unavailable.reason}</div>
+                    <For each={unavailable.providers}>
+                      {(provider) => (
+                        <div class="inference-unavailable-provider">{`${provider.registry}.${provider.id}`}</div>
+                      )}
+                    </For>
                   </div>
                 )}
               </For>

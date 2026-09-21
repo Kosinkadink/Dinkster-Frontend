@@ -1902,6 +1902,7 @@ describe('fetchDiagnostics', () => {
     expect(await conn.fetchDiagnostics()).toEqual({
       replacementProblems: [problem],
       compatSkips: [compatSkip],
+      packInferenceUnavailable: [],
     })
     expect(requests[0]?.url).toBe('http://test/api/diagnostics')
   })
@@ -1924,22 +1925,23 @@ describe('fetchDiagnostics', () => {
     expect(await conn.fetchDiagnostics()).toEqual({
       replacementProblems: [problem],
       compatSkips: [compatSkip],
+      packInferenceUnavailable: [],
     })
   })
 
   it('returns an empty diagnostics snapshot for a non-ok response', async () => {
     const { conn } = submitHarness(() => jsonResponse(404, { error: 'not found' }))
-    expect(await conn.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [] })
+    expect(await conn.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [], packInferenceUnavailable: [] })
   })
 
   it('returns an empty diagnostics snapshot when fetch throws', async () => {
     const { conn } = submitHarness(() => undefined)
-    expect(await conn.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [] })
+    expect(await conn.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [], packInferenceUnavailable: [] })
   })
 
   it('tolerates absent and malformed diagnostics keys independently', async () => {
     const absent = submitHarness(() => jsonResponse(200, {})).conn
-    expect(await absent.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [] })
+    expect(await absent.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [], packInferenceUnavailable: [] })
 
     const malformedSkips = submitHarness(() => jsonResponse(200, {
       replacementProblems: [problem],
@@ -1948,6 +1950,7 @@ describe('fetchDiagnostics', () => {
     expect(await malformedSkips.fetchDiagnostics()).toEqual({
       replacementProblems: [problem],
       compatSkips: [],
+      packInferenceUnavailable: [],
     })
 
     const malformedProblems = submitHarness(() => jsonResponse(200, {
@@ -1957,6 +1960,63 @@ describe('fetchDiagnostics', () => {
     expect(await malformedProblems.fetchDiagnostics()).toEqual({
       replacementProblems: [],
       compatSkips: [compatSkip],
+      packInferenceUnavailable: [],
+    })
+  })
+
+  it('decodes degraded pack inference entries keyed by pack, injecting the pack id', async () => {
+    const { conn } = submitHarness(() => jsonResponse(200, {
+      packInferenceUnavailable: {
+        'pack.degraded': {
+          reason: 'No live native sampling worker (dinkster.ksampler) is registered.',
+          entry: 'sampler',
+          worker: 'dinkster.ksampler',
+          providers: [{ registry: 'sampler', id: 'euler', available: false, extra: 'ignored' }],
+        },
+      },
+    }))
+    expect(await conn.fetchDiagnostics()).toEqual({
+      replacementProblems: [],
+      compatSkips: [],
+      packInferenceUnavailable: [{
+        pack: 'pack.degraded',
+        reason: 'No live native sampling worker (dinkster.ksampler) is registered.',
+        entry: 'sampler',
+        worker: 'dinkster.ksampler',
+        providers: [{ registry: 'sampler', id: 'euler' }],
+      }],
+    })
+  })
+
+  it('keeps entries without optional fields and drops malformed ones independently', async () => {
+    const { conn } = submitHarness(() => jsonResponse(200, {
+      packInferenceUnavailable: {
+        'pack.bare': { reason: 'no worker', providers: [] },
+        'pack.no-reason': { providers: [] },
+        'pack.bad-entry': { reason: 'x', entry: 7, providers: [] },
+        'pack.bad-worker': { reason: 'x', worker: {}, providers: [] },
+        'pack.no-providers': { reason: 'x' },
+        'pack.bad-provider-row': { reason: 'x', providers: ['nope'] },
+        'pack.bad-provider-fields': { reason: 'x', providers: [{ registry: 's', id: 3 }] },
+        '': { reason: 'x', providers: [] },
+      },
+    }))
+    expect(await conn.fetchDiagnostics()).toEqual({
+      replacementProblems: [],
+      compatSkips: [],
+      packInferenceUnavailable: [{ pack: 'pack.bare', reason: 'no worker', providers: [] }],
+    })
+  })
+
+  it('tolerates a non-object packInferenceUnavailable key', async () => {
+    const conn = submitHarness(() => jsonResponse(200, {
+      replacementProblems: [problem],
+      packInferenceUnavailable: 'bad',
+    })).conn
+    expect(await conn.fetchDiagnostics()).toEqual({
+      replacementProblems: [problem],
+      compatSkips: [],
+      packInferenceUnavailable: [],
     })
   })
 })

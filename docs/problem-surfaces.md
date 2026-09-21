@@ -19,6 +19,15 @@ Native backend pack failures are restored from the process-lifetime
 healthy snapshot clears only that backend's pack failures, leaving unrelated
 app and document problems intact.
 
+A pack that declared samplers or schedulers but composed with no native
+sampling worker live keeps its nodes, routes and events and reports its
+inference surface as unavailable. `/api/diagnostics` carries one
+`packInferenceUnavailable` entry per such pack (reason plus the refused
+provider ids), and the Problems tab shows a "Pack inference unavailable"
+advisory group listing each pack, its reason and its provider ids. The group
+is advisory: those ids are refused when a plan references them, and the
+advisory disappears once the pack composes with a live worker.
+
 ## Focus-to-context ownership
 
 The Focused tab derives WHAT is focused from live shell facts with one pure
