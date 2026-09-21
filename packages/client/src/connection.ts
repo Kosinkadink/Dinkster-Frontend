@@ -24,6 +24,7 @@ import {
   type NormalizedEvent,
   type PromptId,
   type ReadonlySignal,
+  type SchemaResolver,
 } from '@dinkster/core'
 import {
   ComfyV1Normalizer,
