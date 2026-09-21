@@ -39,7 +39,7 @@ async function backend(page: Page, base: string, initial: string) {
     }] })
     const path = new URL(route.request().url()).pathname
     if (path === `${base}/api/nodes`) return route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 40 }, extensionSnapshotDigest: hash(body), nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 1 }, extensionSnapshotDigest: hash(body), nodes: {},
     } })
     if (path === `${base}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${base}${moduleUrl}`) return route.fulfill({ body: source, contentType: 'text/javascript', headers: { 'Cache-Control': 'private, immutable' } })

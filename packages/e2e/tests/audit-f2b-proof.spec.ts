@@ -3,7 +3,7 @@ import { expect, openRailPanel, test } from './fixtures.js'
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f2b-proof', schemaWire: 21 },
+  dinkster: { version: 'audit-f2b-proof', schemaWire: 1 },
   packs: {},
   nodes: {},
 }

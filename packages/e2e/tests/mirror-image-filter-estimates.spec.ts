@@ -23,7 +23,7 @@ const sourcePng = Buffer.from(
 )
 
 const imageSourceNode = {
-  schemaVersion: 30,
+  schemaVersion: 1,
   nodeType: 'e2e.image.source',
   displayName: 'Image Source',
   category: 'test',
@@ -49,7 +49,7 @@ test('applies-scoped filter mirrors estimate covered operations and abstain outs
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-filter-estimates-proof', schemaWire: 30 },
+    dinkster: { version: 'mirror-filter-estimates-proof', schemaWire: 1 },
     nodes: {
       'e2e.image.source': imageSourceNode,
       'dinkster.image.filter': filterWire,

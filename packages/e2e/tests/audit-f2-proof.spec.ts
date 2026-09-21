@@ -26,7 +26,7 @@ test('proves product select semantics across the five replacement sites', async 
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'audit-f2-proof', schemaWire: 21 },
+    dinkster: { version: 'audit-f2-proof', schemaWire: 1 },
     packs: {},
     nodes: {},
   } }))

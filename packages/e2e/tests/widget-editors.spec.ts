@@ -79,9 +79,9 @@ async function stepperPoint(page: Page, inputId: string, side: 'left' | 'right')
 
 test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 33,
+    schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'widget-editors-e2e', schemaWire: 33, graphFeatures: ['decimalInt'] },
+    dinkster: { version: 'widget-editors-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
     nodes: {},
   } }))
   await page.route('/system_stats', (route) =>

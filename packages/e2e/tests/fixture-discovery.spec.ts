@@ -1,6 +1,6 @@
 import { expect, nativeTest, test } from './fixtures.js'
 
-const probes = ['/api/nodes?wire=21', '/supervisor/status']
+const probes = ['/api/nodes', '/supervisor/status']
 
 test.beforeEach(async ({ context }) => {
   // Context routes stand in for the server, below the fixture's page routes.

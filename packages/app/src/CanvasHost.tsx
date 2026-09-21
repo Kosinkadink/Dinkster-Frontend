@@ -2745,7 +2745,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const menuRegistry = registry()
       const menuResolve = menuRegistry ? documentResolver(tab.store.doc, menuRegistry.resolve) : undefined
       const targetSchema = targetNode ? menuResolve?.(targetNode.type) : undefined
-      const previewCapable = previewCapabilityOf(menuRegistry, menuResolve)
+      const previewCapable = previewCapabilityOf(menuResolve)
       const mirrorCapable = mirrorCapabilityOf(menuResolve)
       const ctx = canvasMenuContext({
         doc: tab.store.doc,
