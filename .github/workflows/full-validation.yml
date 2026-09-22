@@ -113,6 +113,9 @@ jobs:
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
+      - run: pnpm exec prettier --check --single-quote --no-semi scripts/ci-fast.mjs packages/e2e/test/ci-workflow.test.ts
+      - run: pnpm check:extension-literals
+      - run: pnpm check:v1-boundary
       - run: pnpm typecheck
       - run: pnpm check:ui-strings
       - run: pnpm test
