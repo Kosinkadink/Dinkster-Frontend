@@ -77,8 +77,9 @@ Parallel-safe runs as six shards, backend-serial as two, and native-without-V1
 as three so each job fits the 20-minute main budget. The software Vulkan check
 stays on backend-serial 1/2. All 13 E2E lanes may run concurrently across the
 Linux runner pool, and each remains behind its host's counted-suite launcher so
-Actions and owner gates share one admission limit. The jobs retain their
-existing assertions and dependency pins:
+Actions and owner gates share one admission limit. GitHub-hosted jobs execute
+the same command directly because they do not share that host. The jobs retain
+their existing assertions and dependency pins:
 
 | Job           | Checks                                                                                                                                                                                                                                                   |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

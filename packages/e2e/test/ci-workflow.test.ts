@@ -50,6 +50,10 @@ const privateDependencyAction = yaml.load(
   ),
 ) as { runs: { steps: { run: string }[] } }
 const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
+const countedSuite = await readFile(
+  resolve(root, 'scripts/run-counted-if-self-hosted.sh'),
+  'utf8',
+)
 const appMain = await readFile(
   resolve(root, 'packages/app/src/main.tsx'),
   'utf8',
@@ -379,7 +383,7 @@ describe('fast pull-request and full validation workflows', () => {
         ).toBe(true)
       }
       if (name === 'e2e-suite') {
-        expect(browser.run).toContain('run_counted_suite.sh')
+        expect(browser.run).toContain('run-counted-if-self-hosted.sh')
         expect(browser.env).toMatchObject({
           DINKSTER_E2E_COMFY_PORT: '15411',
           DINKSTER_E2E_NATIVE_PORT: '15412',
@@ -426,6 +430,13 @@ describe('fast pull-request and full validation workflows', () => {
         expect(recordedFixtures.run).toContain('test/events.golden.test.ts')
       }
     }
+    expect(countedSuite).toContain(
+      'if [ "${RUNNER_ENVIRONMENT:-}" = "self-hosted" ]',
+    )
+    expect(countedSuite).toContain(
+      'exec "$HOME/comfy-vibe-station/run_counted_suite.sh" "$@"',
+    )
+    expect(countedSuite.trimEnd()).toMatch(/exec "\$@"$/)
     expect(appMain).toContain(
       "probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1'",
     )

@@ -120,7 +120,7 @@ jobs:
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
       - run: pnpm typecheck
       - run: pnpm check:ui-strings
-      - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" pnpm test'
+      - run: bash scripts/run-counted-if-self-hosted.sh pnpm test
         env:
           # Keep allocation-heavy performance gates on steady-state work
           # instead of timing young-generation garbage collection.
@@ -210,8 +210,8 @@ jobs:
         if: matrix.vulkan
       - name: Replay recorded stock ComfyUI fixtures
         if: matrix.name == 'stock ComfyUI V1'
-        run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" pnpm --filter @dinkster/core exec vitest run test/object-info.golden.test.ts test/events.golden.test.ts'
-      - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}'
+        run: bash scripts/run-counted-if-self-hosted.sh pnpm --filter @dinkster/core exec vitest run test/object-info.golden.test.ts test/events.golden.test.ts
+      - run: bash scripts/run-counted-if-self-hosted.sh bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}
         env:
           # Match the software Vulkan driver available on CPU-only runners.
           VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
@@ -224,7 +224,7 @@ jobs:
           DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15412
       - name: Prove the ordinary third-party pack contract
         if: matrix.name == 'backend serial 1/2'
-        run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.extension-contract.config.ts'
+        run: bash scripts/run-counted-if-self-hosted.sh bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.extension-contract.config.ts
         env:
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
           DINKSTER_E2E_PORT: "15420"
