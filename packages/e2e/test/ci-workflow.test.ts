@@ -43,12 +43,6 @@ const load = async (name: string): Promise<Workflow> =>
   ) as Workflow
 const fast = await load('ci.yml')
 const full = await load('full-validation.yml')
-const privateDependencyAction = yaml.load(
-  await readFile(
-    resolve(root, '.github/actions/check-private-dependencies/action.yml'),
-    'utf8',
-  ),
-) as { runs: { steps: { run: string }[] } }
 const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
 const appMain = await readFile(
   resolve(root, 'packages/app/src/main.tsx'),
@@ -103,7 +97,7 @@ describe('fast pull-request and full validation workflows', () => {
     const job = fast.jobs['fast']!
     expect(job['timeout-minutes']).toBe(10)
     expect(job['runs-on']).toBe(
-      '${{ fromJSON(((github.event_name == \'pull_request\' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && \'["ubuntu-latest"]\' || (vars.DINKSTER_PR_RUNNER || \'["self-hosted", "linux", "x64"]\')) }}',
+      "${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}",
     )
     expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
       'pnpm install --frozen-lockfile',
@@ -111,29 +105,16 @@ describe('fast pull-request and full validation workflows', () => {
     ])
     expect(job.steps!.flatMap((step) => step.uses ?? [])).toEqual([
       'actions/checkout@v4',
-      './.github/actions/check-private-dependencies',
-      './.github/actions/configure-dinkster-identity',
       'actions/checkout@v4',
       'actions/setup-python@v5',
       'pnpm/action-setup@v4',
       'actions/setup-node@v4',
     ])
-    expect(job.steps![1]).toEqual({
-      name: 'Check private dependency access',
-      id: 'private-dependencies',
-      uses: './.github/actions/check-private-dependencies',
-      with: {
-        'secret-name-1': 'DINKSTER_REPOSITORY_DEPLOY_KEY',
-        'secret-value-1': '${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}',
-        'force-not-run': '${{ inputs.simulate-fork }}',
-      },
-    })
-    for (const step of job.steps!.slice(2))
-      expect(step.if).toBe(
-        "steps.private-dependencies.outputs.available == 'true'",
-      )
-    expect(privateDependencyAction.runs.steps[0]!.run).toContain(
-      'not run: requires repository secret $name',
+    expect(job.steps).not.toContainEqual(
+      expect.objectContaining({ if: expect.any(String) }),
+    )
+    expect(JSON.stringify([fast, full])).not.toContain(
+      'DINKSTER_REPOSITORY_DEPLOY_KEY',
     )
     expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
@@ -159,7 +140,6 @@ describe('fast pull-request and full validation workflows', () => {
 
   it('runs every heavy lane through one guarded reusable workflow', async () => {
     expect(full.on).toEqual({
-      pull_request: null,
       push: { branches: ['main'] },
       schedule: [
         { cron: '0 6-22/2 * * *', timezone: 'America/Los_Angeles' },
@@ -301,10 +281,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.jobs['fast']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name == 'push'",
     )
-    const trustedFastSteps = fast.jobs['fast']!.steps!.filter(
-      (step) => step.uses !== './.github/actions/check-private-dependencies',
-    ).map(({ if: _privateDependencyGuard, ...step }) => step)
-    expect(full.jobs['fast']!.steps).toEqual(trustedFastSteps)
+    expect(full.jobs['fast']!.steps).toEqual(fast.jobs['fast']!.steps)
     expect(full.jobs['fast']!.steps).not.toContainEqual(
       expect.objectContaining({
         uses: './.github/actions/check-private-dependencies',
@@ -356,6 +333,7 @@ describe('fast pull-request and full validation workflows', () => {
             'persist-credentials': false,
           })
           expect(step.with).not.toHaveProperty('ssh-key')
+          expect(step.with).not.toHaveProperty('token')
           if (!step.with?.['repository'])
             expect(step.with).not.toHaveProperty('ref')
         }
@@ -368,7 +346,7 @@ describe('fast pull-request and full validation workflows', () => {
           (step) =>
             step.uses === './.github/actions/configure-dinkster-identity',
         ),
-      ).toHaveLength(2)
+      ).toHaveLength(1)
       const browser = steps.find((step) =>
         step.run?.includes('playwright test'),
       )!
