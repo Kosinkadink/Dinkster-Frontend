@@ -259,6 +259,14 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.jobs['ci']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true'",
     )
+    const mainCommands = full.jobs['ci']!.steps!.flatMap(
+      (step) => step.run ?? [],
+    )
+    expect(mainCommands).toContain(
+      'pnpm exec prettier --check --single-quote --no-semi scripts/ci-fast.mjs packages/e2e/test/ci-workflow.test.ts',
+    )
+    expect(mainCommands).toContain('pnpm check:extension-literals')
+    expect(mainCommands).toContain('pnpm check:v1-boundary')
     expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
     expect(full.jobs['e2e-suite']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true'",
@@ -314,8 +322,7 @@ describe('fast pull-request and full validation workflows', () => {
             'persist-credentials': false,
           })
           expect(step.with).not.toHaveProperty('ssh-key')
-          if (step.with?.['repository'] === 'Kosinkadink/Dinkster')
-            expect(step.with).not.toHaveProperty('token')
+          expect(step.with).not.toHaveProperty('token')
           if (!step.with?.['repository'])
             expect(step.with).not.toHaveProperty('ref')
         }
