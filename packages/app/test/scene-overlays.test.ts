@@ -12,10 +12,10 @@ import {
   SUBGRAPH_BADGE,
   type Scene,
 } from '@dinkster/canvas'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type PreviewRenderer, type ReplacementScanItem, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeDecorationContribution, type NodeSchema, type PreviewRenderer, type ReplacementScanItem, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
 
 // The derivation reads scene.nodes (id/isSubgraph/node.type), execution
@@ -38,6 +38,15 @@ const exec = (over: Partial<Record<string, unknown>> = {}): ExecutionState =>
 /** A run error report entry anchored to one occurrence. */
 const runError = (node: string, instancePath: readonly string[] = [], over: Record<string, unknown> = {}) =>
   ({ severity: 'error', origin: 'runtime', code: 'runtime.X', message: 'failed', anchor: { occurrence: { instancePath, node } }, ...over })
+
+const modeDecoration: NodeDecorationContribution = {
+  id: 'core.node.mode',
+  decorate: (node) => node.mode === 'muted'
+    ? { badges: [MUTED_BADGE] }
+    : node.mode === 'bypassed'
+      ? { badges: [BYPASSED_BADGE] }
+      : undefined,
+}
 
 const schemaTable = (schemas: Record<string, { pack?: string; deprecation?: { message: string }; executionArms?: readonly ('native' | 'comfyui')[] }>) => {
   return (type: string): NodeSchema | undefined =>
@@ -1041,31 +1050,89 @@ describe('deriveSceneOverlays', () => {
   })
 
   it('names muted and bypassed modes on-node while active nodes stay unbadged', () => {
+    const target = scene([
+      { id: 'muted', mode: 'muted' },
+      { id: 'bypassed', mode: 'bypassed' },
+      { id: 'active', mode: 'active' },
+    ])
     const m = deriveSceneOverlays({
       ...base,
-      scene: scene([
-        { id: 'muted', mode: 'muted' },
-        { id: 'bypassed', mode: 'bypassed' },
-        { id: 'active', mode: 'active' },
-      ]),
+      scene: target,
+    })
+    const decorated = applyNodeDecorations({
+      scene: target, documentId: 'lineage', graphId: 'root', contributions: [modeDecoration], badges: m.badges,
     })
 
-    expect(m.badges.muted).toEqual([MUTED_BADGE])
-    expect(m.badges.bypassed).toEqual([BYPASSED_BADGE])
-    expect(m.badges.active).toBeUndefined()
+    expect(decorated.badges.muted).toEqual([MUTED_BADGE])
+    expect(decorated.badges.bypassed).toEqual([BYPASSED_BADGE])
+    expect(decorated.badges.active).toBeUndefined()
     expect(MUTED_BADGE.glyph).toBe('Muted')
     expect(BYPASSED_BADGE.glyph).toBe('Bypassed')
   })
 
   it('composes a mode badge with existing overlay badges', () => {
+    const target = scene([{ id: 'muted-error', mode: 'muted' }])
     const m = deriveSceneOverlays({
       ...base,
-      scene: scene([{ id: 'muted-error', mode: 'muted' }]),
+      scene: target,
       exec: exec({ nodes: { 'muted-error': { state: 'error' } }, errors: [runError('muted-error')] }),
     })
+    const decorated = applyNodeDecorations({
+      scene: target, documentId: 'lineage', graphId: 'root', contributions: [modeDecoration], badges: m.badges,
+    })
 
-    expect(m.badges['muted-error']).toEqual([executionErrorBadge(1), MUTED_BADGE])
+    expect(decorated.badges['muted-error']).toEqual([executionErrorBadge(1), MUTED_BADGE])
     expect(executionErrorBadge(1).glyph).toBe('Error')
+  })
+
+  it('applies decorations in id order and rolls back a failing contribution', () => {
+    const target = scene([{ id: 'proof' }, { id: 'other' }])
+    const results: Array<readonly [string, unknown?]> = []
+    let getterCalls = 0
+    const decorated = applyNodeDecorations({
+      scene: target,
+      documentId: 'lineage',
+      graphId: 'root',
+      badges: { proof: [executionErrorBadge(1)] },
+      contributions: [
+        {
+          id: 'z.valid',
+          decorate: (node) => node.id === 'proof' ? {
+            badges: [{ id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' }],
+            color: '#123456', titleSuffix: 'decorated', status: 'ready',
+          } : undefined,
+        },
+        {
+          id: 'a.invalid',
+          decorate: (node) => node.id === 'other'
+            ? { badges: [{ id: 'pack.invalid', glyph: 'Bad', color: 'purple' }] }
+            : { badges: [{ id: 'pack.partial', glyph: 'Partial', color: '#112233' }] },
+        },
+        {
+          id: 'b.accessor',
+          decorate: () => ({
+            get badges() {
+              getterCalls += 1
+              return []
+            },
+          }),
+        },
+      ],
+      onResult: (id, error) => results.push([id, error]),
+    })
+
+    expect(decorated.badges.proof).toEqual([
+      executionErrorBadge(1),
+      { id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' },
+    ])
+    expect(decorated.badges.other).toBeUndefined()
+    expect(decorated.presentation.proof).toEqual({ color: '#123456', titleSuffix: 'decorated', status: 'ready' })
+    expect(getterCalls).toBe(0)
+    expect(results.map(([id, error]) => [id, error === undefined])).toEqual([
+      ['a.invalid', false],
+      ['b.accessor', false],
+      ['z.valid', true],
+    ])
   })
 
   it('derives unstored falsy widget-tap companions from the effective schema defaults', () => {

@@ -11,13 +11,11 @@
  */
 
 import {
-  BYPASSED_BADGE,
   companionText,
   DEPRECATED_BADGE,
   executionErrorBadge,
   LOG_INFO_BADGE,
   logWarningBadge,
-  MUTED_BADGE,
   PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
@@ -51,6 +49,9 @@ import {
   type Json,
   type NodeProgress,
   type NodeSchema,
+  type NodeDecoration,
+  type NodeDecorationBadge,
+  type NodeDecorationContribution,
   type ReplacementScanItem,
   type ValueDiagnostic,
   type WidgetRegistry,
@@ -278,6 +279,127 @@ export interface SceneOverlayModel {
   readonly selectedInputPreviews: Readonly<Record<string, SelectedInputPreview>>
   /** Standard-view text and scalar result surfaces; image previews take precedence. */
   readonly outputTexts: OutputTextMap
+}
+
+export interface AppliedNodeDecorations {
+  readonly badges: Readonly<Record<string, readonly NodeBadge[]>>
+  readonly presentation: Readonly<Record<string, NodeDecoration>>
+}
+
+const plainRecord = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== 'object') return false
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) return false
+  return Object.values(Object.getOwnPropertyDescriptors(value)).every(
+    (descriptor) => descriptor.get === undefined && descriptor.set === undefined,
+  )
+}
+
+const decorationText = (value: unknown, field: string, max: number): string => {
+  if (typeof value !== 'string' || value.length === 0 || value.length > max ||
+      value.trim() !== value || /[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new Error(`${field} must be a trimmed visible string of at most ${max} characters`)
+  }
+  return value
+}
+
+const decorationBadge = (value: unknown): NodeDecorationBadge => {
+  if (!plainRecord(value)) throw new Error('badge must be a plain object')
+  const allowed = new Set(['id', 'glyph', 'fallbackGlyph', 'variant', 'appearance', 'placement', 'interactive', 'color'])
+  if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('badge contains an unsupported field')
+  const id = decorationText(value['id'], 'badge id', 128)
+  if (!/^[a-z0-9][a-z0-9._-]*$/u.test(id)) throw new Error('badge id must be namespaced lowercase ASCII')
+  const glyph = decorationText(value['glyph'], 'badge glyph', 40)
+  const color = decorationText(value['color'], 'badge color', 9)
+  if (!/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/u.test(color)) throw new Error('badge color must be #RRGGBB or #RRGGBBAA')
+  if (value['fallbackGlyph'] !== undefined) decorationText(value['fallbackGlyph'], 'badge fallback glyph', 40)
+  if (value['variant'] !== undefined && value['variant'] !== 'label') throw new Error("badge variant must be 'label'")
+  if (value['appearance'] !== undefined && value['appearance'] !== 'policy') throw new Error("badge appearance must be 'policy'")
+  if (value['placement'] !== undefined && value['placement'] !== 'above' && value['placement'] !== 'below') {
+    throw new Error("badge placement must be 'above' or 'below'")
+  }
+  if (value['interactive'] !== undefined && value['interactive'] !== false) throw new Error('extension badges cannot be interactive')
+  return Object.freeze({
+    id,
+    glyph,
+    color,
+    ...(value['fallbackGlyph'] === undefined ? {} : { fallbackGlyph: value['fallbackGlyph'] as string }),
+    ...(value['variant'] === undefined ? {} : { variant: 'label' as const }),
+    ...(value['appearance'] === undefined ? {} : { appearance: 'policy' as const }),
+    ...(value['placement'] === undefined ? {} : { placement: value['placement'] as 'above' | 'below' }),
+    ...(value['interactive'] === undefined ? {} : { interactive: false as const }),
+  })
+}
+
+const normalizedDecoration = (value: unknown): NodeDecoration | undefined => {
+  if (value === undefined) return undefined
+  if (!plainRecord(value)) throw new Error('decoration must be a plain object')
+  const allowed = new Set(['badges', 'color', 'titleSuffix', 'status'])
+  if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('decoration contains an unsupported field')
+  if (value['badges'] !== undefined && (!Array.isArray(value['badges']) || value['badges'].length > 16)) {
+    throw new Error('decoration badges must be an array of at most 16 items')
+  }
+  const color = value['color'] === undefined ? undefined : decorationText(value['color'], 'color', 9)
+  if (color !== undefined && !/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/u.test(color)) {
+    throw new Error('color must be #RRGGBB or #RRGGBBAA')
+  }
+  const titleSuffix = value['titleSuffix'] === undefined
+    ? undefined
+    : decorationText(value['titleSuffix'], 'title suffix', 64)
+  const status = value['status'] === undefined ? undefined : decorationText(value['status'], 'status', 64)
+  const badges = value['badges'] === undefined
+    ? undefined
+    : Object.freeze(value['badges'].map(decorationBadge))
+  return Object.freeze({
+    ...(badges === undefined ? {} : { badges }),
+    ...(color === undefined ? {} : { color }),
+    ...(titleSuffix === undefined ? {} : { titleSuffix }),
+    ...(status === undefined ? {} : { status }),
+  })
+}
+
+/** Apply sorted contribution callbacks transactionally and isolate failures by contribution. */
+export function applyNodeDecorations(args: {
+  readonly scene: Scene
+  readonly documentId: string
+  readonly graphId: string
+  readonly contributions: readonly NodeDecorationContribution[]
+  readonly badges: Readonly<Record<string, readonly NodeBadge[]>>
+  readonly onResult?: (id: string, error?: unknown) => void
+}): AppliedNodeDecorations {
+  const badges: Record<string, readonly NodeBadge[]> = { ...args.badges }
+  const presentation: Record<string, NodeDecoration> = {}
+  for (const contribution of [...args.contributions].sort((left, right) => left.id.localeCompare(right.id))) {
+    try {
+      const staged = args.scene.nodes.flatMap((node) => {
+        const result = normalizedDecoration(contribution.decorate(Object.freeze({
+          documentId: args.documentId,
+          graphId: args.graphId,
+          id: node.id,
+          type: node.node.type,
+          title: node.layout?.title ?? node.node.title ?? node.id,
+          mode: node.node.mode ?? 'active',
+        })))
+        return result === undefined ? [] : [{ nodeId: node.id, result }]
+      })
+      for (const { nodeId, result } of staged) {
+        if (result.badges !== undefined) badges[nodeId] = [...(badges[nodeId] ?? []), ...result.badges]
+        const current = presentation[nodeId]
+        const titleSuffix = [current?.titleSuffix, result.titleSuffix].filter((value) => value !== undefined).join(' ')
+        const color = result.color ?? current?.color
+        const status = result.status ?? current?.status
+        presentation[nodeId] = {
+          ...(color === undefined ? {} : { color }),
+          ...(titleSuffix === '' ? {} : { titleSuffix }),
+          ...(status === undefined ? {} : { status }),
+        }
+      }
+      args.onResult?.(contribution.id)
+    } catch (error) {
+      args.onResult?.(contribution.id, error)
+    }
+  }
+  return { badges, presentation }
 }
 
 export interface ExecutedImagePreview {
@@ -655,8 +777,6 @@ export function deriveSceneOverlays(args: {
       list.push(subgraphBadge(occurrences))
     }
     else if (replaceItems.has(n.id) || (s !== undefined && isDeprecated(s))) list.push(DEPRECATED_BADGE)
-    if (n.node.mode === 'muted') list.push(MUTED_BADGE)
-    else if (n.node.mode === 'bypassed') list.push(BYPASSED_BADGE)
     const iterationLabel = regionIterationLabels[n.id]
     if (iterationLabel !== undefined) {
       list.push({
