@@ -509,6 +509,12 @@ describe('fast pull-request and full validation workflows', () => {
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
+    expect(auditConfig).toContain(
+      "process.env['DINKSTER_E2E_USE_NATIVE'] = '1'",
+    )
+    expect(auditConfig).toContain(
+      "process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'native'",
+    )
     expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(auditConfig).toContain(
       "'packages/dinkster-nodes-dev/dinkster-pack.toml'",

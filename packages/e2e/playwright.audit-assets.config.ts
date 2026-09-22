@@ -20,6 +20,8 @@ const frontendRoot = resolve(import.meta.dirname, '../..')
 const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
 const nativeBackend = `http://127.0.0.1:${nativePort}`
 process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
+process.env['DINKSTER_E2E_USE_NATIVE'] = '1'
+process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'native'
 
 export default defineConfig({
   globalSetup: './hosted-global-setup.ts',
