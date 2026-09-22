@@ -6,6 +6,11 @@ import { expect, test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_TEMPLATE_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
+const captureProof = async (page: import('@playwright/test').Page, name: string): Promise<void> => {
+  if (proofDir !== undefined) {
+    await page.screenshot({ path: join(proofDir, name), animations: 'disabled' })
+  }
+}
 const body = JSON.stringify({
   format: 'dinkster-workflow',
   formatVersion: 1,
@@ -26,11 +31,21 @@ const body = JSON.stringify({
 })
 const digest = `sha256:${createHash('sha256').update(body).digest('hex')}`
 
+async function openGalleryFromSearch(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByTestId('topbar-search').click()
+  await page.getByTestId('universal-search-input').fill('> Open template gallery')
+  await page
+    .locator('[data-provider="core.commands"]')
+    .getByRole('option', { name: 'Open template gallery' })
+    .click()
+}
+
 test('refreshes the remote family gallery and opens a digest-verified template', async ({
   page,
 }) => {
   let published = 1
   let catalogRequests = 0
+  let templateFailures = 1
   const registry = createServer((request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*')
     if (request.url?.startsWith('/index/templates') === true) {
@@ -72,6 +87,11 @@ test('refreshes the remote family gallery and opens a digest-verified template',
         request.url ?? '',
       )
     ) {
+      if (request.url?.endsWith('/minimax-h3') === true && templateFailures-- > 0) {
+        response.statusCode = 403
+        response.end('blocked template')
+        return
+      }
       response.setHeader('Content-Type', 'application/json')
       response.end(body)
       return
@@ -146,30 +166,50 @@ test('refreshes the remote family gallery and opens a digest-verified template',
       .toBe(registryUrl)
 
     const gallery = page.getByTestId('template-gallery')
-    await expect(gallery).toBeVisible()
+    await expect(gallery).toBeHidden()
+    const openGallery = page.getByRole('button', { name: 'Browse starter templates' })
+    await expect(openGallery).toBeVisible()
+    await captureProof(page, 'starter-template-blank-startup.png')
     const canvas = page.getByTestId('graph-canvas')
     await canvas.dblclick({ position: { x: 120, y: 120 } })
     await expect(page.getByTestId('node-palette')).toBeVisible()
-    await expect(gallery).toBeVisible()
-    if (proofDir !== undefined)
-      await page.screenshot({ path: join(proofDir, 'starter-template-gallery-with-palette.png'), fullPage: true })
     await page.keyboard.press('Escape')
+
+    await openGallery.click()
+    await expect(gallery).toBeVisible()
+    await gallery.getByRole('button', { name: 'Start blank' }).click()
+    await expect(gallery).toBeHidden()
+    await captureProof(page, 'starter-template-after-start-blank.png')
+
+    await openGalleryFromSearch(page)
+    await expect(gallery).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(gallery).toBeHidden()
+    await captureProof(page, 'starter-template-after-escape.png')
+
+    await openGalleryFromSearch(page)
+    await expect(gallery).toBeVisible()
+    await captureProof(page, 'starter-template-gallery-modal.png')
+    await page.mouse.click(1, 1)
+    await expect(gallery).toBeHidden()
+    await captureProof(page, 'starter-template-after-backdrop.png')
+
+    await openGalleryFromSearch(page)
+    await expect(gallery).toBeVisible()
     if (proofDir !== undefined) {
       await page.setViewportSize({ width: 700, height: 900 })
-      await page.screenshot({ path: join(proofDir, 'starter-template-gallery-narrow.png'), fullPage: true })
+      await page.screenshot({
+        path: join(proofDir, 'starter-template-gallery-modal-narrow.png'),
+        animations: 'disabled',
+      })
       await page.setViewportSize({ width: 1440, height: 900 })
     }
     await gallery
       .getByRole('button', { name: 'Close template gallery' })
       .click()
-    await page.getByTestId('topbar-search').click()
-    await page
-      .getByTestId('universal-search-input')
-      .fill('> Open template gallery')
-    await page
-      .locator('[data-provider="core.commands"]')
-      .getByRole('option', { name: 'Open template gallery' })
-      .click()
+    await expect(gallery).toBeHidden()
+    await captureProof(page, 'starter-template-after-close.png')
+    await openGalleryFromSearch(page)
     await expect.poll(() => catalogRequests).toBeGreaterThan(0)
     await expect(page.getByTestId('template-card')).toHaveCount(1)
     await expect(gallery.locator('.template-family')).toHaveAttribute(
@@ -196,14 +236,7 @@ test('refreshes the remote family gallery and opens a digest-verified template',
       .click()
 
     published = 2
-    await page.getByTestId('topbar-search').click()
-    await page
-      .getByTestId('universal-search-input')
-      .fill('> Open template gallery')
-    await page
-      .locator('[data-provider="core.commands"]')
-      .getByRole('option', { name: 'Open template gallery' })
-      .click()
+    await openGalleryFromSearch(page)
     await expect(page.getByTestId('template-card')).toHaveCount(2)
     await expect(
       gallery.locator('[data-family="dinkster.minimax_h3"]'),
@@ -214,6 +247,10 @@ test('refreshes the remote family gallery and opens a digest-verified template',
         animations: 'disabled',
       })
     await gallery.getByRole('option', { name: /MiniMax H3/ }).click()
+    await expect(gallery.getByRole('alert')).toContainText('MiniMax H3 could not be opened')
+    await expect(gallery).toBeVisible()
+    await captureProof(page, 'starter-template-gallery-error.png')
+    await gallery.getByRole('button', { name: 'Retry' }).click()
     await expect
       .poll(() =>
         page.evaluate(
@@ -221,6 +258,29 @@ test('refreshes the remote family gallery and opens a digest-verified template',
         ),
       )
       .toBe('remote-template')
+    await expect(gallery).toBeHidden()
+    await captureProof(page, 'starter-template-after-retry.png')
+    await page.evaluate(() => {
+      type TestApp = NonNullable<typeof window.__dinksterTest>['app']
+      const app = window.__dinksterTest!.app as TestApp & {
+        templateGalleryOpen: { set(value: boolean): void }
+      }
+      const document = app.activeTab()!.store.doc
+      app.templateGalleryOpen.set(true)
+      app.openDocument(document, 'Reloaded working document')
+    })
+    await expect(gallery).toBeHidden()
+    await page.evaluate(() => {
+      type TestApp = NonNullable<typeof window.__dinksterTest>['app']
+      const app = window.__dinksterTest!.app as TestApp & {
+        templateGalleryOpen: { set(value: boolean): void }
+      }
+      const document = app.activeTab()!.store.doc
+      app.openDocument({ ...document, lineage: 'second-working-document' }, 'Second working document')
+      app.templateGalleryOpen.set(true)
+      app.activeTabId.set('remote-template')
+    })
+    await expect(gallery).toBeHidden()
   } finally {
     await new Promise<void>((resolve, reject) =>
       registry.close((error) =>

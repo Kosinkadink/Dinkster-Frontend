@@ -1564,7 +1564,6 @@ export function App(props: {
     const globalActiveTabId = useSignal(app.activeTabId)
     const galleryRequested = useSignal(app.templateGalleryOpen)
     const [documentRevision, setDocumentRevision] = createSolidSignal(0)
-    const [dismissed, setDismissed] = createSolidSignal<ReadonlySet<string>>(new Set())
     const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
     const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
     createEffect(() => {
@@ -1581,10 +1580,8 @@ export function App(props: {
       const root = tab.store.doc.graphs[tab.store.doc.root]
       return root !== undefined && Object.keys(root.nodes).length === 0
     }
-    const visible = (): boolean => galleryRequested() || (empty() && !dismissed().has(activeTabId()))
     const close = (): void => {
       app.templateGalleryOpen.set(false)
-      setDismissed((current) => new Set([...current, activeTabId()]))
     }
     return <div class="graph-editor-with-gallery">
       <div class="graph-editor-canvas">
@@ -1592,7 +1589,12 @@ export function App(props: {
           {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
           {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />
       </div>
-      <TemplateGallery app={app} visible={visible} onClose={close} />
+      <Show when={empty() && !galleryRequested()}>
+        <button class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
+          {message('templateGallery.open')}
+        </button>
+      </Show>
+      <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
     </div>
   }
   const unregisterEditors = app.frontendDoors.editor(GRAPH_EDITOR_KIND, {
