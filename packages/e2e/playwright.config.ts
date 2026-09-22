@@ -81,6 +81,7 @@ const BACKEND_SERIAL_SPECS = [
 ]
 
 const PERFORMANCE_SPECS = ['perf.spec.ts']
+const ISOLATED_CONFIG_SPECS = ['extension-contract-pack.spec.ts']
 const V1_COMPATIBILITY_SPECS = ['smoke.spec.ts']
 const NATIVE_WITHOUT_V1_SPECS = [
   'app-view-queue-buttons-native.spec.ts',
@@ -152,7 +153,7 @@ export default defineConfig({
   projects: [
     {
       name: 'parallel-safe',
-      testIgnore: [...BACKEND_SERIAL_SPECS, ...PERFORMANCE_SPECS].map(
+      testIgnore: [...BACKEND_SERIAL_SPECS, ...PERFORMANCE_SPECS, ...ISOLATED_CONFIG_SPECS].map(
         (f) => `tests/${f}`,
       ),
     },

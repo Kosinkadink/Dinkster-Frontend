@@ -193,6 +193,16 @@ describe('saveWorkflow', () => {
     expect(app.transientStatus.get()).toBe('Save failed on Native: boom')
   })
 
+  it('keeps a save failure when the tab diagnostic snapshot refreshes', async () => {
+    const { backend, tab } = nativeSetup()
+    vi.spyOn(backend.connection, 'uploadAsset').mockRejectedValue(new Error('boom'))
+
+    expect(await app.saveWorkflow(tab.id)).toBe(false)
+    app.replaceProblems(tab.id, [])
+
+    expect(app.problems.get().some((d) => d.code === 'library.saveFailed')).toBe(true)
+  })
+
   it('v1 backends explain that the targeted backend cannot save', async () => {
     const tab = app.activeTab()! // seed tab on the default v1 backend
     expect(await app.saveWorkflow(tab.id)).toBe(false)

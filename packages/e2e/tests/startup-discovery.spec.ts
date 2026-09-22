@@ -90,7 +90,7 @@ const CURRENT_PREVIEW_TABLE = {
   },
 }
 
-test('same-origin native launch keeps the compatibility probe bounded', async ({ page }, testInfo) => {
+test('native launch avoids the V1 compatibility probe', async ({ page }) => {
   let v1Requests = 0
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),
@@ -124,7 +124,7 @@ test('same-origin native launch keeps the compatibility probe bounded', async ({
       }),
     )
     .toEqual({ protocol: 'dinkster', schemas: 1, title: 'Untitled', nodes: 0 })
-  expect(v1Requests).toBe(testInfo.project.name === 'native-without-v1' ? 0 : 1)
+  expect(v1Requests).toBe(0)
 })
 
 test('native clean startup stays blank with a richer compatibility catalog', async ({ page }) => {

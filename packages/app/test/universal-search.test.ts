@@ -156,6 +156,17 @@ describe('universal search model', () => {
     expect(app.activeTabId.get()).toBe(after.id)
     expect(runSearchAction(app, { kind: 'host', action: 'tab.activate', params: { id: 'gone' } })).toBe(false)
   })
+  it('closes a requested template gallery when workspaces change or reload', () => {
+    const app = new AppState(); const before = app.createWorkflow(); const after = app.createWorkflow()
+    app.activeTabId.set(before.id)
+    app.templateGalleryOpen.set(true)
+    app.activeTabId.set(after.id)
+    expect(app.templateGalleryOpen.get()).toBe(false)
+
+    app.templateGalleryOpen.set(true)
+    expect(app.openDocument(after.store.doc, 'Reloaded workspace')).toEqual([])
+    expect(app.templateGalleryOpen.get()).toBe(false)
+  })
   it('nodes provider emits placement actions that survive strict host-action decoding', () => {
     // Real catalog schemas serialize far past the search contract's string
     // param cap; the emitted schemaKey must stay a short digest or every
