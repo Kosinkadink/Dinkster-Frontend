@@ -1,191 +1,192 @@
-import { readFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
-import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
 
-const root = resolve(import.meta.dirname, '../../..')
-const yaml = createRequire(import.meta.url)('js-yaml') as {
-  load(source: string): unknown
-}
+const root = resolve(import.meta.dirname, "../../..");
+const yaml = createRequire(import.meta.url)("js-yaml") as {
+  load(source: string): unknown;
+};
 interface Step {
-  id?: string
-  name?: string
-  if?: string
-  uses?: string
-  run?: string
-  with?: Record<string, unknown>
-  env?: Record<string, string>
+  id?: string;
+  name?: string;
+  if?: string;
+  uses?: string;
+  run?: string;
+  with?: Record<string, unknown>;
+  env?: Record<string, string>;
 }
 interface Job {
-  if?: string
-  needs?: string | string[]
-  uses?: string
-  secrets?: string
-  outputs?: Record<string, string>
-  'runs-on'?: string | string[]
-  'timeout-minutes'?: number
+  if?: string;
+  needs?: string | string[];
+  uses?: string;
+  secrets?: string;
+  outputs?: Record<string, string>;
+  "runs-on"?: string | string[];
+  "timeout-minutes"?: number;
   strategy?: {
-    'fail-fast': boolean
-    matrix: string
-  }
-  steps?: Step[]
+    "fail-fast": boolean;
+    matrix: string;
+  };
+  steps?: Step[];
 }
 interface Workflow {
-  on: Record<string, unknown>
-  permissions: Record<string, string>
-  concurrency?: Record<string, string>
-  env?: Record<string, string>
-  jobs: Record<string, Job>
+  on: Record<string, unknown>;
+  permissions: Record<string, string>;
+  concurrency?: Record<string, string>;
+  env?: Record<string, string>;
+  jobs: Record<string, Job>;
 }
 const load = async (name: string): Promise<Workflow> =>
   yaml.load(
-    await readFile(resolve(root, '.github/workflows', name), 'utf8'),
-  ) as Workflow
-const fast = await load('ci.yml')
-const full = await load('full-validation.yml')
+    await readFile(resolve(root, ".github/workflows", name), "utf8"),
+  ) as Workflow;
+const fast = await load("ci.yml");
+const full = await load("full-validation.yml");
 const privateDependencyAction = yaml.load(
   await readFile(
-    resolve(root, '.github/actions/check-private-dependencies/action.yml'),
-    'utf8',
+    resolve(root, ".github/actions/check-private-dependencies/action.yml"),
+    "utf8",
   ),
-) as { runs: { steps: { run: string }[] } }
-const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
+) as { runs: { steps: { run: string }[] } };
+const script = await readFile(resolve(root, "scripts/ci-fast.mjs"), "utf8");
 const appMain = await readFile(
-  resolve(root, 'packages/app/src/main.tsx'),
-  'utf8',
-)
+  resolve(root, "packages/app/src/main.tsx"),
+  "utf8",
+);
 const hostedConfig = await readFile(
-  resolve(root, 'packages/e2e/playwright.hosted.config.ts'),
-  'utf8',
-)
+  resolve(root, "packages/e2e/playwright.hosted.config.ts"),
+  "utf8",
+);
 const extensionContractConfig = await readFile(
-  resolve(root, 'packages/e2e/playwright.extension-contract.config.ts'),
-  'utf8',
-)
+  resolve(root, "packages/e2e/playwright.extension-contract.config.ts"),
+  "utf8",
+);
 const baseConfig = await readFile(
-  resolve(root, 'packages/e2e/playwright.config.ts'),
-  'utf8',
-)
+  resolve(root, "packages/e2e/playwright.config.ts"),
+  "utf8",
+);
 const auditConfig = await readFile(
-  resolve(root, 'packages/e2e/playwright.audit-assets.config.ts'),
-  'utf8',
-)
+  resolve(root, "packages/e2e/playwright.audit-assets.config.ts"),
+  "utf8",
+);
 const testingDocs = (
-  await readFile(resolve(root, 'docs/testing.md'), 'utf8')
-).replace(/\r?\n/g, ' ')
+  await readFile(resolve(root, "docs/testing.md"), "utf8")
+).replace(/\r?\n/g, " ");
 
-describe('fast pull-request and full validation workflows', () => {
-  it('pins both workflows to the same backend commit', () => {
-    expect(fast.env?.['DINKSTER_REF']).toMatch(/^[0-9a-f]{40}$/)
-    expect(full.env?.['DINKSTER_REF']).toBe(fast.env?.['DINKSTER_REF'])
-  })
+describe("fast pull-request and full validation workflows", () => {
+  it("pins both workflows to the same backend commit", () => {
+    expect(fast.env?.["DINKSTER_REF"]).toMatch(/^[0-9a-f]{40}$/);
+    expect(full.env?.["DINKSTER_REF"]).toBe(fast.env?.["DINKSTER_REF"]);
+  });
 
-  it('runs exactly one bounded job without a PR label path', () => {
+  it("runs exactly one bounded job without a PR label path", () => {
     expect(fast.on).toEqual({
       pull_request: null,
       workflow_dispatch: {
         inputs: {
-          'simulate-fork': {
+          "simulate-fork": {
             description:
-              'Run the fork pull-request policy without repository secrets',
+              "Run the fork pull-request policy without repository secrets",
             required: true,
             default: false,
-            type: 'boolean',
+            type: "boolean",
           },
         },
       },
-    })
+    });
     expect(fast.concurrency).toEqual({
-      group: 'ci-${{ github.workflow }}-${{ github.ref }}',
-      'cancel-in-progress': true,
-    })
-    expect(Object.keys(fast.jobs)).toEqual(['fast'])
-    const job = fast.jobs['fast']!
-    expect(job['timeout-minutes']).toBe(10)
-    expect(job['runs-on']).toBe(
+      group: "ci-${{ github.workflow }}-${{ github.ref }}",
+      "cancel-in-progress": true,
+    });
+    expect(Object.keys(fast.jobs)).toEqual(["fast"]);
+    const job = fast.jobs["fast"]!;
+    expect(job["timeout-minutes"]).toBe(10);
+    expect(job["runs-on"]).toBe(
       "${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}",
-    )
+    );
     expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
-      'pnpm install --frozen-lockfile',
-      'pnpm ci:fast',
-    ])
+      "pnpm install --frozen-lockfile",
+      "pnpm ci:fast",
+    ]);
     expect(job.steps!.flatMap((step) => step.uses ?? [])).toEqual([
-      'actions/checkout@v4',
-      './.github/actions/check-private-dependencies',
-      './.github/actions/configure-dinkster-identity',
-      'actions/checkout@v4',
-      'actions/setup-python@v5',
-      'pnpm/action-setup@v4',
-      'actions/setup-node@v4',
-    ])
+      "actions/checkout@v4",
+      "./.github/actions/check-private-dependencies",
+      "./.github/actions/configure-dinkster-identity",
+      "actions/checkout@v4",
+      "actions/setup-python@v5",
+      "pnpm/action-setup@v4",
+      "actions/setup-node@v4",
+    ]);
     expect(job.steps![1]).toEqual({
-      name: 'Check private dependency access',
-      id: 'private-dependencies',
-      uses: './.github/actions/check-private-dependencies',
+      name: "Check private dependency access",
+      id: "private-dependencies",
+      uses: "./.github/actions/check-private-dependencies",
       with: {
-        'secret-name-1': 'DINKSTER_REPOSITORY_DEPLOY_KEY',
-        'secret-value-1': '${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}',
-        'force-not-run': '${{ inputs.simulate-fork }}',
+        "secret-name-1": "DINKSTER_REPOSITORY_DEPLOY_KEY",
+        "secret-value-1": "${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}",
+        "force-not-run": "${{ inputs.simulate-fork }}",
       },
-    })
+    });
     for (const step of job.steps!.slice(2))
       expect(step.if).toBe(
         "steps.private-dependencies.outputs.available == 'true'",
-      )
+      );
     expect(privateDependencyAction.runs.steps[0]!.run).toContain(
-      'not run: requires repository secret $name',
-    )
-    expect(script).toContain('gen_extension_contribution_kinds.py')
-    expect(script).toContain("['check:ui-strings']")
-    expect(script).toContain("['check:v1-boundary']")
-    expect(script).toContain("['typecheck']")
-    expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
-    expect(script).toContain("'prettier'")
-    expect(script).toContain("'--check'")
+      "not run: requires repository secret $name",
+    );
+    expect(script).toContain("gen_extension_contribution_kinds.py");
+    expect(script).toContain("['check:ui-strings']");
+    expect(script).toContain("['check:v1-boundary']");
+    expect(script).toContain("['typecheck']");
+    expect(script).toContain("'scripts/check-v1-boundary.test.mjs'");
+    expect(script).toContain("'prettier'");
+    expect(script).toContain("'--check'");
     expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.ts/g)).toEqual([
-      'test/format.schema.test.ts',
-      'test/dinkster-graph.test.ts',
-      'test/dinkster-inline-value.test.ts',
-      'test/object-info.golden.test.ts',
-      'test/events.golden.test.ts',
-      'test/ci-workflow.test.ts',
-      'test/extension-dogfooding.test.ts',
-      'test/extension-world.test.ts',
-    ])
+      "test/format.schema.test.ts",
+      "test/dinkster-graph.test.ts",
+      "test/dinkster-inline-value.test.ts",
+      "test/object-info.golden.test.ts",
+      "test/events.golden.test.ts",
+      "test/ci-workflow.test.ts",
+      "test/extension-dogfooding.test.ts",
+      "test/extension-world.test.ts",
+    ]);
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
-    )
-  })
+    );
+  });
 
-  it('runs every heavy lane through one guarded reusable workflow', async () => {
+  it("runs every heavy lane through one guarded reusable workflow", async () => {
     expect(full.on).toEqual({
-      push: { branches: ['main'] },
+      push: { branches: ["main"] },
       schedule: [
-        { cron: '0 6-22/2 * * *', timezone: 'America/Los_Angeles' },
-        { cron: '43 10 * * *' },
+        { cron: "0 6-22/2 * * *", timezone: "America/Los_Angeles" },
+        { cron: "43 10 * * *" },
       ],
       workflow_dispatch: null,
       workflow_call: null,
-    })
-    expect(full.permissions).toEqual({ actions: 'read', contents: 'read' })
+    });
+    expect(full.permissions).toEqual({ actions: "read", contents: "read" });
     expect(full.concurrency).toEqual({
       group:
         "ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && 'push' || 'durable' }}",
-      'cancel-in-progress': false,
-    })
+      "cancel-in-progress": false,
+    });
     expect(Object.keys(full.jobs)).toEqual([
-      'validation-plan',
-      'ci',
-      'e2e-suite',
-      'e2e',
-      'main-status',
-    ])
-    const plan = full.jobs['validation-plan']!
+      "validation-plan",
+      "ci",
+      "e2e-suite",
+      "e2e",
+      "main-status",
+    ]);
+    const plan = full.jobs["validation-plan"]!;
+    expect(plan["timeout-minutes"]).toBe(2);
     expect(plan.outputs).toEqual({
-      'run-heavy': '${{ steps.plan.outputs.run-heavy }}',
-      'e2e-matrix': '${{ steps.plan.outputs.e2e-matrix }}',
-    })
-    const planScript = plan.steps![0]!.with!['script'] as string
+      "run-heavy": "${{ steps.plan.outputs.run-heavy }}",
+      "e2e-matrix": "${{ steps.plan.outputs.e2e-matrix }}",
+    });
+    const planScript = plan.steps![0]!.with!["script"] as string;
     expect(
       planScript.match(/^\s+\{ name: .+ \},$/gm)?.map((entry) => entry.trim()),
     ).toEqual([
@@ -202,301 +203,304 @@ describe('fast pull-request and full validation workflows', () => {
       "{ name: 'native without V1 1/3', project: 'native-without-v1', shard: '--shard=1/3' },",
       "{ name: 'native without V1 2/3', project: 'native-without-v1', shard: '--shard=2/3' },",
       "{ name: 'native without V1 3/3', project: 'native-without-v1', shard: '--shard=3/3' },",
-    ])
+    ]);
     for (const required of [
       "context.eventName !== 'schedule'",
       "workflow_id: 'full-validation.yml'",
       "branch: 'main'",
       "status: 'success'",
-      'per_page: 100',
+      "per_page: 100",
       "workflow_runs.find((run) => run.event !== 'push')",
-      'latestDurable?.head_sha === context.sha',
+      "latestDurable?.head_sha === context.sha",
       "core.setOutput('e2e-matrix', JSON.stringify({ include: fullMatrix }))",
     ])
-      expect(planScript).toContain(required)
+      expect(planScript).toContain(required);
     const executePlan = async (
       eventName: string,
       runs: { event: string; head_sha: string }[],
     ) => {
-      const outputs: Record<string, string> = {}
-      let requests = 0
+      const outputs: Record<string, string> = {};
+      let requests = 0;
       const execute = new Function(
-        'context',
-        'core',
-        'github',
+        "context",
+        "core",
+        "github",
         `return (async () => { ${planScript} })()`,
       ) as (
         context: {
-          eventName: string
-          repo: Record<string, string>
-          sha: string
+          eventName: string;
+          repo: Record<string, string>;
+          sha: string;
         },
         core: { setOutput(name: string, value: string): void },
         github: {
           rest: {
             actions: {
               listWorkflowRuns(): Promise<{
-                data: { workflow_runs: { event: string; head_sha: string }[] }
-              }>
-            }
-          }
+                data: { workflow_runs: { event: string; head_sha: string }[] };
+              }>;
+            };
+          };
         },
-      ) => Promise<void>
+      ) => Promise<void>;
       await execute(
         {
           eventName,
-          repo: { owner: 'Kosinkadink', repo: 'Dinkster-Frontend' },
-          sha: 'head',
+          repo: { owner: "Kosinkadink", repo: "Dinkster-Frontend" },
+          sha: "head",
         },
         { setOutput: (name, value) => (outputs[name] = value) },
         {
           rest: {
             actions: {
               listWorkflowRuns: async () => {
-                requests += 1
-                return { data: { workflow_runs: runs } }
+                requests += 1;
+                return { data: { workflow_runs: runs } };
               },
             },
           },
         },
-      )
-      return { outputs, requests }
-    }
-    const pushPlan = await executePlan('push', [])
-    expect(pushPlan.requests).toBe(0)
-    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(13)
-    expect(pushPlan.outputs['run-heavy']).toBe('true')
-    const durablePlan = await executePlan('schedule', [
-      { event: 'push', head_sha: 'head' },
-      { event: 'workflow_dispatch', head_sha: 'head' },
-    ])
-    expect(durablePlan.requests).toBe(1)
-    expect(durablePlan.outputs['run-heavy']).toBe('false')
-    expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
+      );
+      return { outputs, requests };
+    };
+    const pushPlan = await executePlan("push", []);
+    expect(pushPlan.requests).toBe(0);
+    expect(JSON.parse(pushPlan.outputs["e2e-matrix"]!).include).toHaveLength(
       13,
-    )
+    );
+    expect(pushPlan.outputs["run-heavy"]).toBe("true");
+    const durablePlan = await executePlan("schedule", [
+      { event: "push", head_sha: "head" },
+      { event: "workflow_dispatch", head_sha: "head" },
+    ]);
+    expect(durablePlan.requests).toBe(1);
+    expect(durablePlan.outputs["run-heavy"]).toBe("false");
+    expect(JSON.parse(durablePlan.outputs["e2e-matrix"]!).include).toHaveLength(
+      13,
+    );
     expect(
-      (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
-        .outputs['run-heavy'],
-    ).toBe('true')
-    expect(full.jobs['ci']!.needs).toBe('validation-plan')
-    expect(full.jobs['ci']!.if).toBe(
+      (await executePlan("schedule", [{ event: "push", head_sha: "head" }]))
+        .outputs["run-heavy"],
+    ).toBe("true");
+    expect(full.jobs["ci"]!.needs).toBe("validation-plan");
+    expect(full.jobs["ci"]!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true'",
-    )
-    expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
-    expect(full.jobs['e2e-suite']!.if).toBe(
+    );
+    expect(full.jobs["e2e-suite"]!.needs).toBe("validation-plan");
+    expect(full.jobs["e2e-suite"]!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true'",
-    )
+    );
     expect(testingDocs).toContain(
-      '`on.schedule` cron list in that file is the single schedule definition',
-    )
+      "`on.schedule` cron list in that file is the single schedule definition",
+    );
     expect(testingDocs).toContain(
-      'one active push run and only the newest pending push run',
-    )
-    expect(testingDocs).toContain('git merge-base --is-ancestor')
-    expect(full.jobs['e2e-suite']!.strategy).toEqual({
-      'fail-fast': false,
-      matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
-    })
-    expect(full.jobs['e2e-suite']!['timeout-minutes']).toBe(20)
-    expect(full.jobs['e2e']!.if).toBe(
+      "one active push run and only the newest pending push run",
+    );
+    expect(testingDocs).toContain("git merge-base --is-ancestor");
+    expect(full.jobs["e2e-suite"]!.strategy).toEqual({
+      "fail-fast": false,
+      matrix: "${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}",
+    });
+    expect(full.jobs["e2e-suite"]!["timeout-minutes"]).toBe(20);
+    expect(full.jobs["e2e"]!.if).toBe(
       "always() && needs.validation-plan.outputs.run-heavy == 'true'",
-    )
-    expect(full.jobs['e2e']!.needs).toEqual(['validation-plan', 'e2e-suite'])
+    );
+    expect(full.jobs["e2e"]!.needs).toEqual(["validation-plan", "e2e-suite"]);
+    expect(full.jobs["e2e"]!["timeout-minutes"]).toBe(2);
     for (const job of Object.values(full.jobs))
-      expect(job['runs-on']).toBe('${{ fromJSON(vars.CI_RUNNERS).linux }}')
-    expect(full.jobs['e2e']!.steps).toEqual([
+      expect(job["runs-on"]).toBe("${{ fromJSON(vars.CI_RUNNERS).linux }}");
+    expect(full.jobs["e2e"]!.steps).toEqual([
       {
-        name: 'Verify every full-suite lane passed',
+        name: "Verify every full-suite lane passed",
         run: "test '${{ needs.e2e-suite.result }}' = success",
       },
-    ])
-    expect(full.jobs['main-status']!.if).toBe('always()')
-    expect(full.jobs['main-status']!.needs).toEqual([
-      'validation-plan',
-      'ci',
-      'e2e',
-    ])
-    const statusScript = full.jobs['main-status']!.steps!.flatMap(
+    ]);
+    expect(full.jobs["main-status"]!.if).toBe("always()");
+    expect(full.jobs["main-status"]!.needs).toEqual([
+      "validation-plan",
+      "ci",
+      "e2e",
+    ]);
+    const statusScript = full.jobs["main-status"]!.steps!.flatMap(
       (step) => step.run ?? [],
-    ).join('\n')
-    expect(statusScript).toContain('main-validation-status.json')
-    expect(statusScript).toContain('test "$CI_RESULT" = success')
-    expect(statusScript).toContain('test "$E2E_RESULT" = success')
-  })
+    ).join("\n");
+    expect(statusScript).toContain("main-validation-status.json");
+    expect(statusScript).toContain('test "$CI_RESULT" = success');
+    expect(statusScript).toContain('test "$E2E_RESULT" = success');
+  });
 
-  it('retains clean checkouts, ref selection, read-only credentials and isolated browser ports', () => {
+  it("retains clean checkouts, ref selection, read-only credentials and isolated browser ports", () => {
     for (const workflow of [fast, full]) {
-      expect(workflow.permissions['contents']).toBe('read')
+      expect(workflow.permissions["contents"]).toBe("read");
       for (const job of Object.values(workflow.jobs)) {
         for (const step of (job.steps ?? []).filter(
-          (step) => step.uses === 'actions/checkout@v4',
+          (step) => step.uses === "actions/checkout@v4",
         )) {
           expect(step.with).toMatchObject({
             clean: true,
-            'persist-credentials': false,
-          })
-          expect(step.with).not.toHaveProperty('ssh-key')
-          if (!step.with?.['repository'])
-            expect(step.with).not.toHaveProperty('ref')
+            "persist-credentials": false,
+          });
+          expect(step.with).not.toHaveProperty("ssh-key");
+          if (!step.with?.["repository"])
+            expect(step.with).not.toHaveProperty("ref");
         }
       }
     }
-    for (const name of ['ci', 'e2e-suite']) {
-      const steps = full.jobs[name]!.steps!
+    for (const name of ["ci", "e2e-suite"]) {
+      const steps = full.jobs[name]!.steps!;
       expect(
         steps.filter(
           (step) =>
-            step.uses === './.github/actions/configure-dinkster-identity',
+            step.uses === "./.github/actions/configure-dinkster-identity",
         ),
-      ).toHaveLength(2)
+      ).toHaveLength(2);
       const browser = steps.find((step) =>
-        step.run?.includes('playwright test'),
-      )!
-      expect(browser.run).toContain('bash scripts/ci-browser.sh')
-      expect(browser.env?.['DINKSTER_E2E_PORT']).toBe(
-        name === 'ci' ? '15376' : '15410',
-      )
-      if (name === 'ci') {
+        step.run?.includes("playwright test"),
+      )!;
+      expect(browser.run).toContain("bash scripts/ci-browser.sh");
+      expect(browser.env?.["DINKSTER_E2E_PORT"]).toBe(
+        name === "ci" ? "15376" : "15410",
+      );
+      if (name === "ci") {
         expect(browser.env).toMatchObject({
-          DINKSTER_E2E_NATIVE_PORT: '15377',
-          DINKSTER_E2E_DINKSTER_ROOT: '${{ github.workspace }}/.ci/Dinkster',
-        })
+          DINKSTER_E2E_NATIVE_PORT: "15377",
+          DINKSTER_E2E_DINKSTER_ROOT: "${{ github.workspace }}/.ci/Dinkster",
+        });
         expect(
           steps.some((step) =>
             step.run?.includes(
-              'dinkster-pack --accelerator cpu prepare-catalogs',
+              "dinkster-pack --accelerator cpu prepare-catalogs",
             ),
           ),
-        ).toBe(true)
+        ).toBe(true);
       }
-      if (name === 'e2e-suite') {
-        expect(browser.run).toContain('run_counted_suite.sh')
+      if (name === "e2e-suite") {
+        expect(browser.run).toContain("run_counted_suite.sh");
         expect(browser.env).toMatchObject({
-          DINKSTER_E2E_COMFY_PORT: '15411',
-          DINKSTER_E2E_NATIVE_PORT: '15412',
-          DINKSTER_NATIVE_BACKEND: 'http://127.0.0.1:15412',
-        })
+          DINKSTER_E2E_COMFY_PORT: "15411",
+          DINKSTER_E2E_NATIVE_PORT: "15412",
+          DINKSTER_NATIVE_BACKEND: "http://127.0.0.1:15412",
+        });
         const compatibilityInstall = steps.find(
-          (step) => step.name === 'Install hosted compatibility dependencies',
-        )!
+          (step) => step.name === "Install hosted compatibility dependencies",
+        )!;
         expect(compatibilityInstall.run).toContain(
-          'uv export --project .ci/Dinkster --locked --package dinkster-inference-torch --extra torch',
-        )
+          "uv export --project .ci/Dinkster --locked --package dinkster-inference-torch --extra torch",
+        );
         expect(compatibilityInstall.run).toContain(
-          'uv pip install --python .ci/ComfyUI/venv/bin/python',
-        )
+          "uv pip install --python .ci/ComfyUI/venv/bin/python",
+        );
         expect(compatibilityInstall.run).toContain(
-          '--index https://download.pytorch.org/whl/cpu',
-        )
+          "--index https://download.pytorch.org/whl/cpu",
+        );
         expect(compatibilityInstall.run).toContain(
           '--constraint "${RUNNER_TEMP}/dinkster-torch-constraints.txt"',
-        )
+        );
         expect(compatibilityInstall.run).toContain(
-          'dinkster-kitchen dinkster-aimdo sentencepiece tokenizers',
-        )
+          "dinkster-kitchen dinkster-aimdo sentencepiece tokenizers",
+        );
         const extensionProof = steps.find(
           (step) =>
-            step.name === 'Prove the ordinary third-party pack contract',
-        )!
-        expect(extensionProof.if).toBe("matrix.name == 'backend serial 1/2'")
+            step.name === "Prove the ordinary third-party pack contract",
+        )!;
+        expect(extensionProof.if).toBe("matrix.name == 'backend serial 1/2'");
         expect(extensionProof.run).toContain(
-          'playwright.extension-contract.config.ts',
-        )
+          "playwright.extension-contract.config.ts",
+        );
         expect(extensionProof.env).toEqual({
-          DINKSTER_E2E_DINKSTER_ROOT: '${{ github.workspace }}/.ci/Dinkster',
-          DINKSTER_E2E_PORT: '15420',
-          DINKSTER_E2E_NATIVE_PORT: '15421',
-        })
+          DINKSTER_E2E_DINKSTER_ROOT: "${{ github.workspace }}/.ci/Dinkster",
+          DINKSTER_E2E_PORT: "15420",
+          DINKSTER_E2E_NATIVE_PORT: "15421",
+        });
         const recordedFixtures = steps.find(
-          (step) => step.name === 'Replay recorded stock ComfyUI fixtures',
-        )!
-        expect(recordedFixtures.if).toBe("matrix.name == 'stock ComfyUI V1'")
+          (step) => step.name === "Replay recorded stock ComfyUI fixtures",
+        )!;
+        expect(recordedFixtures.if).toBe("matrix.name == 'stock ComfyUI V1'");
         expect(recordedFixtures.run).toContain(
-          'test/object-info.golden.test.ts',
-        )
-        expect(recordedFixtures.run).toContain('test/events.golden.test.ts')
+          "test/object-info.golden.test.ts",
+        );
+        expect(recordedFixtures.run).toContain("test/events.golden.test.ts");
       }
     }
     expect(appMain).toContain(
       "probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1'",
-    )
-    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
-    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
-    expect(baseConfig).toContain("name: 'v1-compatibility'")
-    expect(baseConfig).toContain("name: 'native-without-v1'")
+    );
+    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'");
+    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'");
+    expect(baseConfig).toContain("name: 'v1-compatibility'");
+    expect(baseConfig).toContain("name: 'native-without-v1'");
     const nativeWithoutV1Specs =
-      /const NATIVE_WITHOUT_V1_SPECS = \[([\s\S]*?)\n\]/.exec(baseConfig)?.[1]
-    expect(nativeWithoutV1Specs).toBeDefined()
+      /const NATIVE_WITHOUT_V1_SPECS = \[([\s\S]*?)\n\]/.exec(baseConfig)?.[1];
+    expect(nativeWithoutV1Specs).toBeDefined();
     for (const spec of [
-      'audit-float-paste-live.spec.ts',
-      'audit-noodle-live.spec.ts',
-      'audit-tap-boundary-live.spec.ts',
-      'audit-widget-parity-live.spec.ts',
-      'fixture-discovery.spec.ts',
-      'import-legacy.spec.ts',
-      'midgraph-preview-live.spec.ts',
-      'native-catalog-decode.spec.ts',
-      'native-catalog-presentation.spec.ts',
-      'native-family-port-quality.spec.ts',
-      'node-help.spec.ts',
-      'rowj-live.spec.ts',
-      'widget-representations-wire17.spec.ts',
-      'widget-value-presentation.spec.ts',
-      'wire43-input-family-combo.spec.ts',
+      "audit-float-paste-live.spec.ts",
+      "audit-noodle-live.spec.ts",
+      "audit-tap-boundary-live.spec.ts",
+      "audit-widget-parity-live.spec.ts",
+      "fixture-discovery.spec.ts",
+      "import-legacy.spec.ts",
+      "midgraph-preview-live.spec.ts",
+      "native-catalog-decode.spec.ts",
+      "native-catalog-presentation.spec.ts",
+      "native-family-port-quality.spec.ts",
+      "node-help.spec.ts",
+      "rowj-live.spec.ts",
+      "widget-representations-wire17.spec.ts",
+      "widget-value-presentation.spec.ts",
+      "wire43-input-family-combo.spec.ts",
     ]) {
-      expect(nativeWithoutV1Specs).toContain(`'${spec}'`)
+      expect(nativeWithoutV1Specs).toContain(`'${spec}'`);
     }
-    expect(baseConfig.match(/'output-mount-live\.spec\.ts'/g)).toHaveLength(2)
+    expect(baseConfig.match(/'output-mount-live\.spec\.ts'/g)).toHaveLength(2);
     expect(baseConfig.match(/'pack-assets-settings\.spec\.ts'/g)).toHaveLength(
       1,
-    )
+    );
     expect(hostedConfig).toContain(
       "const probeV1 = stubV1Entry === '1' ? '0' : '1'",
-    )
-    expect(hostedConfig).toContain('VITE_DINKSTER_E2E_PROBE_V1: probeV1')
-    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
-    expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
+    );
+    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: probeV1");
+    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'");
+    expect(hostedConfig).toContain("DINKSTER_STUB_V1_ENTRY: stubV1Entry");
     expect(hostedConfig).toContain(
       "process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'",
-    )
+    );
     expect(hostedConfig).toContain(
       "process.env['DINKSTER_E2E_PROJECT'] = argumentProject",
-    )
+    );
     expect(hostedConfig).toContain(
       "argumentProject ?? process.env['DINKSTER_E2E_PROJECT']",
-    )
-    expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
-    expect(hostedConfig).toContain('if (argumentProject)')
+    );
+    expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'");
+    expect(hostedConfig).toContain("if (argumentProject)");
     expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
-    )
+    );
     expect(hostedConfig).toContain(
-      '`--allow-origin http://127.0.0.1:${nativeFrontendPort}`',
-    )
-    expect(hostedConfig).not.toContain("'--no-default-packs'")
+      "`--allow-origin http://127.0.0.1:${nativeFrontendPort}`",
+    );
+    expect(hostedConfig).not.toContain("'--no-default-packs'");
     expect(hostedConfig).toContain(
-      '`--comfy-root ${JSON.stringify(comfyRoot)}`',
-    )
+      "`--comfy-root ${JSON.stringify(comfyRoot)}`",
+    );
     expect(hostedConfig).toContain(
       "`--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`",
-    )
-    expect(extensionContractConfig).toContain("'--no-default-packs'")
+    );
+    expect(extensionContractConfig).toContain("'--no-default-packs'");
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
-    )
+    );
     expect(hostedConfig).toContain(
       "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
-    )
-    expect(hostedConfig).not.toContain("'--dev'")
+    );
+    expect(hostedConfig).not.toContain("'--dev'");
     expect(auditConfig).toContain(
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
-    )
-    expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
-    expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    );
+    expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'");
+    expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'");
     expect(auditConfig).toContain(
       "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
-    )
-    expect(auditConfig).not.toContain("'--dev'")
-  })
-})
+    );
+    expect(auditConfig).not.toContain("'--dev'");
+  });
+});

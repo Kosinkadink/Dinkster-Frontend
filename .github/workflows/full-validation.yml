@@ -24,6 +24,7 @@ env:
 jobs:
   validation-plan:
     runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 2
     outputs:
       run-heavy: ${{ steps.plan.outputs.run-heavy }}
       e2e-matrix: ${{ steps.plan.outputs.e2e-matrix }}
@@ -233,6 +234,7 @@ jobs:
     if: always() && needs.validation-plan.outputs.run-heavy == 'true'
     needs: [validation-plan, e2e-suite]
     runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 2
     steps:
       - name: Verify every full-suite lane passed
         run: test '${{ needs.e2e-suite.result }}' = success
