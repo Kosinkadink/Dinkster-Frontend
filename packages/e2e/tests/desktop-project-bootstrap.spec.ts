@@ -1,10 +1,11 @@
 /**
  * Desktop startup transport selection: a window's default backend comes from
- * the project engine report, decided before any setup wait. A fresh
- * unconfigured project must still reach the application's management flow
- * (it has no project supervisor yet), configured projects route to their own
- * loopback port, and a configured report without a usable port fails startup
- * closed instead of silently targeting the window origin.
+ * the project engine report. A fresh unconfigured project has no project
+ * supervisor yet, so it must reach the application's management flow on the
+ * window origin's default transport without waiting for any engine runtime,
+ * configured projects route to their own loopback port, and a configured
+ * report without a usable port fails startup closed instead of silently
+ * targeting the window origin.
  */
 import { expect, test, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
@@ -35,7 +36,7 @@ function installDesktopBridge(project: MockProject): void {
   const w = window as typeof window & { __projectEngineCalls?: number }
   const bridge: Record<string, unknown> = {
     locale: async () => 'en-US',
-    status: async () => ({ phase: 'running', detail: 'Dinkster is running locally', variant: 'cuda' }),
+    status: async () => ({ phase: 'idle', detail: 'The local engine is not running', variant: 'cuda' }),
     retry: async () => {},
     info: async () => ({
       appVersion: '0.2.0', engineCommit: 'bd09e6eb0ac3bbdf', remoteWorkerProtocol: 8, variant: 'cuda',
@@ -108,7 +109,7 @@ const defaultBackendBaseUrl = async (page: Page): Promise<string> => {
   )
 }
 
-test('a fresh unconfigured project reaches the management flow on the shared default transport', async ({ page }) => {
+test('a fresh unconfigured project reaches the management flow on the window origin default transport', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 2400 })
   await page.addInitScript(installDesktopBridge, { configured: false, projectId: 'proj-new' } satisfies MockProject)
   await page.goto('/')
@@ -116,8 +117,9 @@ test('a fresh unconfigured project reaches the management flow on the shared def
   const section = page.locator('.desktop-management-section').filter({ has: page.locator('.desktop-project') })
   await expect(section).toContainText('Project engine')
   await expect(section.getByRole('button', { name: 'Remove project' })).toBeVisible()
-  // No project supervisor exists yet: the window keeps the shared default
-  // transport instead of blocking on or targeting a project port.
+  // No project supervisor exists yet and no engine runtime wait gates
+  // startup: the window renders the app on the window origin's default
+  // transport so the management dialog can install the first engine.
   expect(await defaultBackendBaseUrl(page)).toBe('')
   await expect
     .poll(() => page.evaluate(() => (window as typeof window & { __projectEngineCalls?: number }).__projectEngineCalls ?? 0))

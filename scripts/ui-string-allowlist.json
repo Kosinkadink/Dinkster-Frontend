@@ -426,10 +426,6 @@
     "text:Promise",
     "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise"
   ],
-  "DesktopSetup.tsx": [
-    "text:D",
-    "text:props.status.phase === 'failed' return ("
-  ],
   "ExecutedImageViewer.tsx": [
     "attribute:aria-label:Compare split",
     "attribute:aria-label:Execution provenance",

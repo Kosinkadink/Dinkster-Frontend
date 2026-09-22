@@ -23,12 +23,9 @@ public download site, or automatic production update feed.
 | macOS | [Browser setup](#browser-setup-on-windows-linux-and-macos) with a separately installed compatible backend. | No macOS Desktop installer or bundled uv platform exists. `start-dinkster.sh` does not support macOS. Backend/model support depends on the backend's documented platform limits. |
 
 Source and development builds prepare a fresh engine environment on first
-launch; subsequent launches reuse it. A failed setup appears in the app with
-diagnostic details and a retry action.
-First-launch setup chrome follows the persisted application language while
-accelerator names, progress details, and errors remain exact host-provided facts.
-Do not bypass a checksum mismatch. Uninstall through Windows Installed apps;
-the engine library and models are separate from the application binaries.
+launch; subsequent launches reuse it. Do not bypass a checksum mismatch.
+Uninstall through Windows Installed apps; the engine library and models are
+separate from the application binaries.
 
 The installed app opens the workspace after the local engine is ready:
 
@@ -173,9 +170,9 @@ supervisor's loopback port (`http://127.0.0.1:<port>`), so two projects can
 run at the same time on different ports. A window whose project reports no
 usable port fails startup with a diagnostic instead of connecting to the
 window origin. A fresh project that has not installed an engine yet has no
-supervisor or port; its windows start on the shared engine's default
-transport, and the management dialog is reachable to install one. Browser
-launches keep the same-origin default.
+supervisor or port; its windows start immediately on the window origin's
+default transport with no engine runtime wait, and the management dialog is
+reachable to install one. Browser launches keep the same-origin default.
 
 ### Remote worker machines
 

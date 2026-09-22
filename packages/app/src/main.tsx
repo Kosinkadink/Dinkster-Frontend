@@ -1,14 +1,12 @@
-import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { syntheticWorkflow } from '@dinkster/core'
 import { assetDtoV1Contract, discoverBackend } from '@dinkster/client'
 import { App } from './App.js'
 import { AppState } from './app-state.js'
 import { createBootIndicatorElement, startBootIndicator } from './boot-indicator.js'
-import { DesktopSetup } from './DesktopSetup.js'
-import { desktopBridge, type DesktopLifecycleStatus } from './desktop-bridge.js'
+import { desktopBridge } from './desktop-bridge.js'
 import { desktopProjectBackendBaseUrl } from './desktop-project-backend.js'
-import { bindLocale, bindPersistedLocale } from './locale.js'
+import { bindLocale } from './locale.js'
 import { initializeProjectScope, projectIdFromSearch } from './projects.js'
 import type { CanvasTestHandles } from './test-bridge.js'
 import './styles.css'
@@ -66,14 +64,13 @@ async function bootstrap(): Promise<void> {
       if (desktopLogs.length > 500) desktopLogs.shift()
     }
   })
-  // The project engine report decides the window's default transport BEFORE
-  // any wait: a configured project's supervisor is this window's backend and
-  // does not depend on the shared legacy runtime, while a fresh unconfigured
-  // project must reach the app's management flow to install its first
-  // engine, so it keeps the shared engine's setup wait and default
-  // transport. A configured project without a usable port fails startup
-  // instead of quietly connecting to a same-origin backend the project does
-  // not own.
+  // The project engine report decides the window's default transport: a
+  // configured project's supervisor is this window's backend, while a fresh
+  // unconfigured project has no supervisor yet and starts on the window
+  // origin's default transport, reaching the app's management flow to
+  // install its first engine. A configured project without a usable port
+  // fails startup instead of quietly connecting to a same-origin backend the
+  // project does not own.
   let desktopBaseUrl: string | undefined
   if (desktop) {
     const project = await desktop.projectEngine()
@@ -83,35 +80,6 @@ async function bootstrap(): Promise<void> {
         throw new Error(`Dinkster Desktop: project '${project.projectId}' reported no usable engine port (port: ${project.port === undefined ? 'missing' : String(project.port)}).`)
       }
       desktopBaseUrl = resolved
-    }
-  }
-  if (desktop && desktopBaseUrl === undefined) {
-    hideBoot()
-    const disposeSetupLocale = bindPersistedLocale(globalThis.localStorage, document.documentElement, navigator.language, desktopLocale)
-    try {
-      const [desktopStatus, setDesktopStatus] = createSignal<DesktopLifecycleStatus>(await desktop.status())
-      const disposeSetup = render(
-        () => <DesktopSetup status={desktopStatus()} onRetry={() => { void desktop.retry().catch(() => undefined) }} />,
-        root,
-      )
-      try {
-        await new Promise<void>((resolve) => {
-          const receive = (status: DesktopLifecycleStatus) => {
-            setDesktopStatus(status)
-            if (status.phase === 'running') {
-              stopListening()
-              resolve()
-            }
-          }
-          const stopListening = desktop.onStatus(receive)
-          receive(desktopStatus())
-        })
-      } finally {
-        disposeSetup()
-      }
-    } finally {
-      disposeSetupLocale()
-      root.replaceChildren()
     }
   }
   // Native-first same-origin default: discover what THIS origin routes to
