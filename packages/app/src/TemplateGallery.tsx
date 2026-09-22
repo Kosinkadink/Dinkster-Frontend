@@ -3,8 +3,10 @@ import type { CollectionEntry } from '@dinkster/core'
 import type { MountSettings } from '@dinkster/client'
 import type { AppState } from './app-state.js'
 import { initialsOf, templatesSource, type TemplateCollectionRef } from './collections.js'
+import { ModalSurface } from './ModalSurface.js'
 import { MountFolderForm } from './MountFolderForm.js'
 import { useAppMessage } from './locale.js'
+import { ProductActionFooter } from './ProductForm.js'
 import { SearchInput } from './SearchSurface.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -31,6 +33,8 @@ export function TemplateGallery(props: {
   const [query, setQuery] = createSignal('')
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
+  const [failedEntry, setFailedEntry] = createSignal(undefined as CollectionEntry | undefined)
+  const [refresh, setRefresh] = createSignal(0)
   const resultsId = createUniqueId()
   const searchDescriptionId = createUniqueId()
   let request = 0
@@ -39,9 +43,11 @@ export function TemplateGallery(props: {
     if (!props.visible()) return
     backendTick()
     settingsTick()
+    refresh()
     const generation = ++request
     setLoading(true)
     setError('')
+    setFailedEntry(undefined)
     void templatesSource(props.app).page({ query: query(), limit: 500 }).then((page) => {
       if (generation !== request) return
       setEntries(page.items)
@@ -49,7 +55,9 @@ export function TemplateGallery(props: {
     }).catch((reason: unknown) => {
       if (generation !== request) return
       setEntries([])
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(message('templateGallery.error', {
+        error: reason instanceof Error ? reason.message : String(reason),
+      }))
       setLoading(false)
     })
   })
@@ -90,7 +98,9 @@ export function TemplateGallery(props: {
   const allowedMountConnection = createMemo(() =>
     mountSettings()?.mountChangesAllowed === true ? mountConnection() : undefined)
 
-  const open = (entry: CollectionEntry): void => {
+  function open(entry: CollectionEntry): void {
+    setError('')
+    setFailedEntry(undefined)
     const ref = entry.ref as TemplateCollectionRef | undefined
     const opening = ref?.kind === 'remote'
       ? props.app.openRemoteTemplate(ref.template, entry.title)
@@ -98,22 +108,40 @@ export function TemplateGallery(props: {
         ? props.app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
         : Promise.resolve(false)
     void opening.then((opened) => {
-      if (opened) props.onClose()
+      if (opened) {
+        props.onClose()
+      } else {
+        setFailedEntry(entry)
+        setError(message('templateGallery.openError', { name: entry.title }))
+      }
     })
+  }
+
+  const retry = (): void => {
+    const entry = failedEntry()
+    if (entry === undefined) setRefresh((value) => value + 1)
+    else open(entry)
   }
 
   return (
     <Show when={props.visible()}>
-      <section class="template-gallery" aria-label={message('templateGallery.ariaLabel')} data-testid="template-gallery">
+      <ModalSurface
+        title={message('templateGallery.title')}
+        ariaLabel={message('templateGallery.ariaLabel')}
+        modalId="template-gallery"
+        testId="template-gallery"
+        closeLabel={message('templateGallery.close')}
+        onRequestClose={props.onClose}
+      >
+      <section class="template-gallery-content">
         <header class="template-gallery-header">
           <div>
             <span class="template-gallery-kicker">{message('templateGallery.kicker')}</span>
-            <h2>{message('templateGallery.title')}</h2>
             <p>{message('templateGallery.description')}</p>
           </div>
-          <button type="button" class="template-gallery-close" onClick={props.onClose} aria-label={message('templateGallery.close')}>
-            {message('templateGallery.blankCanvas')}
-          </button>
+          <ProductActionFooter class="template-gallery-actions">
+            <button type="button" class="primary" onClick={props.onClose}>{message('templateGallery.blankCanvas')}</button>
+          </ProductActionFooter>
         </header>
         <div class="template-gallery-body">
           <div class="template-gallery-search">
@@ -140,7 +168,14 @@ export function TemplateGallery(props: {
             </span>
           </div>
           <Show when={loading()}><p class="template-gallery-state" role="status">{message('templateGallery.loading')}</p></Show>
-          <Show when={error() !== ''}><p class="template-gallery-state" role="alert">{message('templateGallery.error', { error: error() })}</p></Show>
+          <Show when={error() !== ''}>
+            <div class="template-gallery-error">
+              <p class="template-gallery-state" role="alert">{error()}</p>
+              <ProductActionFooter>
+                <button type="button" onClick={retry}>{message('templateGallery.retry')}</button>
+              </ProductActionFooter>
+            </div>
+          </Show>
           <Show when={!loading() && error() === '' && families().length === 0}>
             <p class="template-gallery-state">{message(query().trim() === '' ? 'templateGallery.empty' : 'templateGallery.noMatches')}</p>
           </Show>
@@ -193,6 +228,7 @@ export function TemplateGallery(props: {
           </div>
         </div>
       </section>
+      </ModalSurface>
     </Show>
   )
 }
