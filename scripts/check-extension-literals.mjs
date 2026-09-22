@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
@@ -14,6 +15,11 @@ const allowlistPath = resolve(
 )
 const write = args.includes('--write')
 const hasSource = args.includes('--source')
+const baselineRef = option(
+  '--baseline-ref',
+  process.env.DINKSTER_CEILING_BASE_REF,
+)
+const baselineAllowlistPath = option('--baseline-allowlist')
 const defaultRoots = []
 if (!hasSource) {
   for (const entry of await readdir(resolve(repositoryRoot, 'packages'), {
@@ -186,6 +192,65 @@ try {
   process.exit(1)
 }
 
+let baselineCeilings
+try {
+  if (baselineRef && baselineAllowlistPath)
+    throw new Error('choose either --baseline-ref or --baseline-allowlist')
+  if (baselineAllowlistPath) {
+    baselineCeilings = JSON.parse(
+      await readFile(resolve(baselineAllowlistPath), 'utf8'),
+    ).ceilings
+  } else if (baselineRef) {
+    const mergeBase = execFileSync('git', ['merge-base', 'HEAD', baselineRef], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+    }).trim()
+    if (!mergeBase)
+      throw new Error(`cannot resolve merge base for ${baselineRef}`)
+    baselineCeilings = JSON.parse(
+      execFileSync(
+        'git',
+        ['show', `${mergeBase}:scripts/extension-literal-allowlist.json`],
+        { cwd: repositoryRoot, encoding: 'utf8' },
+      ),
+    ).ceilings
+  }
+} catch (error) {
+  console.error(
+    `Cannot read extension literal baseline: ${error instanceof Error ? error.message : String(error)}`,
+  )
+  process.exit(1)
+}
+
+const ceilingKeys = Object.keys(allowlist.ceilings ?? {})
+const slackKeys = Object.keys(allowlist.slack ?? {})
+const invalidKinds = [...ceilingKeys, ...slackKeys].filter(
+  (kind) => !expectedKinds.includes(kind),
+)
+if (
+  ceilingKeys.length !== expectedKinds.length ||
+  slackKeys.length !== expectedKinds.length ||
+  invalidKinds.length > 0
+) {
+  console.error('Extension literal ceiling and slack kinds differ')
+  process.exit(1)
+}
+if (baselineCeilings) {
+  const raised = expectedKinds.filter(
+    (kind) => allowlist.ceilings[kind] > (baselineCeilings[kind] ?? -1),
+  )
+  if (raised.length > 0) {
+    console.error(
+      'Extension literal ceilings must not rise from the merge base:',
+    )
+    for (const kind of raised)
+      console.error(
+        `  ${kind}: baseline=${String(baselineCeilings[kind])}, proposed=${String(allowlist.ceilings[kind])}`,
+      )
+    process.exit(1)
+  }
+}
+
 const { sites, unowned } = attachOwningIssues(
   scannedSites,
   allowlist.sites ?? [],
@@ -201,10 +266,6 @@ if (unowned.length > 0) {
 }
 
 if (write) {
-  const ceilingKeys = Object.keys(allowlist.ceilings ?? {})
-  const invalidKinds = ceilingKeys.filter(
-    (kind) => !expectedKinds.includes(kind),
-  )
   const raised = expectedKinds.filter((kind) => {
     const ceiling = allowlist.ceilings?.[kind]
     return !Number.isInteger(ceiling) || ceiling < 0 || counts[kind] > ceiling
@@ -231,29 +292,29 @@ if (write) {
       Math.min(allowlist.ceilings[kind], counts[kind]),
     ]),
   )
-  const snapshot = { ceilings, sites }
+  const snapshot = { ceilings, slack: allowlist.slack, sites }
   await mkdir(dirname(allowlistPath), { recursive: true })
   await writeFile(allowlistPath, `${JSON.stringify(snapshot, null, 2)}\n`)
   process.exit(0)
 }
 
-const ceilingKeys = Object.keys(allowlist.ceilings ?? {})
 const ceilingProblems = expectedKinds.flatMap((kind) => {
   const ceiling = allowlist.ceilings?.[kind]
+  const slack = allowlist.slack?.[kind]
   const allowed = (allowlist.sites ?? []).filter(
     (site) => site.kind === kind,
   ).length
   const current = counts[kind]
-  return Number.isInteger(ceiling) && ceiling === allowed && current <= ceiling
+  return Number.isInteger(ceiling) &&
+    Number.isInteger(slack) &&
+    slack >= 0 &&
+    current <= ceiling &&
+    ceiling - current <= slack
     ? []
     : [
-        `${kind}: current=${current ?? 0}, allowlisted=${allowed}, ceiling=${String(ceiling)}`,
+        `${kind}: current=${current ?? 0}, allowlisted=${allowed}, ceiling=${String(ceiling)}, slack=${String(slack)}`,
       ]
 })
-for (const kind of ceilingKeys) {
-  if (!expectedKinds.includes(kind))
-    ceilingProblems.push(`${kind}: unexpected ceiling`)
-}
 if (
   ceilingProblems.length > 0 ||
   JSON.stringify(sites) !== JSON.stringify(allowlist.sites)
