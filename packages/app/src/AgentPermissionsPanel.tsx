@@ -58,7 +58,7 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
     setToken('')
     try {
       const result = await props.connection.mintDelegation({
-        scope: scope(), displayName: name(), expiresInSeconds: 600,
+        scope: scope(), displayName: name(),
         ...(sessionId().trim() ? { sessionId: sessionId().trim() } : {}),
       })
       setToken(result.token)
@@ -109,6 +109,7 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
               <input id="delegate-session" value={sessionId()} onInput={(event) => setSessionId(event.currentTarget.value)} />
             </ProductField>
             <button type="button" disabled={busy() || !scope() || !name().trim()} onClick={() => void connectAgent()}>{message('agentPermissions.mint')}</button>
+            <p>{message('agentPermissions.lifetime')}</p>
             <Show when={token()}>
               <ProductNotice tone="status">{message('agentPermissions.created')}</ProductNotice>
               <button type="button" onClick={() => void navigator.clipboard.writeText(token()).then(() => setToken('')).catch(() => setNotice(message('agentPermissions.clipboardUnavailable')))}>{message('agentPermissions.copy')}</button>
@@ -116,7 +117,9 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
             <For each={delegations()}>{(delegation) => (
               <div class="agent-permissions-identity" data-testid="delegation">
                 <strong>{delegation.displayName}</strong>
-                <span>{message('agentPermissions.expires', { scope: delegation.scope, time: new Date(delegation.expiresAt * 1000).toLocaleTimeString() })}</span>
+                <span>{delegation.expiresAt === undefined
+                  ? message('agentPermissions.active', { scope: delegation.scope })
+                  : message('agentPermissions.expires', { scope: delegation.scope, time: new Date(delegation.expiresAt * 1000).toLocaleString() })}</span>
                 <button type="button" disabled={busy()} onClick={() => void revoke(delegation.id)}>{message('agentPermissions.revoke')}</button>
               </div>
             )}</For>
