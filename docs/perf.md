@@ -1689,3 +1689,24 @@ The integrated isolated Chromium suite also passes: plain average/p95
 21.75/43.90 ms, 1140 reroutes 29.33/48.10 ms, 1200 previews 20.78/37.00 ms,
 open/first paint 283.5/75.3 ms, move dispatch/repaint 24.48/31.07 ms, zero
 comparison compiles, and 102.1 ms cold decode.
+
+## 2026-09-22 Node decoration registry
+
+Comparison base: `0904f0407da90268dbd78c78e28834d81ed0c791`. One base
+sample and one integrated sample ran consecutively on X570 with Node 22.23.2
+and the tracked `playwright.perf-isolated.config.ts` fixture.
+
+| Metric | Base | Node decorations |
+| --- | ---: | ---: |
+| 1200-node pan/zoom average / p95 | 27.90 / 67.60 ms | 24.76 / 50.90 ms |
+| 1200 nodes + 1140 reroutes average / p95 | 37.48 / 86.60 ms | 29.59 / 54.40 ms |
+| 1200 nodes + 1200 previews average / p95 | 24.38 / 50.00 ms | 29.21 / 62.70 ms |
+| Open / first paint | 266.7 / 114.4 ms | 268.4 / 84.2 ms |
+| Node-move dispatch / repaint average | 31.27 / 40.24 ms | 28.89 / 34.88 ms |
+| Cold decode, 64 unique 256 px images | 104.4 ms | 125.1 ms |
+
+The integrated run passed all unchanged budgets. The base reroute sample
+exceeded the unchanged 33 ms average-frame budget while the integrated sample
+passed it. Node decoration lookups retain the direct title path when a node has
+no color, suffix, or status, avoiding per-frame array allocation on ordinary
+nodes.

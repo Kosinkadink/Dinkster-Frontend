@@ -229,6 +229,32 @@ it('registers and gates a synthetic canvas layer', () => {
   expect(layers).toEqual(['overlay.guides'])
 })
 
+it('registers and gates a synthetic node decoration', () => {
+  const decorations: string[] = []
+  const h = new ExtensionHost({
+    menus: createMenuRegistry(),
+    widgets: fakeWidgets(),
+    registerNodeDecoration: (contribution) => {
+      decorations.push(contribution.id)
+      return () => void decorations.splice(decorations.indexOf(contribution.id), 1)
+    },
+  })
+  expect(h.register({
+    id: 'decorator',
+    contributions: [{ id: 'decorator.status', category: 'nodeDecoration' }],
+  }, (api) => api.nodeDecoration('decorator.status', {
+    id: 'decorator.status',
+    decorate: (node) => node.id === 'proof'
+      ? { badges: [{ id: 'decorator.status.badge', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' }] }
+      : undefined,
+  }))).toEqual([])
+  expect(decorations).toEqual(['decorator.status'])
+  h.setContributionEnabled('decorator.status', false)
+  expect(decorations).toEqual([])
+  h.setContributionEnabled('decorator.status', true)
+  expect(decorations).toEqual(['decorator.status'])
+})
+
 it('rejects virtual node kinds without a virtual port-free schema', () => {
   const base: VirtualNodeKind = {
     id: 'notes.callout', title: 'Callout', defaultValues: {},
