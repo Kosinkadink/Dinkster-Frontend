@@ -39,6 +39,44 @@ export interface DesktopSystemCheck {
   readonly gpu: { readonly available: boolean; readonly name?: string; readonly driver?: string; readonly memoryMiB?: number }
 }
 
+export type DesktopProjectEngineChannel = 'stable' | 'github-live'
+
+export type DesktopProjectGenerationStatus = 'active' | 'installed' | 'failed'
+
+export interface DesktopProjectGeneration {
+  readonly generation: number
+  readonly current: boolean
+  readonly baseId: string
+  readonly engineCommit: string
+  readonly cell: string
+  readonly status: DesktopProjectGenerationStatus
+}
+
+export interface DesktopProjectEngineJournal {
+  /**
+   * Generation identifiers are host strings: a building journal may target an
+   * engine commit, and a first-install failure reports 'none' as previous.
+   */
+  readonly stage: 'building' | 'switching' | 'failed'
+  readonly previousGeneration: string
+  readonly targetGeneration: string
+  readonly error?: string
+}
+
+export interface DesktopProjectEngineInfo {
+  readonly projectId: string
+  readonly configured: boolean
+  readonly mirrorConfigured: boolean
+  readonly dataRoot: string
+  readonly generations: readonly DesktopProjectGeneration[]
+  readonly channel?: DesktopProjectEngineChannel
+  readonly installRoot?: string
+  readonly port?: number
+  readonly cell?: string
+  readonly availableEngineCommit?: string
+  readonly journal?: DesktopProjectEngineJournal
+}
+
 export type DesktopPanelPlacement = 'dock' | 'rail' | 'bottom'
 
 export type DesktopWindowContext =
@@ -115,6 +153,18 @@ export interface DinksterDesktopBridge {
   switchProject(projectId: string): Promise<void>
   /** Open an additional workspace window bound to a project. */
   openProjectWindow(projectId: string): Promise<void>
+  /** Read the project engine's configured generations and install state. */
+  projectEngine(): Promise<DesktopProjectEngineInfo>
+  /** Install or update the project engine from the selected channel into the selected cell. */
+  installProjectEngine(channel: DesktopProjectEngineChannel, cell: string): Promise<void>
+  /** Make an installed generation the project's active one. */
+  activateProjectGeneration(generation: number): Promise<void>
+  /**
+   * Remove the project's engine installs. The data root is only deleted when
+   * deleteDataRoot is true and confirmedDataRoot repeats the exact data root
+   * path reported by projectEngine().
+   */
+  removeProject(deleteDataRoot: boolean, confirmedDataRoot?: string): Promise<void>
   /**
    * Store (secret string), replace, or clear (null) the credential for a
    * connection profile. The secret is encrypted in the main process and is

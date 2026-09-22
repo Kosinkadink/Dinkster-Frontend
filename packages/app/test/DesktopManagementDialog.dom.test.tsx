@@ -4,7 +4,7 @@ import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { DesktopManagementDialog, type DesktopMountConnection } from '../src/DesktopManagementDialog.js'
-import type { DesktopInfo, DinksterDesktopBridge } from '../src/desktop-bridge.js'
+import type { DesktopInfo, DesktopProjectEngineInfo, DinksterDesktopBridge } from '../src/desktop-bridge.js'
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
@@ -21,11 +21,31 @@ const info: DesktopInfo = {
   update: { state: 'current', detail: 'Dinkster Desktop is up to date' },
 }
 
+const projectInfo: DesktopProjectEngineInfo = {
+  projectId: 'proj-main',
+  configured: true,
+  mirrorConfigured: true,
+  dataRoot: 'C:\\Dinkster\\projects\\proj-main',
+  generations: [
+    { generation: 3, current: true, baseId: 'base-main', engineCommit: '1234567890abcdef', cell: 'win-cu128', status: 'active' },
+    { generation: 2, current: false, baseId: 'base-main', engineCommit: 'fedcba0987654321', cell: 'win-cu128', status: 'installed' },
+  ],
+  channel: 'stable',
+  installRoot: 'C:\\Dinkster\\engines\\proj-main',
+  port: 8188,
+  cell: 'win-cu128',
+  availableEngineCommit: '0a0b0c0d0e0f1122',
+}
+
 function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterDesktopBridge> = {}) {
   const selectEngine = vi.fn(async () => undefined)
   const exportSupportReport = vi.fn(async () => 'C:\\reports\\dinkster.json')
   const saveRemoteWorker = vi.fn(async () => undefined)
   const removeRemoteWorker = vi.fn(async () => undefined)
+  const projectEngine = vi.fn(async () => projectInfo)
+  const installProjectEngine = vi.fn(async () => undefined)
+  const activateProjectGeneration = vi.fn(async () => undefined)
+  const removeProject = vi.fn(async () => undefined)
   const bridge: DinksterDesktopBridge = {
     locale: vi.fn(async () => 'en-US'),
     status: vi.fn(),
@@ -52,6 +72,10 @@ function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterD
     redockWindow: vi.fn(async () => undefined),
     switchProject: vi.fn(async () => undefined),
     openProjectWindow: vi.fn(async () => undefined),
+    projectEngine,
+    installProjectEngine,
+    activateProjectGeneration,
+    removeProject,
     setConnectionCredential: vi.fn(async () => undefined),
     retireConnectionProfile: vi.fn(async () => undefined),
     connectionCredentials: vi.fn(async () => ({ custody: true, profiles: [] })),
@@ -71,7 +95,7 @@ function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterD
   const root = document.createElement('div')
   document.body.append(root)
   const unmount = render(() => <DesktopManagementDialog connection={connection} />, root)
-  return { root, selectEngine, exportSupportReport, saveRemoteWorker, removeRemoteWorker, bridge, unmount }
+  return { root, selectEngine, exportSupportReport, saveRemoteWorker, removeRemoteWorker, projectEngine, installProjectEngine, activateProjectGeneration, removeProject, bridge, unmount }
 }
 
 function enter(control: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -82,6 +106,13 @@ function enter(control: HTMLInputElement | HTMLTextAreaElement, value: string): 
 function choose(control: HTMLSelectElement, value: string): void {
   control.value = value
   control.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+function projectSection(root: HTMLElement): HTMLElement {
+  const section = [...root.querySelectorAll<HTMLElement>('.desktop-management-section')]
+    .find((candidate) => candidate.querySelector('h3')?.textContent === 'Project engine')
+  if (!section) throw new Error('Project engine section is missing')
+  return section
 }
 
 afterEach(() => {
@@ -273,6 +304,114 @@ describe('DesktopManagementDialog', () => {
     await vi.waitFor(() => expect(root.textContent).toContain('No remote workers are configured'))
   })
 
+  it('installs the project engine for the chosen channel and cell', async () => {
+    const { root, installProjectEngine } = mount()
+    await flush()
+    const section = projectSection(root)
+    const cellSelect = section.querySelector<HTMLSelectElement>('[aria-label="Cell"]')!
+    expect([...cellSelect.options].map((option) => option.value)).toEqual([
+      'win-cu128', 'linux-cu128', 'mac-arm64', 'linux-cpu', 'win-cpu',
+      'linux-rocm', 'windows-rocm', 'linux-xpu', 'windows-xpu',
+    ])
+    choose(section.querySelector<HTMLSelectElement>('[aria-label="Channel"]')!, 'github-live')
+    choose(section.querySelector<HTMLSelectElement>('[aria-label="Cell"]')!, 'linux-cu128')
+    ;([...section.querySelectorAll('button')].find((button) => button.textContent === 'Install or update') as HTMLButtonElement).click()
+    await vi.waitFor(() => expect(installProjectEngine).toHaveBeenCalledWith('github-live', 'linux-cu128'))
+    expect(section.textContent).toContain('never deletes the data root')
+  })
+
+  it('lists project generations with raw facts and activates a prior generation', async () => {
+    const { root, activateProjectGeneration } = mount()
+    await flush()
+    const section = projectSection(root)
+    expect(section.textContent).toContain('proj-main')
+    expect(section.textContent).toContain('C:\\Dinkster\\projects\\proj-main')
+    expect(section.textContent).toContain('Generation 2 - base-main - fedcba0987654321 - win-cu128 - Installed')
+    const activate = [...section.querySelectorAll('button')].find((button) => button.textContent === 'Activate') as HTMLButtonElement
+    activate.click()
+    await vi.waitFor(() => expect(activateProjectGeneration).toHaveBeenCalledWith(2))
+  })
+
+  it('disables install and explains when the engine mirror is missing', async () => {
+    const { root, installProjectEngine } = mount(undefined, {
+      projectEngine: vi.fn(async () => ({ ...projectInfo, mirrorConfigured: false })),
+    })
+    await flush()
+    const section = projectSection(root)
+    expect(section.textContent).toContain('Not configured')
+    const install = [...section.querySelectorAll('button')].find((button) => button.textContent === 'Install or update') as HTMLButtonElement
+    expect(install.disabled).toBe(true)
+    expect(section.textContent).toContain('no engine mirror is configured')
+    install.click()
+    await flush()
+    expect(installProjectEngine).not.toHaveBeenCalled()
+  })
+
+  it('shows a failed journal error and returns to the previous generation', async () => {
+    const { root, activateProjectGeneration } = mount(undefined, {
+      projectEngine: vi.fn(async () => ({
+        ...projectInfo,
+        journal: { stage: 'failed' as const, previousGeneration: '2', targetGeneration: '3', error: 'engine build failed: boom' },
+      })),
+    })
+    await flush()
+    const section = projectSection(root)
+    expect(section.textContent).toContain('engine build failed: boom')
+    expect(section.textContent).toContain('Switching to generation 3 failed. Previous generation: 2.')
+    const returnButton = [...section.querySelectorAll('button')].find((button) => button.textContent === 'Return to previous generation') as HTMLButtonElement
+    returnButton.click()
+    await vi.waitFor(() => expect(activateProjectGeneration).toHaveBeenCalledWith(2))
+  })
+
+  it('shows a failed first-install journal without a return action', async () => {
+    const firstInstall: DesktopProjectEngineInfo = {
+      projectId: 'proj-main',
+      configured: false,
+      mirrorConfigured: true,
+      dataRoot: 'C:\\Dinkster\\projects\\proj-main',
+      generations: [],
+      journal: { stage: 'failed' as const, previousGeneration: 'none', targetGeneration: '7', error: 'mirror feed unreachable' },
+    }
+    const { root, activateProjectGeneration } = mount(undefined, {
+      projectEngine: vi.fn(async () => firstInstall),
+    })
+    await flush()
+    const section = projectSection(root)
+    expect(section.textContent).toContain('Switching to generation 7 failed. Previous generation: none.')
+    expect(section.textContent).toContain('mirror feed unreachable')
+    expect([...section.querySelectorAll('button')].some((button) => button.textContent === 'Return to previous generation')).toBe(false)
+    expect(activateProjectGeneration).not.toHaveBeenCalled()
+  })
+
+  it('removes a project keeping data by default and only deletes data after explicit confirmation', async () => {
+    const { root, removeProject } = mount()
+    await flush()
+    const section = projectSection(root)
+    const button = (label: string): HTMLButtonElement =>
+      [...section.querySelectorAll('button')].find((candidate) => candidate.textContent === label) as HTMLButtonElement
+
+    button('Remove project').click()
+    const panel = section.querySelector('.desktop-project-remove-panel') as HTMLElement
+    expect(panel.textContent).toContain('C:\\Dinkster\\projects\\proj-main')
+    button('Cancel').click()
+    expect(removeProject).not.toHaveBeenCalled()
+    expect(section.querySelector('.desktop-project-remove-panel')).toBeNull()
+
+    button('Remove project').click()
+    button('Remove project, keep data').click()
+    await vi.waitFor(() => expect(removeProject).toHaveBeenCalledWith(false))
+    expect(removeProject).toHaveBeenCalledTimes(1)
+
+    await vi.waitFor(() => expect(button('Remove project').disabled).toBe(false))
+    button('Remove project').click()
+    const checkbox = section.querySelector<HTMLInputElement>('.desktop-project-delete-data input') as HTMLInputElement
+    expect(checkbox.closest('label')?.textContent).toContain('C:\\Dinkster\\projects\\proj-main')
+    checkbox.checked = true
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+    button('Delete project and data').click()
+    await vi.waitFor(() => expect(removeProject).toHaveBeenCalledWith(true, 'C:\\Dinkster\\projects\\proj-main'))
+  })
+
   it('keeps every desktop action wired after switching to Chinese', async () => {
     const addMount = vi.fn(async () => ({ id: 'shared-models', mode: 'read' as const, state: 'pending' }))
     const fetchMountSettings = vi.fn(async () => ({ mounts: [], mountChangesAllowed: true }))
@@ -322,6 +461,8 @@ describe('DesktopManagementDialog', () => {
     expect(bridge.installUpdate).toHaveBeenCalledOnce()
     await click(section('\u652f\u6301\u5305'), '\u5bfc\u51fa\u62a5\u544a')
     expect(bridge.exportSupportReport).toHaveBeenCalledOnce()
+    await click(section('\u9879\u76ee\u5f15\u64ce'), '\u5b89\u88c5\u6216\u66f4\u65b0')
+    expect(bridge.installProjectEngine).toHaveBeenCalledOnce()
   })
 
   it('relabels mounted chrome without changing desktop state, raw facts, or requests', async () => {

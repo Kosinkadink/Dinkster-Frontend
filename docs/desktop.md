@@ -145,6 +145,29 @@ directory. The backend indexes models in place; it does not copy them into the
 Dinkster library. The local desktop and tinkerer launchers both enable this durable
 mount API through their shared engine command line.
 
+### Project engine
+
+The **Project engine** section manages the engine generations installed for the
+current project, separately from the shared engine environment. It shows the
+project identifier and the project's data root, the engine mirror state, and
+the configured channel (`stable` or `github-live`), install root, port, cell,
+and available engine commit when the host reports them.
+
+Choose a channel and a platform cell (`win-cu128`, `linux-cu128`, `mac-arm64`,
+`linux-cpu`, `win-cpu`, `linux-rocm`, `windows-rocm`, `linux-xpu`, or
+`windows-xpu`) and choose **Install or update** to install or replace
+that cell's generation from the mirror. Install and update stay disabled while
+no engine mirror is configured. Installed generations are listed with their base
+identifier, engine commit, cell, and state; **Activate** makes an installed
+generation current in one click, and a failed install or switch shows the
+operation journal error with a **Return to previous generation** action.
+
+Installing, updating, and returning to an earlier generation never delete the
+data root. **Remove project** opens a confirmation that names the exact data
+root and keeps it by default; deleting the data root requires selecting the
+delete option that repeats the exact path, and the dialog never uses browser
+confirmation popups.
+
 ### Remote worker machines
 
 The **Remote worker machines** section manages the local engine's existing

@@ -5,6 +5,8 @@ import {
   desktopBridge,
   desktopEngineAcceleratorLabel,
   type DesktopInfo,
+  type DesktopProjectEngineChannel,
+  type DesktopProjectEngineInfo,
   type DesktopRemoteWorker,
   type DesktopRemoteWorkerMemory,
   type DesktopSystemCheck,
@@ -36,6 +38,19 @@ const formatBytes = (bytes: number): string => {
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
+const DESKTOP_PROJECT_CHANNELS: readonly DesktopProjectEngineChannel[] = ['stable', 'github-live']
+const DESKTOP_PROJECT_CELLS = [
+  'win-cu128',
+  'linux-cu128',
+  'mac-arm64',
+  'linux-cpu',
+  'win-cpu',
+  'linux-rocm',
+  'windows-rocm',
+  'linux-xpu',
+  'windows-xpu',
+] as const
+
 export function DesktopManagementDialog(props: { readonly connection: DesktopMountConnection | undefined }) {
   const bridge = desktopBridge()
   const message = useAppMessage()
@@ -57,6 +72,11 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
   const [workerNodes, setWorkerNodes] = createSignal('')
   const [workerNodesRestricted, setWorkerNodesRestricted] = createSignal(false)
   const [workerMemory, setWorkerMemory] = createSignal('')
+  const [project, setProject] = createSignal<DesktopProjectEngineInfo>()
+  const [projectChannel, setProjectChannel] = createSignal<DesktopProjectEngineChannel>('stable')
+  const [projectCell, setProjectCell] = createSignal<string>('linux-cpu')
+  const [projectRemoveOpen, setProjectRemoveOpen] = createSignal(false)
+  const [projectDeleteData, setProjectDeleteData] = createSignal(false)
   const workerTransportChanged = (): boolean => {
     const current = workers().find((worker) => worker.name === editingWorker())
     return current !== undefined
@@ -106,6 +126,7 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
     onCleanup(dispose)
     void bridge.systemCheck().then(setCheck).catch(() => undefined)
     void bridge.remoteWorkers().then(setWorkers).catch((error: unknown) => setStatusMessage({ raw: error instanceof Error ? error.message : String(error) }))
+    void loadProject().catch((error: unknown) => setStatusMessage({ raw: error instanceof Error ? error.message : String(error) }))
     refreshMounts()
   })
 
@@ -193,6 +214,57 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
     }, 'desktopManagement.worker.removed')
   }
 
+  const loadProject = async (): Promise<void> => {
+    const next = await bridge!.projectEngine()
+    const first = project() === undefined
+    setProject(next)
+    if (first) {
+      setProjectChannel(next.channel ?? 'stable')
+      setProjectCell(next.cell ?? 'linux-cpu')
+    }
+  }
+
+  // The journal reports generation identifiers as host strings; only a real
+  // numeric previous generation can be activated again.
+  const journalReturnGeneration = (previous: string): number | undefined => {
+    if (!/^[1-9]\d*$/.test(previous)) return undefined
+    const parsed = Number(previous)
+    return Number.isSafeInteger(parsed) ? parsed : undefined
+  }
+
+  const installProjectEngine = async (): Promise<void> => {
+    await perform(async () => {
+      await bridge!.installProjectEngine(projectChannel(), projectCell())
+      await loadProject()
+    })
+  }
+
+  const activateGeneration = async (generation: number): Promise<void> => {
+    await perform(async () => {
+      await bridge!.activateProjectGeneration(generation)
+      await loadProject()
+    })
+  }
+
+  const removeProject = async (): Promise<void> => {
+    const current = project()
+    if (!current) return
+    const deleteData = projectDeleteData()
+    await perform(async () => {
+      // Data deletion needs the exact reported path repeated; removal alone
+      // never touches the data root.
+      if (deleteData) await bridge!.removeProject(true, current.dataRoot)
+      else await bridge!.removeProject(false)
+      closeProjectRemove()
+      await loadProject()
+    }, 'desktopManagement.project.removed')
+  }
+
+  const closeProjectRemove = (): void => {
+    setProjectRemoveOpen(false)
+    setProjectDeleteData(false)
+  }
+
   return (
     <section class="desktop-management" aria-live="polite">
       <Show when={bridge} fallback={<p>{message('desktopManagement.unavailable')}</p>}>
@@ -227,6 +299,122 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                     </div>
                   }</For>
                 </div>
+              </Show>
+            </section>
+
+            <section class="desktop-management-section desktop-management-wide">
+              <div>
+                <h3>{message('desktopManagement.project.title')}</h3>
+                <p>{message('desktopManagement.project.description')}</p>
+              </div>
+              <Show when={project()} fallback={<p class="desktop-management-note">{message('desktopManagement.project.loading')}</p>}>
+                {(currentProject) => <div class="desktop-project">
+                  <div class="desktop-project-facts">
+                    <div><span>{message('desktopManagement.project.projectId')}</span><code>{currentProject().projectId}</code></div>
+                    <div><span>{message('desktopManagement.project.dataRoot')}</span><code>{currentProject().dataRoot}</code></div>
+                    <Show when={currentProject().channel !== undefined}>
+                      <div><span>{message('desktopManagement.project.channel')}</span><code>{currentProject().channel}</code></div>
+                    </Show>
+                    <Show when={currentProject().installRoot !== undefined}>
+                      <div><span>{message('desktopManagement.project.installRoot')}</span><code>{currentProject().installRoot}</code></div>
+                    </Show>
+                    <Show when={currentProject().port !== undefined}>
+                      <div><span>{message('desktopManagement.project.port')}</span><code>{currentProject().port}</code></div>
+                    </Show>
+                    <Show when={currentProject().cell !== undefined}>
+                      <div><span>{message('desktopManagement.project.cell')}</span><code>{currentProject().cell}</code></div>
+                    </Show>
+                    <Show when={currentProject().availableEngineCommit !== undefined}>
+                      <div><span>{message('desktopManagement.project.availableCommit')}</span><code>{currentProject().availableEngineCommit}</code></div>
+                    </Show>
+                    <div><span>{message('desktopManagement.project.mirror')}</span><strong>{message(currentProject().mirrorConfigured ? 'desktopManagement.project.mirrorReady' : 'desktopManagement.project.mirrorMissing')}</strong></div>
+                  </div>
+                  <Show when={currentProject().journal}>
+                    {(journal) => {
+                      const returnGeneration = journalReturnGeneration(journal().previousGeneration)
+                      return <div class="desktop-project-journal" data-stage={journal().stage}>
+                        <p>{message(journal().stage === 'building'
+                          ? 'desktopManagement.project.journalBuilding'
+                          : journal().stage === 'switching'
+                            ? 'desktopManagement.project.journalSwitching'
+                            : 'desktopManagement.project.journalFailed', { previous: journal().previousGeneration, target: journal().targetGeneration })}</p>
+                        <Show when={journal().error !== undefined}><code>{journal().error}</code></Show>
+                        {returnGeneration !== undefined
+                          && <button type="button" disabled={busy()} onClick={() => void activateGeneration(returnGeneration)}>
+                            {message('desktopManagement.project.returnToPrevious')}
+                          </button>}
+                      </div>
+                    }}
+                  </Show>
+                  <div class="desktop-project-generations">
+                    <h4>{message('desktopManagement.project.generations')}</h4>
+                    <For each={currentProject().generations}>{(generation) =>
+                      <div>
+                        <span>
+                          <strong>{message('desktopManagement.project.generationLabel', { generation: generation.generation })}</strong>
+                          {' '}- {generation.baseId} - <code>{generation.engineCommit}</code> - {generation.cell} - {message(`desktopManagement.project.status.${generation.status}`)}
+                        </span>
+                        <Show when={!generation.current}>
+                          <button type="button" disabled={busy()} onClick={() => void activateGeneration(generation.generation)}>
+                            {message('desktopManagement.project.activate')}
+                          </button>
+                        </Show>
+                      </div>
+                    }</For>
+                  </div>
+                  <div class="desktop-project-install">
+                    <label>
+                      <span>{message('desktopManagement.project.channel')}</span>
+                      <select
+                        aria-label={message('desktopManagement.project.channel')}
+                        value={projectChannel()}
+                        onChange={(event) => setProjectChannel(event.currentTarget.value as DesktopProjectEngineChannel)}
+                      >
+                        <For each={DESKTOP_PROJECT_CHANNELS}>{(channel) => <option value={channel}>{channel}</option>}</For>
+                      </select>
+                    </label>
+                    <label>
+                      <span>{message('desktopManagement.project.cell')}</span>
+                      <select aria-label={message('desktopManagement.project.cell')} value={projectCell()} onChange={(event) => setProjectCell(event.currentTarget.value)}>
+                        <For each={DESKTOP_PROJECT_CELLS}>{(cell) => <option value={cell}>{cell}</option>}</For>
+                      </select>
+                      <small>{message('desktopManagement.project.cellHelp')}</small>
+                    </label>
+                    <div class="desktop-management-actions">
+                      <button type="button" disabled={busy() || !currentProject().mirrorConfigured} onClick={() => void installProjectEngine()}>
+                        {message('desktopManagement.project.install')}
+                      </button>
+                    </div>
+                    <Show when={!currentProject().mirrorConfigured}>
+                      <p class="desktop-management-note">{message('desktopManagement.project.mirrorRequired')}</p>
+                    </Show>
+                  </div>
+                  <p class="desktop-management-note">{message('desktopManagement.project.dataSafety')}</p>
+                  <Show when={projectRemoveOpen()} fallback={
+                    <div class="desktop-management-actions">
+                      <button type="button" disabled={busy()} onClick={() => setProjectRemoveOpen(true)}>{message('desktopManagement.project.remove')}</button>
+                    </div>
+                  }>
+                    <div class="desktop-project-remove-panel">
+                      <p>{message('desktopManagement.project.removeWarning', { dataRoot: currentProject().dataRoot })}</p>
+                      <label class="desktop-project-delete-data">
+                        <input
+                          type="checkbox"
+                          checked={projectDeleteData()}
+                          aria-label={message('desktopManagement.project.deleteData', { dataRoot: currentProject().dataRoot })}
+                          onChange={(event) => setProjectDeleteData(event.currentTarget.checked)}
+                        />
+                        <span>{message('desktopManagement.project.deleteData', { dataRoot: currentProject().dataRoot })}</span>
+                      </label>
+                      <div class="desktop-management-actions">
+                        <button type="button" disabled={busy()} onClick={closeProjectRemove}>{message('desktopManagement.project.removeCancel')}</button>
+                        <button type="button" disabled={busy()} onClick={() => void removeProject()}>
+                          {message(projectDeleteData() ? 'desktopManagement.project.removeConfirmDelete' : 'desktopManagement.project.removeConfirm')}
+                        </button>
+                      </div>
+                    </div>
+                  </Show>
+                </div>}
               </Show>
             </section>
 
