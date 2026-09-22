@@ -40,9 +40,9 @@ The subset uses synthetic inputs and checked-in fixtures:
   and `scripts/check-path-case.test.mjs`: regression tests for source checks.
 
 Selection does not depend on changed files, labels, model availability or a
-running service. The job defaults to `[self-hosted, linux, x64]`; repository
-variable `DINKSTER_PR_RUNNER` can select hosted Linux with the JSON string
-`"ubuntu-latest"` without editing the workflow.
+running service. The job selects the `linux` entry in the repository's
+`CI_RUNNERS` JSON for same-repository pull requests and `forkLinux` for fork
+pull requests. Both entries name GitHub-hosted Linux runners.
 
 ## Full validation
 
