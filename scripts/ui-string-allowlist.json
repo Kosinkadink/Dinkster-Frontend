@@ -115,7 +115,6 @@
     "attribute:aria-label:Record audio",
     "text:('idle') const [message, setMessage] = createSignal(provider ? 'Microphone is off. Recording requires browser permission.' : 'Recording unavailable: this browser needs MediaRecorder and a secure microphone context.') let generation = 0 let stream: MediaStream | undefined let recorder: MediaRecorder | undefined let timer: ReturnType",
     "text:([]) const [device, setDevice] = createSignal('') const [limit, setLimit] = createSignal(60) const [recordedBytes, setRecordedBytes] = createSignal(0) const [state, setState] = createSignal",
-    "text:Browser default",
     "text:Discard recording",
     "text:Find microphones",
     "text:Limit (s)",
@@ -696,6 +695,9 @@
   ],
   "ProductSlider.tsx": [
     "text:props.min ? ((value() - props.min) / (props.max - props.min)) * 100 : 0 return ("
+  ],
+  "ProductSurfaces.tsx": [
+    "text:props.tone ?? 'empty' return ("
   ],
   "ProductTabs.tsx": [
     "text:) return (",

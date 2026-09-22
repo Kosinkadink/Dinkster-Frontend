@@ -41,6 +41,7 @@ import { isLayerDocumentType, type GraphImageDocumentRequest } from './image-doc
 import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
+import { ProductButton } from './ProductControls.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { SurfacePanel } from './SurfacePanel.js'
@@ -1590,9 +1591,9 @@ export function App(props: {
           {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />
       </div>
       <Show when={empty() && !galleryRequested()}>
-        <button class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
+        <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
           {message('templateGallery.open')}
-        </button>
+        </ProductButton>
       </Show>
       <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
     </div>

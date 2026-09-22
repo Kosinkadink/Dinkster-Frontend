@@ -12,7 +12,7 @@
 Redesigned components consume semantic roles rather than copying token values.
 Literal colors and dimensions are reserved for user data, media content,
 calculated geometry, and other values that are not product styling. A surface
-adopts the system when its owner replaces and deletes the old styling.
+adopts the system when it replaces and deletes the old styling.
 
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
@@ -26,6 +26,31 @@ provides semantic info, warning, error, and polite-status presentation.
 wrapping footer that stacks at narrow widths. These primitives own structure
 and semantic-token styling only; callers retain value, validation, command,
 and request lifecycle ownership.
+
+## Product primitive catalog
+
+Every host control uses one of these primitives. A native control or styling
+literal may remain only when it is recorded by `pnpm check:raw-controls` and
+linked to tracked work. New exceptions and increases are rejected.
+
+| Primitive            | Contract                                                                                                                                          | Adopted surfaces                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `ProductButton`      | Native button props; primary, secondary, danger and ghost variants; control and compact sizes; loading disables activation and exposes busy state | Learn, Node help, Activity, Execution log, Problems, Desktop management, mounts, audio recorder and Image document empty state |
+| `ProductTextInput`   | Native text input props and invalid state                                                                                                         | Learn, Desktop management and mounts                                                                                           |
+| `ProductTextArea`    | Native textarea props and invalid state                                                                                                           | Desktop management                                                                                                             |
+| `ProductSelect`      | Labelled combobox/listbox with controlled selection, keyboard navigation and focus restoration                                                    | Settings, Execution log and Desktop management                                                                                 |
+| `ProductPanelHeader` | Level-two title, optional count and actions                                                                                                       | Problems                                                                                                                       |
+| `ProductEmptyState`  | Title, hint, icon and action slots; empty, polite loading and alert error states                                                                  | Learn, Node help, Activity, Execution log, Problems and Image document                                                         |
+| `ProductListRow`     | Leading, primary, secondary and action slots with selected state                                                                                  | Activity and Execution log                                                                                                     |
+| `ProductTable`       | Native table semantics in a labelled keyboard-scrollable region, with optional caption and sticky header                                          | Data-heavy product surfaces                                                                                                    |
+
+The raw-control baseline after these adoptions is 441 controls, 70 inline-style
+attributes and 423 CSS color/radius literals. The largest remaining control
+surfaces are App view (60), Canvas host overlays (39), Image document's editor
+controls outside its converted empty state (36), App shell (20), Executed image
+viewer (18), Compositor editor (15), Runtime settings (13), and Video edit, P2P,
+Output descriptor and Combo editor (12 each). Their counts may shrink but may
+not grow. This inventory is a migration queue, not a second component system.
 
 ## Token model
 
@@ -261,44 +286,6 @@ noise claim requires reruns and the full distributions, never a selected
 favorable sample. Profiler evidence is also required for hot-path caching or
 algorithm changes. Nodes, links, groups, overlays, and minimap remain batched
 and cullable Canvas2D; no per-node DOM may enter paint, pan, or zoom paths.
-
-## Surface ownership registry
-
-Each row has one implementation owner. Shared semantics stay with their
-existing feature issue; these owners govern visual-system adoption and host
-composition.
-
-| Surface or contribution anchor | Owner |
-| --- | --- |
-| Semantic tokens, CSS projection, Canvas token projection | #27 |
-| Panel, header, search, facet, row/card, scroll, state, field, inspector/editor, and action primitives | #27 |
-| Declarative extension contribution validation, rendering, commands, lifecycle, ordering, and fixture gallery | #27 |
-| App boot frame, top bar, app menu, tab strip, activity rail, dock regions, status bar, notifications, panel headers, resizing, and layout customization | #28 |
-| Shell extension regions, including the replacement for `status.trailing` raw mounts | #28 |
-| Node palette, category browser, palette preview, filters, and keyboard placement flow | #29 |
-| Universal search trigger/dialog, grouped results, previews, actions, and extension result providers | #29 |
-| Canvas nodes, compact rows, ports, links, reroutes, groups, selection, execution, error, mute, and bypass paint | #30 |
-| Canvas previews, bookmarks, toolbox, corner controls, zoom/fit controls, overlays, minimap, hit geometry, accessibility mirrors, and extension scene adornments | #30 |
-| Settings navigation/search, generic settings form presentation, product controls, validation, help, dialogs, modal chrome, menus, and popovers | #31 |
-| Ordinary expanded widget editors, generic suggestion surfaces, color editor, image editor mask tools, and host dismissal/focus behavior | #31 |
-| Embedded-PNG image/workflow choice dialog and action routing | #31 |
-| Assets sidebar, Assets collection content, source/facet/search/health/details states, upload, and exact AssetRef selection | #32 |
-| ASSET widget browser, logical-model picker, cross-mount selection, and source-health presentation | #32 |
-| Plain-image file drop, upload, and Load Image insertion | #32 |
-| Latent file-drop ingress, Load Latent AssetRef selection, latent metadata and VAE-intent hints, failures, cancellation, and Assets integration | #32 |
-| Asset Editor host rendering and presentation: media viewport, inspector/editor layout, value-origin fields, timeline/crop regions, and action/progress states | #32 |
-| Library, packs, templates, workflows, Activity, subgraph-definition visual adoption, and deferred Control Surfaces | #33 |
-| JSON workflow file-drop import and open | #33 |
-| App View and exposed-parameter content | #21 |
-| Problems content and whole-document/contextual diagnostics | #22 |
-| History, Runs, workflow queue, and live Executions | #35 |
-| Outputs and executed-output viewer | #36 |
-| Backends and runtime settings | #37 |
-| Memory and Aimdo observability | #38 |
-| Extension management | #39 |
-| Boundary editor content | #40 |
-| Asset acquisition consent and import resolution | #41 |
-| Collaboration session management | #42 |
 
 Activity rows apply the shared data-rich surface language directly: separate
 metadata fields, semantic badges and row markers, selectable message text,
