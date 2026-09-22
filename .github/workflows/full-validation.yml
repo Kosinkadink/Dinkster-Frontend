@@ -1,13 +1,12 @@
 name: Full validation
 
 on:
-  pull_request:
   push:
     branches: [main]
   schedule:
-    - cron: '0 6-22/2 * * *'
+    - cron: "0 6-22/2 * * *"
       timezone: America/Los_Angeles
-    - cron: '43 10 * * *'
+    - cron: "43 10 * * *"
   workflow_dispatch:
   workflow_call:
 
@@ -24,7 +23,8 @@ env:
 
 jobs:
   validation-plan:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 2
     outputs:
       run-heavy: ${{ steps.plan.outputs.run-heavy }}
       e2e-matrix: ${{ steps.plan.outputs.e2e-matrix }}
@@ -35,22 +35,21 @@ jobs:
         with:
           script: |
             const fullMatrix = [
-              { name: 'parallel 1/4', project: 'parallel-safe', shard: '--shard=1/4' },
-              { name: 'parallel 2/4', project: 'parallel-safe', shard: '--shard=2/4' },
-              { name: 'parallel 3/4', project: 'parallel-safe', shard: '--shard=3/4' },
-              { name: 'parallel 4/4', project: 'parallel-safe', shard: '--shard=4/4', push: true },
-              { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true },
+              { name: 'parallel 1/6', project: 'parallel-safe', shard: '--shard=1/6' },
+              { name: 'parallel 2/6', project: 'parallel-safe', shard: '--shard=2/6' },
+              { name: 'parallel 3/6', project: 'parallel-safe', shard: '--shard=3/6' },
+              { name: 'parallel 4/6', project: 'parallel-safe', shard: '--shard=4/6' },
+              { name: 'parallel 5/6', project: 'parallel-safe', shard: '--shard=5/6' },
+              { name: 'parallel 6/6', project: 'parallel-safe', shard: '--shard=6/6' },
+              { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true },
               { name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },
               { name: 'performance', project: 'performance', shard: '' },
-              { name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '', pullRequest: true },
-              { name: 'native without V1', project: 'native-without-v1', shard: '', pullRequest: true },
+              { name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '' },
+              { name: 'native without V1 1/3', project: 'native-without-v1', shard: '--shard=1/3' },
+              { name: 'native without V1 2/3', project: 'native-without-v1', shard: '--shard=2/3' },
+              { name: 'native without V1 3/3', project: 'native-without-v1', shard: '--shard=3/3' },
             ];
-            const selected = context.eventName === 'push'
-              ? fullMatrix.filter((entry) => entry.push)
-              : context.eventName === 'pull_request'
-                ? fullMatrix.filter((entry) => entry.pullRequest)
-                : fullMatrix;
-            core.setOutput('e2e-matrix', JSON.stringify({ include: selected }));
+            core.setOutput('e2e-matrix', JSON.stringify({ include: fullMatrix }));
             if (context.eventName !== 'schedule') {
               core.setOutput('run-heavy', 'true');
               return;
@@ -65,60 +64,17 @@ jobs:
             const latestDurable = runs.data.workflow_runs.find((run) => run.event !== 'push');
             core.setOutput('run-heavy', latestDurable?.head_sha === context.sha ? 'false' : 'true');
 
-  fast:
-    needs: validation-plan
-    if: needs.validation-plan.outputs.run-heavy == 'true' && github.event_name == 'push'
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-          persist-credentials: false
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          repository: Kosinkadink/Dinkster
-          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-          persist-credentials: false
-          repository: Kosinkadink/Dinkster
-          ref: ${{ env.DINKSTER_REF }}
-          path: .ci/Dinkster
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.31.0
-          dest: ${{ runner.tool_cache }}/setup-pnpm
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm ci:fast
-        env:
-          DINKSTER_SOURCE_ROOT: .ci/Dinkster
-
   ci:
     needs: validation-plan
-    if: needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push' && github.event_name != 'pull_request'
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 30
+    if: needs.validation-plan.outputs.run-heavy == 'true'
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
         with:
           clean: true
           persist-credentials: false
-
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          repository: Kosinkadink/Dinkster
-          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
 
       - uses: actions/checkout@v4
         with:
@@ -145,7 +101,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - run: pnpm install --frozen-lockfile
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
@@ -157,9 +113,12 @@ jobs:
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
           .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
+      - run: pnpm exec prettier --check --single-quote --no-semi scripts/ci-fast.mjs packages/e2e/test/ci-workflow.test.ts
+      - run: pnpm check:extension-literals
+      - run: pnpm check:v1-boundary
       - run: pnpm typecheck
       - run: pnpm check:ui-strings
-      - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" pnpm test'
+      - run: pnpm test
         env:
           # Keep allocation-heavy performance gates on steady-state work
           # instead of timing young-generation garbage collection.
@@ -168,20 +127,20 @@ jobs:
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
-          CUDA_VISIBLE_DEVICES: ''
+          CUDA_VISIBLE_DEVICES: ""
       # Host interface changes must not invalidate Chromium's loopback requests.
-      - run: bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
+      - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:
-          DINKSTER_E2E_PORT: '15376'
-          DINKSTER_E2E_NATIVE_PORT: '15377'
+          DINKSTER_E2E_PORT: "15376"
+          DINKSTER_E2E_NATIVE_PORT: "15377"
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
 
   e2e-suite:
     needs: validation-plan
     if: needs.validation-plan.outputs.run-heavy == 'true'
     name: e2e (${{ matrix.name }})
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 30
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}
@@ -200,11 +159,6 @@ jobs:
           ref: 15eb748b3ec5f8a0a2d470b7fb280e2d7579f916
           path: .ci/ComfyUI
 
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          repository: Kosinkadink/Dinkster
-          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
-
       - uses: actions/checkout@v4
         with:
           clean: true
@@ -230,7 +184,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - run: pnpm install --frozen-lockfile
       - run: uv venv --python 3.12 .ci/ComfyUI/venv
@@ -243,36 +197,70 @@ jobs:
           uv pip install --python .ci/ComfyUI/venv/bin/python --constraint "${RUNNER_TEMP}/dinkster-torch-constraints.txt" --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match packaging numpy scipy pillow tqdm dinkster-kitchen dinkster-aimdo sentencepiece tokenizers
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
-          CUDA_VISIBLE_DEVICES: ''
+          CUDA_VISIBLE_DEVICES: ""
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
         if: matrix.vulkan
       - name: Replay recorded stock ComfyUI fixtures
         if: matrix.name == 'stock ComfyUI V1'
-        run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" pnpm --filter @dinkster/core exec vitest run test/object-info.golden.test.ts test/events.golden.test.ts'
-      - run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}'
+        run: pnpm --filter @dinkster/core exec vitest run test/object-info.golden.test.ts test/events.golden.test.ts
+      - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}
         env:
           # Match the software Vulkan driver available on CPU-only runners.
           VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
           DINKSTER_E2E_COMFY_ROOT: ${{ github.workspace }}/.ci/ComfyUI
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
-          DINKSTER_E2E_PORT: '15410'
-          DINKSTER_E2E_COMFY_PORT: '15411'
-          DINKSTER_E2E_NATIVE_PORT: '15412'
-          DINKSTER_E2E_USE_NATIVE: '1'
+          DINKSTER_E2E_PORT: "15410"
+          DINKSTER_E2E_COMFY_PORT: "15411"
+          DINKSTER_E2E_NATIVE_PORT: "15412"
+          DINKSTER_E2E_USE_NATIVE: "1"
           DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15412
       - name: Prove the ordinary third-party pack contract
         if: matrix.name == 'backend serial 1/2'
-        run: '"$HOME/comfy-vibe-station/run_counted_suite.sh" bash scripts/ci-browser.sh pnpm --filter @dinkster/e2e exec playwright test --config=playwright.extension-contract.config.ts'
+        run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.extension-contract.config.ts
         env:
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
-          DINKSTER_E2E_PORT: '15420'
-          DINKSTER_E2E_NATIVE_PORT: '15421'
+          DINKSTER_E2E_PORT: "15420"
+          DINKSTER_E2E_NATIVE_PORT: "15421"
 
   e2e:
     if: always() && needs.validation-plan.outputs.run-heavy == 'true'
     needs: [validation-plan, e2e-suite]
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 2
     steps:
       - name: Verify every full-suite lane passed
         run: test '${{ needs.e2e-suite.result }}' = success
+
+  main-status:
+    name: main validation status
+    if: always()
+    needs: [validation-plan, ci, e2e]
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 2
+    steps:
+      - name: Record every lane result
+        env:
+          RUN_HEAVY: ${{ needs.validation-plan.outputs.run-heavy }}
+          CI_RESULT: ${{ needs.ci.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          printf '{"commit":"%s","runHeavy":"%s","lanes":{"ci":"%s","e2e":"%s"}}\n' \
+            "$GITHUB_SHA" "$RUN_HEAVY" "$CI_RESULT" "$E2E_RESULT" > main-validation-status.json
+          cat main-validation-status.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: main-validation-status
+          path: main-validation-status.json
+          retention-days: 30
+          if-no-files-found: error
+      - name: Require every selected lane to pass
+        env:
+          RUN_HEAVY: ${{ needs.validation-plan.outputs.run-heavy }}
+          CI_RESULT: ${{ needs.ci.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          if [ "$RUN_HEAVY" = false ]; then exit 0; fi
+          test "$CI_RESULT" = success
+          test "$E2E_RESULT" = success
