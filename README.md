@@ -1,9 +1,42 @@
 # Dinkster-Frontend
 
-Greenfield ComfyUI frontend. Framework-free TypeScript core, retained-canvas
-renderer, SolidJS shell. The companion backend rewrite lives in Dinkster.
+Dinkster-Frontend is the pre-release browser editor for Dinkster's local
+image, video, audio, and model-training engine. It provides the workflow
+canvas, template library, model browser, queue, outputs, diagnostics, and
+extension UI. The framework-free TypeScript core and retained Canvas2D
+renderer are hosted by a SolidJS application shell.
+
+Status: in progress. There is no stable package or Desktop release yet.
 
 Full architecture: [docs/architecture.md](docs/architecture.md).
+
+## Run from source
+
+Clone Dinkster and Dinkster-Frontend beside each other. Prepare the backend,
+then install and start the frontend development server:
+
+```sh
+cd Dinkster
+uv sync --python 3.12 --all-packages --frozen
+uv run dinkster setup
+uv run dinkster --no-browser
+
+# In another terminal:
+cd Dinkster-Frontend
+pnpm install --frozen-lockfile
+pnpm --filter @dinkster/app dev
+```
+
+Open `http://127.0.0.1:5199`. The dev server proxies native API and event
+traffic to Dinkster on `http://127.0.0.1:3639` by default. See Dinkster's
+[browser editor quickstart](https://github.com/Kosinkadink/Dinkster/blob/main/docs/quickstart.md)
+for the complete first-image setup, including model folders and accelerator
+environments.
+
+Dinkster packs may ship frontend modules beside their Python schemas and
+runtime. The host activates a module only for a composed pack and exposes the
+same public widget, command, editor, and panel APIs used by built-in features.
+See [extension contracts](docs/frontend-extensions.md).
 
 ## Layout
 
@@ -53,20 +86,21 @@ only through the frontend's existing same-origin `/api/*` proxy. This exposes
 no additional listener. Isolated short-lived CI or browser-test servers that
 are not kept running for a user may remain loopback-only.
 
-### Running the app against a live ComfyUI
+### Backend targets
 
 The dev server proxies native API routes to local Dinkster at
 `http://127.0.0.1:3639` by default; `DINKSTER_NATIVE_BACKEND` overrides that
 target. Legacy ComfyUI routes use `http://127.0.0.1:8199` by default;
 `DINKSTER_V1_BACKEND` overrides that target and `DINKSTER_BACKEND` remains a
-legacy alias. The proxy rewrites the Origin header because ComfyUI 403s
-cross-origin POSTs.
+legacy alias. The optional v1 target supports compatibility development; a
+normal Dinkster session needs only the native target. The proxy rewrites the
+Origin header because ComfyUI rejects cross-origin POSTs.
 
 ```bash
-# terminal 1: any ComfyUI instance
+# Optional terminal 1: a ComfyUI instance for v1 compatibility work
 python ComfyUI/main.py --cpu --port 8199
 
-# terminal 2
+# Frontend terminal
 pnpm --filter @dinkster/app dev   # http://127.0.0.1:5199
 ```
 
