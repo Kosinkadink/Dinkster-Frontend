@@ -78,14 +78,15 @@ pins:
 
 | Job           | Checks                                                                                                                                                                                                                                                   |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ci`          | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                             |
+| `ci`          | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, and app build                                                                                                      |
+| `audit-assets` | Audit-assets browser coverage against the pinned Dinkster checkout, isolated from the unit/build budget                                                                                                                                                  |
 | `e2e-suite`   | Six parallel-safe shards, two backend-serial shards, three native-without-V1 shards, stock V1 compatibility, and the performance browser job. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
 | `e2e`         | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                              |
 | `main-status` | Uploads one lane-result JSON artifact and fails unless every selected main lane passed                                                                                                                                                                   |
 
-The heavy jobs retain the shared memory-only dependency identity action and
-clean checkouts without persisted credentials. The audit-assets browser starts the
-pinned Dinkster checkout and uses frontend/native ports 15376/15377. Full E2E
+The heavy jobs use clean checkouts without persisted credentials. The
+audit-assets browser starts the pinned Dinkster checkout in its own 20-minute
+job and uses frontend/native ports 15376/15377. Full E2E
 uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
 compatibility dependencies into the pinned ComfyUI interpreter used by its
 full composition. Its contract proof separately starts Dinkster with

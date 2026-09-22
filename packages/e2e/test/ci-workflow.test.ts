@@ -157,6 +157,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(Object.keys(full.jobs)).toEqual([
       'validation-plan',
       'ci',
+      'audit-assets',
       'e2e-suite',
       'e2e',
       'main-status',
@@ -273,6 +274,14 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(mainCommands).toContain('pnpm check:extension-literals')
     expect(mainCommands).toContain('pnpm check:v1-boundary')
+    expect(mainCommands.some((command) => command.includes('playwright'))).toBe(
+      false,
+    )
+    expect(full.jobs['audit-assets']!.needs).toBe('validation-plan')
+    expect(full.jobs['audit-assets']!.if).toBe(
+      "needs.validation-plan.outputs.run-heavy == 'true'",
+    )
+    expect(full.jobs['audit-assets']!['timeout-minutes']).toBe(20)
     expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
     expect(full.jobs['e2e-suite']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true'",
@@ -314,6 +323,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.jobs['main-status']!.needs).toEqual([
       'validation-plan',
       'ci',
+      'audit-assets',
       'e2e',
     ])
     const statusScript = full.jobs['main-status']!.steps!.flatMap(
@@ -321,6 +331,7 @@ describe('fast pull-request and full validation workflows', () => {
     ).join('\n')
     expect(statusScript).toContain('main-validation-status.json')
     expect(statusScript).toContain('test "$CI_RESULT" = success')
+    expect(statusScript).toContain('test "$AUDIT_ASSETS_RESULT" = success')
     expect(statusScript).toContain('test "$E2E_RESULT" = success')
   })
 
@@ -342,7 +353,7 @@ describe('fast pull-request and full validation workflows', () => {
         }
       }
     }
-    for (const name of ['ci', 'e2e-suite']) {
+    for (const name of ['audit-assets', 'e2e-suite']) {
       const steps = full.jobs[name]!.steps!
       expect(
         steps.filter(
@@ -356,9 +367,9 @@ describe('fast pull-request and full validation workflows', () => {
       expect(browser.run).not.toContain('run_counted_suite')
       expect(browser.run).not.toContain('scripts/ci-browser.sh')
       expect(browser.env?.['DINKSTER_E2E_PORT']).toBe(
-        name === 'ci' ? '15376' : '15410',
+        name === 'audit-assets' ? '15376' : '15410',
       )
-      if (name === 'ci') {
+      if (name === 'audit-assets') {
         expect(browser.env).toMatchObject({
           DINKSTER_E2E_NATIVE_PORT: '15377',
           DINKSTER_E2E_DINKSTER_ROOT: '${{ github.workspace }}/.ci/Dinkster',

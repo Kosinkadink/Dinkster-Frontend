@@ -6566,7 +6566,7 @@ export class AppState {
       // replacement session (which reuses this tab id) or resurrect a
       // closed owner's entries.
       if (!this.tabs.get().includes(tab)) return false
-      this.reportProblems(tab.id, [
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'library.saveFailed', `failed to save workflow: ${e instanceof Error ? e.message : String(e)}`),
       ])
       this.showTransientStatus(`Save failed on ${backend.label}: ${e instanceof Error ? e.message : String(e)}`)
