@@ -40,11 +40,10 @@ The subset uses synthetic inputs and checked-in fixtures:
   and `scripts/check-path-case.test.mjs`: regression tests for source checks.
 
 Selection does not depend on changed files, labels, model availability or a
-running service. The required `CI_RUNNERS` repository variable controls this
-and every other job. Its values select GitHub-hosted images for pull requests,
-main validation, schedules, and manual runs.
-When required private inputs are unavailable, the PR job records an explicit
-not-run reason and fails instead of reporting unexecuted validation as green.
+running service. The required `CI_RUNNERS` repository variable controls every
+job. Pull requests select its `linux` entry for same-repository branches and
+`forkLinux` for forks. Both entries name GitHub-hosted Linux runners; the other
+values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
