@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
-import type { MountDescriptor } from '@dinkster/client'
+import type { MountDescriptor, MountSettings } from '@dinkster/client'
 import {
   DESKTOP_ENGINE_ACCELERATORS,
   desktopBridge,
@@ -9,10 +9,11 @@ import {
   type DesktopRemoteWorkerMemory,
   type DesktopSystemCheck,
 } from './desktop-bridge.js'
+import { MountFolderForm } from './MountFolderForm.js'
 import { useAppMessage } from './locale.js'
 
 export interface DesktopMountConnection {
-  listMounts(): Promise<readonly MountDescriptor[]>
+  fetchMountSettings(): Promise<MountSettings>
   addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise<MountDescriptor>
 }
 
@@ -43,8 +44,6 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
   const [statusMessage, setStatusMessage] = createSignal<StatusMessage>()
   const [check, setCheck] = createSignal<DesktopSystemCheck>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
-  const [mountPath, setMountPath] = createSignal('')
-  const [mountId, setMountId] = createSignal('')
   const [workers, setWorkers] = createSignal<readonly DesktopRemoteWorker[]>([])
   const [workerFormOpen, setWorkerFormOpen] = createSignal(false)
   const [editingWorker, setEditingWorker] = createSignal<string>()
@@ -96,6 +95,10 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
     }
   }
 
+  const refreshMounts = (): void => {
+    void props.connection?.fetchMountSettings().then((settings) => setMounts(settings.mounts)).catch(() => undefined)
+  }
+
   onMount(() => {
     if (!bridge) return
     void bridge.info().then(setInfo).catch((error: unknown) => setStatusMessage({ raw: error instanceof Error ? error.message : String(error) }))
@@ -103,25 +106,8 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
     onCleanup(dispose)
     void bridge.systemCheck().then(setCheck).catch(() => undefined)
     void bridge.remoteWorkers().then(setWorkers).catch((error: unknown) => setStatusMessage({ raw: error instanceof Error ? error.message : String(error) }))
-    void props.connection?.listMounts().then(setMounts).catch(() => undefined)
+    refreshMounts()
   })
-
-  const chooseMount = async (): Promise<void> => {
-    const path = await bridge?.chooseDirectory()
-    if (!path) return
-    setMountPath(path)
-    const folder = path.split(/[\\/]/).filter(Boolean).at(-1) ?? 'models'
-    setMountId(folder.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'models')
-  }
-
-  const addMount = async (): Promise<void> => {
-    const connection = props.connection
-    if (!connection || !mountPath() || !mountId().trim()) return
-    await connection.addMount(mountId().trim(), mountPath(), 'read')
-    setMounts(await connection.listMounts())
-    setMountPath('')
-    setMountId('')
-  }
 
   const openWorkerForm = (worker?: DesktopRemoteWorker): void => {
     setEditingWorker(worker?.name)
@@ -267,18 +253,16 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                 <p>{message('desktopManagement.folders.description')}</p>
               </div>
               <Show when={props.connection} fallback={<p class="desktop-management-note">{message('desktopManagement.folders.unavailable')}</p>}>
-                <div class="desktop-management-actions"><button type="button" disabled={busy()} onClick={() => void perform(chooseMount)}>{message('desktopManagement.folders.choose')}</button></div>
-                <Show when={mountPath()}>
-                  <form class="desktop-mount-form" onSubmit={(event) => { event.preventDefault(); void perform(addMount, 'desktopManagement.folders.granted') }}>
-                    <label for="desktop-mount-id">{message('desktopManagement.folders.mountName')}</label>
-                    <input id="desktop-mount-id" value={mountId()} onInput={(event) => setMountId(event.currentTarget.value)} required />
-                    <code>{mountPath()}</code>
-                    <button type="submit" disabled={busy() || !mountId().trim()}>{message('desktopManagement.folders.grant')}</button>
-                  </form>
-                </Show>
-                <div class="desktop-mount-list">
-                  <For each={mounts()}>{(mount) => <span>{mount.id} - {mount.state} - {mount.mode}</span>}</For>
-                </div>
+                {(connection) => <>
+                  <MountFolderForm
+                    connection={connection()}
+                    chooseDirectory={() => bridge!.chooseDirectory()}
+                    onGranted={refreshMounts}
+                  />
+                  <div class="desktop-mount-list">
+                    <For each={mounts()}>{(mount) => <span>{mount.id} - {mount.state} - {mount.mode}</span>}</For>
+                  </div>
+                </>}
               </Show>
             </section>
 
