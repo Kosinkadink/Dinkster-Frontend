@@ -19,10 +19,11 @@
  * fixture routes (Playwright checks routes in reverse registration
  * order), so a spec can still override these when it needs to.
  *
- * Hosted runs pin these fixtures to legacy discovery even when
- * DINKSTER_E2E_USE_NATIVE=1. Other configs honor that native opt-in.
- * Same-origin native cases use nativeTest or import '@playwright/test'
- * directly and control routing themselves.
+ * Hosted compatibility runs pin these fixtures to legacy discovery even when
+ * DINKSTER_E2E_USE_NATIVE=1. The hosted native-without-v1 project leaves the
+ * live same-origin native catalog reachable. Other same-origin native cases
+ * use nativeTest or import '@playwright/test' directly and control routing
+ * themselves.
  */
 import {
   test as base,
