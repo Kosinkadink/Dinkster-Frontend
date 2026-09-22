@@ -76,11 +76,6 @@ jobs:
           clean: true
           persist-credentials: false
 
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          repository: Kosinkadink/Dinkster
-          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
-
       - uses: actions/checkout@v4
         with:
           clean: true
@@ -160,11 +155,6 @@ jobs:
           repository: Comfy-Org/ComfyUI
           ref: 15eb748b3ec5f8a0a2d470b7fb280e2d7579f916
           path: .ci/ComfyUI
-
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          repository: Kosinkadink/Dinkster
-          deploy-key: ${{ secrets.DINKSTER_REPOSITORY_DEPLOY_KEY }}
 
       - uses: actions/checkout@v4
         with:

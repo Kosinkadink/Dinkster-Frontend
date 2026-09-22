@@ -314,6 +314,8 @@ describe('fast pull-request and full validation workflows', () => {
             'persist-credentials': false,
           })
           expect(step.with).not.toHaveProperty('ssh-key')
+          if (step.with?.['repository'] === 'Kosinkadink/Dinkster')
+            expect(step.with).not.toHaveProperty('token')
           if (!step.with?.['repository'])
             expect(step.with).not.toHaveProperty('ref')
         }
@@ -326,7 +328,13 @@ describe('fast pull-request and full validation workflows', () => {
           (step) =>
             step.uses === './.github/actions/configure-dinkster-identity',
         ),
-      ).toHaveLength(2)
+      ).toEqual([
+        expect.objectContaining({
+          with: {
+            'deploy-key': '${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}',
+          },
+        }),
+      ])
       const browser = steps.find((step) =>
         step.run?.includes('playwright test'),
       )!
