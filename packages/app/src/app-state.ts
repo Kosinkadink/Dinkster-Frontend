@@ -3270,6 +3270,7 @@ export class AppState {
       this.syncWorkspaceTabs()
     })
     this.activeTabId.subscribe((activeId) => {
+      this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
       const imageTarget = this.imageEditorTarget.get()
       const curveTarget = this.curveEditorTarget.get()
@@ -6190,6 +6191,7 @@ export class AppState {
     this.dropCollabFor(tab.id) // a replaced shared tab leaves its session
     this.releaseFrozenPin(tab.id) // a displaced frozen view drops its pin
     // Session-keyed caches (sourceDocCache etc.) die with the replaced Tab.
+    this.templateGalleryOpen.set(false)
     this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
     this.activeTabId.set(tab.id)
     this.upgradePending.add(tab.id)
