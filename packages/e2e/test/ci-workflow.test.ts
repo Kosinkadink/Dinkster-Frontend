@@ -289,6 +289,14 @@ describe('fast pull-request and full validation workflows', () => {
       matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
     })
     expect(full.jobs['e2e-suite']!['timeout-minutes']).toBe(20)
+    const hostedSteps = full.jobs['e2e-suite']!.steps!
+    const installVulkan = hostedSteps.find(
+      (step) => step.name === 'Install software Vulkan for hosted rendering',
+    )!
+    expect(installVulkan.if).toBe('matrix.vulkan')
+    expect(installVulkan.run).toContain(
+      'sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers',
+    )
     expect(full.jobs['e2e']!.if).toBe(
       "always() && needs.validation-plan.outputs.run-heavy == 'true'",
     )
@@ -486,7 +494,7 @@ describe('fast pull-request and full validation workflows', () => {
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
-    expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
+    expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(auditConfig).toContain(
       "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
     )
