@@ -172,7 +172,10 @@ Each Desktop window connects its default backend to the configured project
 supervisor's loopback port (`http://127.0.0.1:<port>`), so two projects can
 run at the same time on different ports. A window whose project reports no
 usable port fails startup with a diagnostic instead of connecting to the
-window origin. Browser launches keep the same-origin default.
+window origin. A fresh project that has not installed an engine yet has no
+supervisor or port; its windows start on the shared engine's default
+transport, and the management dialog is reachable to install one. Browser
+launches keep the same-origin default.
 
 ### Remote worker machines
 

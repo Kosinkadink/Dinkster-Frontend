@@ -66,7 +66,26 @@ async function bootstrap(): Promise<void> {
       if (desktopLogs.length > 500) desktopLogs.shift()
     }
   })
+  // The project engine report decides the window's default transport BEFORE
+  // any wait: a configured project's supervisor is this window's backend and
+  // does not depend on the shared legacy runtime, while a fresh unconfigured
+  // project must reach the app's management flow to install its first
+  // engine, so it keeps the shared engine's setup wait and default
+  // transport. A configured project without a usable port fails startup
+  // instead of quietly connecting to a same-origin backend the project does
+  // not own.
+  let desktopBaseUrl: string | undefined
   if (desktop) {
+    const project = await desktop.projectEngine()
+    if (project.configured) {
+      const resolved = desktopProjectBackendBaseUrl(project)
+      if (resolved === undefined) {
+        throw new Error(`Dinkster Desktop: project '${project.projectId}' reported no usable engine port (port: ${project.port === undefined ? 'missing' : String(project.port)}).`)
+      }
+      desktopBaseUrl = resolved
+    }
+  }
+  if (desktop && desktopBaseUrl === undefined) {
     hideBoot()
     const disposeSetupLocale = bindPersistedLocale(globalThis.localStorage, document.documentElement, navigator.language, desktopLocale)
     try {
@@ -94,19 +113,6 @@ async function bootstrap(): Promise<void> {
       disposeSetupLocale()
       root.replaceChildren()
     }
-  }
-  // Desktop windows host one project's supervisor: the default backend is
-  // that project's loopback port, never the window origin. A project without
-  // a usable port fails startup instead of quietly connecting to a
-  // same-origin backend the project does not own.
-  let desktopBaseUrl: string | undefined
-  if (desktop) {
-    const project = await desktop.projectEngine()
-    const resolved = desktopProjectBackendBaseUrl(project)
-    if (resolved === undefined) {
-      throw new Error(`Dinkster Desktop: project '${project.projectId}' reported no usable engine port (configured: ${project.configured}, port: ${project.port === undefined ? 'missing' : String(project.port)}).`)
-    }
-    desktopBaseUrl = resolved
   }
   // Native-first same-origin default: discover what THIS origin routes to
   // before constructing the app, so a clean launch connects to its Dinkster
