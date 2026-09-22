@@ -37,12 +37,13 @@ interface Workflow {
   env?: Record<string, string>
   jobs: Record<string, Job>
 }
+const workflowSource = async (name: string): Promise<string> =>
+  readFile(resolve(root, '.github/workflows', name), 'utf8')
 const load = async (name: string): Promise<Workflow> =>
-  yaml.load(
-    await readFile(resolve(root, '.github/workflows', name), 'utf8'),
-  ) as Workflow
+  yaml.load(await workflowSource(name)) as Workflow
 const fast = await load('ci.yml')
 const full = await load('full-validation.yml')
+const workflowText = `${await workflowSource('ci.yml')}\n${await workflowSource('full-validation.yml')}`
 const script = await readFile(resolve(root, 'scripts/ci-fast.mjs'), 'utf8')
 const appMain = await readFile(
   resolve(root, 'packages/app/src/main.tsx'),
@@ -69,6 +70,11 @@ const testingDocs = (
 ).replace(/\r?\n/g, ' ')
 
 describe('fast pull-request and full validation workflows', () => {
+  it('does not configure identity repository access', () => {
+    expect(workflowText).not.toContain('configure-dinkster-identity')
+    expect(workflowText).not.toContain('DINKSTER_IDENTITY_DEPLOY_KEY')
+  })
+
   it('pins both workflows to the same backend commit', () => {
     expect(fast.env?.['DINKSTER_REF']).toMatch(/^[0-9a-f]{40}$/)
     expect(full.env?.['DINKSTER_REF']).toBe(fast.env?.['DINKSTER_REF'])
@@ -335,13 +341,7 @@ describe('fast pull-request and full validation workflows', () => {
           (step) =>
             step.uses === './.github/actions/configure-dinkster-identity',
         ),
-      ).toEqual([
-        expect.objectContaining({
-          with: {
-            'deploy-key': '${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}',
-          },
-        }),
-      ])
+      ).toEqual([])
       const browser = steps.find((step) =>
         step.run?.includes('playwright test'),
       )!

@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: 20fa4bec0a5646cf07b7e87184ffbd53d42d8272
+  DINKSTER_REF: cf262295b12f103059859be71a533c0fea3f8607
 
 jobs:
   validation-plan:
@@ -83,10 +83,6 @@ jobs:
           repository: Kosinkadink/Dinkster
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
-
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -166,10 +162,6 @@ jobs:
           repository: Kosinkadink/Dinkster
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
-
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
 
       - uses: pnpm/action-setup@v4
         with:
