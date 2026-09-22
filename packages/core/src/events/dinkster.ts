@@ -135,6 +135,8 @@ type Clock = () => number
 const KNOWN_JOB_EVENTS: ReadonlySet<string> = new Set([
   'run_started',
   'region_expanded',
+  'region_iteration_started',
+  'region_iteration_finished',
   'region_finished',
   'node_started',
   'node_cached',
@@ -334,6 +336,21 @@ export class DinksterNormalizer implements EventNormalizer {
           return this.malformed('region_finished with malformed detail')
         }
         return [{ kind: 'regionFinished', execution, timestamp, runtimeNodeId: nodeId, iterations }]
+      }
+      case 'region_iteration_started':
+      case 'region_iteration_finished': {
+        const iteration = num(detail?.['iteration'])
+        if (nodeId === undefined || iteration === undefined || !Number.isInteger(iteration) || iteration < 0) {
+          return this.malformed(`${msg.type} with malformed detail`)
+        }
+        return [{
+          kind: 'regionIteration',
+          execution,
+          timestamp,
+          runtimeNodeId: nodeId,
+          iteration,
+          state: msg.type === 'region_iteration_started' ? 'running' : 'completed',
+        }]
       }
       case 'node_started':
         return nodeState({ state: 'running', ...executionLocation })

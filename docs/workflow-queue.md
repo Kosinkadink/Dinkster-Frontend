@@ -30,6 +30,10 @@ completed work. Native region bodies are weighted by their reported expansion
 counts, including nested occurrences; an expansion received after node events
 repairs the aggregate without changing store reconciliation. An unbounded
 region has no determinate aggregate until its finished iteration count is known.
+Each expanded region also lists its runtime items. Fixed map and fold counts
+show waiting placeholders immediately; explicit iteration events advance rows
+to running and completed. While rows appear as the backend spawns them. The
+Outputs panel groups retained images by the same runtime item identity.
 
 The canvas consumes the same execution projection. A running node with a
 normalized `NodeProgress.value` paints a determinate bar inside its node; the

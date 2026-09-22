@@ -527,6 +527,24 @@ export class ExecutionStore {
         })
         return
       }
+      case 'regionIteration': {
+        const region = state.regions[event.runtimeNodeId]
+        if (region === undefined) return
+        this.put({
+          ...state,
+          regions: {
+            ...state.regions,
+            [event.runtimeNodeId]: {
+              ...region,
+              iterationStates: {
+                ...region.iterationStates,
+                [event.iteration]: event.state,
+              },
+            },
+          },
+        })
+        return
+      }
       case 'nodeStates': {
         // Live events overwrite (a rerun legitimately moves done -> running);
         // SNAPSHOT events (fetched job records) may be older than live events

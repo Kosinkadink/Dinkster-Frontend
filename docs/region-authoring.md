@@ -75,5 +75,26 @@ feature. A backend without that capability refuses with
 bypassed regions refuse with `compile.region.bypassUnsupported` because list
 contracts have no positional passthrough.
 
+Map, fold, and while use the backend's generic value transport. They work with
+images, latents, conditioning, masks, audio, video, assets, scalar values, and
+pack-defined concrete types. Map occurrences can execute concurrently, but
+gathered results remain in element-binding order. Fold and while occurrences
+execute sequentially because each iteration receives the previous state.
+
+The Queue card creates one row per fixed map/fold item as soon as expansion is
+known. Rows move from waiting to running to completed from explicit backend
+iteration lifecycle events; while rows appear as occurrences start. The
+Outputs panel groups retained images under their actual runtime region item,
+including nested runtime paths, instead of presenting loop results as one
+unattributed workflow list.
+
+![Per-item loop progress](assets/loop-primitives/queue-progress.png)
+
+![Outputs grouped by nested loop item](assets/loop-primitives/grouped-outputs.png)
+
+The backend foundation pack provides editable templates named **Loop: Map
+Images**, **Loop: Gather Image Batch**, **Loop: Fold and Scan Images**,
+**Loop: While / Until**, and **Loop: Per-item Image Spawn**.
+
 Inline expanded frames, wrap-selection, element-port widget editing, and
 shared-definition region UI are not part of this authoring surface.
