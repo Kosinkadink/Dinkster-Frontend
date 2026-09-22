@@ -12,8 +12,10 @@ const selectedProject =
 const stubV1Entry = selectedProject === 'native-without-v1' ? '1' : '0'
 const stockV1Only = selectedProject === 'v1-compatibility'
 const probeV1 = stubV1Entry === '1' ? '0' : '1'
-// Route-mocked specs stay on v1 even when live native coverage is enabled.
-process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'
+// Route-mocked specs stay on v1 except in the native-only project, where the
+// shared fixture must leave the same-origin native catalog reachable.
+process.env['DINKSTER_E2E_FIXTURE_MODE'] =
+  selectedProject === 'native-without-v1' ? 'native' : 'legacy'
 
 const requiredDirectory = (name: string): string => {
   const value = process.env[name]
