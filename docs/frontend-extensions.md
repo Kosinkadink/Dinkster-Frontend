@@ -93,6 +93,31 @@ bounded equivalent of `afterDrawGraph`. Layers are manifest-first,
 independently gateable, and removed with their pack. The built-in graph grid is
 registered through the same door.
 
+## Node decorations
+
+Packs with `graph-editor-canvas` privilege can register
+`nodeDecoration(id, contribution)`. Its resolver receives a frozen plain-data
+node context containing document and graph identity, node id and type, title,
+and semantic mode. It can return host-rendered badges, a node color, a title
+suffix, and a short status, or return nothing. It receives no document store,
+renderer, Canvas context, DOM, CSS, theme object, or callback capability.
+
+The host validates and copies every result before rendering. Badge and visible
+string counts and lengths are bounded, colors use `#RRGGBB` or `#RRGGBBAA`,
+unknown fields and non-plain objects fail closed, and extension badges cannot
+intercept pointer input. Contributions run in id order. Badges append in that
+order, title suffixes compose in that order, and the later contribution wins
+for color and status. A contribution is staged across the whole visible graph:
+if one resolver call throws or returns invalid data, none of that
+contribution's output is installed. Other contributions continue and the
+failure appears in Problems until the resolver recovers or unregisters.
+
+Decorations belong to the selected connection snapshot, are independently
+gateable, and disappear when their pack, gate, or selected world changes. Core
+uses the same registry for the existing muted and bypassed mode badges. The
+renderer remains the only owner of node paint, title layout, badge layout, and
+hit testing.
+
 Host contributions remain manifest-first and independently gateable.
 Registration is transactional: activation or identity failure rolls back the
 whole batch, unregisters admitted contributions in reverse order, aborts the

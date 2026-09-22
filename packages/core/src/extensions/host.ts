@@ -20,7 +20,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import type { MenuContribution, MenuRegistry } from '../menus/contract.js'
 import { createSignal, type ReadonlySignal, type Signal } from '../reactive/signal.js'
-import type { Json } from '../format/document.js'
+import type { Json, NodeMode } from '../format/document.js'
 import type { ExtensionEvent } from '../events/contract.js'
 import { ownExtensionSearchProvider, type SearchProvider } from '../search/contract.js'
 import { HOST_UI_MAX_VISIBLE_STRING_LENGTH, type HostUiProviderV1 } from '../ui/contribution.js'
@@ -143,6 +143,37 @@ export interface CanvasLayerContribution extends ExtensionIdentity {
   readonly draw: (context: CanvasLayerContext) => void
 }
 
+export interface NodeDecorationContext {
+  readonly documentId: string
+  readonly graphId: string
+  readonly id: string
+  readonly type: string
+  readonly title: string
+  readonly mode: NodeMode
+}
+
+export interface NodeDecorationBadge {
+  readonly id: string
+  readonly glyph: string
+  readonly fallbackGlyph?: string
+  readonly variant?: 'label'
+  readonly appearance?: 'policy'
+  readonly placement?: 'above' | 'below'
+  readonly interactive?: false
+  readonly color: string
+}
+
+export interface NodeDecoration {
+  readonly badges?: readonly NodeDecorationBadge[]
+  readonly color?: string
+  readonly titleSuffix?: string
+  readonly status?: string
+}
+
+export interface NodeDecorationContribution extends ExtensionIdentity {
+  readonly decorate: (node: Readonly<NodeDecorationContext>) => NodeDecoration | undefined
+}
+
 export interface PackActivationApi<TTextEditorExtension extends ExtensionIdentity = ExtensionIdentity> {
   /** Aborted before rollback/deactivation disposers run. */
   readonly signal: AbortSignal
@@ -163,6 +194,7 @@ export interface PackActivationApi<TTextEditorExtension extends ExtensionIdentit
   panel(id: string, slot: ExtensionPanelSlot, provider: HostUiProviderV1, order?: number, title?: string): void
   virtualNode(id: string, kind: VirtualNodeKind): void
   canvasLayer(id: string, layer: CanvasLayerContribution): void
+  nodeDecoration(id: string, contribution: NodeDecorationContribution): void
 }
 
 /** App-shell contributions stay structural here so core never depends on Solid. */
@@ -247,6 +279,7 @@ interface Slot<TTextEditorExtension extends ExtensionIdentity> {
     | { readonly category: 'panel'; readonly value: ExtensionPanelContributionV1 }
     | { readonly category: 'virtualNode'; readonly value: VirtualNodeKind }
     | { readonly category: 'canvasLayer'; readonly value: CanvasLayerContribution }
+    | { readonly category: 'nodeDecoration'; readonly value: NodeDecorationContribution }
   /** Set while the payload is registered; calling it removes it. */
   unregister?: (() => void) | undefined
 }
@@ -283,6 +316,7 @@ export interface ExtensionHostOptions<TTextEditorExtension extends ExtensionIden
   readonly registerPanel?: (panel: ExtensionPanelContributionV1) => () => void
   readonly registerVirtualNode?: (kind: VirtualNodeKind) => () => void
   readonly registerCanvasLayer?: (layer: CanvasLayerContribution) => () => void
+  readonly registerNodeDecoration?: (contribution: NodeDecorationContribution) => () => void
   /** Suppress registry change publication until the initial pack commit settles. */
   readonly beginRegistryBatch?: () => (commit: boolean) => void
   readonly policy?: DeploymentPolicy
@@ -427,6 +461,15 @@ export class ExtensionHost<TTextEditorExtension extends ExtensionIdentity = Exte
             ...(layer.order === undefined ? {} : { order: layer.order }),
             draw: layer.draw,
           }),
+        }
+      }),
+      nodeDecoration: (id, contribution) => accept(id, 'nodeDecoration', contribution.id, () => {
+        if (typeof contribution.decorate !== 'function') {
+          throw new Error(`node decoration '${id}' requires a decorate callback`)
+        }
+        pack.slots.get(id)!.payload = {
+          category: 'nodeDecoration',
+          value: Object.freeze({ id, decorate: contribution.decorate }),
         }
       }),
       eventConsumer: (id, consume) => accept(id, 'eventConsumer', undefined, () => {
@@ -806,6 +849,8 @@ export class ExtensionHost<TTextEditorExtension extends ExtensionIdentity = Exte
                   ? this.options.registerTextEditorExtension?.(p.value) ?? (() => {})
                   : p.category === 'canvasLayer'
                     ? this.options.registerCanvasLayer?.(p.value) ?? (() => {})
+                    : p.category === 'nodeDecoration'
+                      ? this.options.registerNodeDecoration?.(p.value) ?? (() => {})
                 : p.category === 'setting'
                   ? this.options.registerSetting?.(p.value) ?? (() => {})
                   : p.category === 'command'
