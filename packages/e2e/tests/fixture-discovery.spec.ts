@@ -7,9 +7,9 @@ test.beforeEach(async ({ context }) => {
   await context.route('**/*', (route) => route.fulfill({ status: 200, body: 'backend probe' }))
 })
 
-test('shared discovery fixtures honor the config and native environment opt-in', async ({ page }, testInfo) => {
-  const hosted = testInfo.config.configFile?.endsWith('playwright.hosted.config.ts')
-  const pinned = hosted || process.env['DINKSTER_E2E_USE_NATIVE'] !== '1'
+test('shared discovery fixtures honor the config and native environment opt-in', async ({ page }) => {
+  const pinned = process.env['DINKSTER_E2E_FIXTURE_MODE'] === 'legacy' ||
+    process.env['DINKSTER_E2E_USE_NATIVE'] !== '1'
   for (const path of probes) {
     const response = await page.goto(path)
     expect(response!.status()).toBe(pinned ? 502 : 200)
