@@ -17,21 +17,29 @@ type MockProject = {
 }
 
 function installDesktopBridge(project: MockProject): void {
+  const projectId = project.projectId ?? 'proj-main'
+  // A fresh unconfigured report carries only the required facts: the host
+  // does not report channel, install root, cell, or available commit until
+  // an engine is installed.
   const projectInfo = {
-    projectId: project.projectId ?? 'proj-main',
+    projectId,
     configured: project.configured,
     mirrorConfigured: project.configured,
-    dataRoot: 'C:\\Users\\kosin\\AppData\\Local\\Dinkster\\projects\\proj-main',
+    dataRoot: `C:\\Users\\kosin\\AppData\\Local\\Dinkster\\projects\\${projectId}`,
     generations: project.configured
       ? [
           { generation: 1, current: true, baseId: 'base-9f2c', engineCommit: '8c7db20e7f30afbc', cell: 'linux-cu128', status: 'active' },
         ]
       : [],
-    channel: 'stable',
-    installRoot: 'C:\\Users\\kosin\\AppData\\Local\\Dinkster\\engines\\proj-main',
-    port: project.port,
-    cell: 'linux-cu128',
-    availableEngineCommit: 'bd09e6eb0ac3bbdf',
+    ...(project.configured
+      ? {
+          channel: 'stable',
+          installRoot: `C:\\Users\\kosin\\AppData\\Local\\Dinkster\\engines\\${projectId}`,
+          cell: 'linux-cu128',
+          availableEngineCommit: 'bd09e6eb0ac3bbdf',
+        }
+      : {}),
+    ...(project.port === undefined ? {} : { port: project.port }),
   }
   const w = window as typeof window & { __projectEngineCalls?: number }
   const bridge: Record<string, unknown> = {
@@ -117,6 +125,12 @@ test('a fresh unconfigured project reaches the management flow on the window ori
   const section = page.locator('.desktop-management-section').filter({ has: page.locator('.desktop-project') })
   await expect(section).toContainText('Project engine')
   await expect(section.getByRole('button', { name: 'Remove project' })).toBeVisible()
+  // The fresh report carries no configured-only facts, so the dialog shows
+  // the project id, its data root, and the mirror state only.
+  await expect(section.getByText('proj-new', { exact: true })).toBeVisible()
+  await expect(section.getByText('C:\\Users\\kosin\\AppData\\Local\\Dinkster\\projects\\proj-new')).toBeVisible()
+  await expect(section.getByText('Install root')).toHaveCount(0)
+  await expect(section.getByText('Available engine')).toHaveCount(0)
   // No project supervisor exists yet and no engine runtime wait gates
   // startup: the window renders the app on the window origin's default
   // transport so the management dialog can install the first engine.

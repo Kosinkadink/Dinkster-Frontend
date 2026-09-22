@@ -22,10 +22,11 @@ public download site, or automatic production update feed.
 | Linux x64 | [Browser setup](#browser-setup-on-windows-linux-and-macos) with a separately installed backend, or the source launcher below. | No Linux Desktop installer is produced; source setup requires developer tools. |
 | macOS | [Browser setup](#browser-setup-on-windows-linux-and-macos) with a separately installed compatible backend. | No macOS Desktop installer or bundled uv platform exists. `start-dinkster.sh` does not support macOS. Backend/model support depends on the backend's documented platform limits. |
 
-Source and development builds prepare a fresh engine environment on first
-launch; subsequent launches reuse it. Do not bypass a checksum mismatch.
-Uninstall through Windows Installed apps; the engine library and models are
-separate from the application binaries.
+Desktop does not install an engine automatically at startup. The first
+engine is installed explicitly through the management dialog's project
+engine controls, and later launches reuse it. Do not bypass a checksum
+mismatch. Uninstall through Windows Installed apps; the engine library and
+models are separate from the application binaries.
 
 The installed app opens the workspace after the local engine is ready:
 
