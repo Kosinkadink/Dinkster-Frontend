@@ -1,13 +1,12 @@
-import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { syntheticWorkflow } from '@dinkster/core'
 import { assetDtoV1Contract, discoverBackend } from '@dinkster/client'
 import { App } from './App.js'
 import { AppState } from './app-state.js'
 import { createBootIndicatorElement, startBootIndicator } from './boot-indicator.js'
-import { DesktopSetup } from './DesktopSetup.js'
-import { desktopBridge, type DesktopLifecycleStatus } from './desktop-bridge.js'
-import { bindLocale, bindPersistedLocale } from './locale.js'
+import { desktopBridge } from './desktop-bridge.js'
+import { desktopProjectBackendBaseUrl } from './desktop-project-backend.js'
+import { bindLocale } from './locale.js'
 import { initializeProjectScope, projectIdFromSearch } from './projects.js'
 import type { CanvasTestHandles } from './test-bridge.js'
 import './styles.css'
@@ -65,33 +64,22 @@ async function bootstrap(): Promise<void> {
       if (desktopLogs.length > 500) desktopLogs.shift()
     }
   })
+  // The project engine report decides the window's default transport: a
+  // configured project's supervisor is this window's backend, while a fresh
+  // unconfigured project has no supervisor yet and starts on the window
+  // origin's default transport, reaching the app's management flow to
+  // install its first engine. A configured project without a usable port
+  // fails startup instead of quietly connecting to a same-origin backend the
+  // project does not own.
+  let desktopBaseUrl: string | undefined
   if (desktop) {
-    hideBoot()
-    const disposeSetupLocale = bindPersistedLocale(globalThis.localStorage, document.documentElement, navigator.language, desktopLocale)
-    try {
-      const [desktopStatus, setDesktopStatus] = createSignal<DesktopLifecycleStatus>(await desktop.status())
-      const disposeSetup = render(
-        () => <DesktopSetup status={desktopStatus()} onRetry={() => { void desktop.retry().catch(() => undefined) }} />,
-        root,
-      )
-      try {
-        await new Promise<void>((resolve) => {
-          const receive = (status: DesktopLifecycleStatus) => {
-            setDesktopStatus(status)
-            if (status.phase === 'running') {
-              stopListening()
-              resolve()
-            }
-          }
-          const stopListening = desktop.onStatus(receive)
-          receive(desktopStatus())
-        })
-      } finally {
-        disposeSetup()
+    const project = await desktop.projectEngine()
+    if (project.configured) {
+      const resolved = desktopProjectBackendBaseUrl(project)
+      if (resolved === undefined) {
+        throw new Error(`Dinkster Desktop: project '${project.projectId}' reported no usable engine port (port: ${project.port === undefined ? 'missing' : String(project.port)}).`)
       }
-    } finally {
-      disposeSetupLocale()
-      root.replaceChildren()
+      desktopBaseUrl = resolved
     }
   }
   // Native-first same-origin default: discover what THIS origin routes to
@@ -99,12 +87,15 @@ async function bootstrap(): Promise<void> {
   // engine or supervisor. Production launch is native-only; compatibility
   // test deployments can explicitly enable the v1 probe. Users can still add
   // a ComfyUI backend by URL, where full protocol discovery remains enabled.
-  const discovery = await discoverBackend('', {
+  const discovery = await discoverBackend(desktopBaseUrl ?? '', {
     timeoutMs: 2500,
     probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1',
   })
   hideBoot()
-  app = new AppState({ defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster' })
+  app = new AppState({
+    defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster',
+    ...(desktopBaseUrl === undefined ? {} : { defaultBaseUrl: desktopBaseUrl }),
+  })
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
   await app.enableWorkspaceAuthority()
   const desktopWindow = desktop

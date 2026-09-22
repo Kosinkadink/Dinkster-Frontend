@@ -410,11 +410,14 @@
     "text:Visibility"
   ],
   "DesktopManagementDialog.tsx": [
+    "text:('stable') const [projectCell, setProjectCell] = createSignal",
     "text:() const [busy, setBusy] = createSignal(false) const [statusMessage, setStatusMessage] = createSignal",
     "text:() const [check, setCheck] = createSignal",
     "text:() const [mounts, setMounts] = createSignal",
+    "text:() const [projectChannel, setProjectChannel] = createSignal",
     "text:() const [removingWorker, setRemovingWorker] = createSignal",
     "text:() const [workerName, setWorkerName] = createSignal('') const [workerEndpoint, setWorkerEndpoint] = createSignal('') const [workerTokenFile, setWorkerTokenFile] = createSignal('') const [workerTokenFileGrant, setWorkerTokenFileGrant] = createSignal",
+    "text:() const [workerNodes, setWorkerNodes] = createSignal('') const [workerNodesRestricted, setWorkerNodesRestricted] = createSignal(false) const [workerMemory, setWorkerMemory] = createSignal('') const [project, setProject] = createSignal",
     "text:() const [workerTlsCaFile, setWorkerTlsCaFile] = createSignal('') const [workerTlsCaFileGrant, setWorkerTlsCaFileGrant] = createSignal",
     "text:([]) const [workerFormOpen, setWorkerFormOpen] = createSignal(false) const [editingWorker, setEditingWorker] = createSignal",
     "text:([]) const [workers, setWorkers] = createSignal",
@@ -422,10 +425,6 @@
     "text:= 1024 && unit",
     "text:Promise",
     "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise"
-  ],
-  "DesktopSetup.tsx": [
-    "text:D",
-    "text:props.status.phase === 'failed' return ("
   ],
   "ExecutedImageViewer.tsx": [
     "attribute:aria-label:Compare split",

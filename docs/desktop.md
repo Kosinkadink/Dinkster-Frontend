@@ -22,13 +22,11 @@ public download site, or automatic production update feed.
 | Linux x64 | [Browser setup](#browser-setup-on-windows-linux-and-macos) with a separately installed backend, or the source launcher below. | No Linux Desktop installer is produced; source setup requires developer tools. |
 | macOS | [Browser setup](#browser-setup-on-windows-linux-and-macos) with a separately installed compatible backend. | No macOS Desktop installer or bundled uv platform exists. `start-dinkster.sh` does not support macOS. Backend/model support depends on the backend's documented platform limits. |
 
-Source and development builds prepare a fresh engine environment on first
-launch; subsequent launches reuse it. A failed setup appears in the app with
-diagnostic details and a retry action.
-First-launch setup chrome follows the persisted application language while
-accelerator names, progress details, and errors remain exact host-provided facts.
-Do not bypass a checksum mismatch. Uninstall through Windows Installed apps;
-the engine library and models are separate from the application binaries.
+Desktop does not install an engine automatically at startup. The first
+engine is installed explicitly through the management dialog's project
+engine controls, and later launches reuse it. Do not bypass a checksum
+mismatch. Uninstall through Windows Installed apps; the engine library and
+models are separate from the application binaries.
 
 The installed app opens the workspace after the local engine is ready:
 
@@ -144,6 +142,38 @@ The model-folder picker grants the local backend read-only access to an existing
 directory. The backend indexes models in place; it does not copy them into the
 Dinkster library. The local desktop and tinkerer launchers both enable this durable
 mount API through their shared engine command line.
+
+### Project engine
+
+The **Project engine** section manages the engine generations installed for the
+current project, separately from the shared engine environment. It shows the
+project identifier and the project's data root, the engine mirror state, and
+the configured channel (`stable` or `github-live`), install root, port, cell,
+and available engine commit when the host reports them.
+
+Choose a channel and a platform cell (`win-cu128`, `linux-cu128`, `mac-arm64`,
+`linux-cpu`, `win-cpu`, `linux-rocm`, `windows-rocm`, `linux-xpu`, or
+`windows-xpu`) and choose **Install or update** to install or replace
+that cell's generation from the mirror. Install and update stay disabled while
+no engine mirror is configured. Installed generations are listed with their base
+identifier, engine commit, cell, and state; **Activate** makes an installed
+generation current in one click, and a failed install or switch shows the
+operation journal error with a **Return to previous generation** action.
+
+Installing, updating, and returning to an earlier generation never delete the
+data root. **Remove project** opens a confirmation that names the exact data
+root and keeps it by default; deleting the data root requires selecting the
+delete option that repeats the exact path, and the dialog never uses browser
+confirmation popups.
+
+Each Desktop window connects its default backend to the configured project
+supervisor's loopback port (`http://127.0.0.1:<port>`), so two projects can
+run at the same time on different ports. A window whose project reports no
+usable port fails startup with a diagnostic instead of connecting to the
+window origin. A fresh project that has not installed an engine yet has no
+supervisor or port; its windows start immediately on the window origin's
+default transport with no engine runtime wait, and the management dialog is
+reachable to install one. Browser launches keep the same-origin default.
 
 ### Remote worker machines
 
