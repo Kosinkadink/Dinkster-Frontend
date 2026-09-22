@@ -168,6 +168,12 @@ root and keeps it by default; deleting the data root requires selecting the
 delete option that repeats the exact path, and the dialog never uses browser
 confirmation popups.
 
+Each Desktop window connects its default backend to the configured project
+supervisor's loopback port (`http://127.0.0.1:<port>`), so two projects can
+run at the same time on different ports. A window whose project reports no
+usable port fails startup with a diagnostic instead of connecting to the
+window origin. Browser launches keep the same-origin default.
+
 ### Remote worker machines
 
 The **Remote worker machines** section manages the local engine's existing

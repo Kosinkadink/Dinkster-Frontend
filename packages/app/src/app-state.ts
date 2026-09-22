@@ -2831,6 +2831,12 @@ export class AppState {
      * passes the discovered answer.
      */
     readonly defaultProtocol?: BackendProtocol
+    /**
+     * Base URL for the default local backend. '' (default) keeps the
+     * same-origin target; Desktop passes the project supervisor's loopback
+     * URL. Accepts exactly the strings addBackend accepts.
+     */
+    readonly defaultBaseUrl?: string
     /** Injectable collab session transport (tests); defaults to HTTP + WS. */
     readonly collabTransport?: CollabTransport
     /** Injectable same-workspace execution event channel (tests). */
@@ -3065,7 +3071,7 @@ export class AppState {
     const local = this.createBackend(
       asConnectionId('local'),
       'Local',
-      '',
+      canonicalBackendUrl(options?.defaultBaseUrl ?? ''),
       options?.defaultProtocol ?? 'v1',
     )
     this.backends.set([local])

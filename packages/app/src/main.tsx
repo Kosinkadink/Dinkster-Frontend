@@ -7,6 +7,7 @@ import { AppState } from './app-state.js'
 import { createBootIndicatorElement, startBootIndicator } from './boot-indicator.js'
 import { DesktopSetup } from './DesktopSetup.js'
 import { desktopBridge, type DesktopLifecycleStatus } from './desktop-bridge.js'
+import { desktopProjectBackendBaseUrl } from './desktop-project-backend.js'
 import { bindLocale, bindPersistedLocale } from './locale.js'
 import { initializeProjectScope, projectIdFromSearch } from './projects.js'
 import type { CanvasTestHandles } from './test-bridge.js'
@@ -94,17 +95,33 @@ async function bootstrap(): Promise<void> {
       root.replaceChildren()
     }
   }
+  // Desktop windows host one project's supervisor: the default backend is
+  // that project's loopback port, never the window origin. A project without
+  // a usable port fails startup instead of quietly connecting to a
+  // same-origin backend the project does not own.
+  let desktopBaseUrl: string | undefined
+  if (desktop) {
+    const project = await desktop.projectEngine()
+    const resolved = desktopProjectBackendBaseUrl(project)
+    if (resolved === undefined) {
+      throw new Error(`Dinkster Desktop: project '${project.projectId}' reported no usable engine port (configured: ${project.configured}, port: ${project.port === undefined ? 'missing' : String(project.port)}).`)
+    }
+    desktopBaseUrl = resolved
+  }
   // Native-first same-origin default: discover what THIS origin routes to
   // before constructing the app, so a clean launch connects to its Dinkster
   // engine or supervisor. Production launch is native-only; compatibility
   // test deployments can explicitly enable the v1 probe. Users can still add
   // a ComfyUI backend by URL, where full protocol discovery remains enabled.
-  const discovery = await discoverBackend('', {
+  const discovery = await discoverBackend(desktopBaseUrl ?? '', {
     timeoutMs: 2500,
     probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1',
   })
   hideBoot()
-  app = new AppState({ defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster' })
+  app = new AppState({
+    defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster',
+    ...(desktopBaseUrl === undefined ? {} : { defaultBaseUrl: desktopBaseUrl }),
+  })
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
   await app.enableWorkspaceAuthority()
   const desktopWindow = desktop

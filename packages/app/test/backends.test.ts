@@ -71,6 +71,16 @@ describe('default backend', () => {
     expect(app.scopedClient).toBe(def.scopedClient)
   })
 
+  it('targets the same origin by default and the Desktop project port when given', () => {
+    expect(new AppState().backends.get()[0]!.baseUrl).toBe('')
+    const first = new AppState({ defaultBaseUrl: 'http://127.0.0.1:8188' })
+    const second = new AppState({ defaultBaseUrl: 'http://127.0.0.1:8189' })
+    expect(first.backends.get()[0]!.baseUrl).toBe('http://127.0.0.1:8188')
+    expect(second.backends.get()[0]!.baseUrl).toBe('http://127.0.0.1:8189')
+    expect(first.backends.get()[0]!.baseUrl)
+      .not.toBe(second.backends.get()[0]!.baseUrl)
+  })
+
   it('is not removable', () => {
     const def = app.backends.get()[0]!
     app.removeBackend(def.id)
