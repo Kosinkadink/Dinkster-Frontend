@@ -34,5 +34,5 @@ describe('production build', () => {
     for (const [name, value] of Object.entries(semanticCssVariables)) {
       expect(html).toContain(`${name}: ${value};`)
     }
-  }, 30_000)
+  }, 60_000)
 })

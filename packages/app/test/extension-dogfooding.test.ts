@@ -107,4 +107,12 @@ describe('core extension door dogfooding', () => {
     expect(renderer).not.toContain('this.drawGrid(')
     expect(renderer).toContain("this.drawCanvasLayers('background', ctx, view, scale)")
   })
+
+  it('registers built-in mode badges through frontendDoors.nodeDecoration', () => {
+    const appState = source('src/app-state.ts')
+    const overlays = source('src/scene-overlays.ts')
+    expect(appState).toContain("this.frontendDoors.nodeDecoration('core.node.mode'")
+    expect(overlays).not.toContain("n.node.mode === 'muted'")
+    expect(overlays).not.toContain("n.node.mode === 'bypassed'")
+  })
 })

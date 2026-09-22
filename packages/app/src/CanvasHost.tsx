@@ -125,7 +125,7 @@ import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition } from './node-previews.js'
 import { tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
-import { deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
@@ -4286,6 +4286,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setOutputPages(new Map())
         setOutputViewerKey(undefined)
         renderer.setCompanions({})
+        renderer.setBadges({})
+        renderer.setNodeDecorations({})
         minimap.setStates({})
         minimap.paint()
         return
@@ -4484,7 +4486,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
       renderer.setSelectorResolutions(model.selectorResolutions)
       replaceItems = model.replaceItems
-      renderer.setBadges(model.badges)
+      const decorations = applyNodeDecorations({
+        scene,
+        documentId: String(tab.store.doc.lineage),
+        graphId: gid,
+        contributions: props.app.nodeDecorations.get(),
+        badges: model.badges,
+        onResult: (id, error) => props.app.reportNodeDecorationResult(id, error),
+      })
+      renderer.setBadges(decorations.badges)
+      renderer.setNodeDecorations(decorations.presentation)
       renderer.setPortProblems(model.portProblems)
       setBadgePopover(undefined) // anchor may have moved/vanished
       const nodeOutputTexts = lens.id === 'standard' ? model.outputTexts : {}
@@ -4495,7 +4506,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         source: {
           scene,
           states: model.states,
-          badges: model.badges,
+          badges: decorations.badges,
           portProblems: model.portProblems,
           outputTexts: nodeOutputTexts,
         },
