@@ -1587,9 +1587,11 @@ export function App(props: {
       setDismissed((current) => new Set([...current, activeTabId()]))
     }
     return <div class="graph-editor-with-gallery">
-      <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
-        {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
-        {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />
+      <div class="graph-editor-canvas">
+        <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
+          {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
+          {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />
+      </div>
       <TemplateGallery app={app} visible={visible} onClose={close} />
     </div>
   }

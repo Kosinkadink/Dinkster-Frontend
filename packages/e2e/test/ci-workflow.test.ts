@@ -504,6 +504,10 @@ describe('fast pull-request and full validation workflows', () => {
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
     )
+    expect(baseConfig).toContain(
+      "const ISOLATED_CONFIG_SPECS = ['extension-contract-pack.spec.ts']",
+    )
+    expect(baseConfig).toContain('...ISOLATED_CONFIG_SPECS')
     expect(hostedConfig).toContain(
       "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
     )

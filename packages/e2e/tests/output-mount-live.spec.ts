@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
@@ -123,6 +123,9 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   request,
 }) => {
   await mkdir(evidenceGroupDir("issue-145"), { recursive: true });
+  await rm(resolve(library, "output"), { recursive: true, force: true });
+  await mkdir(resolve(library, "output"), { recursive: true });
+  await rm(alternateOutput, { recursive: true, force: true });
   await mkdir(alternateOutput, { recursive: true });
   const added = await request.post(`${backend}/api/mounts`, {
     data: { id: "renders", path: alternateOutput, mode: "readwrite" },

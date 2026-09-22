@@ -147,6 +147,18 @@ test('refreshes the remote family gallery and opens a digest-verified template',
 
     const gallery = page.getByTestId('template-gallery')
     await expect(gallery).toBeVisible()
+    const canvas = page.getByTestId('graph-canvas')
+    await canvas.dblclick({ position: { x: 120, y: 120 } })
+    await expect(page.getByTestId('node-palette')).toBeVisible()
+    await expect(gallery).toBeVisible()
+    if (proofDir !== undefined)
+      await page.screenshot({ path: join(proofDir, 'starter-template-gallery-with-palette.png'), fullPage: true })
+    await page.keyboard.press('Escape')
+    if (proofDir !== undefined) {
+      await page.setViewportSize({ width: 700, height: 900 })
+      await page.screenshot({ path: join(proofDir, 'starter-template-gallery-narrow.png'), fullPage: true })
+      await page.setViewportSize({ width: 1440, height: 900 })
+    }
     await gallery
       .getByRole('button', { name: 'Close template gallery' })
       .click()
