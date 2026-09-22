@@ -103,7 +103,7 @@ describe('fast pull-request and full validation workflows', () => {
     const job = fast.jobs['fast']!
     expect(job['timeout-minutes']).toBe(10)
     expect(job['runs-on']).toBe(
-      '${{ fromJSON(((github.event_name == \'pull_request\' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && \'["ubuntu-latest"]\' || (vars.DINKSTER_PR_RUNNER || \'["self-hosted", "linux", "x64"]\')) }}',
+      "${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}",
     )
     expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
       'pnpm install --frozen-lockfile',
@@ -159,7 +159,6 @@ describe('fast pull-request and full validation workflows', () => {
 
   it('runs every heavy lane through one guarded reusable workflow', async () => {
     expect(full.on).toEqual({
-      pull_request: null,
       push: { branches: ['main'] },
       schedule: [
         { cron: '0 6-22/2 * * *', timezone: 'America/Los_Angeles' },
@@ -176,10 +175,10 @@ describe('fast pull-request and full validation workflows', () => {
     })
     expect(Object.keys(full.jobs)).toEqual([
       'validation-plan',
-      'fast',
       'ci',
       'e2e-suite',
       'e2e',
+      'main-status',
     ])
     const plan = full.jobs['validation-plan']!
     expect(plan.outputs).toEqual({
@@ -190,15 +189,19 @@ describe('fast pull-request and full validation workflows', () => {
     expect(
       planScript.match(/^\s+\{ name: .+ \},$/gm)?.map((entry) => entry.trim()),
     ).toEqual([
-      "{ name: 'parallel 1/4', project: 'parallel-safe', shard: '--shard=1/4' },",
-      "{ name: 'parallel 2/4', project: 'parallel-safe', shard: '--shard=2/4' },",
-      "{ name: 'parallel 3/4', project: 'parallel-safe', shard: '--shard=3/4' },",
-      "{ name: 'parallel 4/4', project: 'parallel-safe', shard: '--shard=4/4', push: true },",
-      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true },",
+      "{ name: 'parallel 1/6', project: 'parallel-safe', shard: '--shard=1/6' },",
+      "{ name: 'parallel 2/6', project: 'parallel-safe', shard: '--shard=2/6' },",
+      "{ name: 'parallel 3/6', project: 'parallel-safe', shard: '--shard=3/6' },",
+      "{ name: 'parallel 4/6', project: 'parallel-safe', shard: '--shard=4/6' },",
+      "{ name: 'parallel 5/6', project: 'parallel-safe', shard: '--shard=5/6' },",
+      "{ name: 'parallel 6/6', project: 'parallel-safe', shard: '--shard=6/6' },",
+      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true },",
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
-      "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '', pullRequest: true },",
-      "{ name: 'native without V1', project: 'native-without-v1', shard: '', pullRequest: true },",
+      "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '' },",
+      "{ name: 'native without V1 1/3', project: 'native-without-v1', shard: '--shard=1/3' },",
+      "{ name: 'native without V1 2/3', project: 'native-without-v1', shard: '--shard=2/3' },",
+      "{ name: 'native without V1 3/3', project: 'native-without-v1', shard: '--shard=3/3' },",
     ])
     for (const required of [
       "context.eventName !== 'schedule'",
@@ -208,11 +211,7 @@ describe('fast pull-request and full validation workflows', () => {
       'per_page: 100',
       "workflow_runs.find((run) => run.event !== 'push')",
       'latestDurable?.head_sha === context.sha',
-      "context.eventName === 'push'",
-      'fullMatrix.filter((entry) => entry.push)',
-      "context.eventName === 'pull_request'",
-      'fullMatrix.filter((entry) => entry.pullRequest)',
-      "core.setOutput('e2e-matrix', JSON.stringify({ include: selected }))",
+      "core.setOutput('e2e-matrix', JSON.stringify({ include: fullMatrix }))",
     ])
       expect(planScript).toContain(required)
     const executePlan = async (
@@ -265,7 +264,7 @@ describe('fast pull-request and full validation workflows', () => {
     }
     const pushPlan = await executePlan('push', [])
     expect(pushPlan.requests).toBe(0)
-    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(2)
+    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(13)
     expect(pushPlan.outputs['run-heavy']).toBe('true')
     const durablePlan = await executePlan('schedule', [
       { event: 'push', head_sha: 'head' },
@@ -274,45 +273,15 @@ describe('fast pull-request and full validation workflows', () => {
     expect(durablePlan.requests).toBe(1)
     expect(durablePlan.outputs['run-heavy']).toBe('false')
     expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
-      9,
+      13,
     )
-    const pullRequestPlan = await executePlan('pull_request', [])
-    expect(pullRequestPlan.requests).toBe(0)
-    expect(JSON.parse(pullRequestPlan.outputs['e2e-matrix']!).include).toEqual([
-      {
-        name: 'stock ComfyUI V1',
-        project: 'v1-compatibility',
-        shard: '',
-        pullRequest: true,
-      },
-      {
-        name: 'native without V1',
-        project: 'native-without-v1',
-        shard: '',
-        pullRequest: true,
-      },
-    ])
-    expect(pullRequestPlan.outputs['run-heavy']).toBe('true')
     expect(
       (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
         .outputs['run-heavy'],
     ).toBe('true')
-    expect(full.jobs['fast']!.needs).toBe('validation-plan')
-    expect(full.jobs['fast']!.if).toBe(
-      "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name == 'push'",
-    )
-    const trustedFastSteps = fast.jobs['fast']!.steps!.filter(
-      (step) => step.uses !== './.github/actions/check-private-dependencies',
-    ).map(({ if: _privateDependencyGuard, ...step }) => step)
-    expect(full.jobs['fast']!.steps).toEqual(trustedFastSteps)
-    expect(full.jobs['fast']!.steps).not.toContainEqual(
-      expect.objectContaining({
-        uses: './.github/actions/check-private-dependencies',
-      }),
-    )
     expect(full.jobs['ci']!.needs).toBe('validation-plan')
     expect(full.jobs['ci']!.if).toBe(
-      "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push' && github.event_name != 'pull_request'",
+      "needs.validation-plan.outputs.run-heavy == 'true'",
     )
     expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
     expect(full.jobs['e2e-suite']!.if).toBe(
@@ -329,19 +298,31 @@ describe('fast pull-request and full validation workflows', () => {
       'fail-fast': false,
       matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
     })
-    expect(full.jobs['e2e-suite']!['timeout-minutes']).toBe(30)
+    expect(full.jobs['e2e-suite']!['timeout-minutes']).toBe(20)
     expect(full.jobs['e2e']!.if).toBe(
       "always() && needs.validation-plan.outputs.run-heavy == 'true'",
     )
     expect(full.jobs['e2e']!.needs).toEqual(['validation-plan', 'e2e-suite'])
     for (const job of Object.values(full.jobs))
-      expect(job['runs-on']).toEqual(['self-hosted', 'linux', 'x64'])
+      expect(job['runs-on']).toBe('${{ fromJSON(vars.CI_RUNNERS).linux }}')
     expect(full.jobs['e2e']!.steps).toEqual([
       {
         name: 'Verify every full-suite lane passed',
         run: "test '${{ needs.e2e-suite.result }}' = success",
       },
     ])
+    expect(full.jobs['main-status']!.if).toBe('always()')
+    expect(full.jobs['main-status']!.needs).toEqual([
+      'validation-plan',
+      'ci',
+      'e2e',
+    ])
+    const statusScript = full.jobs['main-status']!.steps!.flatMap(
+      (step) => step.run ?? [],
+    ).join('\n')
+    expect(statusScript).toContain('main-validation-status.json')
+    expect(statusScript).toContain('test "$CI_RESULT" = success')
+    expect(statusScript).toContain('test "$E2E_RESULT" = success')
   })
 
   it('retains clean checkouts, ref selection, read-only credentials and isolated browser ports', () => {
