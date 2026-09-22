@@ -32,6 +32,7 @@ export const CONTRIBUTION_CATEGORIES = [
   'keybinding',
   'setting',
   'canvasLayer',
+  'nodeDecoration',
   'hostUi',
   'searchProvider',
   'eventConsumer',

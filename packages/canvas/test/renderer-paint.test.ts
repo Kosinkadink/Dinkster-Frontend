@@ -3582,6 +3582,29 @@ describe('badge and toolbox paint on the live renderer', () => {
     expect(normal?.font).toBe(`600 ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`)
   })
 
+  it('paints host-owned node decoration color, title suffix, and status', () => {
+    const base = fixtureScene('clean')
+    const target = nodeOf(base, 'c1')
+    const scene = {
+      ...base,
+      nodes: base.nodes.map((node) => {
+        if (node.id !== target.id) return node
+        const { color: _color, ...withoutColor } = node
+        return withoutColor
+      }),
+    }
+    const baseline = paint(scene)
+    const decorated = paintWith(scene, (renderer) => renderer.setNodeDecorations({
+      [target.id]: { color: '#ff0000', titleSuffix: 'decorated', status: 'ready' },
+    }))
+
+    expect(decorated.some((call) =>
+      call.method === 'fillText' && call.args[0] === `${target.layout.title} decorated (ready)`,
+    )).toBe(true)
+    expect(decorated.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
+      .not.toEqual(baseline.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
+  })
+
   it('scope preview accents included nodes and only mildly dims excluded nodes', () => {
     const scene = fixtureScene('clean')
     const included = nodeOf(scene, 'c1')

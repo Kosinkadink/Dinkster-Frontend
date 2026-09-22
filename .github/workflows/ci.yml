@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: cf262295b12f103059859be71a533c0fea3f8607
+  DINKSTER_REF: cfee35d238b9b4aae4a19cd2553a2bbf07b97d8e
 
 jobs:
   fast:
@@ -29,6 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           clean: true
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/checkout@v4
         with:

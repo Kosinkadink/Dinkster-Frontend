@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 const dinksterSource = process.env.DINKSTER_SOURCE_ROOT ?? '../Dinkster'
+const ceilingBaseRef = `origin/${process.env.GITHUB_BASE_REF ?? 'main'}`
 execFileSync(
   process.env.PYTHON ?? 'python3',
   [
@@ -9,6 +10,15 @@ execFileSync(
     '--check',
     '--frontend-root',
     '.',
+  ],
+  { stdio: 'inherit' },
+)
+execFileSync(
+  process.env.PYTHON ?? 'python3',
+  [
+    join(dinksterSource, 'scripts/check_family_isinstance_gates.py'),
+    '--root',
+    dinksterSource,
   ],
   { stdio: 'inherit' },
 )
@@ -66,7 +76,12 @@ for (const args of [
     'scripts/check-v1-boundary.test.mjs',
   ],
 ]) {
+  const env = { ...process.env }
+  if (args[0] === 'check:extension-literals')
+    env.DINKSTER_CEILING_BASE_REF = ceilingBaseRef
+  else delete env.DINKSTER_CEILING_BASE_REF
   execFileSync(process.execPath, [process.env.npm_execpath, ...args], {
+    env,
     stdio: 'inherit',
   })
 }

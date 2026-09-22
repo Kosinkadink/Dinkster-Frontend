@@ -113,6 +113,31 @@ describe('TemplateGallery', () => {
     dispose()
   })
 
+  it('keeps a failed template load dismissable and retries it in place', async () => {
+    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const backend = app.libraryBackend()!
+    vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
+      { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', family: 'dinkster.test' },
+    ] })
+    vi.spyOn(backend.connection, 'guessAssets').mockResolvedValue([])
+    const open = vi.spyOn(app, 'openTemplate')
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    const close = vi.fn()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(() => <TemplateGallery app={app} visible={() => true} onClose={close} />, host)
+
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="template-card"]')).not.toBeNull())
+    host.querySelector<HTMLButtonElement>('[data-testid="template-card"]')!.click()
+    await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Starter could not be opened'))
+    expect(close).not.toHaveBeenCalled()
+    host.querySelector<HTMLButtonElement>('.template-gallery-error button')!.click()
+    await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1))
+    dispose()
+  })
+
   it('explains zero mounts and grants a typed server path when mount changes are allowed', async () => {
     const app = new AppState({ defaultProtocol: 'dinkster' })
     const backend = app.libraryBackend()!

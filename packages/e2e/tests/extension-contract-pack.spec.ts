@@ -102,6 +102,9 @@ test('an ordinary third-party pack activates and executes through public contrac
     }).__dinksterExtensionContractCanvas
     return proof === undefined ? undefined : { drew: proof.draws > 0, nodes: proof.nodes.sort() }
   })).toEqual({ drew: true, nodes: ['proof', 'value'] })
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.renderer!.getBadges().proof?.some((badge) => 'glyph' in badge && badge.glyph === 'Pack'),
+  )).toBe(true)
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

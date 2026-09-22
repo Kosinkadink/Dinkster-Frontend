@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { buildDinksterRegistry, type DinksterSubmitResult } from '@dinkster/client'
-import { asConnectionId, asPromptId, createMenuRegistry, createSearchRegistry, createSignal, type EffectiveExtensionSnapshot, type ExtensionEvent, type ExtensionHostOptions, type FrontendContributionKind, type FrontendPrivilege, type VirtualNodeKind } from '@dinkster/core'
+import { asConnectionId, asPromptId, createMenuRegistry, createSearchRegistry, createSignal, type EffectiveExtensionSnapshot, type ExtensionEvent, type ExtensionHostOptions, type FrontendContributionKind, type FrontendPrivilege, type NodeDecorationContribution, type VirtualNodeKind } from '@dinkster/core'
 import { createTextWidgetEditorExtensionRegistry, createWidgetRegistry, type TextWidgetEditorExtension } from '@dinkster/widgets'
 import { ExtensionWorld, type FrontendActivationContext } from '../src/extension-world.js'
 import { HostUiContributionRegistry } from '../src/host-ui.js'
@@ -19,6 +19,7 @@ function setup() {
   const editorBindings: unknown[] = []
   const panels: unknown[] = []
   const virtualNodes: VirtualNodeKind[] = []
+  const nodeDecorations: NodeDecorationContribution[] = []
   const projected = new Set<string>()
   const project = (id: string, register: () => () => void): (() => void) => {
     const unregister = register()
@@ -41,8 +42,9 @@ function setup() {
     registerEditorBinding: (value) => { editorBindings.push(value); return () => { editorBindings.splice(editorBindings.indexOf(value), 1) } },
     registerPanel: (value) => project(value.id, () => { panels.push(value); return () => { panels.splice(panels.indexOf(value), 1) } }),
     registerVirtualNode: (value) => { virtualNodes.push(value); return () => { virtualNodes.splice(virtualNodes.indexOf(value), 1) } },
+    registerNodeDecoration: (value) => { nodeDecorations.push(value); return () => { nodeDecorations.splice(nodeDecorations.indexOf(value), 1) } },
   }
-  return { target, commands, bindings, ui, editors, editorBindings, panels, virtualNodes, projected }
+  return { target, commands, bindings, ui, editors, editorBindings, panels, virtualNodes, nodeDecorations, projected }
 }
 
 const digest = `sha256:${'a'.repeat(64)}`
@@ -77,6 +79,26 @@ describe('connection extension worlds', () => {
     expect(bindings.combo('demo.command')).toBe('ctrl+k')
     world.dispose()
     expect(bindings.combo('demo.command')).toBeUndefined()
+  })
+
+  it('projects node decorations only from the selected extension world', async () => {
+    const { target, nodeDecorations } = setup()
+    const world = new ExtensionWorld(asConnectionId('a'), digest, target)
+    await world.activate(snapshotFor('nodeDecoration', 'graph-editor-canvas'), '', [], async () => ({
+      frontendExtension: { activate(context: FrontendActivationContext) {
+        context.nodeDecoration('demo.contribution', {
+          id: 'demo.contribution',
+          decorate: (node) => node.id === 'proof'
+            ? { badges: [{ id: 'demo.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' }] }
+            : undefined,
+        })
+      } },
+    }))
+    expect(nodeDecorations).toEqual([])
+    world.select(true)
+    expect(nodeDecorations.map((decoration) => decoration.id)).toEqual(['demo.contribution'])
+    world.select(false)
+    expect(nodeDecorations).toEqual([])
   })
 
   it.each([

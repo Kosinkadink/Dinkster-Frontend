@@ -17,7 +17,11 @@ async function writeAllowlist(path, sites) {
       sites.filter((site) => site.kind === kind).length,
     ]),
   )
-  await writeFile(path, `${JSON.stringify({ ceilings, sites }, null, 2)}\n`)
+  const slack = Object.fromEntries(kinds.map((kind) => [kind, 0]))
+  await writeFile(
+    path,
+    `${JSON.stringify({ ceilings, slack, sites }, null, 2)}\n`,
+  )
 }
 
 test('extension literal guard rejects site and ceiling drift', async () => {
@@ -118,7 +122,8 @@ test('extension literal guard rejects site and ceiling drift', async () => {
         '--allowlist',
         allowlist,
       ]),
-      (error) => String(error.stderr).includes('widgetTypeComparison'),
+      (error) =>
+        String(error.stderr).includes('ceiling and slack kinds differ'),
     )
 
     const unexpected = JSON.parse(await readFile(allowlist, 'utf8'))
@@ -133,7 +138,8 @@ test('extension literal guard rejects site and ceiling drift', async () => {
         '--allowlist',
         allowlist,
       ]),
-      (error) => String(error.stderr).includes('unexpected ceiling'),
+      (error) =>
+        String(error.stderr).includes('ceiling and slack kinds differ'),
     )
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -221,6 +227,74 @@ test('extension literal write refuses to raise a ceiling', async () => {
         String(error.stderr).includes('nodeIdLiteral: current=2, ceiling=1'),
     )
     assert.equal(await readFile(allowlist, 'utf8'), explicitRecorded)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('extension literal ceilings ratchet against the baseline', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dinkster-extension-ratchet-'))
+  const source = join(root, 'src')
+  const allowlist = join(root, 'allowlist.json')
+  const baseline = join(root, 'baseline.json')
+  const file = join(source, 'Example.ts')
+  try {
+    await mkdir(source)
+    await writeFile(file, "export const node = 'dinkster.demo.deep.node'\n")
+    const first = {
+      kind: 'nodeIdLiteral',
+      path: 'Example.ts',
+      line: 1,
+      column: 21,
+      symbol: 'dinkster.demo.deep.node',
+      issue: 104,
+    }
+    await writeAllowlist(allowlist, [first])
+    await writeFile(baseline, await readFile(allowlist))
+
+    const second = {
+      kind: 'nodeIdLiteral',
+      path: 'Example.ts',
+      line: 2,
+      column: 22,
+      symbol: 'dinkster.demo.other',
+      issue: 305,
+    }
+    await writeFile(
+      file,
+      "export const node = 'dinkster.demo.deep.node'\nexport const other = 'dinkster.demo.other'\n",
+    )
+    await writeAllowlist(allowlist, [first, second])
+    await assert.rejects(
+      exec(process.execPath, [
+        script,
+        '--source',
+        source,
+        '--allowlist',
+        allowlist,
+        '--baseline-allowlist',
+        baseline,
+      ]),
+      (error) => String(error.stderr).includes('baseline=1, proposed=2'),
+    )
+
+    await writeFile(file, '')
+    const stale = JSON.parse(await readFile(baseline, 'utf8'))
+    stale.sites = []
+    await writeFile(allowlist, JSON.stringify(stale))
+    await assert.rejects(
+      exec(process.execPath, [
+        script,
+        '--source',
+        source,
+        '--allowlist',
+        allowlist,
+      ]),
+      (error) =>
+        String(error.stderr).includes(
+          'nodeIdLiteral: current=0, allowlisted=0, ceiling=1, slack=0',
+        ),
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
