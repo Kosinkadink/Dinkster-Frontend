@@ -47,6 +47,7 @@ import {
   type EditorBinding,
   type ExtensionPanelContributionV1,
   type CanvasLayerContribution,
+  type NodeDecorationContribution,
   type FrontendPrivilege,
   stampEnvironment,
   t,
@@ -168,7 +169,7 @@ import {
   SchemaTextCompletionProvider,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
@@ -2401,6 +2402,8 @@ export class AppState {
   readonly editorBindings = new EditorBindingRegistry()
   readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
   readonly canvasLayers = createSignal<readonly CanvasLayerContribution[]>([])
+  readonly nodeDecorations = createSignal<readonly NodeDecorationContribution[]>([])
+  private readonly nodeDecorationProblemOwners = new Map<string, symbol>()
   private readonly extensionEditorIds = new Set<string>()
   readonly frontendDoors = {
     widgetKind: (_id: string, kind: Parameters<typeof this.widgetRegistry.registerKind>[0]): (() => void) =>
@@ -2428,6 +2431,21 @@ export class AppState {
       this.extensionRevision.update((revision) => revision + 1)
       return () => {
         this.canvasLayers.update((layers) => layers.filter((candidate) => candidate !== contribution))
+        this.extensionRevision.update((revision) => revision + 1)
+      }
+    },
+    nodeDecoration: (id: string, decoration: Omit<NodeDecorationContribution, 'id'>): (() => void) => {
+      const contribution = Object.freeze({ ...decoration, id })
+      this.nodeDecorations.update((decorations) => [...decorations, contribution]
+        .sort((left, right) => left.id.localeCompare(right.id)))
+      this.extensionRevision.update((revision) => revision + 1)
+      return () => {
+        this.nodeDecorations.update((decorations) => decorations.filter((candidate) => candidate !== contribution))
+        const owner = this.nodeDecorationProblemOwners.get(id)
+        if (owner !== undefined) {
+          this.clearProblems(owner)
+          this.nodeDecorationProblemOwners.delete(id)
+        }
         this.extensionRevision.update((revision) => revision + 1)
       }
     },
@@ -2488,6 +2506,7 @@ export class AppState {
     registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
     registerVirtualNode: (kind) => this.registerVirtualNode(kind),
     registerCanvasLayer: (layer) => this.frontendDoors.canvasLayer(layer.id, layer),
+    registerNodeDecoration: (contribution) => this.frontendDoors.nodeDecoration(contribution.id, contribution),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()
@@ -3050,6 +3069,13 @@ export class AppState {
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
     this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
+    this.frontendDoors.nodeDecoration('core.node.mode', {
+      decorate: (node) => node.mode === 'muted'
+        ? { badges: [MUTED_BADGE] }
+        : node.mode === 'bypassed'
+          ? { badges: [BYPASSED_BADGE] }
+          : undefined,
+    })
     registerCoreWidgets(this.frontendDoors)
     registerCoreWidgetEditors(this.widgetRegistry)
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
@@ -5379,6 +5405,29 @@ export class AppState {
 
   clearProblems(owner: ProblemOwner): void {
     this.problems.update((problems) => problems.filter((problem) => problem.owner !== owner))
+  }
+
+  reportNodeDecorationResult(id: string, error?: unknown): void {
+    const owner = this.nodeDecorationProblemOwners.get(id)
+    if (error === undefined) {
+      if (owner !== undefined) {
+        this.clearProblems(owner)
+        this.nodeDecorationProblemOwners.delete(id)
+      }
+      return
+    }
+    const message = `Node decoration '${id}' failed: ${error instanceof Error ? error.message : String(error)}`
+    if (owner !== undefined && this.problems.get().some((problem) =>
+      problem.owner === owner && problem.code === 'extension.node-decoration-failed' && problem.message === message,
+    )) return
+    const resolvedOwner = owner ?? Symbol(`node-decoration:${id}`)
+    this.nodeDecorationProblemOwners.set(id, resolvedOwner)
+    this.replaceProblems(resolvedOwner, [diag(
+      'warning',
+      'extension',
+      'extension.node-decoration-failed',
+      message,
+    )])
   }
 
   /**

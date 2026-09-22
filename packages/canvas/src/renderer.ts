@@ -6,7 +6,7 @@
  * owner pushes scene/state and the renderer repaints on a rAF dirty loop.
  */
 
-import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BADGE_SIZE,
   badgeRect,
@@ -996,6 +996,17 @@ export class CanvasRenderer {
 
   getBadges(): BadgeMap {
     return this.badges
+  }
+
+  private nodeDecorations: Readonly<Record<string, NodeDecoration>> = {}
+
+  setNodeDecorations(decorations: Readonly<Record<string, NodeDecoration>>): void {
+    this.nodeDecorations = decorations
+    this.invalidate()
+  }
+
+  getNodeDecorations(): Readonly<Record<string, NodeDecoration>> {
+    return this.nodeDecorations
   }
 
   private toolbox: readonly ToolboxRow[] = []
@@ -2513,6 +2524,11 @@ export class CanvasRenderer {
   ): void {
     const t = this.tokens
     const l: NodeLayout = sceneNode.layout
+    const decoration = this.nodeDecorations[sceneNode.id]
+    const nodeColor = decoration?.color ?? sceneNode.color
+    const title = decoration === undefined
+      ? l.title
+      : `${l.title}${decoration.titleSuffix === undefined ? '' : ` ${decoration.titleSuffix}`}${decoration.status === undefined ? '' : ` (${decoration.status})`}`
     const progress = this.nodeStates[sceneNode.id]
     // Local alias with the drag offset applied; everything below reads node.x/y.
     const node = dx === 0 && dy === 0 ? sceneNode : { ...sceneNode, x: sceneNode.x + dx, y: sceneNode.y + dy }
@@ -2558,14 +2574,14 @@ export class CanvasRenderer {
     ctx.roundRect(node.x, node.y, l.width, l.height, t.cornerRadius)
     ctx.fillStyle = unrecognized
       ? tintHex(t.colors.nodeBody, t.colors.error, 0.2)
-      : node.color === undefined ? t.colors.nodeBody : tintHex(t.colors.nodeBody, node.color, 0.18)
+      : nodeColor === undefined ? t.colors.nodeBody : tintHex(t.colors.nodeBody, nodeColor, 0.18)
     ctx.fill()
     // Header.
     ctx.beginPath()
     ctx.roundRect(node.x, node.y, l.width, l.headerHeight, [t.cornerRadius, t.cornerRadius, 0, 0])
     ctx.fillStyle = unrecognized
       ? tintHex(t.colors.nodeHeader, t.colors.error, 0.35)
-      : node.color === undefined ? t.colors.nodeHeader : tintHex(t.colors.nodeHeader, node.color, 0.72)
+      : nodeColor === undefined ? t.colors.nodeHeader : tintHex(t.colors.nodeHeader, nodeColor, 0.72)
     ctx.fill()
     // Bypass wash: over body+header, under text, so content stays legible.
     if (mode === 'bypassed') {
@@ -2641,11 +2657,11 @@ export class CanvasRenderer {
 
     if (!contentDetail) {
       ctx.font = `${l.titleRenamed ? 'italic ' : ''}600 ${t.titleFontSize}px ${t.fontFamily}`
-      if (measureWidth(ctx, l.title) <= l.width - t.padX * 2) {
+      if (measureWidth(ctx, title) <= l.width - t.padX * 2) {
         ctx.fillStyle = t.colors.title
         ctx.textBaseline = 'middle'
         ctx.textAlign = 'left'
-        ctx.fillText(l.title, node.x + t.padX, node.y + l.headerHeight / 2)
+        ctx.fillText(title, node.x + t.padX, node.y + l.headerHeight / 2)
       }
     }
 
@@ -2683,7 +2699,7 @@ export class CanvasRenderer {
         titleX += 16 + ctx.measureText(node.regionKind).width + 8
         ctx.font = `${l.titleRenamed ? 'italic ' : ''}600 ${t.titleFontSize}px ${t.fontFamily}`
       }
-      ctx.fillText(l.title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - 4))
+      ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - 4))
 
       // Node badges; each placement lane lays out index 0 rightmost.
       // Positions come from badgeRect so hit-testing and drawing agree.
@@ -3409,9 +3425,9 @@ export class CanvasRenderer {
       const bodyY = node.y + l.headerHeight + 8
       const bodyWidth = Math.max(0, l.width - t.padX * 2)
       const bodyHeight = Math.max(0, l.height - l.headerHeight - 16)
-      ctx.fillStyle = node.color === undefined
+      ctx.fillStyle = nodeColor === undefined
         ? t.colors.nodeBody
-        : tintHex(t.colors.nodeBody, node.color, 0.28)
+        : tintHex(t.colors.nodeBody, nodeColor, 0.28)
       ctx.fillRect(node.x + 1, node.y + l.headerHeight, l.width - 2, l.height - l.headerHeight - 1)
       ctx.fillStyle = t.colors.value
       ctx.textBaseline = 'top'

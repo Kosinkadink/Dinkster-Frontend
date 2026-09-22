@@ -130,6 +130,23 @@ describe('problems ownership', () => {
     expect(app.problems.get().some((entry) => entry.owner === tab.id)).toBe(true)
   })
 
+  it('publishes node decoration failures only when their result changes', () => {
+    app.reportNodeDecorationResult('pack.decorator', new Error('failed'))
+    const failed = app.problems.get()
+    expect(failed).toEqual([
+      expect.objectContaining({
+        code: 'extension.node-decoration-failed',
+        message: "Node decoration 'pack.decorator' failed: failed",
+      }),
+    ])
+
+    app.reportNodeDecorationResult('pack.decorator', new Error('failed'))
+    expect(app.problems.get()).toBe(failed)
+
+    app.reportNodeDecorationResult('pack.decorator')
+    expect(app.problems.get()).toEqual([])
+  })
+
   it('drops a closed tab\'s diagnostics and keeps everyone else\'s', () => {
     const a = open('lin-a')
     const b = open('lin-b')
