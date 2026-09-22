@@ -44,6 +44,10 @@ draft and saved values, focused controls, and in-progress shortcut capture.
 Setting and command identifiers, key combinations, entered values, and unknown
 extension category identifiers remain unchanged data.
 
+Delegated-agent permission controls and activity labels use the app catalog.
+Agent names, scopes, tool names, status values and pending questions remain
+data. Changing locale does not replace an agent name already entered in the form.
+
 Solid components use a locale-tracked message accessor so mounted controls
 update immediately. Long-lived registry descriptors expose localized labels as
 getters, avoiding stale text captured at startup. Tests register partial,
