@@ -108,11 +108,20 @@ the user's own edits are not masked. Static and JWT-authenticated users can
 list and edit their own toggles in the backend's Agent permissions panel.
 
 Choose **Connect agent**, select a scope, optionally restrict it to one session,
-and create a 10-minute delegation. Copy the token once and supply it to the
+and create a delegation. Copy the token once and supply it to the
 agent through `DINKSTER_AGENT_TOKEN` (preferred over a shell command containing
-a secret) or `--token`. Revoke it from the same panel. Expiry is capped by
-the user's JWT expiry. The server stores only token hashes in bounded memory;
-server restart revokes all delegations. Never give the agent the user's full JWT.
+a secret) or `--token`. Revoke it from the same panel. The server persists only
+credential hashes and delegation metadata in SQLite. There is no default
+expiry; an optional user-chosen expiry is independent of the user's JWT.
+The same credential survives restart. Never give the agent the user's full JWT.
+
+Delegations are **Active while you are signed in**: the server must have verified
+a human JWT from the owning user within its freshness window (600 seconds by
+default, configurable on the server). Authenticated human HTTP requests,
+WebSocket ticket requests and JWT-authenticated socket opens refresh that
+window. Agent traffic does not. The most recently verified user JWT supplies
+the role ceiling. After restart, the user must authenticate again before an
+agent can resume; the delegation itself does not need to be replaced.
 
 The external agent host's
 [authentication instructions](https://github.com/Kosinkadink/dinkster-agent-host#authentication)
@@ -152,13 +161,31 @@ reports a collaboration Problem, and agent `settle()` rejects an Error whose
 available to recover by leaving the errored session; denied work is not
 automatically retried or reported as committed.
 
-401/403 on session probes, snapshots, catch-up reads or WebSocket tickets are
+Definitive 401/403 on session probes, snapshots, catch-up reads or WebSocket tickets are
 terminal transport denials too. The connection cancels pending probes, ticket
 resolution and reconnects, aborts outstanding HTTP requests, and emits one
 `denial` event carrying the same diagnostic retained in `connection.denial`.
 Read denials name the `operation` instead of inventing an `opId`. App and agent
 owners settle on that event to surface the error immediately, including when
 no edit is queued. Network failures and server errors still retry.
+
+`user-session-required` is a transient exception, not a failed submission.
+`@dinkster/client` emits one `collab.denial` diagnostic per suspension with
+`reason: "user-session-required"` and `retryAfterMs: 30000`, without setting
+the terminal `connection.denial`. It stops socket reconnects and hot probing,
+holds pending requests, and probes once every 30 seconds. It reconnects and
+resumes pending operations after the user's next authenticated request, using
+the same delegation and operation ids. `fetchSession()` shares that gate;
+`waitForUserSession()` lets clients wait without imposing a join timeout on
+sign-in. `close()` cancels the wait. The optional `onDiagnostic` callback
+reports suspension even when the initial snapshot has not arrived yet.
+Revocation, role and toggle refusals remain definitive and stop retries.
+
+The standalone create/list/get/close session helpers accept a final
+`{onDiagnostic, signal}` option and use the same 30-second freshness retry.
+Diagnostics omit session or actor ids that are not known yet and identify the
+operation instead. Abort cancels the wait. Creation has no idempotency key:
+only an explicit freshness refusal is retried, not an ambiguous failed POST.
 
 ### Agent activity
 
