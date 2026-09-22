@@ -3,6 +3,10 @@
     "nodeIdLiteral": 0,
     "widgetTypeComparison": 93
   },
+  "slack": {
+    "nodeIdLiteral": 0,
+    "widgetTypeComparison": 0
+  },
   "sites": [
     {
       "kind": "widgetTypeComparison",

@@ -13,9 +13,10 @@ This command runs `check-extension-literals`, `check-ui-strings`, and
 `typecheck` (the latter also runs `check-path-case`) and a fixed unit subset.
 The extension check pins every intentional backend node-id literal and widget
 type comparison to an exact source location, owning issue, and non-increasing
-ceiling. The committed ceilings are 20 node-id literals and 100 widget-type
-comparisons; new and stale entries fail the check, and raising a ceiling
-requires an explicit reviewed edit. After merging main, run
+ceiling. The committed ceilings are zero node-id literals and 93 widget-type
+comparisons. Both have zero slack, so each ceiling must equal its measured
+count, and the fast check rejects any increase from the merge base even when
+the allowlist is edited to match. New and stale entries also fail. After merging main, run
 `node scripts/check-extension-literals.mjs --write`, review that only expected
 line or column coordinates changed and no ceiling changed, then run
 `pnpm ci:fast`. The Prettier check is limited
