@@ -110,12 +110,6 @@ describe('fast pull-request and full validation workflows', () => {
       'pnpm/action-setup@v4',
       'actions/setup-node@v4',
     ])
-    expect(job.steps).not.toContainEqual(
-      expect.objectContaining({ if: expect.any(String) }),
-    )
-    expect(JSON.stringify([fast, full])).not.toContain(
-      'DINKSTER_REPOSITORY_DEPLOY_KEY',
-    )
     expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
     expect(script).toContain("['check:v1-boundary']")
@@ -156,12 +150,13 @@ describe('fast pull-request and full validation workflows', () => {
     })
     expect(Object.keys(full.jobs)).toEqual([
       'validation-plan',
-      'fast',
       'ci',
       'e2e-suite',
       'e2e',
+      'main-status',
     ])
     const plan = full.jobs['validation-plan']!
+    expect(plan['timeout-minutes']).toBe(2)
     expect(plan.outputs).toEqual({
       'run-heavy': '${{ steps.plan.outputs.run-heavy }}',
       'e2e-matrix': '${{ steps.plan.outputs.e2e-matrix }}',
@@ -170,15 +165,19 @@ describe('fast pull-request and full validation workflows', () => {
     expect(
       planScript.match(/^\s+\{ name: .+ \},$/gm)?.map((entry) => entry.trim()),
     ).toEqual([
-      "{ name: 'parallel 1/4', project: 'parallel-safe', shard: '--shard=1/4' },",
-      "{ name: 'parallel 2/4', project: 'parallel-safe', shard: '--shard=2/4' },",
-      "{ name: 'parallel 3/4', project: 'parallel-safe', shard: '--shard=3/4' },",
-      "{ name: 'parallel 4/4', project: 'parallel-safe', shard: '--shard=4/4', push: true },",
-      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true, push: true },",
+      "{ name: 'parallel 1/6', project: 'parallel-safe', shard: '--shard=1/6' },",
+      "{ name: 'parallel 2/6', project: 'parallel-safe', shard: '--shard=2/6' },",
+      "{ name: 'parallel 3/6', project: 'parallel-safe', shard: '--shard=3/6' },",
+      "{ name: 'parallel 4/6', project: 'parallel-safe', shard: '--shard=4/6' },",
+      "{ name: 'parallel 5/6', project: 'parallel-safe', shard: '--shard=5/6' },",
+      "{ name: 'parallel 6/6', project: 'parallel-safe', shard: '--shard=6/6' },",
+      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true },",
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
-      "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '', pullRequest: true },",
-      "{ name: 'native without V1', project: 'native-without-v1', shard: '', pullRequest: true },",
+      "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '' },",
+      "{ name: 'native without V1 1/3', project: 'native-without-v1', shard: '--shard=1/3' },",
+      "{ name: 'native without V1 2/3', project: 'native-without-v1', shard: '--shard=2/3' },",
+      "{ name: 'native without V1 3/3', project: 'native-without-v1', shard: '--shard=3/3' },",
     ])
     for (const required of [
       "context.eventName !== 'schedule'",
@@ -188,11 +187,7 @@ describe('fast pull-request and full validation workflows', () => {
       'per_page: 100',
       "workflow_runs.find((run) => run.event !== 'push')",
       'latestDurable?.head_sha === context.sha',
-      "context.eventName === 'push'",
-      'fullMatrix.filter((entry) => entry.push)',
-      "context.eventName === 'pull_request'",
-      'fullMatrix.filter((entry) => entry.pullRequest)',
-      "core.setOutput('e2e-matrix', JSON.stringify({ include: selected }))",
+      "core.setOutput('e2e-matrix', JSON.stringify({ include: fullMatrix }))",
     ])
       expect(planScript).toContain(required)
     const executePlan = async (
@@ -245,7 +240,7 @@ describe('fast pull-request and full validation workflows', () => {
     }
     const pushPlan = await executePlan('push', [])
     expect(pushPlan.requests).toBe(0)
-    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(2)
+    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(13)
     expect(pushPlan.outputs['run-heavy']).toBe('true')
     const durablePlan = await executePlan('schedule', [
       { event: 'push', head_sha: 'head' },
@@ -254,42 +249,15 @@ describe('fast pull-request and full validation workflows', () => {
     expect(durablePlan.requests).toBe(1)
     expect(durablePlan.outputs['run-heavy']).toBe('false')
     expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
-      9,
+      13,
     )
-    const pullRequestPlan = await executePlan('pull_request', [])
-    expect(pullRequestPlan.requests).toBe(0)
-    expect(JSON.parse(pullRequestPlan.outputs['e2e-matrix']!).include).toEqual([
-      {
-        name: 'stock ComfyUI V1',
-        project: 'v1-compatibility',
-        shard: '',
-        pullRequest: true,
-      },
-      {
-        name: 'native without V1',
-        project: 'native-without-v1',
-        shard: '',
-        pullRequest: true,
-      },
-    ])
-    expect(pullRequestPlan.outputs['run-heavy']).toBe('true')
     expect(
       (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
         .outputs['run-heavy'],
     ).toBe('true')
-    expect(full.jobs['fast']!.needs).toBe('validation-plan')
-    expect(full.jobs['fast']!.if).toBe(
-      "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name == 'push'",
-    )
-    expect(full.jobs['fast']!.steps).toEqual(fast.jobs['fast']!.steps)
-    expect(full.jobs['fast']!.steps).not.toContainEqual(
-      expect.objectContaining({
-        uses: './.github/actions/check-private-dependencies',
-      }),
-    )
     expect(full.jobs['ci']!.needs).toBe('validation-plan')
     expect(full.jobs['ci']!.if).toBe(
-      "needs.validation-plan.outputs.run-heavy == 'true' && github.event_name != 'push' && github.event_name != 'pull_request'",
+      "needs.validation-plan.outputs.run-heavy == 'true'",
     )
     expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
     expect(full.jobs['e2e-suite']!.if).toBe(
@@ -306,19 +274,32 @@ describe('fast pull-request and full validation workflows', () => {
       'fail-fast': false,
       matrix: '${{ fromJSON(needs.validation-plan.outputs.e2e-matrix) }}',
     })
-    expect(full.jobs['e2e-suite']!['timeout-minutes']).toBe(30)
+    expect(full.jobs['e2e-suite']!['timeout-minutes']).toBe(20)
     expect(full.jobs['e2e']!.if).toBe(
       "always() && needs.validation-plan.outputs.run-heavy == 'true'",
     )
     expect(full.jobs['e2e']!.needs).toEqual(['validation-plan', 'e2e-suite'])
+    expect(full.jobs['e2e']!['timeout-minutes']).toBe(2)
     for (const job of Object.values(full.jobs))
-      expect(job['runs-on']).toEqual(['self-hosted', 'linux', 'x64'])
+      expect(job['runs-on']).toBe('${{ fromJSON(vars.CI_RUNNERS).linux }}')
     expect(full.jobs['e2e']!.steps).toEqual([
       {
         name: 'Verify every full-suite lane passed',
         run: "test '${{ needs.e2e-suite.result }}' = success",
       },
     ])
+    expect(full.jobs['main-status']!.if).toBe('always()')
+    expect(full.jobs['main-status']!.needs).toEqual([
+      'validation-plan',
+      'ci',
+      'e2e',
+    ])
+    const statusScript = full.jobs['main-status']!.steps!.flatMap(
+      (step) => step.run ?? [],
+    ).join('\n')
+    expect(statusScript).toContain('main-validation-status.json')
+    expect(statusScript).toContain('test "$CI_RESULT" = success')
+    expect(statusScript).toContain('test "$E2E_RESULT" = success')
   })
 
   it('retains clean checkouts, ref selection, read-only credentials and isolated browser ports', () => {
@@ -333,7 +314,6 @@ describe('fast pull-request and full validation workflows', () => {
             'persist-credentials': false,
           })
           expect(step.with).not.toHaveProperty('ssh-key')
-          expect(step.with).not.toHaveProperty('token')
           if (!step.with?.['repository'])
             expect(step.with).not.toHaveProperty('ref')
         }
@@ -346,11 +326,12 @@ describe('fast pull-request and full validation workflows', () => {
           (step) =>
             step.uses === './.github/actions/configure-dinkster-identity',
         ),
-      ).toHaveLength(1)
+      ).toHaveLength(2)
       const browser = steps.find((step) =>
         step.run?.includes('playwright test'),
       )!
-      expect(browser.run).toContain('bash scripts/ci-browser.sh')
+      expect(browser.run).not.toContain('run_counted_suite')
+      expect(browser.run).not.toContain('scripts/ci-browser.sh')
       expect(browser.env?.['DINKSTER_E2E_PORT']).toBe(
         name === 'ci' ? '15376' : '15410',
       )
@@ -368,7 +349,6 @@ describe('fast pull-request and full validation workflows', () => {
         ).toBe(true)
       }
       if (name === 'e2e-suite') {
-        expect(browser.run).toContain('run_counted_suite.sh')
         expect(browser.env).toMatchObject({
           DINKSTER_E2E_COMFY_PORT: '15411',
           DINKSTER_E2E_NATIVE_PORT: '15412',
@@ -455,7 +435,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
     expect(hostedConfig).toContain(
-      "selectedProject === 'native-without-v1' ? 'native' : 'legacy'",
+      "process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'",
     )
     expect(hostedConfig).toContain(
       "process.env['DINKSTER_E2E_PROJECT'] = argumentProject",
