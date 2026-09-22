@@ -108,6 +108,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
       'pnpm install --frozen-lockfile',
       'pnpm ci:fast',
+      'echo "Required private inputs were unavailable; pull request validation did not run." >> "$GITHUB_STEP_SUMMARY"\nexit 1\n',
     ])
     expect(job.steps!.flatMap((step) => step.uses ?? [])).toEqual([
       'actions/checkout@v4',
@@ -128,10 +129,15 @@ describe('fast pull-request and full validation workflows', () => {
         'force-not-run': '${{ inputs.simulate-fork }}',
       },
     })
-    for (const step of job.steps!.slice(2))
+    for (const step of job.steps!.slice(2, -1))
       expect(step.if).toBe(
         "steps.private-dependencies.outputs.available == 'true'",
       )
+    expect(job.steps!.at(-1)).toEqual({
+      name: 'Refuse green validation without private inputs',
+      if: "always() && steps.private-dependencies.outputs.available != 'true'",
+      run: 'echo "Required private inputs were unavailable; pull request validation did not run." >> "$GITHUB_STEP_SUMMARY"\nexit 1\n',
+    })
     expect(privateDependencyAction.runs.steps[0]!.run).toContain(
       'not run: requires repository secret $name',
     )

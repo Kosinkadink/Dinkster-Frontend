@@ -71,3 +71,8 @@ jobs:
         run: pnpm ci:fast
         env:
           DINKSTER_SOURCE_ROOT: .ci/Dinkster
+      - name: Refuse green validation without private inputs
+        if: always() && steps.private-dependencies.outputs.available != 'true'
+        run: |
+          echo "Required private inputs were unavailable; pull request validation did not run." >> "$GITHUB_STEP_SUMMARY"
+          exit 1

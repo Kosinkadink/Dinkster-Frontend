@@ -45,6 +45,8 @@ and every other hosted-eligible job. While private, its `linux` value selects
 the self-hosted pool and `forkLinux` selects `ubuntu-latest` for an approved
 fork pull request. After the public flip, one variable change selects
 `ubuntu-latest` for both values.
+When required private inputs are unavailable, the PR job records an explicit
+not-run reason and fails instead of reporting unexecuted validation as green.
 
 ## Full validation
 
