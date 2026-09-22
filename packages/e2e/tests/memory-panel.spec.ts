@@ -119,14 +119,17 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary).toContainText('No consumers')
   await expect(primary.locator('[data-device]')).toHaveCount(2)
   await expect(page.getByTestId('memory-panel')).toHaveCount(2)
-  expect(detailRequests).toBe(0)
+  await expect(primary).toContainText('Flux model with a long descriptive residency label')
+  expect(detailRequests).toBe(1)
 
   const consumer = primary.locator('.memory-consumer button')
   await consumer.focus()
   await page.keyboard.press('Enter')
+  await expect(consumer).toHaveAttribute('aria-expanded', 'false')
+  await page.keyboard.press('Enter')
   await expect(primary).toContainText('Flux model with a long descriptive residency label')
   await expect(primary.locator('canvas[aria-label^="Page residency heatmap"]')).toBeVisible()
-  expect(detailRequests).toBe(1)
+  expect(detailRequests).toBe(2)
   await primary.getByText('History data').click()
   await primary.getByText('Page flag data').click()
   await expect(primary.locator('[aria-label="Memory history table"]')).toBeVisible()
@@ -157,6 +160,17 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
 
   primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
   await expect(primary.locator('.memory-telemetry-state')).toHaveText('Live')
+  await page.waitForTimeout(1100)
+  primarySocket!.send(JSON.stringify({
+    type: 'memory_status', ...baseStatus,
+    memoryGovernor: {
+      ...baseStatus.memoryGovernor,
+      'cuda:0': { ...baseStatus.memoryGovernor['cuda:0'], consumerFootprintBytes: 6442450944, availableBytes: 0 },
+    },
+  }))
+  await expect(primary.locator('[data-device="cuda:0"]')).toContainText('Footprint6.0 GiB')
+  await expect(primary.locator('.memory-graph canvas')).toHaveAttribute('data-samples', '3')
+  await expect(primary.locator('.memory-graph-state')).toHaveCount(0)
   primarySocket!.send(JSON.stringify({
     type: 'memory_status', ...baseStatus,
     memoryGovernor: Object.fromEntries(Object.entries(baseStatus.memoryGovernor).map(([device, governor]) => [device, { ...governor, consumers: {} }])),
@@ -190,6 +204,9 @@ test('Memory surface remains usable on touch, narrow layout, reduced motion, and
   await page.getByTestId('memory-sidebar-toggle').tap()
   if (await page.getByTestId('rail-toggle').getAttribute('aria-pressed') === 'true') await page.getByTestId('rail-toggle').tap()
   const panel = page.getByTestId('memory-panel').filter({ hasText: PRIMARY })
+  await expect(panel).toContainText('Flux model with a long descriptive residency label')
+  await panel.locator('.memory-consumer button').tap()
+  await expect(panel.locator('.memory-consumer button')).toHaveAttribute('aria-expanded', 'false')
   await panel.locator('.memory-consumer button').tap()
   await expect(panel).toContainText('Flux model with a long descriptive residency label')
   await expect(panel.locator('.memory-consumer button')).toHaveCSS('min-height', '40px')

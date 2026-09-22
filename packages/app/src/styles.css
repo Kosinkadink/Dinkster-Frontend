@@ -4265,6 +4265,7 @@ body,
 .memory-device,
 .memory-leases,
 .memory-controls { display: grid; gap: var(--dinkster-space-12); min-width: 0; padding: var(--dinkster-space-12); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
+.memory-device { gap: var(--dinkster-space-8); }
 .memory-execution-fact,
 .memory-consumers > header > span,
 .memory-leases > header > span { flex: none; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); text-align: right; }
@@ -4286,8 +4287,6 @@ body,
 .memory-graph > p,
 .memory-heatmap > p,
 .memory-controls > p { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); overflow-wrap: anywhere; }
-.memory-graph-state { position: absolute; top: var(--dinkster-space-4); right: var(--dinkster-space-4); padding: 0 var(--dinkster-space-4); color: var(--dinkster-success-foreground); background: var(--dinkster-success-background); border-radius: var(--dinkster-radius-small); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-semibold); }
-.memory-graph-state[data-state='stale'] { color: var(--dinkster-warning-foreground); background: var(--dinkster-warning-background); }
 .memory-data-disclosure { margin-top: var(--dinkster-space-4); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
 .memory-data-disclosure > summary { min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4); border-radius: var(--dinkster-radius-control); cursor: pointer; }
 .memory-data-disclosure > summary:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }

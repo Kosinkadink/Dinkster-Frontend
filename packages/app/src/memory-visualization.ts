@@ -1,7 +1,9 @@
 import type { MemoryGovernorDevice, MemoryStatus } from '@dinkster/client'
 
 export const MEMORY_HISTORY_LIMIT = 1200
+export const MEMORY_LIVE_VIEWPORT_LIMIT = 120
 export const MEMORY_SAMPLE_INTERVAL_MS = 1000
+export const PAGE_PULSE_TICKS = 6
 
 export interface MemorySample {
   readonly timestamp: number
@@ -18,6 +20,13 @@ export function appendMemorySample(
   const previous = samples.at(-1)
   if (previous !== undefined && sample.timestamp - previous.timestamp < MEMORY_SAMPLE_INTERVAL_MS) return samples
   return [...samples.slice(Math.max(0, samples.length - limit + 1)), sample]
+}
+
+export function liveMemorySamples(
+  samples: readonly MemorySample[],
+  limit = MEMORY_LIVE_VIEWPORT_LIMIT,
+): readonly MemorySample[] {
+  return samples.slice(Math.max(0, samples.length - limit))
 }
 
 export interface BarSegment {
@@ -39,11 +48,14 @@ const segment = (key: string, label: string, bytes: number, total: number, tone:
 export function deviceBarSegments(device: MemoryGovernorDevice): readonly BarSegment[] {
   if (device.budgetBytes !== null) {
     const budget = Math.max(0, device.budgetBytes)
-    const capacity = Math.max(1, budget, device.consumerFootprintBytes + device.reservedBytes)
+    const footprint = Math.max(0, device.consumerFootprintBytes)
+    const reserved = Math.max(0, device.reservedBytes)
+    const available = Math.max(0, device.availableBytes ?? 0)
+    const capacity = Math.max(1, budget, footprint + reserved + available)
     return [
-      segment('footprint', 'Footprint', device.consumerFootprintBytes, capacity, 'footprint'),
-      segment('reserved', 'Reserved', device.reservedBytes, capacity, 'reserved'),
-      segment('available', 'Available', Math.max(0, device.availableBytes ?? 0), capacity, 'available'),
+      segment('footprint', 'Footprint', footprint, capacity, 'footprint'),
+      segment('reserved', 'Reserved', reserved, capacity, 'reserved'),
+      segment('available', 'Available', available, capacity, 'available'),
     ]
   }
   if (device.measured !== null) {
@@ -112,7 +124,7 @@ export function pageFlagRanges(flags: readonly number[], cells?: readonly Heatma
 export function diffHeatmapFlags(
   previous: readonly HeatmapCell[] | undefined,
   flags: readonly number[],
-  pulseTicks = 6,
+  pulseTicks = PAGE_PULSE_TICKS,
 ): readonly HeatmapCell[] {
   return flags.map((flag, index) => {
     const resident = pageIsResident(flag)
