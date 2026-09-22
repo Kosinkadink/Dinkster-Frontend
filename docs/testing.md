@@ -40,9 +40,13 @@ The subset uses synthetic inputs and checked-in fixtures:
   and `scripts/check-path-case.test.mjs`: regression tests for source checks.
 
 Selection does not depend on changed files, labels, model availability or a
-running service. The job defaults to `[self-hosted, linux, x64]`; repository
-variable `DINKSTER_PR_RUNNER` can select hosted Linux with the JSON string
-`"ubuntu-latest"` without editing the workflow.
+running service. The required `CI_RUNNERS` repository variable controls this
+and every other hosted-eligible job. While private, its `linux` value selects
+the self-hosted pool and `forkLinux` selects `ubuntu-latest` for an approved
+fork pull request. After the public flip, one variable change selects
+`ubuntu-latest` for both values.
+When required private inputs are unavailable, the PR job records an explicit
+not-run reason and fails instead of reporting unexecuted validation as green.
 
 ## Full validation
 
@@ -67,21 +71,22 @@ that contains the workflow:
 gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <branch>
 ```
 
-The dispatch ref selects both the workflow and frontend checkout. Main pushes
-run the fast formatting, type, UI-string and contract subset plus parallel-safe
-shard 4/4 and backend-serial shard 1/2. The latter retains the software Vulkan
-check. Scheduled and dispatched runs keep the complete matrix.
-All seven durable E2E lanes may run concurrently across the Linux runner pool,
-and each remains behind its host's counted-suite launcher so Actions and owner
-gates share one admission limit. The jobs retain their existing assertions
-and dependency pins:
+The dispatch ref selects both the workflow and frontend checkout. Main pushes,
+scheduled runs, called runs, and dispatched runs all use the complete matrix.
+Parallel-safe runs as six shards, backend-serial as two, and native-without-V1
+as three so each job fits the 20-minute main budget. The software Vulkan check
+stays on backend-serial 1/2. All 13 E2E lanes may run concurrently across the
+Linux runner pool, and each remains behind its host's counted-suite launcher so
+Actions and owner gates share one admission limit. GitHub-hosted jobs execute
+the same command directly because they do not share that host. The jobs retain
+their existing assertions and dependency pins:
 
-| Job         | Checks                                                                                                                                                                                                                                                |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fast`      | Push-only formatting, typecheck, UI-string and contract subset                                                                                                                                                                                        |
-| `ci`        | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                          |
-| `e2e-suite` | Two representative lanes on pushes; four parallel-safe shards, two backend-serial shards and the performance browser job for durable runs. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
-| `e2e`       | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                           |
+| Job           | Checks                                                                                                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci`          | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                             |
+| `e2e-suite`   | Six parallel-safe shards, two backend-serial shards, three native-without-V1 shards, stock V1 compatibility, and the performance browser job. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
+| `e2e`         | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                              |
+| `main-status` | Uploads one lane-result JSON artifact and fails unless every selected main lane passed                                                                                                                                                                   |
 
 The heavy jobs retain the shared memory-only dependency identity action,
 clean checkouts without persisted credentials, counted-suite launcher and
@@ -104,3 +109,25 @@ fixture drift and relevant browser checks locally before landing. The fast
 subset is feedback, not a substitute for those gates. Desktop publication
 and published-install verification remain separate manual workflows; this
 split neither publishes a release nor enables the unpublished Desktop gate.
+
+The private runner variable value is:
+
+```json
+{
+  "linux": ["self-hosted", "linux", "x64"],
+  "windows": ["self-hosted", "windows", "x64"],
+  "macos": ["self-hosted", "macos", "arm64"],
+  "forkLinux": ["ubuntu-latest"]
+}
+```
+
+The public value is:
+
+```json
+{
+  "linux": ["ubuntu-latest"],
+  "windows": ["windows-latest"],
+  "macos": ["macos-latest"],
+  "forkLinux": ["ubuntu-latest"]
+}
+```
