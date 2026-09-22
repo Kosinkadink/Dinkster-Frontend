@@ -620,11 +620,10 @@ for (const row of STARTER_ROWS) {
 
     await connect(page)
     await openStarterThroughGallery(page, row)
-    await selectProductOption(
-      page,
-      page.getByTestId('tab-target'),
-      NATIVE_BACKEND,
-    )
+    const tabTarget = page.getByTestId('tab-target')
+    if ((await tabTarget.getAttribute('data-selected-id')) !== NATIVE_BACKEND) {
+      await selectProductOption(page, tabTarget, NATIVE_BACKEND)
+    }
 
     // Real resolver, real candidates: documented names (or their pinned
     // replacements) must each resolve to exactly one held candidate
