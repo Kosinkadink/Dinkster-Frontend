@@ -634,6 +634,11 @@ for (const row of STARTER_ROWS) {
       familyOverride === undefined
         ? []
         : await applyOverrides(page, row, entry, familyOverride, resolutions)
+    const importDialog = page.getByTestId('import-asset-resolution-dialog')
+    if (await importDialog.isVisible()) {
+      await page.getByTestId('import-assets-cancel').click()
+      await expect(importDialog).not.toBeVisible()
+    }
 
     await openRailPanel(page, 'Problems')
     const panelErrors = page
