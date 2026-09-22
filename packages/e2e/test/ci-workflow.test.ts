@@ -435,7 +435,10 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
     expect(hostedConfig).toContain(
-      "process.env['DINKSTER_E2E_FIXTURE_MODE'] = 'legacy'",
+      "process.env['DINKSTER_E2E_FIXTURE_MODE'] =",
+    )
+    expect(hostedConfig).toContain(
+      "selectedProject === 'native-without-v1' ? 'native' : 'legacy'",
     )
     expect(hostedConfig).toContain(
       "process.env['DINKSTER_E2E_PROJECT'] = argumentProject",
