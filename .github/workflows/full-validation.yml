@@ -84,10 +84,6 @@ jobs:
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
 
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
-
       - uses: pnpm/action-setup@v4
         with:
           version: 10.31.0
@@ -167,10 +163,6 @@ jobs:
           ref: ${{ env.DINKSTER_REF }}
           path: .ci/Dinkster
 
-      - uses: ./.github/actions/configure-dinkster-identity
-        with:
-          deploy-key: ${{ secrets.DINKSTER_IDENTITY_DEPLOY_KEY }}
-
       - uses: pnpm/action-setup@v4
         with:
           version: 10.31.0
@@ -199,6 +191,11 @@ jobs:
         env:
           CUDA_VISIBLE_DEVICES: ""
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      - name: Install software Vulkan for hosted rendering
+        if: matrix.vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers
       - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
         if: matrix.vulkan
       - name: Replay recorded stock ComfyUI fixtures
