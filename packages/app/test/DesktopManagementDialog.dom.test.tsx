@@ -79,9 +79,11 @@ function enter(control: HTMLInputElement | HTMLTextAreaElement, value: string): 
   control.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }))
 }
 
-function choose(control: HTMLSelectElement, value: string): void {
-  control.value = value
-  control.dispatchEvent(new Event('change', { bubbles: true }))
+async function choose(control: HTMLButtonElement, value: string): Promise<void> {
+  control.click()
+  await flush()
+  document.querySelector<HTMLElement>(`[role="option"][data-option-id="${value}"]`)!.click()
+  await flush()
 }
 
 afterEach(() => {
@@ -158,7 +160,7 @@ describe('DesktopManagementDialog', () => {
     enter(inputs[1]!, 'worker.example.test:5151')
     ;([...form.querySelectorAll('button')].find((button) => button.textContent === 'Choose') as HTMLButtonElement).click()
     await flush()
-    choose(form.querySelector<HTMLSelectElement>('[aria-label="Node routing policy"]')!, 'allowlist')
+    await choose(form.querySelector<HTMLButtonElement>('[aria-label="Node routing policy"]')!, 'allowlist')
     enter(textareas[0]!, 'sampler.custom, image.decode')
     enter(textareas[1]!, 'ram=24G\nvram:cuda:0=20G')
     form.requestSubmit()
@@ -213,7 +215,7 @@ describe('DesktopManagementDialog', () => {
     await vi.waitFor(() => expect(root.textContent).toContain('No allowed node types'))
     ;([...root.querySelectorAll('button')].find((button) => button.textContent === 'Edit') as HTMLButtonElement).click()
     const form = root.querySelector<HTMLFormElement>('.desktop-worker-form')!
-    expect(form.querySelector<HTMLSelectElement>('[aria-label="Node routing policy"]')!.value).toBe('allowlist')
+    expect(form.querySelector<HTMLButtonElement>('[aria-label="Node routing policy"]')!.dataset['selectedId']).toBe('allowlist')
     expect(form.querySelector<HTMLTextAreaElement>('[aria-label="Allowed node types"]')!.value).toBe('')
     expect(form.textContent).toContain('An empty list allows no node types')
     form.requestSubmit()

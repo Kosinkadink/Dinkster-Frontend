@@ -1,6 +1,7 @@
 import { createEffect, For, onCleanup, onMount, Show } from 'solid-js'
 import type { AppLogEntry } from './app-state.js'
 import { useAppMessage } from './locale.js'
+import { ProductEmptyState, ProductListRow } from './ProductSurfaces.js'
 
 export interface ActivityLogProps {
   readonly entries: () => readonly AppLogEntry[]
@@ -76,23 +77,22 @@ export function ActivityLog(props: ActivityLogProps) {
       >
         <Show
           when={props.entries().length > 0}
-          fallback={(
-            <div class="activity-log-empty" data-testid="activity-log-empty">
-              <strong>{message('activityLog.empty.title')}</strong>
-              <span>{message('activityLog.empty.description')}</span>
-            </div>
-          )}
+          fallback={<ProductEmptyState class="activity-log-empty" testId="activity-log-empty" title={message('activityLog.empty.title')} hint={message('activityLog.empty.description')} />}
         >
           <For each={props.entries()}>
             {(entry) => {
               const timestamp = formatActivityTimestamp(entry.timestamp)
               return (
-                <div class="activity-log-row" data-severity={entry.severity}>
-                  <time class="activity-log-time" datetime={new Date(entry.timestamp).toISOString()}>{timestamp}</time>
-                  <span class="activity-log-severity">{entry.severity}</span>
-                  <span class="activity-log-source">{entry.source}</span>
-                  <span class="activity-log-message">{entry.message}</span>
-                </div>
+                <ProductListRow
+                  class="activity-log-row"
+                  dataAttributes={{ 'data-severity': entry.severity }}
+                  primary={<>
+                    <time class="activity-log-time" datetime={new Date(entry.timestamp).toISOString()}>{timestamp}</time>
+                    <span class="activity-log-severity">{entry.severity}</span>
+                    <span class="activity-log-source">{entry.source}</span>
+                    <span class="activity-log-message">{entry.message}</span>
+                  </>}
+                />
               )
             }}
           </For>

@@ -6,6 +6,7 @@ import { initialsOf, templatesSource, type TemplateCollectionRef } from './colle
 import { ModalSurface } from './ModalSurface.js'
 import { MountFolderForm } from './MountFolderForm.js'
 import { useAppMessage } from './locale.js'
+import { ProductButton } from './ProductControls.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { SearchInput } from './SearchSurface.js'
 import { useSignal } from './solid-adapter.js'
@@ -140,7 +141,7 @@ export function TemplateGallery(props: {
             <p>{message('templateGallery.description')}</p>
           </div>
           <ProductActionFooter class="template-gallery-actions">
-            <button type="button" class="primary" onClick={props.onClose}>{message('templateGallery.blankCanvas')}</button>
+            <ProductButton type="button" variant="primary" class="primary" onClick={props.onClose}>{message('templateGallery.blankCanvas')}</ProductButton>
           </ProductActionFooter>
         </header>
         <div class="template-gallery-body">
@@ -172,7 +173,7 @@ export function TemplateGallery(props: {
             <div class="template-gallery-error">
               <p class="template-gallery-state" role="alert">{error()}</p>
               <ProductActionFooter>
-                <button type="button" onClick={retry}>{message('templateGallery.retry')}</button>
+                <ProductButton type="button" onClick={retry}>{message('templateGallery.retry')}</ProductButton>
               </ProductActionFooter>
             </div>
           </Show>

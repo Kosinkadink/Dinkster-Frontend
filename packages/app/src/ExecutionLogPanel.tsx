@@ -11,6 +11,9 @@ import type { ExecutionLogEntry, ExecutionState } from '@dinkster/client'
 import { formatActivityTimestamp } from './ActivityLog.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
+import { ProductButton } from './ProductControls.js'
+import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
+import { ProductEmptyState, ProductListRow } from './ProductSurfaces.js'
 
 export type ExecutionLogRowLevel = 'info' | 'warning' | 'error'
 
@@ -201,20 +204,36 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
     status: message(`executionLog.status.${entry.status}`),
   })
 
+  const runOptions = (): readonly ProductSelectOption<string>[] => [
+    { id: '', label: message('executionLog.option.current'), value: '' },
+    ...props.executions().map((entry) => ({ id: entry.key, label: runLabel(entry), value: entry.key })),
+  ]
+
+  const nodeOptions = (): readonly ProductSelectOption<string>[] => [
+    ...(groupFilter() === undefined ? [] : [{ id: '__focused_group__', label: message('executionLog.option.focusedNode', { count: groupFilter()!.size }), value: '__focused_group__' }]),
+    ...(groupFilter() === undefined && nodeFilter() !== '' && !nodeIds().includes(nodeFilter())
+      ? [{ id: nodeFilter(), label: nodeFilter(), value: nodeFilter() }]
+      : []),
+    { id: '', label: message('executionLog.option.allNodes'), value: '' },
+    ...nodeIds().map((id) => ({ id, label: execution() === undefined ? id : props.nodeTitle(execution()!, id), value: id })),
+  ]
+
   const nodeButton = (row: ExecutionLogRow) => {
     const entry = execution()
     if (row.runtimeNodeId === undefined || entry === undefined) return <span class="execution-log-node-empty">-</span>
     const id = row.runtimeNodeId
     return (
-      <button
+      <ProductButton
         type="button"
+        variant="ghost"
+        size="compact"
         class="execution-log-node"
         data-testid="execution-log-node"
         title={message('executionLog.title.showNode', { id })}
         onClick={() => props.onFocusNode?.(entry, id)}
       >
         {props.nodeTitle(entry, id)}
-      </button>
+      </ProductButton>
     )
   }
 
@@ -223,51 +242,29 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
       <div class="execution-log-controls">
         <label class="execution-log-run">
           <span>{message('executionLog.field.run')}</span>
-          <select
-            data-testid="execution-log-run-select"
-            value={selectedKey()}
-            onChange={(event) => setSelectedKey(event.currentTarget.value)}
-          >
-            <option value="">{message('executionLog.option.current')}</option>
-            <For each={props.executions()}>
-              {(entry) => <option value={entry.key}>{locale().tag && runLabel(entry)}</option>}
-            </For>
-          </select>
+          <ProductSelect testId="execution-log-run-select" ariaLabel={message('executionLog.field.run')} selectedId={selectedKey()} options={runOptions()} onSelect={(option) => setSelectedKey(option.value)} />
         </label>
         <label class="execution-log-node-filter">
           <span>{message('executionLog.field.node')}</span>
-          <select
-            data-testid="execution-log-node-select"
-            onChange={(event) => {
-              // Read before any set: clearing the grouped filter re-runs the
-              // selection binding, which resets the select element itself.
-              const option = event.currentTarget.options[event.currentTarget.selectedIndex]
+          <ProductSelect
+            testId="execution-log-node-select"
+            ariaLabel={message('executionLog.field.node')}
+            selectedId={groupFilter() === undefined ? nodeFilter() : '__focused_group__'}
+            options={nodeOptions()}
+            onSelect={(option) => {
+              if (option.value === '__focused_group__') return
               setGroupFilter(undefined)
-              setNodeFilter(option?.dataset['groupFilter'] === 'true' ? '' : option?.value ?? '')
+              setNodeFilter(option.value)
             }}
-          >
-            <Show when={groupFilter() !== undefined}>
-              <option data-group-filter="true" selected>
-                {message('executionLog.option.focusedNode', { count: groupFilter()!.size })}
-              </option>
-            </Show>
-            <Show when={groupFilter() === undefined && nodeFilter() !== '' && !nodeIds().includes(nodeFilter())}>
-              <option value={nodeFilter()} selected>{nodeFilter()}</option>
-            </Show>
-            <option value="" selected={groupFilter() === undefined && nodeFilter() === ''}>{message('executionLog.option.allNodes')}</option>
-            <For each={nodeIds()}>
-              {(id) => {
-                const entry = execution()
-                return <option value={id} selected={groupFilter() === undefined && nodeFilter() === id}>{entry === undefined ? id : props.nodeTitle(entry, id)}</option>
-              }}
-            </For>
-          </select>
+          />
         </label>
         <div class="execution-log-levels" role="group" aria-label={message('executionLog.aria.levelFilters')}>
           <For each={LEVELS}>
             {(level) => (
-              <button
+              <ProductButton
                 type="button"
+                variant="ghost"
+                size="compact"
                 class="execution-log-level-toggle"
                 data-level={level}
                 data-testid={`execution-log-level-${level}`}
@@ -275,7 +272,7 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
                 onClick={() => toggleLevel(level)}
               >
                 {locale().tag && message(`executionLog.level.${level}`)}
-              </button>
+              </ProductButton>
             )}
           </For>
         </div>
@@ -293,12 +290,7 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
       >
         <Show
           when={execution() !== undefined}
-          fallback={(
-            <div class="execution-log-empty" data-testid="execution-log-empty">
-              <strong>{message('executionLog.empty.noExecution')}</strong>
-              <span>{message('executionLog.description.noExecution')}</span>
-            </div>
-          )}
+          fallback={<ProductEmptyState class="execution-log-empty" testId="execution-log-empty" title={message('executionLog.empty.noExecution')} hint={message('executionLog.description.noExecution')} />}
         >
           <Show when={(execution()?.logsDropped ?? 0) > 0}>
             <p class="execution-log-truncated" data-testid="execution-log-truncated" role="status">
@@ -307,48 +299,37 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
           </Show>
           <Show
             when={visibleRows().length > 0}
-            fallback={(
-              <div class="execution-log-empty" data-testid="execution-log-empty">
-                <strong>{message('executionLog.empty.noRecords')}</strong>
-                <span>{message('executionLog.description.noRecords')}</span>
-              </div>
-            )}
+            fallback={<ProductEmptyState class="execution-log-empty" testId="execution-log-empty" title={message('executionLog.empty.noRecords')} hint={message('executionLog.description.noRecords')} />}
           >
             <For each={visibleRows()}>
               {(row) => (
-                <div
+                <ProductListRow
                   class="execution-log-row"
-                  data-testid="execution-log-row"
-                  data-level={row.level}
-                  data-source={row.source}
-                  {...(row.origin !== undefined ? { 'data-origin': row.origin } : {})}
-                >
-                  <time class="execution-log-time" datetime={new Date(row.timestamp).toISOString()}>
-                    {formatActivityTimestamp(row.timestamp)}
-                  </time>
-                  <span class="execution-log-level">{locale().tag && message(`executionLog.level.${row.level}`)}</span>
-                  {nodeButton(row)}
-                  <span class="execution-log-message">
-                    <Show when={row.origin !== undefined}>
-                      <span class="execution-log-origin">{row.origin}</span>
-                    </Show>
-                    {row.message}
-                  </span>
-                </div>
+                  testId="execution-log-row"
+                  dataAttributes={{ 'data-level': row.level, 'data-source': row.source, 'data-origin': row.origin }}
+                  primary={<>
+                    <time class="execution-log-time" datetime={new Date(row.timestamp).toISOString()}>{formatActivityTimestamp(row.timestamp)}</time>
+                    <span class="execution-log-level">{locale().tag && message(`executionLog.level.${row.level}`)}</span>
+                    {nodeButton(row)}
+                    <span class="execution-log-message"><Show when={row.origin !== undefined}><span class="execution-log-origin">{row.origin}</span></Show>{row.message}</span>
+                  </>}
+                />
               )}
             </For>
           </Show>
         </Show>
       </div>
       <Show when={!followsTail() && visibleRows().length > 0}>
-        <button
+        <ProductButton
           type="button"
+          variant="secondary"
+          size="compact"
           class="execution-log-resume"
           data-testid="execution-log-resume"
           onClick={jumpToTail}
         >
           {message('executionLog.action.jumpLatest')}
-        </button>
+        </ProductButton>
       </Show>
     </section>
   )

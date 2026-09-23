@@ -1,0 +1,544 @@
+{
+  "issue": 382,
+  "ceilings": {
+    "rawControl": 441,
+    "inlineStyle": 70,
+    "cssLiteral": 423
+  },
+  "entries": [
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/AgentPermissionsPanel.tsx",
+      "count": 6,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/App.tsx",
+      "count": 20,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/App.tsx",
+      "count": 7,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/AppView.tsx",
+      "count": 60,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/AppView.tsx",
+      "count": 5,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/AssetConsentDialog.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/AssetEditorShell.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/AudioTransport.tsx",
+      "count": 4,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/AudioTransport.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/BackendsPanel.tsx",
+      "count": 5,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/BadgePopover.tsx",
+      "count": 5,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/BadgePopover.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/BoundaryPanel.tsx",
+      "count": 11,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/CanvasHost.tsx",
+      "count": 39,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/CanvasHost.tsx",
+      "count": 10,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/CollabPanel.tsx",
+      "count": 8,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/CollabPanel.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/CollectionPanel.tsx",
+      "count": 9,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/CompositorEditor.tsx",
+      "count": 15,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/CompositorEditor.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ConnectionProfiles.tsx",
+      "count": 10,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/ContextMenu.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ContextPanel.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/CurveEditor.tsx",
+      "count": 4,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/CustomizeLayoutDialog.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/DesktopSetup.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ExecutedImageViewer.tsx",
+      "count": 18,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/ExecutedImageViewer.tsx",
+      "count": 4,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ExecutionActivityCard.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/GlslEditor.tsx",
+      "count": 4,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ImageDocumentWorkspace.tsx",
+      "count": 36,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/ImageDocumentWorkspace.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ImageEditor.tsx",
+      "count": 8,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/ImageEditor.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ImportAssetResolutionDialog.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/LibraryPanel.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/MemoryPanel.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/MemoryPanel.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ModalSurface.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/ModalSurface.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/NamePrompt.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/NamePrompt.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/NodePalette.tsx",
+      "count": 10,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/NodePalette.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/OutputDescriptorEditor.tsx",
+      "count": 12,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/OutputMountSettings.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/P2PPanel.tsx",
+      "count": 12,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/PanelDragOverlay.tsx",
+      "count": 4,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/ProductSelect.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/ProductSlider.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ProductTabs.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ProjectsDialog.tsx",
+      "count": 6,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/RegionIterationInspector.tsx",
+      "count": 3,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/RuntimeSettingsPanel.tsx",
+      "count": 13,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/SearchSurface.tsx",
+      "count": 3,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/SettingsDialog.tsx",
+      "count": 11,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/ShellChrome.tsx",
+      "count": 7,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/ShellChrome.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/SubgraphDefinitionsDialog.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/SuggestionSurface.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/SurfacePanel.tsx",
+      "count": 5,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/TabDragGhost.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/TemplateGallery.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/TimelineViewport.tsx",
+      "count": 4,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/TimelineViewport.tsx",
+      "count": 5,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/UniversalSearch.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/VideoDocumentEditor.tsx",
+      "count": 7,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/VideoEditEditor.tsx",
+      "count": 12,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/VideoEditEditor.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/VideoPreview.tsx",
+      "count": 7,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/WidgetEditorController.tsx",
+      "count": 3,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/WorkflowQueueControl.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/WorkflowTabs.tsx",
+      "count": 3,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/asset-browser/presentation.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/asset-browser/rail.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
+      "count": 10,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/editors/ColorWidgetEditor.tsx",
+      "count": 3,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/editors/ColorWidgetEditor.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/editors/ComboEditorImplementation.tsx",
+      "count": 12,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/editors/ComboEditorImplementation.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/editors/SaveTargetWidgetEditor.tsx",
+      "count": 4,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/editors/SaveTargetWidgetEditor.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
+      "count": 5,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
+      "count": 4,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/help/Markdown.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/host-ui.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "cssLiteral",
+      "path": "packages/app/src/styles.css",
+      "count": 423,
+      "issue": 382
+    },
+    {
+      "kind": "rawControl",
+      "path": "packages/app/src/tabs-proof.tsx",
+      "count": 1,
+      "issue": 382
+    },
+    {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/tabs-proof.tsx",
+      "count": 1,
+      "issue": 382
+    }
+  ]
+}

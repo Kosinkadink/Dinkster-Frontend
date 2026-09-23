@@ -1,6 +1,9 @@
-import { createSignal, For, onCleanup, Show } from 'solid-js'
+import { createSignal, onCleanup, Show } from 'solid-js'
 import './audio-controls.css'
 import { useAppMessage } from './locale.js'
+import { ProductButton } from './ProductControls.js'
+import { ProductNumberInput } from './ProductNumberInput.js'
+import { ProductSelect } from './ProductSelect.js'
 
 export interface AudioRecordingProvider {
   devices(): Promise<readonly { readonly deviceId: string; readonly label: string }[]>
@@ -117,15 +120,19 @@ export function AudioRecorder(props: {
       : message()}</p>
     <Show when={state() === 'recording'}><p data-testid="audio-recorded-bytes">Recorded {recordedBytes()} bytes</p></Show>
     <Show when={state() !== 'ready' && state() !== 'saving'}>
-      <button type="button" disabled={!provider || !idle() || props.disabled} onClick={() => void discover()}>Find microphones</button>
-      <label>Microphone <select disabled={!idle() || props.disabled} value={device()} onChange={(event) => setDevice(event.currentTarget.value)}>
-        <option value="">Browser default</option><For each={devices()}>{(entry, index) => <option value={entry.deviceId}>{entry.label || `Microphone ${index() + 1}`}</option>}</For>
-      </select></label>
-      <label>Limit (s) <input type="number" min="1" max="300" value={limit()} disabled={!idle() || props.disabled} onChange={(event) => setLimit(Math.max(1, Math.min(300, Number(event.currentTarget.value) || 60)))} /></label>
-      <button type="button" disabled={!provider || !idle() || props.disabled} onClick={() => void record()}>Record microphone</button>
+      <ProductButton type="button" disabled={!provider || !idle() || props.disabled} onClick={() => void discover()}>Find microphones</ProductButton>
+      <label>Microphone <ProductSelect
+        ariaLabel="Microphone"
+        disabled={!idle() || props.disabled === true}
+        selectedId={device()}
+        options={[{ id: '', label: 'Browser default', value: '' }, ...devices().map((entry, index) => ({ id: entry.deviceId, label: entry.label || `Microphone ${index + 1}`, value: entry.deviceId }))]}
+        onSelect={(option) => setDevice(option.value)}
+      /></label>
+      <label>Limit (s) <ProductNumberInput value={limit()} min={1} max={300} integer disabled={!idle() || props.disabled === true} onCommit={(value) => setLimit(Math.max(1, Math.min(300, Number(value) || 60)))} /></label>
+      <ProductButton type="button" variant="primary" disabled={!provider || !idle() || props.disabled} onClick={() => void record()}>Record microphone</ProductButton>
     </Show>
-    <Show when={state() === 'recording'}><button type="button" onClick={stop}>Stop recording</button></Show>
-    <Show when={state() !== 'idle'}><button type="button" disabled={state() === 'saving'} onClick={cancel}>Discard recording</button></Show>
-    <Show when={state() === 'ready'}><button type="button" disabled={props.disabled} onClick={() => void save()}>Save recording</button></Show>
+    <Show when={state() === 'recording'}><ProductButton type="button" variant="danger" onClick={stop}>Stop recording</ProductButton></Show>
+    <Show when={state() !== 'idle'}><ProductButton type="button" variant="ghost" disabled={state() === 'saving'} onClick={cancel}>Discard recording</ProductButton></Show>
+    <Show when={state() === 'ready'}><ProductButton type="button" variant="primary" disabled={props.disabled} onClick={() => void save()}>Save recording</ProductButton></Show>
   </section>
 }

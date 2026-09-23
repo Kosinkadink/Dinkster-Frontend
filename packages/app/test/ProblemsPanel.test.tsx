@@ -85,7 +85,7 @@ describe('ProblemsPanel', () => {
     ))
 
     const initial = renderPanel()
-    expect(initial.match(/class="problems-group-header"/g)).toHaveLength(2)
+    expect(initial.match(/class="[^"]*\bproblems-group-header\b[^"]*"/g)).toHaveLength(2)
     expect(initial.match(/aria-expanded="true"/g)).toHaveLength(2)
     expect(initial).toContain('aria-controls="problems-group-0"')
     expect(initial).toContain('id="problems-group-0"')
@@ -111,7 +111,7 @@ describe('ProblemsPanel', () => {
     expect(disclosure.expanded(firstKey)).toBe(true)
     expect(renderPanel().match(/aria-expanded="true"/g)).toHaveLength(2)
 
-    expect(initial).toContain('class="problem-show-on-canvas"')
+    expect(initial).toMatch(/class="[^"]*\bproblem-show-on-canvas\b[^"]*"/)
     expect(initial).toContain('Show on canvas')
     activateProblem(app, anchored)
     expect(activeTabId.get()).toBe('tab-a')
@@ -162,7 +162,7 @@ describe('ProblemsPanel', () => {
     ))
     const detail = withoutSsrHydration(html).match(/<details class="problem"[\s\S]*?<\/details>/)?.[0]
 
-    expect(detail).toBe('<details class="problem" data-severity="error" data-activatable="true"><summary>[error] runtime.exploded: Node "My sampler" (n1), input "Model input" (model): preview exploded</summary><button type="button" class="problem-show-on-canvas">Show on canvas</button><pre class="traceback">line one\nline two</pre></details>')
+    expect(detail).toBe('<details class="problem" data-severity="error" data-activatable="true"><summary>[error] runtime.exploded: Node "My sampler" (n1), input "Model input" (model): preview exploded</summary><button type="button" class="product-button problem-show-on-canvas " data-variant="secondary" data-size="compact" >Show on canvas</button><pre class="traceback">line one\nline two</pre></details>')
   })
 
   it('solver diagnostic activation requests focus while an anchorless row stays inert', () => {
@@ -183,7 +183,7 @@ describe('ProblemsPanel', () => {
       <ProblemsPanel app={app} diagnostics={() => [solver, anchorless]} compatSkips={() => []} />
     ))
     expect(html.match(/data-activatable="true"/g)).toHaveLength(1)
-    expect(html.match(/class="problem-show-on-canvas"/g)).toHaveLength(1)
+    expect(html.match(/class="[^"]*\bproblem-show-on-canvas\b[^"]*"/g)).toHaveLength(1)
   })
 
   it('renders compat skips as non-anchored advisory entries with verbatim reasons', () => {

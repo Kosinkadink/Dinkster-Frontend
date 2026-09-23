@@ -5,6 +5,7 @@ import type { AppState } from '../app-state.js'
 import { useSignal } from '../solid-adapter.js'
 import { Markdown, type MarkdownAssets } from './Markdown.js'
 import { parseMarkdown, type MarkdownBlock } from './markdownParser.js'
+import { ProductEmptyState } from '../ProductSurfaces.js'
 
 interface LoadedHelp {
   readonly descriptor: DocsDescriptor
@@ -109,10 +110,10 @@ export function NodeHelpPanel(props: { readonly app: AppState; readonly locale: 
 
   return (
     <div class="rail-panel-body node-help-panel" data-testid="node-help-panel">
-      <Show when={state().kind === 'idle'}><p class="node-help-state">{message('nodeHelp.state.idle')}</p></Show>
-      <Show when={state().kind === 'loading'}><p class="node-help-state" role="status">{message('nodeHelp.state.loading')}</p></Show>
+      <Show when={state().kind === 'idle'}><ProductEmptyState class="node-help-state" title={message('nodeHelp.state.idle')} /></Show>
+      <Show when={state().kind === 'loading'}><ProductEmptyState class="node-help-state" tone="loading" title={message('nodeHelp.state.loading')} /></Show>
       <Show when={state().kind === 'missing' || state().kind === 'error'}>
-        <p class="node-help-state" role="alert">{(state() as Extract<HelpState, { kind: 'missing' | 'error' }>).message}</p>
+        <ProductEmptyState class="node-help-state" tone="error" title={(state() as Extract<HelpState, { kind: 'missing' | 'error' }>).message} />
       </Show>
       <Show when={loadedState()}>{(loaded) => (
         <article lang={loaded().locale}>

@@ -11,6 +11,8 @@ import {
 } from './desktop-bridge.js'
 import { MountFolderForm } from './MountFolderForm.js'
 import { useAppMessage } from './locale.js'
+import { ProductButton, ProductTextArea, ProductTextInput } from './ProductControls.js'
+import { ProductSelect } from './ProductSelect.js'
 
 export interface DesktopMountConnection {
   fetchMountSettings(): Promise<MountSettings>
@@ -212,9 +214,9 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
               </div>
               <div class="desktop-management-actions">
                 <For each={DESKTOP_ENGINE_ACCELERATORS}>{(accelerator) => (
-                  <button type="button" disabled={busy() || current().variant === accelerator} onClick={() => void perform(() => bridge!.selectEngine(current().engineCommit, accelerator))}>
+                  <ProductButton type="button" disabled={busy() || current().variant === accelerator} onClick={() => void perform(() => bridge!.selectEngine(current().engineCommit, accelerator))}>
                     {message('desktopManagement.environment.use', { accelerator: desktopEngineAcceleratorLabel(accelerator) })}
-                  </button>
+                  </ProductButton>
                 )}</For>
               </div>
               <Show when={current().releases.some((release) => !release.active)}>
@@ -223,7 +225,7 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                   <For each={current().releases}>{(release) =>
                     <div>
                       <span><strong>{release.commit.slice(0, 12)}</strong> - {release.variant} - {formatBytes(release.bytes)}</span>
-                      <button type="button" disabled={busy() || release.active} onClick={() => void perform(() => bridge!.selectEngine(release.commit, release.variant))}>{message(release.active ? 'desktopManagement.environment.active' : 'desktopManagement.environment.restore')}</button>
+                      <ProductButton type="button" disabled={busy() || release.active} onClick={() => void perform(() => bridge!.selectEngine(release.commit, release.variant))}>{message(release.active ? 'desktopManagement.environment.active' : 'desktopManagement.environment.restore')}</ProductButton>
                     </div>
                   }</For>
                 </div>
@@ -236,14 +238,14 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                 <p>{message('desktopManagement.snapshots.description')}</p>
               </div>
               <div class="desktop-management-actions">
-                <button type="button" disabled={busy()} onClick={() => void perform(async () => {
+                <ProductButton type="button" disabled={busy()} onClick={() => void perform(async () => {
                   const path = await bridge!.exportSnapshot()
                   if (path) setStatusMessage({ key: 'desktopManagement.snapshots.saved', params: { path } })
-                })}>{message('desktopManagement.snapshots.export')}</button>
-                <button type="button" disabled={busy()} onClick={() => void perform(async () => {
+                })}>{message('desktopManagement.snapshots.export')}</ProductButton>
+                <ProductButton type="button" disabled={busy()} onClick={() => void perform(async () => {
                   const restored = await bridge!.importSnapshot()
                   if (restored) setStatusMessage({ key: 'desktopManagement.snapshots.restored' })
-                })}>{message('desktopManagement.snapshots.restore')}</button>
+                })}>{message('desktopManagement.snapshots.restore')}</ProductButton>
               </div>
             </section>
 
@@ -275,7 +277,7 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                 </Show>
               </div>
               <div class="desktop-management-actions">
-                <button type="button" disabled={busy() || workerFormOpen() || current().remoteWorkerProtocol === undefined} onClick={() => openWorkerForm()}>{message('desktopManagement.worker.add')}</button>
+                <ProductButton type="button" variant="primary" disabled={busy() || workerFormOpen() || current().remoteWorkerProtocol === undefined} onClick={() => openWorkerForm()}>{message('desktopManagement.worker.add')}</ProductButton>
               </div>
               <div class="desktop-worker-list">
                 <Show when={workers().length > 0} fallback={<p class="desktop-management-note">{message('desktopManagement.worker.empty')}</p>}>
@@ -284,10 +286,10 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                       <div class="desktop-worker-card-heading">
                         <div><strong>{worker.name}</strong><code>{worker.endpoint}</code></div>
                         <div class="desktop-management-actions">
-                          <button type="button" disabled={busy() || current().remoteWorkerProtocol === undefined} onClick={() => openWorkerForm(worker)}>{message('desktopManagement.worker.edit')}</button>
-                          <button type="button" disabled={busy() || current().remoteWorkerProtocol === undefined} onClick={() => void removeWorker(worker.name)}>
+                          <ProductButton type="button" disabled={busy() || current().remoteWorkerProtocol === undefined} onClick={() => openWorkerForm(worker)}>{message('desktopManagement.worker.edit')}</ProductButton>
+                          <ProductButton type="button" variant="danger" disabled={busy() || current().remoteWorkerProtocol === undefined} onClick={() => void removeWorker(worker.name)}>
                             {message(removingWorker() === worker.name ? 'desktopManagement.worker.confirmRemove' : 'desktopManagement.worker.remove')}
-                          </button>
+                          </ProductButton>
                         </div>
                       </div>
                       <div class="desktop-worker-facts">
@@ -313,35 +315,36 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                   </div>
                   <label>
                     <span>{message('desktopManagement.worker.profileName')}</span>
-                    <input value={workerName()} disabled={editingWorker() !== undefined} onInput={(event) => setWorkerName(event.currentTarget.value)} placeholder={message('desktopManagement.worker.profilePlaceholder')} required />
+                    <ProductTextInput value={workerName()} disabled={editingWorker() !== undefined} onInput={(event) => setWorkerName(event.currentTarget.value)} placeholder={message('desktopManagement.worker.profilePlaceholder')} required />
                     <small>{message('desktopManagement.worker.profileHelp')}</small>
                   </label>
                   <label>
                     <span>{message('desktopManagement.worker.address')}</span>
-                    <input value={workerEndpoint()} onInput={(event) => setWorkerEndpoint(event.currentTarget.value)} placeholder={message('desktopManagement.worker.addressPlaceholder')} required />
+                    <ProductTextInput value={workerEndpoint()} onInput={(event) => setWorkerEndpoint(event.currentTarget.value)} placeholder={message('desktopManagement.worker.addressPlaceholder')} required />
                     <small>{message('desktopManagement.worker.addressHelp')}</small>
                   </label>
                   <label class="desktop-worker-path-field">
                     <span>{message('desktopManagement.worker.tokenFile')}</span>
-                    <div><input value={workerTokenFile()} readOnly placeholder={message('desktopManagement.worker.tokenPlaceholder')} required /><button type="button" disabled={busy()} onClick={() => void chooseWorkerFile('token')}>{message('desktopManagement.worker.choose')}</button></div>
+                    <div><ProductTextInput value={workerTokenFile()} readOnly placeholder={message('desktopManagement.worker.tokenPlaceholder')} required /><ProductButton type="button" disabled={busy()} onClick={() => void chooseWorkerFile('token')}>{message('desktopManagement.worker.choose')}</ProductButton></div>
                     <small>{message(workerTransportChanged() && workerTokenFileGrant() === undefined ? 'desktopManagement.worker.tokenAuthorize' : 'desktopManagement.worker.tokenHelp')}</small>
                   </label>
                   <label class="desktop-worker-path-field">
                     <span>{message('desktopManagement.worker.tlsFile')} <small>{message('desktopManagement.optional')}</small></span>
-                    <div><input value={workerTlsCaFile()} readOnly placeholder={message('desktopManagement.worker.tlsPlaceholder')} /><button type="button" disabled={busy()} onClick={() => void chooseWorkerFile('tls-ca')}>{message('desktopManagement.worker.choose')}</button><Show when={workerTlsCaFile()}><button type="button" disabled={busy()} onClick={() => { setWorkerTlsCaFile(''); setWorkerTlsCaFileGrant(undefined) }}>{message('desktopManagement.worker.clear')}</button></Show></div>
+                    <div><ProductTextInput value={workerTlsCaFile()} readOnly placeholder={message('desktopManagement.worker.tlsPlaceholder')} /><ProductButton type="button" disabled={busy()} onClick={() => void chooseWorkerFile('tls-ca')}>{message('desktopManagement.worker.choose')}</ProductButton><Show when={workerTlsCaFile()}><ProductButton type="button" variant="ghost" disabled={busy()} onClick={() => { setWorkerTlsCaFile(''); setWorkerTlsCaFileGrant(undefined) }}>{message('desktopManagement.worker.clear')}</ProductButton></Show></div>
                     <small>{message(workerTransportChanged() && workerTlsCaFile() && workerTlsCaFileGrant() === undefined ? 'desktopManagement.worker.tlsAuthorize' : 'desktopManagement.worker.tlsHelp')}</small>
                   </label>
                   <div class="desktop-worker-form-field">
                     <span>{message('desktopManagement.worker.nodes')} <small>{message('desktopManagement.optional')}</small></span>
-                    <select
-                      aria-label={message('desktopManagement.worker.nodePolicy')}
-                      value={workerNodesRestricted() ? 'allowlist' : 'all'}
-                      onChange={(event) => setWorkerNodesRestricted(event.currentTarget.value === 'allowlist')}
-                    >
-                      <option value="all">{message('desktopManagement.worker.nodesAll')}</option>
-                      <option value="allowlist">{message('desktopManagement.worker.nodesListed')}</option>
-                    </select>
-                    <textarea
+                    <ProductSelect
+                      ariaLabel={message('desktopManagement.worker.nodePolicy')}
+                      selectedId={workerNodesRestricted() ? 'allowlist' : 'all'}
+                      options={[
+                        { id: 'all', label: message('desktopManagement.worker.nodesAll'), value: false },
+                        { id: 'allowlist', label: message('desktopManagement.worker.nodesListed'), value: true },
+                      ]}
+                      onSelect={(option) => setWorkerNodesRestricted(option.value)}
+                    />
+                    <ProductTextArea
                       aria-label={message('desktopManagement.worker.nodes')}
                       disabled={!workerNodesRestricted()}
                       value={workerNodes()}
@@ -355,12 +358,12 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                   </div>
                   <label>
                     <span>{message('desktopManagement.worker.memory')} <small>{message('desktopManagement.optional')}</small></span>
-                    <textarea value={workerMemory()} onInput={(event) => setWorkerMemory(event.currentTarget.value)} placeholder={message('desktopManagement.worker.memoryPlaceholder')} rows="2" />
+                    <ProductTextArea value={workerMemory()} onInput={(event) => setWorkerMemory(event.currentTarget.value)} placeholder={message('desktopManagement.worker.memoryPlaceholder')} rows="2" />
                     <small>{message('desktopManagement.worker.memoryHelp')}</small>
                   </label>
                   <div class="desktop-worker-form-actions">
-                    <button type="button" disabled={busy()} onClick={closeWorkerForm}>{message('desktopManagement.worker.cancel')}</button>
-                    <button type="submit" disabled={busy() || current().remoteWorkerProtocol === undefined || !workerTransportAuthorized() || workerName().length === 0 || !workerEndpoint().trim() || !workerTokenFile()}>{message('desktopManagement.worker.save')}</button>
+                    <ProductButton type="button" variant="ghost" disabled={busy()} onClick={closeWorkerForm}>{message('desktopManagement.worker.cancel')}</ProductButton>
+                    <ProductButton type="submit" variant="primary" disabled={busy() || current().remoteWorkerProtocol === undefined || !workerTransportAuthorized() || workerName().length === 0 || !workerEndpoint().trim() || !workerTokenFile()}>{message('desktopManagement.worker.save')}</ProductButton>
                   </div>
                 </form>
               </Show>
@@ -379,8 +382,8 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                 </Show>
               </div>
               <div class="desktop-management-actions">
-                <button type="button" disabled={busy()} onClick={() => void perform(async () => setCheck(await bridge!.systemCheck()))}>{message('desktopManagement.system.run')}</button>
-                <button type="button" disabled={busy()} onClick={() => void perform(() => bridge!.clearCache(), 'desktopManagement.system.cacheCleared')}>{message('desktopManagement.system.clearCache')}</button>
+                <ProductButton type="button" disabled={busy()} onClick={() => void perform(async () => setCheck(await bridge!.systemCheck()))}>{message('desktopManagement.system.run')}</ProductButton>
+                <ProductButton type="button" variant="danger" disabled={busy()} onClick={() => void perform(() => bridge!.clearCache(), 'desktopManagement.system.cacheCleared')}>{message('desktopManagement.system.clearCache')}</ProductButton>
               </div>
             </section>
 
@@ -390,9 +393,9 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                 <p>{current().update.detail}</p>
               </div>
               <div class="desktop-management-actions">
-                <button type="button" disabled={busy() || current().update.state === 'checking'} onClick={() => void perform(() => bridge!.checkForUpdates())}>{message('desktopManagement.updates.check')}</button>
+                <ProductButton type="button" disabled={busy() || current().update.state === 'checking'} onClick={() => void perform(() => bridge!.checkForUpdates())}>{message('desktopManagement.updates.check')}</ProductButton>
                 <Show when={current().update.state === 'ready'}>
-                  <button type="button" disabled={busy()} onClick={() => void perform(() => bridge!.installUpdate())}>{message('desktopManagement.updates.install')}</button>
+                  <ProductButton type="button" variant="primary" disabled={busy()} onClick={() => void perform(() => bridge!.installUpdate())}>{message('desktopManagement.updates.install')}</ProductButton>
                 </Show>
               </div>
             </section>
@@ -402,10 +405,10 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                 <h3>{message('desktopManagement.support.title')}</h3>
                 <p>{message('desktopManagement.support.description')}</p>
               </div>
-              <button type="button" disabled={busy()} onClick={() => void perform(async () => {
+              <ProductButton type="button" disabled={busy()} onClick={() => void perform(async () => {
                 const path = await bridge!.exportSupportReport()
                 if (path) setStatusMessage({ key: 'desktopManagement.support.saved', params: { path } })
-              })}>{message('desktopManagement.support.export')}</button>
+              })}>{message('desktopManagement.support.export')}</ProductButton>
             </section>
           </>}
         </Show>
