@@ -18,8 +18,8 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { Json, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import { isValidActorId, parseOccurrenceKey } from '../ids.js'
-import { checkDocument, subgraphDefIdOf } from '../invariants.js'
-import { createSignal, type ReadonlySignal, type Signal } from '../reactive/signal.js'
+import { subgraphDefIdOf } from '../invariants.js'
+import type { ReadonlySignal } from '../reactive/signal.js'
 import {
   createTransactionBuilder,
   executeCommand,
@@ -30,6 +30,8 @@ import {
   type DocumentStoreContract,
   type TransactionRecord,
 } from './contract.js'
+import { LocalDocumentEngine, type LocalDocumentCommitEvent } from './document-engine.js'
+import { createWorkflowDocumentTypeAdapter } from './document-type.js'
 import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
 
 const hasErrors = (diags: readonly Diagnostic[]): boolean =>
@@ -325,72 +327,56 @@ export interface TransactionEvent {
   readonly patch: readonly PatchOp[]
 }
 
+/**
+ * Workflow compatibility API over the one generic local document engine
+ * (LocalDocumentEngine parameterized by the workflow document type
+ * adapter): same document, revision, undo/redo history, reentrant ordered
+ * notifications, and transaction feed as before dispatch-for-dispatch. New
+ * code should prefer DocumentSession/createLocalSession or the engine
+ * directly.
+ */
 export class DocumentStore implements DocumentStoreContract {
-  private readonly docSignal: Signal<WorkflowDocument>
-  /**
-   * Authoritative committed document (FR2). Commits update this field
-   * synchronously so a reentrant dispatch from inside a notification builds
-   * on the real document, while observer notification is serialized through
-   * the queue below.
-   */
-  private currentDoc: WorkflowDocument
-  private revisionCounter = 0
-  private readonly undoStack: TransactionRecord[] = []
-  private readonly redoStack: TransactionRecord[] = []
+  private readonly engine: LocalDocumentEngine<WorkflowDocument>
   private readonly txListeners = new Set<(event: TransactionEvent) => void>()
-  /**
-   * Reentrancy-safe notification FIFO (FR2): a document or transaction
-   * listener may synchronously dispatch again. Without the queue, the
-   * nested commit's notifications would OVERTAKE the outer commit's
-   * (listeners see revision 2 before revision 1, and the outer event
-   * would read a moved revisionCounter). Every commit enqueues its
-   * (doc, event) pair; only the outermost commit drains, so every
-   * listener observes documents and events in exact commit order.
-   */
-  private readonly notifyQueue: { doc: WorkflowDocument; event: TransactionEvent }[] = []
-  private notifying = false
+  private readonly onListenerError: ListenerErrorSink
 
   constructor(
     initial: WorkflowDocument,
-    private readonly commands: ReadonlyMap<string, CommandDefinition>,
+    commands: ReadonlyMap<string, CommandDefinition>,
     /** Undo depth bound; oldest transactions fall off. */
-    private readonly maxUndo = 200,
-    private readonly onListenerError: ListenerErrorSink = defaultSink,
-    private readonly executionContext: () => CommandExecutionContext = () => ({ kind: 'initial' }),
+    maxUndo = 200,
+    onListenerError: ListenerErrorSink = defaultSink,
+    executionContext: () => CommandExecutionContext = () => ({ kind: 'initial' }),
   ) {
-    // Ownership boundary (CO1): the store never retains or exposes caller-
-    // mutable data. The initial document is validated, deep-copied, and
-    // deep-frozen once here; every later commit preserves frozenness by
-    // construction (frozen op values + frozen path copies in applyOps).
-    const owned = ownJson(initial as unknown as Json)
-    if (!owned.ok) throw new Error(`DocumentStore: initial document is not JSON: ${owned.reason}`)
-    this.currentDoc = owned.value as unknown as WorkflowDocument
-    this.docSignal = createSignal<WorkflowDocument>(
-      this.currentDoc,
-      Object.is,
-      (error) => this.onListenerError(error, 'document notify'),
+    this.onListenerError = onListenerError
+    this.engine = new LocalDocumentEngine(
+      initial,
+      createWorkflowDocumentTypeAdapter(commands, { executionContext }),
+      maxUndo,
+      { onListenerError, validateInitial: false },
     )
+    this.engine.onCommit((event) => this.emitTransaction(event))
   }
 
   get doc(): WorkflowDocument {
-    return this.currentDoc
+    return this.engine.doc
   }
 
   get revision(): number {
-    return this.revisionCounter
+    return this.engine.revision
   }
 
   /** Reactive view of the document; the UI subscribes here. */
   get document(): ReadonlySignal<WorkflowDocument> {
-    return this.docSignal
+    return this.engine.document
   }
 
   get canUndo(): boolean {
-    return this.undoStack.length > 0
+    return this.engine.canUndo
   }
 
   get canRedo(): boolean {
-    return this.redoStack.length > 0
+    return this.engine.canRedo
   }
 
   /** Subscribe to every committed change (dispatch, undo, redo). */
@@ -399,35 +385,51 @@ export class DocumentStore implements DocumentStoreContract {
     return () => this.txListeners.delete(listener)
   }
 
-  /**
-   * Commit a document and deliver notifications in commit order (FR2).
-   * The document becomes authoritative IMMEDIATELY (a reentrant dispatch
-   * builds on it); the docSignal update and transaction event are queued,
-   * and only the outermost commit drains, so a listener that dispatches
-   * synchronously can never make later listeners see revisions out of
-   * order or the outer event report a moved revision.
-   */
-  private commit(doc: WorkflowDocument, event: TransactionEvent): void {
-    this.currentDoc = doc
-    this.notifyQueue.push({ doc, event })
-    if (this.notifying) return
-    this.notifying = true
-    try {
-      for (let next = this.notifyQueue.shift(); next; next = this.notifyQueue.shift()) {
-        this.docSignal.set(next.doc)
-        this.emit(next.event)
-      }
-    } finally {
-      this.notifying = false
-    }
+  dispatch(invocation: CommandInvocation): CommandOutcome {
+    return this.engine.dispatch(invocation)
   }
 
-  private emit(event: TransactionEvent): void {
+  undo(): boolean {
+    return this.engine.undo()
+  }
+
+  redo(): boolean {
+    return this.engine.redo()
+  }
+
+  /** Adopt the current document as the history baseline without emitting a transaction. */
+  clearHistory(): void {
+    this.engine.clearHistory()
+  }
+
+  /** Detached session-local patches, oldest first. */
+  historySnapshot(): HistorySnapshot {
+    return this.engine.historySnapshot()
+  }
+
+  /**
+   * Map the engine's commit feed onto TransactionEvent: the record is the
+   * history record as authored at its dispatch (kind/patch carry what this
+   * commit actually applied, e.g. the inverse for undo).
+   */
+  private emitTransaction(event: LocalDocumentCommitEvent<WorkflowDocument>): void {
+    const transaction: TransactionEvent = Object.freeze({
+      kind: event.kind,
+      record: Object.freeze({
+        revision: event.record.revision,
+        invocation: event.record.invocation,
+        forward: event.record.forward,
+        inverse: event.record.inverse,
+        timestamp: event.record.timestamp,
+      }),
+      revision: event.revision,
+      patch: event.patch,
+    })
     // CO10: one throwing observer must not starve the rest or unwind into
     // the committed dispatch.
     for (const l of [...this.txListeners]) {
       try {
-        l(event)
+        l(transaction)
       } catch (e) {
         // A throwing injected sink must not unwind into the committed
         // dispatch either (CO10 applies to the sink itself).
@@ -439,74 +441,6 @@ export class DocumentStore implements DocumentStoreContract {
         }
       }
     }
-  }
-
-  dispatch(invocation: CommandInvocation): CommandOutcome {
-    const outcome = planWorkflowCommand(this.doc, invocation, this.commands, this.executionContext)
-    if (!outcome.ok) return outcome
-    const { doc, forward, inverse, invocation: ownedInvocation } = outcome
-    if (forward.length === 0) return { ok: true, doc, forward, inverse, diagnostics: outcome.diagnostics }
-    const diagnostics = [...outcome.diagnostics, ...checkDocument(doc)]
-    if (hasErrors(diagnostics)) return { ok: false, diagnostics }
-    this.revisionCounter += 1
-    const revision = this.revisionCounter
-    const record: TransactionRecord = Object.freeze({
-      revision,
-      invocation: ownedInvocation,
-      forward,
-      inverse,
-      timestamp: Date.now(),
-    })
-    this.undoStack.push(record)
-    if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
-    this.redoStack.length = 0
-    this.commit(doc, Object.freeze({ kind: 'dispatch' as const, record, revision, patch: forward }))
-    return { ok: true, doc, forward, inverse, diagnostics }
-  }
-
-  /**
-   * Replay recorded ops, skipping any that would REWIND an allocation
-   * cursor (CO3): ids are never reused, so undoing an add removes the node
-   * but keeps nextOrdinal/seq at their high-water mark. Returns the ops
-   * actually applied - events must report reality, not the recording.
-   */
-  private replay(ops: readonly PatchOp[]): { doc: WorkflowDocument; applied: readonly PatchOp[] } {
-    return replayHistoryOps(this.doc, ops)
-  }
-
-  undo(): boolean {
-    const record = this.undoStack.pop()
-    if (!record) return false
-    const { doc, applied } = this.replay(record.inverse)
-    this.redoStack.push(record)
-    this.revisionCounter += 1
-    const revision = this.revisionCounter
-    this.commit(doc, Object.freeze({ kind: 'undo' as const, record, revision, patch: applied }))
-    return true
-  }
-
-  redo(): boolean {
-    const record = this.redoStack.pop()
-    if (!record) return false
-    const { doc, applied } = this.replay(record.forward)
-    this.undoStack.push(record)
-    this.revisionCounter += 1
-    const revision = this.revisionCounter
-    this.commit(doc, Object.freeze({ kind: 'redo' as const, record, revision, patch: applied }))
-    return true
-  }
-
-  /** Adopt the current document as the history baseline without emitting a transaction. */
-  clearHistory(): void {
-    this.undoStack.length = 0
-    this.redoStack.length = 0
-  }
-
-  /** Detached session-local patches, oldest first. */
-  historySnapshot(): HistorySnapshot {
-    const detach = (records: readonly TransactionRecord[]): HistorySnapshotRecord[] =>
-      records.map((record) => ({ forward: record.forward, inverse: record.inverse }))
-    return { revision: this.revision, undo: detach(this.undoStack), redo: detach(this.redoStack) }
   }
 }
 

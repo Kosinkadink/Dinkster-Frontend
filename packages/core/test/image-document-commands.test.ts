@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   IMAGE_DOCUMENT_FORMAT_VERSION,
   IMAGE_FIXED_POINT_SCALE,
@@ -456,25 +456,31 @@ describe('ImageDocument history and session', () => {
     expect(store.retainedResourceDigests()).not.toContain(DIGEST_B)
   })
 
-  it('publishes contiguous local document operations', () => {
-    const session = imageSession(document())
+  it('publishes contiguous wire-shaped local session operations', () => {
+    const session = new LocalDocumentTypeSession(document(), imageDocumentTypeAdapter, 200, {
+      actorId: 'alice',
+      clock: () => 123,
+      replayOriginPrefix: 'image',
+    })
     const operations: unknown[] = []
-    session.onOp((operation) => operations.push(operation))
+    session.onSessionOp((operation) => operations.push(operation))
     expect(session.dispatch({
       command: 'image.layer.update', params: { layerId: 'l1', visible: false },
     }).ok).toBe(true)
     expect(session.undo()).toBe(true)
     expect(session.redo()).toBe(true)
     expect(operations).toMatchObject([
-      { revision: 1, invocation: { command: 'image.layer.update' } },
-      { revision: 2, invocation: { command: 'document.undo' } },
-      { revision: 3, invocation: { command: 'document.redo' } },
+      { opId: 'alice#1', actorId: 'alice', baseRevision: 0, revision: 1, timestamp: 123, origin: 'image.layer.update' },
+      { opId: 'alice#2', baseRevision: 1, revision: 2, origin: 'image.undo' },
+      { opId: 'alice#3', baseRevision: 2, revision: 3, origin: 'image.redo' },
     ])
+    expect((operations[0] as { patch: Record<string, unknown>[] }).patch[0]).not.toHaveProperty('oldValue')
     expect(session.document.get()).toBe(session.doc)
+    expect(() => new LocalDocumentTypeSession(document(), imageDocumentTypeAdapter, 200, { actorId: 'bad#actor' })).toThrow('actor id')
   })
 
   it('returns the committed result when a listener dispatches again', () => {
-    const store = imageSession(document())
+    const store = new LocalDocumentTypeSession(document(), imageDocumentTypeAdapter)
     store.onOp((operation) => {
       if (operation.revision === 1) {
         store.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Nested' } })
@@ -483,13 +489,15 @@ describe('ImageDocument history and session', () => {
     const first = store.dispatch({
       command: 'image.layer.update', params: { layerId: 'l1', visible: false },
     })
-    expect(first.ok && first.doc.layers['l1']).toMatchObject({ name: 'Pixels', visible: false })
+    expect(first.ok && first.revision).toBe(1)
+    expect(first.ok && first.document.layers['l1']).toMatchObject({ name: 'Pixels', visible: false })
     expect(store.revision).toBe(2)
     expect(store.doc.layers['l1']).toMatchObject({ name: 'Nested', visible: false })
   })
 
   it('isolates store listeners after a commit', () => {
-    const store = imageSession(document())
+    const store = new LocalDocumentTypeSession(document(), imageDocumentTypeAdapter)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const observed: number[] = []
     store.onOp(() => { throw new Error('listener failed') })
     store.onOp((operation) => observed.push(operation.revision))
@@ -497,5 +505,7 @@ describe('ImageDocument history and session', () => {
       command: 'image.layer.update', params: { layerId: 'l1', visible: false },
     }).ok).toBe(true)
     expect(observed).toEqual([1])
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
   })
 })

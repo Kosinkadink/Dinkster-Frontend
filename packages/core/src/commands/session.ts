@@ -32,7 +32,7 @@ import type {
   DocumentStoreContract,
 } from './contract.js'
 import { predictAllocatedId } from './alloc.js'
-import type { PatchOp } from './patch.js'
+import { toWirePatch, type PatchOp, type WirePatchOp } from './patch.js'
 import { DocumentStore, type HistorySnapshot } from './store.js'
 
 /**
@@ -106,30 +106,10 @@ export interface DocumentSession extends DocumentStoreContract {
 }
 
 /**
- * A forward patch op as the collab wire carries it (Dinkster ca01157):
- * op add|remove|replace, segment-array path, value required for
- * add/replace and ABSENT for remove. No oldValue - inverses are local.
+ * A forward patch op as the collab wire carries it (Dinkster ca01157) -
+ * defined in patch.js and re-exported here with the session surface.
  */
-export type WirePatchOp =
-  | { readonly op: 'add' | 'replace'; readonly path: PatchOp['path']; readonly value: unknown }
-  | { readonly op: 'remove'; readonly path: PatchOp['path'] }
-
-/**
- * Strip local-only fields from forward ops for the collab wire. Ops and the
- * array are frozen: every onOp listener sees the same payload regardless of
- * what an earlier listener does.
- */
-export function toWirePatch(ops: readonly PatchOp[]): readonly WirePatchOp[] {
-  return Object.freeze(
-    ops.map((o) =>
-      Object.freeze(
-        o.op === 'remove'
-          ? ({ op: 'remove', path: o.path } as const)
-          : ({ op: o.op, path: o.path, value: o.value } as const),
-      ),
-    ),
-  )
-}
+export { toWirePatch, type WirePatchOp } from './patch.js'
 
 export interface LocalSessionOptions {
   readonly actorId?: string

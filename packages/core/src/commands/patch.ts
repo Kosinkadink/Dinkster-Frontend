@@ -242,3 +242,29 @@ export function invertOp(op: PatchOp): PatchOp {
 export function invertOps(ops: readonly PatchOp[]): readonly PatchOp[] {
   return ops.map(invertOp).reverse()
 }
+
+/**
+ * A forward patch op as the collab wire carries it (Dinkster ca01157):
+ * op add|remove|replace, segment-array path, value required for
+ * add/replace and ABSENT for remove. No oldValue - inverses are local.
+ */
+export type WirePatchOp =
+  | { readonly op: 'add' | 'replace'; readonly path: PatchOp['path']; readonly value: unknown }
+  | { readonly op: 'remove'; readonly path: PatchOp['path'] }
+
+/**
+ * Strip local-only fields from forward ops for the collab wire. Ops and the
+ * array are frozen: every listener sees the same payload regardless of what
+ * an earlier listener does.
+ */
+export function toWirePatch(ops: readonly PatchOp[]): readonly WirePatchOp[] {
+  return Object.freeze(
+    ops.map((o) =>
+      Object.freeze(
+        o.op === 'remove'
+          ? ({ op: 'remove', path: o.path } as const)
+          : ({ op: o.op, path: o.path, value: o.value } as const),
+      ),
+    ),
+  )
+}

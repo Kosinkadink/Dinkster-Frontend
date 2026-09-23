@@ -93,6 +93,7 @@ import {
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   COLLAB_PROTOCOL_VERSION,
+  collabDocumentNoun,
   isValidCollabRevision,
   normalizeCollabDocumentKind,
   validateCollabDescriptor,
@@ -150,6 +151,12 @@ export interface SharedSessionOptions {
   readonly onConflict?: (conflict: SessionConflict) => void
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  /**
+   * Collab session descriptor from discovery, when known before connecting:
+   * its documentKind is checked against the adapter BEFORE any shared state
+   * is fetched, so a mismatched kind fails without network I/O.
+   */
+  readonly descriptor?: { readonly documentKind?: string }
 }
 
 /** One POST attempt of a pending intention: what was actually sent to the server. */
@@ -1790,6 +1797,16 @@ export async function connectDocumentSession<D>(
   adapter: DocumentTypeAdapter<D>,
   options?: SharedSessionOptions,
 ): Promise<SharedDocumentSession<D>> {
+  if (
+    options?.descriptor !== undefined &&
+    normalizeCollabDocumentKind(options.descriptor.documentKind) !==
+      normalizeCollabDocumentKind(adapter.kind)
+  ) {
+    const noun = collabDocumentNoun(adapter.kind)
+    throw new Error(
+      `collaboration session is not ${noun.match(/^[AEIOU]/) ? 'an' : 'a'} ${noun}`,
+    )
+  }
   const snap = await connection.fetchSnapshot()
   if (!isValidCollabRevision(snap.revision))
     throw new Error('collab snapshot: invalid revision')

@@ -21,6 +21,15 @@ export function legacyCollabDocumentKind(kind?: string): string {
   return normalized
 }
 
+/** Display noun for a protocol document kind ('ImageDocument'), for refusal messages. */
+export function collabDocumentNoun(kind?: string): string {
+  const legacy = legacyCollabDocumentKind(kind)
+  if (legacy === 'workflow') return 'WorkflowDocument'
+  if (legacy === 'image') return 'ImageDocument'
+  if (legacy === 'video') return 'VideoDocument'
+  return legacy
+}
+
 export interface CollabSessionDescriptor {
   readonly protocolVersion: number
   readonly sessionId: string

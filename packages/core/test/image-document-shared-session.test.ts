@@ -237,6 +237,15 @@ describe('shared ImageDocument adapter', () => {
     expect(second.doc).toEqual(server.document)
   })
 
+  it('refuses a workflow descriptor before fetching shared state', async () => {
+    const server = new FakeServer()
+    await expect(
+      connectDocumentSession(server.connect(), imageDocumentTypeAdapter, {
+        descriptor: { ...server.descriptor, documentKind: 'workflow' },
+      }),
+    ).rejects.toThrow('not an ImageDocument')
+  })
+
   it('refuses a snapshot for a different document kind', async () => {
     const server = new FakeServer()
     const connection = server.connect()
