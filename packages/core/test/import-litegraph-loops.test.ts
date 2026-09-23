@@ -492,6 +492,43 @@ describe('ComfyUI Generic Loops structural import', () => {
     )
   })
 
+  it('refuses a runtime-expanding node inside a loop body subgraph', () => {
+    const { workflow, resolve } = importCorpusWorkflow('cache-enabled.json')
+    const nodes = [...(workflow['nodes'] as readonly JsonObject[])]
+    const expanding = {
+      ...nodes[1]!,
+      id: 1,
+      type: 'Issue408ExpandIncrement',
+      inputs: [{ name: 'value', type: '*', link: 101 }],
+      outputs: [{ name: 'output_0', type: '*', links: [102] }],
+    } satisfies JsonObject
+    nodes[1] = { ...nodes[1]!, type: 'expanding-subgraph' }
+    const withDefinition = {
+      ...workflow,
+      nodes,
+      definitions: {
+        subgraphs: [{
+          id: 'expanding-subgraph',
+          name: 'expanding-subgraph',
+          version: 1,
+          nodes: [expanding],
+          inputs: [{ id: 'in', name: 'value', type: '*', linkIds: [101] }],
+          outputs: [{ id: 'out', name: 'output_0', type: '*', linkIds: [102] }],
+          links: [
+            { id: 101, origin_id: -10, origin_slot: 0, target_id: 1, target_slot: 0, type: '*' },
+            { id: 102, origin_id: 1, origin_slot: 0, target_id: -20, target_slot: 0, type: '*' },
+          ],
+        }],
+      },
+    } satisfies JsonObject
+    const imported = importLitegraph(withDefinition, (type) =>
+      type === 'Issue408ExpandIncrement' ? fixtureSchema(expanding) : resolve(type))
+    expect(imported.document).toBeUndefined()
+    expect(imported.diagnostics.map((item) => item.code)).toContain(
+      'import.loop.runtimeExpansionUnsupported',
+    )
+  })
+
   it('consumes flagged nested loop boundaries before scanning the outer body', () => {
     const { imported } = importCorpusWorkflow('nested-carry.json')
     expect(imported.diagnostics.map((item) => item.code)).not.toContain(
