@@ -92,6 +92,14 @@ remain separate environment-gated evidence lanes.
 
 ## Video document commands
 
+Video documents also use the shared center tab strip. The film tab action
+creates a project-scoped durable document with a canonical OTIO timeline.
+The initial editor exposes the complete JSON, validates it through the same
+`dinkster.video` adapter used by collaboration, and records Apply, Undo, and
+Redo through the generic document session. Local documents recover after a
+reload. Share and Shared video documents create or join video-kind sessions;
+workflow and image sessions never appear in that list.
+
 Every authored text input on `dinkster.video_document.*` opens a command-specific
 video document editor. It covers document creation, clip and track insertion,
 effects, transitions, retiming and freeze frames, audio mixing, split/move/trim,

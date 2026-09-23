@@ -80,6 +80,15 @@ serialization, clipboard, collaboration, and compiler exclusion. It requires
 transactional registration and cleanup rules as other contributions. See
 `virtual-nodes.md` for the document and execution contract.
 
+The `documentType` contribution registers a namespaced `DocumentTypeAdapter`
+for loading, checking, and executing commands against another durable document
+kind. The declaration and `documentType(id, adapter)` call must use the same
+manifest identity, require `app-workflow`, and participate in ordinary pack,
+category, and contribution gates. Registration is transactional and pack
+cleanup removes only that adapter instance. The host retains transport,
+revision, history, and collaboration authority; an adapter supplies pure
+document semantics and JSON patches, not UI or network access.
+
 ## Canvas layers
 
 Packs with `graph-editor-canvas` privilege can register an ordered background

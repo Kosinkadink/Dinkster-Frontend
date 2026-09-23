@@ -1,14 +1,22 @@
-import { createSignal, type ReadonlySignal } from '../reactive/signal.js'
-import type { Json } from '../format/document.js'
-import { applyOwnedOps, type PatchOp } from '../commands/patch.js'
+import {
+  LocalDocumentTypeSession,
+  imageDocumentTypeAdapter,
+  type LocalDocumentTypeOperation,
+} from '../commands/document-type.js'
+import type { PatchOp } from '../commands/patch.js'
 import type { Diagnostic } from '../diagnostics.js'
-import { planImageDocumentCommand, type ImageDocumentCommandInvocation, type ImageDocumentCommandPlan } from './commands.js'
-import { loadImageDocument } from './migrate.js'
+import type { ReadonlySignal } from '../reactive/signal.js'
+import type {
+  ImageDocumentCommandInvocation,
+  ImageDocumentCommandPlan,
+} from './commands.js'
 import type { ImageDocument } from './model.js'
 
 export interface ImageDocumentTransaction {
   readonly revision: number
-  readonly invocation: ImageDocumentCommandInvocation | { readonly command: 'image.undo' | 'image.redo' }
+  readonly invocation:
+    | ImageDocumentCommandInvocation
+    | { readonly command: 'image.undo' | 'image.redo' }
   readonly forward: readonly PatchOp[]
   readonly inverse: readonly PatchOp[]
   readonly timestamp: number
@@ -24,147 +32,102 @@ export type ImageDocumentDispatchOutcome =
     }
   | { readonly ok: false; readonly diagnostics: readonly Diagnostic[] }
 
-interface HistoryRecord {
-  readonly invocation: ImageDocumentCommandInvocation
-  readonly forward: readonly PatchOp[]
-  readonly inverse: readonly PatchOp[]
-  readonly resources: ReadonlySet<string>
+const imageInvocation = (
+  operation: LocalDocumentTypeOperation,
+): ImageDocumentTransaction['invocation'] => {
+  if (operation.invocation.command === 'document.undo')
+    return { command: 'image.undo' }
+  if (operation.invocation.command === 'document.redo')
+    return { command: 'image.redo' }
+  return operation.invocation as ImageDocumentCommandInvocation
 }
 
-const resourceDigests = (document: ImageDocument): Set<string> =>
-  new Set(Object.values(document.resources).map((resource) => resource.digest))
-
-function changedResources(before: ImageDocument, after: ImageDocument): ReadonlySet<string> {
-  const left = resourceDigests(before)
-  const right = resourceDigests(after)
-  return new Set([...left].filter((digest) => !right.has(digest)).concat([...right].filter((digest) => !left.has(digest))))
-}
-
+/** Compatibility facade over the document-kind-parameterized local store. */
 export class ImageDocumentStore {
-  private current: ImageDocument
-  private currentRevision = 0
-  private readonly undoStack: HistoryRecord[] = []
-  private readonly redoStack: HistoryRecord[] = []
-  private readonly listeners = new Set<(transaction: ImageDocumentTransaction) => void>()
-  private readonly signal
+  private readonly store: LocalDocumentTypeSession<ImageDocument>
+  private readonly listeners = new Set<
+    (transaction: ImageDocumentTransaction) => void
+  >()
+  private readonly transactions = new Map<number, ImageDocumentTransaction>()
 
   constructor(
     initial: ImageDocument,
-    private readonly maxUndo = 200,
+    maxUndo = 200,
     private readonly clock: () => number = Date.now,
   ) {
-    if (!Number.isSafeInteger(maxUndo) || maxUndo < 0) throw new Error('maxUndo must be a non-negative safe integer')
-    const loaded = loadImageDocument(initial)
-    if (loaded.document === undefined) throw new Error('initial ImageDocument is invalid')
-    this.current = loaded.document
-    this.signal = createSignal(this.current)
+    this.store = new LocalDocumentTypeSession(
+      initial,
+      imageDocumentTypeAdapter,
+      maxUndo,
+    )
+    this.store.onOp((operation) => this.publish(operation))
   }
 
   get doc(): ImageDocument {
-    return this.current
+    return this.store.doc
   }
-
   get revision(): number {
-    return this.currentRevision
+    return this.store.revision
   }
-
   get document(): ReadonlySignal<ImageDocument> {
-    return this.signal
+    return this.store.document
   }
-
   get canUndo(): boolean {
-    return this.undoStack.length > 0
+    return this.store.canUndo
   }
-
   get canRedo(): boolean {
-    return this.redoStack.length > 0
+    return this.store.canRedo
   }
 
   dispatch(invocation: unknown): ImageDocumentDispatchOutcome {
-    const result = planImageDocumentCommand(this.current, invocation)
-    if (!result.ok) return result
-    const before = this.current
-    const record: HistoryRecord = {
-      invocation: result.plan.invocation,
-      forward: result.plan.redo,
-      inverse: result.plan.inverse,
-      resources: changedResources(before, result.plan.document),
-    }
-    this.current = result.plan.document
-    this.undoStack.push(record)
-    if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
-    this.redoStack.length = 0
-    const transaction = this.commit(result.plan.invocation, result.plan.forward, result.plan.inverse)
+    const before = this.store.revision
+    const outcome = this.store.dispatch(
+      invocation as ImageDocumentCommandInvocation,
+    )
+    if (!outcome.ok) return outcome
+    const transaction = this.transactions.get(before + 1)
+    if (transaction === undefined)
+      throw new Error('ImageDocument command did not commit a transaction')
+    this.transactions.delete(before + 1)
     return {
       ok: true,
-      document: result.plan.document,
+      document: outcome.doc,
       revision: transaction.revision,
       transaction,
-      ...(result.plan.created !== undefined ? { created: result.plan.created } : {}),
+      ...(outcome.created === undefined ? {} : { created: outcome.created }),
     }
   }
 
   undo(): boolean {
-    const record = this.undoStack.at(-1)
-    if (record === undefined) return false
-    const document = this.replay(record.inverse)
-    this.undoStack.pop()
-    this.current = document
-    this.redoStack.push(record)
-    this.commit({ command: 'image.undo' }, record.inverse, record.forward)
-    return true
+    return this.store.undo()
   }
-
   redo(): boolean {
-    const record = this.redoStack.at(-1)
-    if (record === undefined) return false
-    const document = this.replay(record.forward)
-    this.redoStack.pop()
-    this.current = document
-    this.undoStack.push(record)
-    this.commit({ command: 'image.redo' }, record.forward, record.inverse)
-    return true
+    return this.store.redo()
   }
-
   clearHistory(): void {
-    this.undoStack.length = 0
-    this.redoStack.length = 0
+    this.store.clearHistory()
   }
-
   retainedResourceDigests(): ReadonlySet<string> {
-    const retained = resourceDigests(this.current)
-    for (const record of [...this.undoStack, ...this.redoStack]) {
-      for (const digest of record.resources) retained.add(digest)
-    }
-    return retained
+    return this.store.retainedResourceDigests()
   }
 
-  onTransaction(listener: (transaction: ImageDocumentTransaction) => void): () => void {
+  onTransaction(
+    listener: (transaction: ImageDocumentTransaction) => void,
+  ): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
 
-  private replay(operations: readonly PatchOp[]): ImageDocument {
-    const candidate = applyOwnedOps(this.current as unknown as Json, operations)
-    const loaded = loadImageDocument(candidate)
-    if (loaded.document === undefined) throw new Error('ImageDocument history replay violated invariants')
-    return loaded.document
-  }
-
-  private commit(
-    invocation: ImageDocumentTransaction['invocation'],
-    forward: readonly PatchOp[],
-    inverse: readonly PatchOp[],
-  ): ImageDocumentTransaction {
-    this.currentRevision += 1
-    this.signal.set(this.current)
+  private publish(operation: LocalDocumentTypeOperation): void {
     const transaction: ImageDocumentTransaction = Object.freeze({
-      revision: this.currentRevision,
-      invocation,
-      forward,
-      inverse,
+      revision: operation.revision,
+      invocation: imageInvocation(operation),
+      forward: operation.forward,
+      inverse: operation.inverse,
       timestamp: this.clock(),
     })
+    if (!operation.invocation.command.startsWith('document.'))
+      this.transactions.set(operation.revision, transaction)
     for (const listener of this.listeners) {
       try {
         listener(transaction)
@@ -172,6 +135,5 @@ export class ImageDocumentStore {
         console.error('[ImageDocumentStore] listener threw:', error)
       }
     }
-    return transaction
   }
 }

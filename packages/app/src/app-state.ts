@@ -33,7 +33,9 @@ import {
   detectFormat,
   diag,
   createLocalSession,
+  createDocumentTypeRegistry,
   connectSharedSession,
+  type DocumentTypeAdapter,
   type DocumentSession,
   type SharedDocumentSession,
   type CollabSessionDescriptor,
@@ -2399,6 +2401,7 @@ export class AppState {
    */
   readonly editors = new EditorRegistry()
   readonly editorBindings = new EditorBindingRegistry()
+  readonly documentTypes = createDocumentTypeRegistry()
   readonly extensionToolbarPanels = createSignal<readonly ExtensionPanelContributionV1[]>([])
   readonly canvasLayers = createSignal<readonly CanvasLayerContribution[]>([])
   private readonly extensionEditorIds = new Set<string>()
@@ -2488,6 +2491,7 @@ export class AppState {
     registerPanel: (panel) => this.frontendDoors.panel(panel.id, panel),
     registerVirtualNode: (kind) => this.registerVirtualNode(kind),
     registerCanvasLayer: (layer) => this.frontendDoors.canvasLayer(layer.id, layer),
+    registerDocumentType: (adapter: DocumentTypeAdapter<unknown>) => this.documentTypes.contribute(adapter),
     beginRegistryBatch: () => {
       const finishSettings = this.settings.beginBatch()
       const finishHostUi = this.hostUiContributions.beginBatch()

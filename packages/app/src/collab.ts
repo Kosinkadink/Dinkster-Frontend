@@ -74,7 +74,7 @@ export interface CollabTransport {
       readonly scope: string
       readonly documentId: string
       readonly snapshot: unknown
-      readonly documentKind?: 'workflow' | 'image'
+      readonly documentKind?: string
     },
   ): Promise<CollabSessionDescriptor>
   list(baseUrl: string, scope: string): Promise<readonly CollabSessionDescriptor[]>

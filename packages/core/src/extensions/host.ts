@@ -26,6 +26,7 @@ import { ownExtensionSearchProvider, type SearchProvider } from '../search/contr
 import { HOST_UI_MAX_VISIBLE_STRING_LENGTH, type HostUiProviderV1 } from '../ui/contribution.js'
 import type { PreviewRenderer, WidgetKind, WidgetRegistry, WidgetView } from '../widgets/contract.js'
 import type { VirtualNodeKind } from '../virtual-node.js'
+import type { DocumentTypeAdapter } from '../commands/document-type.js'
 import {
   validateManifest,
   type ContributionCategory,
@@ -163,6 +164,7 @@ export interface PackActivationApi<TTextEditorExtension extends ExtensionIdentit
   panel(id: string, slot: ExtensionPanelSlot, provider: HostUiProviderV1, order?: number, title?: string): void
   virtualNode(id: string, kind: VirtualNodeKind): void
   canvasLayer(id: string, layer: CanvasLayerContribution): void
+  documentType(id: string, adapter: DocumentTypeAdapter<unknown>): void
 }
 
 /** App-shell contributions stay structural here so core never depends on Solid. */
@@ -247,6 +249,7 @@ interface Slot<TTextEditorExtension extends ExtensionIdentity> {
     | { readonly category: 'panel'; readonly value: ExtensionPanelContributionV1 }
     | { readonly category: 'virtualNode'; readonly value: VirtualNodeKind }
     | { readonly category: 'canvasLayer'; readonly value: CanvasLayerContribution }
+    | { readonly category: 'documentType'; readonly value: DocumentTypeAdapter<unknown> }
   /** Set while the payload is registered; calling it removes it. */
   unregister?: (() => void) | undefined
 }
@@ -283,6 +286,7 @@ export interface ExtensionHostOptions<TTextEditorExtension extends ExtensionIden
   readonly registerPanel?: (panel: ExtensionPanelContributionV1) => () => void
   readonly registerVirtualNode?: (kind: VirtualNodeKind) => () => void
   readonly registerCanvasLayer?: (layer: CanvasLayerContribution) => () => void
+  readonly registerDocumentType?: (adapter: DocumentTypeAdapter<unknown>) => () => void
   /** Suppress registry change publication until the initial pack commit settles. */
   readonly beginRegistryBatch?: () => (commit: boolean) => void
   readonly policy?: DeploymentPolicy
@@ -482,6 +486,13 @@ export class ExtensionHost<TTextEditorExtension extends ExtensionIdentity = Exte
           throw new Error(`virtual node contribution '${id}' must have a matching port-free schema`)
         }
         pack.slots.get(id)!.payload = { category: 'virtualNode', value: kind }
+      }),
+      documentType: (id, adapter) => accept(id, 'documentType', adapter.kind, () => {
+        if (typeof adapter.load !== 'function' || typeof adapter.check !== 'function' ||
+          typeof adapter.execute !== 'function' || !(adapter.commandIds instanceof Set)) {
+          throw new Error(`document type contribution '${id}' requires a complete adapter`)
+        }
+        pack.slots.get(id)!.payload = { category: 'documentType', value: adapter }
       }),
       onDispose: (disposer) => {
         if (!activationOpen) throw new Error(`pack '${manifest.id}' activation scope is closed`)
@@ -820,6 +831,8 @@ export class ExtensionHost<TTextEditorExtension extends ExtensionIdentity = Exte
                             ? this.options.registerEventConsumer?.(slot.decl.id, p.value) ?? (() => {})
                             : p.category === 'virtualNode'
                               ? this.options.registerVirtualNode?.(p.value) ?? (() => {})
+                              : p.category === 'documentType'
+                                ? this.options.registerDocumentType?.(p.value) ?? (() => {})
                               : p.category === 'editor'
                                 ? this.options.registerEditor?.(p.value) ?? (() => {})
                                 : p.category === 'editorBinding'

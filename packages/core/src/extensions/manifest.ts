@@ -39,7 +39,7 @@ export function frontendContributionAuthorized(kind: FrontendContributionKind, p
     case 'command': case 'keybinding':
       return privileges.includes('graph-editor-canvas') || privileges.includes('app-workflow')
     case 'hostUi': case 'searchProvider': case 'setting': case 'workflowObserver':
-    case 'editor': case 'editorBinding': case 'panel':
+    case 'editor': case 'editorBinding': case 'panel': case 'documentType':
       return privileges.includes('app-workflow')
     case 'eventConsumer':
       return privileges.includes('event-consumer')

@@ -43,13 +43,13 @@ import type {
   CollabClientOp,
   CollabConnection,
   CollabConnectionEvent,
+  CollabDocumentKind,
   CollabServerOp,
   CollabSessionDescriptor,
   FetchOpsOutcome,
   Json,
   PostOpOutcome,
   PutSnapshotOutcome,
-  WorkflowDocument,
 } from '@dinkster/core'
 import type { FetchLike } from './connection-contract.js'
 import { credentialFetch, type CollabCredentials } from './credentials.js'
@@ -67,7 +67,8 @@ import {
 const defaultFetch: FetchLike = (url, init) => fetch(url, init)
 
 async function jsonOrThrow(res: Response, what: string): Promise<unknown> {
-  if (!res.ok) throw new Error(`${what}: HTTP ${res.status} ${await errorText(res)}`)
+  if (!res.ok)
+    throw new Error(`${what}: HTTP ${res.status} ${await errorText(res)}`)
   return (await res.json()) as unknown
 }
 
@@ -76,7 +77,9 @@ async function errorText(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { error?: unknown; message?: unknown }
     if (typeof body?.error === 'string') {
-      return typeof body.message === 'string' ? `${body.error}: ${body.message}` : body.error
+      return typeof body.message === 'string'
+        ? `${body.error}: ${body.message}`
+        : body.error
     }
   } catch {
     // Non-JSON error body; the status alone is the message.
@@ -91,7 +94,7 @@ export async function createCollabSession(
     readonly scope: string
     readonly documentId: string
     readonly snapshot: unknown
-    readonly documentKind?: 'workflow' | 'image'
+    readonly documentKind?: CollabDocumentKind
   },
   fetchFn: FetchLike = defaultFetch,
 ): Promise<CollabSessionDescriptor> {
@@ -109,7 +112,9 @@ export async function listCollabSessions(
   scope: string,
   fetchFn: FetchLike = defaultFetch,
 ): Promise<readonly CollabSessionDescriptor[]> {
-  const res = await fetchFn(`${baseUrl}/api/sessions?scope=${encodeURIComponent(scope)}`)
+  const res = await fetchFn(
+    `${baseUrl}/api/sessions?scope=${encodeURIComponent(scope)}`,
+  )
   const body = (await jsonOrThrow(res, 'list sessions')) as {
     sessions?: readonly CollabSessionDescriptor[]
   }
@@ -122,7 +127,9 @@ export async function getCollabSession(
   sessionId: string,
   fetchFn: FetchLike = defaultFetch,
 ): Promise<CollabSessionDescriptor | undefined> {
-  const res = await fetchFn(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`)
+  const res = await fetchFn(
+    `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`,
+  )
   if (res.status === 404) return undefined
   return (await jsonOrThrow(res, 'get session')) as CollabSessionDescriptor
 }
@@ -133,9 +140,12 @@ export async function closeCollabSession(
   sessionId: string,
   fetchFn: FetchLike = defaultFetch,
 ): Promise<void> {
-  const res = await fetchFn(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, {
-    method: 'DELETE',
-  })
+  const res = await fetchFn(
+    `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'DELETE',
+    },
+  )
   if (!res.ok && res.status !== 404) {
     throw new Error(`close session: HTTP ${res.status} ${await errorText(res)}`)
   }
@@ -174,7 +184,9 @@ export class CollabHttpConnection implements CollabConnection {
   private readonly scheduleFn: ScheduleFn
   private readonly cancelFn: CancelFn
   private readonly requests = new AbortController()
-  private authorizationError: (Error & { diagnostic: NonNullable<CollabConnection['denial']> }) | undefined
+  private authorizationError:
+    | (Error & { diagnostic: NonNullable<CollabConnection['denial']> })
+    | undefined
   private cancelProbe: (() => void) | undefined
   private readonly listeners = new Set<(event: CollabConnectionEvent) => void>()
   /**
@@ -206,12 +218,17 @@ export class CollabHttpConnection implements CollabConnection {
     const fetchFn = credentialFetch(config, config.fetchFn ?? defaultFetch)
     this.fetchFn = async (url, init) => {
       if (this.authorizationError !== undefined) throw this.authorizationError
-      const response = await fetchFn(url, { ...init, signal: this.requests.signal })
+      const response = await fetchFn(url, {
+        ...init,
+        signal: this.requests.signal,
+      })
       if (this.authorizationError !== undefined) throw this.authorizationError
       return response
     }
     this.scheduleFn = config.scheduleFn ?? ((fn, ms) => setTimeout(fn, ms))
-    this.cancelFn = config.cancelFn ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>))
+    this.cancelFn =
+      config.cancelFn ??
+      ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>))
     const wsUrl =
       config.wsUrl ??
       `${config.baseUrl.replace(/^http/, 'ws')}/api/sessions/${encodeURIComponent(config.sessionId)}/events`
@@ -219,13 +236,21 @@ export class CollabHttpConnection implements CollabConnection {
       url: wsUrl,
       ...((config.token !== undefined || config.actorKind === 'agent') && {
         resolveUrl: async () => {
-          const response = await this.fetchFn(`${this.baseUrl}/api/auth/ws-ticket`, { method: 'POST' })
+          const response = await this.fetchFn(
+            `${this.baseUrl}/api/auth/ws-ticket`,
+            { method: 'POST' },
+          )
           await this.checkAuthorization(response, 'ws-ticket')
-          const body = await jsonOrThrow(response, 'WebSocket authentication; supply a delegation with --token or DINKSTER_AGENT_TOKEN') as { ticket: string }
+          const body = (await jsonOrThrow(
+            response,
+            'WebSocket authentication; supply a delegation with --token or DINKSTER_AGENT_TOKEN',
+          )) as { ticket: string }
           return `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
         },
       }),
-      ...(config.webSocketFactory !== undefined && { webSocketFactory: config.webSocketFactory }),
+      ...(config.webSocketFactory !== undefined && {
+        webSocketFactory: config.webSocketFactory,
+      }),
       ...(config.scheduleFn !== undefined && { scheduleFn: config.scheduleFn }),
       ...(config.cancelFn !== undefined && { cancelFn: config.cancelFn }),
       onOpen: (send) => {
@@ -239,7 +264,12 @@ export class CollabHttpConnection implements CollabConnection {
     // the one unexpected-drop status: deliberate close() never re-emits, and
     // the initial 'connecting' is not a drop.
     this.socket.status.subscribe((status) => {
-      if (this.closed || this.authorizationError !== undefined || status !== 'reconnecting') return
+      if (
+        this.closed ||
+        this.authorizationError !== undefined ||
+        status !== 'reconnecting'
+      )
+        return
       if (this.wsSend !== undefined) {
         this.wsSend = undefined
         this.emit({ kind: 'disconnected' })
@@ -253,17 +283,30 @@ export class CollabHttpConnection implements CollabConnection {
     return this.authorizationError?.diagnostic
   }
 
-  private async checkAuthorization(response: Response, operation: string): Promise<void> {
+  private async checkAuthorization(
+    response: Response,
+    operation: string,
+  ): Promise<void> {
     if (response.status !== 401 && response.status !== 403) return
-    const body = await response.json().catch(() => null) as { error?: unknown } | null
+    const body = (await response.json().catch(() => null)) as {
+      error?: unknown
+    } | null
     const code = typeof body?.error === 'string' ? body.error : 'forbidden'
     if (this.authorizationError === undefined) {
       const diagnostic: NonNullable<CollabConnection['denial']> = {
-        version: 1, type: 'collab.denial', code, status: response.status,
-        message: `HTTP ${response.status}: ${code}`, sessionId: this.sessionId,
-        actorId: this.actorId, operation,
+        version: 1,
+        type: 'collab.denial',
+        code,
+        status: response.status,
+        message: `HTTP ${response.status}: ${code}`,
+        sessionId: this.sessionId,
+        actorId: this.actorId,
+        operation,
       }
-      this.authorizationError = Object.assign(new Error(JSON.stringify(diagnostic)), { diagnostic })
+      this.authorizationError = Object.assign(
+        new Error(JSON.stringify(diagnostic)),
+        { diagnostic },
+      )
       this.wsSend = undefined
       this.socket.disconnect()
       this.cancelProbe?.()
@@ -284,7 +327,11 @@ export class CollabHttpConnection implements CollabConnection {
     if (this.probing) return
     this.probing = true
     try {
-      while (!this.closed && this.authorizationError === undefined && this.socket.status.get() !== 'connected') {
+      while (
+        !this.closed &&
+        this.authorizationError === undefined &&
+        this.socket.status.get() !== 'connected'
+      ) {
         let gone = false
         try {
           const response = await this.fetchFn(this.op(''))
@@ -293,14 +340,22 @@ export class CollabHttpConnection implements CollabConnection {
         } catch {
           // Server unreachable: indistinguishable from a restart; keep polling.
         }
-        if (this.closed || this.authorizationError !== undefined || this.socket.status.get() === 'connected') return
+        if (
+          this.closed ||
+          this.authorizationError !== undefined ||
+          this.socket.status.get() === 'connected'
+        )
+          return
         if (gone) {
           this.emit({ kind: 'session-closed' })
           return
         }
         await new Promise<void>((resolve) => {
           const handle = this.scheduleFn(resolve, PROBE_INTERVAL_MS)
-          this.cancelProbe = () => { this.cancelFn(handle); resolve() }
+          this.cancelProbe = () => {
+            this.cancelFn(handle)
+            resolve()
+          }
         })
         this.cancelProbe = undefined
       }
@@ -314,7 +369,8 @@ export class CollabHttpConnection implements CollabConnection {
   }
 
   async postOp(op: CollabClientOp): Promise<PostOpOutcome> {
-    if (this.denial !== undefined) return { kind: 'forbidden', diagnostic: this.denial }
+    if (this.denial !== undefined)
+      return { kind: 'forbidden', diagnostic: this.denial }
     let res: Response
     try {
       res = await this.fetchFn(this.op('/ops'), {
@@ -323,14 +379,19 @@ export class CollabHttpConnection implements CollabConnection {
         body: JSON.stringify(op),
       })
     } catch (e) {
-      if (this.denial !== undefined) return { kind: 'forbidden', diagnostic: this.denial }
+      if (this.denial !== undefined)
+        return { kind: 'forbidden', diagnostic: this.denial }
       // Transport failure: the outcome is ambiguous; the session retries
       // with the SAME opId (idempotent within the retention window).
-      return { kind: 'error', message: e instanceof Error ? e.message : String(e) }
+      return {
+        kind: 'error',
+        message: e instanceof Error ? e.message : String(e),
+      }
     }
     if (res.ok) {
       const body = (await res.json().catch(() => null)) as CollabServerOp | null
-      if (body === null) return { kind: 'error', message: 'ops response was not JSON' }
+      if (body === null)
+        return { kind: 'error', message: 'ops response was not JSON' }
       return { kind: 'accepted', op: body }
     }
     const body = (await res.json().catch(() => null)) as {
@@ -339,7 +400,11 @@ export class CollabHttpConnection implements CollabConnection {
       supported?: unknown
       retryAfterMs?: unknown
     } | null
-    if (res.status === 409 && body?.error === 'stale-base' && typeof body.revision === 'number') {
+    if (
+      res.status === 409 &&
+      body?.error === 'stale-base' &&
+      typeof body.revision === 'number'
+    ) {
       return { kind: 'stale-base', revision: body.revision }
     }
     if (res.status === 409 && body?.error === 'snapshot-required') {
@@ -351,16 +416,33 @@ export class CollabHttpConnection implements CollabConnection {
         : []
       return { kind: 'protocol-unsupported', supported }
     }
-    if (res.status === 401 || res.status === 403 || res.status === 429 || (res.status === 409 && body?.error === 'actor-principal-mismatch')) {
-      const kind = res.status === 429 ? 'rate-limited' : res.status === 409 ? 'actor-principal-mismatch' : 'forbidden'
+    if (
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 429 ||
+      (res.status === 409 && body?.error === 'actor-principal-mismatch')
+    ) {
+      const kind =
+        res.status === 429
+          ? 'rate-limited'
+          : res.status === 409
+            ? 'actor-principal-mismatch'
+            : 'forbidden'
       const code = typeof body?.error === 'string' ? body.error : kind
       return {
         kind,
         diagnostic: {
-          version: 1, type: 'collab.denial', code, status: res.status,
-          message: `HTTP ${res.status}: ${code}`, sessionId: this.sessionId,
-          actorId: op.actorId, opId: op.opId,
-          ...(typeof body?.retryAfterMs === 'number' ? { retryAfterMs: body.retryAfterMs } : {}),
+          version: 1,
+          type: 'collab.denial',
+          code,
+          status: res.status,
+          message: `HTTP ${res.status}: ${code}`,
+          sessionId: this.sessionId,
+          actorId: op.actorId,
+          opId: op.opId,
+          ...(typeof body?.retryAfterMs === 'number'
+            ? { retryAfterMs: body.retryAfterMs }
+            : {}),
         },
       }
     }
@@ -368,32 +450,58 @@ export class CollabHttpConnection implements CollabConnection {
     return { kind: 'error', message: `HTTP ${res.status}${detail}` }
   }
 
-  async fetchSnapshot(): Promise<{ readonly revision: number; readonly document: unknown }> {
+  async fetchSnapshot(): Promise<{
+    readonly revision: number
+    readonly document: unknown
+    readonly documentKind?: CollabDocumentKind
+  }> {
     const res = await this.fetchFn(this.op('/snapshot'))
     await this.checkAuthorization(res, 'fetch-snapshot')
     const body = (await jsonOrThrow(res, 'fetch snapshot')) as {
       revision?: unknown
       document?: unknown
+      documentKind?: unknown
     }
-    if (typeof body.revision !== 'number') throw new Error('fetch snapshot: invalid revision')
-    return { revision: body.revision, document: body.document }
+    if (typeof body.revision !== 'number')
+      throw new Error('fetch snapshot: invalid revision')
+    if (
+      body.documentKind !== undefined &&
+      typeof body.documentKind !== 'string'
+    ) {
+      throw new Error('fetch snapshot: invalid document kind')
+    }
+    return {
+      revision: body.revision,
+      document: body.document,
+      ...(body.documentKind === undefined
+        ? {}
+        : { documentKind: body.documentKind }),
+    }
   }
 
   async fetchOps(after: number): Promise<FetchOpsOutcome> {
     const res = await this.fetchFn(this.op(`/ops?after=${after}`))
     await this.checkAuthorization(res, 'fetch-ops')
     if (res.status === 410) {
-      const body = (await res.json().catch(() => null)) as { snapshotRevision?: unknown } | null
+      const body = (await res.json().catch(() => null)) as {
+        snapshotRevision?: unknown
+      } | null
       const snapshotRevision =
         typeof body?.snapshotRevision === 'number' ? body.snapshotRevision : 0
       return { kind: 'resync-required', snapshotRevision }
     }
-    const body = (await jsonOrThrow(res, 'fetch ops')) as { ops?: readonly CollabServerOp[] }
-    if (!Array.isArray(body.ops)) throw new Error('fetch ops: response missing ops array')
+    const body = (await jsonOrThrow(res, 'fetch ops')) as {
+      ops?: readonly CollabServerOp[]
+    }
+    if (!Array.isArray(body.ops))
+      throw new Error('fetch ops: response missing ops array')
     return { kind: 'ops', ops: body.ops }
   }
 
-  async putSnapshot(revision: number, document: WorkflowDocument): Promise<PutSnapshotOutcome> {
+  async putSnapshot(
+    revision: number,
+    document: unknown,
+  ): Promise<PutSnapshotOutcome> {
     const res = await this.fetchFn(this.op('/snapshot'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -401,14 +509,19 @@ export class CollabHttpConnection implements CollabConnection {
     })
     await this.checkAuthorization(res, 'put-snapshot')
     if (res.status === 409) return { kind: 'conflict' }
-    if (!res.ok) throw new Error(`put snapshot: HTTP ${res.status} ${await errorText(res)}`)
+    if (!res.ok)
+      throw new Error(
+        `put snapshot: HTTP ${res.status} ${await errorText(res)}`,
+      )
     return { kind: 'ok' }
   }
 
   sendPresence(payload: Json): void {
     // Fire-and-forget: presence never queues across a gap (stale presence is
     // worse than none) and is never stored server-side.
-    this.wsSend?.(JSON.stringify({ type: 'presence', actorId: this.actorId, payload }))
+    this.wsSend?.(
+      JSON.stringify({ type: 'presence', actorId: this.actorId, payload }),
+    )
   }
 
   onEvent(listener: (event: CollabConnectionEvent) => void): () => void {
@@ -465,7 +578,11 @@ export class CollabHttpConnection implements CollabConnection {
       // Presence and disconnected frames are NOT buffered: presence is
       // ephemeral noise that could flood the sole descriptor out of the cap,
       // and both are meaningless to a subscriber that was never connected.
-      if (this.buffered !== undefined && event.kind !== 'presence' && event.kind !== 'disconnected') {
+      if (
+        this.buffered !== undefined &&
+        event.kind !== 'presence' &&
+        event.kind !== 'disconnected'
+      ) {
         this.buffered.push(event)
         if (this.buffered.length > PRE_SUBSCRIBE_BUFFER_CAP) {
           // Evict the oldest OP, never a descriptor or session_closed: a
@@ -491,14 +608,24 @@ export class CollabHttpConnection implements CollabConnection {
    * protocolVersion, not surprise frames).
    */
   private handleFrame(data: unknown): void {
-    if (this.closed || this.authorizationError !== undefined || typeof data !== 'string') return
+    if (
+      this.closed ||
+      this.authorizationError !== undefined ||
+      typeof data !== 'string'
+    )
+      return
     let decoded: unknown
     try {
       decoded = JSON.parse(data)
     } catch {
       return
     }
-    if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) return
+    if (
+      decoded === null ||
+      typeof decoded !== 'object' ||
+      Array.isArray(decoded)
+    )
+      return
     const frame = decoded as { type?: unknown } & Record<string, unknown>
     switch (frame.type) {
       case 'session': {
@@ -515,10 +642,15 @@ export class CollabHttpConnection implements CollabConnection {
         return
       }
       case 'presence': {
-        if (typeof frame.actorId !== 'string' || frame.actorId.length === 0) return
+        if (typeof frame.actorId !== 'string' || frame.actorId.length === 0)
+          return
         this.emit(
           'payload' in frame
-            ? { kind: 'presence', actorId: frame.actorId, payload: frame.payload as Json }
+            ? {
+                kind: 'presence',
+                actorId: frame.actorId,
+                payload: frame.payload as Json,
+              }
             : { kind: 'presence', actorId: frame.actorId },
         )
         return

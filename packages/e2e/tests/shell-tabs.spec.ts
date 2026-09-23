@@ -9,17 +9,24 @@ import { evidencePath } from './evidence-output.js'
 
 const captureDragGhost = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_170'] !== '1') return
-  await page.screenshot({ path: evidencePath('issue-170', `${name}.png`), animations: 'disabled' })
+  await page.screenshot({
+    path: evidencePath('issue-170', `${name}.png`),
+    animations: 'disabled',
+  })
 }
 
 const tab = (page: Page, title: string): Locator =>
-  page.getByTestId('tab-bar').locator('.tab', { has: page.locator('.tab-select', { hasText: title }) })
+  page
+    .getByTestId('tab-bar')
+    .locator('.tab', { has: page.locator('.tab-select', { hasText: title }) })
 
 const titles = (page: Page): Promise<string[]> =>
   page.getByTestId('tab-bar').locator('.tab-select').allTextContents()
 
 const appTitles = (page: Page): Promise<string[]> =>
-  page.evaluate(() => window.__dinksterTest!.app.tabs.get().map((entry) => entry.title))
+  page.evaluate(() =>
+    window.__dinksterTest!.app.tabs.get().map((entry) => entry.title),
+  )
 
 const center = async (locator: Locator): Promise<{ x: number; y: number }> => {
   const box = (await locator.boundingBox())!
@@ -30,7 +37,13 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
   await tab(page, 'Basic').locator('.tab-select').click()
-  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => 'status' in window.__dinksterTest!.app.activeTab()!.store,
+      ),
+    )
+    .toBe(true)
 })
 
 test('sub-threshold movement remains an activating click', async ({ page }) => {
@@ -42,11 +55,15 @@ test('sub-threshold movement remains an activating click', async ({ page }) => {
   await page.mouse.up()
 
   await expect(tab(page, 'Subgraph')).toHaveClass(/active/)
-  await expect(page.getByTestId('editor-group').locator('[role="tabpanel"]')).toHaveAttribute('aria-labelledby', await select.getAttribute('id') ?? '')
+  await expect(
+    page.getByTestId('editor-group').locator('[role="tabpanel"]'),
+  ).toHaveAttribute('aria-labelledby', (await select.getAttribute('id')) ?? '')
   expect(await titles(page)).toEqual(['Basic', 'Subgraph'])
 })
 
-test('drag reorders on release, preserves focus and active tab, and persists', async ({ page }) => {
+test('drag reorders on release, preserves focus and active tab, and persists', async ({
+  page,
+}) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
@@ -66,11 +83,17 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
   await expect(tab(page, 'Subgraph')).toHaveAttribute('data-drop-index', '0')
   const marker = await tab(page, 'Subgraph').evaluate((element) => {
     const style = getComputedStyle(element, '::before')
-    return { content: style.content, left: Number.parseFloat(style.left), width: Number.parseFloat(style.width) }
+    return {
+      content: style.content,
+      left: Number.parseFloat(style.left),
+      width: Number.parseFloat(style.width),
+    }
   })
   expect(marker.content).not.toBe('none')
   expect(marker.left).toBeGreaterThanOrEqual(0)
-  expect(marker.left + marker.width).toBeLessThanOrEqual((await tab(page, 'Subgraph').boundingBox())!.width)
+  expect(marker.left + marker.width).toBeLessThanOrEqual(
+    (await tab(page, 'Subgraph').boundingBox())!.width,
+  )
   expect(await appTitles(page)).toEqual(['Basic', 'Subgraph'])
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
   await expect(draggedSelect).toBeFocused()
@@ -79,7 +102,9 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
   expect(await appTitles(page)).toEqual(['Subgraph', 'Basic'])
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
   await page.evaluate(() => {
-    ;(window.__dinksterTest!.app as unknown as { flushPersistTabs(): void }).flushPersistTabs()
+    ;(
+      window.__dinksterTest!.app as unknown as { flushPersistTabs(): void }
+    ).flushPersistTabs()
   })
 
   await page.reload()
@@ -88,7 +113,9 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
 })
 
-test('a dragged workflow tab shows a cursor-following ghost until release', async ({ page }) => {
+test('a dragged workflow tab shows a cursor-following ghost until release', async ({
+  page,
+}) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
@@ -112,7 +139,9 @@ test('a dragged workflow tab shows a cursor-following ghost until release', asyn
   await expect(ghost).toHaveCount(0)
 })
 
-test('foreign pointers cannot steal a drag and cancellation rolls back without activation', async ({ page }) => {
+test('foreign pointers cannot steal a drag and cancellation rolls back without activation', async ({
+  page,
+}) => {
   const bar = page.getByTestId('tab-bar')
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
   const from = await center(draggedSelect)
@@ -140,7 +169,10 @@ test('foreign pointers cannot steal a drag and cancellation rolls back without a
     return undefined
   })
   expect(ownerPointerId).toBeDefined()
-  await bar.evaluate((element, id) => element.releasePointerCapture(id!), ownerPointerId)
+  await bar.evaluate(
+    (element, id) => element.releasePointerCapture(id!),
+    ownerPointerId,
+  )
   // Explicit capture release is a pending change the browser processes on the
   // NEXT pointer event (pointer events spec), so nudge the mouse to make
   // lostpointercapture actually fire before asserting the rollback.
@@ -168,17 +200,34 @@ test('foreign pointers cannot steal a drag and cancellation rolls back without a
     clientX: restored.x,
     clientY: restored.y,
   })
-  await page.evaluate(({ pointerId, x, y }) => {
-    window.dispatchEvent(new PointerEvent('pointermove', {
-      pointerId, pointerType: 'pen', isPrimary: true, button: 0, buttons: 1, clientX: x, clientY: y,
-    }))
-  }, { pointerId: syntheticPointerId, x: to.x - 20, y: to.y })
+  await page.evaluate(
+    ({ pointerId, x, y }) => {
+      window.dispatchEvent(
+        new PointerEvent('pointermove', {
+          pointerId,
+          pointerType: 'pen',
+          isPrimary: true,
+          button: 0,
+          buttons: 1,
+          clientX: x,
+          clientY: y,
+        }),
+      )
+    },
+    { pointerId: syntheticPointerId, x: to.x - 20, y: to.y },
+  )
   await expect.poll(() => titles(page)).toEqual(['Subgraph', 'Basic'])
   await expect(page.getByTestId('tab-drag-ghost')).toBeVisible()
   await page.evaluate((pointerId) => {
-    window.dispatchEvent(new PointerEvent('pointercancel', {
-      pointerId, pointerType: 'pen', isPrimary: true, button: 0, buttons: 0,
-    }))
+    window.dispatchEvent(
+      new PointerEvent('pointercancel', {
+        pointerId,
+        pointerType: 'pen',
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+      }),
+    )
   }, syntheticPointerId)
   await expect.poll(() => titles(page)).toEqual(['Basic', 'Subgraph'])
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
@@ -189,8 +238,12 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   // Loaded tabs start dirty by design, so closing one requires the product
   // discard decision before the tab can be removed.
   await tab(page, 'Subgraph').click({ button: 'middle' })
-  const confirm = page.getByRole('dialog', { name: 'Close "Subgraph" and discard unsaved changes?' })
-  await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  const confirm = page.getByRole('dialog', {
+    name: 'Close "Subgraph" and discard unsaved changes?',
+  })
+  await expect(
+    confirm.getByRole('button', { name: 'Cancel', exact: true }),
+  ).toBeFocused()
   await confirm.getByRole('button', { name: 'Close and discard' }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(1)
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
@@ -198,37 +251,55 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
 
   await page.getByTestId('new-tab').click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
-  await expect.poll(() => page.evaluate(() => {
-    const untitled = window.__dinksterTest!.app.tabs.get().find((entry) => entry.title === 'Untitled')
-    return untitled !== undefined && 'status' in untitled.store
-  })).toBe(true)
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const untitled = window
+          .__dinksterTest!.app.tabs.get()
+          .find((entry) => entry.title === 'Untitled')
+        return untitled !== undefined && 'status' in untitled.store
+      }),
+    )
+    .toBe(true)
   await tab(page, 'Basic').locator('.tab-select').click()
   const untitled = tab(page, 'Untitled')
   await untitled.hover()
   await untitled.getByTestId('tab-close').click()
-  await page.getByRole('dialog', { name: 'Close "Untitled" and discard unsaved changes?' })
-    .getByRole('button', { name: 'Close and discard' }).click()
+  await page
+    .getByRole('dialog', {
+      name: 'Close "Untitled" and discard unsaved changes?',
+    })
+    .getByRole('button', { name: 'Close and discard' })
+    .click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(1)
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
   await expect(tab(page, 'Basic').locator('.tab-select')).toBeFocused()
 })
 
-test('a workflow tab moves to a new window through the context menu, not a chrome button', async ({ page }) => {
+test('a workflow tab moves to a new window through the context menu, not a chrome button', async ({
+  page,
+}) => {
   // No pop-out chrome button remains in the tab strip.
-  await expect(page.getByTestId('tab-bar').locator('[data-testid="tab-popout"]')).toHaveCount(0)
+  await expect(
+    page.getByTestId('tab-bar').locator('[data-testid="tab-popout"]'),
+  ).toHaveCount(0)
 
   // Right-clicking trailing strip chrome or empty strip space opens no menu.
   const menu = page.getByTestId('context-menu')
   await page.getByTestId('new-tab').click({ button: 'right' })
   await expect(menu).toHaveCount(0)
   const bar = (await page.getByTestId('tab-bar').boundingBox())!
-  await page.mouse.click(bar.x + bar.width - 12, bar.y + bar.height / 2, { button: 'right' })
+  await page.mouse.click(bar.x + bar.width - 12, bar.y + bar.height / 2, {
+    button: 'right',
+  })
   await expect(menu).toHaveCount(0)
 
   // Right-clicking a tab opens the styled menu with Share and the move.
   await tab(page, 'Basic').click({ button: 'right' })
   await expect(menu).toBeVisible()
-  await expect(menu.locator('[data-item-id="workflow.share"]')).toContainText('Share')
+  await expect(menu.locator('[data-item-id="workflow.share"]')).toContainText(
+    'Share',
+  )
   const move = menu.locator('[data-item-id="workflow.openWindow"]')
   await expect(move).toContainText('Move to new window')
 
@@ -243,19 +314,25 @@ test('a workflow tab moves to a new window through the context menu, not a chrom
   await expect(tab(page, 'Basic')).toBeVisible()
 })
 
-test('the workflow tab context menu is keyboard reachable and Escape restores focus', async ({ page }) => {
+test('the workflow tab context menu is keyboard reachable and Escape restores focus', async ({
+  page,
+}) => {
   const select = tab(page, 'Basic').locator('.tab-select')
   await select.focus()
   await page.keyboard.press('Shift+F10')
   const menu = page.getByTestId('context-menu')
   await expect(menu).toBeVisible()
-  await expect(menu.locator('[data-item-id="workflow.openWindow"]')).toContainText('Move to new window')
+  await expect(
+    menu.locator('[data-item-id="workflow.openWindow"]'),
+  ).toContainText('Move to new window')
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
   await expect(select).toBeFocused()
 })
 
-test('top-right region toggles and tab geometry match the workspace columns', async ({ page }) => {
+test('top-right region toggles and tab geometry match the workspace columns', async ({
+  page,
+}) => {
   const left = page.getByTestId('left-panel-toggle')
   const bottom = page.getByTestId('bottom-panel-toggle')
   await expect(left).toHaveAttribute('aria-pressed', 'false')
@@ -263,14 +340,20 @@ test('top-right region toggles and tab geometry match the workspace columns', as
 
   await left.click()
   await expect(left).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('dock-panel')).toHaveAttribute('data-active-panel', 'library')
+  await expect(page.getByTestId('dock-panel')).toHaveAttribute(
+    'data-active-panel',
+    'library',
+  )
   await left.click()
   await expect(left).toHaveAttribute('aria-pressed', 'false')
   await expect(page.getByTestId('dock-panel')).not.toBeVisible()
 
   await bottom.click()
   await expect(bottom).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('bottom-panel')).toHaveAttribute('data-active-panel', 'logs')
+  await expect(page.getByTestId('bottom-panel')).toHaveAttribute(
+    'data-active-panel',
+    'logs',
+  )
   await bottom.click()
   await expect(bottom).toHaveAttribute('aria-pressed', 'false')
   await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
@@ -289,41 +372,66 @@ test('top-right region toggles and tab geometry match the workspace columns', as
   expect(barWithDock.x).toBeGreaterThanOrEqual(dock.x + dock.width - 1)
 })
 
-test('topbar search stays geometrically centered and chrome order is stable', async ({ page }) => {
+test('topbar search stays geometrically centered and chrome order is stable', async ({
+  page,
+}) => {
   for (const width of [1280, 600]) {
     await page.setViewportSize({ width, height: 720 })
     const search = (await page.getByTestId('topbar-search').boundingBox())!
-    expect(Math.abs(search.x + search.width / 2 - width / 2)).toBeLessThanOrEqual(1)
+    expect(
+      Math.abs(search.x + search.width / 2 - width / 2),
+    ).toBeLessThanOrEqual(1)
   }
 
-  await expect(page.locator('.topbar-group-right > button')).toHaveCount(7)
-  expect(await page.locator('.topbar-group-right > button').evaluateAll((buttons) =>
-    buttons.map((button) => button.getAttribute('data-testid')),
-  )).toEqual([
+  await expect(page.locator('.topbar-group-right > button')).toHaveCount(6)
+  expect(
+    await page
+      .locator('.topbar-group-right > button')
+      .evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute('data-testid')),
+      ),
+  ).toEqual([
     'customize-layout-button',
     'left-panel-toggle',
     'bottom-panel-toggle',
     'rail-toggle',
-    'image-documents-button',
     'projects-button',
     'collab-button',
   ])
-  await expect(page.locator('.topbar').getByTestId('settings-button')).toHaveCount(0)
+  await expect(
+    page.locator('.topbar').getByTestId('settings-button'),
+  ).toHaveCount(0)
 
   const inactiveLeft = page.getByTestId('left-panel-toggle')
   const activeRight = page.getByTestId('rail-toggle')
-  expect(await inactiveLeft.locator('[data-region="left"]').evaluate((panel) => getComputedStyle(panel).fill)).toBe('none')
-  expect(await activeRight.locator('[data-region="right"]').evaluate((panel) => getComputedStyle(panel).fill)).toBe(
-    await activeRight.evaluate((button) => getComputedStyle(button).color),
-  )
-  expect(await activeRight.evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe('rgb(30, 58, 82)')
+  expect(
+    await inactiveLeft
+      .locator('[data-region="left"]')
+      .evaluate((panel) => getComputedStyle(panel).fill),
+  ).toBe('none')
+  expect(
+    await activeRight
+      .locator('[data-region="right"]')
+      .evaluate((panel) => getComputedStyle(panel).fill),
+  ).toBe(await activeRight.evaluate((button) => getComputedStyle(button).color))
+  expect(
+    await activeRight.evaluate(
+      (button) => getComputedStyle(button).backgroundColor,
+    ),
+  ).not.toBe('rgb(30, 58, 82)')
   await inactiveLeft.click()
-  expect(await inactiveLeft.locator('[data-region="left"]').evaluate((panel) => getComputedStyle(panel).fill)).toBe(
+  expect(
+    await inactiveLeft
+      .locator('[data-region="left"]')
+      .evaluate((panel) => getComputedStyle(panel).fill),
+  ).toBe(
     await inactiveLeft.evaluate((button) => getComputedStyle(button).color),
   )
 })
 
-test('center-stage view menus stay reachable without overlapping App view at narrow width', async ({ page }) => {
+test('center-stage view menus stay reachable without overlapping App view at narrow width', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 600, height: 720 })
   await page.getByTestId('views-switcher').click()
   await page.getByRole('menuitemradio', { name: 'App view' }).click()
@@ -332,23 +440,38 @@ test('center-stage view menus stay reachable without overlapping App view at nar
   expect(controls.y + controls.height).toBeLessThanOrEqual(header.y)
 
   await page.getByTestId('lens-switcher').click()
-  const menu = (await page.getByRole('menu').filter({ hasText: 'Lenses' }).boundingBox())!
+  const menu = (await page
+    .getByRole('menu')
+    .filter({ hasText: 'Lenses' })
+    .boundingBox())!
   const stage = (await page.locator('.canvas-stage').boundingBox())!
   expect(menu.x).toBeGreaterThanOrEqual(stage.x)
   expect(menu.x + menu.width).toBeLessThanOrEqual(stage.x + stage.width)
   await expect(page.getByRole('menuitemradio', { name: /Data/ })).toBeVisible()
 })
 
-test('settings is pinned under the two-line label-under-icon rail controls', async ({ page }) => {
+test('settings is pinned under the two-line label-under-icon rail controls', async ({
+  page,
+}) => {
   const sidebar = page.locator('.left-sidebar')
   const settings = page.getByTestId('settings-button')
   await expect(settings).toBeVisible()
   const geometry = await sidebar.evaluate((element) => {
     const rail = element.getBoundingClientRect()
-    const button = element.querySelector<HTMLElement>('[data-testid="settings-button"]')!.getBoundingClientRect()
-    const icon = element.querySelector<SVGElement>('[data-testid="settings-button"] svg')!.getBoundingClientRect()
-    const label = element.querySelector<HTMLElement>('[data-testid="settings-button"] .sidebar-button-label')!.getBoundingClientRect()
-    const activityLabel = element.querySelector<HTMLElement>('[data-testid="logs-toggle"] .sidebar-button-label')!
+    const button = element
+      .querySelector<HTMLElement>('[data-testid="settings-button"]')!
+      .getBoundingClientRect()
+    const icon = element
+      .querySelector<SVGElement>('[data-testid="settings-button"] svg')!
+      .getBoundingClientRect()
+    const label = element
+      .querySelector<HTMLElement>(
+        '[data-testid="settings-button"] .sidebar-button-label',
+      )!
+      .getBoundingClientRect()
+    const activityLabel = element.querySelector<HTMLElement>(
+      '[data-testid="logs-toggle"] .sidebar-button-label',
+    )!
     const labelStyle = getComputedStyle(activityLabel)
     return {
       railWidth: rail.width,
@@ -361,7 +484,9 @@ test('settings is pinned under the two-line label-under-icon rail controls', asy
       labelTextAlign: labelStyle.textAlign,
       labelWhiteSpace: labelStyle.whiteSpace,
       labelLineClamp: labelStyle.webkitLineClamp,
-      activityContained: activityLabel.scrollWidth <= activityLabel.clientWidth && activityLabel.scrollHeight <= activityLabel.clientHeight,
+      activityContained:
+        activityLabel.scrollWidth <= activityLabel.clientWidth &&
+        activityLabel.scrollHeight <= activityLabel.clientHeight,
     }
   })
   expect(geometry).toEqual({
@@ -378,13 +503,30 @@ test('settings is pinned under the two-line label-under-icon rail controls', asy
     activityContained: true,
   })
   const buttons = sidebar.locator('.sidebar-button')
-  const names = await buttons.evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-label')))
-  const standardNames = ['Workflow library', 'Assets', 'Backends', 'Memory telemetry', 'P2P transfers', 'Activity', 'Execution log', 'Settings']
-  const namesWithGuides = [standardNames[0]!, 'Learning guides', ...standardNames.slice(1)]
+  const names = await buttons.evaluateAll((elements) =>
+    elements.map((element) => element.getAttribute('aria-label')),
+  )
+  const standardNames = [
+    'Workflow library',
+    'Assets',
+    'Backends',
+    'Memory telemetry',
+    'P2P transfers',
+    'Activity',
+    'Execution log',
+    'Settings',
+  ]
+  const namesWithGuides = [
+    standardNames[0]!,
+    'Learning guides',
+    ...standardNames.slice(1),
+  ]
   expect([standardNames, namesWithGuides]).toContainEqual(names)
 })
 
-test('draggable shell edges keep a seven pixel hit target and highlight a thicker edge', async ({ page }) => {
+test('draggable shell edges keep a seven pixel hit target and highlight a thicker edge', async ({
+  page,
+}) => {
   await page.getByTestId('left-panel-toggle').click()
   await page.getByTestId('bottom-panel-toggle').click()
   for (const { id, hitDimension, edgeDimension } of [
@@ -394,19 +536,30 @@ test('draggable shell edges keep a seven pixel hit target and highlight a thicke
   ] as const) {
     const handle = page.getByTestId(id)
     await expect(handle).toBeVisible()
-    const before = await handle.evaluate((element, dimensions) => ({
-      hit: element.getBoundingClientRect()[dimensions.hitDimension],
-      edge: getComputedStyle(element, '::after')[dimensions.edgeDimension],
-      edgeColor: getComputedStyle(element, '::after').backgroundColor,
-    }), { hitDimension, edgeDimension })
+    const before = await handle.evaluate(
+      (element, dimensions) => ({
+        hit: element.getBoundingClientRect()[dimensions.hitDimension],
+        edge: getComputedStyle(element, '::after')[dimensions.edgeDimension],
+        edgeColor: getComputedStyle(element, '::after').backgroundColor,
+      }),
+      { hitDimension, edgeDimension },
+    )
     expect(before.hit).toBe(7)
     expect(before.edge).toBe('3px')
     await handle.hover()
-    await expect.poll(() => handle.evaluate((element) => getComputedStyle(element, '::after').backgroundColor)).not.toBe(before.edgeColor)
+    await expect
+      .poll(() =>
+        handle.evaluate(
+          (element) => getComputedStyle(element, '::after').backgroundColor,
+        ),
+      )
+      .not.toBe(before.edgeColor)
   }
 })
 
-test('shell separators expose values and resize from the keyboard', async ({ page }) => {
+test('shell separators expose values and resize from the keyboard', async ({
+  page,
+}) => {
   await page.getByTestId('left-panel-toggle').click()
   const separator = page.getByTestId('dock-resize')
   await separator.focus()
@@ -417,24 +570,35 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
   await separator.press('ArrowRight')
   await expect(separator).toHaveAttribute('aria-valuenow', String(initial + 16))
   await separator.press('Home')
-  await expect(separator).toHaveAttribute('aria-valuenow', await separator.getAttribute('aria-valuemin') ?? '')
+  await expect(separator).toHaveAttribute(
+    'aria-valuenow',
+    (await separator.getAttribute('aria-valuemin')) ?? '',
+  )
   await separator.press('End')
-  await expect(separator).toHaveAttribute('aria-valuenow', await separator.getAttribute('aria-valuemax') ?? '')
+  await expect(separator).toHaveAttribute(
+    'aria-valuenow',
+    (await separator.getAttribute('aria-valuemax')) ?? '',
+  )
 })
 
-test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
-  for (let index = 0; index < 20; index++) await page.getByTestId('new-tab').click()
-  const overflow = await page.getByRole('tablist', { name: 'Open workflows' }).evaluate((element) => {
-    const style = getComputedStyle(element)
-    const before = element.scrollLeft
-    element.scrollLeft = element.scrollWidth
-    return {
-      overflowX: style.overflowX,
-      overflowY: style.overflowY,
-      hasHorizontalOverflow: element.scrollWidth > element.clientWidth,
-      scrolledHorizontally: element.scrollLeft > before,
-    }
-  })
+test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({
+  page,
+}) => {
+  for (let index = 0; index < 20; index++)
+    await page.getByTestId('new-tab').click()
+  const overflow = await page
+    .getByRole('tablist', { name: 'Open workflows' })
+    .evaluate((element) => {
+      const style = getComputedStyle(element)
+      const before = element.scrollLeft
+      element.scrollLeft = element.scrollWidth
+      return {
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
+        hasHorizontalOverflow: element.scrollWidth > element.clientWidth,
+        scrolledHorizontally: element.scrollLeft > before,
+      }
+    })
   expect(overflow).toEqual({
     overflowX: 'auto',
     overflowY: 'hidden',

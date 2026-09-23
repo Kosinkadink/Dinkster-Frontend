@@ -20,7 +20,10 @@ import {
 } from '../src/index.js'
 
 const jsonResponse = (status: number, body: unknown): Response =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
 
 const descriptor = {
   protocolVersion: 1,
@@ -92,7 +95,12 @@ const frame = (ws: FakeWS, payload: unknown): void =>
 describe('delegation transport', () => {
   it('allows a final checkpoint request to finish after an ordinary close', async () => {
     let finish!: (response: Response) => void
-    const fetchFn = vi.fn((_url: string, _init?: RequestInit) => new Promise<Response>((resolve) => { finish = resolve }))
+    const fetchFn = vi.fn(
+      (_url: string, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          finish = resolve
+        }),
+    )
     const { connection } = harness({ fetchFn })
     const checkpoint = connection.putSnapshot(1, {} as never)
     connection.close()
@@ -101,32 +109,68 @@ describe('delegation transport', () => {
     await expect(checkpoint).resolves.toEqual({ kind: 'ok' })
   })
 
-  it.each([401, 403])('terminates refused WebSocket tickets (%s) before opening a socket', async (status) => {
-    const fetchFn = vi.fn(async () => jsonResponse(status, { error: 'forbidden' }))
-    const { connection, sockets, events, scheduled } = harness({ actorKind: 'agent', fetchFn })
-    await vi.waitFor(() => expect(events).toHaveLength(1))
-    expect(events[0]).toMatchObject({ kind: 'denial', diagnostic: { version: 1, operation: 'ws-ticket', status } })
-    expect(sockets).toHaveLength(0)
-    expect(scheduled).toHaveLength(0)
-    expect(fetchFn).toHaveBeenCalledTimes(1)
-    connection.close()
-  })
+  it.each([401, 403])(
+    'terminates refused WebSocket tickets (%s) before opening a socket',
+    async (status) => {
+      const fetchFn = vi.fn(async () =>
+        jsonResponse(status, { error: 'forbidden' }),
+      )
+      const { connection, sockets, events, scheduled } = harness({
+        actorKind: 'agent',
+        fetchFn,
+      })
+      await vi.waitFor(() => expect(events).toHaveLength(1))
+      expect(events[0]).toMatchObject({
+        kind: 'denial',
+        diagnostic: { version: 1, operation: 'ws-ticket', status },
+      })
+      expect(sockets).toHaveLength(0)
+      expect(scheduled).toHaveLength(0)
+      expect(fetchFn).toHaveBeenCalledTimes(1)
+      connection.close()
+    },
+  )
 
-  it.each(['fetchSnapshot', 'fetchOps', 'putSnapshot'] as const)('terminates %s on read/write authorization refusal and retains the diagnostic', async (operation) => {
-    const fetchFn = vi.fn(async () => jsonResponse(403, { error: 'capability-required' }))
-    const cancelFn = vi.fn()
-    const { connection, sockets, events, scheduled } = harness({ fetchFn, cancelFn })
-    const call = () => operation === 'fetchSnapshot' ? connection.fetchSnapshot()
-      : operation === 'fetchOps' ? connection.fetchOps(0) : connection.putSnapshot(0, {} as never)
-    await expect(call()).rejects.toMatchObject({ diagnostic: { version: 1, type: 'collab.denial', status: 403, code: 'capability-required', actorId: 'alice', sessionId: 's1' } })
-    expect(connection.denial).not.toHaveProperty('opId')
-    expect(events).toEqual([{ kind: 'denial', diagnostic: connection.denial }])
-    expect(sockets[0]!.closed).toBe(true)
-    await expect(call()).rejects.toMatchObject({ diagnostic: connection.denial })
-    for (const callback of scheduled.splice(0)) callback()
-    expect(fetchFn).toHaveBeenCalledTimes(1)
-    connection.close()
-  })
+  it.each(['fetchSnapshot', 'fetchOps', 'putSnapshot'] as const)(
+    'terminates %s on read/write authorization refusal and retains the diagnostic',
+    async (operation) => {
+      const fetchFn = vi.fn(async () =>
+        jsonResponse(403, { error: 'capability-required' }),
+      )
+      const cancelFn = vi.fn()
+      const { connection, sockets, events, scheduled } = harness({
+        fetchFn,
+        cancelFn,
+      })
+      const call = () =>
+        operation === 'fetchSnapshot'
+          ? connection.fetchSnapshot()
+          : operation === 'fetchOps'
+            ? connection.fetchOps(0)
+            : connection.putSnapshot(0, {} as never)
+      await expect(call()).rejects.toMatchObject({
+        diagnostic: {
+          version: 1,
+          type: 'collab.denial',
+          status: 403,
+          code: 'capability-required',
+          actorId: 'alice',
+          sessionId: 's1',
+        },
+      })
+      expect(connection.denial).not.toHaveProperty('opId')
+      expect(events).toEqual([
+        { kind: 'denial', diagnostic: connection.denial },
+      ])
+      expect(sockets[0]!.closed).toBe(true)
+      await expect(call()).rejects.toMatchObject({
+        diagnostic: connection.denial,
+      })
+      for (const callback of scheduled.splice(0)) callback()
+      expect(fetchFn).toHaveBeenCalledTimes(1)
+      connection.close()
+    },
+  )
 
   it('stops a forbidden session probe even when both ticket requests succeed', async () => {
     let finishProbe!: (response: Response) => void
@@ -135,11 +179,18 @@ describe('delegation transport', () => {
     const fetchFn = vi.fn(async (url: string, _init?: RequestInit) => {
       if (url.endsWith('/ws-ticket')) {
         if (++tickets === 1) return jsonResponse(200, { ticket: 'first' })
-        return new Promise<Response>((resolve) => { finishTicket = resolve })
+        return new Promise<Response>((resolve) => {
+          finishTicket = resolve
+        })
       }
-      return new Promise<Response>((resolve) => { finishProbe = resolve })
+      return new Promise<Response>((resolve) => {
+        finishProbe = resolve
+      })
     })
-    const { connection, sockets, events, scheduled } = harness({ actorKind: 'agent', fetchFn })
+    const { connection, sockets, events, scheduled } = harness({
+      actorKind: 'agent',
+      fetchFn,
+    })
     await vi.waitFor(() => expect(sockets).toHaveLength(1))
     sockets[0]!.onopen?.({})
     frame(sockets[0]!, { type: 'session', ...descriptor })
@@ -147,28 +198,51 @@ describe('delegation transport', () => {
     for (const callback of scheduled.splice(0)) callback()
     expect(tickets).toBe(2)
     finishProbe(jsonResponse(403, { error: 'capability-required' }))
-    await vi.waitFor(() => expect(events.some((event) => event.kind === 'denial')).toBe(true))
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.kind === 'denial')).toBe(true),
+    )
     finishTicket(jsonResponse(200, { ticket: 'second' }))
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (const callback of scheduled.splice(0)) callback()
-    expect(events.map((event) => event.kind)).toEqual(['connected', 'disconnected', 'denial'])
-    expect(connection.denial).toMatchObject({ status: 403, operation: 'session', version: 1 })
+    expect(events.map((event) => event.kind)).toEqual([
+      'connected',
+      'disconnected',
+      'denial',
+    ])
+    expect(connection.denial).toMatchObject({
+      status: 403,
+      operation: 'session',
+      version: 1,
+    })
     expect(sockets).toHaveLength(1)
     expect(fetchFn).toHaveBeenCalledTimes(3)
-    expect(fetchFn.mock.calls.every(([, init]) => init?.signal?.aborted)).toBe(true)
-    await expect(connection.fetchOps(0)).rejects.toMatchObject({ diagnostic: connection.denial })
+    expect(fetchFn.mock.calls.every(([, init]) => init?.signal?.aborted)).toBe(
+      true,
+    )
+    await expect(connection.fetchOps(0)).rejects.toMatchObject({
+      diagnostic: connection.denial,
+    })
     expect(fetchFn).toHaveBeenCalledTimes(3)
     connection.close()
   })
 
   it('cancels a sleeping probe and queued reconnect after a snapshot denial', async () => {
-    const fetchFn = vi.fn(async (url: string) => jsonResponse(url.endsWith('/snapshot') ? 403 : 500, { error: 'forbidden' }))
+    const fetchFn = vi.fn(async (url: string) =>
+      jsonResponse(url.endsWith('/snapshot') ? 403 : 500, {
+        error: 'forbidden',
+      }),
+    )
     const cancelFn = vi.fn()
-    const { connection, sockets, events, scheduled } = harness({ fetchFn, cancelFn })
+    const { connection, sockets, events, scheduled } = harness({
+      fetchFn,
+      cancelFn,
+    })
     sockets[0]!.onopen?.({})
     sockets[0]!.onclose?.({})
     await vi.waitFor(() => expect(scheduled).toHaveLength(2))
-    await expect(connection.fetchSnapshot()).rejects.toMatchObject({ diagnostic: { status: 403 } })
+    await expect(connection.fetchSnapshot()).rejects.toMatchObject({
+      diagnostic: { status: 403 },
+    })
     expect(cancelFn).toHaveBeenCalledTimes(2)
     for (const callback of scheduled.splice(0)) callback()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -178,22 +252,62 @@ describe('delegation transport', () => {
     connection.close()
   })
 
-  it.each([[403, 'capability-required', 'forbidden'], [409, 'actor-principal-mismatch', 'actor-principal-mismatch'], [429, 'rate-limited', 'rate-limited']] as const)('maps HTTP %s to a versioned denial', async (status, code, kind) => {
-    const { connection } = harness({ fetchFn: async () => jsonResponse(status, { error: code, retryAfterMs: 50 }) })
-    const outcome = await connection.postOp({ protocolVersion: 1, actorId: 'agent', opId: 'op', baseRevision: 0, patch: [] })
-    expect(outcome).toMatchObject({ kind, diagnostic: { version: 1, type: 'collab.denial', code, status, sessionId: 's1', actorId: 'agent', opId: 'op' } })
-    connection.close()
-  })
+  it.each([
+    [403, 'capability-required', 'forbidden'],
+    [409, 'actor-principal-mismatch', 'actor-principal-mismatch'],
+    [429, 'rate-limited', 'rate-limited'],
+  ] as const)(
+    'maps HTTP %s to a versioned denial',
+    async (status, code, kind) => {
+      const { connection } = harness({
+        fetchFn: async () =>
+          jsonResponse(status, { error: code, retryAfterMs: 50 }),
+      })
+      const outcome = await connection.postOp({
+        protocolVersion: 1,
+        actorId: 'agent',
+        opId: 'op',
+        baseRevision: 0,
+        patch: [],
+      })
+      expect(outcome).toMatchObject({
+        kind,
+        diagnostic: {
+          version: 1,
+          type: 'collab.denial',
+          code,
+          status,
+          sessionId: 's1',
+          actorId: 'agent',
+          opId: 'op',
+        },
+      })
+      connection.close()
+    },
+  )
 
   it('sends a bearer on HTTP and redeems a fresh ticket on every WebSocket connection', async () => {
     let tickets = 0
     const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
-      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer fixture-delegation')
-      expect(new Headers(init?.headers).get('X-Dinkster-Actor-Kind')).toBe('agent')
+      expect(new Headers(init?.headers).get('Authorization')).toBe(
+        'Bearer fixture-delegation',
+      )
+      expect(new Headers(init?.headers).get('X-Dinkster-Actor-Kind')).toBe(
+        'agent',
+      )
       expect(init?.redirect).toBe('error')
-      return jsonResponse(200, url.endsWith('/ws-ticket') ? { ticket: `ticket-${++tickets}` } : { revision: 0, document: {} })
+      return jsonResponse(
+        200,
+        url.endsWith('/ws-ticket')
+          ? { ticket: `ticket-${++tickets}` }
+          : { revision: 0, document: {} },
+      )
     })
-    const { connection, sockets, wsUrls, scheduled } = harness({ token: 'fixture-delegation', actorKind: 'agent', fetchFn })
+    const { connection, sockets, wsUrls, scheduled } = harness({
+      token: 'fixture-delegation',
+      actorKind: 'agent',
+      fetchFn,
+    })
     await vi.waitFor(() => expect(sockets).toHaveLength(1))
     expect(wsUrls[0]).toContain('ticket=ticket-1')
     expect(wsUrls[0]).not.toContain('fixture-delegation')
@@ -207,8 +321,13 @@ describe('delegation transport', () => {
   })
 
   it('does not reconnect after a refused ticket', async () => {
-    const fetchFn = vi.fn(async () => jsonResponse(401, { error: 'authentication-required' }))
-    const { connection, sockets, scheduled } = harness({ actorKind: 'agent', fetchFn })
+    const fetchFn = vi.fn(async () =>
+      jsonResponse(401, { error: 'authentication-required' }),
+    )
+    const { connection, sockets, scheduled } = harness({
+      actorKind: 'agent',
+      fetchFn,
+    })
     await connection.fetchSnapshot().catch(() => {})
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(sockets).toHaveLength(0)
@@ -241,18 +360,27 @@ describe('session management helpers', () => {
 
   it('createCollabSession throws with the server error string on refusal', async () => {
     await expect(
-      createCollabSession('http://test:8765', { scope: '', documentId: 'd', snapshot: {} }, async () =>
-        jsonResponse(400, { error: "'scope' is required (single-user: 'local')" }),
+      createCollabSession(
+        'http://test:8765',
+        { scope: '', documentId: 'd', snapshot: {} },
+        async () =>
+          jsonResponse(400, {
+            error: "'scope' is required (single-user: 'local')",
+          }),
       ),
     ).rejects.toThrow(/'scope' is required/)
   })
 
   it('listCollabSessions encodes the scope and unwraps the sessions array', async () => {
     let seen = ''
-    const sessions = await listCollabSessions('http://test:8765', 'a b', async (url) => {
-      seen = url
-      return jsonResponse(200, { sessions: [descriptor] })
-    })
+    const sessions = await listCollabSessions(
+      'http://test:8765',
+      'a b',
+      async (url) => {
+        seen = url
+        return jsonResponse(200, { sessions: [descriptor] })
+      },
+    )
     expect(seen).toBe('http://test:8765/api/sessions?scope=a%20b')
     expect(sessions).toEqual([descriptor])
   })
@@ -264,7 +392,9 @@ describe('session management helpers', () => {
       ),
     ).toBeUndefined()
     await expect(
-      getCollabSession('http://test:8765', 's1', async () => jsonResponse(500, { error: 'boom' })),
+      getCollabSession('http://test:8765', 's1', async () =>
+        jsonResponse(500, { error: 'boom' }),
+      ),
     ).rejects.toThrow(/500/)
   })
 
@@ -279,14 +409,18 @@ describe('session management helpers', () => {
       jsonResponse(404, { error: 'no such session' }),
     )
     await expect(
-      closeCollabSession('http://test:8765', 's1', async () => jsonResponse(500, { error: 'x' })),
+      closeCollabSession('http://test:8765', 's1', async () =>
+        jsonResponse(500, { error: 'x' }),
+      ),
     ).rejects.toThrow(/500/)
   })
 })
 
 describe('postOp status mapping', () => {
   it('maps an ok response to accepted with the raw envelope (validation is the session core)', async () => {
-    const { connection } = harness({ fetchFn: async () => jsonResponse(200, serverOp) })
+    const { connection } = harness({
+      fetchFn: async () => jsonResponse(200, serverOp),
+    })
     const outcome = await connection.postOp({
       protocolVersion: 1,
       opId: 'op-1',
@@ -305,7 +439,13 @@ describe('postOp status mapping', () => {
         return jsonResponse(200, serverOp)
       },
     })
-    const op = { protocolVersion: 1, opId: 'op-1', actorId: 'alice', baseRevision: 3, patch: [] }
+    const op = {
+      protocolVersion: 1,
+      opId: 'op-1',
+      actorId: 'alice',
+      baseRevision: 3,
+      patch: [],
+    }
     await connection.postOp(op)
     expect(seen?.url).toBe('http://test:8765/api/sessions/s1/ops')
     expect(seen?.body).toEqual(op)
@@ -313,33 +453,61 @@ describe('postOp status mapping', () => {
 
   it('maps 409 stale-base {revision} to a rebase signal', async () => {
     const { connection } = harness({
-      fetchFn: async () => jsonResponse(409, { error: 'stale-base', revision: 9 }),
+      fetchFn: async () =>
+        jsonResponse(409, { error: 'stale-base', revision: 9 }),
     })
     expect(
-      await connection.postOp({ protocolVersion: 1, opId: 'o', actorId: 'a', baseRevision: 3, patch: [] }),
+      await connection.postOp({
+        protocolVersion: 1,
+        opId: 'o',
+        actorId: 'a',
+        baseRevision: 3,
+        patch: [],
+      }),
     ).toEqual({ kind: 'stale-base', revision: 9 })
   })
 
   it('maps 409 snapshot-required to the checkpoint signal (distinct from stale-base)', async () => {
     const { connection } = harness({
       fetchFn: async () =>
-        jsonResponse(409, { error: 'snapshot-required', revision: 5000, snapshotRevision: 4 }),
+        jsonResponse(409, {
+          error: 'snapshot-required',
+          revision: 5000,
+          snapshotRevision: 4,
+        }),
     })
     expect(
-      await connection.postOp({ protocolVersion: 1, opId: 'o', actorId: 'a', baseRevision: 3, patch: [] }),
+      await connection.postOp({
+        protocolVersion: 1,
+        opId: 'o',
+        actorId: 'a',
+        baseRevision: 3,
+        patch: [],
+      }),
     ).toEqual({ kind: 'snapshot-required' })
   })
 
   it('maps 406 to protocol-unsupported with the supported list (malformed list = empty)', async () => {
     const { connection } = harness({
       fetchFn: async () =>
-        jsonResponse(406, { error: 'protocol-version-unsupported', requested: 2, supported: [1] }),
+        jsonResponse(406, {
+          error: 'protocol-version-unsupported',
+          requested: 2,
+          supported: [1],
+        }),
     })
     expect(
-      await connection.postOp({ protocolVersion: 2, opId: 'o', actorId: 'a', baseRevision: 3, patch: [] }),
+      await connection.postOp({
+        protocolVersion: 2,
+        opId: 'o',
+        actorId: 'a',
+        baseRevision: 3,
+        patch: [],
+      }),
     ).toEqual({ kind: 'protocol-unsupported', supported: [1] })
     const malformed = harness({
-      fetchFn: async () => jsonResponse(406, { error: 'protocol-version-unsupported' }),
+      fetchFn: async () =>
+        jsonResponse(406, { error: 'protocol-version-unsupported' }),
     })
     expect(
       await malformed.connection.postOp({
@@ -354,11 +522,21 @@ describe('postOp status mapping', () => {
 
   it('maps other refusals to error with the server message, and a thrown fetch to error (same-opId retry)', async () => {
     const { connection } = harness({
-      fetchFn: async () => jsonResponse(400, { error: "'opId' must be a non-empty string" }),
+      fetchFn: async () =>
+        jsonResponse(400, { error: "'opId' must be a non-empty string" }),
     })
     expect(
-      await connection.postOp({ protocolVersion: 1, opId: '', actorId: 'a', baseRevision: 3, patch: [] }),
-    ).toEqual({ kind: 'error', message: "HTTP 400: 'opId' must be a non-empty string" })
+      await connection.postOp({
+        protocolVersion: 1,
+        opId: '',
+        actorId: 'a',
+        baseRevision: 3,
+        patch: [],
+      }),
+    ).toEqual({
+      kind: 'error',
+      message: "HTTP 400: 'opId' must be a non-empty string",
+    })
     const network = harness({
       fetchFn: async () => {
         throw new Error('connection refused')
@@ -377,14 +555,44 @@ describe('postOp status mapping', () => {
 })
 
 describe('snapshot and catch-up routes', () => {
-  it('fetchSnapshot returns {revision, document} and throws on a malformed or failed response', async () => {
+  it('fetchSnapshot returns the document kind and throws on a malformed or failed response', async () => {
     const { connection } = harness({
-      fetchFn: async () => jsonResponse(200, { revision: 7, document: { d: 1 } }),
+      fetchFn: async () =>
+        jsonResponse(200, { revision: 7, document: { d: 1 } }),
     })
-    expect(await connection.fetchSnapshot()).toEqual({ revision: 7, document: { d: 1 } })
-    const bad = harness({ fetchFn: async () => jsonResponse(200, { document: {} }) })
-    await expect(bad.connection.fetchSnapshot()).rejects.toThrow(/invalid revision/)
-    const failed = harness({ fetchFn: async () => jsonResponse(500, { error: 'x' }) })
+    expect(await connection.fetchSnapshot()).toEqual({
+      revision: 7,
+      document: { d: 1 },
+    })
+    const typed = harness({
+      fetchFn: async () =>
+        jsonResponse(200, {
+          revision: 7,
+          document: { d: 1 },
+          documentKind: 'video',
+        }),
+    })
+    expect(await typed.connection.fetchSnapshot()).toEqual({
+      revision: 7,
+      document: { d: 1 },
+      documentKind: 'video',
+    })
+    const bad = harness({
+      fetchFn: async () => jsonResponse(200, { document: {} }),
+    })
+    await expect(bad.connection.fetchSnapshot()).rejects.toThrow(
+      /invalid revision/,
+    )
+    const badKind = harness({
+      fetchFn: async () =>
+        jsonResponse(200, { revision: 7, document: {}, documentKind: 1 }),
+    })
+    await expect(badKind.connection.fetchSnapshot()).rejects.toThrow(
+      /invalid document kind/,
+    )
+    const failed = harness({
+      fetchFn: async () => jsonResponse(500, { error: 'x' }),
+    })
     await expect(failed.connection.fetchSnapshot()).rejects.toThrow(/500/)
   })
 
@@ -393,22 +601,36 @@ describe('snapshot and catch-up routes', () => {
     const { connection } = harness({
       fetchFn: async (url) => {
         seen = url
-        return jsonResponse(200, { protocolVersion: 1, sessionId: 's1', revision: 5, ops: [serverOp] })
+        return jsonResponse(200, {
+          protocolVersion: 1,
+          sessionId: 's1',
+          revision: 5,
+          ops: [serverOp],
+        })
       },
     })
-    expect(await connection.fetchOps(3)).toEqual({ kind: 'ops', ops: [serverOp] })
+    expect(await connection.fetchOps(3)).toEqual({
+      kind: 'ops',
+      ops: [serverOp],
+    })
     expect(seen).toBe('http://test:8765/api/sessions/s1/ops?after=3')
   })
 
   it('fetchOps maps 410 to resync-required with the snapshotRevision', async () => {
     const { connection } = harness({
-      fetchFn: async () => jsonResponse(410, { error: 'resync-required', snapshotRevision: 12 }),
+      fetchFn: async () =>
+        jsonResponse(410, { error: 'resync-required', snapshotRevision: 12 }),
     })
-    expect(await connection.fetchOps(3)).toEqual({ kind: 'resync-required', snapshotRevision: 12 })
+    expect(await connection.fetchOps(3)).toEqual({
+      kind: 'resync-required',
+      snapshotRevision: 12,
+    })
   })
 
   it('fetchOps throws on a page missing the ops array', async () => {
-    const { connection } = harness({ fetchFn: async () => jsonResponse(200, { revision: 5 }) })
+    const { connection } = harness({
+      fetchFn: async () => jsonResponse(200, { revision: 5 }),
+    })
     await expect(connection.fetchOps(3)).rejects.toThrow(/missing ops array/)
   })
 
@@ -424,12 +646,20 @@ describe('snapshot and catch-up routes', () => {
     expect(await connection.putSnapshot(9, doc)).toEqual({ kind: 'ok' })
     expect(seen?.url).toBe('http://test:8765/api/sessions/s1/snapshot')
     expect(seen?.init?.method).toBe('PUT')
-    expect(JSON.parse(seen?.init?.body as string)).toEqual({ revision: 9, document: doc })
-    const conflict = harness({
-      fetchFn: async () => jsonResponse(409, { error: 'snapshot-invalid', message: 'behind' }),
+    expect(JSON.parse(seen?.init?.body as string)).toEqual({
+      revision: 9,
+      document: doc,
     })
-    expect(await conflict.connection.putSnapshot(2, doc)).toEqual({ kind: 'conflict' })
-    const failed = harness({ fetchFn: async () => jsonResponse(500, { error: 'x' }) })
+    const conflict = harness({
+      fetchFn: async () =>
+        jsonResponse(409, { error: 'snapshot-invalid', message: 'behind' }),
+    })
+    expect(await conflict.connection.putSnapshot(2, doc)).toEqual({
+      kind: 'conflict',
+    })
+    const failed = harness({
+      fetchFn: async () => jsonResponse(500, { error: 'x' }),
+    })
     await expect(failed.connection.putSnapshot(2, doc)).rejects.toThrow(/500/)
   })
 })
@@ -438,7 +668,9 @@ describe('WS frame shaping', () => {
   it('connects to the events route derived from the base URL (ws scheme), honoring wsUrl override', () => {
     const { wsUrls } = harness()
     expect(wsUrls[0]).toBe('ws://test:8765/api/sessions/s1/events')
-    const overridden = harness({ wsUrl: 'wss://elsewhere/api/sessions/s1/events' })
+    const overridden = harness({
+      wsUrl: 'wss://elsewhere/api/sessions/s1/events',
+    })
     expect(overridden.wsUrls[0]).toBe('wss://elsewhere/api/sessions/s1/events')
   })
 
@@ -514,7 +746,8 @@ describe('WS frame shaping', () => {
     frame(ws, { type: 'session', ...descriptor })
     // Well past the 4096 buffer cap: were presence buffered, the flood
     // would shift the sole descriptor (the catch-up baseline) out.
-    for (let i = 0; i < 5000; i++) frame(ws, { type: 'presence', actorId: 'bob', payload: { i } })
+    for (let i = 0; i < 5000; i++)
+      frame(ws, { type: 'presence', actorId: 'bob', payload: { i } })
     frame(ws, { type: 'op', ...serverOp })
     const events: CollabConnectionEvent[] = []
     connection.onEvent((e) => events.push(e))
@@ -548,12 +781,21 @@ describe('WS frame shaping', () => {
     ws.onopen?.({})
     frame(ws, { type: 'session', ...descriptor, revision: 0 })
     for (let i = 1; i <= 4096; i++) {
-      frame(ws, { type: 'op', ...serverOp, opId: `op-${i}`, baseRevision: i - 1, revision: i })
+      frame(ws, {
+        type: 'op',
+        ...serverOp,
+        opId: `op-${i}`,
+        baseRevision: i - 1,
+        revision: i,
+      })
     }
     const events: CollabConnectionEvent[] = []
     connection.onEvent((e) => events.push(e))
     expect(events).toHaveLength(4096)
-    expect(events[0]).toEqual({ kind: 'connected', descriptor: { ...descriptor, revision: 0 } })
+    expect(events[0]).toEqual({
+      kind: 'connected',
+      descriptor: { ...descriptor, revision: 0 },
+    })
     // The single overflow dropped the OLDEST op (revision 1), keeping the
     // newest; the session's ordered ingress repairs the gap.
     expect(events[1]).toMatchObject({ kind: 'op', op: { revision: 2 } })
@@ -661,12 +903,18 @@ describe('WS frame shaping', () => {
     ws.onopen?.({})
     frame(ws, { type: 'session', ...descriptor })
     ws.onclose?.({}) // slow-subscriber close or network death
-    expect(events).toEqual([{ kind: 'connected', descriptor }, { kind: 'disconnected' }])
+    expect(events).toEqual([
+      { kind: 'connected', descriptor },
+      { kind: 'disconnected' },
+    ])
     scheduled.shift()!() // reconnect backoff fires; socket B opens
     const wsB = sockets[1]!
     wsB.onopen?.({})
     frame(wsB, { type: 'session', ...descriptor, revision: 9 })
-    expect(events[2]).toEqual({ kind: 'connected', descriptor: { ...descriptor, revision: 9 } })
+    expect(events[2]).toEqual({
+      kind: 'connected',
+      descriptor: { ...descriptor, revision: 9 },
+    })
   })
 
   it('close() tears down deliberately: no disconnected event, later frames ignored, unsubscribe works', () => {
@@ -702,7 +950,10 @@ describe('gone-session probe', () => {
     await vi.waitFor(() => {
       expect(events).toContainEqual({ kind: 'session-closed' })
     })
-    expect(events).toEqual([{ kind: 'disconnected' }, { kind: 'session-closed' }])
+    expect(events).toEqual([
+      { kind: 'disconnected' },
+      { kind: 'session-closed' },
+    ])
   })
 
   it('keeps polling through unreachable-server probes and stands down when the socket reconnects', async () => {

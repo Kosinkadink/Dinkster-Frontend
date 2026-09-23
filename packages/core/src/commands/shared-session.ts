@@ -14,12 +14,12 @@
  *   transforms, so every accepted op's patch applies cleanly by construction.
  * - `pending` is the FIFO of THIS actor's unacknowledged intentions. The
  *   optimistic document (what the UI sees) is always
- *   confirmed + pending re-executed, maintained in an inner DocumentStore.
+ *   confirmed + pending re-executed through the document type adapter.
  * - Local dispatch executes optimistically (full command validation +
  *   invariants), enqueues the intention, and submits ops one at a time with
  *   baseRevision = confirmedRevision.
  * - A foreign op (another actor) advances `confirmed` and triggers a REBASE:
- *   the inner store is rebuilt from the new confirmed document and every
+ *   the optimistic state is rebuilt from the confirmed document and every
  *   pending intention re-executes as a command (this is why invocations are
  *   serializable intention data). An intention that no longer applies is
  *   DROPPED and surfaced through onConflict - never silently merged wrong.
@@ -46,7 +46,7 @@
  * - Presence is ephemeral passthrough (never stored in document state).
  *
  * Trust boundary: foreign patches and snapshots are structurally validated
- * on ingress (applyOps ownership + invariant check; loadDocument for
+ * on ingress (applyOps ownership + invariant check; adapter.load for
  * snapshots). Anything that fails validation triggers a RESYNC from the
  * server snapshot rather than a local guess; a failed resync is a session
  * error state.
@@ -59,30 +59,48 @@
 import type { Json, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
-import { loadDocument } from '../format/migrate.js'
-import { checkDocument } from '../invariants.js'
-import { createSignal, type ReadonlySignal, type Signal } from '../reactive/signal.js'
+import {
+  createSignal,
+  type ReadonlySignal,
+  type Signal,
+} from '../reactive/signal.js'
 import type {
   CommandDefinition,
   CommandInvocation,
-  CommandOutcome,
   SharedReplayPreparation,
 } from './contract.js'
-import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
-import { applyOps, type PatchOp } from './patch.js'
-import { DocumentStore, jsonSameValue, replayHistoryOps, type HistorySnapshot, type ListenerErrorSink } from './store.js'
-import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
+import {
+  applyOps,
+  applyOwnedOps,
+  getAtPath,
+  invertOps,
+  type PatchOp,
+} from './patch.js'
+import {
+  jsonSameValue,
+  type HistorySnapshot,
+  type ListenerErrorSink,
+} from './store.js'
+import { toWirePatch, type SessionOp, type WirePatchOp } from './session.js'
+import {
+  createWorkflowDocumentTypeAdapter,
+  recordDocumentHistory,
+  replayDocumentHistory,
+  type DocumentCommandOutcome,
+  type DocumentTypeAdapter,
+} from './document-type.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   COLLAB_PROTOCOL_VERSION,
   isValidCollabRevision,
+  normalizeCollabDocumentKind,
   validateCollabDescriptor,
   validateCollabServerOp,
+  validateCollabWirePatchShape,
   type CollabConnection,
   type CollabConnectionEvent,
   type CollabServerOp,
-  type CollabSessionDescriptor,
   type PostOpOutcome,
 } from './collab-protocol.js'
 import {
@@ -102,29 +120,7 @@ import {
  * check. A patch that no longer fits the current document is an atomic
  * rejection, never a partial apply.
  */
-const sessionPatchCommand: CommandDefinition = {
-  id: 'session.patch',
-  run(_doc, params, tx) {
-    const ops = (params as { ops?: unknown })?.ops
-    if (!Array.isArray(ops)) throw new Error('session.patch: params.ops must be an array')
-    for (const raw of ops) {
-      const op = raw as WirePatchOp
-      if (op === null || typeof op !== 'object' || !Array.isArray(op.path)) {
-        throw new Error('session.patch: malformed op')
-      }
-      if (op.op === 'remove') {
-        tx.remove(op.path)
-      } else if (op.op === 'add' && typeof op.path[op.path.length - 1] === 'number') {
-        tx.insert(op.path, op.value as Json)
-      } else if (op.op === 'add' || op.op === 'replace') {
-        tx.set(op.path, op.value as Json)
-      } else {
-        throw new Error(`session.patch: unknown op '${String((op as { op?: unknown }).op)}'`)
-      }
-    }
-    return []
-  },
-}
+const sessionPatchCommand = { id: 'session.patch' } as const
 
 // ---------------------------------------------------------------------------
 // Session
@@ -136,6 +132,7 @@ export type SharedSessionStatus = 'live' | 'catching-up' | 'closed' | 'error'
 export interface SessionConflict {
   readonly invocation: CommandInvocation
   readonly diagnostics: readonly Diagnostic[]
+  readonly origin?: string
   /** 'rebase' = foreign op invalidated it; 'undo'/'redo' = history replay refused. */
   readonly during: 'rebase' | 'undo' | 'redo'
 }
@@ -165,6 +162,7 @@ interface SubmittedAttempt {
 interface PendingEntry {
   opId: string
   invocation: CommandInvocation
+  resources?: ReadonlySet<string> | undefined
   /** SessionOp.origin for the eventual ack ('session.undo'/'session.redo' for replays). */
   readonly origin: string
   predicted: readonly WirePatchOp[]
@@ -190,6 +188,7 @@ interface PendingEntry {
 interface HistoryRecord {
   forward: readonly PatchOp[]
   inverse: readonly PatchOp[]
+  resources?: ReadonlySet<string> | undefined
 }
 
 const hasErrors = (diags: readonly Diagnostic[]): boolean =>
@@ -200,7 +199,7 @@ const defaultActorId = (): string =>
     ? crypto.randomUUID()
     : `a${Date.now().toString(36)}${Math.floor(Math.random() * 0xffffffff).toString(36)}`
 
-class SharedDocumentSession implements DocumentSession {
+export class SharedDocumentSession<D = WorkflowDocument> {
   readonly actorId: string
   /** Shared dispatch stamps actorId; ids come from actorCursors[actorId]. */
   get allocationActor(): string {
@@ -208,7 +207,6 @@ class SharedDocumentSession implements DocumentSession {
   }
   readonly status: ReadonlySignal<SharedSessionStatus>
 
-  private readonly commands: ReadonlyMap<string, CommandDefinition>
   private readonly connection: CollabConnection
   private readonly clock: () => number
   private readonly retryDelay: () => Promise<void>
@@ -216,22 +214,22 @@ class SharedDocumentSession implements DocumentSession {
   private readonly onConflict: ((conflict: SessionConflict) => void) | undefined
   private readonly onErrorCb: ((message: string) => void) | undefined
   private readonly maxUndo: number
-  private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
-  private rebasing = false
   private readonly snapshotPolicy: SnapshotPublicationPolicy
 
-  private confirmed: WorkflowDocument
+  private confirmed: D
   private confirmedRevision: number
   private revisionOffset = 0
-  private store: DocumentStore
+  private optimistic: D
   private readonly pending: PendingEntry[] = []
   private readonly undoStack: HistoryRecord[] = []
   private readonly redoStack: HistoryRecord[] = []
 
-  private readonly docSignal: Signal<WorkflowDocument>
+  private readonly docSignal: Signal<D>
   private readonly statusSignal: Signal<SharedSessionStatus>
   private readonly opListeners = new Set<(op: SessionOp) => void>()
-  private readonly presenceListeners = new Set<(actorId: string, payload?: Json) => void>()
+  private readonly presenceListeners = new Set<
+    (actorId: string, payload?: Json) => void
+  >()
   /**
    * Undefined only during construction: the connection replays buffered
    * pre-subscription events synchronously inside onEvent, so a replayed
@@ -248,6 +246,7 @@ class SharedDocumentSession implements DocumentSession {
    */
   private readonly opNonce = `${Date.now().toString(36)}${Math.floor(Math.random() * 0xffffff).toString(36)}`
   private pumpPromise: Promise<void> | undefined
+  private syncPromise: Promise<void> | undefined
   /** True while the sync loop (catch-up / resync) is running. */
   private syncing = false
   /**
@@ -267,19 +266,24 @@ class SharedDocumentSession implements DocumentSession {
   private connected = false
   private snapshotTimer: ReturnType<typeof setTimeout> | undefined
   private snapshotTimerDue = 0
-  private snapshotPublishPromise: Promise<'ok' | 'conflict' | 'error'> | undefined
+  private snapshotPublishPromise:
+    | Promise<'ok' | 'conflict' | 'error'>
+    | undefined
 
   constructor(
     connection: CollabConnection,
-    snapshot: WorkflowDocument,
+    snapshot: D,
     snapshotRevision: number,
-    commands: ReadonlyMap<string, CommandDefinition>,
+    private readonly adapter: DocumentTypeAdapter<D>,
     options?: SharedSessionOptions,
   ) {
     this.connection = connection
     this.actorId = options?.actorId ?? defaultActorId()
+    if (!isValidActorId(this.actorId))
+      throw new Error('invalid collaboration actor id')
     this.clock = options?.clock ?? Date.now
-    this.retryDelay = options?.retryDelay ?? (() => new Promise((r) => setTimeout(r, 1000)))
+    this.retryDelay =
+      options?.retryDelay ?? (() => new Promise((r) => setTimeout(r, 1000)))
     this.sink =
       options?.onListenerError ??
       ((error, context) => {
@@ -289,24 +293,19 @@ class SharedDocumentSession implements DocumentSession {
     this.onConflict = options?.onConflict
     this.onErrorCb = options?.onError
     this.maxUndo = options?.maxUndo ?? 200
-    this.schemaResolverFor = options?.schemaResolverFor
+    if (!Number.isSafeInteger(this.maxUndo) || this.maxUndo < 0)
+      throw new Error('maxUndo must be a non-negative safe integer')
+    if (!isValidCollabRevision(snapshotRevision))
+      throw new Error('invalid snapshot revision')
     this.snapshotPolicy = new SnapshotPublicationPolicy(
       snapshotRevision,
       this.clock(),
       options?.snapshotRandom,
     )
-    // Private registry: session.patch is reserved for the session itself.
-    const map = new Map(commands)
-    map.set(sessionPatchCommand.id, sessionPatchCommand)
-    this.commands = map
-
-    this.confirmed = snapshot
+    this.confirmed = this.load(snapshot)
     this.confirmedRevision = snapshotRevision
-    // Inner store = optimistic document authority. Its own history is
-    // disabled (0): the session keeps history itself so it survives
-    // rebases as forward-op intentions, per the undo-as-forward-op pin.
-    this.store = this.createStore(this.confirmed)
-    this.docSignal = createSignal<WorkflowDocument>(this.store.doc)
+    this.optimistic = this.confirmed
+    this.docSignal = createSignal<D>(this.optimistic)
     this.statusSignal = createSignal<SharedSessionStatus>('live')
     this.status = this.statusSignal
     this.unsubscribe = connection.onEvent((event) => this.handleEvent(event))
@@ -323,8 +322,8 @@ class SharedDocumentSession implements DocumentSession {
 
   // -- DocumentSession surface ----------------------------------------------
 
-  get doc(): WorkflowDocument {
-    return this.store.doc
+  get doc(): D {
+    return this.optimistic
   }
 
   /** Monotonic document revision across local/shared session handoffs. */
@@ -332,7 +331,7 @@ class SharedDocumentSession implements DocumentSession {
     return this.revisionOffset + this.confirmedRevision + this.pending.length
   }
 
-  get document(): ReadonlySignal<WorkflowDocument> {
+  get document(): ReadonlySignal<D> {
     return this.docSignal
   }
 
@@ -345,27 +344,34 @@ class SharedDocumentSession implements DocumentSession {
   }
 
   predictedNodeId(graphId: string): string | undefined {
-    const def = this.store.doc.graphs[graphId]
-    return def === undefined ? undefined : predictAllocatedId(def, this.actorId, 'n')
+    return this.adapter.predictId?.(this.optimistic, this.actorId, graphId, 'n')
   }
 
   predictedRerouteId(graphId: string): string | undefined {
-    const def = this.store.doc.graphs[graphId]
-    return def === undefined ? undefined : predictAllocatedId(def, this.actorId, 'r')
+    return this.adapter.predictId?.(this.optimistic, this.actorId, graphId, 'r')
   }
 
-  dispatch(invocation: CommandInvocation): CommandOutcome {
+  dispatch(invocation: CommandInvocation): DocumentCommandOutcome<D> {
     if (invocation.command === sessionPatchCommand.id) {
       return {
         ok: false,
         diagnostics: [
-          diag('error', 'command', 'command.reserved', `'${sessionPatchCommand.id}' is session-internal`),
+          diag(
+            'error',
+            'command',
+            'command.reserved',
+            `'${sessionPatchCommand.id}' is session-internal`,
+          ),
         ],
       }
     }
     const outcome = this.run(invocation)
     if (outcome.ok && outcome.forward.length > 0) {
-      const record: HistoryRecord = { forward: outcome.forward, inverse: outcome.inverse }
+      const record: HistoryRecord = {
+        forward: outcome.redo ?? outcome.forward,
+        inverse: outcome.inverse,
+        resources: this.pending[this.pending.length - 1]!.resources,
+      }
       // run() just pushed this intention's pending entry (synchronous,
       // deferred pump - nothing can interleave): tie the record to it so
       // rebases keep history and pending coherent.
@@ -373,6 +379,7 @@ class SharedDocumentSession implements DocumentSession {
       this.undoStack.push(record)
       if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
       this.redoStack.length = 0
+      this.docSignal.set(this.optimistic)
     }
     return outcome
   }
@@ -390,10 +397,34 @@ class SharedDocumentSession implements DocumentSession {
     this.redoStack.length = 0
   }
 
+  retainedResourceDigests(): ReadonlySet<string> {
+    const retained = new Set(this.adapter.resourceDigests?.(this.optimistic))
+    for (const entry of [
+      ...this.pending,
+      ...this.undoStack,
+      ...this.redoStack,
+    ]) {
+      for (const digest of entry.resources ?? []) retained.add(digest)
+    }
+    return retained
+  }
+
   historySnapshot(): HistorySnapshot {
-    const detach = (records: readonly HistoryRecord[]): HistorySnapshot['undo'] =>
-      records.map((record) => ({ forward: record.forward, inverse: record.inverse }))
-    return { revision: this.revision, undo: detach(this.undoStack), redo: detach(this.redoStack) }
+    const detach = (
+      records: readonly HistoryRecord[],
+    ): HistorySnapshot['undo'] =>
+      records.map((record) => ({
+        forward: record.forward,
+        inverse: record.inverse,
+        ...(record.resources !== undefined
+          ? { resources: [...record.resources] }
+          : {}),
+      }))
+    return {
+      revision: this.revision,
+      undo: detach(this.undoStack),
+      redo: detach(this.redoStack),
+    }
   }
 
   /**
@@ -406,12 +437,25 @@ class SharedDocumentSession implements DocumentSession {
    * still drops them with the rest of the history.
    */
   adoptHistory(history: HistorySnapshot): void {
-    if (this.pending.length > 0 || this.undoStack.length > 0 || this.redoStack.length > 0) {
-      throw new Error('adoptHistory: session already has local intentions or history')
+    if (
+      this.pending.length > 0 ||
+      this.undoStack.length > 0 ||
+      this.redoStack.length > 0
+    ) {
+      throw new Error(
+        'adoptHistory: session already has local intentions or history',
+      )
     }
     this.revisionOffset = Math.max(0, history.revision - this.confirmedRevision)
-    for (const record of history.undo) this.undoStack.push({ forward: record.forward, inverse: record.inverse })
-    for (const record of history.redo) this.redoStack.push({ forward: record.forward, inverse: record.inverse })
+    const adopt = (record: HistorySnapshot['undo'][number]): HistoryRecord => ({
+      forward: record.forward,
+      inverse: record.inverse,
+      ...(record.resources !== undefined
+        ? { resources: new Set(record.resources) }
+        : {}),
+    })
+    for (const record of history.undo) this.undoStack.push(adopt(record))
+    for (const record of history.redo) this.redoStack.push(adopt(record))
     while (this.undoStack.length > this.maxUndo) this.undoStack.shift()
     while (this.redoStack.length > this.maxUndo) this.redoStack.shift()
   }
@@ -432,7 +476,9 @@ class SharedDocumentSession implements DocumentSession {
     this.connection.sendPresence(payload)
   }
 
-  private submissionDenial: Extract<PostOpOutcome, { diagnostic: unknown }>['diagnostic'] | undefined
+  private submissionDenial:
+    | Extract<PostOpOutcome, { diagnostic: unknown }>['diagnostic']
+    | undefined
 
   private throwIfDenied(): void {
     const diagnostic = this.submissionDenial ?? this.connection.denial
@@ -445,7 +491,13 @@ class SharedDocumentSession implements DocumentSession {
   /** Resolves when submission is quiescent; rejects a definitive refusal. */
   async settle(): Promise<void> {
     this.throwIfDenied()
-    while (this.pumpPromise) await this.pumpPromise
+    while (this.pumpPromise || this.syncPromise) {
+      await Promise.all(
+        [this.pumpPromise, this.syncPromise].filter(
+          (promise) => promise !== undefined,
+        ),
+      )
+    }
     this.throwIfDenied()
   }
 
@@ -471,98 +523,316 @@ class SharedDocumentSession implements DocumentSession {
 
   // -- Local execution -------------------------------------------------------
 
+  private load(value: unknown): D {
+    const loaded = this.adapter.load(value)
+    if (loaded.document === undefined || hasErrors(loaded.diagnostics)) {
+      throw new Error(
+        `collab snapshot failed to load: ${loaded.diagnostics[0]?.message ?? 'invalid document'}`,
+      )
+    }
+    const owned = ownJson(loaded.document)
+    if (!owned.ok)
+      throw new Error(`collab snapshot is not JSON: ${owned.reason}`)
+    const document = owned.value as D
+    const diagnostics = this.adapter.check(document)
+    if (hasErrors(diagnostics))
+      throw new Error(
+        `collab snapshot failed to load: ${diagnostics[0]?.message}`,
+      )
+    return document
+  }
+
+  private changedResources(
+    before: D,
+    after: D,
+  ): ReadonlySet<string> | undefined {
+    if (!this.adapter.resourceDigests) return undefined
+    const left = this.adapter.resourceDigests(before)
+    const right = this.adapter.resourceDigests(after)
+    return new Set(
+      [...left]
+        .filter((digest) => !right.has(digest))
+        .concat([...right].filter((digest) => !left.has(digest))),
+    )
+  }
+
+  private execute(
+    invocation: CommandInvocation,
+    replay: boolean,
+  ): DocumentCommandOutcome<D> {
+    try {
+      if (!isValidActorId(invocation.actor))
+        throw new Error('invalid command actor id')
+      let result: DocumentCommandOutcome<D>
+      if (invocation.command === sessionPatchCommand.id) {
+        const operations = (invocation.params as { ops: readonly PatchOp[] })
+          .ops
+        const invalid = validateCollabWirePatchShape(operations)
+        if (invalid !== null) throw new Error(invalid)
+        const guarded = replay
+          ? (this.adapter.replayHistory?.(this.optimistic, operations, true) ??
+            replayDocumentHistory(this.optimistic, operations))
+          : { applied: operations }
+        if (guarded.stale)
+          throw new Error(
+            `history conflicts at ${guarded.stale.path.join('/')}`,
+          )
+        let doc = this.optimistic as unknown as Json
+        const forward: PatchOp[] = []
+        for (const operation of guarded.applied) {
+          const oldValue = getAtPath(doc, operation.path)
+          // Recompute recorded values and object-key existence, matching
+          // transaction-builder set semantics after allocation-cursor replay.
+          const effective: PatchOp =
+            operation.op === 'remove'
+              ? { ...operation, oldValue: oldValue! }
+              : operation.op === 'add' &&
+                  typeof operation.path.at(-1) === 'number'
+                ? operation
+                : oldValue === undefined
+                  ? { op: 'add', path: operation.path, value: operation.value }
+                  : {
+                      op: 'replace',
+                      path: operation.path,
+                      value: operation.value,
+                      oldValue,
+                    }
+          doc = applyOps(doc, [effective])
+          forward.push(effective)
+        }
+        result = {
+          ok: true,
+          doc: doc as unknown as D,
+          forward,
+          inverse: invertOps(forward),
+          diagnostics: [],
+        }
+      } else {
+        if (!this.adapter.commandIds.has(invocation.command)) {
+          return {
+            ok: false,
+            diagnostics: [
+              diag(
+                'error',
+                'command',
+                'command.unknown',
+                `unknown command '${invocation.command}'`,
+              ),
+            ],
+          }
+        }
+        result = this.adapter.execute(this.optimistic, invocation, replay)
+      }
+      if (!result.ok || hasErrors(result.diagnostics))
+        return { ok: false, diagnostics: result.diagnostics }
+      // Patch ownership is session-owned even for process-local adapters.
+      const owned = ownJson(
+        {
+          forward: result.forward,
+          inverse: result.inverse,
+          ...(result.redo !== undefined ? { redo: result.redo } : {}),
+          ...(result.created !== undefined ? { created: result.created } : {}),
+        },
+        { undefinedProps: 'reject' },
+      )
+      if (!owned.ok)
+        throw new Error(`adapter patches are not JSON: ${owned.reason}`)
+      const patches = owned.value as unknown as Pick<
+        Extract<DocumentCommandOutcome<D>, { ok: true }>,
+        'forward' | 'inverse' | 'redo' | 'created'
+      >
+      for (const patch of [
+        patches.forward,
+        patches.inverse,
+        patches.redo ?? [],
+      ]) {
+        const invalid = validateCollabWirePatchShape(patch)
+        if (invalid !== null) throw new Error(invalid)
+        if (
+          patch.some(
+            (operation) =>
+              operation.op !== 'add' && !Object.hasOwn(operation, 'oldValue'),
+          )
+        ) {
+          throw new Error('adapter history patches require recorded old values')
+        }
+      }
+      // Derive the committed document from the wire patch, not an adapter's
+      // possibly aliased or inconsistent proposed document.
+      const doc = applyOwnedOps(
+        this.optimistic as unknown as Json,
+        patches.forward,
+      ) as unknown as D
+      const diagnostics = this.adapter.check(doc)
+      if (hasErrors(diagnostics)) return { ok: false, diagnostics }
+      return {
+        ok: true,
+        ...patches,
+        doc,
+        diagnostics: [...result.diagnostics, ...diagnostics],
+        ...(this.adapter.replayHistory === undefined
+          ? {
+              inverse: recordDocumentHistory(doc, patches.inverse),
+              redo: recordDocumentHistory(
+                this.optimistic,
+                patches.redo ?? patches.forward,
+              ),
+            }
+          : {}),
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        diagnostics: [
+          diag(
+            'error',
+            'command',
+            'command.threw',
+            `${invocation.command}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        ],
+      }
+    }
+  }
+
   /**
    * Execute an intention optimistically and enqueue it for submission.
    * Shared sessions stamp their actorId on EVERY invocation (contract.ts):
    * that is what routes id allocation to this actor's disjoint cursors.
    */
-  private run(invocation: CommandInvocation, origin?: string): CommandOutcome {
+  private run(
+    invocation: CommandInvocation,
+    origin?: string,
+  ): DocumentCommandOutcome<D> {
     const status = this.statusSignal.get()
     if (status === 'closed' || status === 'error') {
       return {
         ok: false,
-        diagnostics: [diag('error', 'command', 'session.unavailable', `session is ${status}`)],
+        diagnostics: [
+          diag(
+            'error',
+            'command',
+            'session.unavailable',
+            `session is ${status}`,
+          ),
+        ],
       }
     }
-    const owned = ownJson({ ...invocation, actor: this.actorId } as unknown as Json, { undefinedProps: 'reject' })
-    if (!owned.ok) return { ok: false, diagnostics: [diag('error', 'command', 'command.params.notJson', `${invocation.command}: params are not JSON: ${owned.reason}`)] }
+    const owned = ownJson(
+      { ...invocation, actor: this.actorId } as unknown as Json,
+      { undefinedProps: 'reject' },
+    )
+    if (!owned.ok)
+      return {
+        ok: false,
+        diagnostics: [
+          diag(
+            'error',
+            'command',
+            'command.params.notJson',
+            `${invocation.command}: params are not JSON: ${owned.reason}`,
+          ),
+        ],
+      }
     let stamped = owned.value as unknown as CommandInvocation
-    const definition = this.commands.get(stamped.command)
-    if (definition?.prepareForSharedReplay !== undefined) {
+    if (
+      stamped.command !== sessionPatchCommand.id &&
+      this.adapter.prepare !== undefined
+    ) {
       let prepared: SharedReplayPreparation | undefined
       try {
-        prepared = definition.prepareForSharedReplay(
-          this.store.doc,
-          stamped.params,
-          {
-            kind: 'initial',
-            ...(this.schemaResolverFor !== undefined ? { schemaResolverFor: this.schemaResolverFor } : {}),
-          },
-          stamped.actor,
-        )
+        prepared = this.adapter.prepare(this.optimistic, stamped)
       } catch (error) {
         return {
           ok: false,
-          diagnostics: [diag(
-            'error',
-            'command',
-            'command.threw',
-            `${stamped.command}: ${error instanceof Error ? error.message : String(error)}`,
-          )],
+          diagnostics: [
+            diag(
+              'error',
+              'command',
+              'command.threw',
+              `${stamped.command}: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          ],
         }
       }
       if (prepared !== undefined && !prepared.ok) {
         return { ok: false, diagnostics: prepared.diagnostics }
       }
       if (prepared !== undefined) {
-        const ownedPrepared = ownJson(prepared.params, { undefinedProps: 'reject' })
+        const ownedPrepared = ownJson(prepared.params, {
+          undefinedProps: 'reject',
+        })
         if (!ownedPrepared.ok) {
           return {
             ok: false,
-            diagnostics: [diag(
-              'error',
-              'command',
-              'command.params.notJson',
-              `${stamped.command}: prepared params are not JSON: ${ownedPrepared.reason}`,
-            )],
+            diagnostics: [
+              diag(
+                'error',
+                'command',
+                'command.params.notJson',
+                `${stamped.command}: prepared params are not JSON: ${ownedPrepared.reason}`,
+              ),
+            ],
           }
         }
         stamped = Object.freeze({ ...stamped, params: ownedPrepared.value })
       }
     }
-    const outcome = this.store.dispatch(stamped)
+    const before = this.optimistic
+    const outcome = this.execute(stamped, false)
     if (outcome.ok && outcome.forward.length > 0) {
+      let resources: ReadonlySet<string> | undefined
+      try {
+        resources = this.changedResources(before, outcome.doc)
+      } catch (error) {
+        return {
+          ok: false,
+          diagnostics: [
+            diag(
+              'error',
+              'command',
+              'command.threw',
+              `resource retention: ${String(error)}`,
+            ),
+          ],
+        }
+      }
+      this.optimistic = outcome.doc
       this.pending.push({
         opId: this.mintOpId(),
         invocation: stamped,
         origin: origin ?? stamped.command,
         predicted: toWirePatch(outcome.forward),
         attempts: [],
+        resources,
       })
-      this.docSignal.set(this.store.doc)
       this.pump()
     }
     return outcome
   }
 
-  private replayHistory(from: HistoryRecord[], to: HistoryRecord[], during: 'undo' | 'redo'): boolean {
+  private replayHistory(
+    from: HistoryRecord[],
+    to: HistoryRecord[],
+    during: 'undo' | 'redo',
+  ): boolean {
     const record = from.pop()
     if (!record) return false
     const patch = during === 'undo' ? record.inverse : record.forward
-    // CO3: clamp cursor rewinds exactly like DocumentStore history replay -
-    // undoing an add removes the node but never rewinds nextOrdinal/seq or
-    // actorCursors, so ids are never reused. requireRecordedValues is the
-    // shared-mode conflict guard: a record replays only where the document
-    // still holds the values it captured, so undo can never overwrite a
-    // foreign actor's edit with our stale recording. replayHistoryOps
-    // throws when the record's paths no longer fit the (possibly rebased)
-    // document; both failure shapes drop the record as a conflict.
+    // The adapter preserves allocation cursors and guards recorded values
+    // according to its document semantics before any history patch commits.
     let applied: readonly PatchOp[]
     try {
-      const replay = replayHistoryOps(this.store.doc, patch, { requireRecordedValues: true })
+      const replay =
+        this.adapter.replayHistory?.(this.optimistic, patch) ??
+        replayDocumentHistory(this.optimistic, patch)
       if (replay.stale) {
         this.notifyConflict({
-          invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
+          invocation: {
+            command: sessionPatchCommand.id,
+            params: null,
+            actor: this.actorId,
+          },
           diagnostics: [
             diag(
               'error',
@@ -579,8 +849,19 @@ class SharedDocumentSession implements DocumentSession {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       this.notifyConflict({
-        invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
-        diagnostics: [diag('error', 'command', 'session.history.stale', `${during} no longer applies: ${message}`)],
+        invocation: {
+          command: sessionPatchCommand.id,
+          params: null,
+          actor: this.actorId,
+        },
+        diagnostics: [
+          diag(
+            'error',
+            'command',
+            'session.history.stale',
+            `${during} no longer applies: ${message}`,
+          ),
+        ],
         during,
       })
       return false
@@ -593,20 +874,26 @@ class SharedDocumentSession implements DocumentSession {
     }
     const invocation: CommandInvocation = {
       command: sessionPatchCommand.id,
-      params: { ops: toWirePatch(applied) as unknown as Json },
+      params: { ops: applied as unknown as Json },
       actor: this.actorId,
     }
     const outcome = this.run(invocation, `session.${during}`)
     if (!outcome.ok) {
       // The record's paths no longer fit (a rebase moved the ground). Drop
       // it - forcing a stale patch would corrupt; the conflict is surfaced.
-      this.notifyConflict({ invocation, diagnostics: outcome.diagnostics, during })
+      this.notifyConflict({
+        invocation,
+        diagnostics: outcome.diagnostics,
+        during,
+      })
       return false
     }
     // Tie the moved record to the replay's pending entry: if a rebase
     // re-executes or drops this replay, the record must follow (see rebase).
-    if (outcome.forward.length > 0) this.pending[this.pending.length - 1]!.record = record
+    if (outcome.forward.length > 0)
+      this.pending[this.pending.length - 1]!.record = record
     to.push(record)
+    this.docSignal.set(this.optimistic)
     return true
   }
 
@@ -629,14 +916,22 @@ class SharedDocumentSession implements DocumentSession {
         // Lost-wakeup guard: a pump() call that raced this finalizer saw the
         // old promise and returned. Every loop exit path with work left is
         // gated (sync loop running, terminal status), so this cannot spin.
-        if (this.pending.length > 0 && this.statusSignal.get() === 'live' && !this.syncing) {
+        if (
+          this.pending.length > 0 &&
+          this.statusSignal.get() === 'live' &&
+          !this.syncing
+        ) {
           this.pump()
         }
       })
   }
 
   private async pumpLoop(): Promise<void> {
-    while (this.pending.length > 0 && this.statusSignal.get() === 'live' && !this.syncing) {
+    while (
+      this.pending.length > 0 &&
+      this.statusSignal.get() === 'live' &&
+      !this.syncing
+    ) {
       const head = this.pending[0]!
       const submittedOpId = head.opId
       const submittedBase = this.confirmedRevision
@@ -644,8 +939,15 @@ class SharedDocumentSession implements DocumentSession {
       // Remember what actually goes on the wire: if a resync remints this
       // intention while the POST's fate is unknown, ordered ingress needs
       // this identity to recognize the commit (see PendingEntry.attempts).
-      if (head.attempts.length === 0 || head.attempts[head.attempts.length - 1]!.opId !== submittedOpId) {
-        head.attempts.push({ opId: submittedOpId, baseRevision: submittedBase, patch: submittedPatch })
+      if (
+        head.attempts.length === 0 ||
+        head.attempts[head.attempts.length - 1]!.opId !== submittedOpId
+      ) {
+        head.attempts.push({
+          opId: submittedOpId,
+          baseRevision: submittedBase,
+          patch: submittedPatch,
+        })
       }
       let outcome: PostOpOutcome
       try {
@@ -657,7 +959,26 @@ class SharedDocumentSession implements DocumentSession {
           patch: head.predicted,
         })
       } catch (e) {
-        outcome = { kind: 'error', message: e instanceof Error ? e.message : String(e) }
+        outcome = {
+          kind: 'error',
+          message: e instanceof Error ? e.message : String(e),
+        }
+      }
+      if (
+        outcome.kind === 'stale-base' ||
+        outcome.kind === 'protocol-unsupported' ||
+        'diagnostic' in outcome
+      ) {
+        // A definitive refusal settles only this attempt. Older, genuinely
+        // unknown attempts must still be recognized across compacted resyncs.
+        for (const entry of new Set([head, ...this.pending])) {
+          const index = entry.attempts.findIndex(
+            (attempt) =>
+              attempt.opId === submittedOpId &&
+              attempt.baseRevision === submittedBase,
+          )
+          if (index !== -1) entry.attempts.splice(index, 1)
+        }
       }
       if (this.statusSignal.get() !== 'live') break // closed/failed during the await
       if (outcome.kind === 'accepted') {
@@ -680,11 +1001,15 @@ class SharedDocumentSession implements DocumentSession {
           outcome.op.actorId !== this.actorId ||
           outcome.op.opId !== submittedOpId ||
           outcome.op.baseRevision !== submittedBase ||
-          !jsonSameValue(outcome.op.patch as unknown as Json, submittedPatch as unknown as Json)
+          !jsonSameValue(
+            outcome.op.patch as unknown as Json,
+            submittedPatch as unknown as Json,
+          )
         ) {
           // The server claims a committed revision this client has not
           // confirmed: whatever really occupies it must still be reached.
-          if (outcome.op.revision > this.syncTarget) this.syncTarget = outcome.op.revision
+          if (outcome.op.revision > this.syncTarget)
+            this.syncTarget = outcome.op.revision
           this.requestResync('accepted op is not the submitted op')
           break
         }
@@ -709,7 +1034,9 @@ class SharedDocumentSession implements DocumentSession {
         continue
       }
       if (outcome.kind === 'protocol-unsupported') {
-        this.fail(`protocol version ${COLLAB_PROTOCOL_VERSION} unsupported (server supports ${outcome.supported.join(', ')})`)
+        this.fail(
+          `protocol version ${COLLAB_PROTOCOL_VERSION} unsupported (server supports ${outcome.supported.join(', ')})`,
+        )
         break
       }
       if ('diagnostic' in outcome) {
@@ -730,6 +1057,10 @@ class SharedDocumentSession implements DocumentSession {
     // an errored session, and a closed one owns no state to update.
     if (status === 'closed' || status === 'error') return
     switch (event.kind) {
+      case 'denial':
+        this.submissionDenial = event.diagnostic
+        this.fail(JSON.stringify(event.diagnostic))
+        break
       case 'op': {
         const invalid = validateCollabServerOp(event.op)
         if (invalid !== null) {
@@ -743,7 +1074,10 @@ class SharedDocumentSession implements DocumentSession {
       }
       case 'presence':
         if (!isValidActorId(event.actorId)) {
-          this.safeSink(new Error('presence: invalid actorId'), 'presence notify')
+          this.safeSink(
+            new Error('presence: invalid actorId'),
+            'presence notify',
+          )
           break
         }
         for (const l of [...this.presenceListeners]) {
@@ -755,14 +1089,21 @@ class SharedDocumentSession implements DocumentSession {
         }
         break
       case 'connected': {
-        const invalid = validateCollabDescriptor(event.descriptor, this.connection.sessionId, 'workflow')
+        const invalid = validateCollabDescriptor(
+          event.descriptor,
+          this.connection.sessionId,
+          this.adapter.kind,
+        )
         if (invalid !== null) {
           // Protocol mismatch is the pinned loud refusal, never negotiation.
           this.fail(invalid)
           break
         }
         this.connected = true
-        this.snapshotPolicy.observeSnapshot(event.descriptor.snapshotRevision, this.clock())
+        this.snapshotPolicy.observeSnapshot(
+          event.descriptor.snapshotRevision,
+          this.clock(),
+        )
         // Descriptor revision is the WS replay baseline: everything after it
         // streams gap-free, everything up to it must be fetched. The target
         // is raised even when a sync pass is mid-flight - its current page
@@ -823,7 +1164,12 @@ class SharedDocumentSession implements DocumentSession {
       // Ack only what is EXACTLY the pending head: same opId, same patch.
       const head = this.pending[0]
       if (head !== undefined && head.opId === op.opId) {
-        if (jsonSameValue(op.patch as unknown as Json, head.predicted as unknown as Json)) {
+        if (
+          jsonSameValue(
+            op.patch as unknown as Json,
+            head.predicted as unknown as Json,
+          )
+        ) {
           return this.ack(op)
         }
         // Same opId, different patch: the server committed something we did
@@ -835,12 +1181,19 @@ class SharedDocumentSession implements DocumentSession {
       // unknown, and the server DID commit the original. This is that
       // intention's confirmation - adopting it as external and then
       // resubmitting would duplicate a non-idempotent command.
-      const idx = this.pending.findIndex((e) => e.attempts.some((a) => a.opId === op.opId))
+      const idx = this.pending.findIndex((e) =>
+        e.attempts.some((a) => a.opId === op.opId),
+      )
       if (idx !== -1) {
-        const attempt = this.pending[idx]!.attempts.find((a) => a.opId === op.opId)!
+        const attempt = this.pending[idx]!.attempts.find(
+          (a) => a.opId === op.opId,
+        )!
         if (
           op.baseRevision !== attempt.baseRevision ||
-          !jsonSameValue(op.patch as unknown as Json, attempt.patch as unknown as Json)
+          !jsonSameValue(
+            op.patch as unknown as Json,
+            attempt.patch as unknown as Json,
+          )
         ) {
           // The server committed something under our id that we never sent.
           return 'own op patch mismatch'
@@ -853,7 +1206,12 @@ class SharedDocumentSession implements DocumentSession {
       // adopt it like any external edit and rebase pending over it. NEVER
       // report it as divergence - a resync cannot remove it from the log,
       // so that would loop forever.
-      this.safeSink(new Error(`own op ${op.opId} adopted as external (not the pending head)`), 'own op adopt')
+      this.safeSink(
+        new Error(
+          `own op ${op.opId} adopted as external (not the pending head)`,
+        ),
+        'own op adopt',
+      )
       return this.applyForeign(op)
     }
     return this.applyForeign(op)
@@ -861,18 +1219,22 @@ class SharedDocumentSession implements DocumentSession {
 
   /** Head pending op accepted: confirmed catches up to what optimistic already shows. */
   private ack(op: CollabServerOp): string | null {
-    let next: WorkflowDocument
+    let next: D
     try {
       // With no later optimistic intentions, exact patch equality above
       // proves the already validated optimistic document is this commit.
       // Reusing it avoids a second full-document invariant scan per local
       // command. Later pending intentions require the confirmed-only apply.
       if (this.pending.length === 1) {
-        next = this.store.doc
+        next = this.optimistic
       } else {
-        next = applyOps(this.confirmed as unknown as Json, op.patch) as unknown as WorkflowDocument
-        const diags = checkDocument(next)
-        if (hasErrors(diags)) throw new Error(diags.find((d) => d.severity === 'error')!.message)
+        next = applyOps(
+          this.confirmed as unknown as Json,
+          op.patch,
+        ) as unknown as D
+        const diags = this.adapter.check(next)
+        if (hasErrors(diags))
+          throw new Error(diags.find((d) => d.severity === 'error')!.message)
       }
     } catch (e) {
       return `ack rejected: ${e instanceof Error ? e.message : String(e)}`
@@ -897,11 +1259,15 @@ class SharedDocumentSession implements DocumentSession {
    */
   private confirmPending(idx: number, op: CollabServerOp): string | null {
     const oldGround = this.confirmed
-    let next: WorkflowDocument
+    let next: D
     try {
-      next = applyOps(this.confirmed as unknown as Json, op.patch) as unknown as WorkflowDocument
-      const diags = checkDocument(next)
-      if (hasErrors(diags)) throw new Error(diags.find((d) => d.severity === 'error')!.message)
+      next = applyOps(
+        this.confirmed as unknown as Json,
+        op.patch,
+      ) as unknown as D
+      const diags = this.adapter.check(next)
+      if (hasErrors(diags))
+        throw new Error(diags.find((d) => d.severity === 'error')!.message)
     } catch (e) {
       return `confirmed attempt rejected: ${e instanceof Error ? e.message : String(e)}`
     }
@@ -918,11 +1284,15 @@ class SharedDocumentSession implements DocumentSession {
 
   private applyForeign(op: CollabServerOp): string | null {
     const oldGround = this.confirmed
-    let next: WorkflowDocument
+    let next: D
     try {
-      next = applyOps(this.confirmed as unknown as Json, op.patch) as unknown as WorkflowDocument
-      const diags = checkDocument(next)
-      if (hasErrors(diags)) throw new Error(diags.find((d) => d.severity === 'error')!.message)
+      next = applyOps(
+        this.confirmed as unknown as Json,
+        op.patch,
+      ) as unknown as D
+      const diags = this.adapter.check(next)
+      if (hasErrors(diags))
+        throw new Error(diags.find((d) => d.severity === 'error')!.message)
     } catch (e) {
       return `foreign op rejected: ${e instanceof Error ? e.message : String(e)}`
     }
@@ -938,7 +1308,7 @@ class SharedDocumentSession implements DocumentSession {
   }
 
   /**
-   * Rebuild the optimistic document: fresh store from confirmed, re-execute
+   * Rebuild the optimistic document from confirmed, re-execute
    * every pending intention in order. Each survivor gets a fresh opId (its
    * patch may have changed - actor-scoped ids keep re-minting safe) and its
    * history record is REWRITTEN with the re-executed forward/inverse; each
@@ -950,91 +1320,116 @@ class SharedDocumentSession implements DocumentSession {
    * fenced - a dispatching or throwing onConflict sees (and cannot corrupt)
    * a fully consistent session.
    */
-  private rebase(oldGround: WorkflowDocument, skipped: ReadonlySet<PendingEntry> = new Set()): void {
+  private rebase(
+    oldGround: D,
+    skipped: ReadonlySet<PendingEntry> = new Set(),
+  ): void {
     const entries = this.pending.splice(0)
     const survivors: PendingEntry[] = []
     const conflicts: SessionConflict[] = []
-    let oldDocCursor: WorkflowDocument | undefined = oldGround
-    this.rebasing = true
-    try {
-      this.store = this.createStore(this.confirmed)
-      for (const entry of entries) {
-        const oldPredicted = entry.predicted
-        if (!skipped.has(entry)) {
-          const definition = this.commands.get(entry.invocation.command)
-          if (oldDocCursor && definition?.transformForRebase) {
-            const params = definition.transformForRebase(
-              entry.invocation.params,
+    let oldDocCursor: D | undefined = oldGround
+    this.optimistic = this.confirmed
+    for (const entry of entries) {
+      const oldPredicted = entry.predicted
+      if (!skipped.has(entry)) {
+        const before = this.optimistic
+        let outcome: DocumentCommandOutcome<D>
+        let resources: ReadonlySet<string> | undefined
+        try {
+          if (
+            oldDocCursor !== undefined &&
+            entry.invocation.command !== sessionPatchCommand.id
+          ) {
+            const params = this.adapter.transform?.(
+              entry.invocation,
               oldDocCursor,
-              this.store.doc,
+              this.optimistic,
             )
-            if (params !== undefined) entry.invocation = { ...entry.invocation, params }
+            if (params !== undefined) {
+              const owned = ownJson(params, { undefinedProps: 'reject' })
+              if (!owned.ok)
+                throw new Error(
+                  `transformed params are not JSON: ${owned.reason}`,
+                )
+              entry.invocation = Object.freeze({
+                ...entry.invocation,
+                params: owned.value,
+              })
+            }
           }
-          const outcome = this.store.dispatch(entry.invocation)
-          if (outcome.ok && outcome.forward.length > 0) {
-            if (entry.record) {
-              // The intention re-executed against new ground: its recorded
-              // patches are stale. An undo/redo replay entry's record lives
-              // MIRRORED (undo applied record.inverse, so the record's forward
-              // must revert what re-execution now did, and vice versa).
-              if (entry.origin === 'session.undo') {
-                entry.record.forward = outcome.inverse
-                entry.record.inverse = outcome.forward
-              } else {
-                entry.record.forward = outcome.forward
-                entry.record.inverse = outcome.inverse
-              }
-            }
-            survivors.push({
-              opId: this.mintOpId(),
-              invocation: entry.invocation,
-              origin: entry.origin,
-              predicted: toWirePatch(outcome.forward),
-              // Submitted history survives the remint, minus conclusively dead
-              // attempts: exact-base acceptance means an attempt whose slot
-              // (base+1) was observed occupied by something else can never
-              // commit. Ordered ingress observed every slot up to
-              // confirmedRevision individually here (snapshot-ambiguous
-              // entries are skipped rather than retained as survivors).
-              attempts: entry.attempts.filter((a) => a.baseRevision >= this.confirmedRevision),
-              record: entry.record,
-            })
-          } else {
-            // Dropped (conflict) or dissolved into a no-op: either way the
-            // intention will never be confirmed, so its history record must go.
-            if (entry.record) this.removeRecord(entry.record)
-            if (!outcome.ok) {
-              conflicts.push({ invocation: entry.invocation, diagnostics: outcome.diagnostics, during: 'rebase' })
-            }
+          outcome = this.execute(entry.invocation, true)
+          if (outcome.ok) resources = this.changedResources(before, outcome.doc)
+        } catch (error) {
+          outcome = {
+            ok: false,
+            diagnostics: [
+              diag(
+                'error',
+                'command',
+                'command.threw',
+                `rebase: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+            ],
           }
         }
-        // Later params include earlier intentions in their old coordinate
-        // space, while the rebuilt store includes those intentions transformed.
-        if (oldDocCursor) {
-          try {
-            oldDocCursor = applyOps(
-              oldDocCursor as unknown as Json,
-              oldPredicted,
-            ) as unknown as WorkflowDocument
-          } catch {
-            oldDocCursor = undefined
+        if (outcome.ok && outcome.forward.length > 0) {
+          this.optimistic = outcome.doc
+          if (resources !== undefined)
+            entry.resources = new Set([
+              ...(entry.resources ?? []),
+              ...resources,
+            ])
+          if (entry.record) {
+            entry.record.resources = entry.resources
+            // Undo records are mirrored: forward must revert what replay did.
+            if (entry.origin === 'session.undo') {
+              entry.record.forward = outcome.inverse
+              entry.record.inverse = outcome.forward
+            } else {
+              entry.record.forward = outcome.redo ?? outcome.forward
+              entry.record.inverse = outcome.inverse
+            }
+          }
+          survivors.push({
+            opId: this.mintOpId(),
+            invocation: entry.invocation,
+            origin: entry.origin,
+            predicted: toWirePatch(outcome.forward),
+            // Ordered ingress proves earlier acceptance slots are occupied;
+            // snapshot-ambiguous entries are skipped instead of surviving.
+            attempts: entry.attempts.filter(
+              (a) => a.baseRevision >= this.confirmedRevision,
+            ),
+            record: entry.record,
+            resources: entry.resources,
+          })
+        } else {
+          if (entry.record) this.removeRecord(entry.record)
+          if (!outcome.ok) {
+            conflicts.push({
+              invocation: entry.invocation,
+              diagnostics: outcome.diagnostics,
+              during: 'rebase',
+              origin: entry.origin,
+            })
           }
         }
       }
-    } finally {
-      this.rebasing = false
+      // Later params include earlier intentions in their old coordinate space.
+      if (oldDocCursor !== undefined) {
+        try {
+          oldDocCursor = applyOps(
+            oldDocCursor as unknown as Json,
+            oldPredicted,
+          ) as unknown as D
+        } catch {
+          oldDocCursor = undefined
+        }
+      }
     }
     this.pending.push(...survivors)
-    this.docSignal.set(this.store.doc)
+    this.docSignal.set(this.optimistic)
     for (const conflict of conflicts) this.notifyConflict(conflict)
-  }
-
-  private createStore(doc: WorkflowDocument): DocumentStore {
-    return new DocumentStore(doc, this.commands, 0, this.sink, () =>
-      this.rebasing
-        ? ({ kind: 'shared-replay' })
-        : ({ kind: 'initial', ...(this.schemaResolverFor ? { schemaResolverFor: this.schemaResolverFor } : {}) }),
-    )
   }
 
   // -- Sync loop (catch-up / resync) --------------------------------------------
@@ -1066,13 +1461,15 @@ class SharedDocumentSession implements DocumentSession {
     if (this.syncing) return
     this.syncing = true
     this.statusSignal.set('catching-up')
-    void this.syncLoop()
+    this.syncPromise = this.syncLoop()
       .catch((e) => {
         this.fail(`sync failed: ${e instanceof Error ? e.message : String(e)}`)
       })
       .finally(() => {
         this.syncing = false
-        if (this.statusSignal.get() === 'catching-up') this.statusSignal.set('live')
+        this.syncPromise = undefined
+        if (this.statusSignal.get() === 'catching-up')
+          this.statusSignal.set('live')
         // Lost-wakeup guard: a request that raced the loop's exit check saw
         // `syncing` still true and returned. Re-enter rather than strand it.
         if (
@@ -1106,18 +1503,18 @@ class SharedDocumentSession implements DocumentSession {
           this.fail('resync snapshot: invalid revision')
           return
         }
-        const loaded = loadDocument(snap.document)
-        if (!loaded.document) {
-          this.fail('resync snapshot failed to load')
-          return
-        }
+        const document = this.load(snap.document)
         // A checkpoint snapshot may sit BEHIND state this client already
         // confirmed (ordered commits never raise syncTarget). Preserve the
         // high-water mark BEFORE adopting, or the loop would rest below a
         // head it has provably seen.
-        this.syncTarget = Math.max(this.syncTarget, this.confirmedRevision, snap.revision)
+        this.syncTarget = Math.max(
+          this.syncTarget,
+          this.confirmedRevision,
+          snap.revision,
+        )
         const oldGround = this.confirmed
-        this.confirmed = loaded.document
+        this.confirmed = document
         this.confirmedRevision = snap.revision
         this.snapshotPolicy.observeConfirmed(snap.revision)
         this.snapshotPolicy.observeSnapshot(snap.revision, this.clock())
@@ -1143,6 +1540,7 @@ class SharedDocumentSession implements DocumentSession {
         for (const entry of ambiguous) {
           this.notifyConflict({
             invocation: entry.invocation,
+            origin: entry.origin,
             diagnostics: [
               diag(
                 'error',
@@ -1183,7 +1581,11 @@ class SharedDocumentSession implements DocumentSession {
         }
         progressed = true
       }
-      if (!progressed && !this.resyncRequested && this.confirmedRevision < this.syncTarget) {
+      if (
+        !progressed &&
+        !this.resyncRequested &&
+        this.confirmedRevision < this.syncTarget
+      ) {
         // The server announced a head it has not served yet (or the page
         // raced the append). Back off instead of hot-looping.
         await this.retryDelay()
@@ -1228,7 +1630,8 @@ class SharedDocumentSession implements DocumentSession {
     decision: Extract<SnapshotPublicationDecision, { kind: 'wait' }>,
   ): void {
     const due = this.clock() + decision.delayMs
-    if (this.snapshotTimer !== undefined && this.snapshotTimerDue === due) return
+    if (this.snapshotTimer !== undefined && this.snapshotTimerDue === due)
+      return
     this.cancelSnapshotTimer()
     this.snapshotTimerDue = due
     this.snapshotTimer = setTimeout(() => {
@@ -1249,16 +1652,25 @@ class SharedDocumentSession implements DocumentSession {
    * checkpoints. The captured pair is always confirmedRevision + confirmed,
    * never the optimistic store document.
    */
-  private publishSnapshot(reason: 'periodic' | 'required' | 'close'): Promise<'ok' | 'conflict' | 'error'> {
-    if (this.snapshotPublishPromise !== undefined) return this.snapshotPublishPromise
+  private publishSnapshot(
+    reason: 'periodic' | 'required' | 'close',
+  ): Promise<'ok' | 'conflict' | 'error'> {
+    if (this.snapshotPublishPromise !== undefined)
+      return this.snapshotPublishPromise
     if (!this.snapshotPolicy.markPublishing()) return Promise.resolve('error')
     const revision = this.confirmedRevision
     const document = this.confirmed
     const folded = this.snapshotPolicy.opsSinceLastKnownSnapshot
-    const publication = this.performSnapshotPublication(revision, document, folded, reason)
+    const publication = this.performSnapshotPublication(
+      revision,
+      document,
+      folded,
+      reason,
+    )
     this.snapshotPublishPromise = publication
     void publication.finally(() => {
-      if (this.snapshotPublishPromise === publication) this.snapshotPublishPromise = undefined
+      if (this.snapshotPublishPromise === publication)
+        this.snapshotPublishPromise = undefined
       this.considerSnapshotPublication()
     })
     return publication
@@ -1266,7 +1678,7 @@ class SharedDocumentSession implements DocumentSession {
 
   private async performSnapshotPublication(
     revision: number,
-    document: WorkflowDocument,
+    document: D,
     folded: number,
     reason: 'periodic' | 'required' | 'close',
   ): Promise<'ok' | 'conflict' | 'error'> {
@@ -1284,7 +1696,8 @@ class SharedDocumentSession implements DocumentSession {
       // machine-readable revision. Resolve the winning publisher through the
       // existing GET snapshot contract, then reset counters to its revision.
       const newer = await this.connection.fetchSnapshot()
-      if (!isValidCollabRevision(newer.revision)) throw new Error('snapshot conflict: invalid revision')
+      if (!isValidCollabRevision(newer.revision))
+        throw new Error('snapshot conflict: invalid revision')
       if (newer.revision < revision) {
         throw new Error(
           `snapshot conflict did not advance: attempted ${revision}, server checkpoint ${newer.revision}`,
@@ -1354,8 +1767,6 @@ class SharedDocumentSession implements DocumentSession {
   }
 }
 
-export type { SharedDocumentSession }
-
 /**
  * Join a collab session: pull the snapshot over the connection, validate it
  * through the standard document loader, and stand the session up on it. The
@@ -1367,18 +1778,43 @@ export async function connectSharedSession(
   commands: ReadonlyMap<string, CommandDefinition>,
   options?: SharedSessionOptions,
 ): Promise<SharedDocumentSession> {
+  return connectDocumentSession(
+    connection,
+    createWorkflowDocumentTypeAdapter(commands, options),
+    options,
+  )
+}
+
+export async function connectDocumentSession<D>(
+  connection: CollabConnection,
+  adapter: DocumentTypeAdapter<D>,
+  options?: SharedSessionOptions,
+): Promise<SharedDocumentSession<D>> {
   const snap = await connection.fetchSnapshot()
-  if (!isValidCollabRevision(snap.revision)) throw new Error('collab snapshot: invalid revision')
-  const loaded = loadDocument(snap.document)
-  if (!loaded.document) {
-    const first = loaded.diagnostics.find((d) => d.severity === 'error')
-    throw new Error(`collab snapshot failed to load: ${first?.message ?? 'unknown error'}`)
+  if (!isValidCollabRevision(snap.revision))
+    throw new Error('collab snapshot: invalid revision')
+  if (
+    snap.documentKind !== undefined &&
+    normalizeCollabDocumentKind(snap.documentKind) !==
+      normalizeCollabDocumentKind(adapter.kind)
+  ) {
+    throw new Error(
+      `collab snapshot: document kind '${snap.documentKind}' does not match '${adapter.kind}'`,
+    )
   }
-  return new SharedDocumentSession(connection, loaded.document, snap.revision, commands, options)
+  return new SharedDocumentSession(
+    connection,
+    snap.document as D,
+    snap.revision,
+    adapter,
+    options,
+  )
 }
 
 export {
   COLLAB_PROTOCOL_VERSION,
+  normalizeCollabDocumentKind,
+  legacyCollabDocumentKind,
   type CollabClientOp,
   type CollabConnection,
   type CollabConnectionEvent,
