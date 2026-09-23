@@ -362,6 +362,71 @@ describe('document type registry', () => {
     expect(session.doc.title).toBe('owned')
   })
 
+  it('rejects a successful adapter outcome that carries an error diagnostic', () => {
+    const adapter = {
+      ...noteAdapter,
+      execute: () => ({
+        ok: true as const,
+        doc: { ...note, count: 99 },
+        forward: [
+          { op: 'replace' as const, path: ['count'], value: 99, oldValue: 0 },
+        ],
+        inverse: [],
+        diagnostics: problem('rejected after execution'),
+      }),
+    }
+    const session = new LocalDocumentTypeSession(note, adapter)
+    const operations: unknown[] = []
+    session.onOp((operation) => operations.push(operation))
+    const result = session.dispatch({ command: 'note.increment', params: null })
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics).toEqual(problem('rejected after execution'))
+    expect(session.doc).toEqual(note)
+    expect(session.revision).toBe(0)
+    expect(session.canUndo).toBe(false)
+    expect(operations).toEqual([])
+  })
+
+  it('keeps commit events and retained resources immutable for listeners', () => {
+    const adapter: DocumentTypeAdapter<Note & { resources?: string[] }> = {
+      ...noteAdapter,
+      resourceDigests: (document) =>
+        new Set((document as { resources?: string[] }).resources ?? []),
+    }
+    const withResource = { ...note, resources: ['blake3:a'] }
+    const session = new LocalDocumentTypeSession(withResource, adapter)
+    const events: unknown[] = []
+    session.onCommit((event) => events.push(event))
+    expect(
+      session.dispatch({ command: 'note.increment', params: null }).ok,
+    ).toBe(true)
+    expect(session.retainedResourceDigests()).toEqual(new Set(['blake3:a']))
+    for (const event of events) {
+      const record = (event as { record: { resources?: readonly string[] } }).record
+      expect(() => (record.resources as string[]).push('blake3:evil')).toThrow()
+      expect(() => (event as { kind: string }).kind = 'redo').toThrow()
+    }
+    expect(session.retainedResourceDigests()).toEqual(new Set(['blake3:a']))
+    expect(session.undo()).toBe(true)
+    expect(session.retainedResourceDigests()).toEqual(new Set(['blake3:a']))
+  })
+
+  it('stamps each commit with its own clock reading on the op envelope', () => {
+    let now = 100
+    const session = new LocalDocumentTypeSession(note, noteAdapter, 200, {
+      actorId: 'alice',
+      clock: () => (now += 100),
+      replayOriginPrefix: 'note',
+    })
+    const stamps: number[] = []
+    session.onSessionOp((operation) => stamps.push(operation.timestamp))
+    expect(session.dispatch({ command: 'note.increment', params: null }).ok).toBe(true)
+    expect(session.undo()).toBe(true)
+    expect(session.redo()).toBe(true)
+    expect(stamps).toEqual([200, 300, 400])
+    expect(stamps.every((stamp, index) => index === 0 || stamp > stamps[index - 1]!)).toBe(true)
+  })
+
   it('removes only the adapter instance contributed by an extension', () => {
     const registry = new DocumentTypeRegistry()
     const remove = registry.contribute(noteAdapter)

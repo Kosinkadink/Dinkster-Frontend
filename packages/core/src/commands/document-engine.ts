@@ -149,7 +149,7 @@ export interface LocalDocumentHistoryRecord {
   readonly forward: readonly PatchOp[]
   readonly inverse: readonly PatchOp[]
   /** Document-type resources whose retention changed with this record. */
-  readonly resources?: ReadonlySet<string>
+  readonly resources?: readonly string[]
   readonly timestamp: number
   /** Revision after the dispatch that authored this record. */
   readonly revision: number
@@ -159,7 +159,9 @@ export interface LocalDocumentHistoryRecord {
  * One committed change, however it happened. `patch` holds the ops actually
  * APPLIED to the document (the record's forward ops for dispatch/redo, its
  * inverse ops for undo, minus any ops skipped by cursor-preserving replay) -
- * events report reality, not the recording.
+ * events report reality, not the recording. `timestamp` is this commit's
+ * own clock reading (an undo/redo commit is later than its record's
+ * authoring time); `record.timestamp` stays the authoring time.
  */
 export interface LocalDocumentCommitEvent<D> {
   readonly kind: 'dispatch' | 'undo' | 'redo'
@@ -167,6 +169,7 @@ export interface LocalDocumentCommitEvent<D> {
   readonly record: LocalDocumentHistoryRecord
   readonly patch: readonly PatchOp[]
   readonly doc: D
+  readonly timestamp: number
 }
 
 export interface LocalDocumentEngineOptions {
@@ -309,8 +312,8 @@ export class LocalDocumentEngine<D> {
       const outcome = this.adapter.execute(this.current, stamped, false)
       if (!outcome.ok) return outcome
       if (outcome.diagnostics.some((problem) => problem.severity === 'error'))
-        // Nothing was applied; the snapshot fields report the unchanged state.
-        return { ...outcome, document: this.current, revision: this.currentRevision }
+        // Error diagnostics reject the edit: nothing was applied or committed.
+        return { ok: false, diagnostics: outcome.diagnostics }
       const patches = ownJson(
         {
           forward: outcome.forward,
@@ -342,19 +345,20 @@ export class LocalDocumentEngine<D> {
         return { ok: false, diagnostics }
       const resources = this.changedResources(this.current, next)
       const revision = this.currentRevision + 1
+      const timestamp = this.clock()
       const record: LocalDocumentHistoryRecord = Object.freeze({
         invocation: stamped,
         forward: owned.redo,
         inverse: owned.inverse,
-        ...(resources === undefined ? {} : { resources }),
-        timestamp: this.clock(),
+        ...(resources === undefined ? {} : { resources: Object.freeze([...resources]) }),
+        timestamp,
         revision,
       })
       this.current = next
       this.undoStack.push(record)
       if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
       this.redoStack.length = 0
-      this.commit({ kind: 'dispatch', revision, record, patch: owned.forward, doc: next })
+      this.commit({ kind: 'dispatch', revision, record, patch: owned.forward, doc: next, timestamp })
       return {
         ...outcome,
         doc: next,
@@ -464,7 +468,7 @@ export class LocalDocumentEngine<D> {
     to.push(record)
     this.current = doc
     const revision = this.currentRevision + 1
-    this.commit({ kind, revision, record, patch: applied, doc })
+    this.commit({ kind, revision, record, patch: applied, doc, timestamp: this.clock() })
     return true
   }
 
@@ -516,8 +520,11 @@ export class LocalDocumentEngine<D> {
   }
 
   private commit(event: LocalDocumentCommitEvent<D>): void {
-    this.currentRevision = event.revision
-    this.notifyQueue.push(event)
+    // Listeners must never reshape a committed event for later listeners or
+    // reach engine internals through it: frozen before first publication.
+    const published = Object.freeze(event)
+    this.currentRevision = published.revision
+    this.notifyQueue.push(published)
     if (this.notifying) return
     this.notifying = true
     try {
@@ -554,7 +561,7 @@ export class LocalDocumentEngine<D> {
       // The envelope carries the WIRE shape - never raw PatchOps with their
       // local-only oldValue.
       patch: toWirePatch(event.patch),
-      timestamp: event.record.timestamp,
+      timestamp: event.timestamp,
       origin,
     })
     // CO10: one throwing observer must not starve the rest or unwind into
