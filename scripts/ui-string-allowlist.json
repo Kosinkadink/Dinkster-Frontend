@@ -8,14 +8,16 @@
   "App.tsx": [
     "attribute:aria-label:Execution provenance",
     "text:'close' path), and closing restores focus to the opener. A body that must swallow keys - e.g. the settings keybinding capture - calls preventDefault on the keydown, which suppresses the native close request. The host owns the chrome (::backdrop, title, close button); a keyed Show remounts the body per panel, so opening IS the reset. aria-modal is redundant on a modal",
+    "text:( '.product-tabpanel:not([hidden])', ) const overflowButton = element.querySelector",
     "text:('.product-tablist') const body = element.querySelector",
-    "text:('.product-tabpanel:not([hidden])') const overflowButton = element.querySelector",
+    "text:() const [activeDocumentId, setActiveDocumentId] = createSolidSignal('') const [imageDocumentTabs, setImageDocumentTabs] = createSolidSignal",
     "text:() const [failed, setFailed] = createSolidSignal",
     "text:() const layers = new Set",
     "text:()) setLoaded(new Set",
+    "text:([]) const [videoDocumentTabs, setVideoDocumentTabs] = createSolidSignal",
     "text:(new Set()) const [loaded, setLoaded] = createSolidSignal",
-    "text:.canvas-pane') const canvas = center?.querySelector",
-    "text:.editor-split-region') if (!center || !canvas) return undefined const state = app.dock.effective() const visibleZones: Partial",
+    "text:.canvas-pane', ) const canvas = center?.querySelector",
+    "text:.editor-split-region', ) if (!center || !canvas) return undefined const state = app.dock.effective() const visibleZones: Partial",
     "text:0 let bodyElement!: HTMLDivElement const [panelDrag, setPanelDrag] = createSolidSignal",
     "text:1 // Pending close is validated by (id, DocumentSession): a same-id // replacement (import or collaboration adoption) installs a new session, // invalidating the user's discard decision, while editor-kind switches // replace the Tab object but keep the session and must not dismiss it. const [pendingClose, setPendingClose] = createSolidSignal",
     "text:= rect.left - pad && x",
@@ -33,14 +35,14 @@
     "text:Status",
     "text:app.panels.get(drag().panelId) return (",
     "text:app.settings.get",
-    "text:candidate === host.dataset['zone']) const hostRect = host.getBoundingClientRect() if (zone === undefined || hostRect.width === 0 || hostRect.height === 0) continue const sections: PanelDragSectionGeometry[] = [] for (const element of host.querySelectorAll",
-    "text:element.isConnected) target?.querySelector",
+    "text:candidate === host.dataset['zone'], ) const hostRect = host.getBoundingClientRect() if (zone === undefined || hostRect.width === 0 || hostRect.height === 0) continue const sections: PanelDragSectionGeometry[] = [] for (const element of host.querySelectorAll",
+    "text:element.isConnected) target ?.querySelector",
     "text:endRegionResize?.()) const [logsClearArmed, setLogsClearArmed] = createSolidSignal(false) let logsClearTimer: ReturnType",
-    "text:entry.kind === 'workflow' ? [entry.workflowId] : [])) const detachedPanelIds = (): ReadonlySet",
-    "text:liveTabOf(p.exec) return",
+    "text:entry.kind === 'workflow' ? [entry.workflowId] : [], ), ) const detachedPanelIds = (): ReadonlySet",
+    "text:liveTabOf(p.exec) return (",
     "text:readonly ReadonlySignal",
     "text:regionObserver?.disconnect()) /** Uncommitted divider ratio while a resize drag is in flight. */ const [dividerPreview, setDividerPreview] = createSolidSignal",
-    "text:shellEl.querySelector"
+    "text:shellEl .querySelector"
   ],
   "AppPreviewSurface.tsx": [
     "attribute:aria-label:Image preview",
@@ -518,24 +520,23 @@
     "text:props.host?.tabId() ?? globalActiveTabId() const [documentTick, setDocumentTick] = createSignal(0) const [draft, setDraft] = createSignal('') const [output, setOutput] = createSignal"
   ],
   "ImageDocumentWorkspace.tsx": [
+    "text:( [], ) const [activeLineage, setActiveLineage] = createSignal('') const [loading, setLoading] = createSignal(true) const [busy, setBusySignal] = createSignal(false) const [error, setErrorValue] = createSignal",
     "text:() const [authoritativeBusy, setAuthoritativeBusy] = createSignal(false) const [authoritativeResult, setAuthoritativeResult] = createSignal",
     "text:() const [authoritativeError, setAuthoritativeError] = createSignal",
     "text:() const [libraryOpen, setLibraryOpen] = createSignal(false) const [libraryRecords, setLibraryRecords] = createSignal",
-    "text:([]) const [activeLineage, setActiveLineage] = createSignal('') const [loading, setLoading] = createSignal(true) const [busy, setBusySignal] = createSignal(false) const [error, setErrorValue] = createSignal",
     "text:([]) const [collaborationOpen, setCollaborationOpen] = createSignal(false) const [collaborationSessions, setCollaborationSessions] = createSignal",
-    "text:([]) const [confirmingEnd, setConfirmingEnd] = createSignal(false) const [collaborationTransition, setCollaborationTransition] = createSignal(false) const [resourceTick, setResourceTick] = createSignal(0) const [metadataTick, setMetadataTick] = createSignal(0) let importInput!: HTMLInputElement let tablist!: HTMLDivElement let libraryDialog!: HTMLDivElement let collaborationDialog!: HTMLDivElement let endConfirmButton: HTMLButtonElement | undefined let live = true const leaving = new Set",
+    "text:([]) const [confirmingEnd, setConfirmingEnd] = createSignal(false) const [collaborationTransition, setCollaborationTransition] = createSignal(false) const [resourceTick, setResourceTick] = createSignal(0) const [metadataTick, setMetadataTick] = createSignal(0) let importInput!: HTMLInputElement let libraryDialog!: HTMLDivElement let collaborationDialog!: HTMLDivElement let endConfirmButton: HTMLButtonElement | undefined let live = true let handledCreate = props.createRequest ?? 0 const leaving = new Set",
     "text:Promise",
     "text:Promise",
     "text:Promise",
     "text:Promise",
     "text:Promise",
     "text:Promise",
-    "text:candidate.layer.id === layerId)! return (",
+    "text:candidate.layer.id === layerId, )! return (",
     "text:documentValue().masks[maskId]! return (",
     "text:hydrate: Promise",
-    "text:tablist.querySelector",
     "text:void name: string draft: ImageDocumentDraft persist: Promise",
-    "text:window.removeEventListener('keydown', onShortcut)) const updateLayer = (changes: Omit"
+    "text:window.removeEventListener('keydown', onShortcut)) const updateLayer = ( changes: Omit"
   ],
   "ImageEditor.tsx": [
     "attribute:aria-label:Mask tools",
@@ -805,6 +806,12 @@
     "text:(initialParams) const [drafts, setDrafts] = createSignal",
     "text:(parsed === undefined && props.command !== 'import_otio' ? message('videoDocument.error.object') : undefined) const [errorField, setErrorField] = createSignal",
     "text:[field.key, fieldText(field, initialParams)]), )) const [raw, setRaw] = createSignal(props.command === 'import_otio' || parsed === undefined ? props.value : JSON.stringify(parsed, null, 2)) const [error, setError] = createSignal"
+  ],
+  "VideoDocumentWorkspace.tsx": [
+    "text:( [], ) const [error, setError] = createSignal",
+    "text:() const [sharedOpen, setSharedOpen] = createSignal(false) const [sharedSessions, setSharedSessions] = createSignal",
+    "text:Promise",
+    "text:readonly revision: number readonly canUndo: boolean readonly canRedo: boolean dispatch(invocation: CommandInvocation): DocumentCommandOutcome"
   ],
   "VideoEditEditor.tsx": [
     "attribute:alt:Crop source frame",

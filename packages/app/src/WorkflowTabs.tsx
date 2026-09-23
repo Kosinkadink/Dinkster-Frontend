@@ -1,6 +1,8 @@
 import { createSignal, For, Show, type JSX } from 'solid-js'
 import type { MenuActionItem, PreviewMode, ResolvedMenuGroup } from '@dinkster/core'
 import Plus from 'lucide-solid/icons/plus'
+import ImagePlus from 'lucide-solid/icons/image-plus'
+import Film from 'lucide-solid/icons/film'
 import X from 'lucide-solid/icons/x'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
@@ -25,6 +27,8 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly onClose: (tab: T) => void
   readonly onPointerDown: (event: PointerEvent, tab: T) => void
   readonly onNew: () => void
+  readonly onNewImage?: (() => void) | undefined
+  readonly onNewVideo?: (() => void) | undefined
   readonly canShare: (tab: T) => boolean
   readonly onShare: (tab: T) => void
   readonly onPopOut?: ((tab: T) => void) | undefined
@@ -252,6 +256,24 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
           onClick={props.onNew}
         >
           <Icon icon={Plus} />
+        </button></Show>
+        <Show when={props.showNew !== false && props.onNewImage !== undefined}><button
+          class="tab-new"
+          data-testid="new-image-tab"
+          data-tooltip-label={message('shell.imageDocuments.title')}
+          aria-label={message('shell.imageDocuments.title')}
+          onClick={() => props.onNewImage?.()}
+        >
+          <Icon icon={ImagePlus} />
+        </button></Show>
+        <Show when={props.showNew !== false && props.onNewVideo !== undefined}><button
+          class="tab-new"
+          data-testid="new-video-tab"
+          data-tooltip-label={message('videoWorkspace.new')}
+          aria-label={message('videoWorkspace.new')}
+          onClick={() => props.onNewVideo?.()}
+        >
+          <Icon icon={Film} />
         </button></Show>
       </div>
       <Show when={menu()} keyed>{(current) => (

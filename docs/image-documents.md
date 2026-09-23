@@ -5,10 +5,10 @@ and first-class image workspace are implemented.
 
 ## Image workspace
 
-Use **Image documents** in the top bar to switch the center region from workflow
-tabs to durable images. **New from image** creates a document from PNG, JPEG, or
-WebP. The workspace restores every valid draft in the current project and keeps
-workflow tabs unchanged when you switch back.
+Image documents use the same center tab strip as workflows and video documents.
+The image-plus tab action opens a PNG, JPEG, or WebP as a new durable document;
+recovered project drafts appear as ordinary tabs. Switching documents keeps the
+other workflow, image, and video editors mounted so their view state survives.
 
 The left pane owns the raster layer tree and stacking order. The right pane
 edits names, visibility, fixed-point affine transforms, opacity, blend mode,

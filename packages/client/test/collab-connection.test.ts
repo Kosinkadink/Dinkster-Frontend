@@ -496,8 +496,20 @@ describe('snapshot and catch-up routes', () => {
       fetchFn: async () => jsonResponse(200, { revision: 7, document: { d: 1 } }),
     })
     expect(await connection.fetchSnapshot()).toEqual({ revision: 7, document: { d: 1 } })
+    const typed = harness({
+      fetchFn: async () => jsonResponse(200, { revision: 7, document: { d: 1 }, documentKind: 'video' }),
+    })
+    expect(await typed.connection.fetchSnapshot()).toEqual({
+      revision: 7,
+      document: { d: 1 },
+      documentKind: 'video',
+    })
     const bad = harness({ fetchFn: async () => jsonResponse(200, { document: {} }) })
     await expect(bad.connection.fetchSnapshot()).rejects.toThrow(/invalid revision/)
+    const badKind = harness({
+      fetchFn: async () => jsonResponse(200, { revision: 7, document: {}, documentKind: 1 }),
+    })
+    await expect(badKind.connection.fetchSnapshot()).rejects.toThrow(/invalid document kind/)
     const failed = harness({ fetchFn: async () => jsonResponse(500, { error: 'x' }) })
     await expect(failed.connection.fetchSnapshot()).rejects.toThrow(/500/)
   })

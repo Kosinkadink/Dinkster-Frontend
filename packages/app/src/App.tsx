@@ -18,13 +18,38 @@ import Terminal from 'lucide-solid/icons/terminal'
 import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
 import Network from 'lucide-solid/icons/network'
-import { currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
-import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
+import Film from 'lucide-solid/icons/film'
+import {
+  currentGraphId,
+  editedSubgraphDefinition,
+  GLOBAL_PROBLEMS_OWNER,
+  visibleProblems,
+  type AppState,
+  type Backend,
+  type CollabTabState,
+  type Tab,
+} from './app-state.js'
+import {
+  formatWorkflowDeepLink,
+  resolveDeepLinkBackend,
+} from './connection-profiles.js'
 import { ActivityLog } from './ActivityLog.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
-import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
+import {
+  CanvasHost,
+  CanvasViewControls,
+  coreOccurrencePlanner,
+} from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
-import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import {
+  historySource,
+  packsSource,
+  runIdOfEntry,
+  runsSource,
+  templatesSource,
+  workflowsSource,
+  type TemplateCollectionRef,
+} from './collections.js'
 import { ExecutionActivityCard } from './ExecutionActivityCard.js'
 import { ExecutionLogPanel } from './ExecutionLogPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
@@ -32,38 +57,83 @@ import { mediaMetadataOf } from './media-metadata.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
-import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
+import {
+  APP_EDITOR_KIND,
+  CURVE_EDITOR_KIND,
+  GLSL_EDITOR_KIND,
+  GRAPH_EDITOR_KIND,
+  IMAGE_EDITOR_KIND,
+  type EditorHostContext,
+} from './editors.js'
+import {
+  builtinEditorBindings,
+  builtinEditorRoles,
+} from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { ImageEditor } from './ImageEditor.js'
-import { ImageDocumentWorkspace } from './ImageDocumentWorkspace.js'
-import { isLayerDocumentType, type GraphImageDocumentRequest } from './image-document-graph.js'
+import {
+  ImageDocumentWorkspace,
+  type ImageWorkspaceTab,
+} from './ImageDocumentWorkspace.js'
+import {
+  VideoDocumentWorkspace,
+  type VideoWorkspaceTab,
+} from './VideoDocumentWorkspace.js'
+import {
+  isLayerDocumentType,
+  type GraphImageDocumentRequest,
+} from './image-document-graph.js'
 import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
-import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
+import {
+  beginRegionResize,
+  REGION_SIZE_BOUNDS,
+  type ShellRegion,
+} from './shell-layout.js'
 import { SurfacePanel } from './SurfacePanel.js'
 import { TemplateGallery } from './TemplateGallery.js'
 import { useSignal } from './solid-adapter.js'
-import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
+import {
+  comboFromEvent,
+  isNativeTextScopeTarget,
+  shortcutSuppressed,
+  type CommandRegistry,
+  type KeybindingRegistry,
+} from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
-import { CustomizeLayoutDialog, type LayoutVisibilityItem } from './CustomizeLayoutDialog.js'
+import {
+  CustomizeLayoutDialog,
+  type LayoutVisibilityItem,
+} from './CustomizeLayoutDialog.js'
 import { SubgraphDefinitionsDialog } from './SubgraphDefinitionsDialog.js'
 import { AssetConsentDialog } from './AssetConsentDialog.js'
 import { AssetsBody } from './AssetsBody.js'
 import { CollabPanel } from './CollabPanel.js'
 import { ImportAssetResolutionDialog } from './ImportAssetResolutionDialog.js'
 import { ModalSurface } from './ModalSurface.js'
-import { attachDomTooltips, resolveCanvasTooltip, TooltipController, type DomTooltipTarget } from './tooltips.js'
+import {
+  attachDomTooltips,
+  resolveCanvasTooltip,
+  TooltipController,
+  type DomTooltipTarget,
+} from './tooltips.js'
 import { activateProblem, ProblemsPanel } from './ProblemsPanel.js'
 import { ContextPanel } from './ContextPanel.js'
 import { ProductSelect } from './ProductSelect.js'
 import { BackendsPanel } from './BackendsPanel.js'
-import { DesktopManagementDialog, type DesktopMountConnection } from './DesktopManagementDialog.js'
+import {
+  DesktopManagementDialog,
+  type DesktopMountConnection,
+} from './DesktopManagementDialog.js'
 import { ProjectsDialog } from './ProjectsDialog.js'
-import { activeProjectId, DEFAULT_PROJECT_ID, PROJECT_URL_PARAM } from './projects.js'
+import {
+  activeProjectId,
+  DEFAULT_PROJECT_ID,
+  PROJECT_URL_PARAM,
+} from './projects.js'
 import {
   desktopBridge,
   type DesktopPanelPlacement,
@@ -93,8 +163,19 @@ import {
 import { PanelDragOverlay } from './PanelDragOverlay.js'
 import { TabDragGhost } from './TabDragGhost.js'
 import { canDockInZone, DOCK_ZONE_IDS, type DockZoneId } from './dock-layout.js'
-import { movePanel, panelDockZone, returnPanelToZone, setPanelOpen, zoneSectionsView, zoneTabsView } from './panel-location.js'
-import { aggregatePanelIndicators, type PanelIndicator, type PanelPlacement } from './panels.js'
+import {
+  movePanel,
+  panelDockZone,
+  returnPanelToZone,
+  setPanelOpen,
+  zoneSectionsView,
+  zoneTabsView,
+} from './panel-location.js'
+import {
+  aggregatePanelIndicators,
+  type PanelIndicator,
+  type PanelPlacement,
+} from './panels.js'
 import {
   beginPanelDragModel,
   createPanelDragSnapshot,
@@ -109,9 +190,18 @@ import {
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
-import { ExecutedImageFacts, ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
+import {
+  ExecutedImageFacts,
+  ExecutedImageViewer,
+  executionOutputProvenance,
+  type ExecutionOutputProvenance,
+} from './ExecutedImageViewer.js'
 import { canRevealOutput, revealExecutedImage } from './output-file.js'
-import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
+import {
+  executedImageInventory,
+  executedImageLabel,
+  type ExecutedImage,
+} from './executed-image-inventory.js'
 import {
   beginTabDragModel,
   moveTabDragModel,
@@ -162,7 +252,27 @@ const applySubsetOrder = <T extends { readonly id: string }>(
   const member = new Set(subset)
   const queue = subset.filter((id) => byId.has(id))
   let next = 0
-  return all.map((item) => (member.has(item.id) ? byId.get(queue[next++]!)! : item))
+  return all.map((item) =>
+    member.has(item.id) ? byId.get(queue[next++]!)! : item,
+  )
+}
+
+type CenterDocumentTab = Tab | ImageWorkspaceTab | VideoWorkspaceTab
+const isWorkflowTab = (tab: CenterDocumentTab): tab is Tab => 'store' in tab
+const centerDocumentOrderKey = (): string =>
+  `dinkster.document-tab-order.v1:${activeProjectId()}`
+
+function loadCenterDocumentOrder(): readonly string[] {
+  try {
+    const value: unknown = JSON.parse(
+      localStorage.getItem(centerDocumentOrderKey()) ?? '[]',
+    )
+    return Array.isArray(value) && value.every((id) => typeof id === 'string')
+      ? value
+      : []
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -170,21 +280,49 @@ const applySubsetOrder = <T extends { readonly id: string }>(
  * the target group, edge zones split it. Returns the same layout object
  * when the drop would change nothing (so callers can detect refusal).
  */
-const splitDropNextLayout = (layout: EditorLayout, target: SplitDropTarget, tabId: string): EditorLayout => {
+const splitDropNextLayout = (
+  layout: EditorLayout,
+  target: SplitDropTarget,
+  tabId: string,
+): EditorLayout => {
   const operation = splitDropOperation(target.zone)
   if (operation.kind === 'move') {
-    const source = layoutGroups(layout.root).find((group) => group.tabIds.includes(tabId))
+    const source = layoutGroups(layout.root).find((group) =>
+      group.tabIds.includes(tabId),
+    )
     if (source?.id === target.groupId) return layout
     return moveTabToGroup(layout, tabId, target.groupId)
   }
-  return splitGroup(layout, target.groupId, operation.direction, tabId, operation.position)
+  return splitGroup(
+    layout,
+    target.groupId,
+    operation.direction,
+    tabId,
+    operation.position,
+  )
 }
 
 const APP_MENU_COMMAND_GROUPS = [
   { group: '10-open', ids: ['workflow.open', 'workflow.importFile'] },
   { group: '20-write', ids: ['workflow.save', 'workflow.export'] },
-  { group: '30-edit', ids: ['edit.undo', 'edit.redo', 'edit.selectAll', 'subgraph.manageDefinitions'] },
-  { group: '40-view', ids: ['view.zoomIn', 'view.zoomOut', 'view.fitSelection', 'layout.customize'] },
+  {
+    group: '30-edit',
+    ids: [
+      'edit.undo',
+      'edit.redo',
+      'edit.selectAll',
+      'subgraph.manageDefinitions',
+    ],
+  },
+  {
+    group: '40-view',
+    ids: [
+      'view.zoomIn',
+      'view.zoomOut',
+      'view.fitSelection',
+      'layout.customize',
+    ],
+  },
   { group: '50-settings', ids: ['settings.open'] },
 ] as const
 
@@ -205,28 +343,38 @@ export function DinksterAppMenu(props: {
     setOpen(false)
     if (restoreFocus) queueMicrotask(() => button.focus())
   }
-  const groups = (): readonly ResolvedMenuGroup[] => APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }) => {
-    const items = ids.flatMap((id): MenuItem[] => {
-      const command = props.commands.get(id)
-      const hint = props.keybindings.combo(id)
-      return command ? [{
-        id,
-        label: command.label,
-        ...(hint ? { hint } : {}),
-        action: { kind: 'host', action: id },
-        ...(command.enabled?.() === false ? { disabled: true } : {}),
-      }] : []
+  const groups = (): readonly ResolvedMenuGroup[] =>
+    APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }) => {
+      const items = ids.flatMap((id): MenuItem[] => {
+        const command = props.commands.get(id)
+        const hint = props.keybindings.combo(id)
+        return command
+          ? [
+              {
+                id,
+                label: command.label,
+                ...(hint ? { hint } : {}),
+                action: { kind: 'host', action: id },
+                ...(command.enabled?.() === false ? { disabled: true } : {}),
+              },
+            ]
+          : []
+      })
+      return items.length > 0 ? [{ group, items }] : []
     })
-    return items.length > 0 ? [{ group, items }] : []
-  })
   const show = (): void => {
     const rect = button.getBoundingClientRect()
     setAnchor({ x: rect.left, y: rect.bottom + 2 })
     setOpen(true)
-    const unsubscribes = props.invalidationSignals?.().map((signal) => signal.subscribe(() => close())) ?? []
-    stopInvalidation = () => { for (const unsubscribe of unsubscribes) unsubscribe() }
+    const unsubscribes =
+      props
+        .invalidationSignals?.()
+        .map((signal) => signal.subscribe(() => close())) ?? []
+    stopInvalidation = () => {
+      for (const unsubscribe of unsubscribes) unsubscribe()
+    }
   }
-  const toggle = (): void => open() ? close() : show()
+  const toggle = (): void => (open() ? close() : show())
   const invoke = (item: MenuItem): void => {
     const command = props.commands.get(item.id)
     if (!command || command.enabled?.() === false) return
@@ -239,7 +387,12 @@ export function DinksterAppMenu(props: {
   }
   onMount(() => {
     const outside = (event: PointerEvent): void => {
-      if (open() && event.target instanceof Node && !root.contains(event.target)) close()
+      if (
+        open() &&
+        event.target instanceof Node &&
+        !root.contains(event.target)
+      )
+        close()
     }
     window.addEventListener('pointerdown', outside, true)
     onCleanup(() => {
@@ -255,7 +408,9 @@ export function DinksterAppMenu(props: {
         data-testid="dinkster-menu-button"
         aria-haspopup="menu"
         aria-expanded={open()}
-        onPointerDown={(event) => { if (open()) event.preventDefault() }}
+        onPointerDown={(event) => {
+          if (open()) event.preventDefault()
+        }}
         onClick={toggle}
         onKeyDown={(event) => {
           if (!open() && event.key === 'ArrowDown') {
@@ -268,7 +423,8 @@ export function DinksterAppMenu(props: {
           }
         }}
       >
-        <span>Dinkster</span><span class="app-menu-caret" aria-hidden="true" />
+        <span>Dinkster</span>
+        <span class="app-menu-caret" aria-hidden="true" />
       </button>
       <Show when={open()}>
         <ContextMenu
@@ -282,13 +438,29 @@ export function DinksterAppMenu(props: {
 }
 
 const coreStatusProvider: HostUiProviderV1 = (context) => {
-  const data = context.data as { readonly connectionStatus: string; readonly schemaText: string }
-  const tone = data.connectionStatus === 'connected' ? 'success' : data.connectionStatus === 'disconnected' ? 'danger' : 'warning'
+  const data = context.data as {
+    readonly connectionStatus: string
+    readonly schemaText: string
+  }
+  const tone =
+    data.connectionStatus === 'connected'
+      ? 'success'
+      : data.connectionStatus === 'disconnected'
+        ? 'danger'
+        : 'warning'
   return {
     version: 1,
     root: {
-      kind: 'group', key: 'core.status', direction: 'row', children: [
-        { kind: 'status', key: 'core.connection', text: data.connectionStatus, tone },
+      kind: 'group',
+      key: 'core.status',
+      direction: 'row',
+      children: [
+        {
+          kind: 'status',
+          key: 'core.connection',
+          text: data.connectionStatus,
+          tone,
+        },
         { kind: 'text', key: 'core.schemas', text: data.schemaText },
       ],
     },
@@ -332,43 +504,71 @@ export function dispatchAppCommandKey(
 export function App(props: {
   app: AppState
   federatedAssets?: AssetDtoV1WireContract
-  desktopWindow?: { readonly context: DesktopWindowContext; readonly layout: DesktopWindowLayout }
+  desktopWindow?: {
+    readonly context: DesktopWindowContext
+    readonly layout: DesktopWindowLayout
+  }
 }) {
   const app = props.app
   onCleanup(() => app.dispose())
   const browserParams = new URLSearchParams(window.location.search)
-  const browserWindowContext: DesktopWindowContext = browserParams.get('dinksterWorkflow')
-    ? { id: browserParams.get('dinksterWindow') ?? 'browser-popout', kind: 'workflow', workflowId: browserParams.get('dinksterWorkflow')! }
+  const browserWindowContext: DesktopWindowContext = browserParams.get(
+    'dinksterWorkflow',
+  )
+    ? {
+        id: browserParams.get('dinksterWindow') ?? 'browser-popout',
+        kind: 'workflow',
+        workflowId: browserParams.get('dinksterWorkflow')!,
+      }
     : browserParams.get('dinksterPanel')
       ? {
           id: browserParams.get('dinksterWindow') ?? 'browser-popout',
           kind: 'panel',
           panelId: browserParams.get('dinksterPanel')!,
-          returnPlacement: browserParams.get('dinksterPanelReturn') === 'rail' || browserParams.get('dinksterPanelReturn') === 'bottom'
-            ? browserParams.get('dinksterPanelReturn') as 'rail' | 'bottom'
-            : 'dock',
+          returnPlacement:
+            browserParams.get('dinksterPanelReturn') === 'rail' ||
+            browserParams.get('dinksterPanelReturn') === 'bottom'
+              ? (browserParams.get('dinksterPanelReturn') as 'rail' | 'bottom')
+              : 'dock',
         }
       : { id: 'primary', kind: 'primary' }
-  const [managedContext] = createSolidSignal(props.desktopWindow?.context ?? browserWindowContext)
-  const [managedLayout, setManagedLayout] = createSolidSignal<DesktopWindowLayout>(
-    props.desktopWindow?.layout ?? { windows: [browserWindowContext] },
+  const [managedContext] = createSolidSignal(
+    props.desktopWindow?.context ?? browserWindowContext,
   )
-  const [imageDocumentsOpen, setImageDocumentsOpen] = createSolidSignal(false)
-  const [imageDocumentsMounted, setImageDocumentsMounted] = createSolidSignal(false)
+  const [managedLayout, setManagedLayout] =
+    createSolidSignal<DesktopWindowLayout>(
+      props.desktopWindow?.layout ?? { windows: [browserWindowContext] },
+    )
   const [imageDocumentsBusy, setImageDocumentsBusy] = createSolidSignal(false)
-  const [graphImageRequest, setGraphImageRequest] = createSolidSignal<GraphImageDocumentRequest>()
-  const imageDocumentsActive = (): boolean => managedContext().kind === 'primary' && imageDocumentsOpen()
-  const setImageDocumentsVisible = (visible: boolean): void => {
-    if (visible) setImageDocumentsMounted(true)
-    setImageDocumentsOpen(visible)
-  }
+  const [graphImageRequest, setGraphImageRequest] =
+    createSolidSignal<GraphImageDocumentRequest>()
+  const [activeDocumentId, setActiveDocumentId] = createSolidSignal('')
+  const [imageDocumentTabs, setImageDocumentTabs] = createSolidSignal<
+    readonly ImageWorkspaceTab[]
+  >([])
+  const [videoDocumentTabs, setVideoDocumentTabs] = createSolidSignal<
+    readonly VideoWorkspaceTab[]
+  >([])
+  const [imageDocumentsReady, setImageDocumentsReady] = createSolidSignal(false)
+  const [videoDocumentsReady, setVideoDocumentsReady] = createSolidSignal(false)
+  const [centerDocumentOrder, setCenterDocumentOrderSignal] =
+    createSolidSignal<readonly string[]>(loadCenterDocumentOrder())
+  const [newImageRequest, setNewImageRequest] = createSolidSignal(0)
+  const [newVideoRequest, setNewVideoRequest] = createSolidSignal(0)
+  const mediaDocumentsActive = (): boolean =>
+    managedContext().kind === 'primary' &&
+    (activeDocumentId().startsWith('image:') ||
+      activeDocumentId().startsWith('video:'))
   onMount(() => {
     const desktop = desktopBridge()
     if (desktop) {
       onCleanup(desktop.onWindowLayout(setManagedLayout))
       return
     }
-    const coordinator = coordinateBrowserWindows(browserWindowContext, setManagedLayout)
+    const coordinator = coordinateBrowserWindows(
+      browserWindowContext,
+      setManagedLayout,
+    )
     onCleanup(() => coordinator.close())
   })
   // dinkster:// links queue in the desktop shell per window; drain on startup
@@ -377,75 +577,165 @@ export function App(props: {
   // targets the same-origin default through the library backend. Links
   // never auto-connect servers: an unconnected backend is a named problem,
   // not a network request.
-  const openDeepLink = async (link: { readonly projectId: string; readonly workflowId: string; readonly backendUrl?: string }): Promise<void> => {
+  const openDeepLink = async (link: {
+    readonly projectId: string
+    readonly workflowId: string
+    readonly backendUrl?: string
+  }): Promise<void> => {
     if (link.projectId !== activeProjectId()) return // routed by the shell; a mismatch means a stale queue entry
-    const owner = link.backendUrl !== undefined
-      ? resolveDeepLinkBackend(app.backends.get(), link.backendUrl)
-      : app.libraryBackend()?.id
+    const owner =
+      link.backendUrl !== undefined
+        ? resolveDeepLinkBackend(app.backends.get(), link.backendUrl)
+        : app.libraryBackend()?.id
     if (owner === undefined) {
-      app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
-        'error', 'validation', 'deepLink.backendNotConnected',
-        link.backendUrl !== undefined
-          ? `the workflow link names a server that is not connected: ${link.backendUrl}. Connect it from the Backends panel, then follow the link again.`
-          : 'the workflow link targets the default backend, but no backend is available',
-      )])
+      app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+        diag(
+          'error',
+          'validation',
+          'deepLink.backendNotConnected',
+          link.backendUrl !== undefined
+            ? `the workflow link names a server that is not connected: ${link.backendUrl}. Connect it from the Backends panel, then follow the link again.`
+            : 'the workflow link targets the default backend, but no backend is available',
+        ),
+      ])
       return
     }
     const opened = await app.openFromLibrary(link.workflowId, owner)
     if (!opened) {
-      app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
-        'error', 'validation', 'deepLink.openFailed',
-        `the linked workflow could not be opened: ${link.workflowId}`,
-      )])
+      app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+        diag(
+          'error',
+          'validation',
+          'deepLink.openFailed',
+          `the linked workflow could not be opened: ${link.workflowId}`,
+        ),
+      ])
     }
   }
   onMount(() => {
     const desktop = desktopBridge()
     if (!desktop) return
     const drain = (): void => {
-      void desktop.takeDeepLinks().then(async (links) => {
-        for (const link of links) await openDeepLink(link)
-      }).catch(() => {})
+      void desktop
+        .takeDeepLinks()
+        .then(async (links) => {
+          for (const link of links) await openDeepLink(link)
+        })
+        .catch(() => {})
     }
     drain()
     onCleanup(desktop.onDeepLinkPending(drain))
   })
   const coreStatusProblemsOwner = Symbol('core-status-problems')
-  const contributionProblemsOwners = new WeakMap<ExtensionHostUiContributionV1, symbol>()
-  const contributionProblemsOwner = (contribution: ExtensionHostUiContributionV1): symbol => {
+  const contributionProblemsOwners = new WeakMap<
+    ExtensionHostUiContributionV1,
+    symbol
+  >()
+  const contributionProblemsOwner = (
+    contribution: ExtensionHostUiContributionV1,
+  ): symbol => {
     const existing = contributionProblemsOwners.get(contribution)
     if (existing) return existing
     const owner = Symbol('extension-host-ui-problems')
     contributionProblemsOwners.set(contribution, owner)
     return owner
   }
-  const tooltips = new TooltipController(() => app.settings.get<number>('tooltips.delayMs'))
+  const tooltips = new TooltipController(() =>
+    app.settings.get<number>('tooltips.delayMs'),
+  )
   const [tooltip, setTooltip] = createSolidSignal(tooltips.visible)
   let shellEl!: HTMLDivElement
-  tooltips.register({ id: 'core.dom', resolve: (target, opts) => {
-    const dom = target as Partial<DomTooltipTarget>
-    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
-  } })
-  tooltips.register({ id: 'core.canvas', resolve: (target, opts) => {
-    const tab = app.activeTab()
-    const registry = tab ? app.registryForTab(tab) : app.registry.get()
-    const resolveSchema = registry
-      ? (tab ? documentResolver(tab.store.doc, registry.resolve) : registry.resolve)
-      : () => undefined
-    return resolveCanvasTooltip(target, opts, {
-      resolveSchema,
-      resolvePack: (id) => registry?.packs?.get(id),
-    })
-  } })
+  tooltips.register({
+    id: 'core.dom',
+    resolve: (target, opts) => {
+      const dom = target as Partial<DomTooltipTarget>
+      return dom.kind === 'dom' && dom.label
+        ? {
+            lines: [dom.label],
+            ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}),
+          }
+        : undefined
+    },
+  })
+  tooltips.register({
+    id: 'core.canvas',
+    resolve: (target, opts) => {
+      const tab = app.activeTab()
+      const registry = tab ? app.registryForTab(tab) : app.registry.get()
+      const resolveSchema = registry
+        ? tab
+          ? documentResolver(tab.store.doc, registry.resolve)
+          : registry.resolve
+        : () => undefined
+      return resolveCanvasTooltip(target, opts, {
+        resolveSchema,
+        resolvePack: (id) => registry?.packs?.get(id),
+      })
+    },
+  })
   onMount(() => {
     const detach = attachDomTooltips(shellEl, tooltips)
     const unsubscribe = tooltips.subscribe(() => setTooltip(tooltips.visible))
-    onCleanup(() => { detach(); unsubscribe() })
+    onCleanup(() => {
+      detach()
+      unsubscribe()
+    })
   })
   const tabs = useSignal(app.tabs)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
   const collabTabs = useSignal(app.collabTabs)
+  const setCenterDocumentOrder = (order: readonly string[]): void => {
+    setCenterDocumentOrderSignal(order)
+    try {
+      localStorage.setItem(centerDocumentOrderKey(), JSON.stringify(order))
+    } catch {
+      // Tab order persistence is best-effort; document persistence remains authoritative.
+    }
+  }
+  createEffect(() => {
+    const ids = [
+      ...tabs().map((tab) => tab.id),
+      ...imageDocumentTabs().map((tab) => tab.id),
+      ...videoDocumentTabs().map((tab) => tab.id),
+    ]
+    const available = new Set(ids)
+    const previous = centerDocumentOrder()
+    const next = [
+      ...previous.filter(
+        (id) =>
+          available.has(id) ||
+          (id.startsWith('image:') && !imageDocumentsReady()) ||
+          (id.startsWith('video:') && !videoDocumentsReady()),
+      ),
+      ...ids.filter((id) => !previous.includes(id)),
+    ]
+    if (
+      next.length !== previous.length ||
+      next.some((id, index) => id !== previous[index])
+    ) {
+      setCenterDocumentOrder(next)
+    }
+  })
+  let observedWorkflowTab = activeTabId()
+  createEffect(() => {
+    const workflowTab = activeTabId()
+    if (workflowTab !== observedWorkflowTab) {
+      observedWorkflowTab = workflowTab
+      if (!mediaDocumentsActive()) setActiveDocumentId(workflowTab)
+    }
+    const current = activeDocumentId()
+    const workflows = tabs()
+    if (current === '') {
+      setActiveDocumentId(activeTabId())
+    } else if (
+      !current.startsWith('image:') &&
+      !current.startsWith('video:') &&
+      !workflows.some((tab) => tab.id === current)
+    ) {
+      setActiveDocumentId(activeTabId())
+    }
+  })
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
   const solveDiagnostics = useSignal(app.solveDiagnostics)
@@ -475,13 +765,22 @@ export function App(props: {
   const searchOpen = useSignal(app.searchOpen)
   const placementStatus = useSignal(app.placementStatus)
   const transientStatus = useSignal(app.transientStatus)
-  const detachedWorkflowIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
-    entry.kind === 'workflow' ? [entry.workflowId] : []))
-  const detachedPanelIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
-    entry.kind === 'panel' ? [entry.panelId] : []))
+  const detachedWorkflowIds = (): ReadonlySet<string> =>
+    new Set(
+      managedLayout().windows.flatMap((entry) =>
+        entry.kind === 'workflow' ? [entry.workflowId] : [],
+      ),
+    )
+  const detachedPanelIds = (): ReadonlySet<string> =>
+    new Set(
+      managedLayout().windows.flatMap((entry) =>
+        entry.kind === 'panel' ? [entry.panelId] : [],
+      ),
+    )
   const windowTabs = (): readonly Tab[] => {
     const context = managedContext()
-    if (context.kind === 'workflow') return tabs().filter((tab) => tab.id === context.workflowId)
+    if (context.kind === 'workflow')
+      return tabs().filter((tab) => tab.id === context.workflowId)
     if (context.kind === 'panel') return tabs()
     const detached = detachedWorkflowIds()
     return tabs().filter((tab) => !detached.has(tab.id))
@@ -490,7 +789,8 @@ export function App(props: {
     const visible = windowTabs()
     const context = managedContext()
     if (context.kind === 'panel') return
-    if (!visible.some((tab) => tab.id === activeTabId())) app.activeTabId.set(visible[0]?.id ?? '')
+    if (!visible.some((tab) => tab.id === activeTabId()))
+      app.activeTabId.set(visible[0]?.id ?? '')
   })
   const statusTrailingContributions = () => {
     hostUiTick()
@@ -509,14 +809,18 @@ export function App(props: {
   // The in-flight resize drag's disposer: unmounting mid-drag must drop the
   // window listeners instead of leaving them until a stray pointerup.
   let endRegionResize: (() => void) | undefined
-  const beginResize = (region: ShellRegion, sign: 1 | -1) => (down: PointerEvent): void => {
-    endRegionResize?.()
-    endRegionResize = beginRegionResize(app.shell, region, down, sign)
-  }
-  const resizeFromKeyboard = (region: ShellRegion) => (value: number): void => {
-    app.shell.previewSize(region, value)
-    app.shell.commitSize(region)
-  }
+  const beginResize =
+    (region: ShellRegion, sign: 1 | -1) =>
+    (down: PointerEvent): void => {
+      endRegionResize?.()
+      endRegionResize = beginRegionResize(app.shell, region, down, sign)
+    }
+  const resizeFromKeyboard =
+    (region: ShellRegion) =>
+    (value: number): void => {
+      app.shell.previewSize(region, value)
+      app.shell.commitSize(region)
+    }
   onCleanup(() => endRegionResize?.())
   const [logsClearArmed, setLogsClearArmed] = createSolidSignal(false)
   let logsClearTimer: ReturnType<typeof setTimeout> | undefined
@@ -540,7 +844,13 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const librarySources = [packsSource(app), templatesSource(app), workflowsSource(app), historySource(app), runsSource(app)]
+  const librarySources = [
+    packsSource(app),
+    templatesSource(app),
+    workflowsSource(app),
+    historySource(app),
+    runsSource(app),
+  ]
   // The backend the library browses (the active tab's target). A memo so
   // the panel re-pages exactly when the resolved backend IDENTITY changes
   // (tab switch onto another backend, retarget, backend removal) - not on
@@ -562,7 +872,10 @@ export function App(props: {
     libraryOwner()
     return 0
   }
-  const activateLibraryEntry = (sourceId: string, entry: CollectionEntry): void => {
+  const activateLibraryEntry = (
+    sourceId: string,
+    entry: CollectionEntry,
+  ): void => {
     if (sourceId === 'workflows') {
       if (entry.owner === undefined) return
       void app.openFromLibrary(entry.id, entry.owner).then((ok) => {
@@ -580,28 +893,39 @@ export function App(props: {
       setPanelOpen(app.panels, app.dock, 'library', 'left', false)
     }
   }
-  const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string): void => {
+  const libraryEntryAction = (
+    sourceId: string,
+    entry: CollectionEntry,
+    actionId: string,
+  ): void => {
     // Remote entries carry the backend that served them (owner); every
     // action routes back to that owner, never to whatever backend is
     // current when the click lands.
     if (sourceId === 'workflows' && actionId === 'copy-link') {
       if (entry.owner === undefined) return
-      const backend = app.backends.get().find((candidate) => candidate.id === entry.owner)
-      void navigator.clipboard?.writeText(formatWorkflowDeepLink({
-        projectId: activeProjectId(),
-        workflowId: entry.id,
-        ...(backend && backend.baseUrl !== '' ? { backendUrl: backend.baseUrl } : {}),
-      }))
+      const backend = app.backends
+        .get()
+        .find((candidate) => candidate.id === entry.owner)
+      void navigator.clipboard?.writeText(
+        formatWorkflowDeepLink({
+          projectId: activeProjectId(),
+          workflowId: entry.id,
+          ...(backend && backend.baseUrl !== ''
+            ? { backendUrl: backend.baseUrl }
+            : {}),
+        }),
+      )
       return
     }
     if (sourceId === 'templates' && actionId === 'open') {
       if (entry.owner === undefined) return
       const ref = entry.ref as TemplateCollectionRef | undefined
-      const opening = ref?.kind === 'remote'
-        ? app.openRemoteTemplate(ref.template, entry.title)
-        : ref?.kind === 'local'
-          ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
-          : Promise.resolve(false)
+      const opening =
+        ref?.kind === 'remote'
+          ? app.openRemoteTemplate(ref.template, entry.title)
+          : ref?.kind === 'local'
+            ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
+            : Promise.resolve(false)
       void opening.then((ok) => {
         if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
       })
@@ -635,7 +959,11 @@ export function App(props: {
   const [clearArmed, setClearArmed] = createSolidSignal(false)
   let clearArmTimer: ReturnType<typeof setTimeout> | undefined
   let clearArmOwner: string | undefined
-  const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
+  const librarySourceAction = (
+    sourceId: string,
+    actionId: string,
+    owner?: string,
+  ): void => {
     if (sourceId !== 'runs' || actionId !== 'clear') return
     if (owner === undefined) return
     if (!clearArmed() || clearArmOwner !== owner) {
@@ -660,7 +988,8 @@ export function App(props: {
     tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
   createEffect(() => {
     const pending = pendingClose()
-    if (pending && !pendingCloseStillCurrent(pending)) setPendingClose(undefined)
+    if (pending && !pendingCloseStillCurrent(pending))
+      setPendingClose(undefined)
   })
 
   // One tab strip per editor group. Gesture and focus-restore logic
@@ -679,7 +1008,8 @@ export function App(props: {
     // split layout keeps (next tab in the closing group, else the active
     // tab of the group inheriting focus) before the close, so AppState's
     // split-blind remaining[0] fallback never moves focus to another group.
-    const successor = tab.id === activeTabId() ? closeSuccessor(tab.id) : undefined
+    const successor =
+      tab.id === activeTabId() ? closeSuccessor(tab.id) : undefined
     if (successor !== undefined) app.activeTabId.set(successor)
     app.requestCloseTab(tab.id, () => true)
     if (restoreFocus || strip !== undefined) {
@@ -687,7 +1017,11 @@ export function App(props: {
         const target = strip?.isConnected
           ? strip
           : [...stripElements.values()].find((element) => element.isConnected)
-        target?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus({ preventScroll: true })
+        target
+          ?.querySelector<HTMLButtonElement>(
+            '[role="tab"][aria-selected="true"]',
+          )
+          ?.focus({ preventScroll: true })
       })
     }
   }
@@ -722,7 +1056,11 @@ export function App(props: {
   const boundaryIndicator = (): PanelIndicator | undefined => {
     boundaryStateTick()
     return editedSubgraphDefinition(activeTab())
-      ? { count: 1, severity: 'info', label: message('shell.status.boundaryEditable') }
+      ? {
+          count: 1,
+          severity: 'info',
+          label: message('shell.status.boundaryEditable'),
+        }
       : undefined
   }
   const splitLayoutRaw = useSignal(app.editorSplits.layout)
@@ -736,12 +1074,16 @@ export function App(props: {
    */
   const displayLayout = createMemo<EditorLayout>(() => {
     const ids = windowTabs().map((tab) => tab.id)
-    if (managedContext().kind !== 'primary') return singleGroupLayout(ids, activeTabId())
+    if (managedContext().kind !== 'primary')
+      return singleGroupLayout(ids, activeTabId())
     let layout = repairEditorLayout(splitLayoutRaw(), ids)
     const active = activeTabId()
     if (active !== '') {
-      const owner = layoutGroups(layout.root).find((group) => group.tabIds.includes(active))
-      if (owner !== undefined) layout = setActiveTab(focusGroup(layout, owner.id), owner.id, active)
+      const owner = layoutGroups(layout.root).find((group) =>
+        group.tabIds.includes(active),
+      )
+      if (owner !== undefined)
+        layout = setActiveTab(focusGroup(layout, owner.id), owner.id, active)
     }
     return layout
   })
@@ -753,23 +1095,38 @@ export function App(props: {
    */
   const closeSuccessor = (closingId: string): string | undefined => {
     const layout = displayLayout()
-    if (!layoutGroups(layout.root).some((group) => group.tabIds.includes(closingId))) return undefined
-    const remaining = windowTabs().map((tab) => tab.id).filter((id) => id !== closingId)
+    if (
+      !layoutGroups(layout.root).some((group) =>
+        group.tabIds.includes(closingId),
+      )
+    )
+      return undefined
+    const remaining = windowTabs()
+      .map((tab) => tab.id)
+      .filter((id) => id !== closingId)
     const repaired = repairEditorLayout(layout, remaining)
     const focused = findGroup(repaired, repaired.focusedGroupId)
-    return focused === undefined || focused.activeTabId === '' ? undefined : focused.activeTabId
+    return focused === undefined || focused.activeTabId === ''
+      ? undefined
+      : focused.activeTabId
   }
   /**
    * Commit a split gesture: rebase the mutation on the displayed (repaired)
    * layout, persist, and align the global active tab with the focused
    * group so shell chrome (panels, topbar, commands) follows focus.
    */
-  const updateSplitLayout = (mutate: (layout: EditorLayout) => EditorLayout): void => {
+  const updateSplitLayout = (
+    mutate: (layout: EditorLayout) => EditorLayout,
+  ): void => {
     if (managedContext().kind !== 'primary') return
     const next = mutate(displayLayout())
     app.editorSplits.layout.set(next)
     const focused = findGroup(next, next.focusedGroupId)
-    if (focused !== undefined && focused.activeTabId !== '' && focused.activeTabId !== app.activeTabId.get()) {
+    if (
+      focused !== undefined &&
+      focused.activeTabId !== '' &&
+      focused.activeTabId !== app.activeTabId.get()
+    ) {
       app.activeTabId.set(focused.activeTabId)
     }
   }
@@ -778,35 +1135,48 @@ export function App(props: {
     const url = new URL(window.location.href)
     // Pop-outs stay in this window's project so they join the same tab authority.
     url.search = new URLSearchParams(
-      activeProjectId() === DEFAULT_PROJECT_ID ? params : { ...params, [PROJECT_URL_PARAM]: activeProjectId() },
+      activeProjectId() === DEFAULT_PROJECT_ID
+        ? params
+        : { ...params, [PROJECT_URL_PARAM]: activeProjectId() },
     ).toString()
     window.open(url, params['dinksterWindow'], 'popup,width=1200,height=800')
   }
-  const popOutWorkflow = (tab: Tab, screenX?: number, screenY?: number): void => {
+  const popOutWorkflow = (
+    tab: Tab,
+    screenX?: number,
+    screenY?: number,
+  ): void => {
     app.flushPersistTabs()
     const desktop = desktopBridge()
     if (desktop) {
       void desktop.openWorkflowWindow(tab.id, screenX, screenY)
       return
     }
-    openBrowserPopout({ dinksterWindow: `browser-${tab.id}`, dinksterWindowKind: 'workflow', dinksterWorkflow: tab.id })
+    openBrowserPopout({
+      dinksterWindow: `browser-${tab.id}`,
+      dinksterWindowKind: 'workflow',
+      dinksterWorkflow: tab.id,
+    })
   }
-  const [tabDrag, setTabDrag] = createSolidSignal<{
-    readonly tabId: string
-    readonly title: string
-    readonly sourceGroupId: string
-    readonly x: number
-    readonly y: number
-    /** Reorder preview; set only while the pointer rides the source strip. */
-    readonly order: readonly string[] | undefined
-    readonly insertionIndex: number | undefined
-    /** Pane drop target (split or move) under the pointer. */
-    readonly dropTarget: SplitDropTarget | undefined
-    /** Another group's strip the pointer is over. */
-    readonly targetStripId: string | undefined
-    /** True when releasing here would do nothing (refused split, pop-out unavailable). */
-    readonly refused: boolean
-  } | undefined>(undefined)
+  const [tabDrag, setTabDrag] = createSolidSignal<
+    | {
+        readonly tabId: string
+        readonly title: string
+        readonly sourceGroupId: string
+        readonly x: number
+        readonly y: number
+        /** Reorder preview; set only while the pointer rides the source strip. */
+        readonly order: readonly string[] | undefined
+        readonly insertionIndex: number | undefined
+        /** Pane drop target (split or move) under the pointer. */
+        readonly dropTarget: SplitDropTarget | undefined
+        /** Another group's strip the pointer is over. */
+        readonly targetStripId: string | undefined
+        /** True when releasing here would do nothing (refused split, pop-out unavailable). */
+        readonly refused: boolean
+      }
+    | undefined
+  >(undefined)
   let disposeTabDrag: (() => void) | undefined
   let tabDragPointerId: number | undefined
   /**
@@ -821,17 +1191,24 @@ export function App(props: {
       document.activeElement !== focused &&
       focused.isConnected &&
       stripContaining(focused) !== undefined
-    ) focused.focus({ preventScroll: true })
+    )
+      focused.focus({ preventScroll: true })
   }
   let suppressTabClick: string | undefined
   let suppressTabClickTimer: ReturnType<typeof setTimeout> | undefined
-  const activateTab = (event: MouseEvent, id: string, groupId: string): void => {
+  const activateTab = (
+    event: MouseEvent,
+    id: string,
+    groupId: string,
+  ): void => {
     if (suppressTabClick === id || tabDragPointerId !== undefined) {
       event.preventDefault()
       suppressTabClick = undefined
       return
     }
-    updateSplitLayout((layout) => focusGroup(setActiveTab(layout, groupId, id), groupId))
+    updateSplitLayout((layout) =>
+      focusGroup(setActiveTab(layout, groupId, id), groupId),
+    )
     // Non-primary windows have no persisted layout; set the global active
     // tab directly there (updateSplitLayout is a no-op outside primary).
     app.activeTabId.set(id)
@@ -847,28 +1224,56 @@ export function App(props: {
     regionElement = element
     regionObserver?.disconnect()
     regionObserver = new ResizeObserver(() => {
-      setRegionSize({ width: element.clientWidth, height: element.clientHeight })
+      setRegionSize({
+        width: element.clientWidth,
+        height: element.clientHeight,
+      })
     })
     regionObserver.observe(element)
     setRegionSize({ width: element.clientWidth, height: element.clientHeight })
   }
   onCleanup(() => regionObserver?.disconnect())
   /** Uncommitted divider ratio while a resize drag is in flight. */
-  const [dividerPreview, setDividerPreview] = createSolidSignal<{ readonly path: SplitPath; readonly ratio: number }>()
+  const [dividerPreview, setDividerPreview] = createSolidSignal<{
+    readonly path: SplitPath
+    readonly ratio: number
+  }>()
   const previewedRoot = () => {
     const preview = dividerPreview()
     const layout = displayLayout()
-    return preview !== undefined ? setSplitRatioAt(layout, preview.path, preview.ratio).root : layout.root
+    return preview !== undefined
+      ? setSplitRatioAt(layout, preview.path, preview.ratio).root
+      : layout.root
   }
   const regionRects = createMemo(() =>
-    computeSplitRects(previewedRoot(), { x: 0, y: 0, width: regionSize().width, height: regionSize().height }))
+    computeSplitRects(previewedRoot(), {
+      x: 0,
+      y: 0,
+      width: regionSize().width,
+      height: regionSize().height,
+    }),
+  )
+  const mediaWorkspaceRect = (): SplitRect | undefined => {
+    const focused = regionRects().groups.find(
+      (group) => group.id === displayLayout().focusedGroupId,
+    )?.rect
+    if (focused === undefined) return undefined
+    const tabStripHeight = 40
+    return {
+      x: focused.x,
+      y: focused.y + tabStripHeight,
+      width: focused.width,
+      height: Math.max(0, focused.height - tabStripHeight),
+    }
+  }
   // Rects are applied as percentages of the measured region so a region
   // resize (a dock panel opening, a window resize) reflows the panes in the
   // same layout pass instead of one frame later when the ResizeObserver
   // delivers the new size.
   const rectStyle = (rect: SplitRect) => {
     const size = regionSize()
-    const pct = (value: number, total: number) => (total > 0 ? `${(value / total) * 100}%` : '0px')
+    const pct = (value: number, total: number) =>
+      total > 0 ? `${(value / total) * 100}%` : '0px'
     return {
       left: pct(rect.x, size.width),
       top: pct(rect.y, size.height),
@@ -879,19 +1284,28 @@ export function App(props: {
   const dropPreviewRect = (): SplitRect | undefined => {
     const target = tabDrag()?.dropTarget
     if (target === undefined) return undefined
-    const pane = regionRects().groups.find((group) => group.id === target.groupId)
-    return pane !== undefined ? splitDropPreviewRect(pane.rect, target.zone) : undefined
+    const pane = regionRects().groups.find(
+      (group) => group.id === target.groupId,
+    )
+    return pane !== undefined
+      ? splitDropPreviewRect(pane.rect, target.zone)
+      : undefined
   }
   // Stable per-group render entries so <For> keeps pane DOM (and the live
   // editors inside) mounted across layout changes.
   let paneEntriesPrev: readonly { readonly id: string }[] = []
   const paneList = createMemo(() => {
     const ids = layoutGroups(displayLayout().root).map((group) => group.id)
-    const next = ids.map((id) => paneEntriesPrev.find((entry) => entry.id === id) ?? { id })
+    const next = ids.map(
+      (id) => paneEntriesPrev.find((entry) => entry.id === id) ?? { id },
+    )
     paneEntriesPrev = next
     return next
   })
-  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent): void => {
+  const beginDividerDrag = (
+    divider: SplitDividerRect,
+    down: PointerEvent,
+  ): void => {
     if (down.button !== 0 || regionElement === undefined) return
     down.preventDefault()
     const region = regionElement.getBoundingClientRect()
@@ -901,36 +1315,53 @@ export function App(props: {
       if (event.pointerId !== down.pointerId) return
       setDividerPreview({
         path: divider.path,
-        ratio: splitRatioAtPointer(divider, event.clientX - region.left, event.clientY - region.top),
+        ratio: splitRatioAtPointer(
+          divider,
+          event.clientX - region.left,
+          event.clientY - region.top,
+        ),
       })
     }
-    const stop = (commit: boolean) => (event: PointerEvent): void => {
-      if (event.pointerId !== down.pointerId) return
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', commitStop)
-      window.removeEventListener('pointercancel', cancelStop)
-      const preview = dividerPreview()
-      setDividerPreview(undefined)
-      if (commit && preview !== undefined) {
-        updateSplitLayout((layout) => setSplitRatioAt(layout, preview.path, preview.ratio))
+    const stop =
+      (commit: boolean) =>
+      (event: PointerEvent): void => {
+        if (event.pointerId !== down.pointerId) return
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', commitStop)
+        window.removeEventListener('pointercancel', cancelStop)
+        const preview = dividerPreview()
+        setDividerPreview(undefined)
+        if (commit && preview !== undefined) {
+          updateSplitLayout((layout) =>
+            setSplitRatioAt(layout, preview.path, preview.ratio),
+          )
+        }
       }
-    }
     const commitStop = stop(true)
     const cancelStop = stop(false)
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', commitStop)
     window.addEventListener('pointercancel', cancelStop)
   }
-  const onDividerKeyDown = (divider: SplitDividerRect, event: KeyboardEvent): void => {
+  const onDividerKeyDown = (
+    divider: SplitDividerRect,
+    event: KeyboardEvent,
+  ): void => {
     const horizontal = divider.direction === 'row'
     const decrease = horizontal ? 'ArrowLeft' : 'ArrowUp'
     const increase = horizontal ? 'ArrowRight' : 'ArrowDown'
     if (event.key !== decrease && event.key !== increase) return
     event.preventDefault()
     const delta = event.key === increase ? 0.02 : -0.02
-    updateSplitLayout((layout) => setSplitRatioAt(layout, divider.path, divider.ratio + delta))
+    updateSplitLayout((layout) =>
+      setSplitRatioAt(layout, divider.path, divider.ratio + delta),
+    )
   }
-  const beginTabDrag = (tab: Tab, down: PointerEvent, groupId: string): void => {
+  const beginTabDrag = (
+    tab: CenterDocumentTab,
+    down: PointerEvent,
+    groupId: string,
+  ): void => {
     if (down.button !== 0) return
     const strip = stripElements.get(groupId)
     if (strip === undefined) return
@@ -946,11 +1377,19 @@ export function App(props: {
     let captured = false
     let disposed = false
     let paneTarget: SplitDropTarget | undefined
-    let stripTarget: { readonly groupId: string; readonly index: number } | undefined
+    let stripTarget:
+      | { readonly groupId: string; readonly index: number }
+      | undefined
     let overSourceStrip = true
     const within = (rect: DOMRect, x: number, y: number, pad = 0): boolean =>
-      x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad
-    const stripInsertionIndex = (element: HTMLElement, clientX: number): number =>
+      x >= rect.left - pad &&
+      x <= rect.right + pad &&
+      y >= rect.top - pad &&
+      y <= rect.bottom + pad
+    const stripInsertionIndex = (
+      element: HTMLElement,
+      clientX: number,
+    ): number =>
       Array.from(element.querySelectorAll<HTMLElement>('.tab')).filter((el) => {
         const rect = el.getBoundingClientRect()
         return clientX >= (rect.left + rect.right) / 2
@@ -962,7 +1401,8 @@ export function App(props: {
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('pointercancel', cancel)
       strip.removeEventListener('lostpointercapture', lostCapture)
-      if (captured && strip.hasPointerCapture(pointerId)) strip.releasePointerCapture(pointerId)
+      if (captured && strip.hasPointerCapture(pointerId))
+        strip.releasePointerCapture(pointerId)
       if (tabDragPointerId === pointerId) tabDragPointerId = undefined
       if (disposeTabDrag === dispose) disposeTabDrag = undefined
     }
@@ -973,9 +1413,19 @@ export function App(props: {
       const currentOrder = elements.map((element) => element.dataset['tabId']!)
       const slots: readonly TabDragSlot[] = elements.map((element) => {
         const rect = element.getBoundingClientRect()
-        return { id: element.dataset['tabId']!, left: rect.left, right: rect.right }
+        return {
+          id: element.dataset['tabId']!,
+          left: rect.left,
+          right: rect.right,
+        }
       })
-      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slots)
+      drag = moveTabDragModel(
+        drag,
+        event.pointerId,
+        event.clientX,
+        currentOrder,
+        slots,
+      )
       if (!drag.started) return
       if (!wasStarted && !captured) {
         try {
@@ -994,22 +1444,45 @@ export function App(props: {
       paneTarget = undefined
       stripTarget = undefined
       let refused = false
-      overSourceStrip = within(strip.getBoundingClientRect(), event.clientX, event.clientY, 24)
+      overSourceStrip = within(
+        strip.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+        24,
+      )
       if (!overSourceStrip) {
+        if (!isWorkflowTab(tab)) {
+          refused = true
+        } else {
         for (const [gid, element] of stripElements) {
           if (gid === groupId || !element.isConnected) continue
-          if (within(element.getBoundingClientRect(), event.clientX, event.clientY, 8)) {
-            stripTarget = { groupId: gid, index: stripInsertionIndex(element, event.clientX) }
+          if (
+            within(
+              element.getBoundingClientRect(),
+              event.clientX,
+              event.clientY,
+              8,
+            )
+          ) {
+            stripTarget = {
+              groupId: gid,
+              index: stripInsertionIndex(element, event.clientX),
+            }
             break
           }
         }
         if (stripTarget === undefined && regionElement !== undefined) {
           const region = regionElement.getBoundingClientRect()
           if (within(region, event.clientX, event.clientY)) {
-            const target = splitDropTargetAt(regionRects(), event.clientX - region.left, event.clientY - region.top)
+            const target = splitDropTargetAt(
+              regionRects(),
+              event.clientX - region.left,
+              event.clientY - region.top,
+            )
             if (target !== undefined) {
               const layout = displayLayout()
-              if (splitDropNextLayout(layout, target, tab.id) !== layout) paneTarget = target
+              if (splitDropNextLayout(layout, target, tab.id) !== layout)
+                paneTarget = target
               else refused = true
             }
           } else {
@@ -1018,20 +1491,23 @@ export function App(props: {
             refused = managedContext().kind !== 'primary'
           }
         }
+        }
       }
       const preview = drag.preview!
-      restoreTabFocusAfter(() => setTabDrag({
-        tabId: tab.id,
-        title: tab.title,
-        sourceGroupId: groupId,
-        x: event.clientX,
-        y: event.clientY,
-        order: overSourceStrip ? preview.order : undefined,
-        insertionIndex: overSourceStrip ? preview.insertionIndex : undefined,
-        dropTarget: paneTarget,
-        targetStripId: stripTarget?.groupId,
-        refused,
-      }))
+      restoreTabFocusAfter(() =>
+        setTabDrag({
+          tabId: tab.id,
+          title: tab.title,
+          sourceGroupId: groupId,
+          x: event.clientX,
+          y: event.clientY,
+          order: overSourceStrip ? preview.order : undefined,
+          insertionIndex: overSourceStrip ? preview.insertionIndex : undefined,
+          dropTarget: paneTarget,
+          targetStripId: stripTarget?.groupId,
+          refused,
+        }),
+      )
     }
     const finish = (event: PointerEvent): void => {
       if (event.pointerId !== pointerId) return
@@ -1042,19 +1518,52 @@ export function App(props: {
       const pane = paneTarget
       const stripDrop = stripTarget
       const region = regionElement?.getBoundingClientRect()
-      const outsideRegion = region === undefined || !within(region, event.clientX, event.clientY, 24)
+      const outsideRegion =
+        region === undefined ||
+        !within(region, event.clientX, event.clientY, 24)
       dispose()
       restoreTabFocusAfter(() => {
         setTabDrag(undefined)
-        if (action === 'commit' && stripDrop !== undefined) {
-          updateSplitLayout((layout) => moveTabToGroup(layout, tab.id, stripDrop.groupId, stripDrop.index))
-        } else if (action === 'commit' && pane !== undefined) {
-          updateSplitLayout((layout) => splitDropNextLayout(layout, pane, tab.id))
-        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary') {
+        if (
+          isWorkflowTab(tab) &&
+          action === 'commit' &&
+          stripDrop !== undefined
+        ) {
+          updateSplitLayout((layout) =>
+            moveTabToGroup(layout, tab.id, stripDrop.groupId, stripDrop.index),
+          )
+        } else if (
+          isWorkflowTab(tab) &&
+          action === 'commit' &&
+          pane !== undefined
+        ) {
+          updateSplitLayout((layout) =>
+            splitDropNextLayout(layout, pane, tab.id),
+          )
+        } else if (
+          started &&
+          isWorkflowTab(tab) &&
+          outsideRegion &&
+          !overSource &&
+          managedContext().kind === 'primary'
+        ) {
           popOutWorkflow(tab, event.screenX, event.screenY)
         } else if (action === 'commit' && overSource && preview !== undefined) {
+          const previous = centerDocumentOrder()
+          const reordered = applySubsetOrder(
+            previous.map((id) => ({ id })),
+            preview.order,
+          ).map((item) => item.id)
+          setCenterDocumentOrder(reordered)
           app.tabs.set(applySubsetOrder(tabs(), preview.order))
-          updateSplitLayout((layout) => setGroupTabOrder(layout, groupId, preview.order))
+          if (isWorkflowTab(tab)) {
+            const workflowOrder = preview.order.filter((id) =>
+              tabs().some((candidate) => candidate.id === id),
+            )
+            updateSplitLayout((layout) =>
+              setGroupTabOrder(layout, groupId, workflowOrder),
+            )
+          }
         }
       })
       if (action === 'click') return
@@ -1062,8 +1571,11 @@ export function App(props: {
     }
     const suppressClick = (id: string): void => {
       suppressTabClick = id
-      if (suppressTabClickTimer !== undefined) clearTimeout(suppressTabClickTimer)
-      suppressTabClickTimer = setTimeout(() => { suppressTabClick = undefined }, 0)
+      if (suppressTabClickTimer !== undefined)
+        clearTimeout(suppressTabClickTimer)
+      suppressTabClickTimer = setTimeout(() => {
+        suppressTabClick = undefined
+      }, 0)
     }
     const cancel = (event: PointerEvent): void => {
       if (event.pointerId !== pointerId) return
@@ -1114,13 +1626,16 @@ export function App(props: {
    * pinned, 'latest' when it is what follow-latest resolves to, undefined
    * when another run overlays that tab (or no live tab is open).
    */
-  const overlayRoleOf = (exec: ExecutionState): 'pinned' | 'latest' | undefined => {
+  const overlayRoleOf = (
+    exec: ExecutionState,
+  ): 'pinned' | 'latest' | undefined => {
     executions()
     overlayPins()
     const live = liveTabOf(exec)
     if (!live) return undefined
     const shown = app.executionForTab(live)
-    if (!shown || executionKey(shown.ref) !== executionKey(exec.ref)) return undefined
+    if (!shown || executionKey(shown.ref) !== executionKey(exec.ref))
+      return undefined
     return app.overlayModeForTab(live)
   }
 
@@ -1129,7 +1644,11 @@ export function App(props: {
    * leftover runs trail in a "(disconnected)" group). Single-backend: one
    * unlabeled group - none of the multi-backend chrome renders.
    */
-  const executionGroups = (): { backend?: Backend; id: string; execs: ExecutionState[] }[] => {
+  const executionGroups = (): {
+    backend?: Backend
+    id: string
+    execs: ExecutionState[]
+  }[] => {
     backendsTick()
     const byConnection = new Map<string, ExecutionState[]>()
     for (const exec of workflowExecutions()) {
@@ -1137,11 +1656,13 @@ export function App(props: {
       list.push(exec)
       byConnection.set(exec.ref.connection, list)
     }
-    const groups: { backend?: Backend; id: string; execs: ExecutionState[] }[] = []
+    const groups: { backend?: Backend; id: string; execs: ExecutionState[] }[] =
+      []
     for (const backend of backends()) {
       const execs = byConnection.get(backend.id)
       byConnection.delete(backend.id)
-      if (execs || backends().length === 1) groups.push({ backend, id: backend.id, execs: execs ?? [] })
+      if (execs || backends().length === 1)
+        groups.push({ backend, id: backend.id, execs: execs ?? [] })
     }
     for (const [id, execs] of byConnection) groups.push({ id, execs })
     return groups
@@ -1197,19 +1718,26 @@ export function App(props: {
   /** One rail row; captures the App closures (overlay role, live tab). */
   const ExecutionRow = (p: { exec: ExecutionState }) => {
     const live = () => liveTabOf(p.exec)
-    return <ExecutionActivityCard
-      entry={p.exec}
-      title={app.tabTitleFor(p.exec.ref)}
-      testId="execution-row"
-      relation={overlayRoleOf(p.exec)}
-      onOpen={() => app.openExecutionView(p.exec.ref)}
-      onPin={live() ? () => {
-        const tab = live()
-        if (!tab) return
-        if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
-        else app.pinExecutionOverlay(tab.id, p.exec.ref)
-      } : undefined}
-    />
+    return (
+      <ExecutionActivityCard
+        entry={p.exec}
+        title={app.tabTitleFor(p.exec.ref)}
+        testId="execution-row"
+        relation={overlayRoleOf(p.exec)}
+        onOpen={() => app.openExecutionView(p.exec.ref)}
+        onPin={
+          live()
+            ? () => {
+                const tab = live()
+                if (!tab) return
+                if (overlayRoleOf(p.exec) === 'pinned')
+                  app.followLatestExecution(tab.id)
+                else app.pinExecutionOverlay(tab.id, p.exec.ref)
+              }
+            : undefined
+        }
+      />
+    )
   }
 
   // ---- Shell panels ------------------------------------------------------
@@ -1222,54 +1750,96 @@ export function App(props: {
       sources={librarySources}
       backend={() => {
         const backend = activeBackend()
-        return { label: backend.label, protocol: backend.protocol, status: statusOf(backend) }
+        return {
+          label: backend.label,
+          protocol: backend.protocol,
+          status: statusOf(backend),
+        }
       }}
       refreshTick={libraryTick}
       onActivate={activateLibraryEntry}
       onAction={libraryEntryAction}
       sourceActions={[
-        { sourceId: 'runs', id: 'clear', label: clearArmed() ? 'Confirm clear' : 'Clear all' },
+        {
+          sourceId: 'runs',
+          id: 'clear',
+          label: clearArmed() ? 'Confirm clear' : 'Clear all',
+        },
       ]}
       onSourceAction={librarySourceAction}
     />
   )
   const AssetsPanelBody = () => {
     const backend = activeBackend()
-    return backend.protocol === 'dinkster'
-      ? <AssetsBody
-          connection={backend.connection}
-          backendId={String(backend.id)}
-          baseUrl={backend.baseUrl}
-          {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
-        />
-      : <p class="empty">{message('shell.backend.assetsRequireNative')}</p>
+    return backend.protocol === 'dinkster' ? (
+      <AssetsBody
+        connection={backend.connection}
+        backendId={String(backend.id)}
+        baseUrl={backend.baseUrl}
+        {...(props.federatedAssets
+          ? { federatedContract: props.federatedAssets }
+          : {})}
+      />
+    ) : (
+      <p class="empty">{message('shell.backend.assetsRequireNative')}</p>
+    )
   }
-  const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
+  const LogsBody = () => (
+    <ActivityLog entries={logs} clearArmed={logsClearArmed} />
+  )
   /**
    * Best-effort display title for a runtime node id: resolve through compile
    * provenance (region iteration suffixes and inner path segments included)
    * to the document node and use its title. Falls back to the raw runtime id
    * (foreign runs, unresolvable occurrences).
    */
-  const runtimeNodeTitle = (exec: ExecutionState, runtimeId: string): string => {
-    const identity = documentIdentityOf(runtimeId, exec.artifact?.provenance.toSource)
+  const runtimeNodeTitle = (
+    exec: ExecutionState,
+    runtimeId: string,
+  ): string => {
+    const identity = documentIdentityOf(
+      runtimeId,
+      exec.artifact?.provenance.toSource,
+    )
     const tab = liveTabOf(exec) ?? activeTab()
     const doc = tab?.store.doc
-    if (identity === undefined || tab === undefined || doc === undefined) return runtimeId
+    if (identity === undefined || tab === undefined || doc === undefined)
+      return runtimeId
     const resolved = resolveNodeOccurrence(doc, identity.occurrence)
-    const node = resolved === undefined ? undefined : doc.graphs[resolved.graphId]?.nodes[resolved.nodeId]
+    const node =
+      resolved === undefined
+        ? undefined
+        : doc.graphs[resolved.graphId]?.nodes[resolved.nodeId]
     if (node === undefined) return runtimeId
     const registry = app.registryForTab(tab)
-    const name = node.title || (registry ? documentResolver(doc, registry.resolve)(node.type)?.displayName : undefined)
-    return name !== undefined && name !== '' && name !== runtimeId ? name : runtimeId
+    const name =
+      node.title ||
+      (registry
+        ? documentResolver(doc, registry.resolve)(node.type)?.displayName
+        : undefined)
+    return name !== undefined && name !== '' && name !== runtimeId
+      ? name
+      : runtimeId
   }
   /** Focus a log row's node on canvas through the diagnostic focus path. */
   const focusRuntimeNode = (exec: ExecutionState, runtimeId: string): void => {
-    const identity = documentIdentityOf(runtimeId, exec.artifact?.provenance.toSource)
+    const identity = documentIdentityOf(
+      runtimeId,
+      exec.artifact?.provenance.toSource,
+    )
     if (identity === undefined) return
-    activateProblem(app, diag('info', 'runtime', 'execution-log.focus', 'focus node from execution log', {
-      anchor: { execution: exec.ref, occurrence: identity.occurrence },
-    }))
+    activateProblem(
+      app,
+      diag(
+        'info',
+        'runtime',
+        'execution-log.focus',
+        'focus node from execution log',
+        {
+          anchor: { execution: exec.ref, occurrence: identity.occurrence },
+        },
+      ),
+    )
   }
   const executionLogFocus = useSignal(app.executionLogFocus)
   const ExecutionLogBody = () => (
@@ -1284,10 +1854,19 @@ export function App(props: {
   )
   const QueuePanel = () => (
     <div class="rail-panel-body" data-testid="queue-rail">
-      <Show when={workflowExecutions().length > 0} fallback={<p class="empty">Nothing queued for this workflow.</p>}>
+      <Show
+        when={workflowExecutions().length > 0}
+        fallback={<p class="empty">Nothing queued for this workflow.</p>}
+      >
         <For each={executionGroups()}>
           {(group) => (
-            <div class="backend-group" role="list" aria-label={group.backend?.label ?? `${group.id} removed backend executions`}>
+            <div
+              class="backend-group"
+              role="list"
+              aria-label={
+                group.backend?.label ?? `${group.id} removed backend executions`
+              }
+            >
               <Show when={multiBackend() || group.backend === undefined}>
                 <h3
                   class="backend-group-title"
@@ -1296,10 +1875,13 @@ export function App(props: {
                   data-connection={group.id}
                   role={group.backend === undefined ? 'status' : undefined}
                 >
-                  {group.backend?.label ?? `${group.id} - backend removed or disconnected`}
+                  {group.backend?.label ??
+                    `${group.id} - backend removed or disconnected`}
                 </h3>
               </Show>
-              <For each={group.execs}>{(exec) => <ExecutionRow exec={exec} />}</For>
+              <For each={group.execs}>
+                {(exec) => <ExecutionRow exec={exec} />}
+              </For>
             </div>
           )}
         </For>
@@ -1308,17 +1890,28 @@ export function App(props: {
   )
   const OutputsPanel = () => (
     <div class="rail-panel-body" data-testid="outputs-panel">
-      <Show when={activeExecution()} fallback={
-        <div class="output-state" data-state="no-execution" role="status">
-          <strong>No execution selected</strong>
-          <span>Run this workflow or open a recorded execution to inspect its outputs.</span>
-        </div>
-      }>
-        {(exec) => <Outputs app={app} execution={exec()} onOpenLayers={(request) => {
-          if (imageDocumentsBusy()) return
-          setGraphImageRequest(request)
-          setImageDocumentsVisible(true)
-        }} />}
+      <Show
+        when={activeExecution()}
+        fallback={
+          <div class="output-state" data-state="no-execution" role="status">
+            <strong>No execution selected</strong>
+            <span>
+              Run this workflow or open a recorded execution to inspect its
+              outputs.
+            </span>
+          </div>
+        }
+      >
+        {(exec) => (
+          <Outputs
+            app={app}
+            execution={exec()}
+            onOpenLayers={(request) => {
+              if (imageDocumentsBusy()) return
+              setGraphImageRequest(request)
+            }}
+          />
+        )}
       </Show>
     </div>
   )
@@ -1330,7 +1923,9 @@ export function App(props: {
     return [
       ...solveDiagnostics(),
       ...visibleProblems(problems(), new Set([activeTabId()])),
-      ...(activeTab()?.execution ? execution?.artifact?.diagnostics ?? [] : []),
+      ...(activeTab()?.execution
+        ? (execution?.artifact?.diagnostics ?? [])
+        : []),
       ...(execution?.errors ?? []),
     ]
   }
@@ -1339,7 +1934,9 @@ export function App(props: {
     if (list.length === 0) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : list.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+      : list.some((d) => d.severity === 'warning')
+        ? 'warning'
+        : 'info'
     return {
       count: list.length,
       severity,
@@ -1353,104 +1950,272 @@ export function App(props: {
     activateProblem(app, diagnostic)
     setPanelOpen(app.panels, app.dock, 'context', 'right', true)
   }
-  const desktopManagementConnection = (): DesktopMountConnection | undefined => {
+  const desktopManagementConnection = ():
+    | DesktopMountConnection
+    | undefined => {
     const backend = activeBackend()
-    const local = backend.baseUrl === '' || new URL(backend.baseUrl, window.location.href).origin === window.location.origin
-    return backend.protocol === 'dinkster' && local ? backend.connection : undefined
+    const local =
+      backend.baseUrl === '' ||
+      new URL(backend.baseUrl, window.location.href).origin ===
+        window.location.origin
+    return backend.protocol === 'dinkster' && local
+      ? backend.connection
+      : undefined
   }
-  const registerBuiltinPanel = (descriptor: import('./panels.js').PanelDescriptor): (() => void) =>
-    app.frontendDoors.panel(descriptor.id, descriptor)
+  const registerBuiltinPanel = (
+    descriptor: import('./panels.js').PanelDescriptor,
+  ): (() => void) => app.frontendDoors.panel(descriptor.id, descriptor)
   const unregisterPanels = [
     registerBuiltinPanel({
-      id: 'library', get title() { return message('shell.panel.library.title') }, icon: Library,
-      get description() { return message('shell.panel.library.description') }, get ariaLabel() { return message('shell.panel.library.ariaLabel') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 10,
-      toggleTestId: 'library-toggle', component: LibraryBody,
+      id: 'library',
+      get title() {
+        return message('shell.panel.library.title')
+      },
+      icon: Library,
+      get description() {
+        return message('shell.panel.library.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.library.ariaLabel')
+      },
+      placement: 'dock',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 10,
+      toggleTestId: 'library-toggle',
+      component: LibraryBody,
     }),
     registerBuiltinPanel({
-      id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
-      get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 12,
-      toggleTestId: 'learn-toggle', component: () => {
+      id: 'learn',
+      get title() {
+        return message('learn.panel.title')
+      },
+      icon: BookOpen,
+      get description() {
+        return message('learn.panel.description')
+      },
+      get ariaLabel() {
+        return message('learn.panel.ariaLabel')
+      },
+      placement: 'dock',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 12,
+      toggleTestId: 'learn-toggle',
+      component: () => {
         const backend = activeBackend()
-        return <LearnPanel
-          backend={backend.protocol === 'dinkster' ? { id: backend.id, connection: backend.connection } : undefined}
-          locale={locale().tag}
-          onOpenTemplate={(pack, template, title, owner) => { void app.openTemplate(pack, template, title, owner) }}
-        />
+        return (
+          <LearnPanel
+            backend={
+              backend.protocol === 'dinkster'
+                ? { id: backend.id, connection: backend.connection }
+                : undefined
+            }
+            locale={locale().tag}
+            onOpenTemplate={(pack, template, title, owner) => {
+              void app.openTemplate(pack, template, title, owner)
+            }}
+          />
+        )
       },
     }),
     registerBuiltinPanel({
-      id: 'assets', get title() { return message('shell.panel.assets.title') }, icon: Images,
-      get description() { return message('shell.panel.assets.description') }, get ariaLabel() { return message('shell.panel.assets.title') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 15,
-      toggleTestId: 'assets-toggle', component: AssetsPanelBody,
+      id: 'assets',
+      get title() {
+        return message('shell.panel.assets.title')
+      },
+      icon: Images,
+      get description() {
+        return message('shell.panel.assets.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.assets.title')
+      },
+      placement: 'dock',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 15,
+      toggleTestId: 'assets-toggle',
+      component: AssetsPanelBody,
     }),
     // Logs live in the BOTTOM panel by default: a wide, short surface suits
     // streaming rows, and it gives the bottom region its first resident
     // (promises.md "Shell layout"). Dock stays an allowed placement.
     registerBuiltinPanel({
-      id: 'logs', get title() { return message('shell.panel.activity.title') }, icon: ScrollText,
-      get description() { return message('shell.panel.activity.description') }, get ariaLabel() { return message('shell.panel.activity.title') },
-      placement: 'bottom', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
+      id: 'logs',
+      get title() {
+        return message('shell.panel.activity.title')
+      },
+      icon: ScrollText,
+      get description() {
+        return message('shell.panel.activity.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.activity.title')
+      },
+      placement: 'bottom',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 20,
       toggleTestId: 'logs-toggle',
-      headerAction: { get label() { return message('shell.action.clear') }, testId: 'logs-clear', run: requestLogsClear },
+      headerAction: {
+        get label() {
+          return message('shell.action.clear')
+        },
+        testId: 'logs-clear',
+        run: requestLogsClear,
+      },
       component: LogsBody,
     }),
     // The Execution log is the per-run structured feed (node output,
     // warnings, error reports), deliberately separate from the app-level
     // Activity panel above (Dinkster issue #368).
     registerBuiltinPanel({
-      id: 'execution-log', get title() { return message('shell.panel.executionLog.title') }, icon: Terminal,
-      get description() { return message('shell.panel.executionLog.description') }, get ariaLabel() { return message('shell.panel.executionLog.title') },
-      placement: 'bottom', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
+      id: 'execution-log',
+      get title() {
+        return message('shell.panel.executionLog.title')
+      },
+      icon: Terminal,
+      get description() {
+        return message('shell.panel.executionLog.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.executionLog.title')
+      },
+      placement: 'bottom',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 25,
       toggleTestId: 'execution-log-toggle',
       component: ExecutionLogBody,
     }),
     registerBuiltinPanel({
-      id: 'backends', get title() { return message('shell.panel.backends.title') }, icon: Server,
-      get description() { return message('shell.panel.backends.description') }, get ariaLabel() { return message('shell.panel.backends.title') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
-      toggleTestId: 'backends-sidebar-toggle', component: () => <BackendsPanel app={app} />,
+      id: 'backends',
+      get title() {
+        return message('shell.panel.backends.title')
+      },
+      icon: Server,
+      get description() {
+        return message('shell.panel.backends.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.backends.title')
+      },
+      placement: 'dock',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 30,
+      toggleTestId: 'backends-sidebar-toggle',
+      component: () => <BackendsPanel app={app} />,
     }),
     registerBuiltinPanel({
-      id: 'memory', get title() { return message('shell.panel.memory.title') }, icon: Database,
-      get description() { return message('shell.panel.memory.description') }, get ariaLabel() { return message('shell.panel.memory.ariaLabel') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 35,
-      toggleTestId: 'memory-sidebar-toggle', component: () => <div class="memory-panels">
-        <For each={backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')} fallback={<p>{message('shell.backend.noneNative')}</p>}>
-          {(backend) => <MemoryPanel connection={backend.connection} backendId={backend.id} label={backend.label} />}
-        </For>
-      </div>,
+      id: 'memory',
+      get title() {
+        return message('shell.panel.memory.title')
+      },
+      icon: Database,
+      get description() {
+        return message('shell.panel.memory.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.memory.ariaLabel')
+      },
+      placement: 'dock',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 35,
+      toggleTestId: 'memory-sidebar-toggle',
+      component: () => (
+        <div class="memory-panels">
+          <For
+            each={backends().filter(
+              (
+                backend,
+              ): backend is Extract<Backend, { protocol: 'dinkster' }> =>
+                backend.protocol === 'dinkster',
+            )}
+            fallback={<p>{message('shell.backend.noneNative')}</p>}
+          >
+            {(backend) => (
+              <MemoryPanel
+                connection={backend.connection}
+                backendId={backend.id}
+                label={backend.label}
+              />
+            )}
+          </For>
+        </div>
+      ),
     }),
     registerBuiltinPanel({
-      id: 'p2p', get title() { return message('p2p.tabTitle') }, icon: Network,
-      get description() { return message('p2p.panelDescription') }, get ariaLabel() { return message('p2p.title') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 36,
-      toggleTestId: 'p2p-sidebar-toggle', component: () => <div class="p2p-panels">
-        <For each={backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')} fallback={<p>{message('shell.backend.noneNative')}</p>}>
-          {(backend) => <P2PPanel connection={backend.connection} backendId={backend.id} backendLabel={backend.label} />}
-        </For>
-      </div>,
+      id: 'p2p',
+      get title() {
+        return message('p2p.tabTitle')
+      },
+      icon: Network,
+      get description() {
+        return message('p2p.panelDescription')
+      },
+      get ariaLabel() {
+        return message('p2p.title')
+      },
+      placement: 'dock',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 36,
+      toggleTestId: 'p2p-sidebar-toggle',
+      component: () => (
+        <div class="p2p-panels">
+          <For
+            each={backends().filter(
+              (
+                backend,
+              ): backend is Extract<Backend, { protocol: 'dinkster' }> =>
+                backend.protocol === 'dinkster',
+            )}
+            fallback={<p>{message('shell.backend.noneNative')}</p>}
+          >
+            {(backend) => (
+              <P2PPanel
+                connection={backend.connection}
+                backendId={backend.id}
+                backendLabel={backend.label}
+              />
+            )}
+          </For>
+        </div>
+      ),
     }),
     registerBuiltinPanel({
-      id: 'queue', get title() { return message('shell.panel.executions.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 10,
+      id: 'queue',
+      get title() {
+        return message('shell.panel.executions.title')
+      },
+      placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 10,
       component: QueuePanel,
     }),
     registerBuiltinPanel({
-      id: 'outputs', get title() { return message('shell.panel.outputs.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
+      id: 'outputs',
+      get title() {
+        return message('shell.panel.outputs.title')
+      },
+      placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 20,
       component: OutputsPanel,
     }),
     registerBuiltinPanel({
-      id: 'extensions', get title() { return message('shell.panel.extensions.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
+      id: 'extensions',
+      get title() {
+        return message('shell.panel.extensions.title')
+      },
+      placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 30,
       component: () => <ExtensionsPanel host={app.extensions} />,
     }),
     registerBuiltinPanel({
-      id: 'boundary', get title() { return message('shell.panel.boundary.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
+      id: 'boundary',
+      get title() {
+        return message('shell.panel.boundary.title')
+      },
+      placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 40,
       indicator: boundaryIndicator,
       component: () => <BoundaryPanel app={app} />,
     }),
@@ -1458,101 +2223,226 @@ export function App(props: {
     // controls); hidden by default so they are not mistaken for a settled
     // feature. See docs/rework-queue.md.
     registerBuiltinPanel({
-      id: 'surfaces', get title() { return message('shell.panel.controlSurfaces.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 50,
-      when: controlSurfacesEnabled, component: () => <SurfacePanel app={app} />,
+      id: 'surfaces',
+      get title() {
+        return message('shell.panel.controlSurfaces.title')
+      },
+      placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 50,
+      when: controlSurfacesEnabled,
+      component: () => <SurfacePanel app={app} />,
     }),
     // The Focused tab shows the focused entity and only its problems
     // (docs/problem-surfaces.md); the Problems tab remains the whole-document
     // list. Both read the same composed diagnostics.
     registerBuiltinPanel({
-      id: 'context', get title() { return message('shell.panel.focused.title') },
-      get description() { return message('shell.panel.focused.description') }, get ariaLabel() { return message('shell.panel.focused.ariaLabel') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 55,
-      component: () => <ContextPanel
-        app={app}
-        diagnostics={problemDiagnostics}
-        execution={activeExecution}
-        values={(execution) => {
-          backendsTick()
-          const backend = app.backendFor(execution.ref.connection)
-          return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
-        }}
-      />,
+      id: 'context',
+      get title() {
+        return message('shell.panel.focused.title')
+      },
+      get description() {
+        return message('shell.panel.focused.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.focused.ariaLabel')
+      },
+      placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 55,
+      component: () => (
+        <ContextPanel
+          app={app}
+          diagnostics={problemDiagnostics}
+          execution={activeExecution}
+          values={(execution) => {
+            backendsTick()
+            const backend = app.backendFor(execution.ref.connection)
+            return backend?.protocol === 'dinkster'
+              ? backend.connection.values()
+              : undefined
+          }}
+        />
+      ),
     }),
     registerBuiltinPanel({
-      id: 'node-help', get title() { locale(); return t('nodeHelp.panel.title') },
-      get description() { locale(); return t('nodeHelp.panel.description') },
-      get ariaLabel() { locale(); return t('nodeHelp.panel.ariaLabel') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 57,
+      id: 'node-help',
+      get title() {
+        locale()
+        return t('nodeHelp.panel.title')
+      },
+      get description() {
+        locale()
+        return t('nodeHelp.panel.description')
+      },
+      get ariaLabel() {
+        locale()
+        return t('nodeHelp.panel.ariaLabel')
+      },
+      placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 57,
       component: () => <NodeHelpPanel app={app} locale={locale().tag} />,
     }),
     registerBuiltinPanel({
-      id: 'problems', get title() { return message('shell.panel.problems.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 60,
+      id: 'problems',
+      get title() {
+        return message('shell.panel.problems.title')
+      },
+      placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'],
+      order: 60,
       indicator: problemsIndicator,
-      component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
-        compatSkips={() => activeBackend().compatSkips.get()}
-        packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
-        onShowInContext={showProblemInContext} />,
+      component: () => (
+        <ProblemsPanel
+          app={app}
+          diagnostics={problemDiagnostics}
+          compatSkips={() => activeBackend().compatSkips.get()}
+          packInferenceUnavailable={() =>
+            activeBackend().packInferenceUnavailable.get()
+          }
+          onShowInContext={showProblemInContext}
+        />
+      ),
     }),
     // Settings is the modal host's proving resident: the body is
     // placement-agnostic (SettingsDialog owns content, the host owns
     // backdrop/title/close/Escape), opened via app.modalPanel ('settings'
     // button, Ctrl+, command).
     registerBuiltinPanel({
-      id: 'settings', get title() { return message('shell.panel.settings.title') },
-      get description() { return message('shell.panel.settings.description') }, get ariaLabel() { return message('shell.panel.settings.title') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 10,
-      component: () => <SettingsDialog
-        settings={app.settings}
-        commands={app.commands}
-        keybindings={app.keybindings}
-        request={app.settingsOpenRequest.get()}
-        onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
-        packSettings={'fetchPackSettings' in app.connection ? {
-          client: app.connection,
-          packs: () => [...(defaultRegistry()?.packs ?? [])]
-            .filter(([, info]) => info.settings === true)
-            .map(([id, info]) => ({ id, displayName: info.displayName })),
-        } : undefined}
-      />,
+      id: 'settings',
+      get title() {
+        return message('shell.panel.settings.title')
+      },
+      get description() {
+        return message('shell.panel.settings.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.settings.title')
+      },
+      placement: 'modal',
+      allowedPlacements: ['modal'],
+      order: 10,
+      component: () => (
+        <SettingsDialog
+          settings={app.settings}
+          commands={app.commands}
+          keybindings={app.keybindings}
+          request={app.settingsOpenRequest.get()}
+          onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+          packSettings={
+            'fetchPackSettings' in app.connection
+              ? {
+                  client: app.connection,
+                  packs: () =>
+                    [...(defaultRegistry()?.packs ?? [])]
+                      .filter(([, info]) => info.settings === true)
+                      .map(([id, info]) => ({
+                        id,
+                        displayName: info.displayName,
+                      })),
+                }
+              : undefined
+          }
+        />
+      ),
     }),
     registerBuiltinPanel({
-      id: 'customize-layout', get title() { return message('shell.panel.customizeLayout.title') },
-      get description() { return message('shell.panel.customizeLayout.description') }, get ariaLabel() { return message('shell.panel.customizeLayout.title') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 15,
-      component: () => <CustomizeLayoutDialog
-        items={layoutVisibilityItems()}
-        onReset={() => {
-          app.shell.resetVisibility()
-          app.dock.resetOpen()
-        }}
-      />,
+      id: 'customize-layout',
+      get title() {
+        return message('shell.panel.customizeLayout.title')
+      },
+      get description() {
+        return message('shell.panel.customizeLayout.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.customizeLayout.title')
+      },
+      placement: 'modal',
+      allowedPlacements: ['modal'],
+      order: 15,
+      component: () => (
+        <CustomizeLayoutDialog
+          items={layoutVisibilityItems()}
+          onReset={() => {
+            app.shell.resetVisibility()
+            app.dock.resetOpen()
+          }}
+        />
+      ),
     }),
     registerBuiltinPanel({
-      id: 'desktop-management', get title() { return message('shell.panel.desktop.title') },
-      get description() { return message('shell.panel.desktop.description') }, get ariaLabel() { return message('shell.panel.desktop.ariaLabel') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 16,
-      component: () => <DesktopManagementDialog connection={desktopManagementConnection()} />,
+      id: 'desktop-management',
+      get title() {
+        return message('shell.panel.desktop.title')
+      },
+      get description() {
+        return message('shell.panel.desktop.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.desktop.ariaLabel')
+      },
+      placement: 'modal',
+      allowedPlacements: ['modal'],
+      order: 16,
+      component: () => (
+        <DesktopManagementDialog connection={desktopManagementConnection()} />
+      ),
     }),
     registerBuiltinPanel({
-      id: 'projects', get title() { return message('shell.panel.projects.title') },
-      get description() { return message('shell.panel.projects.description') }, get ariaLabel() { return message('shell.panel.projects.title') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 18,
-      component: () => <ProjectsDialog onSwitch={switchProject} onOpenWindow={openProjectWindow} />,
+      id: 'projects',
+      get title() {
+        return message('shell.panel.projects.title')
+      },
+      get description() {
+        return message('shell.panel.projects.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.projects.title')
+      },
+      placement: 'modal',
+      allowedPlacements: ['modal'],
+      order: 18,
+      component: () => (
+        <ProjectsDialog
+          onSwitch={switchProject}
+          onOpenWindow={openProjectWindow}
+        />
+      ),
     }),
     registerBuiltinPanel({
-      id: 'subgraph-definitions', get title() { return message('shell.panel.subgraphDefinitions.title') },
-      get description() { return message('shell.panel.subgraphDefinitions.description') }, get ariaLabel() { return message('shell.panel.subgraphDefinitions.title') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 17,
+      id: 'subgraph-definitions',
+      get title() {
+        return message('shell.panel.subgraphDefinitions.title')
+      },
+      get description() {
+        return message('shell.panel.subgraphDefinitions.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.subgraphDefinitions.title')
+      },
+      placement: 'modal',
+      allowedPlacements: ['modal'],
+      order: 17,
       component: () => <SubgraphDefinitionsDialog app={app} />,
     }),
     registerBuiltinPanel({
-      id: 'collab', get title() { return message('shell.panel.workspace.title') },
-      get description() { return message('shell.panel.workspace.description') }, get ariaLabel() { return message('shell.panel.workspace.title') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 20,
-      component: (surface) => <CollabPanel app={app} requestClose={() => surface.requestClose()} />,
+      id: 'collab',
+      get title() {
+        return message('shell.panel.workspace.title')
+      },
+      get description() {
+        return message('shell.panel.workspace.description')
+      },
+      get ariaLabel() {
+        return message('shell.panel.workspace.title')
+      },
+      placement: 'modal',
+      allowedPlacements: ['modal'],
+      order: 20,
+      component: (surface) => (
+        <CollabPanel app={app} requestClose={() => surface.requestClose()} />
+      ),
     }),
   ]
   onCleanup(() => {
@@ -1571,7 +2461,9 @@ export function App(props: {
       const tab = activeEditorTab()
       if (tab === undefined) return
       setDocumentRevision((value) => value + 1)
-      const unsubscribe = tab.store.document.subscribe(() => setDocumentRevision((value) => value + 1))
+      const unsubscribe = tab.store.document.subscribe(() =>
+        setDocumentRevision((value) => value + 1),
+      )
       onCleanup(unsubscribe)
     })
     const empty = (): boolean => {
@@ -1600,38 +2492,61 @@ export function App(props: {
   }
   const unregisterEditors = app.frontendDoors.editor(GRAPH_EDITOR_KIND, {
     roles: builtinEditorRoles(GRAPH_EDITOR_KIND),
-    get title() { return message('shell.editor.graph') },
-    component: (host) => <GraphEditor {...(host !== undefined ? { host } : {})} />,
+    get title() {
+      return message('shell.editor.graph')
+    },
+    component: (host) => (
+      <GraphEditor {...(host !== undefined ? { host } : {})} />
+    ),
   })
   onCleanup(unregisterEditors)
   // The form-style app view uses the same public descriptor API.
   const unregisterAppEditor = app.frontendDoors.editor(APP_EDITOR_KIND, {
     roles: builtinEditorRoles(APP_EDITOR_KIND),
-    get title() { return message('shell.editor.appView') },
-    component: (host) => <AppView app={app} {...(host !== undefined ? { host } : {})} />,
+    get title() {
+      return message('shell.editor.appView')
+    },
+    component: (host) => (
+      <AppView app={app} {...(host !== undefined ? { host } : {})} />
+    ),
   })
   onCleanup(unregisterAppEditor)
   const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
     roles: builtinEditorRoles(IMAGE_EDITOR_KIND),
-    get title() { return message('shell.editor.image') },
-    component: (host) => <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />,
+    get title() {
+      return message('shell.editor.image')
+    },
+    component: (host) => (
+      <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />
+    ),
   })
   onCleanup(unregisterImageEditor)
   const unregisterCurveEditor = app.frontendDoors.editor(CURVE_EDITOR_KIND, {
     roles: builtinEditorRoles(CURVE_EDITOR_KIND),
-    get title() { return message('shell.editor.curve') },
-    component: (host) => <CurveEditor app={app} {...(host !== undefined ? { host } : {})} />,
+    get title() {
+      return message('shell.editor.curve')
+    },
+    component: (host) => (
+      <CurveEditor app={app} {...(host !== undefined ? { host } : {})} />
+    ),
   })
   onCleanup(unregisterCurveEditor)
   const unregisterGlslEditor = app.frontendDoors.editor(GLSL_EDITOR_KIND, {
     roles: builtinEditorRoles(GLSL_EDITOR_KIND),
-    get title() { return message('shell.editor.glsl') },
-    component: (host) => <GlslEditor app={app} {...(host !== undefined ? { host } : {})} />,
+    get title() {
+      return message('shell.editor.glsl')
+    },
+    component: (host) => (
+      <GlslEditor app={app} {...(host !== undefined ? { host } : {})} />
+    ),
   })
   onCleanup(unregisterGlslEditor)
-  const unregisterEditorBindings = builtinEditorBindings.map(({ id, ...binding }) =>
-    app.frontendDoors.editorBinding(id, binding))
-  onCleanup(() => unregisterEditorBindings.reverse().forEach((unregister) => unregister()))
+  const unregisterEditorBindings = builtinEditorBindings.map(
+    ({ id, ...binding }) => app.frontendDoors.editorBinding(id, binding),
+  )
+  onCleanup(() =>
+    unregisterEditorBindings.reverse().forEach((unregister) => unregister()),
+  )
   /**
    * Registry-bound command shortcuts (undo, queue, view toggles, ...)
    * dispatch here at the SHELL level, not inside any editor: they must keep
@@ -1642,7 +2557,11 @@ export function App(props: {
    * editor consumed from double-firing as a command.
    */
   const onCommandKeyDown = (e: KeyboardEvent): void => {
-    dispatchAppCommandKey(app, e, activeTab() !== undefined && !imageDocumentsActive())
+    dispatchAppCommandKey(
+      app,
+      e,
+      activeTab() !== undefined && !mediaDocumentsActive(),
+    )
   }
   window.addEventListener('keydown', onCommandKeyDown)
   onCleanup(() => window.removeEventListener('keydown', onCommandKeyDown))
@@ -1654,22 +2573,36 @@ export function App(props: {
     const layout = displayLayout()
     const groups = layoutGroups(layout.root)
     if (groups.length < 2) return
-    const index = groups.findIndex((group) => group.id === layout.focusedGroupId)
+    const index = groups.findIndex(
+      (group) => group.id === layout.focusedGroupId,
+    )
     const next = groups[(index + offset + groups.length) % groups.length]!
     updateSplitLayout((current) => focusGroup(current, next.id))
-    queueMicrotask(() => document.getElementById(splitPanelDomId(next.id))?.focus())
+    queueMicrotask(() =>
+      document.getElementById(splitPanelDomId(next.id))?.focus(),
+    )
   }
   const unregisterGroupFocus = [
     app.frontendDoors.command('view.focusNextEditorGroup', {
-      get label() { return message('command.view.focusNextEditorGroup') },
+      get label() {
+        return message('command.view.focusNextEditorGroup')
+      },
       run: () => focusEditorGroupByOffset(1),
     }),
     app.frontendDoors.command('view.focusPreviousEditorGroup', {
-      get label() { return message('command.view.focusPreviousEditorGroup') },
+      get label() {
+        return message('command.view.focusPreviousEditorGroup')
+      },
       run: () => focusEditorGroupByOffset(-1),
     }),
-    app.keybindings.register({ command: 'view.focusNextEditorGroup', combo: 'F6' }),
-    app.keybindings.register({ command: 'view.focusPreviousEditorGroup', combo: 'Shift+F6' }),
+    app.keybindings.register({
+      command: 'view.focusNextEditorGroup',
+      combo: 'F6',
+    }),
+    app.keybindings.register({
+      command: 'view.focusPreviousEditorGroup',
+      combo: 'Shift+F6',
+    }),
   ]
   onCleanup(() => unregisterGroupFocus.forEach((dispose) => dispose()))
   const panelsTick = useSignal(app.panels.changed)
@@ -1686,14 +2619,20 @@ export function App(props: {
   let previousPanelWindows = new Map<string, DesktopPanelPlacement>()
   createEffect(() => {
     panelsTick()
-    const next = new Map(managedLayout().windows.flatMap((entry) =>
-      entry.kind === 'panel' ? [[entry.panelId, entry.returnPlacement] as const] : []))
+    const next = new Map(
+      managedLayout().windows.flatMap((entry) =>
+        entry.kind === 'panel'
+          ? [[entry.panelId, entry.returnPlacement] as const]
+          : [],
+      ),
+    )
     const previous = previousPanelWindows
     previousPanelWindows = next
     for (const [id, placement] of previous) {
       if (!next.has(id)) returnPanel(id, placement)
     }
-    for (const id of next.keys()) movePanel(app.panels, app.dock, id, { kind: 'window' })
+    for (const id of next.keys())
+      movePanel(app.panels, app.dock, id, { kind: 'window' })
   })
   const panelIsDetached = (id: string): boolean => detachedPanelIds().has(id)
   // DockLayout membership is the durable zone authority. PanelRegistry's
@@ -1747,7 +2686,10 @@ export function App(props: {
     setPanelDrag(drag)
     const active = drag?.started === true && !drag.rolledBack
     document.body.classList.toggle('panel-drag-active', active)
-    document.body.classList.toggle('panel-drag-not-allowed', active && drag.preview?.allowed === false)
+    document.body.classList.toggle(
+      'panel-drag-not-allowed',
+      active && drag.preview?.allowed === false,
+    )
   }
   const dragRect = (value: DOMRect): PanelDragRect => ({
     left: value.left,
@@ -1755,44 +2697,80 @@ export function App(props: {
     right: value.right,
     bottom: value.bottom,
   })
-  const capturePanelDragSnapshot = (): ReturnType<typeof createPanelDragSnapshot> | undefined => {
-    const center = bodyElement.querySelector<HTMLElement>(':scope > .canvas-pane')
-    const canvas = center?.querySelector<HTMLElement>(':scope > .editor-split-region')
+  const capturePanelDragSnapshot = ():
+    | ReturnType<typeof createPanelDragSnapshot>
+    | undefined => {
+    const center = bodyElement.querySelector<HTMLElement>(
+      ':scope > .canvas-pane',
+    )
+    const canvas = center?.querySelector<HTMLElement>(
+      ':scope > .editor-split-region',
+    )
     if (!center || !canvas) return undefined
     const state = app.dock.effective()
-    const visibleZones: Partial<Record<DockZoneId, PanelDragVisibleZoneGeometry>> = {}
-    for (const host of bodyElement.querySelectorAll<HTMLElement>('.dock-zone[data-zone]')) {
-      const zone = DOCK_ZONE_IDS.find((candidate) => candidate === host.dataset['zone'])
+    const visibleZones: Partial<
+      Record<DockZoneId, PanelDragVisibleZoneGeometry>
+    > = {}
+    for (const host of bodyElement.querySelectorAll<HTMLElement>(
+      '.dock-zone[data-zone]',
+    )) {
+      const zone = DOCK_ZONE_IDS.find(
+        (candidate) => candidate === host.dataset['zone'],
+      )
       const hostRect = host.getBoundingClientRect()
-      if (zone === undefined || hostRect.width === 0 || hostRect.height === 0) continue
+      if (zone === undefined || hostRect.width === 0 || hostRect.height === 0)
+        continue
       const sections: PanelDragSectionGeometry[] = []
-      for (const element of host.querySelectorAll<HTMLElement>('.dock-zone-section[data-section]')) {
+      for (const element of host.querySelectorAll<HTMLElement>(
+        '.dock-zone-section[data-section]',
+      )) {
         const section = Number.parseInt(element.dataset['section'] ?? '', 10)
         const tabStrip = element.querySelector<HTMLElement>('.product-tablist')
-        const body = element.querySelector<HTMLElement>('.product-tabpanel:not([hidden])')
-        const overflowButton = element.querySelector<HTMLElement>('[data-testid="dock-zone-overflow-button"]')
-        if (Number.isNaN(section) || tabStrip === null || body === null) continue
+        const body = element.querySelector<HTMLElement>(
+          '.product-tabpanel:not([hidden])',
+        )
+        const overflowButton = element.querySelector<HTMLElement>(
+          '[data-testid="dock-zone-overflow-button"]',
+        )
+        if (Number.isNaN(section) || tabStrip === null || body === null)
+          continue
         sections.push({
           section,
           bodyRect: dragRect(body.getBoundingClientRect()),
           tabStrip: {
             rect: dragRect(tabStrip.getBoundingClientRect()),
-            slots: [...tabStrip.querySelectorAll<HTMLElement>('.product-tab[data-tab-id]')].map((slot) => ({
+            slots: [
+              ...tabStrip.querySelectorAll<HTMLElement>(
+                '.product-tab[data-tab-id]',
+              ),
+            ].map((slot) => ({
               id: slot.dataset['tabId']!,
               rect: dragRect(slot.getBoundingClientRect()),
             })),
           },
-          appendRects: overflowButton === null ? [] : [dragRect(overflowButton.getBoundingClientRect())],
+          appendRects:
+            overflowButton === null
+              ? []
+              : [dragRect(overflowButton.getBoundingClientRect())],
         })
       }
       if (sections.length === 0) continue
       visibleZones[zone] = { rect: dragRect(hostRect), sections }
     }
     return createPanelDragSnapshot({
-      viewportRect: { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight },
+      viewportRect: {
+        left: 0,
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+      },
       centerRect: dragRect(center.getBoundingClientRect()),
       canvasRect: dragRect(canvas.getBoundingClientRect()),
-      zoneSizes: { left: dockWidth(), right: railWidth(), bottom: bottomHeight() },
+      zoneSizes: {
+        left: dockWidth(),
+        right: railWidth(),
+        bottom: bottomHeight(),
+      },
       zoneOrders: {
         left: state.zones.left.sections.map((section) => section.tabs),
         right: state.zones.right.sections.map((section) => section.tabs),
@@ -1802,22 +2780,36 @@ export function App(props: {
     })
   }
   const beginPanelDrag = (down: PointerEvent): void => {
-    const target = down.target instanceof Element
-      ? down.target.closest<HTMLElement>('.dock-zone .product-tab[data-tab-id]')
-      : null
+    const target =
+      down.target instanceof Element
+        ? down.target.closest<HTMLElement>(
+            '.dock-zone .product-tab[data-tab-id]',
+          )
+        : null
     if (target === null || down.button !== 0) return
     const pointerId = down.pointerId
-    if (panelDragPointerDisposition(panelDragPointerId, pointerId) !== 'start') {
+    if (
+      panelDragPointerDisposition(panelDragPointerId, pointerId) !== 'start'
+    ) {
       down.preventDefault()
       down.stopImmediatePropagation()
       return
     }
     const panelId = target.dataset['tabId']
     const zoneElement = target.closest<HTMLElement>('.dock-zone[data-zone]')
-    const originZone = DOCK_ZONE_IDS.find((zone) => zone === zoneElement?.dataset['zone'])
-    const descriptor = panelId === undefined ? undefined : app.panels.get(panelId)
+    const originZone = DOCK_ZONE_IDS.find(
+      (zone) => zone === zoneElement?.dataset['zone'],
+    )
+    const descriptor =
+      panelId === undefined ? undefined : app.panels.get(panelId)
     const snapshot = capturePanelDragSnapshot()
-    if (panelId === undefined || originZone === undefined || descriptor === undefined || snapshot === undefined) return
+    if (
+      panelId === undefined ||
+      originZone === undefined ||
+      descriptor === undefined ||
+      snapshot === undefined
+    )
+      return
 
     disposePanelDrag?.()
     panelDragPointerId = pointerId
@@ -1827,7 +2819,9 @@ export function App(props: {
       { x: down.clientX, y: down.clientY },
       snapshot,
       {
-        zones: DOCK_ZONE_IDS.filter((zone) => canDockInZone(descriptor.allowedPlacements, zone)),
+        zones: DOCK_ZONE_IDS.filter((zone) =>
+          canDockInZone(descriptor.allowedPlacements, zone),
+        ),
         floating: descriptor.allowedPlacements.includes('floating'),
       },
     )
@@ -1859,7 +2853,8 @@ export function App(props: {
       window.removeEventListener('scroll', invalidateSnapshot, true)
       window.removeEventListener('resize', invalidateSnapshot)
       target.removeEventListener('lostpointercapture', lostCapture)
-      if (captured && target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
+      if (captured && target.hasPointerCapture(pointerId))
+        target.releasePointerCapture(pointerId)
       if (panelDragPointerId === pointerId) panelDragPointerId = undefined
       if (disposePanelDrag === dispose) disposePanelDrag = undefined
     }
@@ -1871,7 +2866,8 @@ export function App(props: {
       window.removeEventListener('scroll', invalidateSnapshot, true)
       window.removeEventListener('resize', invalidateSnapshot)
       target.removeEventListener('lostpointercapture', lostCapture)
-      if (captured && target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
+      if (captured && target.hasPointerCapture(pointerId))
+        target.releasePointerCapture(pointerId)
       captured = false
       publishPanelDrag(undefined)
     }
@@ -1891,7 +2887,10 @@ export function App(props: {
     const move = (event: PointerEvent): void => {
       if (event.pointerId !== pointerId) return
       const wasStarted = drag.started
-      drag = movePanelDragModel(drag, pointerId, { x: event.clientX, y: event.clientY })
+      drag = movePanelDragModel(drag, pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+      })
       if (!drag.started) return
       if (!wasStarted && !captured) {
         try {
@@ -1914,11 +2913,18 @@ export function App(props: {
     }
     const finish = (event: PointerEvent): void => {
       if (event.pointerId !== pointerId) return
-      const currentSnapshot = drag.started ? capturePanelDragSnapshot() : undefined
-      const action = panelDragReleaseAction(drag, currentSnapshot === undefined ? undefined : {
-        snapshot: currentSnapshot,
-        point: { x: event.clientX, y: event.clientY },
-      })
+      const currentSnapshot = drag.started
+        ? capturePanelDragSnapshot()
+        : undefined
+      const action = panelDragReleaseAction(
+        drag,
+        currentSnapshot === undefined
+          ? undefined
+          : {
+              snapshot: currentSnapshot,
+              point: { x: event.clientX, y: event.clientY },
+            },
+      )
       const preview = drag.preview
       cleanup()
       publishPanelDrag(undefined)
@@ -1926,29 +2932,34 @@ export function App(props: {
         app.dock.activate(originZone, panelId)
         queueMicrotask(() => target.focus({ preventScroll: true }))
       } else if (action === 'commit' && preview !== undefined) {
-        const destinationZone = preview.target.kind === 'floating' ? undefined : preview.target.zone
+        const destinationZone =
+          preview.target.kind === 'floating' ? undefined : preview.target.zone
         // A split drop opens the zone's next section; an edge drop on a
         // closed zone appends to its first section.
-        const moved = preview.target.kind === 'floating'
-          ? movePanel(app.panels, app.dock, panelId, { kind: 'floating' })
-          : preview.target.kind === 'split'
-            ? movePanel(app.panels, app.dock, panelId, {
-                kind: 'zone',
-                zone: preview.target.zone,
-                section: preview.target.section,
-                index: 0,
-              })
-            : movePanel(app.panels, app.dock, panelId, {
-                kind: 'zone',
-                zone: preview.target.zone,
-                section: preview.target.kind === 'edge' ? 0 : preview.target.section,
-                index: preview.target.index,
-              })
+        const moved =
+          preview.target.kind === 'floating'
+            ? movePanel(app.panels, app.dock, panelId, { kind: 'floating' })
+            : preview.target.kind === 'split'
+              ? movePanel(app.panels, app.dock, panelId, {
+                  kind: 'zone',
+                  zone: preview.target.zone,
+                  section: preview.target.section,
+                  index: 0,
+                })
+              : movePanel(app.panels, app.dock, panelId, {
+                  kind: 'zone',
+                  zone: preview.target.zone,
+                  section:
+                    preview.target.kind === 'edge' ? 0 : preview.target.section,
+                  index: preview.target.index,
+                })
         if (moved && destinationZone !== undefined) {
           queueMicrotask(() => {
-            bodyElement.querySelector<HTMLButtonElement>(
-              `.dock-zone[data-zone="${destinationZone}"] .product-tab[data-tab-id="${CSS.escape(panelId)}"]`,
-            )?.focus({ preventScroll: true })
+            bodyElement
+              .querySelector<HTMLButtonElement>(
+                `.dock-zone[data-zone="${destinationZone}"] .product-tab[data-tab-id="${CSS.escape(panelId)}"]`,
+              )
+              ?.focus({ preventScroll: true })
           })
         }
       }
@@ -1975,19 +2986,26 @@ export function App(props: {
   }
   onCleanup(() => {
     disposePanelDrag?.()
-    document.body.classList.remove('panel-drag-active', 'panel-drag-not-allowed')
+    document.body.classList.remove(
+      'panel-drag-active',
+      'panel-drag-not-allowed',
+    )
   })
   const floatingPanels = () => {
     panelsTick()
     // A `when()`-gated panel renders nothing while its gate answers false
     // (same rule as zone tabs); the floating override survives, so the
     // overlay returns when the gate flips back.
-    return app.panels.inPlacement('floating').filter((panel) => panel.when?.() ?? true)
+    return app.panels
+      .inPlacement('floating')
+      .filter((panel) => panel.when?.() ?? true)
   }
   const floatPanel = (panelId: string): void => {
     movePanel(app.panels, app.dock, panelId, { kind: 'floating' })
   }
-  const regionOf = (id: string): Extract<DockZoneId, 'left' | 'bottom'> | undefined => {
+  const regionOf = (
+    id: string,
+  ): Extract<DockZoneId, 'left' | 'bottom'> | undefined => {
     // These callers route only activity-bar regions; right-zone panels have
     // no per-panel activity-bar toggle.
     panelsTick()
@@ -2046,13 +3064,19 @@ export function App(props: {
   const modalDescriptor = () => {
     panelsTick()
     const id = modalPanel()
-    return id !== '' && app.panels.placementOf(id) === 'modal' ? app.panels.get(id) : undefined
+    return id !== '' && app.panels.placementOf(id) === 'modal'
+      ? app.panels.get(id)
+      : undefined
   }
   const closeModal = () => app.modalPanel.set('')
   const focusPanelToggle = (panelId: string): void => {
     queueMicrotask(() => {
-      const buttons = shellEl.querySelectorAll<HTMLButtonElement>('[data-panel-toggle]')
-      Array.from(buttons).find((button) => button.dataset.panelToggle === panelId)?.focus()
+      const buttons = shellEl.querySelectorAll<HTMLButtonElement>(
+        '[data-panel-toggle]',
+      )
+      Array.from(buttons)
+        .find((button) => button.dataset.panelToggle === panelId)
+        ?.focus()
     })
   }
   const closeZone = (zone: Extract<DockZoneId, 'left' | 'bottom'>): void => {
@@ -2062,9 +3086,16 @@ export function App(props: {
   }
   const closeRail = (): void => {
     app.dock.setOpen('right', false)
-    queueMicrotask(() => shellEl.querySelector<HTMLButtonElement>('[data-testid="rail-toggle"]')?.focus())
+    queueMicrotask(() =>
+      shellEl
+        .querySelector<HTMLButtonElement>('[data-testid="rail-toggle"]')
+        ?.focus(),
+    )
   }
-  const popOutPanel = (panelId: string, returnPlacement: DesktopPanelPlacement): void => {
+  const popOutPanel = (
+    panelId: string,
+    returnPlacement: DesktopPanelPlacement,
+  ): void => {
     const desktop = desktopBridge()
     if (desktop) {
       void desktop.openPanelWindow(panelId, returnPlacement)
@@ -2084,9 +3115,10 @@ export function App(props: {
   }
   const projectUrl = (projectId: string): URL => {
     const url = new URL(window.location.href)
-    url.search = projectId === DEFAULT_PROJECT_ID
-      ? ''
-      : new URLSearchParams({ [PROJECT_URL_PARAM]: projectId }).toString()
+    url.search =
+      projectId === DEFAULT_PROJECT_ID
+        ? ''
+        : new URLSearchParams({ [PROJECT_URL_PARAM]: projectId }).toString()
     return url
   }
   const switchProject = (projectId: string): void => {
@@ -2096,7 +3128,11 @@ export function App(props: {
     if (desktop) {
       // The shell rolls the binding back on failure; the window stays on the
       // current project, so failure only needs to be visible, not handled.
-      desktop.switchProject(projectId).catch((error: unknown) => console.error('project switch failed', error))
+      desktop
+        .switchProject(projectId)
+        .catch((error: unknown) =>
+          console.error('project switch failed', error),
+        )
       return
     }
     window.location.assign(projectUrl(projectId).toString())
@@ -2105,7 +3141,11 @@ export function App(props: {
     app.flushPersistTabs()
     const desktop = desktopBridge()
     if (desktop) {
-      desktop.openProjectWindow(projectId).catch((error: unknown) => console.error('project window failed', error))
+      desktop
+        .openProjectWindow(projectId)
+        .catch((error: unknown) =>
+          console.error('project window failed', error),
+        )
       return
     }
     window.open(projectUrl(projectId).toString(), '_blank')
@@ -2113,7 +3153,8 @@ export function App(props: {
   const nativePanelDescriptor = () => {
     panelsTick()
     const context = managedContext()
-    const panel = context.kind === 'panel' ? app.panels.get(context.panelId) : undefined
+    const panel =
+      context.kind === 'panel' ? app.panels.get(context.panelId) : undefined
     // A `when()`-gated panel is unavailable while its gate answers false
     // (same rule as zone tabs and the floating overlay).
     return panel !== undefined && (panel.when?.() ?? true) ? panel : undefined
@@ -2128,25 +3169,60 @@ export function App(props: {
   const EditorGroupPane = (p: { readonly groupId: string }) => {
     let sectionElement!: HTMLElement
     const group = (): EditorGroup =>
-      findGroup(displayLayout(), p.groupId) ?? { kind: 'group', id: p.groupId, tabIds: [], activeTabId: '' }
-    const paneFocused = (): boolean => displayLayout().focusedGroupId === p.groupId
-    const soleGroup = (): boolean => layoutGroups(displayLayout().root).length === 1
-    const paneRect = (): SplitRect | undefined => regionRects().groups.find((entry) => entry.id === p.groupId)?.rect
+      findGroup(displayLayout(), p.groupId) ?? {
+        kind: 'group',
+        id: p.groupId,
+        tabIds: [],
+        activeTabId: '',
+      }
+    const paneFocused = (): boolean =>
+      displayLayout().focusedGroupId === p.groupId
+    const soleGroup = (): boolean =>
+      layoutGroups(displayLayout().root).length === 1
+    const paneRect = (): SplitRect | undefined =>
+      regionRects().groups.find((entry) => entry.id === p.groupId)?.rect
     const groupTabs = (): readonly Tab[] => {
       const byId = new Map(windowTabs().map((tab) => [tab.id, tab] as const))
       const drag = tabDrag()
-      const ids = drag !== undefined && drag.sourceGroupId === p.groupId && drag.order !== undefined
-        ? drag.order
-        : group().tabIds
+      const ids =
+        drag !== undefined &&
+        drag.sourceGroupId === p.groupId &&
+        drag.order !== undefined
+          ? drag.order
+          : group().tabIds
       return ids.flatMap((id) => {
         const tab = byId.get(id)
         return tab !== undefined ? [tab] : []
       })
     }
-    const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const centerTabs = (): readonly CenterDocumentTab[] => {
+      if (!paneFocused() || managedContext().kind !== 'primary')
+        return groupTabs()
+      const available: readonly CenterDocumentTab[] = [
+        ...groupTabs(),
+        ...imageDocumentTabs(),
+        ...videoDocumentTabs(),
+      ]
+      const byId = new Map(available.map((tab) => [tab.id, tab]))
+      const drag = tabDrag()
+      const order =
+        drag?.sourceGroupId === p.groupId && drag.order !== undefined
+          ? drag.order
+          : centerDocumentOrder()
+      return order.flatMap((id) => {
+        const tab = byId.get(id)
+        return tab === undefined ? [] : [tab]
+      })
+    }
+    const paneActiveDocumentId = (): string =>
+      paneFocused() && mediaDocumentsActive()
+        ? activeDocumentId()
+        : group().activeTabId
+    const paneActiveTab = (): Tab | undefined =>
+      windowTabs().find((tab) => tab.id === group().activeTabId)
     const host: EditorHostContext = {
       tabId: () => group().activeTabId,
-      focused: () => paneFocused() && !imageDocumentsActive(),
+      focused: () => paneFocused() && !mediaDocumentsActive(),
     }
     /**
      * This pane's editor descriptor. No tab defaults to the graph editor so
@@ -2155,7 +3231,8 @@ export function App(props: {
      * keyed Show below never remounts the editor and per-tab view state
      * survives.
      */
-    const paneEditorKind = () => paneActiveTab()?.editorKind ?? GRAPH_EDITOR_KIND
+    const paneEditorKind = () =>
+      paneActiveTab()?.editorKind ?? GRAPH_EDITOR_KIND
     const paneDescriptor = () => {
       editorsTick()
       return app.editors.get(paneEditorKind())
@@ -2168,7 +3245,9 @@ export function App(props: {
         return
       }
       setPaneGraphStackDepth(tab.graphStack.get().length)
-      const unsubscribe = tab.graphStack.subscribe((stack) => setPaneGraphStackDepth(stack.length))
+      const unsubscribe = tab.graphStack.subscribe((stack) =>
+        setPaneGraphStackDepth(stack.length),
+      )
       onCleanup(unsubscribe)
     })
     const [viewMenu, setViewMenu] = createSolidSignal(false)
@@ -2183,8 +3262,14 @@ export function App(props: {
       const lensOpen = lensMenu()
       if (!viewOpen && !lensOpen) return
       const insideControls = (event: Event): boolean =>
-        event.composedPath().some((item) =>
-          item instanceof Element && item.matches('.canvas-view-controls') && sectionElement.contains(item))
+        event
+          .composedPath()
+          .some(
+            (item) =>
+              item instanceof Element &&
+              item.matches('.canvas-view-controls') &&
+              sectionElement.contains(item),
+          )
       const close = (): void => {
         setViewMenu(false)
         setLensMenu(false)
@@ -2193,7 +3278,11 @@ export function App(props: {
         if (!insideControls(event)) close()
       }
       const onKeyDown = (event: KeyboardEvent): void => {
-        if (event.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return
+        if (
+          event.key !== 'Escape' ||
+          document.querySelector('dialog[open]') !== null
+        )
+          return
         event.preventDefault()
         event.stopImmediatePropagation()
         close()
@@ -2210,9 +3299,11 @@ export function App(props: {
       const tab = paneActiveTab()
       return tab ? app.executionsForTab(tab) : []
     }
-    const canSplitTab = (tab: Tab): boolean => splitGroup(displayLayout(), p.groupId, 'row', tab.id) !== displayLayout()
+    const canSplitTab = (tab: Tab): boolean =>
+      splitGroup(displayLayout(), p.groupId, 'row', tab.id) !== displayLayout()
     const focusPane = (): void => {
-      if (!paneFocused()) updateSplitLayout((layout) => focusGroup(layout, p.groupId))
+      if (!paneFocused())
+        updateSplitLayout((layout) => focusGroup(layout, p.groupId))
     }
     return (
       <section
@@ -2221,59 +3312,179 @@ export function App(props: {
         data-testid="editor-group"
         data-group-id={p.groupId}
         data-focused={paneFocused() ? 'true' : 'false'}
-        style={paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }}
+        style={
+          paneRect() !== undefined
+            ? rectStyle(paneRect()!)
+            : { display: 'none' }
+        }
         onPointerDown={focusPane}
         ref={sectionElement}
       >
         <div class="tab-strip">
           <WorkflowTabs
-            tabs={groupTabs()}
-            activeId={group().activeTabId}
-            draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
-            insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
-            isDirty={(tab) => dirtyTabs().has(tab.id)}
-            isFrozen={(tab) => tab.execution !== undefined}
-            isShared={(tab) => collabTabs().has(tab.id)}
+            tabs={centerTabs()}
+            activeId={paneActiveDocumentId()}
+            draggedId={
+              tabDrag()?.sourceGroupId === p.groupId
+                ? tabDrag()?.tabId
+                : undefined
+            }
+            insertionIndex={
+              tabDrag()?.sourceGroupId === p.groupId
+                ? tabDrag()?.insertionIndex
+                : undefined
+            }
+            isDirty={(tab) => isWorkflowTab(tab) && dirtyTabs().has(tab.id)}
+            isFrozen={(tab) =>
+              isWorkflowTab(tab) && tab.execution !== undefined
+            }
+            isShared={(tab) =>
+              isWorkflowTab(tab) ? collabTabs().has(tab.id) : tab.shared
+            }
             renderLeading={(tab) => (
-              <Show when={collabTabs().get(tab.id)} keyed>
-                {(entry) => <TabCollabDot entry={entry} />}
-              </Show>
+              <>
+                <span
+                  class="document-kind-icon"
+                  data-document-kind={
+                    isWorkflowTab(tab) ? 'workflow' : tab.kind
+                  }
+                  aria-hidden="true"
+                >
+                  <Icon
+                    icon={
+                      isWorkflowTab(tab)
+                        ? Network
+                        : tab.kind === 'image'
+                          ? Images
+                          : Film
+                    }
+                  />
+                </span>
+                <Show
+                  when={
+                    isWorkflowTab(tab) ? collabTabs().get(tab.id) : undefined
+                  }
+                  keyed
+                >
+                  {(entry) => <TabCollabDot entry={entry} />}
+                </Show>
+              </>
             )}
             setRoot={(root) => {
               stripElements.set(p.groupId, root)
               onCleanup(() => {
-                if (stripElements.get(p.groupId) === root) stripElements.delete(p.groupId)
+                if (stripElements.get(p.groupId) === root)
+                  stripElements.delete(p.groupId)
               })
             }}
-            onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
-            onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
+            onActivate={(event, tab) => {
+              if (isWorkflowTab(tab)) {
+                setActiveDocumentId(tab.id)
+                activateTab(event, tab.id, p.groupId)
+              } else tab.activate()
+            }}
+            onClose={(tab) => {
+              if (isWorkflowTab(tab)) {
+                if (managedContext().kind === 'workflow') redockCurrentWindow()
+                else closeTab(tab)
+              } else {
+                const open = centerTabs()
+                const index = open.findIndex((candidate) => candidate.id === tab.id)
+                const successor = open[index + 1] ?? open[index - 1]
+                setCenterDocumentOrder(
+                  centerDocumentOrder().filter((id) => id !== tab.id),
+                )
+                tab.close()
+                if (activeDocumentId() === tab.id)
+                  if (successor === undefined || successor.id === tab.id) {
+                    setActiveDocumentId(group().activeTabId)
+                  } else if (isWorkflowTab(successor)) {
+                    setActiveDocumentId(successor.id)
+                    app.activeTabId.set(successor.id)
+                  } else {
+                    successor.activate()
+                  }
+              }
+            }}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
-            onNew={() => app.createWorkflow()}
-            canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
+            onNew={() => {
+              const tab = app.createWorkflow()
+              setActiveDocumentId(tab.id)
+            }}
+            onNewImage={() => setNewImageRequest((request) => request + 1)}
+            onNewVideo={() => setNewVideoRequest((request) => request + 1)}
+            canShare={(tab) =>
+              isWorkflowTab(tab) &&
+              tab.execution === undefined &&
+              !collabTabs().has(tab.id) &&
+              backends().some((backend) => backend.protocol === 'dinkster')
+            }
             onShare={(tab) => {
+              if (!isWorkflowTab(tab)) return
               app.activeTabId.set(tab.id)
-              app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
+              app.showTransientStatus(
+                message('shell.share.sharing', { title: tab.title }),
+              )
               void app.shareActiveTab().then((error) => {
-                app.showTransientStatus(error === undefined
-                  ? message('shell.share.shared', { title: tab.title })
-                  : message('shell.share.failed', { error }))
+                app.showTransientStatus(
+                  error === undefined
+                    ? message('shell.share.shared', { title: tab.title })
+                    : message('shell.share.failed', { error }),
+                )
               })
             }}
-            onPopOut={managedContext().kind === 'primary' ? popOutWorkflow : undefined}
+            onPopOut={
+              managedContext().kind === 'primary'
+                ? (tab) => {
+                    if (isWorkflowTab(tab)) popOutWorkflow(tab)
+                  }
+                : undefined
+            }
             showNew={paneFocused() && managedContext().kind === 'primary'}
             panelId={splitPanelDomId(p.groupId)}
-            onSplitRight={managedContext().kind === 'primary'
-              ? (tab) => updateSplitLayout((layout) => splitGroup(layout, p.groupId, 'row', tab.id))
-              : undefined}
-            onSplitDown={managedContext().kind === 'primary'
-              ? (tab) => updateSplitLayout((layout) => splitGroup(layout, p.groupId, 'column', tab.id))
-              : undefined}
-            canSplit={managedContext().kind === 'primary' ? canSplitTab : undefined}
-            onUnsplit={soleGroup() ? undefined : () => updateSplitLayout((layout) => dissolveGroup(layout, p.groupId))}
-            previews={(tab) => tab.store.doc.previews}
+            onSplitRight={
+              managedContext().kind === 'primary'
+                ? (tab) => {
+                    if (isWorkflowTab(tab))
+                      updateSplitLayout((layout) =>
+                        splitGroup(layout, p.groupId, 'row', tab.id),
+                      )
+                  }
+                : undefined
+            }
+            onSplitDown={
+              managedContext().kind === 'primary'
+                ? (tab) => {
+                    if (isWorkflowTab(tab))
+                      updateSplitLayout((layout) =>
+                        splitGroup(layout, p.groupId, 'column', tab.id),
+                      )
+                  }
+                : undefined
+            }
+            canSplit={
+              managedContext().kind === 'primary'
+                ? (tab) => isWorkflowTab(tab) && canSplitTab(tab)
+                : undefined
+            }
+            onUnsplit={
+              soleGroup()
+                ? undefined
+                : () =>
+                    updateSplitLayout((layout) =>
+                      dissolveGroup(layout, p.groupId),
+                    )
+            }
+            previews={(tab) =>
+              isWorkflowTab(tab) ? tab.store.doc.previews : undefined
+            }
             onSetPreviews={(tab, mode) => {
+              if (!isWorkflowTab(tab)) return
               if (tab.execution !== undefined) return
-              app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: mode } })
+              app.dispatchTo(tab, {
+                command: 'workflow.setPreviews',
+                params: { previews: mode },
+              })
             }}
           />
           <Show when={paneFocused() && multiBackend() && activeTarget()}>
@@ -2281,10 +3492,16 @@ export function App(props: {
               <ProductSelect
                 class="tab-target"
                 testId="tab-target"
-                dataAttributes={{ 'data-tooltip-label': message('shell.workflow.queueBackend') }}
+                dataAttributes={{
+                  'data-tooltip-label': message('shell.workflow.queueBackend'),
+                }}
                 ariaLabel={message('shell.workflow.queueBackend')}
                 selectedId={target().id}
-                options={backends().map((backend) => ({ id: backend.id, label: backend.label, value: backend.id }))}
+                options={backends().map((backend) => ({
+                  id: backend.id,
+                  label: backend.label,
+                  value: backend.id,
+                }))}
                 onSelect={(option) => {
                   const tab = activeTab()
                   if (tab) app.setTabTarget(tab.id, option.value)
@@ -2297,38 +3514,76 @@ export function App(props: {
           id={splitPanelDomId(p.groupId)}
           class="canvas-stage"
           role="tabpanel"
-          aria-label={paneActiveTab() ? undefined : message('shell.workflow.editor')}
-          aria-labelledby={paneActiveTab() ? workflowTabDomId(paneActiveTab()!.id) : undefined}
+          aria-label={
+            paneActiveTab() ? undefined : message('shell.workflow.editor')
+          }
+          aria-labelledby={
+            paneActiveTab() ? workflowTabDomId(paneActiveTab()!.id) : undefined
+          }
           tabindex="0"
         >
-          <Show when={managedContext().kind === 'primary' && !paneActiveTab() && detachedWorkflowIds().size > 0}>
-            <div class="detached-workspace-state" data-testid="detached-workspace-state">
+          <Show
+            when={
+              managedContext().kind === 'primary' &&
+              !paneActiveTab() &&
+              detachedWorkflowIds().size > 0
+            }
+          >
+            <div
+              class="detached-workspace-state"
+              data-testid="detached-workspace-state"
+            >
               <h2>{message('shell.workflow.detached.title')}</h2>
               <p>{message('shell.workflow.detached.description')}</p>
-              <button type="button" onClick={() => app.createWorkflow()}>{message('shell.workflow.new')}</button>
+              <button type="button" onClick={() => app.createWorkflow()}>
+                {message('shell.workflow.new')}
+              </button>
             </div>
           </Show>
           <Show when={managedContext().kind === 'workflow' && !paneActiveTab()}>
-            <div class="detached-workspace-state" data-testid="detached-workflow-missing">
+            <div
+              class="detached-workspace-state"
+              data-testid="detached-workflow-missing"
+            >
               <h2>{message('shell.workflow.unavailable.title')}</h2>
               <p>{message('shell.workflow.unavailable.description')}</p>
-              <button type="button" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</button>
+              <button type="button" onClick={redockCurrentWindow}>
+                {message('shell.window.moveToMain')}
+              </button>
             </div>
           </Show>
-          <div class="canvas-stage-toolbar">
+          <div
+            class="canvas-stage-toolbar"
+            hidden={paneFocused() && mediaDocumentsActive()}
+          >
             <CanvasViewControls
-              drilled={paneEditorKind() === GRAPH_EDITOR_KIND && paneGraphStackDepth() > 1}
-              disabled={!paneActiveTab() || paneActiveTab()!.execution !== undefined}
+              drilled={
+                paneEditorKind() === GRAPH_EDITOR_KIND &&
+                paneGraphStackDepth() > 1
+              }
+              disabled={
+                !paneActiveTab() || paneActiveTab()!.execution !== undefined
+              }
               activeView={paneEditorKind()}
               activeLens={paneCanvasLens()}
               lenses={app.lensRegistry.list()}
               viewMenuOpen={viewMenu()}
               lensMenuOpen={lensMenu()}
-              onToggleViewMenu={() => { setLensMenu(false); setViewMenu((open) => !open) }}
-              onToggleLensMenu={() => { setViewMenu(false); setLensMenu((open) => !open) }}
+              onToggleViewMenu={() => {
+                setLensMenu(false)
+                setViewMenu((open) => !open)
+              }}
+              onToggleLensMenu={() => {
+                setViewMenu(false)
+                setLensMenu((open) => !open)
+              }}
               onSetAllNetsDisplay={(mode) => {
                 const tab = paneActiveTab()
-                if (tab) app.dispatchTo(tab, { command: 'view.setAllNetsDisplay', params: { graphId: currentGraphId(tab), mode } })
+                if (tab)
+                  app.dispatchTo(tab, {
+                    command: 'view.setAllNetsDisplay',
+                    params: { graphId: currentGraphId(tab), mode },
+                  })
                 setViewMenu(false)
               }}
               onSelectView={(kind) => {
@@ -2338,20 +3593,26 @@ export function App(props: {
               }}
               onSelectLens={(id) => {
                 const tab = paneActiveTab()
-                if (tab) app.setLens(tab.id, id as import('./data-lens.js').CanvasLens)
+                if (tab)
+                  app.setLens(tab.id, id as import('./data-lens.js').CanvasLens)
                 setLensMenu(false)
               }}
             />
             <For each={extensionToolbarPanels()}>
               {(panel) => (
-                <div class="extension-toolbar-panel" data-testid={`extension-toolbar-panel-${panel.id}`}>
+                <div
+                  class="extension-toolbar-panel"
+                  data-testid={`extension-toolbar-panel-${panel.id}`}
+                >
                   <HostUiProviderHost
                     owner={`extension-toolbar:${panel.id}`}
                     provider={panel.provider}
                     surface="toolbar"
                     data={{ panel: panel.id, slot: panel.slot }}
                     commands={app.commands}
-                    replaceProblems={(owner, diagnostics) => app.replaceProblems(owner, diagnostics)}
+                    replaceProblems={(owner, diagnostics) =>
+                      app.replaceProblems(owner, diagnostics)
+                    }
                     errorText="Unable to render extension toolbar panel."
                   />
                 </div>
@@ -2363,33 +3624,57 @@ export function App(props: {
                 its transient popover state. A real tab switch (new id)
                 still remounts. The inner Show resolves the live tab object
                 reactively. */}
-            <Show when={paneEditorKind() === GRAPH_EDITOR_KIND ? paneActiveTab()?.id : undefined} keyed>
+            <Show
+              when={
+                paneEditorKind() === GRAPH_EDITOR_KIND
+                  ? paneActiveTab()?.id
+                  : undefined
+              }
+              keyed
+            >
               {(_tabId) => (
                 <Show when={paneActiveTab()}>
                   {(tab) => (
                     <WorkflowQueueControl
-                      owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
+                      owner={{
+                        id: tab().id,
+                        title: tab().title,
+                        lineage: tab().store.doc.lineage,
+                      }}
                       executions={paneWorkflowExecutions()}
-                      canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
-                      onQueue={() => { void app.queue(tab()) }}
-                      onOpenExecution={(ref) => { app.openExecutionView(ref) }}
+                      canQueue={
+                        (backendsTick(),
+                        tab().execution === undefined &&
+                          app.registryForTab(tab()) !== undefined)
+                      }
+                      onQueue={() => {
+                        void app.queue(tab())
+                      }}
+                      onOpenExecution={(ref) => {
+                        app.openExecutionView(ref)
+                      }}
                     />
                   )}
                 </Show>
               )}
             </Show>
           </div>
-          <Show
-            when={paneDescriptor()}
-            keyed
-            fallback={
-              <div class="editor-missing" data-testid="editor-missing">
-                {message('shell.editor.missing', { kind: paneEditorKind() })}
-              </div>
-            }
+          <div
+            class="workflow-editor-surface"
+            hidden={paneFocused() && mediaDocumentsActive()}
           >
-            {(editor) => editor.component(host)}
-          </Show>
+            <Show
+              when={paneDescriptor()}
+              keyed
+              fallback={
+                <div class="editor-missing" data-testid="editor-missing">
+                  {message('shell.editor.missing', { kind: paneEditorKind() })}
+                </div>
+              }
+            >
+              {(editor) => editor.component(host)}
+            </Show>
+          </div>
         </div>
       </section>
     )
@@ -2400,135 +3685,216 @@ export function App(props: {
       <Show
         when={nativePanelDescriptor()}
         keyed
-        fallback={<Show when={managedContext().kind === 'panel'}>
-          <section class="native-panel-window native-panel-window-missing" data-testid="native-panel-window-missing">
-            <h1>{message('shell.panel.unavailable.title')}</h1>
-            <p>{message('shell.panel.unavailable.description')}</p>
-            <button type="button" data-testid="redock-window" onClick={redockCurrentWindow}>
-              {message('shell.window.moveToMain')}
-            </button>
-          </section>
-        </Show>}
-      >{(panel) => (
-        <section class="native-panel-window" data-testid="native-panel-window" data-panel={panel.id}>
-          <header class="native-panel-window-header">
-            <h1>
-              {panel.title}
-              <Show when={activePanelIndicator(panel)} keyed>
-                {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
-              </Show>
-            </h1>
-            <button type="button" class="shell-panel-header-action" data-testid="redock-window" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</button>
-          </header>
-          <div class="native-panel-window-content">
-            {panel.component({
-              placement: 'window',
-              requestClose: redockCurrentWindow,
-            })}
-          </div>
-        </section>
-      )}</Show>
-      <Show when={managedContext().kind !== 'panel'}>
-      <div class="shell" ref={shellEl}>
-      <AssetConsentDialog app={app} />
-      <ImportAssetResolutionDialog app={app} />
-      <Show when={pendingClose()} keyed>
-        {(pending) => (
-          <ModalSurface
-            title={message('shell.close.title', { title: pending.title })}
-            ariaLabel={message('shell.close.confirm', { title: pending.title })}
-            modalId="close-tab"
-            testId="close-tab-dialog"
-            closeLabel={message('shell.close.cancel')}
-            onRequestClose={() => setPendingClose(undefined)}
+        fallback={
+          <Show when={managedContext().kind === 'panel'}>
+            <section
+              class="native-panel-window native-panel-window-missing"
+              data-testid="native-panel-window-missing"
+            >
+              <h1>{message('shell.panel.unavailable.title')}</h1>
+              <p>{message('shell.panel.unavailable.description')}</p>
+              <button
+                type="button"
+                data-testid="redock-window"
+                onClick={redockCurrentWindow}
+              >
+                {message('shell.window.moveToMain')}
+              </button>
+            </section>
+          </Show>
+        }
+      >
+        {(panel) => (
+          <section
+            class="native-panel-window"
+            data-testid="native-panel-window"
+            data-panel={panel.id}
           >
-            <div class="close-tab-confirm">
-              <p>{message('shell.close.confirm', { title: pending.title })}</p>
-              <ProductActionFooter>
-                <button type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</button>
-                <button type="button" class="danger" onClick={confirmPendingClose}>{message('shell.close.discard')}</button>
-              </ProductActionFooter>
+            <header class="native-panel-window-header">
+              <h1>
+                {panel.title}
+                <Show when={activePanelIndicator(panel)} keyed>
+                  {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
+                </Show>
+              </h1>
+              <button
+                type="button"
+                class="shell-panel-header-action"
+                data-testid="redock-window"
+                onClick={redockCurrentWindow}
+              >
+                {message('shell.window.moveToMain')}
+              </button>
+            </header>
+            <div class="native-panel-window-content">
+              {panel.component({
+                placement: 'window',
+                requestClose: redockCurrentWindow,
+              })}
             </div>
-          </ModalSurface>
+          </section>
         )}
       </Show>
-      <header class="topbar" aria-label={message('shell.applicationControls')}>
-        <div class="topbar-group topbar-group-left">
-          <DinksterAppMenu
-            commands={app.commands}
-            keybindings={app.keybindings}
-            invalidationSignals={() => [
-              activeLocale,
-              app.settings.changed,
-              app.canvasBridge,
-              app.tabs,
-              app.activeTabId,
-              app.backendsTick,
-              ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
-            ]}
-          />
-          <Show when={managedContext().kind === 'workflow'}>
-            <button class="redock-workflow" data-testid="redock-workflow" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</button>
+      <Show when={managedContext().kind !== 'panel'}>
+        <div class="shell" ref={shellEl}>
+          <AssetConsentDialog app={app} />
+          <ImportAssetResolutionDialog app={app} />
+          <Show when={pendingClose()} keyed>
+            {(pending) => (
+              <ModalSurface
+                title={message('shell.close.title', { title: pending.title })}
+                ariaLabel={message('shell.close.confirm', {
+                  title: pending.title,
+                })}
+                modalId="close-tab"
+                testId="close-tab-dialog"
+                closeLabel={message('shell.close.cancel')}
+                onRequestClose={() => setPendingClose(undefined)}
+              >
+                <div class="close-tab-confirm">
+                  <p>
+                    {message('shell.close.confirm', { title: pending.title })}
+                  </p>
+                  <ProductActionFooter>
+                    <button
+                      type="button"
+                      autofocus
+                      onClick={() => setPendingClose(undefined)}
+                    >
+                      {message('shell.action.cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      class="danger"
+                      onClick={confirmPendingClose}
+                    >
+                      {message('shell.close.discard')}
+                    </button>
+                  </ProductActionFooter>
+                </div>
+              </ModalSurface>
+            )}
           </Show>
-        </div>
-        <UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />
-        <div class="topbar-group topbar-group-right">
-          <CustomizeLayoutButton commands={app.commands} />
-          <button
-            class="shell-region-toggle"
-            data-testid="left-panel-toggle"
-            data-tooltip-label={message('shell.toggle.leftPanel')}
-            aria-label={message('shell.toggle.leftPanel')}
-            aria-pressed={leftOpen()}
-            disabled={leftPanels().length === 0}
-            onClick={toggleLeftRegion}
+          <header
+            class="topbar"
+            aria-label={message('shell.applicationControls')}
           >
-            <ShellRegionIcon region="left" active={leftOpen()} />
-          </button>
-          <button
-            class="shell-region-toggle"
-            data-testid="bottom-panel-toggle"
-            data-tooltip-label={message('shell.toggle.bottomPanel')}
-            aria-label={message('shell.toggle.bottomPanel')}
-            aria-pressed={bottomOpen()}
-            disabled={bottomZonePanels().length === 0}
-            onClick={toggleBottomRegion}
-          >
-            <ShellRegionIcon region="bottom" active={bottomOpen()} />
-          </button>
-          <button
-            class="shell-region-toggle"
-            data-testid="rail-toggle"
-            data-tooltip-label={message('shell.toggle.rightRail')}
-            aria-label={railIndicator() === undefined ? message('shell.toggle.rightRail') : message('shell.toggle.rightRailWithStatus', { status: railIndicator()!.label })}
-            aria-pressed={railOpen()}
-            onClick={() => app.dock.setOpen('right', !railOpen())}
-          >
-            <ShellRegionIcon region="right" active={railOpen()} />
-            <Show when={railIndicator()} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
-          </button>
-          <Show when={managedContext().kind === 'primary'}>
-            <button
-              class="settings-button"
-              data-testid="image-documents-button"
-              data-tooltip-label={message('shell.imageDocuments.title')}
-              data-tooltip-detail={message('shell.imageDocuments.description')}
-              aria-label={message('shell.imageDocuments.title')}
-              aria-pressed={imageDocumentsOpen()}
-              disabled={imageDocumentsBusy()}
-              onClick={() => setImageDocumentsVisible(!imageDocumentsOpen())}
-            ><Icon icon={Images} /></button>
-            <button class="settings-button" data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} aria-label={message('shell.panel.projects.title')} onClick={() => app.modalPanel.set('projects')}><Icon icon={FolderOpen} /></button>
+            <div class="topbar-group topbar-group-left">
+              <DinksterAppMenu
+                commands={app.commands}
+                keybindings={app.keybindings}
+                invalidationSignals={() => [
+                  activeLocale,
+                  app.settings.changed,
+                  app.canvasBridge,
+                  app.tabs,
+                  app.activeTabId,
+                  app.backendsTick,
+                  ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
+                ]}
+              />
+              <Show when={managedContext().kind === 'workflow'}>
+                <button
+                  class="redock-workflow"
+                  data-testid="redock-workflow"
+                  onClick={redockCurrentWindow}
+                >
+                  {message('shell.window.moveToMain')}
+                </button>
+              </Show>
+            </div>
+            <UniversalSearchTrigger
+              shortcut={searchShortcut()}
+              onOpen={() => app.searchOpen.set(true)}
+            />
+            <div class="topbar-group topbar-group-right">
+              <CustomizeLayoutButton commands={app.commands} />
+              <button
+                class="shell-region-toggle"
+                data-testid="left-panel-toggle"
+                data-tooltip-label={message('shell.toggle.leftPanel')}
+                aria-label={message('shell.toggle.leftPanel')}
+                aria-pressed={leftOpen()}
+                disabled={leftPanels().length === 0}
+                onClick={toggleLeftRegion}
+              >
+                <ShellRegionIcon region="left" active={leftOpen()} />
+              </button>
+              <button
+                class="shell-region-toggle"
+                data-testid="bottom-panel-toggle"
+                data-tooltip-label={message('shell.toggle.bottomPanel')}
+                aria-label={message('shell.toggle.bottomPanel')}
+                aria-pressed={bottomOpen()}
+                disabled={bottomZonePanels().length === 0}
+                onClick={toggleBottomRegion}
+              >
+                <ShellRegionIcon region="bottom" active={bottomOpen()} />
+              </button>
+              <button
+                class="shell-region-toggle"
+                data-testid="rail-toggle"
+                data-tooltip-label={message('shell.toggle.rightRail')}
+                aria-label={
+                  railIndicator() === undefined
+                    ? message('shell.toggle.rightRail')
+                    : message('shell.toggle.rightRailWithStatus', {
+                        status: railIndicator()!.label,
+                      })
+                }
+                aria-pressed={railOpen()}
+                onClick={() => app.dock.setOpen('right', !railOpen())}
+              >
+                <ShellRegionIcon region="right" active={railOpen()} />
+                <Show when={railIndicator()} keyed>
+                  {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
+                </Show>
+              </button>
+              <Show when={managedContext().kind === 'primary'}>
+                <button
+                  class="settings-button"
+                  data-testid="projects-button"
+                  data-tooltip-label={message('shell.panel.projects.title')}
+                  data-tooltip-detail={message(
+                    'shell.panel.projects.description',
+                  )}
+                  aria-label={message('shell.panel.projects.title')}
+                  onClick={() => app.modalPanel.set('projects')}
+                >
+                  <Icon icon={FolderOpen} />
+                </button>
+              </Show>
+              <button
+                class="settings-button"
+                data-testid="collab-button"
+                data-tooltip-label={message('shell.panel.workspace.title')}
+                data-tooltip-detail={message(
+                  'shell.panel.workspace.description',
+                )}
+                aria-label={message('shell.panel.workspace.title')}
+                onClick={() => app.modalPanel.set('collab')}
+              >
+                <Icon icon={Users} />
+              </button>
+              <Show when={desktopBridge()}>
+                <button
+                  class="settings-button"
+                  data-testid="desktop-management-button"
+                  data-tooltip-label={message('shell.panel.desktop.title')}
+                  data-tooltip-detail={message('shell.desktop.tooltip')}
+                  aria-label={message('shell.panel.desktop.title')}
+                  onClick={() => app.modalPanel.set('desktop-management')}
+                >
+                  <Icon icon={HardDrive} />
+                </button>
+              </Show>
+            </div>
+          </header>
+          <Show when={searchOpen()}>
+            <UniversalSearch app={app} />
           </Show>
-          <button class="settings-button" data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} aria-label={message('shell.panel.workspace.title')} onClick={() => app.modalPanel.set('collab')}><Icon icon={Users} /></button>
-          <Show when={desktopBridge()}>
-            <button class="settings-button" data-testid="desktop-management-button" data-tooltip-label={message('shell.panel.desktop.title')} data-tooltip-detail={message('shell.desktop.tooltip')} aria-label={message('shell.panel.desktop.title')} onClick={() => app.modalPanel.set('desktop-management')}><Icon icon={HardDrive} /></button>
-          </Show>
-        </div>
-      </header>
-      <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
 
-      {/* ModalHost: actuates the 'modal' placement (docs/shell.md). ONE
+          {/* ModalHost: actuates the 'modal' placement (docs/shell.md). ONE
           modal at a time, hosted by a native <dialog> opened with
           showModal(), which supplies the modal behaviors for free: initial
           focus moves inside, the background becomes inert (focus cannot
@@ -2541,344 +3907,510 @@ export function App(props: {
           the reset. aria-modal is redundant on a modal <dialog> but set
           explicitly because CanvasHost gates canvas shortcuts on
           [aria-modal="true"]. */}
-      <Show when={modalDescriptor()} keyed>
-        {(panel) => {
-          return (
-            <ModalSurface
-              title={panel.title}
-              {...(panel.ariaLabel !== undefined ? { ariaLabel: panel.ariaLabel } : {})}
-              modalId={panel.id}
-              onRequestClose={closeModal}
-            >
-              {panel.component({ placement: 'modal', requestClose: closeModal })}
-            </ModalSurface>
-          )
-        }}
-      </Show>
-
-      <Show when={engineGate()}>
-        {(sup) => (
-          <div class="engine-banner" data-testid="engine-banner" data-state={sup().state} role="status" aria-live="polite">
-            <Show when={sup().state === 'starting'}>
-              <span class="engine-spinner" />
-            </Show>
-            <span class="engine-banner-text">
-              {sup().state === 'starting'
-                ? message('shell.engine.starting')
-                : sup().state === 'failed'
-                  ? message('shell.engine.failed')
-                  : message('shell.engine.stopped')}
-              {sup().detail ? ` - ${sup().detail}` : ''}
-            </span>
-            <Show when={sup().state === 'failed' || sup().state === 'stopped'}>
-              <button
-                class="banner-button"
-                data-testid="engine-restart"
-                onClick={() => void app.restartEngine(activeBackend())}
-              >
-                {message('shell.engine.restart')}
-              </button>
-            </Show>
-          </div>
-        )}
-      </Show>
-
-      <div class="body" ref={bodyElement} onPointerDown={beginPanelDrag}>
-        <nav class="left-sidebar" aria-label={message('shell.primaryNavigation')} data-tooltip-session="left-rail" hidden={!activityBarVisible()}>
-          <div class="sidebar-toggle-stack">
-            <div class="sidebar-toggle-group" data-testid="dock-toggle-group">
-              <For each={dockPanels()}>
-                {(panel) => (
-                  <ActivityBarButton
-                    icon={panel.icon}
-                    label={panel.title}
-                    accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
-                    pressed={sidebarPressed(panel.id)}
-                    panelId={panel.id}
-                    suppressTooltipWhenPressed={panel.id === 'assets' || panel.id === 'backends'}
-                    testId={panel.toggleTestId}
-                    onActivate={() => {
-                      if (panel.id === 'assets' || panel.id === 'backends') tooltips.hide()
-                      toggleSidebarPanel(panel.id)
-                    }}
-                  />
-                )}
-              </For>
-            </div>
-            <div class="sidebar-toggle-group sidebar-toggle-group-bottom" data-testid="bottom-toggle-group">
-              <For each={bottomPanels()}>
-                {(panel) => (
-                  <ActivityBarButton
-                    icon={panel.icon}
-                    label={panel.title}
-                    accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
-                    pressed={sidebarPressed(panel.id)}
-                    panelId={panel.id}
-                    testId={panel.toggleTestId}
-                    onActivate={() => toggleSidebarPanel(panel.id)}
-                  />
-                )}
-              </For>
-            </div>
-          </div>
-          <ActivityBarButton
-            icon={Settings}
-            label={message('shell.panel.settings.title')}
-            accessibleName={message('shell.panel.settings.title')}
-            tooltip={message('shell.panel.settings.title')}
-            tooltipDetail="Ctrl+,"
-            pressed={undefined}
-            testId="settings-button"
-            class="sidebar-settings-button"
-            onActivate={() => app.commands.get('settings.open')?.run()}
-          />
-        </nav>
-        <Show when={leftOpen()}>
-          <aside
-            class="dock-panel"
-            data-testid="dock-panel"
-            data-active-panel={leftActiveId()}
-            aria-label={message('shell.primaryDockPanels')}
-            style={{ width: `${dockWidth()}px` }}
-          >
-            <DockZoneHost
-              zone="left"
-              ariaLabel={message('shell.primaryDockPanels')}
-              sections={zoneSections('left')}
-              split={zoneSplit('left')}
-              onActivate={(id) => { setPanelOpen(app.panels, app.dock, id, 'left', true) }}
-              onSplitChange={(split) => app.dock.setSplit('left', split)}
-              onRequestClose={() => closeZone('left')}
-              onOpenWindow={(id) => popOutPanel(id, 'dock')}
-              onFloat={floatPanel}
-            />
-            <ShellResizeHandle
-              region="left"
-              label={message('shell.resize.primaryDockPanels')}
-              value={dockWidth()}
-              min={REGION_SIZE_BOUNDS.left.min}
-              max={REGION_SIZE_BOUNDS.left.max}
-              testId="dock-resize"
-              onPointerDown={beginResize('left', 1)}
-              onResize={resizeFromKeyboard('left')}
-            />
-          </aside>
-        </Show>
-        <main class="canvas-pane">
-          <div
-            class="editor-split-region"
-            classList={{ 'image-document-hidden': imageDocumentsActive() }}
-            data-testid="editor-split-region"
-            ref={setRegionElement}
-          >
-            <For each={paneList()}>
-              {(pane) => <EditorGroupPane groupId={pane.id} />}
-            </For>
-            {/* Index, not For: recomputed rects must move the existing
-                divider elements (pointer capture and focus live on them)
-                rather than recreate them. */}
-            <Index each={regionRects().dividers}>
-              {(divider) => (
-                <div
-                  class="editor-split-divider"
-                  data-testid="editor-split-divider"
-                  role="separator"
-                  tabindex="0"
-                  aria-label={message('shell.resize.editorGroups')}
-                  aria-orientation={divider().direction === 'row' ? 'vertical' : 'horizontal'}
-                  aria-valuemin={Math.round(SPLIT_RATIO_MIN * 100)}
-                  aria-valuemax={Math.round(SPLIT_RATIO_MAX * 100)}
-                  aria-valuenow={Math.round(divider().ratio * 100)}
-                  data-direction={divider().direction}
-                  style={rectStyle(divider().rect)}
-                  onPointerDown={(event) => beginDividerDrag(divider(), event)}
-                  onKeyDown={(event) => onDividerKeyDown(divider(), event)}
-                />
-              )}
-            </Index>
-            <Show when={dropPreviewRect()}>
-              {(rect) => (
-                <div class="editor-split-drop-preview" data-testid="split-drop-preview" style={rectStyle(rect())} />
-              )}
-            </Show>
-          </div>
-          <Show when={bottomOpen()}>
-            <section
-              class="bottom-panel"
-              classList={{ 'image-document-hidden': imageDocumentsActive() }}
-              data-testid="bottom-panel"
-              data-active-panel={bottomActiveId()}
-              style={{ height: `${bottomHeight()}px` }}
-            >
-              <ShellResizeHandle
-                region="bottom"
-                label={message('shell.resize.bottomPanels')}
-                value={bottomHeight()}
-                min={REGION_SIZE_BOUNDS.bottom.min}
-                max={REGION_SIZE_BOUNDS.bottom.max}
-                testId="bottom-resize"
-                onPointerDown={beginResize('bottom', -1)}
-                onResize={resizeFromKeyboard('bottom')}
-              />
-              <DockZoneHost
-                zone="bottom"
-                ariaLabel={message('shell.bottomPanels')}
-                sections={zoneSections('bottom')}
-                split={zoneSplit('bottom')}
-                onActivate={(id) => { setPanelOpen(app.panels, app.dock, id, 'bottom', true) }}
-                onSplitChange={(split) => app.dock.setSplit('bottom', split)}
-                onRequestClose={() => closeZone('bottom')}
-                onOpenWindow={(id) => popOutPanel(id, 'bottom')}
-                onFloat={floatPanel}
-              />
-            </section>
-          </Show>
-          <Show when={managedContext().kind === 'primary' && imageDocumentsMounted()}>
-            <ImageDocumentWorkspace
-              active={imageDocumentsActive()}
-              app={app}
-              onBusyChange={setImageDocumentsBusy}
-              onClose={() => setImageDocumentsVisible(false)}
-              graphRequest={graphImageRequest()}
-              onGraphRequestHandled={() => setGraphImageRequest(undefined)}
-            />
-          </Show>
-        </main>
-
-        <Show when={railOpen()}><aside class="rail" aria-label={message('shell.inspectorPanels')} style={{ width: `${railWidth()}px` }}>
-          <ShellResizeHandle
-            region="right"
-            label={message('shell.resize.inspectorPanels')}
-            value={railWidth()}
-            min={REGION_SIZE_BOUNDS.right.min}
-            max={REGION_SIZE_BOUNDS.right.max}
-            testId="rail-resize"
-            onPointerDown={beginResize('right', -1)}
-            onResize={resizeFromKeyboard('right')}
-          />
-          {/* requestClose must be idempotent (SurfaceContext contract):
-              setOpen(false), never a toggle - a retained or repeated call
-              must not reopen the zone. */}
-          <DockZoneHost
-            zone="right"
-            ariaLabel={message('shell.inspectorPanels')}
-            sections={zoneSections('right')}
-            split={zoneSplit('right')}
-            onActivate={(id) => app.dock.activate('right', id)}
-            onSplitChange={(split) => app.dock.setSplit('right', split)}
-            onRequestClose={closeRail}
-            onOpenWindow={(id) => popOutPanel(id, 'rail')}
-            onFloat={floatPanel}
-          />
-        </aside></Show>
-      </div>
-
-      <Show when={panelDrag()}>{(drag) => {
-        const descriptor = () => app.panels.get(drag().panelId)
-        return (
-          <PanelDragOverlay
-            drag={drag()}
-            ghostTitle={descriptor()?.title ?? drag().panelId}
-            ghostIcon={descriptor()?.icon}
-          />
-        )
-      }}</Show>
-      <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused} />
-      )}</Show>
-
-      <Show when={tooltip()}>{(tip) => (
-        <div class="app-tooltip" data-testid="app-tooltip" style={{ left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`, top: `${Math.max(8, Math.min(tip().y, window.innerHeight - 120))}px` }}>
-          <Show when={tip().title}><div class="app-tooltip-title">{tip().title}</div></Show>
-          <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
-          <Show when={tip().detailed}><For each={tip().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
-        </div>
-      )}</Show>
-      <TransientStatus message={transientStatus()} />
-      <footer class="statusbar" data-testid="status-bar" aria-label={message('shell.applicationStatus')} hidden={!statusBarVisible() && placementStatus() === undefined && transientStatus() === undefined}>
-        <div class="statusbar-left" role="group" aria-label={message('shell.workspaceBackendStatus')}>
-          <Show when={placementStatus()}>{(status) => <span class="placement-status" data-testid="placement-status">{status()}</span>}</Show>
-          <Show when={transientStatus()}>{(status) => <span class="transient-status">{status()}</span>}</Show>
-          <HostUiProviderHost
-            owner={coreStatusProblemsOwner}
-            provider={coreStatusProvider}
-            data={{
-              connectionStatus: statusOf(activeBackend()),
-              schemaText: schemaCountOf(activeBackend()) !== undefined
-                ? message('shell.status.nodeSchemas', { count: schemaCountOf(activeBackend())! })
-                : message('shell.status.loadingSchemas'),
+          <Show when={modalDescriptor()} keyed>
+            {(panel) => {
+              return (
+                <ModalSurface
+                  title={panel.title}
+                  {...(panel.ariaLabel !== undefined
+                    ? { ariaLabel: panel.ariaLabel }
+                    : {})}
+                  modalId={panel.id}
+                  onRequestClose={closeModal}
+                >
+                  {panel.component({
+                    placement: 'modal',
+                    requestClose: closeModal,
+                  })}
+                </ModalSurface>
+              )
             }}
-            commands={app.commands}
-            replaceProblems={(owner, diagnostics) => app.replaceProblems(owner, diagnostics)}
-            core
-          />
-          <Show when={composingOf(activeBackend())}>
-            {(p) => (
-              <span class="statusbar-composing" data-testid="composition-progress">
-                {message('shell.status.composingPacks', { done: p().done, total: p().total })}
-                {p().phase ? ` - ${p().phase}` : ''}
-              </span>
+          </Show>
+
+          <Show when={engineGate()}>
+            {(sup) => (
+              <div
+                class="engine-banner"
+                data-testid="engine-banner"
+                data-state={sup().state}
+                role="status"
+                aria-live="polite"
+              >
+                <Show when={sup().state === 'starting'}>
+                  <span class="engine-spinner" />
+                </Show>
+                <span class="engine-banner-text">
+                  {sup().state === 'starting'
+                    ? message('shell.engine.starting')
+                    : sup().state === 'failed'
+                      ? message('shell.engine.failed')
+                      : message('shell.engine.stopped')}
+                  {sup().detail ? ` - ${sup().detail}` : ''}
+                </span>
+                <Show
+                  when={sup().state === 'failed' || sup().state === 'stopped'}
+                >
+                  <button
+                    class="banner-button"
+                    data-testid="engine-restart"
+                    onClick={() => void app.restartEngine(activeBackend())}
+                  >
+                    {message('shell.engine.restart')}
+                  </button>
+                </Show>
+              </div>
             )}
           </Show>
-          <Show when={multiBackend()}>
-            <span class="statusbar-backend" data-testid="statusbar-backend">
-              {activeBackend().label}
-            </span>
-          </Show>
-        </div>
-        <div class="statusbar-right" data-testid="status-trailing" role="group" aria-label={message('shell.tasksNotifications')}>
-          <For each={statusTrailingContributions()}>{(contribution) => (
-            <span class="host-ui-contribution" data-host-ui-contribution={contribution.id}>
-              <HostUiProviderHost
-                owner={contributionProblemsOwner(contribution)}
-                provider={contribution.provider}
-                data={{
-                  connectionId: activeBackend().id,
-                  connectionLabel: activeBackend().label,
-                  connectionStatus: statusOf(activeBackend()),
-                  schemaCount: schemaCountOf(activeBackend()) ?? null,
-                } satisfies Json}
-                commands={app.commands}
-                replaceProblems={(owner, diagnostics) => app.replaceProblems(owner, diagnostics)}
-              />
-            </span>
-          )}</For>
-          <button
-            class="statusbar-toggle"
-            data-testid="backends-toggle"
-            aria-pressed={sidebarPressed('backends')}
-            onClick={() => toggleSidebarPanel('backends')}
-          >
-            {multiBackend()
-              ? message('shell.status.backendsCount', { count: backends().length })
-              : message('shell.panel.backends.title')}
-          </button>
-          <button
-            class="statusbar-toggle"
-            data-testid="review-upgrades-toggle"
-            data-tooltip-label={message('shell.reviewUpgrades.tooltip')}
-            aria-label={message('shell.reviewUpgrades.ariaLabel', { state: message(reviewReplacements() ? 'shell.state.on' : 'shell.state.off') })}
-            aria-pressed={reviewReplacements()}
-            onClick={() => app.reviewReplacements.update((v) => !v)}
-          >
-            {message('shell.reviewUpgrades.label', { state: message(reviewReplacements() ? 'shell.state.on' : 'shell.state.off') })}
-          </button>
-        </div>
-      </footer>
-      </div>
 
-      <For each={floatingPanels()}>{(panel, index) => (
-        <FloatingPanelHost
-          panel={panel}
-          index={index()}
-          onDock={() => returnPanel(panel.id, panel.placement)}
-          onOpenWindow={panel.allowedPlacements.includes('window')
-            ? () => popOutPanel(panel.id, panel.placement === 'bottom' ? 'bottom' : panel.placement === 'rail' ? 'rail' : 'dock')
-            : undefined}
-        />
-      )}</For>
+          <div class="body" ref={bodyElement} onPointerDown={beginPanelDrag}>
+            <nav
+              class="left-sidebar"
+              aria-label={message('shell.primaryNavigation')}
+              data-tooltip-session="left-rail"
+              hidden={!activityBarVisible()}
+            >
+              <div class="sidebar-toggle-stack">
+                <div
+                  class="sidebar-toggle-group"
+                  data-testid="dock-toggle-group"
+                >
+                  <For each={dockPanels()}>
+                    {(panel) => (
+                      <ActivityBarButton
+                        icon={panel.icon}
+                        label={panel.title}
+                        accessibleName={panel.ariaLabel ?? panel.title}
+                        tooltip={panel.description ?? panel.title}
+                        pressed={sidebarPressed(panel.id)}
+                        panelId={panel.id}
+                        suppressTooltipWhenPressed={
+                          panel.id === 'assets' || panel.id === 'backends'
+                        }
+                        testId={panel.toggleTestId}
+                        onActivate={() => {
+                          if (panel.id === 'assets' || panel.id === 'backends')
+                            tooltips.hide()
+                          toggleSidebarPanel(panel.id)
+                        }}
+                      />
+                    )}
+                  </For>
+                </div>
+                <div
+                  class="sidebar-toggle-group sidebar-toggle-group-bottom"
+                  data-testid="bottom-toggle-group"
+                >
+                  <For each={bottomPanels()}>
+                    {(panel) => (
+                      <ActivityBarButton
+                        icon={panel.icon}
+                        label={panel.title}
+                        accessibleName={panel.ariaLabel ?? panel.title}
+                        tooltip={panel.description ?? panel.title}
+                        pressed={sidebarPressed(panel.id)}
+                        panelId={panel.id}
+                        testId={panel.toggleTestId}
+                        onActivate={() => toggleSidebarPanel(panel.id)}
+                      />
+                    )}
+                  </For>
+                </div>
+              </div>
+              <ActivityBarButton
+                icon={Settings}
+                label={message('shell.panel.settings.title')}
+                accessibleName={message('shell.panel.settings.title')}
+                tooltip={message('shell.panel.settings.title')}
+                tooltipDetail="Ctrl+,"
+                pressed={undefined}
+                testId="settings-button"
+                class="sidebar-settings-button"
+                onActivate={() => app.commands.get('settings.open')?.run()}
+              />
+            </nav>
+            <Show when={leftOpen()}>
+              <aside
+                class="dock-panel"
+                data-testid="dock-panel"
+                data-active-panel={leftActiveId()}
+                aria-label={message('shell.primaryDockPanels')}
+                style={{ width: `${dockWidth()}px` }}
+              >
+                <DockZoneHost
+                  zone="left"
+                  ariaLabel={message('shell.primaryDockPanels')}
+                  sections={zoneSections('left')}
+                  split={zoneSplit('left')}
+                  onActivate={(id) => {
+                    setPanelOpen(app.panels, app.dock, id, 'left', true)
+                  }}
+                  onSplitChange={(split) => app.dock.setSplit('left', split)}
+                  onRequestClose={() => closeZone('left')}
+                  onOpenWindow={(id) => popOutPanel(id, 'dock')}
+                  onFloat={floatPanel}
+                />
+                <ShellResizeHandle
+                  region="left"
+                  label={message('shell.resize.primaryDockPanels')}
+                  value={dockWidth()}
+                  min={REGION_SIZE_BOUNDS.left.min}
+                  max={REGION_SIZE_BOUNDS.left.max}
+                  testId="dock-resize"
+                  onPointerDown={beginResize('left', 1)}
+                  onResize={resizeFromKeyboard('left')}
+                />
+              </aside>
+            </Show>
+            <main class="canvas-pane">
+              <div
+                class="editor-split-region"
+                data-testid="editor-split-region"
+                ref={setRegionElement}
+              >
+                <For each={paneList()}>
+                  {(pane) => <EditorGroupPane groupId={pane.id} />}
+                </For>
+                {/* Index, not For: recomputed rects must move the existing
+                divider elements (pointer capture and focus live on them)
+                rather than recreate them. */}
+                <Index each={regionRects().dividers}>
+                  {(divider) => (
+                    <div
+                      class="editor-split-divider"
+                      data-testid="editor-split-divider"
+                      role="separator"
+                      tabindex="0"
+                      aria-label={message('shell.resize.editorGroups')}
+                      aria-orientation={
+                        divider().direction === 'row'
+                          ? 'vertical'
+                          : 'horizontal'
+                      }
+                      aria-valuemin={Math.round(SPLIT_RATIO_MIN * 100)}
+                      aria-valuemax={Math.round(SPLIT_RATIO_MAX * 100)}
+                      aria-valuenow={Math.round(divider().ratio * 100)}
+                      data-direction={divider().direction}
+                      style={rectStyle(divider().rect)}
+                      onPointerDown={(event) =>
+                        beginDividerDrag(divider(), event)
+                      }
+                      onKeyDown={(event) => onDividerKeyDown(divider(), event)}
+                    />
+                  )}
+                </Index>
+                <Show when={dropPreviewRect()}>
+                  {(rect) => (
+                    <div
+                      class="editor-split-drop-preview"
+                      data-testid="split-drop-preview"
+                      style={rectStyle(rect())}
+                    />
+                  )}
+                </Show>
+                <Show
+                  when={
+                    managedContext().kind === 'primary' && mediaWorkspaceRect()
+                  }
+                >
+                  {(rect) => (
+                    <div
+                      class="document-workspace-overlay"
+                      style={rectStyle(rect())}
+                      hidden={!mediaDocumentsActive()}
+                    >
+                      <ImageDocumentWorkspace
+                        active={activeDocumentId().startsWith('image:')}
+                        activeId={activeDocumentId()}
+                        createRequest={newImageRequest()}
+                        app={app}
+                        onBusyChange={setImageDocumentsBusy}
+                        onClose={() => setActiveDocumentId(activeTabId())}
+                        onTabsChange={setImageDocumentTabs}
+                        onReady={() => setImageDocumentsReady(true)}
+                        onActivate={setActiveDocumentId}
+                        graphRequest={graphImageRequest()}
+                        onGraphRequestHandled={() =>
+                          setGraphImageRequest(undefined)
+                        }
+                      />
+                      <VideoDocumentWorkspace
+                        activeId={activeDocumentId()}
+                        createRequest={newVideoRequest()}
+                        app={app}
+                        onTabsChange={setVideoDocumentTabs}
+                        onReady={() => setVideoDocumentsReady(true)}
+                        onActivate={setActiveDocumentId}
+                      />
+                    </div>
+                  )}
+                </Show>
+              </div>
+              <Show when={bottomOpen()}>
+                <section
+                  class="bottom-panel"
+                  data-testid="bottom-panel"
+                  data-active-panel={bottomActiveId()}
+                  style={{ height: `${bottomHeight()}px` }}
+                >
+                  <ShellResizeHandle
+                    region="bottom"
+                    label={message('shell.resize.bottomPanels')}
+                    value={bottomHeight()}
+                    min={REGION_SIZE_BOUNDS.bottom.min}
+                    max={REGION_SIZE_BOUNDS.bottom.max}
+                    testId="bottom-resize"
+                    onPointerDown={beginResize('bottom', -1)}
+                    onResize={resizeFromKeyboard('bottom')}
+                  />
+                  <DockZoneHost
+                    zone="bottom"
+                    ariaLabel={message('shell.bottomPanels')}
+                    sections={zoneSections('bottom')}
+                    split={zoneSplit('bottom')}
+                    onActivate={(id) => {
+                      setPanelOpen(app.panels, app.dock, id, 'bottom', true)
+                    }}
+                    onSplitChange={(split) =>
+                      app.dock.setSplit('bottom', split)
+                    }
+                    onRequestClose={() => closeZone('bottom')}
+                    onOpenWindow={(id) => popOutPanel(id, 'bottom')}
+                    onFloat={floatPanel}
+                  />
+                </section>
+              </Show>
+            </main>
+
+            <Show when={railOpen()}>
+              <aside
+                class="rail"
+                aria-label={message('shell.inspectorPanels')}
+                style={{ width: `${railWidth()}px` }}
+              >
+                <ShellResizeHandle
+                  region="right"
+                  label={message('shell.resize.inspectorPanels')}
+                  value={railWidth()}
+                  min={REGION_SIZE_BOUNDS.right.min}
+                  max={REGION_SIZE_BOUNDS.right.max}
+                  testId="rail-resize"
+                  onPointerDown={beginResize('right', -1)}
+                  onResize={resizeFromKeyboard('right')}
+                />
+                {/* requestClose must be idempotent (SurfaceContext contract):
+              setOpen(false), never a toggle - a retained or repeated call
+              must not reopen the zone. */}
+                <DockZoneHost
+                  zone="right"
+                  ariaLabel={message('shell.inspectorPanels')}
+                  sections={zoneSections('right')}
+                  split={zoneSplit('right')}
+                  onActivate={(id) => app.dock.activate('right', id)}
+                  onSplitChange={(split) => app.dock.setSplit('right', split)}
+                  onRequestClose={closeRail}
+                  onOpenWindow={(id) => popOutPanel(id, 'rail')}
+                  onFloat={floatPanel}
+                />
+              </aside>
+            </Show>
+          </div>
+
+          <Show when={panelDrag()}>
+            {(drag) => {
+              const descriptor = () => app.panels.get(drag().panelId)
+              return (
+                <PanelDragOverlay
+                  drag={drag()}
+                  ghostTitle={descriptor()?.title ?? drag().panelId}
+                  ghostIcon={descriptor()?.icon}
+                />
+              )
+            }}
+          </Show>
+          <Show when={tabDrag()}>
+            {(drag) => (
+              <TabDragGhost
+                title={drag().title}
+                x={drag().x}
+                y={drag().y}
+                refused={drag().refused}
+              />
+            )}
+          </Show>
+
+          <Show when={tooltip()}>
+            {(tip) => (
+              <div
+                class="app-tooltip"
+                data-testid="app-tooltip"
+                style={{
+                  left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`,
+                  top: `${Math.max(8, Math.min(tip().y, window.innerHeight - 120))}px`,
+                }}
+              >
+                <Show when={tip().title}>
+                  <div class="app-tooltip-title">{tip().title}</div>
+                </Show>
+                <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
+                <Show when={tip().detailed}>
+                  <For each={tip().detail}>
+                    {(line) => <div class="app-tooltip-detail">{line}</div>}
+                  </For>
+                </Show>
+              </div>
+            )}
+          </Show>
+          <TransientStatus message={transientStatus()} />
+          <footer
+            class="statusbar"
+            data-testid="status-bar"
+            aria-label={message('shell.applicationStatus')}
+            hidden={
+              !statusBarVisible() &&
+              placementStatus() === undefined &&
+              transientStatus() === undefined
+            }
+          >
+            <div
+              class="statusbar-left"
+              role="group"
+              aria-label={message('shell.workspaceBackendStatus')}
+            >
+              <Show when={placementStatus()}>
+                {(status) => (
+                  <span class="placement-status" data-testid="placement-status">
+                    {status()}
+                  </span>
+                )}
+              </Show>
+              <Show when={transientStatus()}>
+                {(status) => <span class="transient-status">{status()}</span>}
+              </Show>
+              <HostUiProviderHost
+                owner={coreStatusProblemsOwner}
+                provider={coreStatusProvider}
+                data={{
+                  connectionStatus: statusOf(activeBackend()),
+                  schemaText:
+                    schemaCountOf(activeBackend()) !== undefined
+                      ? message('shell.status.nodeSchemas', {
+                          count: schemaCountOf(activeBackend())!,
+                        })
+                      : message('shell.status.loadingSchemas'),
+                }}
+                commands={app.commands}
+                replaceProblems={(owner, diagnostics) =>
+                  app.replaceProblems(owner, diagnostics)
+                }
+                core
+              />
+              <Show when={composingOf(activeBackend())}>
+                {(p) => (
+                  <span
+                    class="statusbar-composing"
+                    data-testid="composition-progress"
+                  >
+                    {message('shell.status.composingPacks', {
+                      done: p().done,
+                      total: p().total,
+                    })}
+                    {p().phase ? ` - ${p().phase}` : ''}
+                  </span>
+                )}
+              </Show>
+              <Show when={multiBackend()}>
+                <span class="statusbar-backend" data-testid="statusbar-backend">
+                  {activeBackend().label}
+                </span>
+              </Show>
+            </div>
+            <div
+              class="statusbar-right"
+              data-testid="status-trailing"
+              role="group"
+              aria-label={message('shell.tasksNotifications')}
+            >
+              <For each={statusTrailingContributions()}>
+                {(contribution) => (
+                  <span
+                    class="host-ui-contribution"
+                    data-host-ui-contribution={contribution.id}
+                  >
+                    <HostUiProviderHost
+                      owner={contributionProblemsOwner(contribution)}
+                      provider={contribution.provider}
+                      data={
+                        {
+                          connectionId: activeBackend().id,
+                          connectionLabel: activeBackend().label,
+                          connectionStatus: statusOf(activeBackend()),
+                          schemaCount: schemaCountOf(activeBackend()) ?? null,
+                        } satisfies Json
+                      }
+                      commands={app.commands}
+                      replaceProblems={(owner, diagnostics) =>
+                        app.replaceProblems(owner, diagnostics)
+                      }
+                    />
+                  </span>
+                )}
+              </For>
+              <button
+                class="statusbar-toggle"
+                data-testid="backends-toggle"
+                aria-pressed={sidebarPressed('backends')}
+                onClick={() => toggleSidebarPanel('backends')}
+              >
+                {multiBackend()
+                  ? message('shell.status.backendsCount', {
+                      count: backends().length,
+                    })
+                  : message('shell.panel.backends.title')}
+              </button>
+              <button
+                class="statusbar-toggle"
+                data-testid="review-upgrades-toggle"
+                data-tooltip-label={message('shell.reviewUpgrades.tooltip')}
+                aria-label={message('shell.reviewUpgrades.ariaLabel', {
+                  state: message(
+                    reviewReplacements() ? 'shell.state.on' : 'shell.state.off',
+                  ),
+                })}
+                aria-pressed={reviewReplacements()}
+                onClick={() => app.reviewReplacements.update((v) => !v)}
+              >
+                {message('shell.reviewUpgrades.label', {
+                  state: message(
+                    reviewReplacements() ? 'shell.state.on' : 'shell.state.off',
+                  ),
+                })}
+              </button>
+            </div>
+          </footer>
+        </div>
+
+        <For each={floatingPanels()}>
+          {(panel, index) => (
+            <FloatingPanelHost
+              panel={panel}
+              index={index()}
+              onDock={() => returnPanel(panel.id, panel.placement)}
+              onOpenWindow={
+                panel.allowedPlacements.includes('window')
+                  ? () =>
+                      popOutPanel(
+                        panel.id,
+                        panel.placement === 'bottom'
+                          ? 'bottom'
+                          : panel.placement === 'rail'
+                            ? 'rail'
+                            : 'dock',
+                      )
+                  : undefined
+              }
+            />
+          )}
+        </For>
       </Show>
     </>
   )
@@ -2924,27 +4456,38 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   const values = () => {
     backendTick()
     const backend = props.app.backendFor(props.execution.ref.connection)
-    return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
+    return backend?.protocol === 'dinkster'
+      ? backend.connection.values()
+      : undefined
   }
   const reveal = (image: ExecutedImage): void => {
     const backend = props.app.backendFor(props.execution.ref.connection)
-    if (backend?.protocol === 'dinkster') void revealExecutedImage(backend.connection, image)
+    if (backend?.protocol === 'dinkster')
+      void revealExecutedImage(backend.connection, image)
   }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()
     const layers = new Set<string>()
     const outputs = [
       ...Object.entries(props.execution.outputs),
-      ...Object.entries(props.execution.nodes).map(([nodeId, progress]) => [nodeId, progress.outputs ?? {}] as const),
+      ...Object.entries(props.execution.nodes).map(
+        ([nodeId, progress]) => [nodeId, progress.outputs ?? {}] as const,
+      ),
     ]
-    for (const [nodeId, values] of outputs) for (const [outputId, descriptor] of Object.entries(values)) {
-      if (typeof descriptor === 'object' && descriptor !== null && 'typeId' in descriptor &&
-          typeof descriptor.typeId === 'string') {
-        const identity = JSON.stringify([nodeId, outputId])
-        if (mediaMetadataOf(descriptor.typeId, undefined) !== undefined) media.add(identity)
-        if (isLayerDocumentType(descriptor.typeId)) layers.add(identity)
+    for (const [nodeId, values] of outputs)
+      for (const [outputId, descriptor] of Object.entries(values)) {
+        if (
+          typeof descriptor === 'object' &&
+          descriptor !== null &&
+          'typeId' in descriptor &&
+          typeof descriptor.typeId === 'string'
+        ) {
+          const identity = JSON.stringify([nodeId, outputId])
+          if (mediaMetadataOf(descriptor.typeId, undefined) !== undefined)
+            media.add(identity)
+          if (isLayerDocumentType(descriptor.typeId)) layers.add(identity)
+        }
       }
-    }
     return { media: [...media].sort(), layers: [...layers].sort() }
   })
   const mediaValueGroups = createMemo(() => {
@@ -2980,7 +4523,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   })
   const provenance = (): ExecutionOutputProvenance => {
     backendTick()
-    return executionOutputProvenance(props.execution, props.app.backendFor(props.execution.ref.connection))
+    return executionOutputProvenance(
+      props.execution,
+      props.app.backendFor(props.execution.ref.connection),
+    )
   }
   const markFailed = (key: string): void => {
     setFailed((current) => new Set(current).add(key))
@@ -2988,18 +4534,37 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   const markLoaded = (key: string): void => {
     setLoaded((current) => new Set(current).add(key))
   }
-  const availability = (key: string): 'Checking' | 'Available' | 'Unavailable' =>
-    failed().has(key) ? 'Unavailable' : loaded().has(key) ? 'Available' : 'Checking'
-  const layerRequest = (nodeId: string, outputId: string): GraphImageDocumentRequest | undefined => {
+  const availability = (
+    key: string,
+  ): 'Checking' | 'Available' | 'Unavailable' =>
+    failed().has(key)
+      ? 'Unavailable'
+      : loaded().has(key)
+        ? 'Available'
+        : 'Checking'
+  const layerRequest = (
+    nodeId: string,
+    outputId: string,
+  ): GraphImageDocumentRequest | undefined => {
     const artifact = props.execution.artifact
     if (artifact === undefined) return undefined
     const identity = documentIdentityOf(nodeId, artifact.provenance.toSource)
-    const source = identity === undefined ? undefined : resolveNodeOccurrence(artifact.snapshot, identity.occurrence)
-    const graph = source === undefined ? undefined : artifact.snapshot.graphs[source.graphId]
+    const source =
+      identity === undefined
+        ? undefined
+        : resolveNodeOccurrence(artifact.snapshot, identity.occurrence)
+    const graph =
+      source === undefined
+        ? undefined
+        : artifact.snapshot.graphs[source.graphId]
     const tab = props.app.liveTabFor(artifact.snapshot.lineage)
-    if (source === undefined || graph === undefined || tab === undefined) return undefined
+    if (source === undefined || graph === undefined || tab === undefined)
+      return undefined
     const aliases = artifact.provenance.outputAliases?.[nodeId]
-    const sourceOutputId = Object.entries(aliases ?? {}).find(([, runtimeOutputId]) => runtimeOutputId === outputId)?.[0] ?? outputId
+    const sourceOutputId =
+      Object.entries(aliases ?? {}).find(
+        ([, runtimeOutputId]) => runtimeOutputId === outputId,
+      )?.[0] ?? outputId
     return {
       connectionId: props.execution.ref.connection,
       query: { jobId: props.execution.ref.prompt, nodeId, outputId },
@@ -3010,41 +4575,89 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
       expectedGraphFingerprint: sha256Hex(canonicalJson(graph)),
     }
   }
-  const emptyState = (): { readonly state: string; readonly title: string; readonly detail: string } => {
-    if (props.execution.status === 'error') return {
-      state: 'error', title: 'Execution failed without image outputs',
-      detail: props.execution.errors.map((error) => error.message).join(' ') || 'The execution reported an error before producing inspectable images.',
-    }
-    if (!provenance().backendAvailable) return {
-      state: 'owner-unavailable', title: 'Output owner unavailable',
-      detail: 'The execution backend was removed or disconnected. Retained output media cannot be confirmed.',
-    }
-    if (props.execution.status === 'queued' || props.execution.status === 'running') return {
-      state: 'waiting', title: 'Waiting for image outputs',
-      detail: props.execution.status === 'queued' ? 'The execution is queued.' : 'The execution is running.',
-    }
-    if (props.app.backendFor(props.execution.ref.connection)?.protocol === 'dinkster' &&
-      !props.execution.artifactsHydrated && Object.keys(props.execution.outputs).length === 0) return {
-      state: 'loading', title: 'Loading retained outputs',
-      detail: 'The completed execution is still resolving its retained output inventory.',
-    }
+  const emptyState = (): {
+    readonly state: string
+    readonly title: string
+    readonly detail: string
+  } => {
+    if (props.execution.status === 'error')
+      return {
+        state: 'error',
+        title: 'Execution failed without image outputs',
+        detail:
+          props.execution.errors.map((error) => error.message).join(' ') ||
+          'The execution reported an error before producing inspectable images.',
+      }
+    if (!provenance().backendAvailable)
+      return {
+        state: 'owner-unavailable',
+        title: 'Output owner unavailable',
+        detail:
+          'The execution backend was removed or disconnected. Retained output media cannot be confirmed.',
+      }
+    if (
+      props.execution.status === 'queued' ||
+      props.execution.status === 'running'
+    )
+      return {
+        state: 'waiting',
+        title: 'Waiting for image outputs',
+        detail:
+          props.execution.status === 'queued'
+            ? 'The execution is queued.'
+            : 'The execution is running.',
+      }
+    if (
+      props.app.backendFor(props.execution.ref.connection)?.protocol ===
+        'dinkster' &&
+      !props.execution.artifactsHydrated &&
+      Object.keys(props.execution.outputs).length === 0
+    )
+      return {
+        state: 'loading',
+        title: 'Loading retained outputs',
+        detail:
+          'The completed execution is still resolving its retained output inventory.',
+      }
     return {
-      state: 'empty', title: 'No image outputs',
-      detail: 'This execution completed without inspectable image descriptors or assets.',
+      state: 'empty',
+      title: 'No image outputs',
+      detail:
+        'This execution completed without inspectable image descriptors or assets.',
     }
   }
   return (
     <>
-      <section class="output-execution-provenance output-rail-provenance" aria-label="Execution provenance">
-        <div><span>Backend</span><strong>{provenance().backendLabel}</strong></div>
-        <div><span>Backend ID</span><strong>{provenance().backendId}</strong></div>
-        <div><span>Execution</span><strong>{provenance().executionId}</strong></div>
-        <div><span>Status</span><strong>{provenance().executionStatus}</strong></div>
+      <section
+        class="output-execution-provenance output-rail-provenance"
+        aria-label="Execution provenance"
+      >
+        <div>
+          <span>Backend</span>
+          <strong>{provenance().backendLabel}</strong>
+        </div>
+        <div>
+          <span>Backend ID</span>
+          <strong>{provenance().backendId}</strong>
+        </div>
+        <div>
+          <span>Execution</span>
+          <strong>{provenance().executionId}</strong>
+        </div>
+        <div>
+          <span>Status</span>
+          <strong>{provenance().executionStatus}</strong>
+        </div>
         <Show when={!provenance().backendAvailable && images().length > 0}>
-          <p role="status">Execution owner removed or disconnected. Retained output routes are used when available.</p>
+          <p role="status">
+            Execution owner removed or disconnected. Retained output routes are
+            used when available.
+          </p>
         </Show>
         <Show when={props.execution.errors.length > 0 && images().length > 0}>
-          <p class="output-execution-error" role="alert">{props.execution.errors.map((error) => error.message).join(' ')}</p>
+          <p class="output-execution-error" role="alert">
+            {props.execution.errors.map((error) => error.message).join(' ')}
+          </p>
         </Show>
       </section>
       <MediaDiagnostics diagnostics={props.execution.valueDiagnostics ?? []} />
@@ -3084,12 +4697,27 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
                 onClick={() => setViewerIndex(index)}
               >
                 <span class="output-thumbnail-preview">
-                  <Show when={!failed().has(image.key)} fallback={<span class="output-thumbnail-unavailable">Image unavailable</span>}>
-                    <img src={image.url} alt="" onLoad={() => markLoaded(image.key)} onError={() => markFailed(image.key)} />
+                  <Show
+                    when={!failed().has(image.key)}
+                    fallback={
+                      <span class="output-thumbnail-unavailable">
+                        Image unavailable
+                      </span>
+                    }
+                  >
+                    <img
+                      src={image.url}
+                      alt=""
+                      onLoad={() => markLoaded(image.key)}
+                      onError={() => markFailed(image.key)}
+                    />
                   </Show>
                   <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>
                 </span>
-                <ExecutedImageFacts image={image} availability={availability(image.key)} />
+                <ExecutedImageFacts
+                  image={image}
+                  availability={availability(image.key)}
+                />
               </button>
               </div>
               )}</For>
@@ -3099,7 +4727,13 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         </For>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} {...(canRevealOutput() ? { onReveal: reveal } : {})} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer
+          images={images()}
+          initialIndex={viewerIndex()!}
+          provenance={provenance()}
+          {...(canRevealOutput() ? { onReveal: reveal } : {})}
+          onRequestClose={() => setViewerIndex(undefined)}
+        />
       </Show>
     </>
   )

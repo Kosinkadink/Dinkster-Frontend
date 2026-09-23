@@ -353,6 +353,7 @@
   "collection.state.noMatches": "No matches.",
   "common.apply": "Apply",
   "common.cancel": "Cancel",
+  "common.close": "Close",
   "compositor.action.apply": "Apply",
   "compositor.action.cancel": "Cancel",
   "compositor.background.color": "Color",
@@ -1567,5 +1568,12 @@
   "videoDocument.type": "video document",
   "videoDocument.value.audio": "Audio",
   "videoDocument.value.default": "Use command default",
-  "videoDocument.value.video": "Video"
+  "videoDocument.value.video": "Video",
+  "videoWorkspace.description": "Edit the durable video document as canonical OTIO JSON. Apply validates the complete document and records one undoable command.",
+  "videoWorkspace.empty": "No video documents are open.",
+  "videoWorkspace.name": "Video document name",
+  "videoWorkspace.new": "New video document",
+  "videoWorkspace.shared": "Shared video documents",
+  "videoWorkspace.sharedEmpty": "No shared video documents are available.",
+  "videoWorkspace.untitled": "Untitled video"
 }

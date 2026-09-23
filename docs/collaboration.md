@@ -36,6 +36,13 @@ Closing a shared tab (or replacing it by opening another document with the
 same lineage) LEAVES the session - it disposes this client's connection and
 never deletes the server session. Ending is always an explicit action.
 
+The shared-session engine is document-kind neutral. Canonical kinds are
+`dinkster.workflow`, `dinkster.image`, and `dinkster.video`; legacy wire aliases
+`workflow`, `image`, and `video` normalize to those names. Image and video
+workspaces use the same adapter contract, ordered operation transport, rebase,
+undo/redo, and kind-isolated discovery as workflows. Extension-defined
+namespaced kinds pass through unchanged.
+
 ## Session management presentation
 
 The modal separates the active workflow from sessions available to join.

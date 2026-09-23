@@ -21,6 +21,10 @@ import {
   type PackManifest,
 } from '../src/extensions/manifest.js'
 import { ExtensionHost, emptyGates, type GateState } from '../src/extensions/host.js'
+import {
+  LocalDocumentTypeSession,
+  type DocumentTypeAdapter,
+} from '../src/commands/document-type.js'
 import type { VirtualNodeKind } from '../src/virtual-node.js'
 import type { PreviewRenderer, WidgetKind, WidgetRegistry, WidgetView } from '../src/widgets/contract.js'
 
@@ -82,7 +86,7 @@ it('keeps the authored frontend vocabulary to the supported contribution kinds',
     'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension',
     'menu', 'command', 'keybinding', 'setting', 'canvasLayer', 'nodeDecoration',
     'hostUi', 'searchProvider', 'workflowObserver', 'eventConsumer', 'workflowImporter',
-    'editor', 'editorBinding', 'panel', 'virtualNode',
+    'editor', 'editorBinding', 'panel', 'virtualNode', 'documentType',
   ])
 })
 
@@ -92,6 +96,11 @@ it('keeps the four frontend privileges independent', () => {
     expect(examples.map((kind) => frontendContributionAuthorized(kind, [privilege])))
       .toEqual(examples.map((_, candidate) => candidate === index))
   }
+})
+
+it('requires app-workflow privilege for document types', () => {
+  expect(frontendContributionAuthorized('documentType', ['app-workflow'])).toBe(true)
+  expect(frontendContributionAuthorized('documentType', ['schema-widget'])).toBe(false)
 })
 
 const manifest = (over?: Partial<PackManifest>): PackManifest => ({
@@ -364,6 +373,63 @@ describe('F0 authored and effective manifests', () => {
 })
 
 describe('ExtensionHost activation', () => {
+  it('registers, gates, and unregisters a declared document type', () => {
+    const registered = new Map<string, DocumentTypeAdapter<unknown>>()
+    const h = new ExtensionHost({
+      menus: createMenuRegistry(), widgets: fakeWidgets(),
+      registerDocumentType: (adapter) => {
+        if (registered.has(adapter.kind)) throw new Error(`duplicate ${adapter.kind}`)
+        registered.set(adapter.kind, adapter)
+        return () => { if (registered.get(adapter.kind) === adapter) registered.delete(adapter.kind) }
+      },
+    })
+    const adapter: DocumentTypeAdapter<unknown> = {
+      kind: 'rgthree.note',
+      commandIds: new Set(['rgthree.note.increment']),
+      load: (document) =>
+        typeof (document as { count?: unknown })?.count === 'number'
+          ? { document, diagnostics: [] }
+          : { diagnostics: [] },
+      check: () => [],
+      execute: (document) => {
+        const count = (document as { count: number }).count
+        return {
+          ok: true,
+          doc: { count: count + 1 },
+          forward: [
+            { op: 'replace', path: ['count'], oldValue: count, value: count + 1 },
+          ],
+          inverse: [
+            { op: 'replace', path: ['count'], oldValue: count + 1, value: count },
+          ],
+          diagnostics: [],
+        }
+      },
+    }
+    expect(h.register(manifest({ contributions: [
+      { id: 'rgthree.note', category: 'documentType' },
+    ] }), (api) => api.documentType('rgthree.note', adapter))).toEqual([])
+    expect(registered.get('rgthree.note')).toBe(adapter)
+    const session = new LocalDocumentTypeSession(
+      { count: 0 },
+      registered.get('rgthree.note')!,
+    )
+    expect(
+      session.dispatch({ command: 'rgthree.note.increment', params: null }).ok,
+    ).toBe(true)
+    expect(session.doc).toEqual({ count: 1 })
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual({ count: 0 })
+    expect(session.redo()).toBe(true)
+    expect(session.doc).toEqual({ count: 1 })
+    h.setContributionEnabled('rgthree.note', false)
+    expect(registered.has('rgthree.note')).toBe(false)
+    h.setContributionEnabled('rgthree.note', true)
+    expect(registered.get('rgthree.note')).toBe(adapter)
+    h.unregister('rgthree')
+    expect(registered.has('rgthree.note')).toBe(false)
+  })
+
   it('registers declared contributions into the real registries', () => {
     const { h, menus, widgets } = host()
     expect(installPack(h)).toEqual([])

@@ -44,13 +44,13 @@ import type {
   CollabDenial,
   CollabConnection,
   CollabConnectionEvent,
+  CollabDocumentKind,
   CollabServerOp,
   CollabSessionDescriptor,
   FetchOpsOutcome,
   Json,
   PostOpOutcome,
   PutSnapshotOutcome,
-  WorkflowDocument,
 } from '@dinkster/core'
 import type { FetchLike } from './connection-contract.js'
 import { credentialFetch, type CollabCredentials } from './credentials.js'
@@ -175,7 +175,7 @@ export async function createCollabSession(
     readonly scope: string
     readonly documentId: string
     readonly snapshot: unknown
-    readonly documentKind?: 'workflow' | 'image'
+    readonly documentKind?: CollabDocumentKind
   },
   fetchFn: FetchLike = defaultFetch,
   options: CollabSessionRequestOptions = {},
@@ -558,15 +558,27 @@ export class CollabHttpConnection implements CollabConnection {
     return { kind: 'error', message: `HTTP ${res.status}${detail}` }
   }
 
-  async fetchSnapshot(): Promise<{ readonly revision: number; readonly document: unknown }> {
+  async fetchSnapshot(): Promise<{
+    readonly revision: number
+    readonly document: unknown
+    readonly documentKind?: CollabDocumentKind
+  }> {
     const res = await this.fetchFn(this.op('/snapshot'))
     await this.checkAuthorization(res, 'fetch-snapshot')
     const body = (await jsonOrThrow(res, 'fetch snapshot')) as {
       revision?: unknown
       document?: unknown
+      documentKind?: unknown
     }
     if (typeof body.revision !== 'number') throw new Error('fetch snapshot: invalid revision')
-    return { revision: body.revision, document: body.document }
+    if (body.documentKind !== undefined && typeof body.documentKind !== 'string') {
+      throw new Error('fetch snapshot: invalid document kind')
+    }
+    return {
+      revision: body.revision,
+      document: body.document,
+      ...(body.documentKind === undefined ? {} : { documentKind: body.documentKind }),
+    }
   }
 
   async fetchOps(after: number): Promise<FetchOpsOutcome> {
@@ -583,7 +595,7 @@ export class CollabHttpConnection implements CollabConnection {
     return { kind: 'ops', ops: body.ops }
   }
 
-  async putSnapshot(revision: number, document: WorkflowDocument): Promise<PutSnapshotOutcome> {
+  async putSnapshot(revision: number, document: unknown): Promise<PutSnapshotOutcome> {
     const res = await this.fetchFn(this.op('/snapshot'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

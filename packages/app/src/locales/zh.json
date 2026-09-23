@@ -355,6 +355,7 @@
   "collection.state.noMatches": "无匹配项。",
   "common.apply": "应用",
   "common.cancel": "取消",
+  "common.close": "关闭",
   "compositor.action.apply": "应用",
   "compositor.action.cancel": "取消",
   "compositor.background.color": "颜色",
@@ -1567,5 +1568,12 @@
   "videoDocument.type": "视频文档",
   "videoDocument.value.audio": "音频",
   "videoDocument.value.default": "使用默认命令",
-  "videoDocument.value.video": "视频"
+  "videoDocument.value.video": "视频",
+  "videoWorkspace.description": "以规范 OTIO JSON 编辑持久视频文档。应用会验证完整文档并记录一个可撤销命令。",
+  "videoWorkspace.empty": "没有打开的视频文档。",
+  "videoWorkspace.name": "视频文档名称",
+  "videoWorkspace.new": "新建视频文档",
+  "videoWorkspace.shared": "共享视频文档",
+  "videoWorkspace.sharedEmpty": "没有可用的共享视频文档。",
+  "videoWorkspace.untitled": "未命名视频"
 }

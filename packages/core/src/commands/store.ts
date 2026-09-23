@@ -442,77 +442,13 @@ export class DocumentStore implements DocumentStoreContract {
   }
 
   dispatch(invocation: CommandInvocation): CommandOutcome {
-    const def = this.commands.get(invocation.command)
-    if (!def) {
-      return {
-        ok: false,
-        diagnostics: [
-          diag('error', 'command', 'command.unknown', `unknown command '${invocation.command}'`),
-        ],
-      }
-    }
-
-    // Actor ingress (shared sessions): the actor is embedded verbatim in
-    // minted ids, so it must be a valid id fragment BEFORE any command runs.
-    // Rejecting here keeps the guarantee document-wide instead of
-    // per-allocation-site.
-    if (invocation.actor !== undefined && !isValidActorId(invocation.actor)) {
-      return {
-        ok: false,
-        diagnostics: [
-          diag('error', 'command', 'command.actor.invalid', `${invocation.command}: actor id ${JSON.stringify(invocation.actor)} is not a valid id fragment (safe set: [A-Za-z0-9_-]+)`),
-        ],
-      }
-    }
-
-    // Params ownership (CO1/CO2): the invocation is retained in the undo
-    // stack and emitted to observers, so it must be JSON and must not alias
-    // caller-mutable data. One normalize+freeze here covers both.
-    // 'reject' undefined props: a map entry like {values: {x: undefined}}
-    // must be an atomic rejection, not a silently smaller commit.
-    const ownedParams = ownJson(invocation.params, { undefinedProps: 'reject' })
-    if (!ownedParams.ok) {
-      return {
-        ok: false,
-        diagnostics: [
-          diag('error', 'command', 'command.params.notJson', `${invocation.command}: params are not JSON: ${ownedParams.reason}`),
-        ],
-      }
-    }
-    const ownedInvocation: CommandInvocation = Object.freeze({
-      command: invocation.command,
-      params: ownedParams.value,
-      ...(invocation.actor !== undefined ? { actor: invocation.actor } : {}),
-    })
-
-    const tx = createTransactionBuilder(this.doc, ownedInvocation.actor)
-    let commandDiags: readonly Diagnostic[]
-    try {
-      commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, this.executionContext())
-    } catch (e) {
-      return {
-        ok: false,
-        diagnostics: [
-          diag('error', 'command', 'command.threw', `${invocation.command}: ${e instanceof Error ? e.message : String(e)}`),
-        ],
-      }
-    }
-    if (hasErrors(commandDiags)) return { ok: false, diagnostics: commandDiags }
-
-    const { doc, forward, inverse } = tx.result()
-    if (forward.length === 0) {
-      // No-op commands succeed without a transaction (nothing to undo).
-      return { ok: true, doc: this.doc, forward, inverse, diagnostics: commandDiags }
-    }
-
-    const invariantDiags = checkDocument(doc)
-    if (hasErrors(invariantDiags)) {
-      return { ok: false, diagnostics: [...commandDiags, ...invariantDiags] }
-    }
-
+    const outcome = planWorkflowCommand(this.doc, invocation, this.commands, this.executionContext)
+    if (!outcome.ok) return outcome
+    const { doc, forward, inverse, invocation: ownedInvocation } = outcome
+    if (forward.length === 0) return { ok: true, doc, forward, inverse, diagnostics: outcome.diagnostics }
+    const diagnostics = [...outcome.diagnostics, ...checkDocument(doc)]
+    if (hasErrors(diagnostics)) return { ok: false, diagnostics }
     this.revisionCounter += 1
-    // FR2: capture the revision NOW - a reentrant dispatch from inside the
-    // commit's notifications moves revisionCounter before this frame ends.
     const revision = this.revisionCounter
     const record: TransactionRecord = Object.freeze({
       revision,
@@ -525,7 +461,7 @@ export class DocumentStore implements DocumentStoreContract {
     if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
     this.redoStack.length = 0
     this.commit(doc, Object.freeze({ kind: 'dispatch' as const, record, revision, patch: forward }))
-    return { ok: true, doc, forward, inverse, diagnostics: [...commandDiags, ...invariantDiags] }
+    return { ok: true, doc, forward, inverse, diagnostics }
   }
 
   /**
@@ -560,25 +496,13 @@ export class DocumentStore implements DocumentStoreContract {
     return true
   }
 
-  /**
-   * Adopt the CURRENT document as the history baseline: drop every undo and
-   * redo record without touching the document or revision. For open-time
-   * normalization passes (e.g. silently upgrading stock seed documents to a
-   * backend's canonical types) whose result should look born-this-way - a
-   * fresh tab must not carry an undo step back to a state the user never
-   * authored. No transaction event fires: the document did not change.
-   */
+  /** Adopt the current document as the history baseline without emitting a transaction. */
   clearHistory(): void {
     this.undoStack.length = 0
     this.redoStack.length = 0
   }
 
-  /**
-   * The undo/redo stacks' patches, oldest first, detached from store
-   * internals. History stays session-local by contract (inverses never ride
-   * the wire); this exists so a same-document session replacement can carry
-   * the user's undo history across the swap.
-   */
+  /** Detached session-local patches, oldest first. */
   historySnapshot(): HistorySnapshot {
     const detach = (records: readonly TransactionRecord[]): HistorySnapshotRecord[] =>
       records.map((record) => ({ forward: record.forward, inverse: record.inverse }))
@@ -586,10 +510,74 @@ export class DocumentStore implements DocumentStoreContract {
   }
 }
 
+/** Pure command planning; the committing store/session owns the invariant gate. */
+export function planWorkflowCommand(
+  document: WorkflowDocument,
+  invocation: CommandInvocation,
+  commands: ReadonlyMap<string, CommandDefinition>,
+  context: CommandExecutionContext | (() => CommandExecutionContext) = { kind: 'initial' },
+): (Extract<CommandOutcome, { ok: true }> & { readonly invocation: CommandInvocation }) | Extract<CommandOutcome, { ok: false }> {
+  const def = commands.get(invocation.command)
+  if (!def) {
+    return {
+      ok: false,
+      diagnostics: [
+        diag('error', 'command', 'command.unknown', `unknown command '${invocation.command}'`),
+      ],
+    }
+  }
+
+  // The actor is embedded verbatim in minted ids; reject invalid fragments
+  // before any command runs rather than at individual allocation sites.
+  if (invocation.actor !== undefined && !isValidActorId(invocation.actor)) {
+    return {
+      ok: false,
+      diagnostics: [
+        diag('error', 'command', 'command.actor.invalid', `${invocation.command}: actor id ${JSON.stringify(invocation.actor)} is not a valid id fragment (safe set: [A-Za-z0-9_-]+)`),
+      ],
+    }
+  }
+
+  // Retained invocations must not alias caller data. Undefined map values
+  // are errors, not silently smaller commits.
+  const ownedParams = ownJson(invocation.params, { undefinedProps: 'reject' })
+  if (!ownedParams.ok) {
+    return {
+      ok: false,
+      diagnostics: [
+        diag('error', 'command', 'command.params.notJson', `${invocation.command}: params are not JSON: ${ownedParams.reason}`),
+      ],
+    }
+  }
+  const ownedInvocation: CommandInvocation = Object.freeze({
+    command: invocation.command,
+    params: ownedParams.value,
+    ...(invocation.actor !== undefined ? { actor: invocation.actor } : {}),
+  })
+
+  const tx = createTransactionBuilder(document, ownedInvocation.actor)
+  let commandDiags: readonly Diagnostic[]
+  try {
+    commandDiags = executeCommand(def, document, ownedInvocation.params, tx, typeof context === 'function' ? context() : context)
+  } catch (e) {
+    return {
+      ok: false,
+      diagnostics: [
+        diag('error', 'command', 'command.threw', `${invocation.command}: ${e instanceof Error ? e.message : String(e)}`),
+      ],
+    }
+  }
+  if (hasErrors(commandDiags)) return { ok: false, diagnostics: commandDiags }
+  const { doc, forward, inverse } = tx.result()
+  return { ok: true, doc, forward, inverse, diagnostics: commandDiags, invocation: ownedInvocation }
+}
+
 /** One history record's patches, valid only against the document they were recorded on. */
 export interface HistorySnapshotRecord {
   readonly forward: readonly PatchOp[]
   readonly inverse: readonly PatchOp[]
+  /** Document-type resources needed to replay this record. */
+  readonly resources?: readonly string[]
 }
 
 /** Undo/redo history detached from a store or session, oldest record first. */

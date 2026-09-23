@@ -20,6 +20,7 @@ export const FRONTEND_CONTRIBUTION_KINDS = [
   'editorBinding',
   'panel',
   'virtualNode',
+  'documentType',
 ] as const
 
 export const CONTRIBUTION_CATEGORIES = [
@@ -40,4 +41,5 @@ export const CONTRIBUTION_CATEGORIES = [
   'editorBinding',
   'panel',
   'virtualNode',
+  'documentType',
 ] as const
