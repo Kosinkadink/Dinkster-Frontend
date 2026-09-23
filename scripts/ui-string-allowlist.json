@@ -578,6 +578,7 @@
     "text:('idle') const [detailReady, setDetailReady] = createSignal",
     "text:() const [detailState, setDetailState] = createSignal",
     "text:() const [details, setDetails] = createSignal",
+    "text:() const autoOpenedKeys = new Set",
     "text:(new Set()) const [baseError, setBaseError] = createSignal('') const [detailError, setDetailError] = createSignal('') const [connectionState, setConnectionState] = createSignal(props.connection.status.get()) const [receivedAt, setReceivedAt] = createSignal(0) const [expanded, setExpanded] = createSignal",
     "text:(new Set()) const [clock, setClock] = createSignal(props.now?.() ?? Date.now()) const [history, setHistory] = createSignal",
     "text:= 1024 && unit",

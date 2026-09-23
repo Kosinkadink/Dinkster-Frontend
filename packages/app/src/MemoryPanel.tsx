@@ -7,8 +7,10 @@ import {
   appendMemorySample,
   deviceBarSegments,
   diffHeatmapFlags,
+  liveMemorySamples,
   memoryDetailKey,
   overBudgetBytes,
+  PAGE_PULSE_TICKS,
   pageFlagRanges,
   pageIsResident,
   residencySegments,
@@ -94,6 +96,7 @@ export class MemoryStatusController {
         this.lastPushAt = this.now()
         this.pushVersion++
         this.baseRequestGeneration++
+        this.detailGeneration++
         this.accept(status, false)
       }),
       connection.status.subscribe((state) => { if (state !== 'connected') this.request(false) }),
@@ -129,6 +132,12 @@ export class MemoryStatusController {
       this.stopTimer(this.detailTimer)
       this.detailTimer = undefined
     }
+  }
+
+  refreshDetails(): void {
+    if (this.expanded.size === 0) return
+    this.detailGeneration++
+    this.request(true)
   }
 
   retainExpanded(valid: ReadonlySet<string>): void {
@@ -167,7 +176,7 @@ function cssColor(host: HTMLElement, name: string): string {
   return getComputedStyle(host).getPropertyValue(name).trim()
 }
 
-function MemoryGraph(props: { readonly samples: readonly MemorySample[]; readonly retained: boolean }) {
+function MemoryGraph(props: { readonly samples: readonly MemorySample[] }) {
   let host: HTMLDivElement | undefined
   let canvas: HTMLCanvasElement | undefined
   const [hover, setHover] = createSignal<MemorySample>()
@@ -182,7 +191,7 @@ function MemoryGraph(props: { readonly samples: readonly MemorySample[]; readonl
     context.setTransform(ratio, 0, 0, ratio, 0, 0)
     context.clearRect(0, 0, width, height)
     context.fillStyle = cssColor(host, '--dinkster-surface-inset'); context.fillRect(0, 0, width, height)
-    const samples = props.samples
+    const samples = liveMemorySamples(props.samples)
     if (samples.length === 0) return
     const capacity = Math.max(1, ...samples.map((sample) => sample.capacityBytes))
     const x = (index: number): number => samples.length === 1 ? width : index * width / (samples.length - 1)
@@ -209,23 +218,23 @@ function MemoryGraph(props: { readonly samples: readonly MemorySample[]; readonl
     onCleanup(() => observer.disconnect())
   })
   const move = (event: MouseEvent): void => {
-    const samples = props.samples
+    const samples = liveMemorySamples(props.samples)
     if (samples.length === 0 || canvas === undefined) return
     const fraction = Math.min(1, Math.max(0, (event.clientX - canvas.getBoundingClientRect().left) / Math.max(1, canvas.getBoundingClientRect().width)))
     setHover(samples[Math.round(fraction * (samples.length - 1))]); draw()
   }
-  const graphLabel = () => props.samples.length === 0 ? 'Memory usage history: no samples' : `Memory usage history: ${props.samples.length} samples, latest ${formatBytes(props.samples.at(-1)!.footprintBytes)} footprint and ${formatBytes(props.samples.at(-1)!.reservedBytes)} reserved`
+  const visibleSamples = () => liveMemorySamples(props.samples)
+  const graphLabel = () => visibleSamples().length === 0 ? 'Memory usage history: no samples' : `Memory usage history: ${visibleSamples().length} samples, latest ${formatBytes(visibleSamples().at(-1)!.footprintBytes)} footprint and ${formatBytes(visibleSamples().at(-1)!.reservedBytes)} reserved`
   return <div class="memory-graph" ref={host}>
     <div class="memory-graph-frame">
-      <canvas ref={canvas} role="img" aria-label={graphLabel()} data-samples={props.samples.length} onMouseMove={move} onMouseLeave={() => { setHover(undefined); draw() }} />
-      <span class="memory-graph-state" data-state={props.retained ? 'stale' : 'live'}>{props.retained ? 'RETAINED' : 'LIVE'}</span>
+      <canvas ref={canvas} role="img" aria-label={graphLabel()} data-samples={visibleSamples().length} onMouseMove={move} onMouseLeave={() => { setHover(undefined); draw() }} />
     </div>
     <p>{hover() === undefined ? 'Footprint, reservations, and capacity' : `${formatDate(hover()!.timestamp, { timeStyle: 'medium' })} - ${formatBytes(hover()!.footprintBytes)} footprint, ${formatBytes(hover()!.reservedBytes)} reserved`}</p>
     <details class="memory-data-disclosure">
-      <summary>History data ({props.samples.length} {props.samples.length === 1 ? 'sample' : 'samples'})</summary>
+      <summary>History data ({visibleSamples().length} {visibleSamples().length === 1 ? 'sample' : 'samples'})</summary>
       <div class="memory-table-scroll" tabindex="0" aria-label="Memory history table">
         <table><thead><tr><th>Time</th><th>Footprint</th><th>Reserved</th><th>Capacity</th></tr></thead><tbody>
-          <For each={props.samples}>{(sample) => <tr><td>{formatDate(sample.timestamp, { timeStyle: 'medium' })}</td><td>{formatBytes(sample.footprintBytes)}</td><td>{formatBytes(sample.reservedBytes)}</td><td>{formatBytes(sample.capacityBytes)}</td></tr>}</For>
+          <For each={visibleSamples()}>{(sample) => <tr><td>{formatDate(sample.timestamp, { timeStyle: 'medium' })}</td><td>{formatBytes(sample.footprintBytes)}</td><td>{formatBytes(sample.reservedBytes)}</td><td>{formatBytes(sample.capacityBytes)}</td></tr>}</For>
         </tbody></table>
       </div>
     </details>
@@ -245,7 +254,7 @@ function PageHeatmap(props: { readonly pageBytes: number; readonly pageCount: nu
     canvas.width = width * ratio; canvas.height = height * ratio; canvas.style.height = `${height}px`
     context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height)
     props.cells.forEach((cell, index) => {
-      const progress = cell.age / 6
+      const progress = cell.age / PAGE_PULSE_TICKS
       const base = cell.resident ? cssColor(host, '--dinkster-warning-border') : cssColor(host, '--dinkster-border-subtle')
       const pulse = cell.pulse === 'in' ? cssColor(host, '--dinkster-border-focus') : cell.pulse === 'out' ? cssColor(host, '--dinkster-danger-border') : base
       context.globalAlpha = cell.pulse === 'none' ? 1 : Math.max(.35, progress)
@@ -300,6 +309,7 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
   const backendId = () => props.backendId ?? props.label
   let clockTimer: ReturnType<typeof setInterval> | undefined
   const initializedCollapseKeys = new Set<string>()
+  const autoOpenedKeys = new Set<string>()
   const accept = (next: MemoryStatus, isDetails: boolean): void => {
     if (isDetails) {
       setDetails(next.consumerDetails); setDetailState('loaded'); setDetailError('')
@@ -309,7 +319,7 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
     }
     const timestamp = props.now?.() ?? Date.now()
     setStatus(next); setReceivedAt(timestamp); setBaseError('')
-    setHistory((previous) => Object.fromEntries(Object.entries(next.memoryGovernor ?? {}).filter(([, governor]) => governor.budgetBytes !== null || governor.measured !== null).map(([device, governor]) => [device, appendMemorySample(previous[device] ?? [], {
+    if (props.connection.status.get() === 'connected') setHistory((previous) => Object.fromEntries(Object.entries(next.memoryGovernor ?? {}).filter(([, governor]) => governor.budgetBytes !== null || governor.measured !== null).map(([device, governor]) => [device, appendMemorySample(previous[device] ?? [], {
       timestamp,
       footprintBytes: governor.consumerFootprintBytes,
       reservedBytes: governor.reservedBytes,
@@ -324,12 +334,20 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
     for (const { device, consumer, key } of consumers) {
       if (initializedCollapseKeys.has(key)) continue
       initializedCollapseKeys.add(key)
-      try { if (localStorage.getItem(collapsedStorageKey(backendId(), device, consumer)) === 'false') { retained.add(key); restoredKeys.push(key) } } catch { /* Storage is optional. */ }
+      try {
+        const collapsed = localStorage.getItem(collapsedStorageKey(backendId(), device, consumer))
+        if (collapsed === 'false' || (collapsed === null && !autoOpenedKeys.has(key))) {
+          retained.add(key); restoredKeys.push(key); autoOpenedKeys.add(key)
+        }
+      } catch {
+        if (!autoOpenedKeys.has(key)) { retained.add(key); restoredKeys.push(key); autoOpenedKeys.add(key) }
+      }
     }
     if (restoredKeys.length > 0 && details() === undefined) setDetailState('loading')
     if (retained.size !== expanded().size || [...retained].some((key) => !expanded().has(key))) setExpanded(retained)
     controller?.retainExpanded(valid)
     for (const key of restoredKeys) controller?.setExpanded(key, true)
+    if (restoredKeys.length === 0 && retained.size > 0) controller?.refreshDetails()
   }
   onMount(() => {
     statusDisposer = props.connection.status.subscribe(setConnectionState)
@@ -367,27 +385,14 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
     <Show when={presentationState() === 'disconnected'}><ProductNotice tone="error">Backend disconnected. All visible telemetry is retained from the last update.</ProductNotice></Show>
     <Show when={baseError()}>{(message) => <ProductNotice tone="error"><span>Memory telemetry request failed: {message()}.</span><Show when={status() !== undefined}> Retained values remain visible.</Show></ProductNotice>}</Show>
     <Show when={status()} fallback={<div class="memory-loading-state" role="status"><strong>Waiting for memory telemetry</strong><span>Queue, device, lease, and consumer facts will appear when the backend responds.</span></div>}>{(data) => <>
-      <dl class="memory-queue-facts" data-testid="memory-queue">
-        <div><dt>Queued</dt><dd>{data().queue.queued}</dd></div>
-        <div><dt>Running</dt><dd>{data().queue.running.length} / {data().queue.maxRunningJobs}</dd></div>
-        <div><dt>Queue state</dt><dd>{data().queue.paused ? 'Paused' : 'Accepting work'}</dd></div>
-      </dl>
       <Show when={data().memoryGovernor === null}><ProductNotice tone="warning">Memory governor telemetry is unsupported on this backend. Execution occupancy remains available.</ProductNotice></Show>
       <div class="memory-devices">
         <For each={projectDevices(data())} fallback={<div class="memory-empty-state"><strong>No devices reported</strong><span>The backend returned no execution or memory device facts.</span></div>}>{(row) => <article class="memory-device" data-device={row.device}>
           <header><div><span class="memory-eyebrow">Device</span><h3>{row.device}</h3></div><span class="memory-execution-fact">{row.execution}</span></header>
           <Show when={row.governor}>{(governor) => <>
-            <dl class="memory-device-facts">
-              <div><dt>Budget</dt><dd>{formatBytes(governor().budgetBytes)}</dd></div>
-              <div><dt>Footprint</dt><dd>{formatBytes(governor().consumerFootprintBytes)}</dd></div>
-              <div><dt>Reserved</dt><dd>{formatBytes(governor().reservedBytes)}</dd></div>
-              <div><dt>Available</dt><dd>{formatBytes(governor().availableBytes)}</dd></div>
-              <div><dt>Raw capacity</dt><dd>{formatBytes(governor().measured?.totalBytes)}</dd></div>
-              <div><dt>Aimdo-corrected free</dt><dd>{formatBytes(governor().measured?.freeBytes)}</dd></div>
-            </dl>
             <Show when={governor().budgetBytes === null}><ProductNotice tone={governor().measured === null ? 'warning' : 'info'}>{governor().measured === null ? 'Budget and device measurement are unavailable.' : 'No governor budget is reported. The visualization uses measured device memory only.'}</ProductNotice></Show>
             <Show when={overBudgetBytes(governor()) > 0}><ProductNotice tone="error"><strong>Over budget by {formatBytes(overBudgetBytes(governor()))}</strong></ProductNotice></Show>
-            <Show when={governor().budgetBytes !== null || governor().measured !== null}><SegmentBar segments={deviceBarSegments(governor())} class="memory-device-stack" /><MemoryGraph samples={history()[row.device] ?? []} retained={retained()} /></Show>
+            <Show when={governor().budgetBytes !== null || governor().measured !== null}><SegmentBar segments={deviceBarSegments(governor())} class="memory-device-stack" /></Show>
             <section class="memory-consumers" aria-label={`${row.device} memory consumers`}>
               <header><div><span class="memory-eyebrow">Residency</span><h4>Consumers</h4></div><span>{Object.keys(governor().consumers).length} reported</span></header>
               <For each={Object.entries(governor().consumers)} fallback={<div class="memory-empty-state"><strong>No consumers</strong><span>This device currently reports no resident memory consumers.</span></div>}>{([consumer, bytes]) => {
@@ -411,10 +416,29 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
                 </section>
               }}</For>
             </section>
+            <dl class="memory-device-facts">
+              <div><dt>Budget</dt><dd>{formatBytes(governor().budgetBytes)}</dd></div>
+              <div><dt>Footprint</dt><dd>{formatBytes(governor().consumerFootprintBytes)}</dd></div>
+              <div><dt>Reserved</dt><dd>{formatBytes(governor().reservedBytes)}</dd></div>
+              <div><dt>Available</dt><dd>{formatBytes(governor().availableBytes)}</dd></div>
+              <div><dt>Raw capacity</dt><dd>{formatBytes(governor().measured?.totalBytes)}</dd></div>
+              <div><dt>Aimdo-corrected free</dt><dd>{formatBytes(governor().measured?.freeBytes)}</dd></div>
+            </dl>
+            <Show when={governor().budgetBytes !== null || governor().measured !== null}><MemoryGraph samples={history()[row.device] ?? []} /></Show>
           </>}</Show>
           <Show when={!row.governor}><ProductNotice tone="info">Governor metrics are unavailable for this device. Execution occupancy is still authoritative.</ProductNotice></Show>
         </article>}</For>
       </div>
+      <dl class="memory-queue-facts" data-testid="memory-queue">
+        <div><dt>Queued</dt><dd>{data().queue.queued}</dd></div>
+        <div><dt>Running</dt><dd>{data().queue.running.length} / {data().queue.maxRunningJobs}</dd></div>
+        <div><dt>Queue state</dt><dd>{data().queue.paused ? 'Paused' : 'Accepting work'}</dd></div>
+      </dl>
+      <section class="memory-controls" aria-label={`${props.label} memory and Aimdo settings`}>
+        <header><div><span class="memory-eyebrow">Server settings</span><h3>Memory and Aimdo controls</h3></div></header>
+        <p>Budget and headroom changes apply live. Aimdo policy applies to workers started after the change.</p>
+        <RuntimeSettingsPanel connection={props.connection} backendLabel={props.label} categories={['memory-budgets', 'memory-headroom', 'aimdo-policy']} alwaysOpen memoryControls showGrantWarnings />
+      </section>
       <section class="memory-leases" aria-label="Active memory leases">
         <header><div><span class="memory-eyebrow">Reservations</span><h3>Active leases</h3></div><Show when={data().leases !== null}><span>{data().leases!.length} active</span></Show></header>
         <Show when={data().leases !== null} fallback={<ProductNotice tone="info">Lease telemetry is unsupported on this backend.</ProductNotice>}>
@@ -424,10 +448,5 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
         </Show>
       </section>
     </>}</Show>
-    <section class="memory-controls" aria-label={`${props.label} memory and Aimdo settings`}>
-      <header><div><span class="memory-eyebrow">Server settings</span><h3>Memory and Aimdo controls</h3></div></header>
-      <p>Budget and headroom changes apply live. Aimdo policy applies to workers started after the change.</p>
-      <RuntimeSettingsPanel connection={props.connection} backendLabel={props.label} categories={['memory-budgets', 'memory-headroom', 'aimdo-policy']} alwaysOpen memoryControls showGrantWarnings />
-    </section>
   </section>
 }
