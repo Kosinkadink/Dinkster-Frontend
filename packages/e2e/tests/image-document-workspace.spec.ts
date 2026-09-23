@@ -24,26 +24,26 @@ async function rasterFile(
 ) {
   const bytes = await page.evaluate(
     async ({ width, height, paint }) => {
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const target = canvas.getContext('2d')!
-      if (paint === 'base') {
-        const gradient = target.createLinearGradient(0, 0, width, height)
-        gradient.addColorStop(0, '#173f6c')
-        gradient.addColorStop(0.48, '#377aa2')
-        gradient.addColorStop(1, '#d7a86e')
-        target.fillStyle = gradient
-        target.fillRect(0, 0, width, height)
-        target.fillStyle = '#ffffffcc'
-        target.font = '600 54px sans-serif'
-        target.fillText('Durable ImageDocument', 48, 110)
-        target.font = '28px sans-serif'
-        target.fillText('Layered, recoverable, publishable', 50, 158)
-      } else if (paint === 'overlay') {
-        target.clearRect(0, 0, width, height)
-        target.fillStyle = '#ea5f8acc'
-        target.beginPath()
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const target = canvas.getContext('2d')!
+    if (paint === 'base') {
+      const gradient = target.createLinearGradient(0, 0, width, height)
+      gradient.addColorStop(0, '#173f6c')
+      gradient.addColorStop(0.48, '#377aa2')
+      gradient.addColorStop(1, '#d7a86e')
+      target.fillStyle = gradient
+      target.fillRect(0, 0, width, height)
+      target.fillStyle = '#ffffffcc'
+      target.font = '600 54px sans-serif'
+      target.fillText('Durable ImageDocument', 48, 110)
+      target.font = '28px sans-serif'
+      target.fillText('Layered, recoverable, publishable', 50, 158)
+    } else if (paint === 'overlay') {
+      target.clearRect(0, 0, width, height)
+      target.fillStyle = '#ea5f8acc'
+      target.beginPath()
         target.arc(
           width / 2,
           height / 2,
@@ -51,18 +51,18 @@ async function rasterFile(
           0,
           Math.PI * 2,
         )
-        target.fill()
-        target.fillStyle = '#ffdf77dd'
-        target.fillRect(width * 0.18, height * 0.4, width * 0.64, height * 0.2)
-      } else {
-        const gradient = target.createLinearGradient(0, 0, width, 0)
-        gradient.addColorStop(0, '#000')
-        gradient.addColorStop(1, '#fff')
-        target.fillStyle = gradient
-        target.fillRect(0, 0, width, height)
-      }
-      const response = await fetch(canvas.toDataURL('image/png'))
-      return [...new Uint8Array(await response.arrayBuffer())]
+      target.fill()
+      target.fillStyle = '#ffdf77dd'
+      target.fillRect(width * 0.18, height * 0.4, width * 0.64, height * 0.2)
+    } else {
+      const gradient = target.createLinearGradient(0, 0, width, 0)
+      gradient.addColorStop(0, '#000')
+      gradient.addColorStop(1, '#fff')
+      target.fillStyle = gradient
+      target.fillRect(0, 0, width, height)
+    }
+    const response = await fetch(canvas.toDataURL('image/png'))
+    return [...new Uint8Array(await response.arrayBuffer())]
     },
     { width, height, paint },
   )
@@ -93,8 +93,8 @@ test('edits and recovers a durable layered image document', async ({
   await workspace
     .locator('.image-document-layers input[type=file]')
     .setInputFiles(
-      await rasterFile(page, 'color accent.png', 420, 320, 'overlay'),
-    )
+    await rasterFile(page, 'color accent.png', 420, 320, 'overlay'),
+  )
   await expect(workspace.locator('.image-document-layer-row')).toHaveCount(2)
   await workspace
     .getByRole('spinbutton', { name: 'Layer transform X' })
@@ -297,29 +297,29 @@ test('renders the current ImageDocument and changes mounted editor chrome locale
         resources: Record<
           string,
           {
-            id: string
-            digest: string
-            byteSize: number
-            mediaType: string
-            width: number
-            height: number
-            colorSpace: string
-            channelDepth: number
-            alphaMode: string
-          }
+          id: string
+          digest: string
+          byteSize: number
+          mediaType: string
+          width: number
+          height: number
+          colorSpace: string
+          channelDepth: number
+          alphaMode: string
+      }
         >
       }
       const dependencies = Object.values(document.resources).map(
         (resource) => ({
-          resourceId: resource.id,
-          digest: resource.digest,
-          byteSize: resource.byteSize,
-          mediaType: resource.mediaType,
-          width: resource.width,
-          height: resource.height,
-          colorSpace: resource.colorSpace,
-          channelDepth: resource.channelDepth,
-          alphaMode: resource.alphaMode,
+        resourceId: resource.id,
+        digest: resource.digest,
+        byteSize: resource.byteSize,
+        mediaType: resource.mediaType,
+        width: resource.width,
+        height: resource.height,
+        colorSpace: resource.colorSpace,
+        channelDepth: resource.channelDepth,
+        alphaMode: resource.alphaMode,
         }),
       )
       adoptedDependencies = dependencies
@@ -388,7 +388,7 @@ test('renders the current ImageDocument and changes mounted editor chrome locale
   await page.waitForFunction(() => {
     const app = window.__dinksterTest?.app as unknown as
       | {
-          libraryBackend(): { protocol?: string } | undefined
+      libraryBackend(): { protocol?: string } | undefined
         }
       | undefined
     return app?.libraryBackend()?.protocol === 'dinkster'
@@ -443,58 +443,58 @@ test('renders the current ImageDocument and changes mounted editor chrome locale
   expect(i18nModule).toBeDefined()
   await page.evaluate(
     async ({ i18nModule }) => {
-      const { registerCatalog, setLocale } = await import(i18nModule)
-      registerCatalog('de-DE', {
-        'imageDocument.editor.action.addRaster': '[+ Rasterbild]',
-        'imageDocument.editor.action.applyCrop': '[Zuschnitt anwenden]',
-        'imageDocument.editor.action.applyResize': '[Grosse anwenden]',
-        'imageDocument.editor.action.downloadPng': '[PNG herunterladen]',
-        'imageDocument.editor.action.exportSnapshot': '[In Graph exportieren]',
-        'imageDocument.editor.action.lower': '[Senken]',
-        'imageDocument.editor.action.publish': '[Veroffentlichen]',
-        'imageDocument.editor.action.raise': '[Anheben]',
-        'imageDocument.editor.action.redo': '[Wiederholen]',
-        'imageDocument.editor.action.remove': '[X]',
-        'imageDocument.editor.action.render': '[Referenz rendern]',
-        'imageDocument.editor.action.saveDraft': '[Entwurf speichern]',
-        'imageDocument.editor.action.undo': '[Ruckgangig]',
-        'imageDocument.editor.action.wrapGroup': '[In Gruppe]',
-        'imageDocument.editor.aria.layerOpacity': '[Ebenendeckkraft]',
-        'imageDocument.editor.aria.renderTarget': '[Referenz-Renderziel]',
+    const { registerCatalog, setLocale } = await import(i18nModule)
+    registerCatalog('de-DE', {
+      'imageDocument.editor.action.addRaster': '[+ Rasterbild]',
+      'imageDocument.editor.action.applyCrop': '[Zuschnitt anwenden]',
+      'imageDocument.editor.action.applyResize': '[Grosse anwenden]',
+      'imageDocument.editor.action.downloadPng': '[PNG herunterladen]',
+      'imageDocument.editor.action.exportSnapshot': '[In Graph exportieren]',
+      'imageDocument.editor.action.lower': '[Senken]',
+      'imageDocument.editor.action.publish': '[Veroffentlichen]',
+      'imageDocument.editor.action.raise': '[Anheben]',
+      'imageDocument.editor.action.redo': '[Wiederholen]',
+      'imageDocument.editor.action.remove': '[X]',
+      'imageDocument.editor.action.render': '[Referenz rendern]',
+      'imageDocument.editor.action.saveDraft': '[Entwurf speichern]',
+      'imageDocument.editor.action.undo': '[Ruckgangig]',
+      'imageDocument.editor.action.wrapGroup': '[In Gruppe]',
+      'imageDocument.editor.aria.layerOpacity': '[Ebenendeckkraft]',
+      'imageDocument.editor.aria.renderTarget': '[Referenz-Renderziel]',
         'imageDocument.editor.description.preview':
           '[Browser-Vorschau. Die Referenzausgabe unten ist verbindlich.]',
         'imageDocument.editor.description.quality':
           '[Qualitat gilt fur JPEG und WebP. PNG bleibt verlustfrei.]',
-        'imageDocument.editor.field.blendMode': '[Mischmodus]',
-        'imageDocument.editor.field.format': '[Format]',
-        'imageDocument.editor.field.height': '[Hohe]',
-        'imageDocument.editor.field.linearColor': '[Lineare Farbe]',
-        'imageDocument.editor.field.name': '[Name]',
-        'imageDocument.editor.field.opacity': '[Deckkraft]',
-        'imageDocument.editor.field.quality': '[Qualitat]',
-        'imageDocument.editor.field.visible': '[Sichtbar]',
-        'imageDocument.editor.field.width': '[Breite]',
-        'imageDocument.editor.field.x': '[X]',
-        'imageDocument.editor.field.y': '[Y]',
-        'imageDocument.editor.provenance.cacheKey': '[Cache]',
-        'imageDocument.editor.provenance.output': '[Ausgabe]',
-        'imageDocument.editor.provenance.outputDigest': '[Prufsumme]',
-        'imageDocument.editor.provenance.profile': '[Profil]',
-        'imageDocument.editor.provenance.renderer': '[Renderer]',
-        'imageDocument.editor.provenance.source': '[Quelle]',
-        'imageDocument.editor.provenance.target': '[Ziel]',
-        'imageDocument.editor.status.freshRender': '[Neu]',
-        'imageDocument.editor.status.on': '[AN]',
-        'imageDocument.editor.target.composite': '[Vollstandiges Komposit]',
-        'imageDocument.editor.title.authoritative': '[CPU-Referenz]',
-        'imageDocument.editor.title.canvas': '[Leinwand]',
-        'imageDocument.editor.title.crop': '[Zuschnitt]',
-        'imageDocument.editor.title.layer': '[Ebene]',
-        'imageDocument.editor.title.layers': '[Ebenen]',
-        'imageDocument.editor.title.output': '[Ausgabe]',
-        'imageDocument.editor.title.resize': '[Grosse]',
-      })
-      setLocale('de-DE')
+      'imageDocument.editor.field.blendMode': '[Mischmodus]',
+      'imageDocument.editor.field.format': '[Format]',
+      'imageDocument.editor.field.height': '[Hohe]',
+      'imageDocument.editor.field.linearColor': '[Lineare Farbe]',
+      'imageDocument.editor.field.name': '[Name]',
+      'imageDocument.editor.field.opacity': '[Deckkraft]',
+      'imageDocument.editor.field.quality': '[Qualitat]',
+      'imageDocument.editor.field.visible': '[Sichtbar]',
+      'imageDocument.editor.field.width': '[Breite]',
+      'imageDocument.editor.field.x': '[X]',
+      'imageDocument.editor.field.y': '[Y]',
+      'imageDocument.editor.provenance.cacheKey': '[Cache]',
+      'imageDocument.editor.provenance.output': '[Ausgabe]',
+      'imageDocument.editor.provenance.outputDigest': '[Prufsumme]',
+      'imageDocument.editor.provenance.profile': '[Profil]',
+      'imageDocument.editor.provenance.renderer': '[Renderer]',
+      'imageDocument.editor.provenance.source': '[Quelle]',
+      'imageDocument.editor.provenance.target': '[Ziel]',
+      'imageDocument.editor.status.freshRender': '[Neu]',
+      'imageDocument.editor.status.on': '[AN]',
+      'imageDocument.editor.target.composite': '[Vollstandiges Komposit]',
+      'imageDocument.editor.title.authoritative': '[CPU-Referenz]',
+      'imageDocument.editor.title.canvas': '[Leinwand]',
+      'imageDocument.editor.title.crop': '[Zuschnitt]',
+      'imageDocument.editor.title.layer': '[Ebene]',
+      'imageDocument.editor.title.layers': '[Ebenen]',
+      'imageDocument.editor.title.output': '[Ausgabe]',
+      'imageDocument.editor.title.resize': '[Grosse]',
+    })
+    setLocale('de-DE')
     },
     { i18nModule: new URL(i18nModule!, page.url()).href },
   )
@@ -593,7 +593,7 @@ test('shares an image document and confirms ending it for everyone', async ({
   await page.waitForFunction(() => {
     const app = window.__dinksterTest?.app as unknown as
       | {
-          collabBackend(): { protocol?: string } | undefined
+      collabBackend(): { protocol?: string } | undefined
         }
       | undefined
     return app?.collabBackend()?.protocol === 'dinkster'
@@ -602,8 +602,8 @@ test('shares an image document and confirms ending it for everyone', async ({
   await workspace
     .locator('.image-document-tabs input[type=file]')
     .setInputFiles(
-      await rasterFile(page, 'shared-canvas.png', 900, 560, 'base'),
-    )
+    await rasterFile(page, 'shared-canvas.png', 900, 560, 'base'),
+  )
   await workspace.getByRole('button', { name: 'Share', exact: true }).click()
   await expect(workspace.locator('.image-document-shared-status')).toHaveText(
     'Shared',
@@ -629,27 +629,27 @@ test('shares an image document and confirms ending it for everyone', async ({
   expect(i18nModule).toBeDefined()
   await page.evaluate(
     async ({ i18nModule }) => {
-      const { registerCatalog, setLocale } = await import(i18nModule)
-      registerCatalog('de-DE', {
-        'imageDocument.workspace.action.back': '[Zuruck zu Arbeitsablaufen]',
-        'imageDocument.workspace.action.cancel': '[Abbrechen]',
-        'imageDocument.workspace.action.end': '[Freigabe beenden]',
+    const { registerCatalog, setLocale } = await import(i18nModule)
+    registerCatalog('de-DE', {
+      'imageDocument.workspace.action.back': '[Zuruck zu Arbeitsablaufen]',
+      'imageDocument.workspace.action.cancel': '[Abbrechen]',
+      'imageDocument.workspace.action.end': '[Freigabe beenden]',
         'imageDocument.workspace.action.endSession':
           '[Geteilte Sitzung beenden]',
-        'imageDocument.workspace.action.leave': '[Sitzung verlassen]',
+      'imageDocument.workspace.action.leave': '[Sitzung verlassen]',
         'imageDocument.workspace.action.newFromImage':
           '[Neues Bilddokument erstellen]',
-        'imageDocument.workspace.action.openLibrary': '[Bildbibliothek offnen]',
+      'imageDocument.workspace.action.openLibrary': '[Bildbibliothek offnen]',
         'imageDocument.workspace.action.sharedImages':
           '[Geteilte Bilder anzeigen]',
         'imageDocument.workspace.dialog.end.description':
           '[Alle Teilnehmer werden getrennt. Das aktuelle Bild bleibt als lokaler Entwurf erhalten.]',
         'imageDocument.workspace.dialog.end.title':
           '[Geteilte Bildsitzung beenden?]',
-        'imageDocument.workspace.shared.live': '[Geteilt]',
-        'imageDocument.workspace.tablist': '[Offene Bilddokumente]',
-      })
-      setLocale('de-DE')
+      'imageDocument.workspace.shared.live': '[Geteilt]',
+      'imageDocument.workspace.tablist': '[Offene Bilddokumente]',
+    })
+    setLocale('de-DE')
     },
     { i18nModule: new URL(i18nModule!, page.url()).href },
   )

@@ -3,12 +3,13 @@ import {
   IMAGE_DOCUMENT_FORMAT_VERSION,
   IMAGE_FIXED_POINT_SCALE,
   IMAGE_OPACITY_MAX,
-  ImageDocumentStore,
+  LocalDocumentTypeSession,
   asConnectionId,
   asImageLayerId,
   asImageLineageId,
   asImageResourceId,
   canonicalJson,
+  imageDocumentTypeAdapter,
   imageOutputPolicyOf,
   sha256Hex,
   type ImageDocument,
@@ -84,7 +85,10 @@ describe('ImageDocument graph recipe parity', () => {
   ] satisfies readonly ImageDocumentCommandInvocation[]) {
     it(`matches workspace and graph execution for ${invocation.command}`, () => {
       const source = document()
-      const workspace = new ImageDocumentStore(source)
+      const workspace = new LocalDocumentTypeSession(
+        source,
+        imageDocumentTypeAdapter,
+      )
       expect(workspace.dispatch(invocation).ok).toBe(true)
       const commands = imageDocumentRecipeCommands(source, workspace.doc)
       expect(executeGraphRecipe(source, commands)).toEqual(workspace.doc)
@@ -94,7 +98,10 @@ describe('ImageDocument graph recipe parity', () => {
 
   it('maps output policy to graph encoding without changing layer commands', () => {
     const source = document()
-    const workspace = new ImageDocumentStore(source)
+    const workspace = new LocalDocumentTypeSession(
+      source,
+      imageDocumentTypeAdapter,
+    )
     expect(workspace.dispatch({ command: 'image.output.update', params: { format: 'webp', quality: 73 } }).ok).toBe(true)
     expect(imageDocumentRecipeCommands(source, workspace.doc)).toEqual([])
     expect(imageOutputPolicyOf(workspace.doc)).toEqual({ format: 'webp', quality: 73 })

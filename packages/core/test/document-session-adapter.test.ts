@@ -4,7 +4,6 @@ import {
   DocumentTypeRegistry,
   LocalDocumentTypeSession,
   SharedDocumentSession,
-  SharedImageDocumentSession,
   applyOps,
   asGraphDefId,
   asImageLayerId,
@@ -732,7 +731,13 @@ describe('transport denials across document adapters', () => {
               options,
             )
           : kind === 'image'
-            ? new SharedImageDocumentSession(connection, image, 0, options)
+            ? new SharedDocumentSession(
+                connection,
+                image,
+                0,
+                imageDocumentTypeAdapter,
+                options,
+              )
             : await connectDocumentSession(connection, noteAdapter, options)
       sessions.push(session)
       const diagnostic = {
@@ -901,10 +906,11 @@ describe('definitively refused stale-base attempts', () => {
         await session.settle()
         expect(session.doc.graphs.g0?.nodes.n0?.title).toBe('retained')
       } else if (kind === 'image') {
-        const session = new SharedImageDocumentSession(
+        const session = new SharedDocumentSession(
           connection,
           image,
           0,
+          imageDocumentTypeAdapter,
           options,
         )
         sessions.push(session)
@@ -939,10 +945,16 @@ describe('image adapter history and resource retention', () => {
     const digest = `blake3:${'a'.repeat(64)}` as const
     const connection = new Connection(image)
     const conflicts: unknown[] = []
-    const session = new SharedImageDocumentSession(connection, image, 0, {
-      actorId: 'local',
-      onConflict: (conflict) => conflicts.push(conflict),
-    })
+    const session = new SharedDocumentSession(
+      connection,
+      image,
+      0,
+      imageDocumentTypeAdapter,
+      {
+        actorId: 'local',
+        onConflict: (conflict) => conflicts.push(conflict),
+      },
+    )
     sessions.push(session)
     const result = session.dispatch({
       command: 'image.layer.addRaster',

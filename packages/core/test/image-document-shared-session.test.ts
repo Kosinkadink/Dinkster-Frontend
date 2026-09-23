@@ -4,11 +4,12 @@ import {
   IMAGE_DOCUMENT_FORMAT_VERSION,
   IMAGE_FIXED_POINT_SCALE,
   IMAGE_OPACITY_MAX,
-  SharedImageDocumentSession,
+  SharedDocumentSession,
   asImageLayerId,
   asImageLineageId,
   asImageResourceId,
-  connectSharedImageDocumentSession,
+  connectDocumentSession,
+  imageDocumentTypeAdapter,
   type CollabClientOp,
   type CollabConnection,
   type CollabConnectionEvent,
@@ -130,8 +131,16 @@ class FakeConnection implements CollabConnection {
     return Promise.resolve({ kind: 'ops', ops: this.server.log.filter((operation) => operation.revision > after) })
   }
 
-  fetchSnapshot(): Promise<{ readonly revision: number; readonly document: unknown }> {
-    return Promise.resolve({ revision: this.server.log.length, document: this.server.document })
+  fetchSnapshot(): Promise<{
+    readonly revision: number
+    readonly document: unknown
+    readonly documentKind: string
+  }> {
+    return Promise.resolve({
+      revision: this.server.log.length,
+      document: this.server.document,
+      documentKind: 'image',
+    })
   }
 
   putSnapshot(): Promise<PutSnapshotOutcome> { return Promise.resolve({ kind: 'ok' }) }
@@ -150,7 +159,18 @@ class FakeConnection implements CollabConnection {
   close(): void { this.server.connections.delete(this) }
 }
 
-async function settle(...sessions: SharedImageDocumentSession[]): Promise<void> {
+async function connect(
+  server: FakeServer,
+  actorId: string,
+): Promise<SharedDocumentSession<ImageDocument>> {
+  return connectDocumentSession(server.connect(), imageDocumentTypeAdapter, {
+    actorId,
+  })
+}
+
+async function settle(
+  ...sessions: SharedDocumentSession<ImageDocument>[]
+): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     await Promise.all(sessions.map((session) => session.settle()))
     if (sessions.every((session) => session.doc.rootLayerIds.length === sessions[0]!.doc.rootLayerIds.length)) return
@@ -159,11 +179,11 @@ async function settle(...sessions: SharedImageDocumentSession[]): Promise<void> 
   throw new Error('shared image sessions did not settle')
 }
 
-describe('SharedImageDocumentSession', () => {
+describe('shared ImageDocument adapter', () => {
   it('rebases concurrent edits in server order', async () => {
     const server = new FakeServer()
-    const first = await connectSharedImageDocumentSession(server.connect(), server.descriptor, { actorId: 'alice' })
-    const second = await connectSharedImageDocumentSession(server.connect(), server.descriptor, { actorId: 'bob' })
+    const first = await connect(server, 'alice')
+    const second = await connect(server, 'bob')
 
     expect(first.dispatch({
       command: 'image.layer.update',
@@ -183,8 +203,8 @@ describe('SharedImageDocumentSession', () => {
 
   it('allocates disjoint ids when collaborators add raster layers concurrently', async () => {
     const server = new FakeServer()
-    const first = await connectSharedImageDocumentSession(server.connect(), server.descriptor, { actorId: 'alice' })
-    const second = await connectSharedImageDocumentSession(server.connect(), server.descriptor, { actorId: 'bob' })
+    const first = await connect(server, 'alice')
+    const second = await connect(server, 'bob')
     const add = {
       command: 'image.layer.addRaster' as const,
       params: {
@@ -217,12 +237,17 @@ describe('SharedImageDocumentSession', () => {
     expect(second.doc).toEqual(server.document)
   })
 
-  it('refuses a workflow descriptor before fetching shared state', async () => {
+  it('refuses a snapshot for a different document kind', async () => {
     const server = new FakeServer()
-    await expect(connectSharedImageDocumentSession(server.connect(), {
-      ...server.descriptor,
+    const connection = server.connect()
+    connection.fetchSnapshot = async () => ({
+      revision: 0,
+      document: server.document,
       documentKind: 'workflow',
-    })).rejects.toThrow('not an ImageDocument')
+    })
+    await expect(
+      connectDocumentSession(connection, imageDocumentTypeAdapter),
+    ).rejects.toThrow("document kind 'workflow' does not match 'dinkster.image'")
   })
 
   it('backs off when a required checkpoint cannot be published', async () => {
@@ -230,8 +255,8 @@ describe('SharedImageDocumentSession', () => {
     const connection = server.connect()
     connection.postOp = async () => ({ kind: 'snapshot-required' })
     connection.putSnapshot = async () => { throw new Error('offline') }
-    let session: SharedImageDocumentSession
-    session = await connectSharedImageDocumentSession(connection, server.descriptor, {
+    let session: SharedDocumentSession<ImageDocument>
+    session = await connectDocumentSession(connection, imageDocumentTypeAdapter, {
       actorId: 'alice',
       retryDelay: async () => session.close(),
     })

@@ -345,23 +345,23 @@ export function DinksterAppMenu(props: {
   }
   const groups = (): readonly ResolvedMenuGroup[] =>
     APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }) => {
-      const items = ids.flatMap((id): MenuItem[] => {
-        const command = props.commands.get(id)
-        const hint = props.keybindings.combo(id)
+    const items = ids.flatMap((id): MenuItem[] => {
+      const command = props.commands.get(id)
+      const hint = props.keybindings.combo(id)
         return command
           ? [
               {
-                id,
-                label: command.label,
-                ...(hint ? { hint } : {}),
-                action: { kind: 'host', action: id },
-                ...(command.enabled?.() === false ? { disabled: true } : {}),
+        id,
+        label: command.label,
+        ...(hint ? { hint } : {}),
+        action: { kind: 'host', action: id },
+        ...(command.enabled?.() === false ? { disabled: true } : {}),
               },
             ]
           : []
-      })
-      return items.length > 0 ? [{ group, items }] : []
     })
+    return items.length > 0 ? [{ group, items }] : []
+  })
   const show = (): void => {
     const rect = button.getBoundingClientRect()
     setAnchor({ x: rect.left, y: rect.bottom + 2 })
@@ -372,7 +372,7 @@ export function DinksterAppMenu(props: {
         .map((signal) => signal.subscribe(() => close())) ?? []
     stopInvalidation = () => {
       for (const unsubscribe of unsubscribes) unsubscribe()
-    }
+  }
   }
   const toggle = (): void => (open() ? close() : show())
   const invoke = (item: MenuItem): void => {
@@ -529,7 +529,7 @@ export function App(props: {
             browserParams.get('dinksterPanelReturn') === 'rail' ||
             browserParams.get('dinksterPanelReturn') === 'bottom'
               ? (browserParams.get('dinksterPanelReturn') as 'rail' | 'bottom')
-              : 'dock',
+            : 'dock',
         }
       : { id: 'primary', kind: 'primary' }
   const [managedContext] = createSolidSignal(
@@ -537,8 +537,8 @@ export function App(props: {
   )
   const [managedLayout, setManagedLayout] =
     createSolidSignal<DesktopWindowLayout>(
-      props.desktopWindow?.layout ?? { windows: [browserWindowContext] },
-    )
+    props.desktopWindow?.layout ?? { windows: [browserWindowContext] },
+  )
   const [imageDocumentsBusy, setImageDocumentsBusy] = createSolidSignal(false)
   const [graphImageRequest, setGraphImageRequest] =
     createSolidSignal<GraphImageDocumentRequest>()
@@ -585,17 +585,17 @@ export function App(props: {
     if (link.projectId !== activeProjectId()) return // routed by the shell; a mismatch means a stale queue entry
     const owner =
       link.backendUrl !== undefined
-        ? resolveDeepLinkBackend(app.backends.get(), link.backendUrl)
-        : app.libraryBackend()?.id
+      ? resolveDeepLinkBackend(app.backends.get(), link.backendUrl)
+      : app.libraryBackend()?.id
     if (owner === undefined) {
       app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag(
           'error',
           'validation',
           'deepLink.backendNotConnected',
-          link.backendUrl !== undefined
-            ? `the workflow link names a server that is not connected: ${link.backendUrl}. Connect it from the Backends panel, then follow the link again.`
-            : 'the workflow link targets the default backend, but no backend is available',
+        link.backendUrl !== undefined
+          ? `the workflow link names a server that is not connected: ${link.backendUrl}. Connect it from the Backends panel, then follow the link again.`
+          : 'the workflow link targets the default backend, but no backend is available',
         ),
       ])
       return
@@ -607,7 +607,7 @@ export function App(props: {
           'error',
           'validation',
           'deepLink.openFailed',
-          `the linked workflow could not be opened: ${link.workflowId}`,
+        `the linked workflow could not be opened: ${link.workflowId}`,
         ),
       ])
     }
@@ -619,7 +619,7 @@ export function App(props: {
       void desktop
         .takeDeepLinks()
         .then(async (links) => {
-          for (const link of links) await openDeepLink(link)
+        for (const link of links) await openDeepLink(link)
         })
         .catch(() => {})
     }
@@ -648,7 +648,7 @@ export function App(props: {
   tooltips.register({
     id: 'core.dom',
     resolve: (target, opts) => {
-      const dom = target as Partial<DomTooltipTarget>
+    const dom = target as Partial<DomTooltipTarget>
       return dom.kind === 'dom' && dom.label
         ? {
             lines: [dom.label],
@@ -660,17 +660,17 @@ export function App(props: {
   tooltips.register({
     id: 'core.canvas',
     resolve: (target, opts) => {
-      const tab = app.activeTab()
-      const registry = tab ? app.registryForTab(tab) : app.registry.get()
-      const resolveSchema = registry
+    const tab = app.activeTab()
+    const registry = tab ? app.registryForTab(tab) : app.registry.get()
+    const resolveSchema = registry
         ? tab
           ? documentResolver(tab.store.doc, registry.resolve)
           : registry.resolve
-        : () => undefined
-      return resolveCanvasTooltip(target, opts, {
-        resolveSchema,
-        resolvePack: (id) => registry?.packs?.get(id),
-      })
+      : () => undefined
+    return resolveCanvasTooltip(target, opts, {
+      resolveSchema,
+      resolvePack: (id) => registry?.packs?.get(id),
+    })
     },
   })
   onMount(() => {
@@ -812,15 +812,15 @@ export function App(props: {
   const beginResize =
     (region: ShellRegion, sign: 1 | -1) =>
     (down: PointerEvent): void => {
-      endRegionResize?.()
-      endRegionResize = beginRegionResize(app.shell, region, down, sign)
-    }
+    endRegionResize?.()
+    endRegionResize = beginRegionResize(app.shell, region, down, sign)
+  }
   const resizeFromKeyboard =
     (region: ShellRegion) =>
     (value: number): void => {
-      app.shell.previewSize(region, value)
-      app.shell.commitSize(region)
-    }
+    app.shell.previewSize(region, value)
+    app.shell.commitSize(region)
+  }
   onCleanup(() => endRegionResize?.())
   const [logsClearArmed, setLogsClearArmed] = createSolidSignal(false)
   let logsClearTimer: ReturnType<typeof setTimeout> | undefined
@@ -908,8 +908,8 @@ export function App(props: {
         .find((candidate) => candidate.id === entry.owner)
       void navigator.clipboard?.writeText(
         formatWorkflowDeepLink({
-          projectId: activeProjectId(),
-          workflowId: entry.id,
+        projectId: activeProjectId(),
+        workflowId: entry.id,
           ...(backend && backend.baseUrl !== ''
             ? { backendUrl: backend.baseUrl }
             : {}),
@@ -922,10 +922,10 @@ export function App(props: {
       const ref = entry.ref as TemplateCollectionRef | undefined
       const opening =
         ref?.kind === 'remote'
-          ? app.openRemoteTemplate(ref.template, entry.title)
-          : ref?.kind === 'local'
-            ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
-            : Promise.resolve(false)
+        ? app.openRemoteTemplate(ref.template, entry.title)
+        : ref?.kind === 'local'
+          ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
+          : Promise.resolve(false)
       void opening.then((ok) => {
         if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
       })
@@ -1160,20 +1160,20 @@ export function App(props: {
   }
   const [tabDrag, setTabDrag] = createSolidSignal<
     | {
-        readonly tabId: string
-        readonly title: string
-        readonly sourceGroupId: string
-        readonly x: number
-        readonly y: number
-        /** Reorder preview; set only while the pointer rides the source strip. */
-        readonly order: readonly string[] | undefined
-        readonly insertionIndex: number | undefined
-        /** Pane drop target (split or move) under the pointer. */
-        readonly dropTarget: SplitDropTarget | undefined
-        /** Another group's strip the pointer is over. */
-        readonly targetStripId: string | undefined
-        /** True when releasing here would do nothing (refused split, pop-out unavailable). */
-        readonly refused: boolean
+    readonly tabId: string
+    readonly title: string
+    readonly sourceGroupId: string
+    readonly x: number
+    readonly y: number
+    /** Reorder preview; set only while the pointer rides the source strip. */
+    readonly order: readonly string[] | undefined
+    readonly insertionIndex: number | undefined
+    /** Pane drop target (split or move) under the pointer. */
+    readonly dropTarget: SplitDropTarget | undefined
+    /** Another group's strip the pointer is over. */
+    readonly targetStripId: string | undefined
+    /** True when releasing here would do nothing (refused split, pop-out unavailable). */
+    readonly refused: boolean
       }
     | undefined
   >(undefined)
@@ -1325,18 +1325,18 @@ export function App(props: {
     const stop =
       (commit: boolean) =>
       (event: PointerEvent): void => {
-        if (event.pointerId !== down.pointerId) return
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', commitStop)
-        window.removeEventListener('pointercancel', cancelStop)
-        const preview = dividerPreview()
-        setDividerPreview(undefined)
-        if (commit && preview !== undefined) {
+      if (event.pointerId !== down.pointerId) return
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', commitStop)
+      window.removeEventListener('pointercancel', cancelStop)
+      const preview = dividerPreview()
+      setDividerPreview(undefined)
+      if (commit && preview !== undefined) {
           updateSplitLayout((layout) =>
             setSplitRatioAt(layout, preview.path, preview.ratio),
           )
-        }
       }
+    }
     const commitStop = stop(true)
     const cancelStop = stop(false)
     window.addEventListener('pointermove', move)
@@ -1491,21 +1491,21 @@ export function App(props: {
             refused = managedContext().kind !== 'primary'
           }
         }
-        }
+      }
       }
       const preview = drag.preview!
       restoreTabFocusAfter(() =>
         setTabDrag({
-          tabId: tab.id,
-          title: tab.title,
-          sourceGroupId: groupId,
-          x: event.clientX,
-          y: event.clientY,
-          order: overSourceStrip ? preview.order : undefined,
-          insertionIndex: overSourceStrip ? preview.insertionIndex : undefined,
-          dropTarget: paneTarget,
-          targetStripId: stripTarget?.groupId,
-          refused,
+        tabId: tab.id,
+        title: tab.title,
+        sourceGroupId: groupId,
+        x: event.clientX,
+        y: event.clientY,
+        order: overSourceStrip ? preview.order : undefined,
+        insertionIndex: overSourceStrip ? preview.insertionIndex : undefined,
+        dropTarget: paneTarget,
+        targetStripId: stripTarget?.groupId,
+        refused,
         }),
       )
     }
@@ -1720,23 +1720,23 @@ export function App(props: {
     const live = () => liveTabOf(p.exec)
     return (
       <ExecutionActivityCard
-        entry={p.exec}
-        title={app.tabTitleFor(p.exec.ref)}
-        testId="execution-row"
-        relation={overlayRoleOf(p.exec)}
-        onOpen={() => app.openExecutionView(p.exec.ref)}
+      entry={p.exec}
+      title={app.tabTitleFor(p.exec.ref)}
+      testId="execution-row"
+      relation={overlayRoleOf(p.exec)}
+      onOpen={() => app.openExecutionView(p.exec.ref)}
         onPin={
           live()
             ? () => {
-                const tab = live()
-                if (!tab) return
+        const tab = live()
+        if (!tab) return
                 if (overlayRoleOf(p.exec) === 'pinned')
                   app.followLatestExecution(tab.id)
-                else app.pinExecutionOverlay(tab.id, p.exec.ref)
+        else app.pinExecutionOverlay(tab.id, p.exec.ref)
               }
             : undefined
         }
-      />
+    />
     )
   }
 
@@ -1773,13 +1773,13 @@ export function App(props: {
     const backend = activeBackend()
     return backend.protocol === 'dinkster' ? (
       <AssetsBody
-        connection={backend.connection}
-        backendId={String(backend.id)}
-        baseUrl={backend.baseUrl}
+          connection={backend.connection}
+          backendId={String(backend.id)}
+          baseUrl={backend.baseUrl}
         {...(props.federatedAssets
           ? { federatedContract: props.federatedAssets }
           : {})}
-      />
+        />
     ) : (
       <p class="empty">{message('shell.backend.assetsRequireNative')}</p>
     )
@@ -1836,7 +1836,7 @@ export function App(props: {
         'execution-log.focus',
         'focus node from execution log',
         {
-          anchor: { execution: exec.ref, occurrence: identity.occurrence },
+      anchor: { execution: exec.ref, occurrence: identity.occurrence },
         },
       ),
     )
@@ -1893,13 +1893,13 @@ export function App(props: {
       <Show
         when={activeExecution()}
         fallback={
-          <div class="output-state" data-state="no-execution" role="status">
-            <strong>No execution selected</strong>
+        <div class="output-state" data-state="no-execution" role="status">
+          <strong>No execution selected</strong>
             <span>
               Run this workflow or open a recorded execution to inspect its
               outputs.
             </span>
-          </div>
+        </div>
         }
       >
         {(exec) => (
@@ -1907,8 +1907,8 @@ export function App(props: {
             app={app}
             execution={exec()}
             onOpenLayers={(request) => {
-              if (imageDocumentsBusy()) return
-              setGraphImageRequest(request)
+          if (imageDocumentsBusy()) return
+          setGraphImageRequest(request)
             }}
           />
         )}
@@ -2009,11 +2009,11 @@ export function App(props: {
                 ? { id: backend.id, connection: backend.connection }
                 : undefined
             }
-            locale={locale().tag}
+          locale={locale().tag}
             onOpenTemplate={(pack, template, title, owner) => {
               void app.openTemplate(pack, template, title, owner)
             }}
-          />
+        />
         )
       },
     }),
@@ -2136,7 +2136,7 @@ export function App(props: {
                 label={backend.label}
               />
             )}
-          </For>
+        </For>
         </div>
       ),
     }),
@@ -2174,7 +2174,7 @@ export function App(props: {
                 backendLabel={backend.label}
               />
             )}
-          </For>
+        </For>
         </div>
       ),
     }),
@@ -2252,16 +2252,16 @@ export function App(props: {
       order: 55,
       component: () => (
         <ContextPanel
-          app={app}
-          diagnostics={problemDiagnostics}
-          execution={activeExecution}
-          values={(execution) => {
-            backendsTick()
-            const backend = app.backendFor(execution.ref.connection)
+        app={app}
+        diagnostics={problemDiagnostics}
+        execution={activeExecution}
+        values={(execution) => {
+          backendsTick()
+          const backend = app.backendFor(execution.ref.connection)
             return backend?.protocol === 'dinkster'
               ? backend.connection.values()
               : undefined
-          }}
+        }}
         />
       ),
     }),
@@ -2297,7 +2297,7 @@ export function App(props: {
         <ProblemsPanel
           app={app}
           diagnostics={problemDiagnostics}
-          compatSkips={() => activeBackend().compatSkips.get()}
+        compatSkips={() => activeBackend().compatSkips.get()}
           packInferenceUnavailable={() =>
             activeBackend().packInferenceUnavailable.get()
           }
@@ -2325,18 +2325,18 @@ export function App(props: {
       order: 10,
       component: () => (
         <SettingsDialog
-          settings={app.settings}
-          commands={app.commands}
-          keybindings={app.keybindings}
-          request={app.settingsOpenRequest.get()}
-          onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+        settings={app.settings}
+        commands={app.commands}
+        keybindings={app.keybindings}
+        request={app.settingsOpenRequest.get()}
+        onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
           packSettings={
             'fetchPackSettings' in app.connection
               ? {
-                  client: app.connection,
+          client: app.connection,
                   packs: () =>
                     [...(defaultRegistry()?.packs ?? [])]
-                      .filter(([, info]) => info.settings === true)
+            .filter(([, info]) => info.settings === true)
                       .map(([id, info]) => ({
                         id,
                         displayName: info.displayName,
@@ -2363,11 +2363,11 @@ export function App(props: {
       order: 15,
       component: () => (
         <CustomizeLayoutDialog
-          items={layoutVisibilityItems()}
-          onReset={() => {
-            app.shell.resetVisibility()
-            app.dock.resetOpen()
-          }}
+        items={layoutVisibilityItems()}
+        onReset={() => {
+          app.shell.resetVisibility()
+          app.dock.resetOpen()
+        }}
         />
       ),
     }),
@@ -2785,7 +2785,7 @@ export function App(props: {
         ? down.target.closest<HTMLElement>(
             '.dock-zone .product-tab[data-tab-id]',
           )
-        : null
+      : null
     if (target === null || down.button !== 0) return
     const pointerId = down.pointerId
     if (
@@ -2921,8 +2921,8 @@ export function App(props: {
         currentSnapshot === undefined
           ? undefined
           : {
-              snapshot: currentSnapshot,
-              point: { x: event.clientX, y: event.clientY },
+        snapshot: currentSnapshot,
+        point: { x: event.clientX, y: event.clientY },
             },
       )
       const preview = drag.preview
@@ -2938,26 +2938,26 @@ export function App(props: {
         // closed zone appends to its first section.
         const moved =
           preview.target.kind === 'floating'
-            ? movePanel(app.panels, app.dock, panelId, { kind: 'floating' })
-            : preview.target.kind === 'split'
-              ? movePanel(app.panels, app.dock, panelId, {
-                  kind: 'zone',
-                  zone: preview.target.zone,
-                  section: preview.target.section,
-                  index: 0,
-                })
-              : movePanel(app.panels, app.dock, panelId, {
-                  kind: 'zone',
-                  zone: preview.target.zone,
+          ? movePanel(app.panels, app.dock, panelId, { kind: 'floating' })
+          : preview.target.kind === 'split'
+            ? movePanel(app.panels, app.dock, panelId, {
+                kind: 'zone',
+                zone: preview.target.zone,
+                section: preview.target.section,
+                index: 0,
+              })
+            : movePanel(app.panels, app.dock, panelId, {
+                kind: 'zone',
+                zone: preview.target.zone,
                   section:
                     preview.target.kind === 'edge' ? 0 : preview.target.section,
-                  index: preview.target.index,
-                })
+                index: preview.target.index,
+              })
         if (moved && destinationZone !== undefined) {
           queueMicrotask(() => {
             bodyElement
               .querySelector<HTMLButtonElement>(
-                `.dock-zone[data-zone="${destinationZone}"] .product-tab[data-tab-id="${CSS.escape(panelId)}"]`,
+              `.dock-zone[data-zone="${destinationZone}"] .product-tab[data-tab-id="${CSS.escape(panelId)}"]`,
               )
               ?.focus({ preventScroll: true })
           })
@@ -3117,8 +3117,8 @@ export function App(props: {
     const url = new URL(window.location.href)
     url.search =
       projectId === DEFAULT_PROJECT_ID
-        ? ''
-        : new URLSearchParams({ [PROJECT_URL_PARAM]: projectId }).toString()
+      ? ''
+      : new URLSearchParams({ [PROJECT_URL_PARAM]: projectId }).toString()
     return url
   }
   const switchProject = (projectId: string): void => {
@@ -3188,8 +3188,8 @@ export function App(props: {
         drag !== undefined &&
         drag.sourceGroupId === p.groupId &&
         drag.order !== undefined
-          ? drag.order
-          : group().tabIds
+        ? drag.order
+        : group().tabIds
       return ids.flatMap((id) => {
         const tab = byId.get(id)
         return tab !== undefined ? [tab] : []
@@ -3366,8 +3366,8 @@ export function App(props: {
                   }
                   keyed
                 >
-                  {(entry) => <TabCollabDot entry={entry} />}
-                </Show>
+                {(entry) => <TabCollabDot entry={entry} />}
+              </Show>
               </>
             )}
             setRoot={(root) => {
@@ -3428,7 +3428,7 @@ export function App(props: {
               void app.shareActiveTab().then((error) => {
                 app.showTransientStatus(
                   error === undefined
-                    ? message('shell.share.shared', { title: tab.title })
+                  ? message('shell.share.shared', { title: tab.title })
                     : message('shell.share.failed', { error }),
                 )
               })
@@ -3663,18 +3663,18 @@ export function App(props: {
             class="workflow-editor-surface"
             hidden={paneFocused() && mediaDocumentsActive()}
           >
-            <Show
-              when={paneDescriptor()}
-              keyed
-              fallback={
-                <div class="editor-missing" data-testid="editor-missing">
-                  {message('shell.editor.missing', { kind: paneEditorKind() })}
-                </div>
-              }
-            >
-              {(editor) => editor.component(host)}
-            </Show>
-          </div>
+          <Show
+            when={paneDescriptor()}
+            keyed
+            fallback={
+              <div class="editor-missing" data-testid="editor-missing">
+                {message('shell.editor.missing', { kind: paneEditorKind() })}
+              </div>
+            }
+          >
+            {(editor) => editor.component(host)}
+          </Show>
+        </div>
         </div>
       </section>
     )
@@ -3691,16 +3691,16 @@ export function App(props: {
               class="native-panel-window native-panel-window-missing"
               data-testid="native-panel-window-missing"
             >
-              <h1>{message('shell.panel.unavailable.title')}</h1>
-              <p>{message('shell.panel.unavailable.description')}</p>
+            <h1>{message('shell.panel.unavailable.title')}</h1>
+            <p>{message('shell.panel.unavailable.description')}</p>
               <button
                 type="button"
                 data-testid="redock-window"
                 onClick={redockCurrentWindow}
               >
-                {message('shell.window.moveToMain')}
-              </button>
-            </section>
+              {message('shell.window.moveToMain')}
+            </button>
+          </section>
           </Show>
         }
       >
@@ -3710,13 +3710,13 @@ export function App(props: {
             data-testid="native-panel-window"
             data-panel={panel.id}
           >
-            <header class="native-panel-window-header">
-              <h1>
-                {panel.title}
-                <Show when={activePanelIndicator(panel)} keyed>
-                  {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
-                </Show>
-              </h1>
+          <header class="native-panel-window-header">
+            <h1>
+              {panel.title}
+              <Show when={activePanelIndicator(panel)} keyed>
+                {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
+              </Show>
+            </h1>
               <button
                 type="button"
                 class="shell-panel-header-action"
@@ -3725,37 +3725,37 @@ export function App(props: {
               >
                 {message('shell.window.moveToMain')}
               </button>
-            </header>
-            <div class="native-panel-window-content">
-              {panel.component({
-                placement: 'window',
-                requestClose: redockCurrentWindow,
-              })}
-            </div>
-          </section>
+          </header>
+          <div class="native-panel-window-content">
+            {panel.component({
+              placement: 'window',
+              requestClose: redockCurrentWindow,
+            })}
+          </div>
+        </section>
         )}
       </Show>
       <Show when={managedContext().kind !== 'panel'}>
-        <div class="shell" ref={shellEl}>
-          <AssetConsentDialog app={app} />
-          <ImportAssetResolutionDialog app={app} />
-          <Show when={pendingClose()} keyed>
-            {(pending) => (
-              <ModalSurface
-                title={message('shell.close.title', { title: pending.title })}
+      <div class="shell" ref={shellEl}>
+      <AssetConsentDialog app={app} />
+      <ImportAssetResolutionDialog app={app} />
+      <Show when={pendingClose()} keyed>
+        {(pending) => (
+          <ModalSurface
+            title={message('shell.close.title', { title: pending.title })}
                 ariaLabel={message('shell.close.confirm', {
                   title: pending.title,
                 })}
-                modalId="close-tab"
-                testId="close-tab-dialog"
-                closeLabel={message('shell.close.cancel')}
-                onRequestClose={() => setPendingClose(undefined)}
-              >
-                <div class="close-tab-confirm">
+            modalId="close-tab"
+            testId="close-tab-dialog"
+            closeLabel={message('shell.close.cancel')}
+            onRequestClose={() => setPendingClose(undefined)}
+          >
+            <div class="close-tab-confirm">
                   <p>
                     {message('shell.close.confirm', { title: pending.title })}
                   </p>
-                  <ProductActionFooter>
+              <ProductActionFooter>
                     <button
                       type="button"
                       autofocus
@@ -3770,30 +3770,30 @@ export function App(props: {
                     >
                       {message('shell.close.discard')}
                     </button>
-                  </ProductActionFooter>
-                </div>
-              </ModalSurface>
-            )}
-          </Show>
+              </ProductActionFooter>
+            </div>
+          </ModalSurface>
+        )}
+      </Show>
           <header
             class="topbar"
             aria-label={message('shell.applicationControls')}
           >
-            <div class="topbar-group topbar-group-left">
-              <DinksterAppMenu
-                commands={app.commands}
-                keybindings={app.keybindings}
-                invalidationSignals={() => [
-                  activeLocale,
-                  app.settings.changed,
-                  app.canvasBridge,
-                  app.tabs,
-                  app.activeTabId,
-                  app.backendsTick,
-                  ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
-                ]}
-              />
-              <Show when={managedContext().kind === 'workflow'}>
+        <div class="topbar-group topbar-group-left">
+          <DinksterAppMenu
+            commands={app.commands}
+            keybindings={app.keybindings}
+            invalidationSignals={() => [
+              activeLocale,
+              app.settings.changed,
+              app.canvasBridge,
+              app.tabs,
+              app.activeTabId,
+              app.backendsTick,
+              ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
+            ]}
+          />
+          <Show when={managedContext().kind === 'workflow'}>
                 <button
                   class="redock-workflow"
                   data-testid="redock-workflow"
@@ -3801,40 +3801,40 @@ export function App(props: {
                 >
                   {message('shell.window.moveToMain')}
                 </button>
-              </Show>
-            </div>
+          </Show>
+        </div>
             <UniversalSearchTrigger
               shortcut={searchShortcut()}
               onOpen={() => app.searchOpen.set(true)}
             />
-            <div class="topbar-group topbar-group-right">
-              <CustomizeLayoutButton commands={app.commands} />
-              <button
-                class="shell-region-toggle"
-                data-testid="left-panel-toggle"
-                data-tooltip-label={message('shell.toggle.leftPanel')}
-                aria-label={message('shell.toggle.leftPanel')}
-                aria-pressed={leftOpen()}
-                disabled={leftPanels().length === 0}
-                onClick={toggleLeftRegion}
-              >
-                <ShellRegionIcon region="left" active={leftOpen()} />
-              </button>
-              <button
-                class="shell-region-toggle"
-                data-testid="bottom-panel-toggle"
-                data-tooltip-label={message('shell.toggle.bottomPanel')}
-                aria-label={message('shell.toggle.bottomPanel')}
-                aria-pressed={bottomOpen()}
-                disabled={bottomZonePanels().length === 0}
-                onClick={toggleBottomRegion}
-              >
-                <ShellRegionIcon region="bottom" active={bottomOpen()} />
-              </button>
-              <button
-                class="shell-region-toggle"
-                data-testid="rail-toggle"
-                data-tooltip-label={message('shell.toggle.rightRail')}
+        <div class="topbar-group topbar-group-right">
+          <CustomizeLayoutButton commands={app.commands} />
+          <button
+            class="shell-region-toggle"
+            data-testid="left-panel-toggle"
+            data-tooltip-label={message('shell.toggle.leftPanel')}
+            aria-label={message('shell.toggle.leftPanel')}
+            aria-pressed={leftOpen()}
+            disabled={leftPanels().length === 0}
+            onClick={toggleLeftRegion}
+          >
+            <ShellRegionIcon region="left" active={leftOpen()} />
+          </button>
+          <button
+            class="shell-region-toggle"
+            data-testid="bottom-panel-toggle"
+            data-tooltip-label={message('shell.toggle.bottomPanel')}
+            aria-label={message('shell.toggle.bottomPanel')}
+            aria-pressed={bottomOpen()}
+            disabled={bottomZonePanels().length === 0}
+            onClick={toggleBottomRegion}
+          >
+            <ShellRegionIcon region="bottom" active={bottomOpen()} />
+          </button>
+          <button
+            class="shell-region-toggle"
+            data-testid="rail-toggle"
+            data-tooltip-label={message('shell.toggle.rightRail')}
                 aria-label={
                   railIndicator() === undefined
                     ? message('shell.toggle.rightRail')
@@ -3842,17 +3842,17 @@ export function App(props: {
                         status: railIndicator()!.label,
                       })
                 }
-                aria-pressed={railOpen()}
-                onClick={() => app.dock.setOpen('right', !railOpen())}
-              >
-                <ShellRegionIcon region="right" active={railOpen()} />
+            aria-pressed={railOpen()}
+            onClick={() => app.dock.setOpen('right', !railOpen())}
+          >
+            <ShellRegionIcon region="right" active={railOpen()} />
                 <Show when={railIndicator()} keyed>
                   {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
                 </Show>
-              </button>
-              <Show when={managedContext().kind === 'primary'}>
-                <button
-                  class="settings-button"
+          </button>
+          <Show when={managedContext().kind === 'primary'}>
+            <button
+              class="settings-button"
                   data-testid="projects-button"
                   data-tooltip-label={message('shell.panel.projects.title')}
                   data-tooltip-detail={message(
@@ -3863,7 +3863,7 @@ export function App(props: {
                 >
                   <Icon icon={FolderOpen} />
                 </button>
-              </Show>
+          </Show>
               <button
                 class="settings-button"
                 data-testid="collab-button"
@@ -3876,7 +3876,7 @@ export function App(props: {
               >
                 <Icon icon={Users} />
               </button>
-              <Show when={desktopBridge()}>
+          <Show when={desktopBridge()}>
                 <button
                   class="settings-button"
                   data-testid="desktop-management-button"
@@ -3887,14 +3887,14 @@ export function App(props: {
                 >
                   <Icon icon={HardDrive} />
                 </button>
-              </Show>
-            </div>
-          </header>
+          </Show>
+        </div>
+      </header>
           <Show when={searchOpen()}>
             <UniversalSearch app={app} />
           </Show>
 
-          {/* ModalHost: actuates the 'modal' placement (docs/shell.md). ONE
+      {/* ModalHost: actuates the 'modal' placement (docs/shell.md). ONE
           modal at a time, hosted by a native <dialog> opened with
           showModal(), which supplies the modal behaviors for free: initial
           focus moves inside, the background becomes inert (focus cannot
@@ -3907,28 +3907,28 @@ export function App(props: {
           the reset. aria-modal is redundant on a modal <dialog> but set
           explicitly because CanvasHost gates canvas shortcuts on
           [aria-modal="true"]. */}
-          <Show when={modalDescriptor()} keyed>
-            {(panel) => {
-              return (
-                <ModalSurface
-                  title={panel.title}
+      <Show when={modalDescriptor()} keyed>
+        {(panel) => {
+          return (
+            <ModalSurface
+              title={panel.title}
                   {...(panel.ariaLabel !== undefined
                     ? { ariaLabel: panel.ariaLabel }
                     : {})}
-                  modalId={panel.id}
-                  onRequestClose={closeModal}
-                >
+              modalId={panel.id}
+              onRequestClose={closeModal}
+            >
                   {panel.component({
                     placement: 'modal',
                     requestClose: closeModal,
                   })}
-                </ModalSurface>
-              )
-            }}
-          </Show>
+            </ModalSurface>
+          )
+        }}
+      </Show>
 
-          <Show when={engineGate()}>
-            {(sup) => (
+      <Show when={engineGate()}>
+        {(sup) => (
               <div
                 class="engine-banner"
                 data-testid="engine-banner"
@@ -3936,170 +3936,170 @@ export function App(props: {
                 role="status"
                 aria-live="polite"
               >
-                <Show when={sup().state === 'starting'}>
-                  <span class="engine-spinner" />
-                </Show>
-                <span class="engine-banner-text">
-                  {sup().state === 'starting'
-                    ? message('shell.engine.starting')
-                    : sup().state === 'failed'
-                      ? message('shell.engine.failed')
-                      : message('shell.engine.stopped')}
-                  {sup().detail ? ` - ${sup().detail}` : ''}
-                </span>
+            <Show when={sup().state === 'starting'}>
+              <span class="engine-spinner" />
+            </Show>
+            <span class="engine-banner-text">
+              {sup().state === 'starting'
+                ? message('shell.engine.starting')
+                : sup().state === 'failed'
+                  ? message('shell.engine.failed')
+                  : message('shell.engine.stopped')}
+              {sup().detail ? ` - ${sup().detail}` : ''}
+            </span>
                 <Show
                   when={sup().state === 'failed' || sup().state === 'stopped'}
                 >
-                  <button
-                    class="banner-button"
-                    data-testid="engine-restart"
-                    onClick={() => void app.restartEngine(activeBackend())}
-                  >
-                    {message('shell.engine.restart')}
-                  </button>
-                </Show>
-              </div>
-            )}
-          </Show>
+              <button
+                class="banner-button"
+                data-testid="engine-restart"
+                onClick={() => void app.restartEngine(activeBackend())}
+              >
+                {message('shell.engine.restart')}
+              </button>
+            </Show>
+          </div>
+        )}
+      </Show>
 
-          <div class="body" ref={bodyElement} onPointerDown={beginPanelDrag}>
+      <div class="body" ref={bodyElement} onPointerDown={beginPanelDrag}>
             <nav
               class="left-sidebar"
               aria-label={message('shell.primaryNavigation')}
               data-tooltip-session="left-rail"
               hidden={!activityBarVisible()}
             >
-              <div class="sidebar-toggle-stack">
+          <div class="sidebar-toggle-stack">
                 <div
                   class="sidebar-toggle-group"
                   data-testid="dock-toggle-group"
                 >
-                  <For each={dockPanels()}>
-                    {(panel) => (
-                      <ActivityBarButton
-                        icon={panel.icon}
-                        label={panel.title}
-                        accessibleName={panel.ariaLabel ?? panel.title}
-                        tooltip={panel.description ?? panel.title}
-                        pressed={sidebarPressed(panel.id)}
-                        panelId={panel.id}
+              <For each={dockPanels()}>
+                {(panel) => (
+                  <ActivityBarButton
+                    icon={panel.icon}
+                    label={panel.title}
+                    accessibleName={panel.ariaLabel ?? panel.title}
+                    tooltip={panel.description ?? panel.title}
+                    pressed={sidebarPressed(panel.id)}
+                    panelId={panel.id}
                         suppressTooltipWhenPressed={
                           panel.id === 'assets' || panel.id === 'backends'
                         }
-                        testId={panel.toggleTestId}
-                        onActivate={() => {
+                    testId={panel.toggleTestId}
+                    onActivate={() => {
                           if (panel.id === 'assets' || panel.id === 'backends')
                             tooltips.hide()
-                          toggleSidebarPanel(panel.id)
-                        }}
-                      />
-                    )}
-                  </For>
-                </div>
+                      toggleSidebarPanel(panel.id)
+                    }}
+                  />
+                )}
+              </For>
+            </div>
                 <div
                   class="sidebar-toggle-group sidebar-toggle-group-bottom"
                   data-testid="bottom-toggle-group"
                 >
-                  <For each={bottomPanels()}>
-                    {(panel) => (
-                      <ActivityBarButton
-                        icon={panel.icon}
-                        label={panel.title}
-                        accessibleName={panel.ariaLabel ?? panel.title}
-                        tooltip={panel.description ?? panel.title}
-                        pressed={sidebarPressed(panel.id)}
-                        panelId={panel.id}
-                        testId={panel.toggleTestId}
-                        onActivate={() => toggleSidebarPanel(panel.id)}
-                      />
-                    )}
-                  </For>
-                </div>
-              </div>
-              <ActivityBarButton
-                icon={Settings}
-                label={message('shell.panel.settings.title')}
-                accessibleName={message('shell.panel.settings.title')}
-                tooltip={message('shell.panel.settings.title')}
-                tooltipDetail="Ctrl+,"
-                pressed={undefined}
-                testId="settings-button"
-                class="sidebar-settings-button"
-                onActivate={() => app.commands.get('settings.open')?.run()}
-              />
-            </nav>
-            <Show when={leftOpen()}>
-              <aside
-                class="dock-panel"
-                data-testid="dock-panel"
-                data-active-panel={leftActiveId()}
-                aria-label={message('shell.primaryDockPanels')}
-                style={{ width: `${dockWidth()}px` }}
-              >
-                <DockZoneHost
-                  zone="left"
-                  ariaLabel={message('shell.primaryDockPanels')}
-                  sections={zoneSections('left')}
-                  split={zoneSplit('left')}
+              <For each={bottomPanels()}>
+                {(panel) => (
+                  <ActivityBarButton
+                    icon={panel.icon}
+                    label={panel.title}
+                    accessibleName={panel.ariaLabel ?? panel.title}
+                    tooltip={panel.description ?? panel.title}
+                    pressed={sidebarPressed(panel.id)}
+                    panelId={panel.id}
+                    testId={panel.toggleTestId}
+                    onActivate={() => toggleSidebarPanel(panel.id)}
+                  />
+                )}
+              </For>
+            </div>
+          </div>
+          <ActivityBarButton
+            icon={Settings}
+            label={message('shell.panel.settings.title')}
+            accessibleName={message('shell.panel.settings.title')}
+            tooltip={message('shell.panel.settings.title')}
+            tooltipDetail="Ctrl+,"
+            pressed={undefined}
+            testId="settings-button"
+            class="sidebar-settings-button"
+            onActivate={() => app.commands.get('settings.open')?.run()}
+          />
+        </nav>
+        <Show when={leftOpen()}>
+          <aside
+            class="dock-panel"
+            data-testid="dock-panel"
+            data-active-panel={leftActiveId()}
+            aria-label={message('shell.primaryDockPanels')}
+            style={{ width: `${dockWidth()}px` }}
+          >
+            <DockZoneHost
+              zone="left"
+              ariaLabel={message('shell.primaryDockPanels')}
+              sections={zoneSections('left')}
+              split={zoneSplit('left')}
                   onActivate={(id) => {
                     setPanelOpen(app.panels, app.dock, id, 'left', true)
                   }}
-                  onSplitChange={(split) => app.dock.setSplit('left', split)}
-                  onRequestClose={() => closeZone('left')}
-                  onOpenWindow={(id) => popOutPanel(id, 'dock')}
-                  onFloat={floatPanel}
-                />
-                <ShellResizeHandle
-                  region="left"
-                  label={message('shell.resize.primaryDockPanels')}
-                  value={dockWidth()}
-                  min={REGION_SIZE_BOUNDS.left.min}
-                  max={REGION_SIZE_BOUNDS.left.max}
-                  testId="dock-resize"
-                  onPointerDown={beginResize('left', 1)}
-                  onResize={resizeFromKeyboard('left')}
-                />
-              </aside>
-            </Show>
-            <main class="canvas-pane">
-              <div
-                class="editor-split-region"
-                data-testid="editor-split-region"
-                ref={setRegionElement}
-              >
-                <For each={paneList()}>
-                  {(pane) => <EditorGroupPane groupId={pane.id} />}
-                </For>
-                {/* Index, not For: recomputed rects must move the existing
+              onSplitChange={(split) => app.dock.setSplit('left', split)}
+              onRequestClose={() => closeZone('left')}
+              onOpenWindow={(id) => popOutPanel(id, 'dock')}
+              onFloat={floatPanel}
+            />
+            <ShellResizeHandle
+              region="left"
+              label={message('shell.resize.primaryDockPanels')}
+              value={dockWidth()}
+              min={REGION_SIZE_BOUNDS.left.min}
+              max={REGION_SIZE_BOUNDS.left.max}
+              testId="dock-resize"
+              onPointerDown={beginResize('left', 1)}
+              onResize={resizeFromKeyboard('left')}
+            />
+          </aside>
+        </Show>
+        <main class="canvas-pane">
+          <div
+            class="editor-split-region"
+            data-testid="editor-split-region"
+            ref={setRegionElement}
+          >
+            <For each={paneList()}>
+              {(pane) => <EditorGroupPane groupId={pane.id} />}
+            </For>
+            {/* Index, not For: recomputed rects must move the existing
                 divider elements (pointer capture and focus live on them)
                 rather than recreate them. */}
-                <Index each={regionRects().dividers}>
-                  {(divider) => (
-                    <div
-                      class="editor-split-divider"
-                      data-testid="editor-split-divider"
-                      role="separator"
-                      tabindex="0"
-                      aria-label={message('shell.resize.editorGroups')}
+            <Index each={regionRects().dividers}>
+              {(divider) => (
+                <div
+                  class="editor-split-divider"
+                  data-testid="editor-split-divider"
+                  role="separator"
+                  tabindex="0"
+                  aria-label={message('shell.resize.editorGroups')}
                       aria-orientation={
                         divider().direction === 'row'
                           ? 'vertical'
                           : 'horizontal'
                       }
-                      aria-valuemin={Math.round(SPLIT_RATIO_MIN * 100)}
-                      aria-valuemax={Math.round(SPLIT_RATIO_MAX * 100)}
-                      aria-valuenow={Math.round(divider().ratio * 100)}
-                      data-direction={divider().direction}
-                      style={rectStyle(divider().rect)}
+                  aria-valuemin={Math.round(SPLIT_RATIO_MIN * 100)}
+                  aria-valuemax={Math.round(SPLIT_RATIO_MAX * 100)}
+                  aria-valuenow={Math.round(divider().ratio * 100)}
+                  data-direction={divider().direction}
+                  style={rectStyle(divider().rect)}
                       onPointerDown={(event) =>
                         beginDividerDrag(divider(), event)
                       }
-                      onKeyDown={(event) => onDividerKeyDown(divider(), event)}
-                    />
-                  )}
-                </Index>
-                <Show when={dropPreviewRect()}>
-                  {(rect) => (
+                  onKeyDown={(event) => onDividerKeyDown(divider(), event)}
+                />
+              )}
+            </Index>
+            <Show when={dropPreviewRect()}>
+              {(rect) => (
                     <div
                       class="editor-split-drop-preview"
                       data-testid="split-drop-preview"
@@ -4142,44 +4142,44 @@ export function App(props: {
                         onActivate={setActiveDocumentId}
                       />
                     </div>
-                  )}
-                </Show>
-              </div>
-              <Show when={bottomOpen()}>
-                <section
-                  class="bottom-panel"
-                  data-testid="bottom-panel"
-                  data-active-panel={bottomActiveId()}
-                  style={{ height: `${bottomHeight()}px` }}
-                >
-                  <ShellResizeHandle
-                    region="bottom"
-                    label={message('shell.resize.bottomPanels')}
-                    value={bottomHeight()}
-                    min={REGION_SIZE_BOUNDS.bottom.min}
-                    max={REGION_SIZE_BOUNDS.bottom.max}
-                    testId="bottom-resize"
-                    onPointerDown={beginResize('bottom', -1)}
-                    onResize={resizeFromKeyboard('bottom')}
-                  />
-                  <DockZoneHost
-                    zone="bottom"
-                    ariaLabel={message('shell.bottomPanels')}
-                    sections={zoneSections('bottom')}
-                    split={zoneSplit('bottom')}
+              )}
+            </Show>
+          </div>
+          <Show when={bottomOpen()}>
+            <section
+              class="bottom-panel"
+              data-testid="bottom-panel"
+              data-active-panel={bottomActiveId()}
+              style={{ height: `${bottomHeight()}px` }}
+            >
+              <ShellResizeHandle
+                region="bottom"
+                label={message('shell.resize.bottomPanels')}
+                value={bottomHeight()}
+                min={REGION_SIZE_BOUNDS.bottom.min}
+                max={REGION_SIZE_BOUNDS.bottom.max}
+                testId="bottom-resize"
+                onPointerDown={beginResize('bottom', -1)}
+                onResize={resizeFromKeyboard('bottom')}
+              />
+              <DockZoneHost
+                zone="bottom"
+                ariaLabel={message('shell.bottomPanels')}
+                sections={zoneSections('bottom')}
+                split={zoneSplit('bottom')}
                     onActivate={(id) => {
                       setPanelOpen(app.panels, app.dock, id, 'bottom', true)
                     }}
                     onSplitChange={(split) =>
                       app.dock.setSplit('bottom', split)
                     }
-                    onRequestClose={() => closeZone('bottom')}
-                    onOpenWindow={(id) => popOutPanel(id, 'bottom')}
-                    onFloat={floatPanel}
-                  />
-                </section>
-              </Show>
-            </main>
+                onRequestClose={() => closeZone('bottom')}
+                onOpenWindow={(id) => popOutPanel(id, 'bottom')}
+                onFloat={floatPanel}
+              />
+            </section>
+          </Show>
+        </main>
 
             <Show when={railOpen()}>
               <aside
@@ -4187,44 +4187,44 @@ export function App(props: {
                 aria-label={message('shell.inspectorPanels')}
                 style={{ width: `${railWidth()}px` }}
               >
-                <ShellResizeHandle
-                  region="right"
-                  label={message('shell.resize.inspectorPanels')}
-                  value={railWidth()}
-                  min={REGION_SIZE_BOUNDS.right.min}
-                  max={REGION_SIZE_BOUNDS.right.max}
-                  testId="rail-resize"
-                  onPointerDown={beginResize('right', -1)}
-                  onResize={resizeFromKeyboard('right')}
-                />
-                {/* requestClose must be idempotent (SurfaceContext contract):
+          <ShellResizeHandle
+            region="right"
+            label={message('shell.resize.inspectorPanels')}
+            value={railWidth()}
+            min={REGION_SIZE_BOUNDS.right.min}
+            max={REGION_SIZE_BOUNDS.right.max}
+            testId="rail-resize"
+            onPointerDown={beginResize('right', -1)}
+            onResize={resizeFromKeyboard('right')}
+          />
+          {/* requestClose must be idempotent (SurfaceContext contract):
               setOpen(false), never a toggle - a retained or repeated call
               must not reopen the zone. */}
-                <DockZoneHost
-                  zone="right"
-                  ariaLabel={message('shell.inspectorPanels')}
-                  sections={zoneSections('right')}
-                  split={zoneSplit('right')}
-                  onActivate={(id) => app.dock.activate('right', id)}
-                  onSplitChange={(split) => app.dock.setSplit('right', split)}
-                  onRequestClose={closeRail}
-                  onOpenWindow={(id) => popOutPanel(id, 'rail')}
-                  onFloat={floatPanel}
-                />
+          <DockZoneHost
+            zone="right"
+            ariaLabel={message('shell.inspectorPanels')}
+            sections={zoneSections('right')}
+            split={zoneSplit('right')}
+            onActivate={(id) => app.dock.activate('right', id)}
+            onSplitChange={(split) => app.dock.setSplit('right', split)}
+            onRequestClose={closeRail}
+            onOpenWindow={(id) => popOutPanel(id, 'rail')}
+            onFloat={floatPanel}
+          />
               </aside>
             </Show>
-          </div>
+      </div>
 
           <Show when={panelDrag()}>
             {(drag) => {
-              const descriptor = () => app.panels.get(drag().panelId)
-              return (
-                <PanelDragOverlay
-                  drag={drag()}
-                  ghostTitle={descriptor()?.title ?? drag().panelId}
-                  ghostIcon={descriptor()?.icon}
-                />
-              )
+        const descriptor = () => app.panels.get(drag().panelId)
+        return (
+          <PanelDragOverlay
+            drag={drag()}
+            ghostTitle={descriptor()?.title ?? drag().panelId}
+            ghostIcon={descriptor()?.icon}
+          />
+        )
             }}
           </Show>
           <Show when={tabDrag()}>
@@ -4251,16 +4251,16 @@ export function App(props: {
                 <Show when={tip().title}>
                   <div class="app-tooltip-title">{tip().title}</div>
                 </Show>
-                <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
+          <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
                 <Show when={tip().detailed}>
                   <For each={tip().detail}>
                     {(line) => <div class="app-tooltip-detail">{line}</div>}
                   </For>
                 </Show>
-              </div>
+        </div>
             )}
           </Show>
-          <TransientStatus message={transientStatus()} />
+      <TransientStatus message={transientStatus()} />
           <footer
             class="statusbar"
             data-testid="status-bar"
@@ -4286,26 +4286,26 @@ export function App(props: {
               <Show when={transientStatus()}>
                 {(status) => <span class="transient-status">{status()}</span>}
               </Show>
-              <HostUiProviderHost
-                owner={coreStatusProblemsOwner}
-                provider={coreStatusProvider}
-                data={{
-                  connectionStatus: statusOf(activeBackend()),
+          <HostUiProviderHost
+            owner={coreStatusProblemsOwner}
+            provider={coreStatusProvider}
+            data={{
+              connectionStatus: statusOf(activeBackend()),
                   schemaText:
                     schemaCountOf(activeBackend()) !== undefined
                       ? message('shell.status.nodeSchemas', {
                           count: schemaCountOf(activeBackend())!,
                         })
-                      : message('shell.status.loadingSchemas'),
-                }}
-                commands={app.commands}
+                : message('shell.status.loadingSchemas'),
+            }}
+            commands={app.commands}
                 replaceProblems={(owner, diagnostics) =>
                   app.replaceProblems(owner, diagnostics)
                 }
-                core
-              />
-              <Show when={composingOf(activeBackend())}>
-                {(p) => (
+            core
+          />
+          <Show when={composingOf(activeBackend())}>
+            {(p) => (
                   <span
                     class="statusbar-composing"
                     data-testid="composition-progress"
@@ -4314,16 +4314,16 @@ export function App(props: {
                       done: p().done,
                       total: p().total,
                     })}
-                    {p().phase ? ` - ${p().phase}` : ''}
-                  </span>
-                )}
-              </Show>
-              <Show when={multiBackend()}>
-                <span class="statusbar-backend" data-testid="statusbar-backend">
-                  {activeBackend().label}
-                </span>
-              </Show>
-            </div>
+                {p().phase ? ` - ${p().phase}` : ''}
+              </span>
+            )}
+          </Show>
+          <Show when={multiBackend()}>
+            <span class="statusbar-backend" data-testid="statusbar-backend">
+              {activeBackend().label}
+            </span>
+          </Show>
+        </div>
             <div
               class="statusbar-right"
               data-testid="status-trailing"
@@ -4336,65 +4336,65 @@ export function App(props: {
                     class="host-ui-contribution"
                     data-host-ui-contribution={contribution.id}
                   >
-                    <HostUiProviderHost
-                      owner={contributionProblemsOwner(contribution)}
-                      provider={contribution.provider}
+              <HostUiProviderHost
+                owner={contributionProblemsOwner(contribution)}
+                provider={contribution.provider}
                       data={
                         {
-                          connectionId: activeBackend().id,
-                          connectionLabel: activeBackend().label,
-                          connectionStatus: statusOf(activeBackend()),
-                          schemaCount: schemaCountOf(activeBackend()) ?? null,
+                  connectionId: activeBackend().id,
+                  connectionLabel: activeBackend().label,
+                  connectionStatus: statusOf(activeBackend()),
+                  schemaCount: schemaCountOf(activeBackend()) ?? null,
                         } satisfies Json
                       }
-                      commands={app.commands}
+                commands={app.commands}
                       replaceProblems={(owner, diagnostics) =>
                         app.replaceProblems(owner, diagnostics)
                       }
-                    />
-                  </span>
+              />
+            </span>
                 )}
               </For>
-              <button
-                class="statusbar-toggle"
-                data-testid="backends-toggle"
-                aria-pressed={sidebarPressed('backends')}
-                onClick={() => toggleSidebarPanel('backends')}
-              >
-                {multiBackend()
+          <button
+            class="statusbar-toggle"
+            data-testid="backends-toggle"
+            aria-pressed={sidebarPressed('backends')}
+            onClick={() => toggleSidebarPanel('backends')}
+          >
+            {multiBackend()
                   ? message('shell.status.backendsCount', {
                       count: backends().length,
                     })
-                  : message('shell.panel.backends.title')}
-              </button>
-              <button
-                class="statusbar-toggle"
-                data-testid="review-upgrades-toggle"
-                data-tooltip-label={message('shell.reviewUpgrades.tooltip')}
+              : message('shell.panel.backends.title')}
+          </button>
+          <button
+            class="statusbar-toggle"
+            data-testid="review-upgrades-toggle"
+            data-tooltip-label={message('shell.reviewUpgrades.tooltip')}
                 aria-label={message('shell.reviewUpgrades.ariaLabel', {
                   state: message(
                     reviewReplacements() ? 'shell.state.on' : 'shell.state.off',
                   ),
                 })}
-                aria-pressed={reviewReplacements()}
-                onClick={() => app.reviewReplacements.update((v) => !v)}
-              >
+            aria-pressed={reviewReplacements()}
+            onClick={() => app.reviewReplacements.update((v) => !v)}
+          >
                 {message('shell.reviewUpgrades.label', {
                   state: message(
                     reviewReplacements() ? 'shell.state.on' : 'shell.state.off',
                   ),
                 })}
-              </button>
-            </div>
-          </footer>
+          </button>
         </div>
+      </footer>
+      </div>
 
         <For each={floatingPanels()}>
           {(panel, index) => (
-            <FloatingPanelHost
-              panel={panel}
-              index={index()}
-              onDock={() => returnPanel(panel.id, panel.placement)}
+        <FloatingPanelHost
+          panel={panel}
+          index={index()}
+          onDock={() => returnPanel(panel.id, panel.placement)}
               onOpenWindow={
                 panel.allowedPlacements.includes('window')
                   ? () =>
@@ -4408,7 +4408,7 @@ export function App(props: {
                       )
                   : undefined
               }
-            />
+        />
           )}
         </For>
       </Show>
@@ -4482,12 +4482,12 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
           'typeId' in descriptor &&
           typeof descriptor.typeId === 'string'
         ) {
-          const identity = JSON.stringify([nodeId, outputId])
+        const identity = JSON.stringify([nodeId, outputId])
           if (mediaMetadataOf(descriptor.typeId, undefined) !== undefined)
             media.add(identity)
-          if (isLayerDocumentType(descriptor.typeId)) layers.add(identity)
-        }
+        if (isLayerDocumentType(descriptor.typeId)) layers.add(identity)
       }
+    }
     return { media: [...media].sort(), layers: [...layers].sort() }
   })
   const mediaValueGroups = createMemo(() => {
@@ -4587,14 +4587,14 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         detail:
           props.execution.errors.map((error) => error.message).join(' ') ||
           'The execution reported an error before producing inspectable images.',
-      }
+    }
     if (!provenance().backendAvailable)
       return {
         state: 'owner-unavailable',
         title: 'Output owner unavailable',
         detail:
           'The execution backend was removed or disconnected. Retained output media cannot be confirmed.',
-      }
+    }
     if (
       props.execution.status === 'queued' ||
       props.execution.status === 'running'
@@ -4606,7 +4606,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
           props.execution.status === 'queued'
             ? 'The execution is queued.'
             : 'The execution is running.',
-      }
+    }
     if (
       props.app.backendFor(props.execution.ref.connection)?.protocol ===
         'dinkster' &&
@@ -4618,7 +4618,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         title: 'Loading retained outputs',
         detail:
           'The completed execution is still resolving its retained output inventory.',
-      }
+    }
     return {
       state: 'empty',
       title: 'No image outputs',

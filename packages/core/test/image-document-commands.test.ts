@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   IMAGE_DOCUMENT_FORMAT_VERSION,
   IMAGE_FIXED_POINT_SCALE,
   IMAGE_OPACITY_MAX,
-  ImageDocumentStore,
+  LocalDocumentTypeSession,
   asImageLayerId,
   asImageLineageId,
   asImageResourceId,
-  createLocalImageDocumentSession,
+  imageDocumentTypeAdapter,
   orderedImageLayerIds,
   type ImageDocument,
   type ImageRasterInput,
@@ -73,6 +73,9 @@ function document(): ImageDocument {
   }
 }
 
+const imageSession = (initial: ImageDocument, maxUndo = 200) =>
+  new LocalDocumentTypeSession(initial, imageDocumentTypeAdapter, maxUndo)
+
 function resource(digest: typeof DIGEST_B | typeof DIGEST_C): ImageRasterInput {
   return {
     kind: 'raster',
@@ -100,7 +103,7 @@ const addLayer = (digest: typeof DIGEST_B | typeof DIGEST_C = DIGEST_B) => ({
 
 describe('ImageDocument commands', () => {
   it('preserves v2 color, isolation, z order and blend edits in the same history', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch({ command: 'image.canvas.update', params: {
       width: 8, height: 6, compositing: 'linear-premultiplied-alpha',
     } }).ok).toBe(true)
@@ -120,7 +123,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('checks clipping against effective z order with stable array-order ties', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch(addLayer()).ok).toBe(true)
     expect(store.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', z_index: 2, clipping: 'clip-to-previous' } }).ok).toBe(true)
     expect(store.dispatch({ command: 'image.layer.update', params: { layerId: 'l3', z_index: 2 } }).ok).toBe(false)
@@ -129,7 +132,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('moves by effective order and restores explicit z indexes on undo', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch(addLayer()).ok).toBe(true)
     expect(store.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', z_index: 10 } }).ok).toBe(true)
     const before = store.doc
@@ -145,7 +148,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('keeps mixed explicit and implicit z order when grouping later siblings', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     for (let index = 0; index < 3; index++) expect(store.dispatch(addLayer()).ok).toBe(true)
     expect(store.doc.rootLayerIds).toEqual(['l1', 'l7', 'l5', 'l3'])
     expect(store.dispatch({ command: 'image.layer.update', params: { layerId: 'l5', z_index: 2 } }).ok).toBe(true)
@@ -163,7 +166,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('groups adjacent siblings in document order without moving or duplicating resources', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch(addLayer()).ok).toBe(true)
     const before = store.doc
     const grouped = store.dispatch({ command: 'image.layer.group', params: { layerIds: ['l3', 'l1'], name: 'Group' } })
@@ -180,7 +183,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('rejects duplicate, missing, and nonadjacent group members atomically', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch(addLayer()).ok).toBe(true)
     expect(store.dispatch(addLayer(DIGEST_C)).ok).toBe(true)
     for (const layerIds of [[], ['l1', 'l1'], ['missing'], ['l1', 'l3']]) {
@@ -191,7 +194,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('resizes the canvas without changing source assets and preserves clipping in history', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch({ command: 'image.canvas.update', params: { width: 100, height: 80 } }).ok).toBe(true)
     expect(store.doc.canvas).toMatchObject({ width: 100, height: 80 })
     expect(store.doc.resources).toEqual(document().resources)
@@ -205,7 +208,7 @@ describe('ImageDocument commands', () => {
 
   it('crops the canvas by translating root composition without changing raster resources', () => {
     const initial = document()
-    const store = new ImageDocumentStore(initial)
+    const store = imageSession(initial)
     expect(store.dispatch({
       command: 'image.canvas.crop', params: { x: 2, y: 1, width: 5, height: 4 },
     }).ok).toBe(true)
@@ -227,7 +230,7 @@ describe('ImageDocument commands', () => {
 
   it('resizes root composition with ties-to-even fixed-point scaling', () => {
     const initial = document()
-    const store = new ImageDocumentStore({
+    const store = imageSession({
       ...initial,
       layers: { l1: { ...initial.layers['l1']!, transform: {
         a: 1, b: 1, c: -1, d: 3, tx: 1, ty: -1,
@@ -245,7 +248,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('stores output policy as non-rendering metadata with atomic history', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch({ command: 'image.output.update', params: { format: 'jpeg', quality: 73 } }).ok).toBe(true)
     expect(store.doc.extensions).toEqual({ 'dinkster.outputPolicy': { format: 'jpeg', quality: 73 } })
     expect(store.undo()).toBe(true)
@@ -256,7 +259,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('updates raster rendering properties atomically', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     const result = store.dispatch({
       command: 'image.layer.update',
       params: {
@@ -284,7 +287,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('adds and moves raster layers with deterministic allocation', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     const added = store.dispatch(addLayer())
     expect(added.ok && added.created).toEqual({ layerId: 'l3', resourceId: 'r2' })
     expect(store.doc.rootLayerIds).toEqual(['l1', 'l3'])
@@ -313,7 +316,7 @@ describe('ImageDocument commands', () => {
         },
       },
     }
-    const store = new ImageDocumentStore(shared)
+    const store = imageSession(shared)
     expect(store.dispatch({ command: 'image.layer.remove', params: { layerId: 'l1' } }).ok).toBe(true)
     expect(store.doc.layers['l1']).toBeUndefined()
     expect(store.doc.resources['r0']).toBeDefined()
@@ -323,7 +326,7 @@ describe('ImageDocument commands', () => {
 
   it('does not collect a pre-existing unreferenced resource during an unrelated removal', () => {
     const initial = document()
-    const store = new ImageDocumentStore({
+    const store = imageSession({
       ...initial,
       allocation: { nextOrdinal: 3 },
       resources: {
@@ -359,7 +362,7 @@ describe('ImageDocument commands', () => {
         },
       },
     }
-    const store = new ImageDocumentStore(grouped)
+    const store = imageSession(grouped)
     const before = store.doc
     const result = store.dispatch({
       command: 'image.layer.move', params: { layerId: 'l3', parentId: 'l3', index: 0 },
@@ -369,7 +372,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('adds, updates, and removes raster masks', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     const added = store.dispatch({
       command: 'image.mask.addRaster',
       params: {
@@ -392,7 +395,7 @@ describe('ImageDocument commands', () => {
   })
 
   it('owns invocation data and rejects unknown fields', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     const transform = { ...identity(), tx: 1_000_000 }
     expect(store.dispatch({
       command: 'image.layer.update', params: { layerId: 'l1', transform },
@@ -412,7 +415,7 @@ describe('ImageDocument commands', () => {
 
 describe('ImageDocument history and session', () => {
   it('undoes and redoes without rewinding allocation cursors', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch(addLayer()).ok).toBe(true)
     const second = { ...addLayer(DIGEST_C), params: { ...addLayer(DIGEST_C).params, index: 2 } }
     expect(store.dispatch(second).ok).toBe(true)
@@ -430,7 +433,7 @@ describe('ImageDocument history and session', () => {
   })
 
   it('retains resource bytes while either undo or redo can restore them', () => {
-    const store = new ImageDocumentStore(document())
+    const store = imageSession(document())
     expect(store.dispatch(addLayer()).ok).toBe(true)
     expect(store.retainedResourceDigests()).toEqual(new Set([DIGEST_A, DIGEST_B]))
     expect(store.dispatch({ command: 'image.layer.remove', params: { layerId: 'l3' } }).ok).toBe(true)
@@ -443,7 +446,7 @@ describe('ImageDocument history and session', () => {
   })
 
   it('drops resource retention with evicted history', () => {
-    const store = new ImageDocumentStore(document(), 1)
+    const store = imageSession(document(), 1)
     expect(store.dispatch(addLayer()).ok).toBe(true)
     expect(store.dispatch({ command: 'image.layer.remove', params: { layerId: 'l3' } }).ok).toBe(true)
     expect(store.retainedResourceDigests()).toContain(DIGEST_B)
@@ -453,11 +456,8 @@ describe('ImageDocument history and session', () => {
     expect(store.retainedResourceDigests()).not.toContain(DIGEST_B)
   })
 
-  it('publishes contiguous wire-shaped local session operations', () => {
-    const session = createLocalImageDocumentSession(document(), {
-      actorId: 'alice',
-      clock: () => 123,
-    })
+  it('publishes contiguous local document operations', () => {
+    const session = imageSession(document())
     const operations: unknown[] = []
     session.onOp((operation) => operations.push(operation))
     expect(session.dispatch({
@@ -466,42 +466,36 @@ describe('ImageDocument history and session', () => {
     expect(session.undo()).toBe(true)
     expect(session.redo()).toBe(true)
     expect(operations).toMatchObject([
-      { opId: 'alice#1', actorId: 'alice', baseRevision: 0, revision: 1, timestamp: 123, origin: 'image.layer.update' },
-      { opId: 'alice#2', baseRevision: 1, revision: 2, origin: 'image.undo' },
-      { opId: 'alice#3', baseRevision: 2, revision: 3, origin: 'image.redo' },
+      { revision: 1, invocation: { command: 'image.layer.update' } },
+      { revision: 2, invocation: { command: 'document.undo' } },
+      { revision: 3, invocation: { command: 'document.redo' } },
     ])
-    expect((operations[0] as { patch: Record<string, unknown>[] }).patch[0]).not.toHaveProperty('oldValue')
     expect(session.document.get()).toBe(session.doc)
-    expect(() => createLocalImageDocumentSession(document(), { actorId: 'bad#actor' })).toThrow('actor id')
   })
 
   it('returns the committed result when a listener dispatches again', () => {
-    const store = new ImageDocumentStore(document())
-    store.onTransaction((transaction) => {
-      if (transaction.revision === 1) {
+    const store = imageSession(document())
+    store.onOp((operation) => {
+      if (operation.revision === 1) {
         store.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Nested' } })
       }
     })
     const first = store.dispatch({
       command: 'image.layer.update', params: { layerId: 'l1', visible: false },
     })
-    expect(first.ok && first.revision).toBe(1)
-    expect(first.ok && first.document.layers['l1']).toMatchObject({ name: 'Pixels', visible: false })
+    expect(first.ok && first.doc.layers['l1']).toMatchObject({ name: 'Pixels', visible: false })
     expect(store.revision).toBe(2)
     expect(store.doc.layers['l1']).toMatchObject({ name: 'Nested', visible: false })
   })
 
   it('isolates store listeners after a commit', () => {
-    const store = new ImageDocumentStore(document())
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const store = imageSession(document())
     const observed: number[] = []
-    store.onTransaction(() => { throw new Error('listener failed') })
-    store.onTransaction((transaction) => observed.push(transaction.revision))
+    store.onOp(() => { throw new Error('listener failed') })
+    store.onOp((operation) => observed.push(operation.revision))
     expect(store.dispatch({
       command: 'image.layer.update', params: { layerId: 'l1', visible: false },
     }).ok).toBe(true)
     expect(observed).toEqual([1])
-    expect(error).toHaveBeenCalledOnce()
-    error.mockRestore()
   })
 })

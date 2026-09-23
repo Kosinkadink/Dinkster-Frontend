@@ -15,20 +15,20 @@ import {
   IMAGE_OUTPUT_FORMATS,
   MAX_IMAGE_CANVAS_DIMENSION,
   asImageResourceId,
-  connectSharedImageDocumentSession,
-  createLocalImageDocumentSession,
+  connectDocumentSession,
   formatNumber,
+  imageDocumentTypeAdapter,
   imageOutputPolicyOf,
+  LocalDocumentTypeSession,
   orderedImageLayerIds,
   serializeImageDocument,
+  SharedDocumentSession,
   type CollabSessionDescriptor,
   type ImageDocument,
   type ImageDocumentCommandInvocation,
-  type ImageDocumentSession,
   type ImageLayer,
   type ImageRasterResource,
   type MessageParams,
-  type SharedImageDocumentSession,
 } from '@dinkster/core'
 import {
   IMAGE_DOCUMENT_MEDIA_TYPE,
@@ -73,6 +73,10 @@ import { useSignal } from './solid-adapter.js'
 
 const LIBRARY_SCOPE = 'local'
 
+type ImageDocumentSession =
+  | LocalDocumentTypeSession<ImageDocument>
+  | SharedDocumentSession<ImageDocument>
+
 interface OpenImageDocument {
   readonly session: ImageDocumentSession
   readonly stop: () => void
@@ -85,7 +89,7 @@ interface OpenImageDocument {
   readonly collaboration?: {
     readonly descriptor: CollabSessionDescriptor
     readonly baseUrl: string
-    readonly session: SharedImageDocumentSession
+    readonly session: SharedDocumentSession<ImageDocument>
   }
 }
 
@@ -123,11 +127,11 @@ function layerRows(documentValue: ImageDocument): readonly LayerTreeRow[] {
       .map((id, index) => ({ id, index }))
       .reverse()
       .forEach(({ id, index }) => {
-        const layer = documentValue.layers[id]!
-        rows.push({ layer, parentId, index, siblingCount: ids.length, depth })
+      const layer = documentValue.layers[id]!
+      rows.push({ layer, parentId, index, siblingCount: ids.length, depth })
         if (layer.kind === 'group')
           visit(layer.childLayerIds, layer.id, depth + 1)
-      })
+    })
   }
   visit(documentValue.rootLayerIds, null, 0)
   return rows
@@ -423,7 +427,7 @@ function ImageDocumentEditor(props: {
       params: {
         layerIds:
           below === undefined ? [row.layer.id] : [below.layer.id, row.layer.id],
-        name: 'Group',
+      name: 'Group',
       },
     })
     if (!outcome.ok)
@@ -609,8 +613,8 @@ function ImageDocumentEditor(props: {
             accept="image/png,image/jpeg,image/webp"
             hidden
             onChange={(event) => {
-              const file = event.currentTarget.files?.[0]
-              if (file) void addLayer(file)
+            const file = event.currentTarget.files?.[0]
+            if (file) void addLayer(file)
             }}
           />
           <div class="image-document-layer-list">
@@ -621,14 +625,14 @@ function ImageDocumentEditor(props: {
                     (candidate) => candidate.layer.id === layerId,
                   )!
                 return (
-                  <button
-                    type="button"
-                    class="image-document-layer-row"
-                    classList={{ selected: layerId === selectedLayerId() }}
-                    aria-pressed={layerId === selectedLayerId()}
-                    style={{ 'padding-left': `${10 + row().depth * 14}px` }}
-                    onClick={() => setSelectedLayerId(layerId)}
-                  >
+                <button
+                  type="button"
+                  class="image-document-layer-row"
+                  classList={{ selected: layerId === selectedLayerId() }}
+                  aria-pressed={layerId === selectedLayerId()}
+                  style={{ 'padding-left': `${10 + row().depth * 14}px` }}
+                  onClick={() => setSelectedLayerId(layerId)}
+                >
                     <span>
                       {row().layer.visible
                         ? message('imageDocument.editor.status.on')
@@ -645,7 +649,7 @@ function ImageDocumentEditor(props: {
                       )}
                       %
                     </small>
-                  </button>
+                </button>
                 )
               }}
             </For>
@@ -673,7 +677,7 @@ function ImageDocumentEditor(props: {
               class="danger"
               disabled={!selected()}
               onClick={() => {
-                const layer = selected()
+              const layer = selected()
                 if (
                   layer &&
                   dispatch({
@@ -681,8 +685,8 @@ function ImageDocumentEditor(props: {
                     params: { layerId: layer.id },
                   })
                 ) {
-                  setSelectedLayerId(documentValue().rootLayerIds.at(-1) ?? '')
-                }
+                setSelectedLayerId(documentValue().rootLayerIds.at(-1) ?? '')
+              }
               }}
             >
               {message('imageDocument.editor.action.remove')}
@@ -769,15 +773,15 @@ function ImageDocumentEditor(props: {
                   class="image-document-render-result"
                   data-testid="authoritative-image-document-render"
                 >
-                  <a href={result.assetUrl} download={`${entryName()}.png`}>
+              <a href={result.assetUrl} download={`${entryName()}.png`}>
                     <img
                       src={result.assetUrl}
                       alt={message(
                         'imageDocument.editor.region.authoritativeOutput',
                       )}
                     />
-                  </a>
-                  <dl>
+              </a>
+              <dl>
                     <div>
                       <dt>
                         {message('imageDocument.editor.provenance.output')}
@@ -835,7 +839,7 @@ function ImageDocumentEditor(props: {
                         <code>{result.response.cacheKey}</code>
                       </dd>
                     </div>
-                  </dl>
+              </dl>
                   <a
                     class="image-document-download"
                     href={result.assetUrl}
@@ -868,14 +872,14 @@ function ImageDocumentEditor(props: {
                 {(field) => (
                   <label>
                     {message(`imageDocument.editor.field.${field}`)}
-                    <ProductNumberInput
+                <ProductNumberInput
                       ariaLabel={message(
                         `imageDocument.editor.aria.canvas.${field}`,
                       )}
-                      step={1}
-                      value={documentValue().canvas[field]}
-                      commitUnchanged
-                      onRevert={() => props.onError(undefined)}
+                  step={1}
+                  value={documentValue().canvas[field]}
+                  commitUnchanged
+                  onRevert={() => props.onError(undefined)}
                       onCommit={(raw) =>
                         commitInteger(
                           raw,
@@ -891,14 +895,14 @@ function ImageDocumentEditor(props: {
                             }),
                         )
                       }
-                    />
+                />
                   </label>
                 )}
               </For>
             </div>
             <label class="image-document-check">
               <ProductCheckbox
-                ariaLabel={message('imageDocument.editor.aria.linearColor')}
+              ariaLabel={message('imageDocument.editor.aria.linearColor')}
                 checked={
                   documentValue().canvas.compositing ===
                   'linear-premultiplied-alpha'
@@ -961,8 +965,8 @@ function ImageDocumentEditor(props: {
                       min={field.id === 'x' || field.id === 'y' ? 0 : 1}
                       max={field.max()}
                       step={1}
-                      value={field.value()}
-                      onInput={(raw) => field.set(Number(raw))}
+                value={field.value()}
+                onInput={(raw) => field.set(Number(raw))}
                     />
                   </label>
                 )}
@@ -1037,7 +1041,7 @@ function ImageDocumentEditor(props: {
                   setCropY(0)
                   setCropWidth(documentValue().canvas.width)
                   setCropHeight(documentValue().canvas.height)
-                }
+              }
               }}
             >
               {message('imageDocument.editor.action.applyResize')}
@@ -1048,8 +1052,8 @@ function ImageDocumentEditor(props: {
             <label>
               {message('imageDocument.editor.field.format')}
               <ProductSelect
-                ariaLabel={message('imageDocument.editor.aria.outputFormat')}
-                selectedId={imageOutputPolicyOf(documentValue()).format}
+              ariaLabel={message('imageDocument.editor.aria.outputFormat')}
+              selectedId={imageOutputPolicyOf(documentValue()).format}
                 options={IMAGE_OUTPUT_FORMATS.map((format) => ({
                   id: format,
                   label: format.toUpperCase(),
@@ -1074,8 +1078,8 @@ function ImageDocumentEditor(props: {
                 min={0}
                 max={100}
                 step={1}
-                disabled={imageOutputPolicyOf(documentValue()).format === 'png'}
-                value={imageOutputPolicyOf(documentValue()).quality}
+              disabled={imageOutputPolicyOf(documentValue()).format === 'png'}
+              value={imageOutputPolicyOf(documentValue()).quality}
                 onCommit={(raw) =>
                   dispatch({
                     command: 'image.output.update',
@@ -1146,7 +1150,7 @@ function ImageDocumentEditor(props: {
                       ariaLabel={message(
                         'imageDocument.editor.aria.layerBlendMode',
                       )}
-                      selectedId={layer().blendMode}
+                    selectedId={layer().blendMode}
                       options={IMAGE_BLEND_MODES.map((mode) => ({
                         id: mode,
                         label: mode,
@@ -1162,7 +1166,7 @@ function ImageDocumentEditor(props: {
                       ariaLabel={message(
                         'imageDocument.editor.aria.clipPrevious',
                       )}
-                      checked={layer().clipping === 'clip-to-previous'}
+                    checked={layer().clipping === 'clip-to-previous'}
                       onChange={(clip) =>
                         updateLayer({
                           clipping: clip ? 'clip-to-previous' : 'none',
@@ -1177,10 +1181,10 @@ function ImageDocumentEditor(props: {
                       ariaLabel={message(
                         'imageDocument.editor.aria.layerZOrder',
                       )}
-                      step={1}
-                      value={layer().z_index ?? selectedRow()?.index ?? 0}
-                      commitUnchanged
-                      onRevert={() => props.onError(undefined)}
+                    step={1}
+                    value={layer().z_index ?? selectedRow()?.index ?? 0}
+                    commitUnchanged
+                    onRevert={() => props.onError(undefined)}
                       onCommit={(raw) =>
                         commitInteger(
                           raw,
@@ -1244,7 +1248,7 @@ function ImageDocumentEditor(props: {
                                 ),
                               },
                             )}
-                            step={field === 'tx' || field === 'ty' ? 1 : 0.01}
+                        step={field === 'tx' || field === 'ty' ? 1 : 0.01}
                             value={
                               layer().transform[field] / IMAGE_FIXED_POINT_SCALE
                             }
@@ -1272,15 +1276,15 @@ function ImageDocumentEditor(props: {
                     accept="image/png,image/jpeg,image/webp"
                     hidden
                     onChange={(event) => {
-                      const file = event.currentTarget.files?.[0]
-                      if (file) void addMask(file)
+                    const file = event.currentTarget.files?.[0]
+                    if (file) void addMask(file)
                     }}
                   />
                   <For each={layer().maskIds}>
                     {(maskId) => {
                       const mask = () => documentValue().masks[maskId]!
                       return (
-                        <div class="image-document-mask">
+                      <div class="image-document-mask">
                           <strong>
                             {message('imageDocument.editor.field.rasterMask')}
                           </strong>
@@ -1326,10 +1330,10 @@ function ImageDocumentEditor(props: {
                               ariaLabel={message(
                                 'imageDocument.editor.aria.maskOpacity',
                               )}
-                              min={0}
-                              max={100}
+                          min={0}
+                          max={100}
                               value={(mask().opacity / IMAGE_OPACITY_MAX) * 100}
-                              onInput={() => undefined}
+                          onInput={() => undefined}
                               onCommit={(value) =>
                                 dispatch({
                                   command: 'image.mask.update',
@@ -1349,7 +1353,7 @@ function ImageDocumentEditor(props: {
                               ariaLabel={message(
                                 'imageDocument.editor.aria.maskCombine',
                               )}
-                              selectedId={mask().combineMode}
+                          selectedId={mask().combineMode}
                               options={IMAGE_MASK_COMBINE_MODES.map((mode) => ({
                                 id: mode,
                                 label: mode,
@@ -1369,7 +1373,7 @@ function ImageDocumentEditor(props: {
                               ariaLabel={message(
                                 'imageDocument.editor.aria.maskChannel',
                               )}
-                              selectedId={mask().channel}
+                          selectedId={mask().channel}
                               options={(['alpha', 'luminance'] as const).map(
                                 (channel) => ({
                                   id: channel,
@@ -1397,7 +1401,7 @@ function ImageDocumentEditor(props: {
                           >
                             {message('imageDocument.editor.action.removeMask')}
                           </button>
-                        </div>
+                      </div>
                       )
                     }}
                   </For>
@@ -1492,7 +1496,7 @@ export function ImageDocumentWorkspace(props: {
         (backend) =>
           backend.protocol === 'dinkster' &&
           (baseUrl === undefined || backend.baseUrl === baseUrl),
-      )
+    )
   }
 
   const setBusy = (value: boolean): void => {
@@ -1518,12 +1522,12 @@ export function ImageDocumentWorkspace(props: {
           undefined,
           entry.draft.updatedAt,
         )
-        entry.draft = saved
-        if (live) refresh()
+      entry.draft = saved
+      if (live) refresh()
       })
       .catch((cause) => {
-        if (live) setError(`Draft recovery save failed: ${messageOf(cause)}`)
-      })
+      if (live) setError(`Draft recovery save failed: ${messageOf(cause)}`)
+    })
   }
   const scheduleHydrate = (entry: OpenImageDocument): void => {
     const shared = entry.collaboration
@@ -1540,24 +1544,25 @@ export function ImageDocumentWorkspace(props: {
         ),
       )
       .then(() => {
-        if (live) setResourceTick((tick) => tick + 1)
+      if (live) setResourceTick((tick) => tick + 1)
       })
       .catch((cause) => {
-        if (live) setError(`Shared image resource failed: ${messageOf(cause)}`)
-      })
+      if (live) setError(`Shared image resource failed: ${messageOf(cause)}`)
+    })
   }
   const attach = (
     draft: ImageDocumentDraft,
     shared?: {
       readonly descriptor: CollabSessionDescriptor
       readonly baseUrl: string
-      readonly session: SharedImageDocumentSession
+      readonly session: SharedDocumentSession<ImageDocument>
     },
     authoritative?: VerifiedImageDocumentRender,
     origin?: ImageDocumentGraphOrigin,
   ): OpenImageDocument => {
     const session =
-      shared?.session ?? createLocalImageDocumentSession(draft.document)
+      shared?.session ??
+      new LocalDocumentTypeSession(draft.document, imageDocumentTypeAdapter)
     let entry!: OpenImageDocument
     const stopOperation = session.onOp(() => {
       queuePersist(entry)
@@ -1642,7 +1647,7 @@ export function ImageDocumentWorkspace(props: {
     }
     setDocuments((current) =>
       previous === undefined
-        ? [...current, next]
+      ? [...current, next]
         : current.map((entry) => (entry === previous ? next : entry)),
     )
     setActiveLineage(next.draft.document.lineage)
@@ -1667,24 +1672,26 @@ export function ImageDocumentWorkspace(props: {
       sessionId: descriptor.sessionId,
       actorId: props.app.collabActorId,
     })
-    let session: SharedImageDocumentSession
+    let session: SharedDocumentSession<ImageDocument>
     try {
-      session = await connectSharedImageDocumentSession(
+      session = await connectDocumentSession(
         connection,
-        descriptor,
+        imageDocumentTypeAdapter,
         {
-          actorId: props.app.collabActorId,
-          onConflict: (conflict) => {
+        actorId: props.app.collabActorId,
+        onConflict: (conflict) => {
             if (live)
               setLocalizedError('imageDocument.workspace.error.conflict', {
-                reason: conflict.message,
+                reason: conflict.diagnostics
+                  .map((diagnostic) => diagnostic.message)
+                  .join('; '),
               })
-          },
-          onError: (reason) => {
+        },
+        onError: (reason) => {
             if (live)
               setLocalizedError('imageDocument.workspace.error.sessionFailed', {
                 reason,
-              })
+      })
           },
         },
       )
@@ -1724,9 +1731,9 @@ export function ImageDocumentWorkspace(props: {
       const next = attach(
         { ...linked, document: sharedDocument, name: saved.name },
         {
-          descriptor,
-          baseUrl,
-          session,
+        descriptor,
+        baseUrl,
+        session,
         },
       )
       replaceEntry(previous, next)
@@ -1851,7 +1858,7 @@ export function ImageDocumentWorkspace(props: {
       props.app.showTransientStatus(
         message(
           remote
-            ? 'imageDocument.workspace.status.sharedEnded'
+        ? 'imageDocument.workspace.status.sharedEnded'
             : 'imageDocument.workspace.status.leftShared',
           { name: entry.name },
         ),
@@ -1927,8 +1934,8 @@ export function ImageDocumentWorkspace(props: {
     if (backend?.protocol !== 'dinkster') return
     const duplicate = documents().find(
       (entry) =>
-        entry.collaboration?.descriptor.sessionId === descriptor.sessionId &&
-        entry.collaboration.baseUrl === backend.baseUrl,
+      entry.collaboration?.descriptor.sessionId === descriptor.sessionId &&
+      entry.collaboration.baseUrl === backend.baseUrl,
     )
     if (duplicate !== undefined) {
       setActiveLineage(duplicate.draft.document.lineage)
@@ -1996,29 +2003,29 @@ export function ImageDocumentWorkspace(props: {
     void store
       .recoverDrafts()
       .then(async (recovery) => {
-        if (!live) return
-        const recovered = recovery.drafts.map((draft) => attach(draft))
-        setDocuments(recovered)
-        setActiveLineage(recovered.at(-1)?.draft.document.lineage ?? '')
-        if (recovery.rejectedLineages.length > 0) {
+      if (!live) return
+      const recovered = recovery.drafts.map((draft) => attach(draft))
+      setDocuments(recovered)
+      setActiveLineage(recovered.at(-1)?.draft.document.lineage ?? '')
+      if (recovery.rejectedLineages.length > 0) {
           setLocalizedError('imageDocument.workspace.error.invalidDrafts', {
             count: recovery.rejectedLineages.length,
           })
-        }
-        for (const draft of recovery.drafts) {
-          if (!live || draft.collaboration === undefined) continue
+      }
+      for (const draft of recovery.drafts) {
+        if (!live || draft.collaboration === undefined) continue
           const previous = documents().find(
             (entry) => entry.draft.document.lineage === draft.document.lineage,
           )
-          const backend = backendForCollaboration(draft.collaboration.baseUrl)
+        const backend = backendForCollaboration(draft.collaboration.baseUrl)
           if (previous === undefined || backend?.protocol !== 'dinkster')
             continue
-          setCollaborationTransition(true)
-          try {
-            const descriptor = await props.app.collabTransport.get(
-              draft.collaboration.baseUrl,
-              draft.collaboration.sessionId,
-            )
+        setCollaborationTransition(true)
+        try {
+          const descriptor = await props.app.collabTransport.get(
+            draft.collaboration.baseUrl,
+            draft.collaboration.sessionId,
+          )
             if (
               descriptor === undefined ||
               descriptor.documentKind !== 'image' ||
@@ -2028,19 +2035,19 @@ export function ImageDocumentWorkspace(props: {
                 draft.document.lineage,
                 undefined,
               )
-              refresh()
-              continue
-            }
-            await adoptShared(descriptor, draft.collaboration.baseUrl, previous)
-          } catch (cause) {
+            refresh()
+            continue
+          }
+          await adoptShared(descriptor, draft.collaboration.baseUrl, previous)
+        } catch (cause) {
             if (live)
               setLocalizedError('imageDocument.workspace.error.rejoinFailed', {
                 reason: messageOf(cause),
               })
-          } finally {
-            if (live) setCollaborationTransition(false)
-          }
+        } finally {
+          if (live) setCollaborationTransition(false)
         }
+      }
       })
       .catch((cause) => {
         if (live)
@@ -2053,7 +2060,7 @@ export function ImageDocumentWorkspace(props: {
           setLoading(false)
           props.onReady?.()
         }
-      })
+    })
   })
   onCleanup(() => {
     live = false
@@ -2065,8 +2072,8 @@ export function ImageDocumentWorkspace(props: {
     }
     void Promise.all(
       current.flatMap((entry) => [
-        entry.persist.catch(() => undefined),
-        entry.hydrate.catch(() => undefined),
+      entry.persist.catch(() => undefined),
+      entry.hydrate.catch(() => undefined),
       ]),
     ).finally(() => store.close())
   })
@@ -2107,14 +2114,14 @@ export function ImageDocumentWorkspace(props: {
       )
       if (live && props.graphRequest === request)
         openDraft(opened.draft, opened.render, {
-          connectionId: request.connectionId,
-          sourceTabId: request.sourceTabId,
-          graphId: request.graphId,
-          sourceNodeId: request.sourceNodeId,
-          sourceOutputId: request.sourceOutputId,
-          expectedGraphFingerprint: request.expectedGraphFingerprint,
-          document: opened.document,
-        })
+        connectionId: request.connectionId,
+        sourceTabId: request.sourceTabId,
+        graphId: request.graphId,
+        sourceNodeId: request.sourceNodeId,
+        sourceOutputId: request.sourceOutputId,
+        expectedGraphFingerprint: request.expectedGraphFingerprint,
+        document: opened.document,
+      })
     })()
       .catch((cause) => {
         if (live && props.graphRequest === request)
@@ -2123,11 +2130,11 @@ export function ImageDocumentWorkspace(props: {
           })
       })
       .finally(() => {
-        if (live && props.graphRequest === request) {
-          props.onGraphRequestHandled?.()
-          setBusy(false)
-        }
-      })
+      if (live && props.graphRequest === request) {
+        props.onGraphRequestHandled?.()
+        setBusy(false)
+      }
+    })
   })
   const saveDraft = async (entry: OpenImageDocument): Promise<void> => {
     setBusy(true)
@@ -2158,17 +2165,17 @@ export function ImageDocumentWorkspace(props: {
           store,
           entry.session.doc,
           {
-            scope: LIBRARY_SCOPE,
-            connectionId: backend.id,
-            name: entry.name,
+        scope: LIBRARY_SCOPE,
+        connectionId: backend.id,
+        name: entry.name,
             ...(entry.draft.library !== undefined
               ? { link: entry.draft.library }
               : {}),
           },
         )
-        entry.draft = saved.draft
-        if (live) refresh()
-      })
+      entry.draft = saved.draft
+      if (live) refresh()
+    })
     entry.persist = task.catch(() => undefined)
     try {
       await task
@@ -2355,8 +2362,8 @@ export function ImageDocumentWorkspace(props: {
       data-testid="image-document-workspace"
     >
       <header class="image-document-tabs">
-        <button
-          type="button"
+            <button
+              type="button"
           onClick={() => importInput.click()}
           disabled={busy()}
         >
@@ -2383,10 +2390,10 @@ export function ImageDocumentWorkspace(props: {
               <Show
                 when={entry.collaboration}
                 fallback={
-                  <button
-                    type="button"
-                    data-testid="image-collab-share"
-                    onClick={() => void shareActive()}
+            <button
+              type="button"
+              data-testid="image-collab-share"
+              onClick={() => void shareActive()}
                     disabled={
                       busy() ||
                       backendForCollaboration()?.protocol !== 'dinkster'
@@ -2403,7 +2410,7 @@ export function ImageDocumentWorkspace(props: {
                   {sharedStatus(entry) === 'live'
                     ? message('imageDocument.workspace.shared.live')
                     : sharedStatus(entry)}
-                </span>
+            </span>
                 <button
                   type="button"
                   data-testid="image-collab-leave"
@@ -2421,7 +2428,7 @@ export function ImageDocumentWorkspace(props: {
                 >
                   {message('imageDocument.workspace.action.end')}
                 </button>
-              </Show>
+          </Show>
             </>
           )}
         </Show>
@@ -2431,8 +2438,8 @@ export function ImageDocumentWorkspace(props: {
           accept="image/png,image/jpeg,image/webp"
           hidden
           onChange={(event) => {
-            const file = event.currentTarget.files?.[0]
-            if (file) void importDocument(file)
+          const file = event.currentTarget.files?.[0]
+          if (file) void importDocument(file)
           }}
         />
       </header>
@@ -2468,41 +2475,41 @@ export function ImageDocumentWorkspace(props: {
           <For each={documents()}>
             {(entry) => (
               <section
-                id={panelId(entry.draft.document.lineage)}
-                role="tabpanel"
-                aria-labelledby={tabId(entry.draft.document.lineage)}
-                class="image-document-tabpanel"
+            id={panelId(entry.draft.document.lineage)}
+            role="tabpanel"
+            aria-labelledby={tabId(entry.draft.document.lineage)}
+            class="image-document-tabpanel"
                 hidden={entry.draft.document.lineage !== activeLineage()}
-              >
-                <ImageDocumentEditor
+          >
+            <ImageDocumentEditor
                   active={() =>
                     props.active &&
                     entry.draft.document.lineage === activeLineage()
                   }
-                  entry={entry}
-                  store={store}
-                  busy={busy}
-                  editingBlocked={collaborationTransition}
-                  error={errorText}
-                  metadataTick={metadataTick}
-                  onError={setError}
+              entry={entry}
+              store={store}
+              busy={busy}
+              editingBlocked={collaborationTransition}
+              error={errorText}
+              metadataTick={metadataTick}
+              onError={setError}
                   onName={(name) => {
                     entry.name = name
                     refresh()
                     queuePersist(entry, entry.session.doc, name)
                   }}
-                  onSave={() => saveDraft(entry)}
-                  onPublish={() => publish(entry)}
-                  onExport={() => exportSnapshot(entry)}
+              onSave={() => saveDraft(entry)}
+              onPublish={() => publish(entry)}
+              onExport={() => exportSnapshot(entry)}
                   {...(entry.origin === undefined
                     ? {}
                     : { onExportRecipe: () => exportRecipe(entry) })}
-                  onRender={renderAuthoritative}
+              onRender={renderAuthoritative}
                   onResourceReady={(resource) =>
                     uploadPreparedResource(entry, resource)
                   }
-                  resourceTick={resourceTick}
-                />
+              resourceTick={resourceTick}
+            />
               </section>
             )}
           </For>
@@ -2595,19 +2602,19 @@ export function ImageDocumentWorkspace(props: {
           >
             <For each={collaborationSessions()}>
               {(descriptor) => (
-                <button
-                  type="button"
-                  disabled={busy()}
-                  data-testid="image-collab-join"
-                  onClick={() => void joinShared(descriptor)}
-                >
-                  <strong>{descriptor.documentId}</strong>
+              <button
+                type="button"
+                disabled={busy()}
+                data-testid="image-collab-join"
+                onClick={() => void joinShared(descriptor)}
+              >
+                <strong>{descriptor.documentId}</strong>
                   <small>
                     {message('imageDocument.workspace.dialog.shared.revision', {
                       revision: descriptor.revision,
                     })}
                   </small>
-                </button>
+              </button>
               )}
             </For>
           </Show>
@@ -2615,24 +2622,24 @@ export function ImageDocumentWorkspace(props: {
       </Show>
       <Show when={confirmingEnd() ? active() : undefined} keyed>
         {(entry) => (
-          <div
-            class="image-document-library image-document-end-dialog"
-            role="dialog"
-            aria-labelledby="image-document-end-title"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && !busy()) {
-                event.preventDefault()
-                setConfirmingEnd(false)
-              }
-            }}
-          >
+        <div
+          class="image-document-library image-document-end-dialog"
+          role="dialog"
+          aria-labelledby="image-document-end-title"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && !busy()) {
+              event.preventDefault()
+              setConfirmingEnd(false)
+            }
+          }}
+        >
             <header>
               <strong id="image-document-end-title">
                 {message('imageDocument.workspace.dialog.end.title')}
               </strong>
             </header>
-            <p>{message('imageDocument.workspace.dialog.end.description')}</p>
-            <div class="image-document-end-actions">
+          <p>{message('imageDocument.workspace.dialog.end.description')}</p>
+          <div class="image-document-end-actions">
               <button
                 type="button"
                 data-testid="image-collab-end-cancel"
@@ -2651,8 +2658,8 @@ export function ImageDocumentWorkspace(props: {
               >
                 {message('imageDocument.workspace.action.endSession')}
               </button>
-            </div>
           </div>
+        </div>
         )}
       </Show>
     </section>

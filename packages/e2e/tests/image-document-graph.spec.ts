@@ -83,7 +83,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
           contentType: mime,
           body: fixture.canonical,
           headers: {
-            'X-Dinkster-Type-Id': 'dinkster.layers',
+        'X-Dinkster-Type-Id': 'dinkster.layers',
             'X-Dinkster-Fingerprint': 'graph-document',
             'X-Dinkster-Rendition': 'document',
           },
@@ -95,7 +95,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
               typeId: 'dinkster.layers',
               fingerprint: 'graph-document',
             },
-            renditions: [{ kind: 'document', mime }],
+        renditions: [{ kind: 'document', mime }],
           },
         })
   })
@@ -121,8 +121,8 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
       return route.fulfill({
         status: 201,
         json: {
-          cacheKey: `blake3:${'e'.repeat(64)}`,
-          cached: false,
+        cacheKey: `blake3:${'e'.repeat(64)}`,
+        cached: false,
           asset: {
             digest: resource.digest,
             name: 'composite.png',
@@ -130,29 +130,29 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
             mediaType: 'image/png',
             virtualPath: '',
           },
-          provenance: {
-            documentDigest: decodeURIComponent(url.pathname.split('/').at(-2)!),
-            selector,
-            profile: 'dinkster-image-document-v2-cpu-reference',
-            rendererContract: 'fixture-renderer',
-            encoding: 'image/png;dinkster-canonical=1',
-            source: {
-              digest: decodeURIComponent(url.pathname.split('/').at(-2)!),
-              mediaType: mime,
-              dependencies: Object.values(resources).map((entry) => {
-                const { id, kind: _kind, ...fields } = entry
-                return { resourceId: id, ...fields }
-              }),
-            },
-            output: {
-              digest: resource.digest,
-              byteSize: fixture.bytes.length,
-              mediaType: 'image/png',
-              width: (fixture.document.canvas as { width: number }).width,
-              height: (fixture.document.canvas as { height: number }).height,
-              encoding: 'image/png;dinkster-canonical=1',
-            },
+        provenance: {
+          documentDigest: decodeURIComponent(url.pathname.split('/').at(-2)!),
+          selector,
+          profile: 'dinkster-image-document-v2-cpu-reference',
+          rendererContract: 'fixture-renderer',
+          encoding: 'image/png;dinkster-canonical=1',
+          source: {
+            digest: decodeURIComponent(url.pathname.split('/').at(-2)!),
+            mediaType: mime,
+            dependencies: Object.values(resources).map((entry) => {
+              const { id, kind: _kind, ...fields } = entry
+              return { resourceId: id, ...fields }
+            }),
           },
+          output: {
+            digest: resource.digest,
+            byteSize: fixture.bytes.length,
+            mediaType: 'image/png',
+            width: (fixture.document.canvas as { width: number }).width,
+            height: (fixture.document.canvas as { height: number }).height,
+            encoding: 'image/png;dinkster-canonical=1',
+          },
+        },
         },
       })
     }
@@ -183,9 +183,9 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
         dependencies: Object.values(
           document.resources as Record<string, Record<string, unknown>>,
         ).map((resource) => {
-          const { id, kind: _kind, ...fields } = resource
-          return { resourceId: id, ...fields }
-        }),
+        const { id, kind: _kind, ...fields } = resource
+        return { resourceId: id, ...fields }
+      }),
       },
     })
   })
@@ -371,7 +371,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
       runtimeNodeId: 'source',
       timestamp: Date.now(),
       output: {
-        layers: { typeId: 'dinkster.layers', fingerprint: 'graph-document' },
+      layers: { typeId: 'dinkster.layers', fingerprint: 'graph-document' },
       },
     })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
@@ -524,8 +524,8 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
         link.from.node !== loaders[0]!.id
       )
         return false
-      const destinationNode = link.to.node
-      return flatteners.some((node) => node.id === destinationNode)
+    const destinationNode = link.to.node
+    return flatteners.some((node) => node.id === destinationNode)
     }),
   ).toBe(true)
   expect(graph.nodes.source?.values).toEqual({})
@@ -638,18 +638,18 @@ test('layer rows and structural edits respect explicit z order', async ({
   const numericError = workspace.locator('.image-document-error')
   const storedZ = () =>
     page.evaluate(async () => {
-      const localPath = '/src/image-document-local.ts'
-      const projectPath = '/src/projects.ts'
-      const { ImageDocumentLocalStore } = await import(localPath)
-      const { activeProjectId } = await import(projectPath)
-      const store = new ImageDocumentLocalStore(activeProjectId())
+    const localPath = '/src/image-document-local.ts'
+    const projectPath = '/src/projects.ts'
+    const { ImageDocumentLocalStore } = await import(localPath)
+    const { activeProjectId } = await import(projectPath)
+    const store = new ImageDocumentLocalStore(activeProjectId())
       try {
         return (await store.recoverDraft('z-order-document'))!.document.layers
           .l1.z_index
       } finally {
         await store.close()
       }
-    })
+  })
   for (const invalid of [
     '',
     '   ',

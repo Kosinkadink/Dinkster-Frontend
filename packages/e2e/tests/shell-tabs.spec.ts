@@ -257,7 +257,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
         const untitled = window
           .__dinksterTest!.app.tabs.get()
           .find((entry) => entry.title === 'Untitled')
-        return untitled !== undefined && 'status' in untitled.store
+    return untitled !== undefined && 'status' in untitled.store
       }),
     )
     .toBe(true)
@@ -388,7 +388,7 @@ test('topbar search stays geometrically centered and chrome order is stable', as
     await page
       .locator('.topbar-group-right > button')
       .evaluateAll((buttons) =>
-        buttons.map((button) => button.getAttribute('data-testid')),
+    buttons.map((button) => button.getAttribute('data-testid')),
       ),
   ).toEqual([
     'customize-layout-button',
@@ -538,9 +538,9 @@ test('draggable shell edges keep a seven pixel hit target and highlight a thicke
     await expect(handle).toBeVisible()
     const before = await handle.evaluate(
       (element, dimensions) => ({
-        hit: element.getBoundingClientRect()[dimensions.hitDimension],
-        edge: getComputedStyle(element, '::after')[dimensions.edgeDimension],
-        edgeColor: getComputedStyle(element, '::after').backgroundColor,
+      hit: element.getBoundingClientRect()[dimensions.hitDimension],
+      edge: getComputedStyle(element, '::after')[dimensions.edgeDimension],
+      edgeColor: getComputedStyle(element, '::after').backgroundColor,
       }),
       { hitDimension, edgeDimension },
     )
@@ -589,16 +589,16 @@ test('tab strip suppresses vertical scrolling and retains horizontal overflow', 
   const overflow = await page
     .getByRole('tablist', { name: 'Open workflows' })
     .evaluate((element) => {
-      const style = getComputedStyle(element)
-      const before = element.scrollLeft
-      element.scrollLeft = element.scrollWidth
-      return {
-        overflowX: style.overflowX,
-        overflowY: style.overflowY,
-        hasHorizontalOverflow: element.scrollWidth > element.clientWidth,
-        scrolledHorizontally: element.scrollLeft > before,
-      }
-    })
+    const style = getComputedStyle(element)
+    const before = element.scrollLeft
+    element.scrollLeft = element.scrollWidth
+    return {
+      overflowX: style.overflowX,
+      overflowY: style.overflowY,
+      hasHorizontalOverflow: element.scrollWidth > element.clientWidth,
+      scrolledHorizontally: element.scrollLeft > before,
+    }
+  })
   expect(overflow).toEqual({
     overflowX: 'auto',
     overflowY: 'hidden',
