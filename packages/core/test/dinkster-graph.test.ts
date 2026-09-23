@@ -200,7 +200,7 @@ describe('validateDinksterGraph', () => {
     expect(validateDinksterGraph(graphWith(region as unknown as DinksterRegionWire))).toContainEqual(
       expect.objectContaining({
         code: 'dinksterGraph.regionShape',
-        message: "region 'r': output 'results' has unknown mode 'scatter'; expected gather, compact, state, or flatten",
+        message: "region 'r': output 'results' has unknown mode 'scatter'; expected gather, compact, state, flatten, or last",
         data: { nodeId: 'r', inputId: 'results' },
       }),
     )

@@ -147,7 +147,7 @@ export interface DinksterNodeEntryWire {
 
 export type DinksterRegionKind = 'map' | 'fold' | 'while'
 export type DinksterRegionBinding = 'zip' | 'cross' | 'broadcast'
-export type DinksterRegionOutputMode = 'gather' | 'compact' | 'state' | 'flatten'
+export type DinksterRegionOutputMode = 'gather' | 'compact' | 'state' | 'flatten' | 'last'
 
 export interface DinksterRegionOutputWire {
   readonly source: { readonly node: string; readonly output: string }
@@ -174,6 +174,8 @@ export interface DinksterRegionWire {
   readonly maxIterations?: number
   /** Body output that decides iteration N+1 (while only). */
   readonly continueSource?: { readonly node: string; readonly output: string }
+  /** Body occurrence cache policy. Omitted = 'reuse'. */
+  readonly cachePolicy?: 'reuse' | 'rerun'
 }
 
 export interface DinksterRegionEntryWire {
@@ -255,7 +257,7 @@ export function typeExprToDinksterWire(t: TypeExpr): Json | undefined {
 // ---------------------------------------------------------------------------
 
 const REGION_KINDS: ReadonlySet<string> = new Set(['map', 'fold', 'while'])
-const OUTPUT_MODES: ReadonlySet<string> = new Set(['gather', 'compact', 'state', 'flatten'])
+const OUTPUT_MODES: ReadonlySet<string> = new Set(['gather', 'compact', 'state', 'flatten', 'last'])
 
 export interface DinksterGraphValidationNode {
   readonly anchor: DiagnosticAnchor
@@ -451,6 +453,8 @@ function validateRegion(
   // Profile rules (map / fold / while).
   if (region.binding !== undefined && region.binding !== 'zip' && region.binding !== 'cross' && region.binding !== 'broadcast')
     shape(`unknown binding '${String(region.binding)}'; expected zip, cross, or broadcast`)
+  if (region.cachePolicy !== undefined && region.cachePolicy !== 'reuse' && region.cachePolicy !== 'rerun')
+    shape(`unknown cache policy '${String(region.cachePolicy)}'; expected reuse or rerun`)
   if (
     region.maxIterations !== undefined &&
     (!Number.isInteger(region.maxIterations) || region.maxIterations <= 0)
@@ -465,7 +469,6 @@ function validateRegion(
       break
     case 'fold':
       if (elementPorts.length === 0) shape('fold requires at least one element port')
-      if (statePorts.length === 0) shape('fold requires at least one state port')
       if (region.continueSource !== undefined) shape('fold does not take a continueSource')
       break
     case 'while':
@@ -510,7 +513,7 @@ function validateRegion(
   const stateOutputs = new Set<string>()
   for (const [outputId, output] of Object.entries(region.outputs)) {
     if (output.mode !== undefined && !OUTPUT_MODES.has(output.mode))
-      shape(`output '${outputId}' has unknown mode '${String(output.mode)}'; expected gather, compact, state, or flatten`, outputId, 'output')
+      shape(`output '${outputId}' has unknown mode '${String(output.mode)}'; expected gather, compact, state, flatten, or last`, outputId, 'output')
     requireBodySource(output.source, `output '${outputId}'`, outputId)
     const sourceType = bodyOutputType(region, output.source, path, context)
     if (output.mode === undefined || output.mode === 'gather' || output.mode === 'compact') {
@@ -523,6 +526,8 @@ function validateRegion(
       } else if (sourceType !== undefined && canonicalTypeIdOf(sourceType) === undefined) {
         out.push(diag('error', 'compile', 'dinksterGraph.flattenNonConcrete', `region '${path}': output '${outputId}' flattens a non-runtime-resolvable list type`, anchorData(context, path, outputId, 'output')))
       }
+    } else if (output.mode === 'last' && sourceType !== undefined && canonicalTypeIdOf(sourceType) === undefined) {
+      out.push(diag('error', 'compile', 'dinksterGraph.lastNonConcrete', `region '${path}': output '${outputId}' selects the last value of a ${sourceType.kind}-typed body output; last requires a concrete runtime type`, anchorData(context, path, outputId, 'output')))
     }
     if (output.mode === 'state') {
       stateOutputs.add(outputId)
@@ -577,10 +582,10 @@ function bodyOutputType(
       return undefined
     }
   }
-  if (output.mode !== undefined && output.mode !== 'gather' && output.mode !== 'compact' && output.mode !== 'flatten') return undefined
+  if (output.mode !== undefined && output.mode !== 'gather' && output.mode !== 'compact' && output.mode !== 'flatten' && output.mode !== 'last') return undefined
   const inner = bodyOutputType(producer.region, output.source, joinPath(path, source.node), context)
   if (inner === undefined) return undefined
-  return output.mode === 'flatten' ? inner : { kind: 'list', element: inner }
+  return output.mode === 'flatten' || output.mode === 'last' ? inner : { kind: 'list', element: inner }
 }
 
 /**

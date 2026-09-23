@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { comfyAliasCatalogFromDinksterWire, type ComfyAliasRecord } from '../src/schema/comfy-alias.js'
+import { COMFY_CORE_REVISION } from '../src/schema/comfy-registry-codec.js'
 import type { DinksterNodesPayload } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
@@ -54,7 +55,7 @@ const record = (
     pack: 'comfy-core',
     nodeClass,
     nodeType: sourceType,
-    revision: 'b78cec87',
+    revision: COMFY_CORE_REVISION,
   },
   replacement: {
     from: sourceType,
@@ -197,7 +198,7 @@ describe('ComfyUI alias registry wire', () => {
     const sourceType = 'comfy_alias:comfy-core/LegacyAdd'
     const cases = [
       { ...record('LegacyAdd', sourceType, 'dinkster.math.add'), confidence: { tier: 'exact', evidence: ['x'], tolerances: [] } },
-      { ...record('LegacyAdd', sourceType, 'dinkster.math.add'), source: { pack: 'comfy-core', nodeClass: 'LegacyAdd', nodeType: 'wrong', revision: 'b78cec87' } },
+      { ...record('LegacyAdd', sourceType, 'dinkster.math.add'), source: { pack: 'comfy-core', nodeClass: 'LegacyAdd', nodeType: 'wrong', revision: COMFY_CORE_REVISION } },
       { ...record('LegacyAdd', sourceType, 'dinkster.math.add'), carrier: 'dinkster.other' },
     ]
     for (const candidate of cases) {

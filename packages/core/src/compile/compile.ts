@@ -2834,7 +2834,7 @@ function compileImpl(
           source,
           ...(role?.kind === 'state'
             ? { mode: 'state' as const }
-            : role?.kind === 'flatten' || role?.kind === 'compact' ? { mode: role.kind } : {}),
+            : role?.kind === 'flatten' || role?.kind === 'compact' || role?.kind === 'last' ? { mode: role.kind } : {}),
         }
       }
       const continueSource = contract.continueOutput === undefined
@@ -2852,6 +2852,7 @@ function compileImpl(
           outputs,
           ...(contract.maxIterations !== undefined ? { maxIterations: contract.maxIterations } : {}),
           ...(continueSource !== undefined ? { continueSource } : {}),
+          ...(contract.cachePolicy !== undefined ? { cachePolicy: contract.cachePolicy } : {}),
         },
       }
     }

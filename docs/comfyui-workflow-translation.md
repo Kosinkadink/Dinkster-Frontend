@@ -4,7 +4,8 @@ Dinkster translates maintained ComfyUI classes through `dinkster-comfy-alias/1`
 registries delivered by installed native packs. Each record identifies one
 ComfyUI source class and snapshot, its native carrier, a declarative
 replacement rule, and either op-level or family-level confidence evidence.
-Core records are pinned to ComfyUI revision `b78cec87`.
+Core records are pinned to ComfyUI revision
+`b5cc8830279eae909a59de030af1e50761c36751`.
 
 Record IDs use the dedicated `comfy_alias:<pack>/<class>` namespace. Their
 source snapshots retain compatibility types such as `comfy.ImageScale`, but
@@ -90,6 +91,30 @@ The format reference is Comfy-Org/ComfyUI_frontend revision
 official nested workflows, drills through both boundaries, and saves/reopens
 native documents. Fixture provenance is in
 `packages/core/fixtures/workflows/official-subgraphs/README.md`.
+
+## Generic Loops
+
+Maintained ComfyUI `StartLoop` and `EndLoop` pairs import as explicit fold
+regions. Simple, For, and List iteration preserve binding order, carried state,
+first and last flags, accumulated scalar or output-list results, final-only
+results, termination targets, nesting, and iteration cache policy. A loop with
+no carried state remains a fold because ComfyUI executes iterations in order.
+
+The importer pairs boundaries from the authored topology and refuses the whole
+import when pairing is ambiguous or malformed, a body escapes its End Loop, a
+carry cannot keep one stable type, output cardinality is unknown, or topology
+sugar prevents an exact rewrite. Linked `accumulate` controls are also refused:
+Dinkster output roles are static, while changing `accumulate` at execution time
+would change the output contract. Linked Simple or For range controls are
+refused rather than replaced by stale saved widget values. Static
+`accumulate=false` uses a `last` output, which yields typed absence for zero
+iterations. `cache_iterations=true` maps to `reuse`; false or omitted maps to
+`rerun`.
+
+The structural reference and CPU acceptance corpus are pinned to ComfyUI
+`b5cc8830279eae909a59de030af1e50761c36751`. The corpus covers 22 openable
+workflows, including empty, carried, lazy, output-list, nested, and repeated
+cache cases.
 
 ### Coverage report
 

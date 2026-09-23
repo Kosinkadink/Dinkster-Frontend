@@ -1273,6 +1273,12 @@ export function deriveBoundarySchema(
           const { isList: _isList, ...withoutLegacyList } = item
           projected.push({ ...withoutLegacyList, type: sourceType })
         }
+      } else if (role.kind === 'last') {
+        if (canonicalTypeIdOf(sourceType) === undefined) {
+          diags.push(diag('warning', 'schema', 'doc.region.lastNonConcrete', `[${def.id}] region last output '${item.id}' is not statically runtime-resolvable`))
+        }
+        const { isList: _isList, ...withoutLegacyList } = item
+        projected.push({ ...withoutLegacyList, type: sourceType })
       } else {
         const carriedType = stateInputTypes.get(role.statePort)
         const severity = carriedType === undefined ? undefined : regionSourceMismatch(sourceType, carriedType)
