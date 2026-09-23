@@ -50,6 +50,7 @@ const BACKEND_SERIAL_SPECS = [
   'value-source.spec.ts',
   // Native (:8765) writers: library records, uploads, runs; run-history
   // clears the whole local scope.
+  'collab-one-pipeline-live.spec.ts',
   'workflow-library.spec.ts',
   'asset-widget.spec.ts',
   'run-history.spec.ts',

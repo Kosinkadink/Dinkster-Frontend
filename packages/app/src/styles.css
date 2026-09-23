@@ -6243,6 +6243,10 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   overflow: hidden;
   background: var(--dinkster-surface-canvas);
 }
+/* display: flex defeats the [hidden] attribute's UA rule, so the overlay
+   would keep covering the workflow editor with a blank surface when a
+   workflow tab is active. Honor the attribute explicitly. */
+.document-workspace-overlay[hidden] { display: none; }
 
 .workflow-editor-surface { display: contents; }
 
@@ -7972,7 +7976,9 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
   min-height: 0;
 }
 .video-document-workspace { position: relative; gap: var(--dinkster-space-8); padding: var(--dinkster-space-12); }
+.video-document-workspace[hidden] { display: none; }
 .video-document-panel { gap: var(--dinkster-space-8); }
+.video-document-panel[hidden] { display: none; }
 .video-document-panel > header { display: flex; gap: var(--dinkster-space-8); }
 .video-document-panel > header > input { flex: 1; min-width: 0; }
 .video-document-panel > p { margin: 0; color: var(--dinkster-text-secondary); }
@@ -8106,6 +8112,10 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
   .template-family-grid { grid-template-columns: 1fr; }
 }
 .image-document-tabpanel { display: flex; flex: 1; min-width: 0; min-height: 0; }
+/* The display: flex rules above defeat the [hidden] attribute's UA rule, so
+   inactive documents would still render stacked in the multi-document
+   workspace. Honor the attribute explicitly, as sibling panels do. */
+.image-document-tabpanel[hidden] { display: none; }
 .image-document-editor { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .image-document-toolbar {
   display: flex;
