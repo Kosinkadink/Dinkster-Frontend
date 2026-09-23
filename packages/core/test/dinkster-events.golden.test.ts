@@ -95,6 +95,14 @@ describe('dinkster region lifecycle events', () => {
         detail: { kind: 'map', binding: 'zip', iterations: 3 },
       },
       {
+        type: 'region_iteration_started', runId: 'run-region', jobId: 'job-region', nodeId: 'r',
+        detail: { iteration: 0 },
+      },
+      {
+        type: 'region_iteration_finished', runId: 'run-region', jobId: 'job-region', nodeId: 'r',
+        detail: { iteration: 0 },
+      },
+      {
         type: 'region_finished', runId: 'run-region', jobId: 'job-region', nodeId: 'r',
         detail: { iterations: 3 },
       },
@@ -112,6 +120,22 @@ describe('dinkster region lifecycle events', () => {
         regionKind: 'map',
         binding: 'zip',
         iterations: 3,
+      },
+      {
+        kind: 'regionIteration',
+        execution: { connection: CONN, prompt: 'job-region' },
+        timestamp: 0,
+        runtimeNodeId: 'r',
+        iteration: 0,
+        state: 'running',
+      },
+      {
+        kind: 'regionIteration',
+        execution: { connection: CONN, prompt: 'job-region' },
+        timestamp: 0,
+        runtimeNodeId: 'r',
+        iteration: 0,
+        state: 'completed',
       },
       {
         kind: 'regionFinished',

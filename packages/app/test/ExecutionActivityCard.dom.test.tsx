@@ -4,7 +4,7 @@ import { asConnectionId, asLineageId, asPromptId, type CompileArtifact } from '@
 import type { ExecutionState } from '@dinkster/client'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ExecutionActivityCard, executionNodeSummary, executionProgress } from '../src/ExecutionActivityCard.js'
+import { ExecutionActivityCard, executionNodeSummary, executionProgress, executionRegionIterationRows } from '../src/ExecutionActivityCard.js'
 
 const entry = (over: Partial<ExecutionState> = {}): ExecutionState => ({
   ref: { connection: asConnectionId('backend-long-identity'), prompt: asPromptId('prompt-long-identity') },
@@ -138,6 +138,30 @@ describe('ExecutionActivityCard', () => {
       nodes,
       regions: { region: { kind: 'while', binding: 'zip', iterations: null, finishedIterations: 2 } },
     }))).toEqual({ finished: 2, total: 3, value: 2.5 / 3 })
+  })
+
+  it('shows fixed loop placeholders and live per-item lifecycle states', () => {
+    const current = entry({
+      regions: {
+        region: {
+          kind: 'map', binding: 'zip', iterations: 3,
+          iterationStates: { 0: 'completed', 1: 'running' },
+        },
+      },
+    })
+    expect(executionRegionIterationRows(current)).toEqual([
+      { runtimeId: 'region', kind: 'map', iteration: 0, state: 'completed' },
+      { runtimeId: 'region', kind: 'map', iteration: 1, state: 'running' },
+      { runtimeId: 'region', kind: 'map', iteration: 2, state: 'waiting' },
+    ])
+    const root = document.createElement('div')
+    document.body.append(root)
+    render(() => <ExecutionActivityCard entry={current} title="Loop workflow" testId="activity" />, root)
+    expect([...root.querySelectorAll('.execution-region-iteration')].map((row) => row.textContent)).toEqual([
+      'map region - item 1completed',
+      'map region - item 2running',
+      'map region - item 3waiting',
+    ])
   })
 
   it('keeps incomplete external executions truthful and disables frozen-view entry', () => {

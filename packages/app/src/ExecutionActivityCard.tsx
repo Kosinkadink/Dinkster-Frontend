@@ -1,4 +1,4 @@
-import { Show } from 'solid-js'
+import { For, Show } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
 import { isDinksterRegionEntry, type DinksterGraphWire } from '@dinkster/core'
 import { runAttributionLabel } from './run-attribution.js'
@@ -19,6 +19,26 @@ export interface ExecutionProgress {
   readonly finished: number
   readonly total: number
   readonly value: number
+}
+
+export interface ExecutionRegionIterationRow {
+  readonly runtimeId: string
+  readonly kind: 'map' | 'fold' | 'while'
+  readonly iteration: number
+  readonly state: 'waiting' | 'running' | 'completed'
+}
+
+export function executionRegionIterationRows(entry: ExecutionState): readonly ExecutionRegionIterationRow[] {
+  return Object.entries(entry.regions).flatMap(([runtimeId, region]) => {
+    const observed = Object.keys(region.iterationStates ?? {}).map(Number)
+    const count = region.iterations ?? (observed.length === 0 ? 0 : Math.max(...observed) + 1)
+    return Array.from({ length: count }, (_, iteration) => ({
+      runtimeId,
+      kind: region.kind,
+      iteration,
+      state: region.iterationStates?.[iteration] ?? 'waiting',
+    }))
+  })
 }
 
 const terminalNode = (state: ExecutionState['nodes'][string]['state']): boolean =>
@@ -94,6 +114,7 @@ export function ExecutionActivityCard(props: {
   const status = () => executionStatusLabel(props.entry.status)
   const progress = () => executionProgress(props.entry)
   const nodeSummary = () => executionNodeSummary(props.entry)
+  const regionIterations = () => executionRegionIterationRows(props.entry)
   const partial = () => props.entry.artifact?.scope.kind === 'partial'
   const partialTargets = () => props.entry.artifact?.scope.kind === 'partial'
     ? props.entry.artifact.partialTargets?.length
@@ -153,6 +174,18 @@ export function ExecutionActivityCard(props: {
           <span>Workflow progress {Math.round(progress()!.value * 100)}%</span>
           <progress max="1" value={progress()!.value} />
         </label>
+      </Show>
+      <Show when={regionIterations().length > 0}>
+        <div class="execution-region-iterations" aria-label="Loop iteration progress">
+          <For each={regionIterations()}>{(row) => (
+            <div class="execution-region-iteration" data-state={row.state}>
+              <span class="execution-region-item">
+                {row.kind} {row.runtimeId} - item {row.iteration + 1}
+              </span>
+              <span class="execution-region-state">{row.state}</span>
+            </div>
+          )}</For>
+        </div>
       </Show>
       <div class="execution-activity-actions">
         <button

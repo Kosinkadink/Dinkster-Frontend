@@ -591,6 +591,15 @@ const decodeWorkspaceExecutionEvent = (value: unknown): NormalizedEvent | undefi
         kind: 'regionFinished', execution, timestamp,
         runtimeNodeId: value['runtimeNodeId'], iterations: value['iterations'],
       }
+    case 'regionIteration': {
+      const state = value['state']
+      if (!workspaceString(value['runtimeNodeId']) || !workspaceInteger(value['iteration']) ||
+        (state !== 'running' && state !== 'completed')) return undefined
+      return {
+        kind: 'regionIteration', execution, timestamp,
+        runtimeNodeId: value['runtimeNodeId'], iteration: value['iteration'], state,
+      }
+    }
     case 'nodeStates': {
       if (!workspaceRecord(value['nodes']) ||
         (value['snapshot'] !== undefined && value['snapshot'] !== true)) return undefined

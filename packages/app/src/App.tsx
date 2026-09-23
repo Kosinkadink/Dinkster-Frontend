@@ -4,7 +4,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show } from 'solid-js'
-import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, sha256Hex, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
+import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, sha256Hex, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
 import type { AssetDtoV1WireContract, ExecutionState } from '@dinkster/client'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -2904,6 +2904,16 @@ function TabCollabDot(props: { entry: CollabTabState }) {
   )
 }
 
+function outputIterationGroup(runtimeId: string, workflowLabel: string): { readonly key: string; readonly label: string } {
+  const iterations = parseDinksterRuntimePath(runtimeId)?.flatMap((segment) =>
+    segment.iteration === undefined ? [] : [{ nodeId: segment.nodeId, iteration: segment.iteration }]) ?? []
+  if (iterations.length === 0) return { key: 'workflow', label: workflowLabel }
+  return {
+    key: JSON.stringify(iterations),
+    label: iterations.map((segment) => `${segment.nodeId} - item ${segment.iteration + 1}`).join(' / '),
+  }
+}
+
 function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers: (request: GraphImageDocumentRequest) => void }) {
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
@@ -2936,6 +2946,17 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     }
     return { media: [...media].sort(), layers: [...layers].sort() }
   })
+  const mediaValueGroups = createMemo(() => {
+    const groups = new Map<string, { readonly label: string; readonly identities: string[] }>()
+    for (const identity of outputIdentities().media) {
+      const [runtimeId] = JSON.parse(identity) as [string, string]
+      const { key, label } = outputIterationGroup(runtimeId, 'Workflow values')
+      const group = groups.get(key) ?? { label, identities: [] }
+      group.identities.push(identity)
+      groups.set(key, group)
+    }
+    return [...groups.values()]
+  })
   createEffect(() => {
     currentExecutionKey()
     setViewerIndex(undefined)
@@ -2945,6 +2966,16 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   const images = () => executedImageInventory(props.execution, {
     viewUrlForExecution: (ref, file) => props.app.viewUrlForExecution(ref, file),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
+  })
+  const imageGroups = createMemo(() => {
+    const groups = new Map<string, { readonly label: string; readonly images: { readonly image: ExecutedImage; readonly index: number }[] }>()
+    for (const [index, image] of images().entries()) {
+      const { key, label } = outputIterationGroup(image.runtimeId, 'Workflow outputs')
+      const group = groups.get(key) ?? { label, images: [] }
+      group.images.push({ image, index })
+      groups.set(key, group)
+    }
+    return [...groups.values()]
   })
   const provenance = (): ExecutionOutputProvenance => {
     backendTick()
@@ -3023,34 +3054,46 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
           if (request !== undefined) props.onOpenLayers(request)
         }}>Open layers: {nodeId} / {outputId}</button>
       }}</For>
-      <For each={outputIdentities().media}>{(identity) => {
-        const [nodeId, outputId] = JSON.parse(identity) as [string, string]
-        return <MediaValueInspector values={values()} query={{ jobId: props.execution.ref.prompt, nodeId, outputId }} />
-      }}</For>
-      <div class="outputs" role="list" aria-label={`${images().length} execution images`}>
-        <For each={images()} fallback={
+      <For each={mediaValueGroups()}>{(group) => (
+        <section class="output-iteration-group output-value-group" aria-label={group.label}>
+          <h3>{group.label}</h3>
+          <For each={group.identities}>{(identity) => {
+            const [nodeId, outputId] = JSON.parse(identity) as [string, string]
+            return <MediaValueInspector values={values()} query={{ jobId: props.execution.ref.prompt, nodeId, outputId }} />
+          }}</For>
+        </section>
+      )}</For>
+      <div class="outputs" aria-label={`${images().length} execution images`}>
+        <For each={imageGroups()} fallback={
           <div class="output-state" data-state={emptyState().state} role={emptyState().state === 'error' ? 'alert' : 'status'}>
             <strong>{emptyState().title}</strong>
             <span>{emptyState().detail}</span>
           </div>
         }>
-          {(image, index) => (
-            <div role="listitem">
+          {(group) => (
+            <section class="output-iteration-group" aria-label={group.label}>
+              <h3>{group.label}</h3>
+              <div class="output-iteration-images" role="list">
+              <For each={group.images}>{({ image, index }) => (
+              <div role="listitem">
               <button
                 type="button"
                 class="output-thumbnail"
-                aria-label={`Open ${executedImageLabel(image, index(), images().length)}`}
-                onClick={() => setViewerIndex(index())}
+                aria-label={`Open ${executedImageLabel(image, index, images().length)}`}
+                onClick={() => setViewerIndex(index)}
               >
                 <span class="output-thumbnail-preview">
                   <Show when={!failed().has(image.key)} fallback={<span class="output-thumbnail-unavailable">Image unavailable</span>}>
                     <img src={image.url} alt="" onLoad={() => markLoaded(image.key)} onError={() => markFailed(image.key)} />
                   </Show>
-                  <span class="output-thumbnail-position">Output {index() + 1} of {images().length}</span>
+                  <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>
                 </span>
                 <ExecutedImageFacts image={image} availability={availability(image.key)} />
               </button>
-            </div>
+              </div>
+              )}</For>
+              </div>
+            </section>
           )}
         </For>
       </div>
