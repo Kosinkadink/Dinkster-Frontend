@@ -127,6 +127,12 @@ The structural reference and CPU acceptance corpus are pinned to ComfyUI
 workflows, including empty, carried, lazy, output-list, nested, and repeated
 cache cases.
 
+### Conversion limits
+
+| Source behavior | Imported behavior |
+| --- | --- |
+| A nested cache-enabled loop runs a non-idempotent outer probe with `outer_probe_calls=[1,2,2]` over two runs because `StartLoop` contributes a NaN fingerprint to one expanded occurrence's cache ancestry. | Dinkster keeps occurrence reuse and produces `outer_probe_calls=[1,2]`. The ComfyUI rerun is a cache-key artifact that contradicts its single-loop cache contract. Idempotent nodes retain identical outputs; non-idempotent nodes expose the execution-count difference. The importer does not suppress observations, gate conversion, or refuse this case. |
+
 ![Completed imported map region](assets/generic-loop-import/map-gather-completed.png)
 
 ### Coverage report
