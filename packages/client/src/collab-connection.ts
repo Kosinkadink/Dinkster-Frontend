@@ -43,6 +43,7 @@ import type {
   CollabClientOp,
   CollabConnection,
   CollabConnectionEvent,
+  CollabDocumentKind,
   CollabServerOp,
   CollabSessionDescriptor,
   FetchOpsOutcome,
@@ -91,7 +92,7 @@ export async function createCollabSession(
     readonly scope: string
     readonly documentId: string
     readonly snapshot: unknown
-    readonly documentKind?: 'workflow' | 'image'
+    readonly documentKind?: CollabDocumentKind
   },
   fetchFn: FetchLike = defaultFetch,
 ): Promise<CollabSessionDescriptor> {
