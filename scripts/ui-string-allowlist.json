@@ -481,6 +481,7 @@
     "text:side.name === 'Left' ? setIndex(clamp(next, count())) : setRightIndex(clamp(next, count())) return"
   ],
   "ExecutionActivityCard.tsx": [
+    "attribute:aria-label:Loop iteration progress",
     "text:Following latest",
     "text:Pinned to canvas",
     "text:Snapshot unavailable - submitted by another client",

@@ -114,6 +114,8 @@ export interface RegionProgress {
   readonly iterations: number | null
   /** Actual terminal count from region_finished. */
   readonly finishedIterations?: number
+  /** Per-iteration lifecycle keyed by zero-based iteration index. */
+  readonly iterationStates?: Readonly<Record<number, 'running' | 'completed'>>
 }
 
 /**
@@ -183,6 +185,14 @@ export type NormalizedEvent =
       readonly regionKind: RegionProgress['kind']
       readonly binding: RegionProgress['binding']
       readonly iterations: number | null
+    }
+  | {
+      readonly kind: 'regionIteration'
+      readonly execution: ExecutionRef
+      readonly timestamp: number
+      readonly runtimeNodeId: string
+      readonly iteration: number
+      readonly state: 'running' | 'completed'
     }
   | {
       readonly kind: 'regionFinished'

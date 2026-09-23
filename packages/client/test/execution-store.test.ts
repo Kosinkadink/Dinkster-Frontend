@@ -815,14 +815,44 @@ describe('recorded stream replay', () => {
       iterations: 3,
     })
     store.apply({
-      kind: 'regionFinished',
+      kind: 'regionIteration',
       execution,
       timestamp: 2,
+      runtimeNodeId: 'r',
+      iteration: 0,
+      state: 'running',
+    })
+    store.apply({
+      kind: 'regionIteration',
+      execution,
+      timestamp: 3,
+      runtimeNodeId: 'r',
+      iteration: 0,
+      state: 'completed',
+    })
+    store.apply({
+      kind: 'regionIteration',
+      execution,
+      timestamp: 4,
+      runtimeNodeId: 'r',
+      iteration: 1,
+      state: 'running',
+    })
+    store.apply({
+      kind: 'regionFinished',
+      execution,
+      timestamp: 5,
       runtimeNodeId: 'r',
       iterations: 3,
     })
     expect(store.get(execution)!.regions).toEqual({
-      r: { kind: 'map', binding: 'zip', iterations: 3, finishedIterations: 3 },
+      r: {
+        kind: 'map',
+        binding: 'zip',
+        iterations: 3,
+        finishedIterations: 3,
+        iterationStates: { 0: 'completed', 1: 'running' },
+      },
     })
   })
 
