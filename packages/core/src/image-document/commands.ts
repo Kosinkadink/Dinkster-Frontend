@@ -3,7 +3,7 @@ import type { Json, JsonObject } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import { applyOwnedOps, invertOps, type PatchOp } from '../commands/patch.js'
 import { actorCursorOf, isValidActorId } from '../ids.js'
-import { loadImageDocument } from './migrate.js'
+import { loadImageDocument } from '../format/migrate.js'
 import {
   IMAGE_FIXED_POINT_SCALE,
   IMAGE_OUTPUT_FORMATS,

@@ -2,7 +2,7 @@
 
 import type { Json } from './format/document.js'
 import { canonicalJson, sha256Hex } from './compile/hash.js'
-import { loadImageDocument } from './image-document/migrate.js'
+import { loadImageDocument } from './format/migrate.js'
 import type { ImageAffineTransform, ImageDocument } from './image-document/model.js'
 
 export const COMPOSITOR_STATE_PREVIEW_CHANNEL = 'application/vnd.dinkster.compositor-state+json'
