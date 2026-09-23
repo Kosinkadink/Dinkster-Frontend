@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
-import { loadDocument } from '../src/format/migrate.js'
-import { checkImageDocument } from '../src/image-document/invariants.js'
 import {
+  loadDocument,
   loadImageDocument,
   migrateImageDocumentJson,
   serializeImageDocument,
   type ImageDocumentMigrationStep,
-} from '../src/image-document/migrate.js'
+} from '../src/format/migrate.js'
+import { validateImageDocumentShape } from '../src/format/validate.js'
+import { checkImageDocument } from '../src/invariants.js'
 import {
   IMAGE_DOCUMENT_FORMAT_VERSION,
   IMAGE_FIXED_POINT_SCALE,
@@ -24,9 +25,8 @@ import {
   asImageResourceId,
   type ImageAffineTransform,
   type ImageDocument,
+  imageDocumentSemanticProjection,
 } from '../src/image-document/model.js'
-import { imageDocumentSemanticProjection } from '../src/image-document/semantic.js'
-import { validateImageDocumentShape } from '../src/image-document/validate.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}` as const
 const LAYER = asImageLayerId('l1')

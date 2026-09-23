@@ -1,7 +1,6 @@
 import type { Json, WorkflowDocument } from '../format/document.js'
-import { loadDocument } from '../format/migrate.js'
+import { loadDocument, loadImageDocument } from '../format/migrate.js'
 import { checkDocument } from '../invariants.js'
-import { loadImageDocument } from '../image-document/migrate.js'
 import { planImageDocumentCommand } from '../image-document/commands.js'
 import type { ImageDocument } from '../image-document/model.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
