@@ -99,6 +99,8 @@ regions. Simple, For, and List iteration preserve binding order, carried state,
 first and last flags, accumulated scalar or output-list results, final-only
 results, termination targets, nesting, and iteration cache policy. A loop with
 no carried state remains a fold because ComfyUI executes iterations in order.
+Compatible lazy switches lower to Dinkster's native selector inside the region,
+so each iteration executes only its selected branch.
 
 The importer pairs boundaries from the authored topology and refuses the whole
 import when pairing is ambiguous or malformed, a body escapes its End Loop, a

@@ -161,6 +161,45 @@ const helperSchemas = new Map<string, NodeSchema>([
       ],
     },
   ],
+  [
+    'dinkster.value.select',
+    {
+      type: 'dinkster.value.select',
+      displayName: 'Select Value',
+      category: 'test',
+      source: 'v3',
+      isOutputNode: false,
+      items: [
+        {
+          kind: 'input',
+          id: 'condition',
+          type: { kind: 'concrete', name: 'core.boolean' },
+          optional: false,
+        },
+        {
+          kind: 'input',
+          id: 'on_false',
+          type: { kind: 'variable', templateId: 'T' },
+          optional: false,
+        },
+        {
+          kind: 'input',
+          id: 'on_true',
+          type: { kind: 'variable', templateId: 'T' },
+          optional: false,
+        },
+        {
+          kind: 'output',
+          id: 'value',
+          type: { kind: 'variable', templateId: 'T' },
+        },
+      ],
+      selector: {
+        input: 'condition',
+        branches: { false: 'on_false', true: 'on_true' },
+      },
+    },
+  ],
 ])
 const listOutputs = new Set([
   'Issue408EmptyList',
@@ -286,6 +325,8 @@ const importCorpusWorkflow = (name: string) => {
   const resolve = (type: string): NodeSchema | undefined =>
     type === 'StartLoop'
       ? { ...coreSchemas.get(type)!, mayExpandGraph: true }
+      : type === 'Issue408LazySwitch'
+        ? helperSchemas.get('dinkster.value.select')
       : coreSchemas.get(type) ?? helperSchemas.get(type) ?? fixtureSchemas.get(type)
   return { workflow, resolve, imported: importLitegraph(workflow, resolve) }
 }
@@ -458,6 +499,45 @@ describe('ComfyUI Generic Loops structural import', () => {
     )
     expect(imported.document).toBeDefined()
     expect(regionsOf(imported.document!)).toHaveLength(2)
+  })
+
+  it('lowers the fixed-SHA lazy branch helper to the native selector', () => {
+    const { resolve, imported } = importCorpusWorkflow('lazy-branch.json')
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(imported.document).toBeDefined()
+    const selector = Object.values(imported.document!.graphs)
+      .flatMap((graph) => Object.values(graph.nodes))
+      .find((node) => node.type === 'dinkster.value.select')
+    expect(selector).toBeDefined()
+
+    const compiled = compile({
+      document: imported.document!,
+      revision: 1,
+      resolve,
+      scope: { kind: 'full' },
+      connection: asConnectionId('test'),
+      schemaHash: 'fixed-comfyui-b5cc8830',
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
+    expect(
+      compiled.ok,
+      compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
+    ).toBe(true)
+    if (!compiled.ok) return
+    const region = Object.values(compiled.artifact.dinksterGraph!.nodes)
+      .find((node) => 'region' in node)
+    expect(region).toBeDefined()
+    if (region === undefined || !('region' in region)) return
+    expect(region.region.body.nodes).toEqual(expect.objectContaining({
+      n4: expect.objectContaining({
+        nodeType: 'dinkster.value.select',
+        inputs: {
+          condition: { $link: { node: '$region', output: 'is_first' } },
+          on_false: { $link: { node: 'n2', output: 'output_0' } },
+          on_true: { $link: { node: 'n3', output: 'output_0' } },
+        },
+      }),
+    }))
   })
 
   it.each([

@@ -265,7 +265,6 @@ export interface DinksterGraphValidationNode {
   readonly inputPorts: Readonly<Record<string, PortRef>>
   readonly outputTypes: Readonly<Record<string, TypeExpr>>
   readonly outputPorts: Readonly<Record<string, PortRef>>
-  readonly selector?: true
 }
 
 export type DinksterGraphValidationContext = ReadonlyMap<string, DinksterGraphValidationNode>
@@ -312,8 +311,6 @@ const anchorData = (
  *   is not runtime-resolvable
  * - dinksterGraph.literalOnNonConcrete (literal-on-nonconcrete): a plain
  *   literal targets a non-runtime-resolvable input
- * - dinksterGraph.selectorInRegion (prompt.selector_in_region): a schema-marked
- *   selector node occurs in a region body
  * - dinksterGraph.danglingOutput (dangling-output): region output source or
  *   continueSource naming a missing body node (or, for a region source, an
  *   output the source region does not declare)
@@ -360,15 +357,6 @@ function validateScope(
     if (isDinksterRegionEntry(entry)) validateRegion(entry.region, path, context, out)
 
     const nodeContext = context?.get(path)
-    if (prefix !== '' && !isDinksterRegionEntry(entry) && nodeContext?.selector === true) {
-      out.push(diag(
-        'error',
-        'compile',
-        'dinksterGraph.selectorInRegion',
-        `selector node '${path}' is inside a region body; selector nodes inside region bodies are not supported`,
-        anchorData(context, path),
-      ))
-    }
 
     const inputs = isDinksterRegionEntry(entry) ? entry.region.inputs : entry.inputs
     for (const [inputId, value] of Object.entries(inputs)) {

@@ -2772,10 +2772,28 @@ function compileImpl(
     }
     const outputTypes: Record<string, TypeExpr> = {}
     const outputPorts: Record<string, PortRef> = {}
+    const selectorBranchTypes = fn.selectorBranchKeys === undefined
+      ? undefined
+      : [fn.selectorBranchKeys.false, fn.selectorBranchKeys.true].map((key) => {
+          const value = fn.inputs[key]
+          if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== 'string' || typeof value[1] !== 'number') return undefined
+          return flat.get(value[0])?.elab.outputs
+            .filter((output) => output.wireable !== false)[value[1]]?.spec.type
+        })
+    const falseBranchType = selectorBranchTypes?.[0]
+    const trueBranchType = selectorBranchTypes?.[1]
+    const selectorOutputType = falseBranchType !== undefined &&
+        trueBranchType !== undefined &&
+        canonicalTypeIdOf(falseBranchType) !== undefined &&
+        canonicalTypeIdOf(falseBranchType) === canonicalTypeIdOf(trueBranchType)
+      ? falseBranchType
+      : undefined
     for (const output of fn.elab.outputs) {
       if (output.wireable === false) continue
       const outputId = nativeOutputId(fn.runtimeId, output)
-      outputTypes[outputId] = output.spec.type
+      outputTypes[outputId] = output.spec.type.kind === 'variable' && selectorOutputType !== undefined
+        ? selectorOutputType
+        : output.spec.type
       outputPorts[outputId] = {
         node: fn.occ.node,
         port: output.address.port as PortRef['port'],
@@ -2788,7 +2806,6 @@ function compileImpl(
       inputPorts,
       outputTypes,
       outputPorts,
-      ...(fn.selector !== undefined ? { selector: true } : {}),
     }
   }
   const buildNativeGraph = (scopeRegion?: RegionLowering, prefix = ''): DinksterGraphWire => {
