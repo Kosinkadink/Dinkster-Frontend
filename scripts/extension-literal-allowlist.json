@@ -555,7 +555,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2716,
+      "line": 2717,
       "column": 37,
       "symbol": "widgetType:string",
       "issue": 122
@@ -563,7 +563,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2728,
+      "line": 2729,
       "column": 9,
       "symbol": "widgetType:string",
       "issue": 122
@@ -579,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 176,
+      "line": 177,
       "column": 37,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -587,7 +587,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 194,
+      "line": 195,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -595,7 +595,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 194,
+      "line": 195,
       "column": 44,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -603,7 +603,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 201,
+      "line": 202,
       "column": 8,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -611,7 +611,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 205,
+      "line": 206,
       "column": 7,
       "symbol": "widgetType:SAVE_TARGET",
       "issue": 122
@@ -635,7 +635,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1205,
+      "line": 1207,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -651,7 +651,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1032,
+      "line": 1034,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -659,7 +659,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1036,
+      "line": 1038,
       "column": 34,
       "symbol": "widgetType:ASSET",
       "issue": 122

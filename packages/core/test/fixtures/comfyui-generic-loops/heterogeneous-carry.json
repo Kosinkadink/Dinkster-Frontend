@@ -1,0 +1,307 @@
+{
+  "config": {},
+  "extra": {
+    "issue408": {
+      "api_prompt": {
+        "close": {
+          "class_type": "EndLoop",
+          "inputs": {
+            "accumulate": false,
+            "next_iteration_value": [
+              "record",
+              0
+            ],
+            "output_value": [
+              "record",
+              0
+            ]
+          }
+        },
+        "loop": {
+          "class_type": "StartLoop",
+          "inputs": {
+            "initial_iteration_value": [
+              "pair",
+              0
+            ],
+            "mode": "simple",
+            "mode.num_iterations": 2
+          }
+        },
+        "pair": {
+          "class_type": "Issue408Pair",
+          "inputs": {
+            "value": 7
+          }
+        },
+        "record": {
+          "class_type": "Issue408RecordCarried",
+          "inputs": {
+            "value": [
+              "loop",
+              4
+            ]
+          }
+        }
+      },
+      "outputs": [
+        "close"
+      ],
+      "recorded_cpu_result": {
+        "observed": {
+          "record_carried_values": [
+            [
+              7,
+              "7"
+            ],
+            [
+              7,
+              "7"
+            ]
+          ]
+        },
+        "progress": [
+          [
+            "Iteration 0 / 2",
+            "loop"
+          ],
+          [
+            "Iteration 1 / 2",
+            "loop"
+          ],
+          [
+            "Iteration 2 / 2",
+            "loop"
+          ]
+        ],
+        "runs": 1
+      }
+    }
+  },
+  "groups": [],
+  "last_link_id": 4,
+  "last_node_id": 4,
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      2,
+      "*"
+    ],
+    [
+      2,
+      2,
+      4,
+      3,
+      0,
+      "*"
+    ],
+    [
+      3,
+      3,
+      0,
+      4,
+      0,
+      "*"
+    ],
+    [
+      4,
+      3,
+      0,
+      4,
+      1,
+      "*"
+    ]
+  ],
+  "nodes": [
+    {
+      "flags": {},
+      "id": 1,
+      "inputs": [
+        {
+          "link": null,
+          "name": "value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 0,
+      "outputs": [
+        {
+          "links": [
+            1
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        80,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408Pair"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408Pair",
+      "widgets_values": {
+        "value": 7
+      }
+    },
+    {
+      "flags": {},
+      "id": 2,
+      "inputs": [
+        {
+          "link": null,
+          "name": "mode",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "mode.num_iterations",
+          "type": "*"
+        },
+        {
+          "link": 1,
+          "name": "initial_iteration_value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 1,
+      "outputs": [
+        {
+          "links": null,
+          "name": "output_0",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_1",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_2",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_3",
+          "type": "*"
+        },
+        {
+          "links": [
+            2
+          ],
+          "name": "output_4",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        390,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "StartLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "StartLoop",
+      "widgets_values": {
+        "mode": "simple",
+        "mode.num_iterations": 2
+      }
+    },
+    {
+      "flags": {},
+      "id": 3,
+      "inputs": [
+        {
+          "link": 2,
+          "name": "value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 2,
+      "outputs": [
+        {
+          "links": [
+            3,
+            4
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        700,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408RecordCarried"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408RecordCarried",
+      "widgets_values": {}
+    },
+    {
+      "flags": {},
+      "id": 4,
+      "inputs": [
+        {
+          "link": 3,
+          "name": "output_value",
+          "type": "*"
+        },
+        {
+          "link": 4,
+          "name": "next_iteration_value",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "accumulate",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 3,
+      "outputs": [
+        {
+          "links": null,
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        1010,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "EndLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "EndLoop",
+      "widgets_values": {
+        "accumulate": false
+      }
+    }
+  ],
+  "version": 0.4
+}

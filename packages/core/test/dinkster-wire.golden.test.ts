@@ -44,6 +44,7 @@ describe('Dinkster schema wire', () => {
     const result = parseDinksterSchema('WidgetCatalog', {
       schemaVersion: 1,
       editorRole: 'custom-editor',
+      mayExpandGraph: true,
       interface: [
         { role: 'input', id: 'asset', type: concrete('dinkster.asset'), required: true, widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' } },
         { role: 'input', id: 'save', type: concrete('dinkster.save_target'), required: true, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
@@ -77,6 +78,7 @@ describe('Dinkster schema wire', () => {
 
     expect(result.diagnostics).toEqual([])
     expect(result.schema?.editorRole).toBe('custom-editor')
+    expect(result.schema?.mayExpandGraph).toBe(true)
     expect(inputsOf(result.schema!).map((input) => input.widget?.widgetType)).toEqual([
       'ASSET',
       'SAVE_TARGET',

@@ -179,6 +179,8 @@ export interface DinksterWireSchema {
   readonly outputNode?: unknown
   /** Live-preview capability flag (true only, omitted when false). */
   readonly emitsPreviews?: unknown
+  /** Runtime graph-expansion capability flag (true only, omitted when false). */
+  readonly mayExpandGraph?: unknown
   /** Full help page availability flag (true only, omitted when false). */
   readonly hasDocs?: unknown
   readonly widgetGroups?: unknown
@@ -1904,6 +1906,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       items: [],
       isOutputNode: wire.outputNode === true || !idempotent,
       ...(wire.emitsPreviews === true ? { emitsPreviews: true } : {}),
+      ...(wire.mayExpandGraph === true ? { mayExpandGraph: true } : {}),
       ...(wire.hasDocs === true ? { hasDocs: true } : {}),
       ...(deprecation !== undefined ? { deprecation } : {}),
       ...(searchVisibility !== undefined ? { searchVisibility } : {}),
