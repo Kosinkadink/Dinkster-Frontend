@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "sources": {},
+  "settings": { "width": 1280, "height": 720, "rate": 24 },
+  "timeline": {
+    "OTIO_SCHEMA": "Timeline.1",
+    "name": "Release timeline",
+    "metadata": {},
+    "global_start_time": null,
+    "tracks": {
+      "OTIO_SCHEMA": "Stack.1",
+      "name": "tracks",
+      "metadata": {},
+      "source_range": null,
+      "effects": [],
+      "markers": [],
+      "children": [
+        {
+          "OTIO_SCHEMA": "Track.1",
+          "name": "Video",
+          "kind": "Video",
+          "children": [
+            {
+              "OTIO_SCHEMA": "Gap.1",
+              "name": "lead-in",
+              "metadata": {},
+              "source_range": null,
+              "effects": [],
+              "markers": [],
+              "media_references": {}
+            }
+          ],
+          "source_range": null,
+          "effects": [],
+          "markers": [],
+          "metadata": {}
+        },
+        {
+          "OTIO_SCHEMA": "Track.1",
+          "name": "Audio",
+          "kind": "Audio",
+          "children": [],
+          "source_range": null,
+          "effects": [],
+          "markers": [],
+          "metadata": {}
+        }
+      ]
+    }
+  }
+}

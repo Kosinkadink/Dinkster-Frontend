@@ -1,0 +1,56 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "lineage-release-workflow",
+  "root": "g0",
+  "graphs": {
+    "g0": {
+      "id": "g0",
+      "name": "root",
+      "nodes": {
+        "n0": {
+          "id": "n0",
+          "type": "CheckpointLoaderSimple",
+          "values": { "ckpt_name": "dinkster-diffusion-v1.safetensors" }
+        },
+        "n1": {
+          "id": "n1",
+          "type": "CLIPTextEncode",
+          "values": { "text": "a lighthouse at dusk" }
+        },
+        "n2": {
+          "id": "n2",
+          "type": "KSampler",
+          "values": { "seed": 42, "steps": 24, "cfg": 6.5 }
+        }
+      },
+      "links": {
+        "l1": {
+          "id": "l1",
+          "from": { "node": "n0", "port": "out1" },
+          "to": { "node": "n1", "port": "clip" }
+        },
+        "l2": {
+          "id": "l2",
+          "from": { "node": "n1", "port": "out1" },
+          "to": { "node": "n2", "port": "positive" }
+        }
+      },
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 4
+    }
+  },
+  "view": {
+    "graphs": {
+      "g0": {
+        "nodes": {
+          "n0": { "position": { "x": 60, "y": 100 } },
+          "n1": { "position": { "x": 400, "y": 100 } },
+          "n2": { "position": { "x": 740, "y": 100 } }
+        }
+      }
+    }
+  },
+  "meta": { "title": "Lighthouse draft" }
+}

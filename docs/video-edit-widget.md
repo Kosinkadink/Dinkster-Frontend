@@ -126,7 +126,9 @@ use only the existing advertised bounded rendition routes.
 
 `VideoDocumentEditor.dom.test.tsx` covers command completeness, unknown-key
 preservation, nested JSON validation, empty defaults, OTIO text, and typed VIDEO
-binding status. `video-document-editor.spec.ts` covers every editor state in
+binding status. `packages/core/test/release-document-fixtures.test.ts` loads
+the current-release video document through the shared `dinkster.video` adapter
+and the one shared document engine. `video-document-editor.spec.ts` covers every editor state in
 Chromium, exact compiled values, save/reopen/import, undo/redo, no editor media
 requests, and equal native outputs for editor-authored and literal creation,
 every mutation, OTIO import/export, and render graphs.

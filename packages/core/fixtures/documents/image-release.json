@@ -1,0 +1,104 @@
+{
+  "format": "dinkster-image",
+  "formatVersion": 2,
+  "lineage": "lineage-release-image",
+  "canvas": {
+    "width": 32,
+    "height": 24,
+    "colorSpace": "srgb",
+    "channelDepth": 8,
+    "compositing": "premultiplied-alpha",
+    "background": [0, 0, 0, 0]
+  },
+  "allocation": { "nextOrdinal": 6 },
+  "rootLayerIds": ["l2"],
+  "layers": {
+    "l1": {
+      "id": "l1",
+      "kind": "raster",
+      "name": "Plate",
+      "visible": true,
+      "opacity": 65535,
+      "transform": {
+        "a": 1000000,
+        "b": 0,
+        "c": 0,
+        "d": 1000000,
+        "tx": 0,
+        "ty": 0
+      },
+      "blendMode": "normal",
+      "clipping": "none",
+      "maskIds": ["m3"],
+      "resourceId": "r4",
+      "sourceRect": { "x": 0, "y": 0, "width": 32, "height": 24 }
+    },
+    "l2": {
+      "id": "l2",
+      "kind": "group",
+      "name": "Root group",
+      "visible": true,
+      "opacity": 65535,
+      "transform": {
+        "a": 1000000,
+        "b": 0,
+        "c": 0,
+        "d": 1000000,
+        "tx": 0,
+        "ty": 0
+      },
+      "blendMode": "normal",
+      "clipping": "none",
+      "maskIds": [],
+      "childLayerIds": ["l1"]
+    }
+  },
+  "masks": {
+    "m3": {
+      "id": "m3",
+      "kind": "raster",
+      "ownerLayerId": "l1",
+      "enabled": true,
+      "invert": false,
+      "opacity": 65535,
+      "transform": {
+        "a": 1000000,
+        "b": 0,
+        "c": 0,
+        "d": 1000000,
+        "tx": 0,
+        "ty": 0
+      },
+      "combineMode": "multiply",
+      "channel": "luminance",
+      "resourceId": "r5",
+      "sourceRect": { "x": 0, "y": 0, "width": 32, "height": 24 }
+    }
+  },
+  "resources": {
+    "r4": {
+      "id": "r4",
+      "kind": "raster",
+      "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+      "byteSize": 2048,
+      "mediaType": "image/png",
+      "width": 32,
+      "height": 24,
+      "colorSpace": "srgb",
+      "channelDepth": 8,
+      "alphaMode": "straight"
+    },
+    "r5": {
+      "id": "r5",
+      "kind": "raster",
+      "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222",
+      "byteSize": 512,
+      "mediaType": "image/png",
+      "width": 32,
+      "height": 24,
+      "colorSpace": "srgb",
+      "channelDepth": 8,
+      "alphaMode": "straight"
+    }
+  }
+}

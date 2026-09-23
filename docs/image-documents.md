@@ -172,10 +172,11 @@ Silently substituting unsupported blend modes would also lose document semantics
 
 ## Commands and history
 
-ImageDocument changes use a separate typed command session rather than the
-workflow document store. Commands atomically update raster layers, their tree
-order, transforms, opacity, blend mode, and raster masks. Every result passes
-the same loader and invariant checks as an imported document.
+ImageDocument changes use the same document engine and session implementation
+as workflow and video documents, parameterized by the `dinkster.image` document
+type adapter. Commands atomically update raster layers, their tree order,
+transforms, opacity, blend mode, and raster masks. Every result passes the same
+loader and invariant checks as an imported document.
 
 Undo and redo replay immutable patches. Allocation cursors never rewind, so an
 id is not reused after undo. The history reports every raster digest that its
@@ -221,6 +222,9 @@ deterministic allocation, resource-aware history, hostile ids, and local
 session operation envelopes. `packages/app/test/image-document-recipe.test.ts`
 proves crop, resize, and output-policy parity between workspace state and graph
 recipe execution.
+`packages/core/test/release-document-fixtures.test.ts` loads the
+current-release image document through the shared pipeline, replays the
+registered v1 -> v2 migration over it, and round-trips it unchanged.
 The inspected controls are captured for [crop](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/crop.png),
 [resize](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/resize.png), and
 [output policy](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/output-policy.png).
