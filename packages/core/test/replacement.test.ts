@@ -1177,6 +1177,61 @@ describe('input family replacement', () => {
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
 
+  it('preserves identity-mapped links and net sinks on flat prefix families', () => {
+    const flatFamily = (type: string): NodeSchema => schemaOf(type, [{
+      kind: 'input',
+      id: 'refs',
+      type: { kind: 'wildcard' },
+      optional: true,
+      dynamic: {
+        kind: 'autogrow',
+        template: [input('refs')],
+        naming: { kind: 'prefix', prefix: 'ref', min: 1, max: 4 },
+      },
+    }])
+    const schemas = { FlatOld: flatFamily('FlatOld'), FlatNew: flatFamily('FlatNew') }
+    const original = doc({
+      g0: graph({
+        id: 'g0',
+        nodes: {
+          src: node('src', 'Producer'),
+          old: node('old', 'FlatOld', {}, {
+            dynamic: { refs: { members: ['ref0', 'ref1'] } },
+          }),
+        },
+        links: {
+          linked: link('linked', port('src', 'out'), mport('old', 'refs.refs', 'ref0')),
+        },
+        nets: {
+          routed: net('routed', port('src', 'out'), [mport('old', 'refs.refs', 'ref1')]),
+        },
+      }),
+    })
+    const rule: ReplacementRule = {
+      from: 'FlatOld',
+      cases: [{
+        to: 'FlatNew',
+        inputFamilies: {
+          refs: {
+            kind: 'copy',
+            sourceFamily: 'refs',
+            inputs: { value: { kind: 'copy', input: 'value' } },
+          },
+        },
+      }],
+    }
+
+    const planned = planReplacement(original, 'g0', 'old', rule, (type) => schemas[type as keyof typeof schemas])
+    expect(planned.diagnostics).toEqual([])
+    expect(planned.plan).toMatchObject({ inputRewires: [], dropLinks: [], netSinks: [] })
+
+    const store = new DocumentStore(original, coreCommandRegistry())
+    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan! } as unknown as Json }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.type).toBe('FlatNew')
+    expect(store.doc.graphs.g0!.links.linked!.to).toEqual(mport('old', 'refs.refs', 'ref0'))
+    expect(store.doc.graphs.g0!.nets.routed!.sinks).toEqual([mport('old', 'refs.refs', 'ref1')])
+  })
+
   it('copies a differently named family with suffixes, order, values, controllers, links, and net sinks', () => {
     const original = doc({
       g0: graph({
