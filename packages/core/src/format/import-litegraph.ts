@@ -320,7 +320,7 @@ function matchAutogrowWire(
 ): AutogrowWireMatch | undefined {
   const prefix = `${family.wirePath}.`
   if (!flat && !name.startsWith(prefix)) return undefined
-  const relative = flat ? name : name.slice(prefix.length)
+  const relative = name.startsWith(prefix) ? name.slice(prefix.length) : name
   const { naming, template } = family.spec
   if (naming.kind === 'native') return undefined
 
