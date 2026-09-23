@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import type { Prompt } from '../src/compile/artifact.js'
 import { compile } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
@@ -11,7 +13,9 @@ import { comfyAliasCatalogFromDinksterWire } from '../src/schema/comfy-alias.js'
 import { parseDinksterNodes, type DinksterNodesPayload } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
-const fixture = (name: string): unknown => JSON.parse(readFileSync(new URL(`../fixtures/workflows/minimax-h3/${name}`, import.meta.url), 'utf8'))
+const fixtureUrl = (name: string): URL => new URL(`../fixtures/workflows/minimax-h3/${name}`, import.meta.url)
+const fixtureText = (name: string): string => readFileSync(fixtureUrl(name), 'utf8')
+const fixture = (name: string): unknown => JSON.parse(fixtureText(name))
 
 const wire = fixture('catalog-wire40.json') as DinksterNodesPayload
 const native = parseDinksterNodes(wire)
@@ -142,13 +146,13 @@ function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDo
     const image = directSource(graph, guide, 'image')
     const expression = directSource(graph, guide, 'frame_idx')
     const seconds = directSource(graph, expression, 'values.a')
-    return [image.values.image, seconds.values.value]
+    return [image.values.image, seconds.values.value, expression.values.expression]
   })
   expect(guideInputs).toEqual(
     expect.arrayContaining([
-      ['h3_frame_ref_2.png', 1.5],
-      ['h3_frame_ref_3.png', 3],
-      ['h3_frame_ref_4.png', 5],
+      ['h3_frame_ref_2.png', 1.5, 'round (a * 24)'],
+      ['h3_frame_ref_3.png', 3, 'round (a * 24)'],
+      ['h3_frame_ref_4.png', 5, 'round (a * 24)'],
     ]),
   )
 }
@@ -184,6 +188,14 @@ function replaceMaintainedAliases(document: WorkflowDocument): WorkflowDocument 
 }
 
 const cases = ['video_minimax_h3_t2v.json', 'video_minimax_h3_i2v.json', 'video_minimax_h3_r2v.json', 'video_minimax_h3_multiframe_reference.json'] as const
+const workflowTemplatesRevision = 'fc427f00097817d3f7d8099c5259837fa51e1267'
+
+const officialFixtureHashes: Readonly<Record<(typeof cases)[number], string>> = {
+  'video_minimax_h3_t2v.json': 'aeadcae30ac27d8f3bedebada670ddbc5af03efc69ec2312cc859efbf660ff45',
+  'video_minimax_h3_i2v.json': 'cb269e456bc741e659919cb92019fcc9a605476af1d23868b33fa740e75a9db8',
+  'video_minimax_h3_r2v.json': '466802086b46da86aaba5afe73e72f7d18dcc46f5ab79b6fad966131b840ccd8',
+  'video_minimax_h3_multiframe_reference.json': '343de410ba8dda40553db5da3021b78d9b6e22a33e32f848bac41acce20a1db5',
+}
 
 const variants = [
   {
@@ -252,7 +264,43 @@ function configureVariant(source: unknown, variant: VariantExpectation): JsonObj
   return workflow as JsonObject
 }
 
+function assertVariantExecution(prompt: Prompt, variant: VariantExpectation): void {
+  const entriesOfType = (type: string) => Object.entries(prompt).filter(([, node]) => node.class_type === type)
+  const linkedNode = (input: unknown) => Array.isArray(input) ? prompt[String(input[0])] : undefined
+  const diffusion = entriesOfType('dinkster.load_diffusion_model')
+  const lora = entriesOfType('dinkster.load_lora_model_only')
+  expect(diffusion).toHaveLength(1)
+  expect(lora).toHaveLength(1)
+
+  const modelSelect = entriesOfType('dinkster.value.select').find(([, node]) =>
+    Array.isArray(node.inputs.on_false) && node.inputs.on_false[0] === diffusion[0]![0]
+    && Array.isArray(node.inputs.on_true) && node.inputs.on_true[0] === lora[0]![0])
+  expect(modelSelect, 'expected false=base and true=LoRA model routing').toBeDefined()
+  expect(linkedNode(modelSelect?.[1].inputs.condition)).toMatchObject({
+    class_type: 'dinkster.boolean',
+    inputs: { value: variant.enabled },
+  })
+
+  const scheduler = entriesOfType('dinkster.basic_scheduler')
+  expect(scheduler).toHaveLength(1)
+  const stepSelect = linkedNode(scheduler[0]![1].inputs.steps)
+  expect(stepSelect).toMatchObject({ class_type: 'dinkster.value.select' })
+  expect(linkedNode(stepSelect?.inputs.on_false)).toMatchObject({
+    class_type: 'dinkster.int', inputs: { value: 20 },
+  })
+  expect(linkedNode(stepSelect?.inputs.on_true)).toMatchObject({
+    class_type: 'dinkster.int', inputs: { value: variant.fastSteps },
+  })
+  expect(linkedNode(stepSelect?.inputs.condition)).toMatchObject({
+    class_type: 'dinkster.boolean', inputs: { value: variant.enabled },
+  })
+}
+
 describe('official MiniMax H3 workflows', () => {
+  it.each(cases)('matches the pinned ComfyUI fixture hash for %s', (name) => {
+    expect(createHash('sha256').update(fixtureText(name)).digest('hex'), workflowTemplatesRevision).toBe(officialFixtureHashes[name])
+  })
+
   it.each(cases)('imports %s verbatim as an executable native document', (name) => {
     const imported = importLitegraph(fixture(name) as JsonObject, resolve, (type) => aliases.catalog.recordsByNodeClass.has(type))
     expect(errorDiagnostics(imported.diagnostics), JSON.stringify(imported.diagnostics)).toEqual([])
@@ -295,5 +343,7 @@ describe('official MiniMax H3 workflows', () => {
       schemaHash: 'minimax-h3-official-variant',
     })
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) throw new Error('unreachable')
+    assertVariantExecution(compiled.artifact.prompt, variant)
   })
 })
