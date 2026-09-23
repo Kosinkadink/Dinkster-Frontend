@@ -105,14 +105,14 @@ import when pairing is ambiguous or malformed, a body escapes its End Loop, a
 carry cannot keep one stable type, output cardinality is unknown, or topology
 sugar prevents an exact rewrite. Linked `accumulate` controls are also refused:
 Dinkster output roles are static, while changing `accumulate` at execution time
-would change the output contract. Linked Simple or For range controls are
-refused rather than replaced by stale saved widget values. Static
-`accumulate=false` uses a `last` output, which yields typed absence for zero
-iterations. `cache_iterations=true` maps to `reuse`; false or omitted maps to
-`rerun`.
+would change the output contract. Linked Simple or For range controls feed a
+generated integer-range node, so upstream batch sizes and computed bounds remain
+live inputs. Static `accumulate=false` uses a `last` output, which yields typed
+absence for zero iterations. `cache_iterations=true` maps to `reuse`; false or
+omitted maps to `rerun`.
 
 The structural reference and CPU acceptance corpus are pinned to ComfyUI
-`b5cc8830279eae909a59de030af1e50761c36751`. The corpus covers 22 openable
+`b5cc8830279eae909a59de030af1e50761c36751`. The corpus covers 23 openable
 workflows, including empty, carried, lazy, output-list, nested, and repeated
 cache cases.
 

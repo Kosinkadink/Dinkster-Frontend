@@ -235,7 +235,16 @@ const startSettings = (node: RawNode): StartSettings => {
 const rangeValues = (
   node: RawNode,
   diagnostics: Diagnostic[],
-): { mode: 'range'; values: Json[] } | { mode: 'list' } | undefined => {
+):
+  | {
+      mode: 'range'
+      values: Json[]
+      start: number
+      stop: number
+      step: number
+    }
+  | { mode: 'list' }
+  | undefined => {
   const { mode, start, stop, step } = startSettings(node)
   if (mode === 'List') return { mode: 'list' }
   if (mode !== 'simple' && mode !== 'For') {
@@ -282,7 +291,13 @@ const rangeValues = (
     }
     values.push(value)
   }
-  return { mode: 'range', values }
+  return {
+    mode: 'range',
+    values,
+    start: start as number,
+    stop: stop as number,
+    step: step as number,
+  }
 }
 
 const endpointNode = (endpoint: Mutable): string | undefined =>
@@ -397,20 +412,16 @@ export function convertLitegraphLoops(
     }
     const iteration = rangeValues(startRaw, diagnostics)
     if (!iteration) return
-    const linkedRangeInput = rawLinks.find(
-      (link) =>
-        link.to === pair.start &&
-        (rawPortName(startRaw, 'inputs', link.toSlot)?.startsWith('mode.') ??
-          false),
+    const linkedRangeInputs = new Map(
+      rawLinks
+        .filter(
+          (link) =>
+            link.to === pair.start &&
+            (rawPortName(startRaw, 'inputs', link.toSlot)?.startsWith('mode.') ??
+              false),
+        )
+        .map((link) => [rawPortName(startRaw, 'inputs', link.toSlot)!, link]),
     )
-    if (linkedRangeInput !== undefined && iteration.mode === 'range') {
-      loopError(
-        diagnostics,
-        'rangeLinkedUnsupported',
-        `Start Loop ${pair.start} has linked range input ${rawPortName(startRaw, 'inputs', linkedRangeInput.toSlot)}`,
-      )
-      return
-    }
     const bodyNodeIds = new Set(
       [...pair.body]
         .map((id) => `n${id}`)
@@ -540,8 +551,9 @@ export function convertLitegraphLoops(
         to: { kind: 'body', endpoint: to },
       }
     }
+    const linkedRange = iteration.mode === 'range' && linkedRangeInputs.size > 0
     const staticFlags =
-      iteration.mode === 'range'
+      iteration.mode === 'range' && !linkedRange
         ? {
             is_first: iteration.values.map((_, index) => index === 0),
             is_last: iteration.values.map(
@@ -549,8 +561,49 @@ export function convertLitegraphLoops(
             ),
           }
         : undefined
-    if (iteration.mode === 'range') {
+    let sequenceSource: Mutable | undefined
+    if (iteration.mode === 'range' && !linkedRange) {
       values['iteration_index'] = iteration.values
+      elementPorts.add('iteration_index')
+    }
+
+    if (iteration.mode === 'range' && linkedRange) {
+      const rangeId = nextNodeId('range')
+      const rangeValues: Mutable = {
+        start: iteration.start,
+        stop: iteration.stop,
+        step: iteration.step,
+      }
+      graph['nodes'][rangeId] = {
+        id: rangeId,
+        type: 'std.list.range',
+        values: rangeValues,
+      }
+      view['nodes'][rangeId] = {
+        position: { x: Number(startRaw.id) * 20 - 180, y: -180 },
+      }
+      const rangeNames =
+        startSettings(startRaw).mode === 'For'
+          ? {
+              'mode.start_iteration_index': 'start',
+              'mode.max_iteration': 'stop',
+              'mode.step': 'step',
+            }
+          : { 'mode.num_iterations': 'stop' }
+      for (const [sourceName, targetName] of Object.entries(rangeNames)) {
+        const raw = linkedRangeInputs.get(sourceName)
+        const link = raw && graph['links'][`l${raw.id}`]
+        if (!link) continue
+        delete rangeValues[targetName]
+        const id = `loop_outer_${ordinal++}`
+        graph['links'][id] = {
+          id,
+          from: link['from'],
+          to: { node: rangeId, port: targetName },
+        }
+      }
+      sequenceSource = { node: rangeId, port: 'list' }
+      inputSources.set('iteration_index', sequenceSource)
       elementPorts.add('iteration_index')
     }
 
@@ -571,6 +624,7 @@ export function convertLitegraphLoops(
         return
       }
       listSource = listLink['from'] as Mutable
+      sequenceSource = listSource
       inputSources.set('list_item', listSource)
       elementPorts.add('list_item')
     }
@@ -805,7 +859,7 @@ export function convertLitegraphLoops(
       addOutput(`termination_${raw.id}`, link['from'], 'gather')
     }
 
-    if (iteration.mode === 'list' && inputBindings.has('loop_count')) {
+    if (sequenceSource && inputBindings.has('loop_count')) {
       const lengthId = nextNodeId('list_length')
       graph['nodes'][lengthId] = {
         id: lengthId,
@@ -818,7 +872,7 @@ export function convertLitegraphLoops(
       const sourceLinkId = `loop_outer_${ordinal++}`
       graph['links'][sourceLinkId] = {
         id: sourceLinkId,
-        from: listSource,
+        from: sequenceSource,
         to: { node: lengthId, port: 'list' },
       }
       inputSources.set('loop_count', { node: lengthId, port: 'length' })

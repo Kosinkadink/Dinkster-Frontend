@@ -29,6 +29,46 @@ const objectInfo = JSON.parse(
 const coreSchemas = parseObjectInfo(objectInfo).schemas
 const helperSchemas = new Map<string, NodeSchema>([
   [
+    'std.list.range',
+    {
+      type: 'std.list.range',
+      displayName: 'Integer Range',
+      category: 'test',
+      source: 'v3',
+      isOutputNode: false,
+      items: [
+        {
+          kind: 'input',
+          id: 'start',
+          type: { kind: 'concrete', name: 'core.int' },
+          optional: false,
+          widget: { widgetType: 'INT', options: {}, default: 0 },
+        },
+        {
+          kind: 'input',
+          id: 'stop',
+          type: { kind: 'concrete', name: 'core.int' },
+          optional: false,
+        },
+        {
+          kind: 'input',
+          id: 'step',
+          type: { kind: 'concrete', name: 'core.int' },
+          optional: false,
+          widget: { widgetType: 'INT', options: {}, default: 1 },
+        },
+        {
+          kind: 'output',
+          id: 'list',
+          type: {
+            kind: 'list',
+            element: { kind: 'concrete', name: 'core.int' },
+          },
+        },
+      ],
+    },
+  ],
+  [
     'std.math.add_ints',
     {
       type: 'std.math.add_ints',
@@ -354,12 +394,12 @@ const topologyResolver = (workflow: JsonObject) => {
       schemas.set(node['type'], fixtureSchema(node))
   }
   return (type: string): NodeSchema | undefined =>
-    coreSchemas.get(type) ?? schemas.get(type)
+    coreSchemas.get(type) ?? helperSchemas.get(type) ?? schemas.get(type)
 }
 
 describe('ComfyUI Generic Loops structural import', () => {
   it('keeps the fixed-SHA acceptance corpus complete', () => {
-    expect(workflowFiles).toHaveLength(22)
+    expect(workflowFiles).toHaveLength(23)
   })
 
   it.each(workflowFiles)(
@@ -471,7 +511,7 @@ describe('ComfyUI Generic Loops structural import', () => {
     expect(region.region!.outputRoles?.['result']).toBeUndefined()
   })
 
-  it('refuses linked range controls rather than importing stale widget values', () => {
+  it('lifts linked range controls into an integer range node', () => {
     const workflow = topologyWorkflow({
       count: { type: 'Source' },
       start: { type: 'StartLoop', inputs: { 'mode.num_iterations': 'count' } },
@@ -480,10 +520,25 @@ describe('ComfyUI Generic Loops structural import', () => {
       output: { type: 'Output', inputs: { value: 'end' } },
     })
     const imported = importLitegraph(workflow, topologyResolver(workflow))
-    expect(imported.diagnostics.map((item) => item.code)).toContain(
-      'import.loop.rangeLinkedUnsupported',
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(imported.document).toBeDefined()
+    const root = imported.document!.graphs.g0!
+    const range = Object.values(root.nodes).find((node) => node.type === 'std.list.range')!
+    const region = regionsOf(imported.document!)[0]!
+    expect(range.values).toEqual({ start: 0, step: 1 })
+    expect(region.values['iteration_index']).toBeUndefined()
+    expect(Object.values(root.links)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: { node: 'n1', port: 'output_0' },
+          to: { node: range.id, port: 'stop' },
+        }),
+        expect.objectContaining({
+          from: { node: range.id, port: 'list' },
+          to: { node: region.id, port: 'iteration_index' },
+        }),
+      ]),
     )
-    expect(imported.document).toBeUndefined()
   })
 
   it('lowers last and rerun into the native graph wire', () => {
