@@ -83,12 +83,27 @@ const openModal = async (page: Page, id: string): Promise<void> => {
 
 test('shell and canvas visual matrix', async ({ page }) => {
   await boot(page)
+  await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
+    readonly templateGalleryOpen: { set(value: boolean): void }
+  }).templateGalleryOpen.set(true))
+  await expect(page.getByTestId('template-gallery')).toBeVisible()
   await screenshot(page, '01-starter-template-gallery')
   await closeGallery(page)
   await screenshot(page, '02-shell-and-top-bar')
-  await page.getByTestId('rail-toggle').click()
+  const rightRail = page.getByTestId('dock-zone-right')
+  if (!(await rightRail.isVisible())) await page.getByTestId('rail-toggle').click()
+  await expect(rightRail).toBeVisible()
   await screenshot(page, '03-right-rail-tabs')
+  await page.getByTestId('rail-toggle').click()
+  await expect(rightRail).toBeHidden()
+  await page.getByTestId('minimap-settings').click()
+  await expect(page.locator('.minimap-menu')).toBeVisible()
+  await page.mouse.move(720, 450)
+  await page.waitForTimeout(600)
+  await expect(page.getByTestId('app-tooltip')).toBeHidden()
   await screenshot(page, '04-canvas-toolbar')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.minimap-menu')).toBeHidden()
   await page.evaluate(() => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
