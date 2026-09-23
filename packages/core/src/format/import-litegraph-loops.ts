@@ -427,6 +427,17 @@ export function convertLitegraphLoops(
         .map((id) => `n${id}`)
         .filter((id) => graph['nodes'][id] !== undefined),
     )
+    const expandingBodyNode = [...bodyNodeIds]
+      .map((id) => graph['nodes'][id] as Mutable)
+      .find((node) => resolve(node['type'])?.mayExpandGraph === true)
+    if (expandingBodyNode) {
+      loopError(
+        diagnostics,
+        'runtimeExpansionUnsupported',
+        `Loop ${pair.start}/${pair.end} contains runtime-expanding node ${expandingBodyNode['id']} (${expandingBodyNode['type']})`,
+      )
+      return
+    }
     const allLinks = Object.values(graph['links']) as Mutable[]
     const internal = allLinks.filter(
       (link) =>

@@ -635,7 +635,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1205,
+      "line": 1207,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -651,7 +651,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1032,
+      "line": 1034,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -659,7 +659,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1036,
+      "line": 1038,
       "column": 34,
       "symbol": "widgetType:ASSET",
       "issue": 122

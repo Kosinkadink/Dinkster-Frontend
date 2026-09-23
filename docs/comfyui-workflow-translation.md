@@ -111,6 +111,14 @@ live inputs. Static `accumulate=false` uses a `last` output, which yields typed
 absence for zero iterations. `cache_iterations=true` maps to `reuse`; false or
 omitted maps to `rerun`.
 
+Loop bodies containing a schema flagged `mayExpandGraph` refuse with
+`import.loop.runtimeExpansionUnsupported`; nested Start/End boundaries are
+consumed before the enclosing body is checked. V3 flags exactly
+`enable_expand=True`. V1 flags direct dict-literal expansion returns and the
+enumerated core expanders at the pinned revision. Delegated, dynamic, and custom
+V1 returns remain unclassified and rely on Dinkster's loud runtime refusal
+before output.
+
 The structural reference and CPU acceptance corpus are pinned to ComfyUI
 `b5cc8830279eae909a59de030af1e50761c36751`. The corpus covers 23 openable
 workflows, including empty, carried, lazy, output-list, nested, and repeated

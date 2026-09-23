@@ -258,6 +258,9 @@ const fixtureSchema = (node: JsonObject): NodeSchema => {
     category: 'test',
     source: 'v1',
     isOutputNode: (node['type'] as string).startsWith('Issue408Capture'),
+    ...((node['type'] as string) === 'Issue408ExpandIncrement'
+      ? { mayExpandGraph: true }
+      : {}),
     items,
   }
 }
@@ -281,7 +284,9 @@ const importCorpusWorkflow = (name: string) => {
       fixtureSchemas.set(node['type'], fixtureSchema(node))
   }
   const resolve = (type: string): NodeSchema | undefined =>
-    coreSchemas.get(type) ?? helperSchemas.get(type) ?? fixtureSchemas.get(type)
+    type === 'StartLoop'
+      ? { ...coreSchemas.get(type)!, mayExpandGraph: true }
+      : coreSchemas.get(type) ?? helperSchemas.get(type) ?? fixtureSchemas.get(type)
   return { workflow, resolve, imported: importLitegraph(workflow, resolve) }
 }
 
@@ -402,7 +407,9 @@ describe('ComfyUI Generic Loops structural import', () => {
     expect(workflowFiles).toHaveLength(23)
   })
 
-  it.each(workflowFiles)(
+  it.each(
+    workflowFiles.filter((name) => name !== 'runtime-expanded-descendant.json'),
+  )(
     'converts %s into explicit region definitions',
     (name) => {
       const { resolve, imported } = importCorpusWorkflow(name)
@@ -435,6 +442,23 @@ describe('ComfyUI Generic Loops structural import', () => {
       ).toBe(true)
     },
   )
+
+  it('refuses a flagged runtime-expanding loop body node', () => {
+    const { imported } = importCorpusWorkflow('runtime-expanded-descendant.json')
+    expect(imported.document).toBeUndefined()
+    expect(imported.diagnostics.map((item) => item.code)).toContain(
+      'import.loop.runtimeExpansionUnsupported',
+    )
+  })
+
+  it('consumes flagged nested loop boundaries before scanning the outer body', () => {
+    const { imported } = importCorpusWorkflow('nested-carry.json')
+    expect(imported.diagnostics.map((item) => item.code)).not.toContain(
+      'import.loop.runtimeExpansionUnsupported',
+    )
+    expect(imported.document).toBeDefined()
+    expect(regionsOf(imported.document!)).toHaveLength(2)
+  })
 
   it.each([
     ['cache-disabled.json', ['rerun']],
