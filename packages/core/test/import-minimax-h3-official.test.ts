@@ -63,7 +63,13 @@ function assertCommonValues(graph: GraphDef): void {
   })
 }
 
-function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDocument): void {
+interface VariantExpectation {
+  readonly enabled: boolean
+  readonly fastSteps: number
+  readonly lora: string
+}
+
+function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDocument, variant?: VariantExpectation): void {
   const graph = document.graphs[document.root]!
   assertCommonValues(graph)
   const model = onlyNode(graph, 'dinkster.load_diffusion_model')
@@ -73,7 +79,7 @@ function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDo
   if (name === 'video_minimax_h3_t2v.json' || name === 'video_minimax_h3_i2v.json') {
     expect(model.values.diffusion_model).toBe('minimax_h3_fl2va_pruned_int8_convrot.safetensors')
     expect(lora.values).toMatchObject({
-      lora: 'minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
+      lora: variant?.lora ?? 'minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
       strength_model: 1,
     })
     expect(noise.values.noise_seed).toBe(1)
@@ -88,14 +94,15 @@ function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDo
       length: 73,
       prompt: expect.stringContaining('Vaporwave title sequence look'),
     })
-    expect(nodesOfType(graph, 'dinkster.int').map((node) => node.values.value)).toEqual([20, 6])
+    expect(nodesOfType(graph, 'dinkster.int').map((node) => node.values.value)).toEqual([20, variant?.fastSteps ?? 6])
+    expect(onlyNode(graph, 'dinkster.boolean').values.value).toBe(variant?.enabled ?? false)
     if (name.includes('i2v')) expect(onlyNode(graph, 'dinkster.load_image').values.image).toBe('transparent_rgb_gaming_mouse.png')
     return
   }
 
   expect(model.values.diffusion_model).toBe('minimax_h3_ref2va_pruned_int8_convrot.safetensors')
   expect(lora.values).toMatchObject({
-    lora: 'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors',
+    lora: variant?.lora ?? 'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors',
     strength_model: 1,
   })
   expect(onlyNode(graph, 'dinkster.minimax_h3_reference_to_video').values).toMatchObject({
@@ -104,7 +111,8 @@ function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDo
     length: 124,
     ref_image_size: 'match',
   })
-  expect(nodesOfType(graph, 'dinkster.int').map((node) => node.values.value)).toEqual([20, 4])
+  expect(nodesOfType(graph, 'dinkster.int').map((node) => node.values.value)).toEqual([20, variant?.fastSteps ?? 4])
+  expect(onlyNode(graph, 'dinkster.boolean').values.value).toBe(variant?.enabled ?? false)
 
   if (name === 'video_minimax_h3_r2v.json') {
     expect(noise.values.noise_seed).toBe(261662374822964)
@@ -177,6 +185,73 @@ function replaceMaintainedAliases(document: WorkflowDocument): WorkflowDocument 
 
 const cases = ['video_minimax_h3_t2v.json', 'video_minimax_h3_i2v.json', 'video_minimax_h3_r2v.json', 'video_minimax_h3_multiframe_reference.json'] as const
 
+const variants = [
+  {
+    name: 'video_minimax_h3_t2v.json', label: 'no-LoRA', enabled: false, fastSteps: 6,
+    lora: 'minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_t2v.json', label: '8-step', enabled: true, fastSteps: 8,
+    lora: 'minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_t2v.json', label: '4-step', enabled: true, fastSteps: 4,
+    lora: 'minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_i2v.json', label: 'no-LoRA', enabled: false, fastSteps: 6,
+    lora: 'minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_i2v.json', label: '8-step', enabled: true, fastSteps: 8,
+    lora: 'minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_i2v.json', label: '4-step', enabled: true, fastSteps: 4,
+    lora: 'minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_r2v.json', label: 'no-LoRA', enabled: false, fastSteps: 4,
+    lora: 'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_r2v.json', label: '4-step', enabled: true, fastSteps: 4,
+    lora: 'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_multiframe_reference.json', label: 'no-LoRA', enabled: false, fastSteps: 4,
+    lora: 'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors',
+  },
+  {
+    name: 'video_minimax_h3_multiframe_reference.json', label: '4-step', enabled: true, fastSteps: 4,
+    lora: 'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors',
+  },
+] as const satisfies readonly ({ readonly name: (typeof cases)[number]; readonly label: string } & VariantExpectation)[]
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+function configureVariant(source: unknown, variant: VariantExpectation): JsonObject {
+  const workflow = structuredClone(source)
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    if (!isRecord(value)) return
+    const widgets = value.widgets_values
+    if (Array.isArray(widgets)) {
+      if (value.type === 'LoraLoaderModelOnly') widgets[0] = variant.lora
+      if (value.type === 'PrimitiveBoolean') widgets[0] = variant.enabled
+      if (value.type === 'PrimitiveInt' && typeof widgets[0] === 'number' && widgets[0] !== 20)
+        widgets[0] = variant.fastSteps
+    }
+    for (const child of Object.values(value)) visit(child)
+  }
+  visit(workflow)
+  return workflow as JsonObject
+}
+
 describe('official MiniMax H3 workflows', () => {
   it.each(cases)('imports %s verbatim as an executable native document', (name) => {
     const imported = importLitegraph(fixture(name) as JsonObject, resolve, (type) => aliases.catalog.recordsByNodeClass.has(type))
@@ -196,6 +271,28 @@ describe('official MiniMax H3 workflows', () => {
       scope: { kind: 'full' },
       connection: asConnectionId(`minimax-h3-${name}`),
       schemaHash: 'minimax-h3-official-fixture',
+    })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+  })
+
+  it.each(variants)('imports the $label variant of $name through the same native path', ({ name, label: _label, ...variant }) => {
+    const imported = importLitegraph(configureVariant(fixture(name), variant), resolve, (type) => aliases.catalog.recordsByNodeClass.has(type))
+    expect(errorDiagnostics(imported.diagnostics), JSON.stringify(imported.diagnostics)).toEqual([])
+    const document = replaceMaintainedAliases(imported.document!)
+    assertOfficialValues(name, document, variant)
+    expect(
+      Object.values(document.graphs)
+        .flatMap((graph) => Object.values(graph.nodes))
+        .filter((node) => aliases.catalog.recordsBySourceType.has(node.type)),
+    ).toEqual([])
+
+    const compiled = compile({
+      document,
+      revision: 1,
+      resolve: nativeResolve,
+      scope: { kind: 'full' },
+      connection: asConnectionId(`minimax-h3-${name}-${variant.enabled}-${variant.fastSteps}`),
+      schemaHash: 'minimax-h3-official-variant',
     })
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
   })
