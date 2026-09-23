@@ -30,6 +30,11 @@ screenshots in the PR description - before-and-after pairs when changing
 existing UI, a single shot for new UI. A frontend PR without screenshots
 of the visible change is incomplete.
 
+Every host control uses the documented `Product*` primitive or remains an
+allowlisted exception linked to an issue. `pnpm check:raw-controls` must pass.
+Compare a changed surface with a sibling in the same dock region and name the
+primitives used in the PR body.
+
 # Self-serve testing (user directive, 2026-08-12)
 
 Standing authorization: stand up whatever is needed to test - dev servers,

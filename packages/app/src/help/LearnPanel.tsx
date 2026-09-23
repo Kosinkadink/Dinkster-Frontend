@@ -4,6 +4,8 @@ import { t, type MessageParams } from '@dinkster/core'
 import { Markdown, type MarkdownAssets } from './Markdown.js'
 import { selectDocsLocale } from './NodeHelpPanel.js'
 import { parseMarkdown, type MarkdownBlock } from './markdownParser.js'
+import { ProductButton, ProductTextInput } from '../ProductControls.js'
+import { ProductEmptyState } from '../ProductSurfaces.js'
 
 type LearnConnection = Pick<DinksterConnection, 'listDocs' | 'fetchDocsPage' | 'docsAssetUrl'>
 
@@ -142,10 +144,10 @@ export function LearnPanel(props: {
     <div class="rail-panel-body learn-panel" data-testid="learn-panel">
       <Show when={selected() === undefined} fallback={
         <div class="learn-guide">
-          <button type="button" class="learn-back" onClick={() => setSelected(undefined)}>{message('learn.action.back')}</button>
-          <Show when={guideState().kind === 'loading'}><p role="status">{message('learn.state.loadingGuide')}</p></Show>
-          <Show when={guideState().kind === 'missing'}><p role="alert">{message('learn.state.missing')}</p></Show>
-          <Show when={guideState().kind === 'error'}><p role="alert">{message('learn.state.error', { error: (guideState() as Extract<GuideState, { kind: 'error' }>).message })}</p></Show>
+          <ProductButton type="button" variant="ghost" size="compact" class="learn-back" onClick={() => setSelected(undefined)}>{message('learn.action.back')}</ProductButton>
+          <Show when={guideState().kind === 'loading'}><ProductEmptyState tone="loading" title={message('learn.state.loadingGuide')} /></Show>
+          <Show when={guideState().kind === 'missing'}><ProductEmptyState tone="error" title={message('learn.state.missing')} /></Show>
+          <Show when={guideState().kind === 'error'}><ProductEmptyState tone="error" title={message('learn.state.error', { error: (guideState() as Extract<GuideState, { kind: 'error' }>).message })} /></Show>
           <Show when={loadedGuide()}>{(loaded) => (
             <article lang={loaded().locale}>
               <header class="node-help-header">
@@ -180,33 +182,33 @@ export function LearnPanel(props: {
         }}>
           <label for="learn-search-input">{message('learn.search.label')}</label>
           <div>
-            <input id="learn-search-input" type="search" value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
-            <button type="submit">{message('learn.action.search')}</button>
+            <ProductTextInput id="learn-search-input" type="search" value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
+            <ProductButton type="submit" variant="primary">{message('learn.action.search')}</ProductButton>
           </div>
         </form>
-        <Show when={listState().kind === 'loading'}><p role="status">{message('learn.state.loading')}</p></Show>
-        <Show when={listState().kind === 'unavailable'}><p role="alert">{message('learn.state.unavailable')}</p></Show>
-        <Show when={listState().kind === 'error'}><p role="alert">{message('learn.state.error', { error: (listState() as Extract<ListState, { kind: 'error' }>).message })}</p></Show>
+        <Show when={listState().kind === 'loading'}><ProductEmptyState tone="loading" title={message('learn.state.loading')} /></Show>
+        <Show when={listState().kind === 'unavailable'}><ProductEmptyState tone="error" title={message('learn.state.unavailable')} /></Show>
+        <Show when={listState().kind === 'error'}><ProductEmptyState tone="error" title={message('learn.state.error', { error: (listState() as Extract<ListState, { kind: 'error' }>).message })} /></Show>
         <Show when={loadedList()}>{(state) => (
-          <Show when={state().guides.length > 0} fallback={<p>{message('learn.state.empty')}</p>}>
+          <Show when={state().guides.length > 0} fallback={<ProductEmptyState title={message('learn.state.empty')} />}>
             <div class="learn-guide-list">
               <For each={state().guides}>{(descriptor) => {
                 const localized = () => selectedLocale(descriptor)
                 return (
-                  <button type="button" class="learn-guide-card" onClick={() => setSelected(descriptor)}>
+                  <ProductButton type="button" variant="ghost" class="learn-guide-card" onClick={() => setSelected(descriptor)}>
                     <strong>{localized().page.title}</strong>
                     <span>{localized().page.summary}</span>
                     <small>{descriptor.pack}</small>
                     <Show when={descriptor.tags?.length}><small>{descriptor.tags!.join(' | ')}</small></Show>
                     <Show when={localized().fallback}><small>{message('learn.state.fallback', { locale: localized().locale })}</small></Show>
-                  </button>
+                  </ProductButton>
                 )}
               }</For>
             </div>
             <Show when={state().cursor}>
-              <button type="button" class="learn-load-more" disabled={state().loadingMore} onClick={loadMore}>
+              <ProductButton type="button" class="learn-load-more" loading={state().loadingMore} onClick={loadMore}>
                 {state().loadingMore ? message('learn.state.loading') : message('learn.action.loadMore')}
-              </button>
+              </ProductButton>
             </Show>
           </Show>
         )}</Show>

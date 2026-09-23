@@ -1,4 +1,54 @@
-import type { JSX } from 'solid-js'
+import { splitProps, type JSX } from 'solid-js'
+
+export type ProductButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
+export type ProductControlSize = 'control' | 'compact'
+
+export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
+  readonly variant?: ProductButtonVariant
+  readonly size?: ProductControlSize
+  readonly loading?: boolean
+}) {
+  const [local, button] = splitProps(props, ['variant', 'size', 'loading', 'class', 'children', 'disabled'])
+  return (
+    <button
+      {...button}
+      class={`product-button${local.class ? ` ${local.class}` : ''}`}
+      data-variant={local.variant ?? 'secondary'}
+      data-size={local.size ?? 'control'}
+      aria-busy={local.loading === true ? 'true' : undefined}
+      disabled={local.disabled === true || local.loading === true}
+    >{local.children}</button>
+  )
+}
+
+type ProductTextInputType = 'text' | 'search' | 'url' | 'password' | 'email' | 'tel'
+
+export function ProductTextInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+  readonly type?: ProductTextInputType
+  readonly invalid?: boolean
+}) {
+  const [local, input] = splitProps(props, ['class', 'invalid'])
+  return (
+    <input
+      {...input}
+      class={`product-text-input${local.class ? ` ${local.class}` : ''}`}
+      aria-invalid={local.invalid === true ? 'true' : input['aria-invalid']}
+    />
+  )
+}
+
+export function ProductTextArea(props: JSX.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  readonly invalid?: boolean
+}) {
+  const [local, textarea] = splitProps(props, ['class', 'invalid'])
+  return (
+    <textarea
+      {...textarea}
+      class={`product-text-area${local.class ? ` ${local.class}` : ''}`}
+      aria-invalid={local.invalid === true ? 'true' : textarea['aria-invalid']}
+    />
+  )
+}
 
 export type ProductCheckboxState = boolean | 'mixed'
 

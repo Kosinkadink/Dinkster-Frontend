@@ -191,7 +191,6 @@ describe('MemoryPanel', () => {
     expect(root.textContent).toContain('Running1 / 2')
     expect(root.textContent).toContain('12s remaining')
     expect(root.textContent).toContain('Aimdo policy applies to workers started after the change.')
-    root.querySelector<HTMLButtonElement>('.memory-consumer button')!.click()
     await Promise.resolve()
     expect(root.textContent).toContain('Flux model')
     expect(root.textContent).toContain('2/3 resident pages')
@@ -233,8 +232,33 @@ describe('MemoryPanel', () => {
     const unmount = render(() => <MemoryPanel connection={{ status, fetchMemoryStatus: vi.fn(async () => absent), onMemoryStatus: () => () => {}, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn() }} label="Absent" />, root)
     await Promise.resolve(); await Promise.resolve()
     expect(root.textContent).toContain('Budget and device measurement are unavailable.')
-    expect(root.querySelector('.memory-device .memory-stack')).toBeNull()
-    expect(root.querySelector('.memory-device .memory-graph')).toBeNull()
+    expect(root.querySelector('.memory-device > .memory-stack')).toBeNull()
+    expect(root.querySelector('.memory-device > .memory-graph')).toBeNull()
+    unmount()
+  })
+
+  it('rolls live graph samples forward but does not append disconnected pushed telemetry', async () => {
+    const status = createSignal<ConnectionStatus>('connected')
+    let push: ((next: MemoryStatus) => void) | undefined
+    let now = 1000
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <MemoryPanel connection={{
+      status, fetchMemoryStatus: vi.fn(async () => payload), onMemoryStatus: (listener) => { push = listener; return () => {} }, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn(),
+    }} label="Live graph" now={() => now} />, root)
+    await Promise.resolve(); await Promise.resolve()
+    const graph = root.querySelector<HTMLCanvasElement>('.memory-graph canvas')!
+    expect(graph.dataset.samples).toBe('1')
+    now += 1000
+    push!({ ...payload, memoryGovernor: { 'cuda:0': { ...payload.memoryGovernor!['cuda:0']!, consumerFootprintBytes: 6 * 1024 ** 3, availableBytes: 0 } } })
+    await Promise.resolve(); await Promise.resolve()
+    expect(root.textContent).toContain('Footprint6.0 GiB')
+    expect(root.querySelector<HTMLCanvasElement>('.memory-graph canvas')!.dataset.samples).toBe('2')
+    status.set('disconnected')
+    now += 1000
+    push!({ ...payload, memoryGovernor: { 'cuda:0': { ...payload.memoryGovernor!['cuda:0']!, consumerFootprintBytes: 2 * 1024 ** 3, availableBytes: 4 * 1024 ** 3 } } })
+    await Promise.resolve()
+    expect(root.querySelector<HTMLCanvasElement>('.memory-graph canvas')!.dataset.samples).toBe('2')
+    expect(root.querySelector('.memory-graph-state')).toBeNull()
     unmount()
   })
 
@@ -270,9 +294,8 @@ describe('MemoryPanel', () => {
     const unmount = render(() => <><MemoryPanel connection={connection} label="One" /><MemoryPanel connection={connection} label="Two" /></>, root)
     await Promise.resolve(); await Promise.resolve()
     const buttons = root.querySelectorAll<HTMLButtonElement>('.memory-consumer button')
-    buttons[0]!.click()
     expect(buttons[0]!.getAttribute('aria-expanded')).toBe('true')
-    expect(buttons[1]!.getAttribute('aria-expanded')).toBe('false')
+    expect(buttons[1]!.getAttribute('aria-expanded')).toBe('true')
     const ids = [...buttons].map((button) => button.getAttribute('aria-controls'))
     expect(new Set(ids).size).toBe(ids.length)
     unmount()
@@ -287,13 +310,12 @@ describe('MemoryPanel', () => {
     firstRoot.querySelector<HTMLButtonElement>('.memory-consumer button')!.click()
     const storedKey = Object.keys(localStorage).find((key) => key.startsWith('dinkster.memory.consumer.'))
     expect(storedKey).toBeTruthy()
-    expect(localStorage.getItem(storedKey!)).toBe('false')
+    expect(localStorage.getItem(storedKey!)).toBe('true')
     firstUnmount(); firstRoot.remove()
     const secondRoot = document.createElement('div'); document.body.append(secondRoot)
     const secondUnmount = render(() => <MemoryPanel connection={connection} backendId="backend-1" label="Second" />, secondRoot)
     await Promise.resolve(); await Promise.resolve()
-    expect(secondRoot.querySelector('.memory-consumer button')?.getAttribute('aria-expanded')).toBe('true')
-    expect(connection.fetchMemoryStatus).toHaveBeenCalledWith(true)
+    expect(secondRoot.querySelector('.memory-consumer button')?.getAttribute('aria-expanded')).toBe('false')
     secondUnmount()
   })
 
@@ -311,6 +333,30 @@ describe('MemoryPanel', () => {
     expect(root.querySelector('.memory-consumer button')?.getAttribute('aria-expanded')).toBe('true')
     expect(root.textContent).toContain('Loading item details...')
     expect(fetchMemoryStatus).toHaveBeenCalledWith(true)
+    unmount()
+  })
+
+  it('opens a newly active consumer once and refreshes its details with accepted base samples', async () => {
+    const status = createSignal<ConnectionStatus>('connected')
+    let push: ((next: MemoryStatus) => void) | undefined
+    const empty: MemoryStatus = { ...payload, memoryGovernor: { 'cuda:0': { ...payload.memoryGovernor!['cuda:0']!, consumers: {} } } }
+    const fetchMemoryStatus = vi.fn(async (details = false) => details ? payload : empty)
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <MemoryPanel connection={{
+      status, fetchMemoryStatus, onMemoryStatus: (listener) => { push = listener; return () => {} }, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn(),
+    }} label="New consumer" />, root)
+    await Promise.resolve(); await Promise.resolve()
+
+    push!(payload); await Promise.resolve(); await Promise.resolve()
+    expect(root.querySelector('.memory-consumer button')?.getAttribute('aria-expanded')).toBe('true')
+    expect(fetchMemoryStatus.mock.calls.filter(([details]) => details === true)).toHaveLength(1)
+
+    push!({ ...payload, queue: { ...payload.queue, queued: 2 } }); await Promise.resolve(); await Promise.resolve()
+    expect(fetchMemoryStatus.mock.calls.filter(([details]) => details === true)).toHaveLength(2)
+
+    push!(empty); push!(payload); await Promise.resolve()
+    expect(root.querySelector('.memory-consumer button')?.getAttribute('aria-expanded')).toBe('false')
+    expect(fetchMemoryStatus.mock.calls.filter(([details]) => details === true)).toHaveLength(2)
     unmount()
   })
 
@@ -333,7 +379,6 @@ describe('MemoryPanel', () => {
     Object.defineProperty(graphHost, 'clientWidth', { configurable: true, value: 300 })
     observers.get(graphHost)!([], {} as ResizeObserver)
     expect(graph.width).toBe(300)
-    root.querySelector<HTMLButtonElement>('.memory-consumer button')!.click(); await Promise.resolve(); await Promise.resolve()
     const heatmap = root.querySelector<HTMLCanvasElement>('[aria-label^="Page residency heatmap"]')!
     expect(observers.has(heatmap.parentElement!)).toBe(true)
     Object.defineProperty(heatmap.parentElement!, 'clientWidth', { configurable: true, value: 140 })
@@ -354,7 +399,6 @@ describe('MemoryPanel', () => {
     const root = document.createElement('div'); document.body.append(root)
     const unmount = render(() => <MemoryPanel connection={connection} label="Details" />, root)
     await Promise.resolve(); await Promise.resolve()
-    root.querySelector<HTMLButtonElement>('.memory-consumer button')!.click(); await Promise.resolve()
     expect(root.textContent).toContain('Detail telemetry is unsupported for this consumer.')
     root.querySelector<HTMLButtonElement>('.memory-consumer button')!.click()
     supported = true
@@ -367,6 +411,7 @@ describe('MemoryPanel', () => {
     const status = createSignal<ConnectionStatus>('connected')
     let detailRequests = 0
     const twoConsumers: MemoryStatus = { ...payload, memoryGovernor: { 'cuda:0': { ...payload.memoryGovernor!['cuda:0']!, consumers: { models: 3, cache: 2 } } } }
+    localStorage.setItem(`dinkster.memory.consumer.${encodeURIComponent(JSON.stringify(['Retained', 'cuda:0', 'cache']))}.collapsed`, 'true')
     const connection = {
       status, onMemoryStatus: () => () => {}, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn(),
       fetchMemoryStatus: vi.fn(async (details = false): Promise<MemoryStatus> => {
@@ -382,7 +427,6 @@ describe('MemoryPanel', () => {
     const unmount = render(() => <MemoryPanel connection={connection} label="Retained" />, root)
     await Promise.resolve(); await Promise.resolve()
     const consumers = root.querySelectorAll<HTMLButtonElement>('.memory-consumer button')
-    consumers[0]!.click(); await Promise.resolve(); await Promise.resolve()
     expect(root.textContent).toContain('Flux model')
     consumers[1]!.click(); await Promise.resolve(); await Promise.resolve()
     expect(root.textContent).toContain('Item details failed to refresh: detail offline. Retained details remain visible.')

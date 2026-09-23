@@ -1,6 +1,7 @@
 import { createSignal, Show } from 'solid-js'
 import type { MountDescriptor } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
+import { ProductButton, ProductTextInput } from './ProductControls.js'
 
 export interface MountFolderConnection {
   addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise<MountDescriptor>
@@ -68,21 +69,21 @@ export function MountFolderForm(props: {
       <Show when={props.chooseDirectory !== undefined} fallback={
         <form class="desktop-mount-form desktop-mount-form-typed" onSubmit={(event) => { event.preventDefault(); void addMount() }}>
           <label for="desktop-mount-path">{message('importAssetResolution.fact.path')}</label>
-          <input id="desktop-mount-path" value={mountPath()} onInput={(event) => enterPath(event.currentTarget.value)} required />
+          <ProductTextInput id="desktop-mount-path" value={mountPath()} onInput={(event) => enterPath(event.currentTarget.value)} required />
           <label for="desktop-mount-id">{message('desktopManagement.folders.mountName')}</label>
-          <input id="desktop-mount-id" value={mountId()} onInput={(event) => setMountId(event.currentTarget.value)} required />
-          <button type="submit" disabled={busy() || !mountId().trim() || !mountPath().trim()}>{message('desktopManagement.folders.grant')}</button>
+          <ProductTextInput id="desktop-mount-id" value={mountId()} onInput={(event) => setMountId(event.currentTarget.value)} required />
+          <ProductButton type="submit" variant="primary" disabled={busy() || !mountId().trim() || !mountPath().trim()}>{message('desktopManagement.folders.grant')}</ProductButton>
         </form>
       }>
         <div class="desktop-management-actions">
-          <button type="button" disabled={busy()} onClick={() => void choose()}>{message('desktopManagement.folders.choose')}</button>
+          <ProductButton type="button" disabled={busy()} onClick={() => void choose()}>{message('desktopManagement.folders.choose')}</ProductButton>
         </div>
         <Show when={mountPath()}>
           <form class="desktop-mount-form" onSubmit={(event) => { event.preventDefault(); void addMount() }}>
             <label for="desktop-mount-id">{message('desktopManagement.folders.mountName')}</label>
-            <input id="desktop-mount-id" value={mountId()} onInput={(event) => setMountId(event.currentTarget.value)} required />
+            <ProductTextInput id="desktop-mount-id" value={mountId()} onInput={(event) => setMountId(event.currentTarget.value)} required />
             <code>{mountPath()}</code>
-            <button type="submit" disabled={busy() || !mountId().trim()}>{message('desktopManagement.folders.grant')}</button>
+            <ProductButton type="submit" variant="primary" disabled={busy() || !mountId().trim()}>{message('desktopManagement.folders.grant')}</ProductButton>
           </form>
         </Show>
       </Show>

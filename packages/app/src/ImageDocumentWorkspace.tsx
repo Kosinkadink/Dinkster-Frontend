@@ -55,7 +55,8 @@ import {
 } from './image-document-graph.js'
 import { useAppMessage } from './locale.js'
 import { activeProjectId } from './projects.js'
-import { ProductCheckbox } from './ProductControls.js'
+import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductSlider } from './ProductSlider.js'
@@ -1363,8 +1364,8 @@ export function ImageDocumentWorkspace(props: {
           if (file) void importDocument(file)
         }} />
       </header>
-      <Show when={!loading()} fallback={<div class="image-document-empty" role="status">{message('imageDocument.workspace.recovering')}</div>}>
-        <Show when={active()} keyed fallback={<div class="image-document-empty"><strong>{message('imageDocument.workspace.empty.title')}</strong><p>{message('imageDocument.workspace.empty.description')}</p><button type="button" class="primary" onClick={() => importInput.click()}>{message('imageDocument.workspace.action.chooseImage')}</button></div>}>
+      <Show when={!loading()} fallback={<ProductEmptyState class="image-document-empty" tone="loading" title={message('imageDocument.workspace.recovering')} />}>
+        <Show when={active()} keyed fallback={<ProductEmptyState class="image-document-empty" title={message('imageDocument.workspace.empty.title')} hint={message('imageDocument.workspace.empty.description')} action={<ProductButton type="button" variant="primary" onClick={() => importInput.click()}>{message('imageDocument.workspace.action.chooseImage')}</ProductButton>} />}>
           {(entry) => <section
             id={panelId(entry.draft.document.lineage)}
             role="tabpanel"

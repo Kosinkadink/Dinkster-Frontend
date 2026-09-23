@@ -75,6 +75,16 @@ const flush = async (): Promise<void> => {
   await Promise.resolve()
 }
 
+const productSelect = (root: HTMLElement, testId: string): HTMLButtonElement =>
+  root.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!
+
+const chooseProductOption = async (root: HTMLElement, testId: string, optionId: string): Promise<void> => {
+  productSelect(root, testId).click()
+  await flush()
+  document.querySelector<HTMLElement>(`[role="option"][data-option-id="${optionId}"]`)!.click()
+  await flush()
+}
+
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class {
     observe(): void {}
@@ -156,13 +166,10 @@ describe('ExecutionLogPanel', () => {
     const root = mount({ executions: () => [pinned, selected], active: () => pinned, onFocusNode })
     await flush()
     const panel = root.querySelector('[data-testid="execution-log-panel"]')
-    const runSelect = root.querySelector<HTMLSelectElement>('[data-testid="execution-log-run-select"]')!
-    runSelect.value = selected.key
-    runSelect.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
-    const nodeSelect = root.querySelector<HTMLSelectElement>('[data-testid="execution-log-node-select"]')!
-    nodeSelect.value = 'sampler'
-    nodeSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    const runSelect = productSelect(root, 'execution-log-run-select')
+    await chooseProductOption(root, 'execution-log-run-select', selected.key)
+    const nodeSelect = productSelect(root, 'execution-log-node-select')
+    await chooseProductOption(root, 'execution-log-node-select', 'sampler')
     root.querySelector<HTMLButtonElement>('[data-testid="execution-log-level-info"]')!.click()
     await flush()
     const rows = rowsOf(root)
@@ -184,8 +191,8 @@ describe('ExecutionLogPanel', () => {
     await flush()
 
     expect(root.querySelector('[data-testid="execution-log-panel"]')).toBe(panel)
-    expect(runSelect.value).toBe(selected.key)
-    expect(nodeSelect.value).toBe('sampler')
+    expect(runSelect.dataset['selectedId']).toBe(selected.key)
+    expect(nodeSelect.dataset['selectedId']).toBe('sampler')
     expect(root.querySelector('[data-testid="execution-log-level-info"]')?.getAttribute('aria-pressed')).toBe('false')
     expect(rowsOf(root)).toHaveLength(rows.length)
     rowsOf(root).forEach((row, index) => expect(row).toBe(rows[index]))
@@ -195,8 +202,7 @@ describe('ExecutionLogPanel', () => {
     expect(root.querySelector('[data-testid="execution-log-list"]')?.getAttribute('aria-label')).toBe('[Protokolleintrage]')
     expect(root.querySelector('[data-testid="execution-log-resume"]')?.textContent).toContain('[Zum neuesten Eintrag]')
     expect(root.querySelector('[data-testid="execution-log-truncated"]')?.textContent).toBe('[2 ALTE EINTRAGE]')
-    expect([...runSelect.options].find((option) => option.value === selected.key)?.textContent)
-      .toBe('[raw-prompt-INK :: [STATUS-FEHLER]]')
+    expect(runSelect.textContent).toContain('[raw-prompt-INK :: [STATUS-FEHLER]]')
     expect(rows[0]!.textContent).toContain('[FEHLER]')
     expect(rows[0]!.textContent).toContain('Title of sampler')
     expect(rows[0]!.textContent).toContain('raw diagnostic Nachricht')
@@ -249,10 +255,11 @@ describe('ExecutionLogPanel', () => {
   it('node filter keeps only that node, spanning log and diagnostic rows', async () => {
     const root = mount({ active: () => populated() })
     await flush()
-    const select = root.querySelector<HTMLSelectElement>('[data-testid="execution-log-node-select"]')!
-    expect([...select.options].map((option) => option.value)).toEqual(['', 'sampler', 'decoder'])
-    select.value = 'sampler'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    const select = productSelect(root, 'execution-log-node-select')
+    select.click()
+    await flush()
+    expect([...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => option.dataset['optionId'])).toEqual(['', 'sampler', 'decoder'])
+    document.querySelector<HTMLElement>('[role="option"][data-option-id="sampler"]')!.click()
     await flush()
     const rows = rowsOf(root)
     expect(rows).toHaveLength(2)
@@ -290,10 +297,7 @@ describe('ExecutionLogPanel', () => {
     const [executions] = createSignal<readonly ExecutionState[]>([activeRun, pinned])
     const root = mount({ executions, active: () => activeRun })
     await flush()
-    const select = root.querySelector<HTMLSelectElement>('[data-testid="execution-log-run-select"]')!
-    select.value = 'c0:run-2'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
+    await chooseProductOption(root, 'execution-log-run-select', 'c0:run-2')
     const rows = rowsOf(root)
     expect(rows).toHaveLength(1)
     expect(rows[0]!.textContent).toContain('from pinned run')
@@ -309,20 +313,18 @@ describe('ExecutionLogPanel', () => {
 
     setRequest({ runtimeNodeIds: ['sampler'], token: 1 })
     await flush()
-    const select = root.querySelector<HTMLSelectElement>('[data-testid="execution-log-node-select"]')!
-    expect(select.value).toBe('sampler')
+    const select = productSelect(root, 'execution-log-node-select')
+    expect(select.dataset['selectedId']).toBe('sampler')
     expect(rowsOf(root).every((row) => row.textContent!.includes('Title of sampler'))).toBe(true)
     expect(applied).toEqual([1])
 
     // The user widens the filter by hand; a NEW request for the SAME node
     // narrows it again (the token distinguishes repeats).
-    select.value = ''
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
+    await chooseProductOption(root, 'execution-log-node-select', '')
     expect(rowsOf(root)).toHaveLength(4)
     setRequest({ runtimeNodeIds: ['sampler'], token: 2 })
     await flush()
-    expect(select.value).toBe('sampler')
+    expect(select.dataset['selectedId']).toBe('sampler')
     expect(applied).toEqual([1, 2])
   })
 
@@ -335,10 +337,9 @@ describe('ExecutionLogPanel', () => {
 
     setRequest({ runtimeNodeIds: ['sampler', 'decoder'], token: 1 })
     await flush()
-    const select = root.querySelector<HTMLSelectElement>('[data-testid="execution-log-node-select"]')!
-    expect(select.selectedIndex).toBe(0)
-    expect(select.selectedOptions[0]!.dataset['groupFilter']).toBe('true')
-    expect(select.selectedOptions[0]!.textContent).toBe('Focused node (2 occurrences)')
+    const select = productSelect(root, 'execution-log-node-select')
+    expect(select.dataset['selectedId']).toBe('__focused_group__')
+    expect(select.textContent).toContain('Focused node (2 occurrences)')
     const grouped = rowsOf(root)
     expect(grouped.length).toBeGreaterThan(0)
     expect(grouped.every((row) =>
@@ -349,15 +350,13 @@ describe('ExecutionLogPanel', () => {
     })
     setLocale('de-DE')
     await flush()
-    expect(select.selectedOptions[0]!.dataset['groupFilter']).toBe('true')
-    expect(select.selectedOptions[0]!.textContent).toBe('[FOKUS 2 VORKOMMEN]')
+    expect(select.dataset['selectedId']).toBe('__focused_group__')
+    expect(select.textContent).toContain('[FOKUS 2 VORKOMMEN]')
     rowsOf(root).forEach((row, index) => expect(row).toBe(grouped[index]))
 
     // Manually picking one node clears the grouped filter.
-    select.value = 'decoder'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
-    expect(select.value).toBe('decoder')
+    await chooseProductOption(root, 'execution-log-node-select', 'decoder')
+    expect(select.dataset['selectedId']).toBe('decoder')
     expect(rowsOf(root).every((row) => row.textContent!.includes('Title of decoder'))).toBe(true)
   })
 
@@ -372,16 +371,16 @@ describe('ExecutionLogPanel', () => {
     const root = mount({ active: () => activeRun, filterRequest: request })
     setRequest({ runtimeNodeIds: ['__group', 'decoder'], token: 1 })
     await flush()
-    const select = root.querySelector<HTMLSelectElement>('[data-testid="execution-log-node-select"]')!
+    const select = productSelect(root, 'execution-log-node-select')
 
-    expect(select.selectedOptions[0]!.dataset['groupFilter']).toBe('true')
-    expect([...select.options].filter((option) => option.value === '__group')).toHaveLength(1)
-    select.value = '__group'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(select.dataset['selectedId']).toBe('__focused_group__')
+    select.click()
+    await flush()
+    expect(document.querySelectorAll('[role="option"][data-option-id="__group"]')).toHaveLength(1)
+    document.querySelector<HTMLElement>('[role="option"][data-option-id="__group"]')!.click()
     await flush()
 
-    expect(select.value).toBe('__group')
-    expect(select.selectedOptions[0]!.dataset['groupFilter']).toBeUndefined()
+    expect(select.dataset['selectedId']).toBe('__group')
     expect(rowsOf(root)).toHaveLength(1)
     expect(rowsOf(root)[0]!.textContent).toContain('real magic-looking id')
   })
@@ -392,15 +391,13 @@ describe('ExecutionLogPanel', () => {
     const root = mount({ active: () => activeRun, filterRequest: request })
     setRequest({ runtimeNodeIds: ['missing-node'], token: 1 })
     await flush()
-    const select = root.querySelector<HTMLSelectElement>('[data-testid="execution-log-node-select"]')!
+    const select = productSelect(root, 'execution-log-node-select')
 
-    expect(select.value).toBe('missing-node')
+    expect(select.dataset['selectedId']).toBe('missing-node')
     expect(rowsOf(root)).toHaveLength(0)
-    select.value = ''
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
+    await chooseProductOption(root, 'execution-log-node-select', '')
 
-    expect(select.value).toBe('')
+    expect(select.dataset['selectedId']).toBe('')
     expect(rowsOf(root)).toHaveLength(4)
   })
 })

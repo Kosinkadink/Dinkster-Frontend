@@ -5,6 +5,8 @@ import { currentGraphId, diagnosticFocusTarget, type AppState } from './app-stat
 import { groupProblemDiagnostics, problemDisplay, type ProblemGroup } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage } from './locale.js'
+import { ProductButton } from './ProductControls.js'
+import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 
 export interface ProblemsDisclosure {
   readonly expanded: (key: string) => boolean
@@ -81,20 +83,22 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
 
   return (
     <section class="rail-section" data-testid="problems-panel" data-native-text-scope>
-      <h2>{message('shell.panel.problems.title')}</h2>
+      <ProductPanelHeader title={message('shell.panel.problems.title')} />
       {/* Problems are owner-scoped: the caller supplies only visible canvases'
           entries plus app-scoped globals and the active execution's errors. */}
       <Show
         when={groups().length > 0 || props.compatSkips().length > 0 || inferenceUnavailable().length > 0}
-        fallback={<p class="empty">{message('problems.empty')}</p>}
+        fallback={<ProductEmptyState class="empty" title={message('problems.empty')} />}
       >
         <For each={groups()}>
           {(group, index) => {
             const contentId = () => `problems-group-${index()}`
             return (
               <section class="problems-group" data-severity={group.severity}>
-                <button
+                <ProductButton
                   type="button"
+                  variant="ghost"
+                  size="compact"
                   class="problems-group-header"
                   aria-expanded={disclosure.expanded(group.key)}
                   aria-controls={contentId()}
@@ -104,7 +108,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                   <span class="problems-group-title">{group.title}</span>
                   <span class="problems-group-count">{group.diagnostics.length}</span>
                   <span class="problems-group-severity">{group.severity}</span>
-                </button>
+                </ProductButton>
                 <div id={contentId()} class="problems-group-items" hidden={!disclosure.expanded(group.key)}>
                   <For each={group.diagnostics}>
                     {(diagnostic) => (
@@ -124,21 +128,25 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                           })()}
                         </summary>
                         <Show when={diagnostic.anchor?.occurrence !== undefined || diagnostic.anchor?.port !== undefined}>
-                          <button
+                          <ProductButton
                             type="button"
+                            variant="secondary"
+                            size="compact"
                             class="problem-show-on-canvas"
                             onClick={() => activateProblem(props.app, diagnostic)}
                           >
                             {message('problems.action.showOnCanvas')}
-                          </button>
+                          </ProductButton>
                           <Show when={props.onShowInContext} keyed>{(showInContext) => (
-                            <button
+                            <ProductButton
                               type="button"
+                              variant="secondary"
+                              size="compact"
                               class="problem-show-in-context"
                               onClick={() => showInContext(diagnostic)}
                             >
                               {message('problems.action.showInFocused')}
-                            </button>
+                            </ProductButton>
                           )}</Show>
                         </Show>
                         <Show when={diagnostic.runtime?.hints?.length}>
