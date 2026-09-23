@@ -402,6 +402,112 @@ describe('basic translation', () => {
     expect(compiled.artifact.prompt['n5']!.inputs['negative']).toEqual(['n3', 0])
   })
 
+  it('preserves separate MiniMax H3 positive and negative conditioning nodes', () => {
+    const h3Schemas = [
+      sdSchema('test.h3_sources', 'H3Sources', [
+        sdOutput('clip', 'core.clip'),
+        sdOutput('vae', 'core.vae'),
+        sdOutput('model', 'core.model'),
+      ]),
+      sdSchema('comfy.MiniMaxH3ImageToVideo', 'MiniMaxH3ImageToVideo', [
+        sdInput('clip', 'core.clip'),
+        sdInput('vae', 'core.vae'),
+        sdInput('prompt', 'core.string', 'STRING'),
+        sdInput('width', 'core.integer', 'INT'),
+        sdInput('height', 'core.integer', 'INT'),
+        sdInput('length', 'core.integer', 'INT'),
+        sdOutput('conditioning', 'core.conditioning'),
+        sdOutput('latent', 'core.latent'),
+      ]),
+      sdSchema('comfy.CFGGuider', 'CFGGuider', [
+        sdInput('model', 'core.model'),
+        sdInput('positive', 'core.conditioning'),
+        sdInput('negative', 'core.conditioning'),
+        sdOutput('guider', 'core.guider'),
+      ]),
+      sdSchema('test.guider_sink', 'GuiderSink', [sdInput('guider', 'core.guider')], true),
+    ] as const
+    const h3Resolve = (type: string): NodeSchema | undefined =>
+      h3Schemas.find((schema) => schema.type === type || schema.aliases?.includes(type))
+    const imported = importLitegraph(workflow([
+      lgNode(1, 'H3Sources', {
+        outputs: [
+          { name: 'CLIP', links: [1, 3] },
+          { name: 'VAE', links: [2, 4] },
+          { name: 'MODEL', links: [5] },
+        ],
+      }),
+      lgNode(2, 'MiniMaxH3ImageToVideo', {
+        inputs: [{ name: 'clip', link: 1 }, { name: 'vae', link: 2 }],
+        outputs: [{ name: 'positive', links: [6] }, { name: 'LATENT' }],
+        widgets_values: ['cinematic sunrise', 1344, 768, 124],
+      }),
+      lgNode(3, 'MiniMaxH3ImageToVideo', {
+        inputs: [{ name: 'clip', link: 3 }, { name: 'vae', link: 4 }],
+        outputs: [{ name: 'positive', links: [7] }, { name: 'LATENT' }],
+        widgets_values: ['camera shake, artifacts', 1344, 768, 124],
+      }),
+      lgNode(4, 'CFGGuider', {
+        inputs: [
+          { name: 'model', link: 5 },
+          { name: 'positive', link: 6 },
+          { name: 'negative', link: 7 },
+        ],
+        outputs: [{ name: 'GUIDER', links: [8] }],
+      }),
+      lgNode(5, 'GuiderSink', { inputs: [{ name: 'guider', link: 8 }] }),
+    ], [
+      lgLink(1, 1, 0, 2, 0),
+      lgLink(2, 1, 1, 2, 1),
+      lgLink(3, 1, 0, 3, 0),
+      lgLink(4, 1, 1, 3, 1),
+      lgLink(5, 1, 2, 4, 0),
+      lgLink(6, 2, 0, 4, 1),
+      lgLink(7, 3, 0, 4, 2),
+      lgLink(8, 4, 0, 5, 0),
+    ]), h3Resolve)
+
+    expect(imported.diagnostics).toEqual([])
+    const document = imported.document!
+    const graph = document.graphs.g0!
+    expect(Object.values(graph.nodes).map((node) => node.type)).toEqual([
+      'test.h3_sources',
+      'comfy.MiniMaxH3ImageToVideo',
+      'comfy.MiniMaxH3ImageToVideo',
+      'comfy.CFGGuider',
+      'test.guider_sink',
+    ])
+    expect(graph.nodes.n2!.values).toEqual({
+      prompt: 'cinematic sunrise', width: 1344, height: 768, length: 124,
+    })
+    expect(graph.nodes.n3!.values).toEqual({
+      prompt: 'camera shake, artifacts', width: 1344, height: 768, length: 124,
+    })
+    expect(graph.links.l6).toMatchObject({
+      from: { node: 'n2', port: 'conditioning' },
+      to: { node: 'n4', port: 'positive' },
+    })
+    expect(graph.links.l7).toMatchObject({
+      from: { node: 'n3', port: 'conditioning' },
+      to: { node: 'n4', port: 'negative' },
+    })
+
+    const compiled = compile({
+      document,
+      revision: 1,
+      resolve: h3Resolve,
+      scope: { kind: 'full' },
+      connection: asConnectionId('h3-conditioning-import'),
+      schemaHash: 'h3-conditioning-import',
+    })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) return
+    expect(compiled.artifact.prompt['n2']!.inputs).not.toHaveProperty('negative_prompt')
+    expect(compiled.artifact.prompt['n3']!.inputs).not.toHaveProperty('negative_prompt')
+    expect(compiled.artifact.prompt['n4']!.inputs['positive']).toEqual(['n2', 0])
+    expect(compiled.artifact.prompt['n4']!.inputs['negative']).toEqual(['n3', 0])
+  })
+
   it('keeps an unresolved alias raw and diagnosed', () => {
     const alias = sd15Schemas[1]!
     const { document, diagnostics } = importLitegraph(
