@@ -1920,16 +1920,20 @@ function importLitegraphGraph(
             .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
           const staticInput = schema.items.some((item) =>
             item.kind === 'input' && item.dynamic === undefined && item.id === input.name)
-          const scoped = !staticInput && (
-            preserveAliasSuffixes || families.some((family) => input.name!.startsWith(`${family.wirePath}.`))
-          )
+          const familyScoped = families.some((family) => input.name!.startsWith(`${family.wirePath}.`))
+          const scoped = !staticInput && (preserveAliasSuffixes || familyScoped)
           if (scoped) {
             diags.push(imp(
               'warning',
               candidates.length === 0 ? 'import.dynamic.autogrowWireUnknown' : 'import.dynamic.autogrowWireAmbiguous',
               `node ${n.id} ('${n.type}'): linked input '${input.name}' does not identify exactly one declared Autogrow member; endpoint left unresolved`,
             ))
-            unresolvedInputEndpoints.add(`${n.id}:${slotIndex}`)
+            // Only a wire inside a declared autogrow family scope is a member
+            // mismatch with no meaningful endpoint; drop it. A promoted
+            // widget input (matched by alias suffixes alone) keeps the
+            // synthesized raw-name port so replacement planning can route
+            // the link by its value path.
+            if (familyScoped) unresolvedInputEndpoints.add(`${n.id}:${slotIndex}`)
           }
           continue
         }
