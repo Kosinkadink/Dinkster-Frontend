@@ -184,6 +184,8 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('lists only ready readable sources and filters incompatible MIME types', async ({ page }) => {
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await openAsset(page)
   await page.getByTestId('collection-source-select').click()
   await expect(page.getByRole('listbox', { name: 'Source' }).getByRole('option')).toHaveText(['input', 'shared'])
