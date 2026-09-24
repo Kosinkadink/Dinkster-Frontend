@@ -29,12 +29,10 @@ test.beforeEach(async ({ page }) => {
 })
 
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/810 node schemas/)
+  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${Object.keys(schemas).length} node schemas`))
   const workflow = readJson(`../../core/fixtures/workflows/official-subgraphs/${name}`)
   const result = await page.evaluate(({ workflow, name }) => {
     const app = window.__dinksterTest!.app
@@ -69,12 +67,10 @@ for (const name of templates) test(`imports and drills into official nested subg
 })
 
 test('renders inlined structural boundaries with independent instance values', async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/810 node schemas/)
+  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${Object.keys(schemas).length} node schemas`))
   const result = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const failures = app.openDocument({ nodes: [
