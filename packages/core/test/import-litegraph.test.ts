@@ -1321,6 +1321,43 @@ describe('Autogrow endpoint reconstruction', () => {
     ])
   })
 
+  it('preserves scoped ComfyUI alias members when current workflows include the family name', () => {
+    const schema: NodeSchema = {
+      type: 'comfy.ComfyMathExpression',
+      displayName: 'Comfy Math Expression',
+      category: 'test',
+      source: 'v3',
+      isOutputNode: false,
+      items: [{
+        kind: 'input',
+        id: 'values',
+        type: { kind: 'wildcard' },
+        optional: true,
+        dynamic: {
+          kind: 'autogrow',
+          materialization: 'wire15',
+          template: [input('value')],
+          naming: { kind: 'names', names: ['a', 'b'], min: 1 },
+        },
+      }],
+    }
+    const { document, diagnostics, targetId } = importFamily(
+      schema,
+      ['values.b', 'values.a'],
+      'ComfyMathExpression',
+      true,
+    )
+    expect(errorsOf(diagnostics)).toEqual([])
+    const graph = document!.graphs.g0!
+    expect(graph.nodes[`n${targetId}`]!.dynamic).toEqual({
+      values: { members: ['b', 'a'] },
+    })
+    expect(Object.values(graph.links).map((link) => link.to)).toEqual([
+      { node: `n${targetId}`, port: 'values.b' },
+      { node: `n${targetId}`, port: 'values.a' },
+    ])
+  })
+
   it('does not classify maintained alias static inputs as unknown family members', () => {
     const schema: NodeSchema = {
       type: 'comfy.MixedInputs',
