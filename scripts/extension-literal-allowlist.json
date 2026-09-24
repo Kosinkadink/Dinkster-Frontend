@@ -579,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 177,
+      "line": 180,
       "column": 37,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -587,7 +587,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 195,
+      "line": 198,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -595,7 +595,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 195,
+      "line": 198,
       "column": 44,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -603,7 +603,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 202,
+      "line": 205,
       "column": 8,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -611,7 +611,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 206,
+      "line": 209,
       "column": 7,
       "symbol": "widgetType:SAVE_TARGET",
       "issue": 122
@@ -627,7 +627,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/replace/plan.ts",
-      "line": 787,
+      "line": 803,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -659,8 +659,8 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1038,
-      "column": 34,
+      "line": 1037,
+      "column": 3,
       "symbol": "widgetType:ASSET",
       "issue": 122
     },
