@@ -131,6 +131,7 @@ jobs:
           DINKSTER_E2E_PORT: "15376"
           DINKSTER_E2E_NATIVE_PORT: "15377"
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
+          DINKSTER_E2E_USE_NATIVE: "1"
 
   e2e-suite:
     needs: validation-plan
