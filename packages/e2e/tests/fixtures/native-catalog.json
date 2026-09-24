@@ -46,7 +46,6 @@
         "e3a0666e-aa4f-4862-bc23-8f02f3dbd45b": []
       },
       "problemCounts": {
-        "import.dynamic.autogrowWireUnknown": 10,
         "import.subgraphs.boundaryUnresolved": 2
       }
     }
