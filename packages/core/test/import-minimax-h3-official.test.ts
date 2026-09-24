@@ -49,7 +49,7 @@ const nodesOfType = (graph: GraphDef, type: string): NodeData[] => Object.values
 // The official t2v/i2v templates nest their generation graph in one legacy
 // subgraph; the importer preserves that authored definition when its boundary
 // cannot be resolved against the current node schemas. Translated nodes land
-// in both the subgraph's graph and the root, so document-wide unique lookups
+// in the preserved subgraph while the root holds its instance, so document-wide unique lookups
 // span every graph while link walks stay scoped to the flat graphs.
 const documentNodes = (document: WorkflowDocument, type: string): NodeData[] =>
   Object.values(document.graphs).flatMap((graph) => nodesOfType(graph, type))
