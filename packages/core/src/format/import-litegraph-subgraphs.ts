@@ -442,6 +442,7 @@ export function importLitegraphSubgraphs(
     const derived = deriveBoundarySchema(candidate, localResolve)
     const deriveErrors = derived.diagnostics.filter((item) => item.severity === 'error')
     const unresolvedBoundary = !unsupported && deriveErrors.length > 0
+      && deriveErrors.some((item) => item.code === 'boundary.unresolvedSchema')
     def.inline = unsupported || (!derived.schema && !unresolvedBoundary)
     if (def.inline) {
       diagnostics.push(diag('warning', 'import', 'import.subgraphs.inlined', `subgraph '${id}' is inlined per instance: ${unsupported ? 'boundary endpoint has no supported binding' : derived.diagnostics.map((item) => item.code).join(', ')}`))

@@ -75,6 +75,14 @@ for (const name of templates) test(`imports and drills into official nested subg
       result.problems.filter((problem: any) => problem.code === code).length,
     ]))
     expect(counts).toEqual(expected.problemCounts)
+    if (expected.endpointPrefixCounts) {
+      const links = Object.values(result.doc.graphs).flatMap((graph: any) => Object.values(graph.links) as any[])
+      const endpointCounts = Object.fromEntries(Object.keys(expected.endpointPrefixCounts).map((prefix) => [
+        prefix,
+        links.filter((link) => 'port' in link.to && link.to.port.startsWith(prefix)).length,
+      ]))
+      expect(endpointCounts).toEqual(expected.endpointPrefixCounts)
+    }
   }
   const assetResolution = page.getByTestId('import-asset-resolution-dialog')
   if (await assetResolution.waitFor({ state: 'visible', timeout: 1_000 }).then(() => true).catch(() => false)) await page.getByTestId('import-assets-cancel').click()
