@@ -68,7 +68,10 @@ jobs:
     needs: validation-plan
     if: needs.validation-plan.outputs.run-heavy == 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
-    timeout-minutes: 20
+    # A full green run of this job measured 16m11s (run 35955257578: unit
+    # suite, app build, and the audit-assets native lane); 30 minutes buys
+    # roughly 2x headroom without hiding a hung lane for very long.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4

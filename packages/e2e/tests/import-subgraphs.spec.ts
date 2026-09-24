@@ -29,6 +29,10 @@ test.beforeEach(async ({ page }) => {
 })
 
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
+  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
+  // the native dev-pack catalog (507 schemas) while the assertion derives its
+  // count from the 962-entry object_info fixture.
+  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
@@ -67,6 +71,10 @@ for (const name of templates) test(`imports and drills into official nested subg
 })
 
 test('renders inlined structural boundaries with independent instance values', async ({ page }, testInfo) => {
+  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
+  // the native dev-pack catalog (507 schemas) while the assertion derives its
+  // count from the 962-entry object_info fixture.
+  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')

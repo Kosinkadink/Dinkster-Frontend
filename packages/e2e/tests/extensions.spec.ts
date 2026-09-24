@@ -256,6 +256,10 @@ test('pack doors render a center editor and right panel through host UI', async 
 })
 
 test('installed pack lists in the Extensions panel and its menu item serves', async ({ page }) => {
+  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane's
+  // native dev-pack serve does not compose the widget-kind contribution the
+  // demo pack asserts.
+  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   await expect(page.getByTestId('extensions-empty')).toContainText('No extension packs')
   expect(await installDemoPack(page)).toEqual([])
 
@@ -439,6 +443,10 @@ test('fixture WidgetView opens a bounded host-rendered editor and dispatches dec
 })
 
 test('toggling one contribution removes exactly that feature and restores it', async ({ page }) => {
+  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane's
+  // native dev-pack serve does not compose the widget-kind contribution the
+  // demo pack asserts.
+  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   await installDemoPack(page)
   const menuToggle = page
     .locator('[data-contribution="demo.menu.hello"]')
