@@ -1,7 +1,7 @@
 {
   "ceilings": {
     "nodeIdLiteral": 0,
-    "widgetTypeComparison": 95
+    "widgetTypeComparison": 93
   },
   "slack": {
     "nodeIdLiteral": 0,
@@ -579,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 178,
+      "line": 179,
       "column": 37,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -587,7 +587,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 196,
+      "line": 197,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -595,7 +595,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 196,
+      "line": 197,
       "column": 44,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -603,7 +603,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 203,
+      "line": 204,
       "column": 8,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -611,26 +611,10 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 207,
+      "line": 208,
       "column": 7,
       "symbol": "widgetType:SAVE_TARGET",
       "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 1048,
-      "column": 38,
-      "symbol": "widgetType:ASSET",
-      "issue": 418
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 1070,
-      "column": 43,
-      "symbol": "widgetType:ASSET",
-      "issue": 418
     },
     {
       "kind": "widgetTypeComparison",
@@ -675,8 +659,8 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1036,
-      "column": 34,
+      "line": 1035,
+      "column": 3,
       "symbol": "widgetType:ASSET",
       "issue": 122
     },

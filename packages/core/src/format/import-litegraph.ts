@@ -30,6 +30,7 @@ import {
   comboBranchValuePath,
   effectiveComboOption,
   inputsOf,
+  isAssetWidgetInput,
   joinValuePath,
   outputsOf,
   type AutogrowSpec,
@@ -1045,7 +1046,7 @@ export function resolveImportedAssetLiterals(
       if (!schema) return [nodeId, node]
       let values: Record<string, Json> | undefined
       for (const item of schema.items) {
-        if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET') continue
+        if (item.kind !== 'input' || !isAssetWidgetInput(item)) continue
         const value = node.values[item.id]
         if (typeof value !== 'string') continue
         const asset = assetForName(value)
@@ -1067,7 +1068,7 @@ export function resolveImportedAssetLiterals(
         const node = nodes[target.node]
         const schema = node === undefined ? undefined : resolve(node.type)
         const input = schema?.items.find((item) => item.kind === 'input' && item.id === target.port)
-        return input?.kind === 'input' && input.widget?.widgetType === 'ASSET'
+        return input?.kind === 'input' && isAssetWidgetInput(input)
           ? [{ nodeId: target.node, inputId: target.port }]
           : []
       })
