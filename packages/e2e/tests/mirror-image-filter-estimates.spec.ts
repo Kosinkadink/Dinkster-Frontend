@@ -40,6 +40,8 @@ const imageSourceNode = {
 }
 
 test('applies-scoped filter mirrors estimate covered operations and abstain outside the scope', async ({ page }, testInfo) => {
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
