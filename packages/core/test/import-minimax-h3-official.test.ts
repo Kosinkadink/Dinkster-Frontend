@@ -367,6 +367,9 @@ describe('official MiniMax H3 workflows', () => {
       Object.entries(node.inputs).filter(([input]) => ['diffusion_model', 'vae', 'text_encoder', 'lora', 'image'].includes(input)).map(([, value]) => value))
     expect(assetInputs.every((value) => Array.isArray(value) || typeof value !== 'string')).toBe(true)
     expect(assetInputs.some((value) => !Array.isArray(value) && typeof value === 'object' && value !== null && 'digest' in value)).toBe(true)
+    if (name === 'video_minimax_h3_i2v.json') {
+      expect(Object.values(compiled.artifact.prompt).filter((node) => node.class_type === 'dinkster.image.resize')).toEqual([])
+    }
     assertVariantExecution(compiled.artifact.prompt, variant)
   })
 })
