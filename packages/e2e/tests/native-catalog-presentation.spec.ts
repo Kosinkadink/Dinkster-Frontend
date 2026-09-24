@@ -91,8 +91,8 @@ test('native universal search lists the canonical node', async ({ page }) => {
 })
 
 test('native SAVE_TARGET editor shows canonical type and generic output format', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await openNativeSaveTarget(page)
   await expect(page.getByTestId('save-target-editor')).toHaveAttribute('data-mounts', 'ready')
   await expect(page.getByTestId('save-target-editor').getByTestId('widget-editor-type')).toHaveText('dinkster.save_target')

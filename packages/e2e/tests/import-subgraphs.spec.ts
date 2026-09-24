@@ -29,8 +29,8 @@ test.beforeEach(async ({ page }) => {
 })
 
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
@@ -69,8 +69,8 @@ for (const name of templates) test(`imports and drills into official nested subg
 })
 
 test('renders inlined structural boundaries with independent instance values', async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')

@@ -229,8 +229,8 @@ async function provePosterAndOrbitViewport(
 }
 
 test('a saved GLB artifact paints a poster and mounts a disposable orbit viewport', async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await installGraph(page, {
     digest: savedModelDigest,
     typeName: 'dinkster.model3d',
@@ -241,8 +241,8 @@ test('a saved GLB artifact paints a poster and mounts a disposable orbit viewpor
 })
 
 test('a saved splat PLY artifact paints a poster and mounts a disposable orbit viewport', async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await installGraph(page, {
     digest: savedSplatDigest,
     typeName: 'dinkster.splat',

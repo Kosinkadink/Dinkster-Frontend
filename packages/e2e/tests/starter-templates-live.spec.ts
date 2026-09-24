@@ -195,8 +195,8 @@ async function openTemplateGallery(page: Page): Promise<void> {
 test("all starter families load through the current wire with zero problem-panel errors", async ({
   page,
 }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   const templates = await starterTemplates();
   test.skip(
     templates === undefined,

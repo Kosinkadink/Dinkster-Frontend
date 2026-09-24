@@ -382,8 +382,8 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
 })
 
 test('image editor inserts and reopens one graph-native mask paint node', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   let uploadCount = 0
   await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: PNG }))
   await page.route('**/api/assets', (route) => {

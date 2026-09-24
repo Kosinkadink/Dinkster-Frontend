@@ -15,8 +15,8 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('opens graph layers, recovers edits and explicitly exports an asset-backed snapshot', async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   const fixture = await page.evaluate(async () => {
     const modulePath = '/src/image-document-local.ts'
     const { ImageDocumentLocalStore, importSingleRaster } = await import(modulePath)

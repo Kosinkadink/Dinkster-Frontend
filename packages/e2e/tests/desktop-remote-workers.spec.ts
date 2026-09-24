@@ -75,8 +75,8 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('edits a guided remote-worker profile across a mounted locale change', async ({ page, request }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await page.goto('/')
   await page.getByTestId('desktop-management-button').click()
   const section = page.locator('.desktop-management-section').filter({ has: page.locator('.desktop-worker-list') })

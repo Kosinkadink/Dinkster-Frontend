@@ -83,8 +83,8 @@ async function refreshCombo(page: Page, nodeId: string, inputId: string, route: 
 }
 
 test('standing current-wire stack proves live widget adoption and exact catalog absences', async ({ page, request }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await skipWithoutNativeCatalog(request, testInfo)
   await mkdir(proofDir, { recursive: true })
   const catalogResponse = await page.request.get(`${nativeBackend}/api/nodes`)

@@ -82,8 +82,8 @@ const openModal = async (page: Page, id: string): Promise<void> => {
 }
 
 test('shell and canvas visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await boot(page)
   await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
     readonly templateGalleryOpen: { set(value: boolean): void }
@@ -155,8 +155,8 @@ test('shell and canvas visual matrix', async ({ page }) => {
 })
 
 test('dock visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await boot(page)
   await closeGallery(page)
   const panels = [
@@ -201,8 +201,8 @@ test('dock visual matrix', async ({ page }) => {
 })
 
 test('rail visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await boot(page)
   await closeGallery(page)
   for (const [title, name] of [
@@ -220,8 +220,8 @@ test('rail visual matrix', async ({ page }) => {
 })
 
 test('modal visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await boot(page)
   await closeGallery(page)
   for (const [id, name] of [
@@ -241,8 +241,8 @@ test('modal visual matrix', async ({ page }) => {
 })
 
 test('document and app-view visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   const typed = (name: string) => ({ kind: 'concrete', types: [name] })
   const nodes = Object.fromEntries(
     ['make', 'retime'].map((command) => [

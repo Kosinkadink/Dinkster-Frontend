@@ -119,8 +119,8 @@ test('the Focused tab follows canvas focus and shows only that context\'s proble
 })
 
 test('the mounted Focused panel relabels without changing context, raw facts, or requests', async ({ page, request }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   await page.setViewportSize({ width: 1600, height: 950 })
   const requests: string[] = []
   page.on('request', (event) => {

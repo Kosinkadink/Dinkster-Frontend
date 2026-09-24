@@ -19,8 +19,8 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('inspects every media kind through the owning value API without mutating the graph or values', async ({ page, request }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#429
+  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#429')
   let socket: WebSocketRoute | undefined
   const backendRequests: string[] = []
   page.on('request', (request) => {
