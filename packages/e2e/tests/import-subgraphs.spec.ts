@@ -15,6 +15,11 @@ const templates = [
   'video_wan_vace_flf2v.json',
 ]
 
+const subgraphChildren = (doc: any): Record<string, string[]> => Object.fromEntries(Object.entries(doc.graphs).map(([id, graph]: [string, any]) => [
+  id,
+  Object.values(graph.nodes).map((node: any) => node.type as string).filter((type) => type.startsWith('#')).map((type) => type.slice(1)),
+]))
+
 async function enterInstance(page: Page, id: string): Promise<void> {
   const point = await page.evaluate((id) => {
     const renderer = window.__dinksterTest!.renderer!
@@ -35,11 +40,6 @@ test.beforeEach(async ({ page }) => {
 })
 
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
-  // Skipped pending Kosinkadink/comfy-vibe-station#430: under the native
-  // catalog the legacy import of these V1-era templates loses the nested
-  // subgraph nesting (or imports an empty document) while reporting no
-  // failures - a product-side legacy-import decision is needed first.
-  test.skip(inAuditLane(), 'skipped pending Kosinkadink/comfy-vibe-station#430')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
@@ -54,12 +54,30 @@ for (const name of templates) test(`imports and drills into official nested subg
     const outer = Object.values(root.nodes).find((node) => node.type.startsWith('#') &&
       Object.values(doc.graphs[node.type.slice(1)]!.nodes).some((child) => child.type.startsWith('#')))
     const inner = outer && Object.values(doc.graphs[outer.type.slice(1)]!.nodes).find((node) => node.type.startsWith('#'))
-    return { failures, doc: JSON.parse(JSON.stringify(doc)), outer: outer?.id, inner: inner?.id }
+    return {
+      failures,
+      doc: JSON.parse(JSON.stringify(doc)),
+      outer: outer?.id,
+      inner: inner?.id,
+      problems: app.problems.get().map(({ code, message, severity }) => ({ code, message, severity })),
+    }
   }, { workflow, name })
   expect(result.failures).toEqual([])
   expect(result.doc.format).toBe('dinkster-workflow')
   expect(result.outer).toBeDefined()
   expect(result.inner).toBeDefined()
+  if (inAuditLane()) {
+    const expected = nativeCatalog.importSubgraphs[name]
+    expect(Object.keys(result.doc.graphs)).toEqual(expected.graphIds)
+    expect(subgraphChildren(result.doc)).toEqual(expected.subgraphChildren)
+    const counts = Object.fromEntries(Object.keys(expected.problemCounts).map((code) => [
+      code,
+      result.problems.filter((problem: any) => problem.code === code).length,
+    ]))
+    expect(counts).toEqual(expected.problemCounts)
+  }
+  const assetResolution = page.getByTestId('import-asset-resolution-dialog')
+  if (await assetResolution.waitFor({ state: 'visible', timeout: 1_000 }).then(() => true).catch(() => false)) await page.getByTestId('import-assets-cancel').click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBeGreaterThan(0)
   await page.screenshot({ path: testInfo.outputPath('imported.png') })
   await enterInstance(page, result.outer!)

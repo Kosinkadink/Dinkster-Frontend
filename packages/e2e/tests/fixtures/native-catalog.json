@@ -16,5 +16,39 @@
     "type": "dinkster.vae_decode",
     "inputs": ["samples", "vae"],
     "outputs": ["image"]
+  },
+  "importSubgraphs": {
+    "image_netayume_lumina_t2i.json": {
+      "graphIds": ["5c992ce5-7a24-449d-9372-8e1ed5e38cc8", "3649d32d-3c81-4249-9e89-a1fe12609f65", "g0"],
+      "subgraphChildren": {
+        "g0": ["3649d32d-3c81-4249-9e89-a1fe12609f65"],
+        "3649d32d-3c81-4249-9e89-a1fe12609f65": ["5c992ce5-7a24-449d-9372-8e1ed5e38cc8"],
+        "5c992ce5-7a24-449d-9372-8e1ed5e38cc8": []
+      },
+      "problemCounts": { "import.subgraphs.boundaryUnresolved": 1 }
+    },
+    "image_flux2_klein_image_edit_4b_distilled.json": {
+      "graphIds": ["7b34ab90-36f9-45ba-a665-71d418f0df18", "27eacb9f-0da2-421d-a0bf-b4b4e5fe5709", "93041a64-452a-477a-9447-40330b7c1136", "65c22b29-59aa-496b-89c6-55a603658670", "g0"],
+      "subgraphChildren": {
+        "g0": ["65c22b29-59aa-496b-89c6-55a603658670", "7b34ab90-36f9-45ba-a665-71d418f0df18"],
+        "65c22b29-59aa-496b-89c6-55a603658670": ["27eacb9f-0da2-421d-a0bf-b4b4e5fe5709", "93041a64-452a-477a-9447-40330b7c1136"],
+        "7b34ab90-36f9-45ba-a665-71d418f0df18": [],
+        "27eacb9f-0da2-421d-a0bf-b4b4e5fe5709": [],
+        "93041a64-452a-477a-9447-40330b7c1136": []
+      },
+      "problemCounts": { "import.subgraphs.boundaryUnresolved": 2 }
+    },
+    "video_wan_vace_flf2v.json": {
+      "graphIds": ["e3a0666e-aa4f-4862-bc23-8f02f3dbd45b", "f0d12712-a319-499d-8e91-197b72dfb3a3", "g0"],
+      "subgraphChildren": {
+        "g0": ["f0d12712-a319-499d-8e91-197b72dfb3a3"],
+        "f0d12712-a319-499d-8e91-197b72dfb3a3": ["e3a0666e-aa4f-4862-bc23-8f02f3dbd45b"],
+        "e3a0666e-aa4f-4862-bc23-8f02f3dbd45b": []
+      },
+      "problemCounts": {
+        "import.dynamic.autogrowWireUnknown": 10,
+        "import.subgraphs.boundaryUnresolved": 2
+      }
+    }
   }
 }

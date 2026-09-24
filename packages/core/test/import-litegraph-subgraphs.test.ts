@@ -70,6 +70,20 @@ describe('LiteGraph subgraphs', () => {
     expect(prompt(doc)['n1.n1.n1']!.inputs['value']).toBe(19)
   })
 
+  it('retains nested definitions when boundary node schemas are unavailable', () => {
+    const outer = { ...definition('outer'), nodes: [instance(1)], definitions: { subgraphs: [definition()] } }
+    const result = importLitegraph(
+      { nodes: [instance(1, 'outer')], links: [], definitions: { subgraphs: [outer] } } as JsonObject,
+      () => undefined,
+    )
+    expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(result.diagnostics.map((item) => item.code)).toContain('import.schema.missing')
+    expect(result.diagnostics.filter((item) => item.code === 'import.subgraphs.boundaryUnresolved')).toHaveLength(1)
+    expect(Object.keys(result.document!.graphs).sort()).toEqual(['g0', 'inner', 'outer'])
+    expect(result.document!.graphs['outer']!.nodes.n1!.type).toBe('#inner')
+    expect(result.document!.graphs.g0!.nodes.n1!.type).toBe('#outer')
+  })
+
   it('inlines a structural boundary while retaining nested definitions and instances', () => {
     const outer = { ...definition('outer'), nodes: [instance(1), { id: 2, type: 'Reroute',
       inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] }],

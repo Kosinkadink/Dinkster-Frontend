@@ -77,13 +77,17 @@ seed-controller entries. Legacy `proxyWidgets` references promote matching
 inner widgets; missing host values inherit the definition's saved values.
 Unresolved widget state stays under `importer.subgraphWidgets` with a warning.
 
-A definition whose boundary cannot be derived by Dinkster is inlined per
-occurrence with `import.subgraphs.inlined`. This includes structural producers,
-unsupported dynamic boundaries, and missing inner schemas. Connections, values,
-controllers, and nested supported instances remain independent per occurrence.
-The original definition catalog and removed instance state remain under importer
-extension fields for review. Cycles and malformed definitions refuse the import;
-inlining never invents a backend node alias. The boundary-forwarding cases in
+A definition whose authored boundary endpoints can be represented but cannot be
+resolved against the current node schemas retains its definition and nested
+instances. Its authored slot types provide a review-only interface and
+`import.subgraphs.boundaryUnresolved` reports the limitation in Problems.
+Unresolved dynamic input endpoints are also reported and their invalid links are
+omitted. Structural boundaries that cannot be represented are inlined per
+occurrence with `import.subgraphs.inlined`; connections, values, controllers,
+and nested supported instances remain independent per occurrence. The original
+definition catalog and removed instance state remain under importer extension
+fields for review. Cycles and malformed definitions refuse the import; fallback
+never invents a backend node alias. The boundary-forwarding cases in
 [issue #397](https://github.com/Kosinkadink/Dinkster-Frontend/issues/397) remain separate.
 
 The format reference is Comfy-Org/ComfyUI_frontend revision

@@ -389,6 +389,19 @@ export function importLitegraphSubgraphs(
     const bind = (end: any): BoundaryBinding | undefined =>
       typeof end.node === 'string' && typeof end.port === 'string' && end.node !== `n${def.inputNode}` && end.node !== `n${def.outputNode}`
         ? { kind: 'port', ...end } as BoundaryBinding : undefined
+    const authoredBindings = (side: 'inputs' | 'outputs', index: number): BoundaryBinding[] =>
+      def.raw['links'].flatMap((link: any[]) => {
+        const nodeIndex = side === 'inputs' ? 3 : 1
+        const slotIndex = side === 'inputs' ? 4 : 2
+        const boundaryNodeIndex = side === 'inputs' ? 1 : 3
+        const boundarySlotIndex = side === 'inputs' ? 2 : 4
+        if (link[boundaryNodeIndex] !== (side === 'inputs' ? def.inputNode : def.outputNode) || link[boundarySlotIndex] !== index) return []
+        const nodeId = `n${link[nodeIndex]}`
+        if (!nativeBody.nodes[nodeId]) return []
+        const rawNode = def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(link[nodeIndex]))
+        const port = rawNode?.[side]?.[link[slotIndex]]?.['name']
+        return typeof port === 'string' && port.length > 0 ? [{ kind: 'port', node: nodeId, port }] : []
+      })
     let unsupported = false
     const boundary = (side: 'inputs' | 'outputs'): BoundaryItem[] => def.raw[side].flatMap((slot: Mutable, index: number) => {
       const ends = side === 'inputs'
@@ -396,8 +409,19 @@ export function importLitegraphSubgraphs(
         : links.filter((link) => nodeEnd(link.to, `n${def.outputNode}`) && (link.to as any).port === `o${index}`).map((link) => link.from)
       const bindings = ends.map(bind)
       if (!bindings.length || bindings.some((item) => !item) || (side === 'outputs' && bindings.length !== 1)) {
-        unsupported = true
-        return []
+        const authored = authoredBindings(side, index)
+        if (!authored.length || (side === 'outputs' && authored.length !== 1)) {
+          unsupported = true
+          return []
+        }
+        const primary = authored[0]!
+        const rawLink = def.raw['links'].find((link: any[]) => link[1] === def.inputNode && link[2] === index)
+        const target = rawLink && def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(rawLink[3]))
+        const promoted = side === 'inputs' && Boolean(target?.['inputs']?.[rawLink[4]]?.['widget'])
+        return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: primary,
+          ...(authored.length > 1 ? { alsoBinds: authored.slice(1) } : {}),
+          ...(promoted ? { promoted: true } : {}),
+        }]
       }
       const primary = bindings[0]!
       const rawLink = def.raw['links'].find((link: any[]) => link[1] === def.inputNode && link[2] === index)
@@ -416,7 +440,9 @@ export function importLitegraphSubgraphs(
       boundary: { inputs: boundary('inputs'), outputs: boundary('outputs') },
     }
     const derived = deriveBoundarySchema(candidate, localResolve)
-    def.inline = unsupported || !derived.schema
+    const deriveErrors = derived.diagnostics.filter((item) => item.severity === 'error')
+    const unresolvedBoundary = !unsupported && deriveErrors.length > 0
+    def.inline = unsupported || (!derived.schema && !unresolvedBoundary)
     if (def.inline) {
       diagnostics.push(diag('warning', 'import', 'import.subgraphs.inlined', `subgraph '${id}' is inlined per instance: ${unsupported ? 'boundary endpoint has no supported binding' : derived.diagnostics.map((item) => item.code).join(', ')}`))
       def.schema = {
@@ -428,7 +454,32 @@ export function importLitegraphSubgraphs(
         ],
       }
     } else {
-      def.schema = derived.schema!
+      def.schema = derived.schema ?? {
+        ...probe,
+        type: `#${id}`,
+        displayName: candidate.name,
+        items: [
+          ...def.raw['inputs'].map((slot: Mutable) => ({
+            kind: 'input' as const,
+            id: slot['id'],
+            type: importedSlotType(slot['type']),
+            optional: true,
+          })),
+          ...def.raw['outputs'].map((slot: Mutable) => ({
+            kind: 'output' as const,
+            id: slot['id'],
+            type: importedSlotType(slot['type']),
+          })),
+        ],
+      }
+      if (unresolvedBoundary) {
+        diagnostics.push(diag(
+          'warning',
+          'import',
+          'import.subgraphs.boundaryUnresolved',
+          `subgraph '${id}' keeps its authored definition, but its boundary cannot be resolved against the current node schemas and requires review`,
+        ))
+      }
       graphs[id] = candidate
       const view = { ...def.view, nodes: { ...def.view!['nodes'] } }
       delete view.nodes[`n${def.inputNode}`]

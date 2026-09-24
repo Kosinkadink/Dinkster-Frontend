@@ -1631,7 +1631,8 @@ describe('Autogrow endpoint reconstruction', () => {
       const { document, diagnostics, localResolve } = importFamily(schema, [wire])
       expect(codesOf(diagnostics), wire).toContain('import.dynamic.autogrowWireUnknown')
       const graph = document!.graphs[document!.root]!
-      expect(solveGraphTypes(graph, localResolve).diagnostics.map((diagnostic) => diagnostic.code), wire).toContain('solve.portMissing')
+      expect(Object.values(graph.links), wire).toEqual([])
+      expect(solveGraphTypes(graph, localResolve).diagnostics.map((diagnostic) => diagnostic.code), wire).not.toContain('solve.portMissing')
     }
 
     const groupedNames: NodeSchema = {
@@ -1646,10 +1647,11 @@ describe('Autogrow endpoint reconstruction', () => {
     }
     const ambiguous = importFamily(groupedNames, ['channels.right.image'])
     expect(codesOf(ambiguous.diagnostics)).toContain('import.dynamic.autogrowWireUnknown')
+    expect(Object.values(ambiguous.document!.graphs[ambiguous.document!.root]!.links)).toEqual([])
     expect(solveGraphTypes(
       ambiguous.document!.graphs[ambiguous.document!.root]!,
       ambiguous.localResolve,
-    ).diagnostics.map((diagnostic) => diagnostic.code)).toContain('solve.portMissing')
+    ).diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('solve.portMissing')
   })
 
   it('imports and compiles structural bypass drops with exact first-hop attribution and no live-route warning', () => {
