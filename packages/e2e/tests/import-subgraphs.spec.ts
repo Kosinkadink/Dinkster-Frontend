@@ -3,6 +3,12 @@ import { expect, test, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 const schemas = readJson('../../core/fixtures/object_info.json')
+// Exact values derived once from the served dev-pack catalog; see the
+// fixture's _provenance. The audit lane serves that catalog instead of the
+// V1-style object_info fixture the route-mocked lanes use.
+const nativeCatalog = readJson('./fixtures/native-catalog.json')
+// test.info() is only valid inside a running test, so this stays a function.
+const inAuditLane = () => (test.info().config.configFile ?? '').includes('audit-assets')
 const templates = [
   'image_netayume_lumina_t2i.json',
   'image_flux2_klein_image_edit_4b_distilled.json',
@@ -29,14 +35,15 @@ test.beforeEach(async ({ page }) => {
 })
 
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
-  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
-  // the native dev-pack catalog (507 schemas) while the assertion derives its
-  // count from the 962-entry object_info fixture.
-  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
+  // Skipped pending Kosinkadink/comfy-vibe-station#430: under the native
+  // catalog the legacy import of these V1-era templates loses the nested
+  // subgraph nesting (or imports an empty document) while reporting no
+  // failures - a product-side legacy-import decision is needed first.
+  test.skip(inAuditLane(), 'skipped pending Kosinkadink/comfy-vibe-station#430')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${Object.keys(schemas).length} node schemas`))
+  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${inAuditLane() ? nativeCatalog.schemaCount : Object.keys(schemas).length} node schemas`))
   const workflow = readJson(`../../core/fixtures/workflows/official-subgraphs/${name}`)
   const result = await page.evaluate(({ workflow, name }) => {
     const app = window.__dinksterTest!.app
@@ -71,14 +78,10 @@ for (const name of templates) test(`imports and drills into official nested subg
 })
 
 test('renders inlined structural boundaries with independent instance values', async ({ page }, testInfo) => {
-  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
-  // the native dev-pack catalog (507 schemas) while the assertion derives its
-  // count from the 962-entry object_info fixture.
-  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${Object.keys(schemas).length} node schemas`))
+  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${inAuditLane() ? nativeCatalog.schemaCount : Object.keys(schemas).length} node schemas`))
   const result = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const failures = app.openDocument({ nodes: [

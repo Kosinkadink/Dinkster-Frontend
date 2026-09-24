@@ -15,6 +15,39 @@ const objectInfo = JSON.parse(readFileSync(
   'utf8',
 )) as Record<string, unknown>
 
+// Exact values derived once from the served dev-pack catalog; see the
+// fixture's _provenance. The audit lane serves that catalog instead of the
+// V1-style object_info fixture the route-mocked lanes use, so the synthetic
+// replacement rule and document must use the native ids it actually serves.
+const nativeCatalog = JSON.parse(readFileSync(
+  fileURLToPath(new URL('./fixtures/native-catalog.json', import.meta.url)),
+  'utf8',
+)) as {
+  emptyLatent: { type: string; outputs: [string, ...string[]] }
+  emptySd3Latent: { type: string }
+  vaeDecode: { type: string }
+}
+const inAuditLane = () => (test.info().config.configFile ?? '').includes('audit-assets')
+
+interface DeprecationIds {
+  sourceType: string
+  targetType: string
+  sourceOutput: string
+  sinkType: string
+}
+
+const deprecationIds = (): DeprecationIds => {
+  if (inAuditLane()) {
+    return {
+      sourceType: nativeCatalog.emptyLatent.type,
+      targetType: nativeCatalog.emptySd3Latent.type,
+      sourceOutput: nativeCatalog.emptyLatent.outputs[0],
+      sinkType: nativeCatalog.vaeDecode.type,
+    }
+  }
+  return { sourceType: 'OldEmpty', targetType: 'EmptyLatentImage', sourceOutput: 'out0', sinkType: 'VAEDecode' }
+}
+
 /** Reset the viewport to identity so world coords == canvas CSS pixels. */
 async function identityViewport(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -47,32 +80,33 @@ async function openDeprecatedDoc(
   page: Page,
   opts: { lineage: string; lossy?: boolean },
 ): Promise<readonly unknown[]> {
-  const diagnostics = await page.evaluate(({ lineage, lossy }) => {
+  const { sourceType, targetType, sourceOutput, sinkType } = deprecationIds()
+  const diagnostics = await page.evaluate(({ lineage, lossy, sourceType, targetType, sourceOutput, sinkType }) => {
     const app = window.__dinksterTest!.app
     app.registerReplacementRule('pack', {
-      from: 'OldEmpty',
+      from: sourceType,
       note: 'renamed upstream',
       cases: [
         lossy
-          ? { to: 'EmptyLatentImage' } // no output map -> dropped link warning
+          ? { to: targetType } // no output map -> dropped link warning
           : {
-              to: 'EmptyLatentImage',
+              to: targetType,
               inputs: {
                 width: { kind: 'copy', input: 'width' },
                 height: { kind: 'copy', input: 'height' },
                 batch_size: { kind: 'copy', input: 'batch_size' },
               },
-              outputs: { out0: 'out0' },
+              outputs: { [sourceOutput]: sourceOutput },
             },
       ],
     })
     const nodes: Record<string, unknown> = {
-      old: { id: 'old', type: 'OldEmpty', values: { width: 512 } },
+      old: { id: 'old', type: sourceType, values: { width: 512 } },
     }
     const links: Record<string, unknown> = {}
     if (lossy) {
-      nodes.sink = { id: 'sink', type: 'VAEDecode', values: {} }
-      links.l0 = { id: 'l0', from: { node: 'old', port: 'out0' }, to: { node: 'sink', port: 'samples' } }
+      nodes.sink = { id: 'sink', type: sinkType, values: {} }
+      links.l0 = { id: 'l0', from: { node: 'old', port: sourceOutput }, to: { node: 'sink', port: 'samples' } }
     }
     return app.openDocument(
       {
@@ -90,7 +124,7 @@ async function openDeprecatedDoc(
       },
       `Dep ${lineage}`,
     )
-  }, opts)
+  }, { ...opts, ...deprecationIds() })
   // The shared-store handoff dismisses focus-scoped popovers on the local store.
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()
@@ -130,12 +164,9 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('a safe plan auto-applies on open as one undoable step', async ({ page }) => {
-  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
-  // the native dev-pack catalog, whose schema for the replacement target
-  // ('EmptyLatentImage') lacks the static output the rule applies.
-  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
+  const { sourceType, targetType } = deprecationIds()
   expect(await openDeprecatedDoc(page, { lineage: 'dep-auto' })).toEqual([])
-  expect((await rootTypes(page)).old).toBe('EmptyLatentImage')
+  expect((await rootTypes(page)).old).toBe(targetType)
   // Copied value survived the migration.
   const width = await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
@@ -145,7 +176,7 @@ test('a safe plan auto-applies on open as one undoable step', async ({ page }) =
   await expect(page.getByTestId('problems-panel')).toContainText('applied 1 replacement step(s) automatically')
   // ONE undo restores the deprecated node exactly.
   await page.evaluate(() => void window.__dinksterTest!.app.activeTab()!.store.undo())
-  expect((await rootTypes(page)).old).toBe('OldEmpty')
+  expect((await rootTypes(page)).old).toBe(sourceType)
 })
 
 test('a historical dynamic selection migrates into a current static combo', async ({ page }, testInfo) => {
@@ -243,16 +274,13 @@ test('a historical dynamic selection migrates into a current static combo', asyn
 })
 
 test('review mode holds the plan; the badge popover applies it manually', async ({ page }) => {
-  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
-  // the native dev-pack catalog, whose schema for the replacement target
-  // ('EmptyLatentImage') lacks the static output the rule applies.
-  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
+  const { sourceType, targetType } = deprecationIds()
   await page.getByTestId('review-upgrades-toggle').click()
   await expect(page.getByTestId('review-upgrades-toggle')).toContainText('on')
 
   expect(await openDeprecatedDoc(page, { lineage: 'dep-review' })).toEqual([])
-  expect((await rootTypes(page)).old).toBe('OldEmpty') // held for review
-  await expect(page.getByTestId('problems-panel')).toContainText("can be upgraded to 'EmptyLatentImage'")
+  expect((await rootTypes(page)).old).toBe(sourceType) // held for review
+  await expect(page.getByTestId('problems-panel')).toContainText(`can be upgraded to '${targetType}'`)
 
   await identityViewport(page)
   const p = await badgePoint(page, 'old')
@@ -260,24 +288,20 @@ test('review mode holds the plan; the badge popover applies it manually', async 
   const popover = page.getByTestId('badge-popover')
   await expect(popover).toBeVisible()
   await expect(popover).toHaveAttribute('data-badge', 'core.deprecated')
-  await expect(popover.getByTestId('badge-replace-target')).toContainText("Replace with 'EmptyLatentImage'")
+  await expect(popover.getByTestId('badge-replace-target')).toContainText(`Replace with '${targetType}'`)
   await expect(popover.getByTestId('badge-replace-target')).toContainText('renamed upstream')
 
   await popover.getByTestId('badge-apply-replacement').click()
   await expect(popover).not.toBeVisible()
-  expect((await rootTypes(page)).old).toBe('EmptyLatentImage')
+  expect((await rootTypes(page)).old).toBe(targetType)
 })
 
 test('a lossy plan never auto-applies; its badge popover shows the warning', async ({ page }) => {
-  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
-  // the native dev-pack catalog, whose type names (dinkster.vae_decode) and
-  // replacement-target outputs differ from the V1 catalog these assertions
-  // expect.
-  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
+  const { sourceType, targetType, sinkType } = deprecationIds()
   expect(await openDeprecatedDoc(page, { lineage: 'dep-lossy', lossy: true })).toEqual([])
   const types = await rootTypes(page)
-  expect(types.old).toBe('OldEmpty') // warned plan -> review only
-  expect(types.sink).toBe('VAEDecode')
+  expect(types.old).toBe(sourceType) // warned plan -> review only
+  expect(types.sink).toBe(sinkType)
 
   await identityViewport(page)
   const p = await badgePoint(page, 'old')
@@ -290,7 +314,7 @@ test('a lossy plan never auto-applies; its badge popover shows the warning', asy
 
   // Applying anyway is an explicit, informed choice - and still works.
   await popover.getByTestId('badge-apply-replacement').click()
-  expect((await rootTypes(page)).old).toBe('EmptyLatentImage')
+  expect((await rootTypes(page)).old).toBe(targetType)
   // The unmapped downstream link was dropped, per the plan's warning.
   const linkCount = await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
