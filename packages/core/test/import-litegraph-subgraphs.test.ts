@@ -84,6 +84,20 @@ describe('LiteGraph subgraphs', () => {
     expect(result.document!.graphs.g0!.nodes.n1!.type).toBe('#outer')
   })
 
+  it('inlines a definition whose authored boundary port is absent from an available schema', () => {
+    const def = definition()
+    def.nodes[0]!.inputs[0]!.name = 'stale_value'
+    const result = importLitegraph(
+      { nodes: [instance(1)], links: [], definitions: { subgraphs: [def] } } as JsonObject,
+      resolve,
+      () => true,
+    )
+    expect(result.diagnostics.map((item) => item.code)).toContain('import.subgraphs.inlined')
+    expect(result.diagnostics.map((item) => item.code)).not.toContain('import.subgraphs.boundaryUnresolved')
+    expect(Object.keys(result.document!.graphs)).toEqual(['g0'])
+    expect(Object.values(result.document!.graphs.g0!.nodes).map((node) => node.type)).toEqual(['Relay'])
+  })
+
   it('inlines a structural boundary while retaining nested definitions and instances', () => {
     const outer = { ...definition('outer'), nodes: [instance(1), { id: 2, type: 'Reroute',
       inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] }],

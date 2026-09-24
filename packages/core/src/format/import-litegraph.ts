@@ -1907,6 +1907,12 @@ function importLitegraphGraph(
       for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
       const endpoints = new Map<number, JsonObject>()
       const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes)
+      const unresolvedFamilySlots: {
+        readonly slot: number
+        readonly name: string
+        readonly ambiguous: boolean
+        readonly familyScoped: boolean
+      }[] = []
 
       // LiteGraph inputs are an ordered array. This first-observation walk is
       // the identity policy: sparse/out-of-order foreign ordinals are labels,
@@ -1920,16 +1926,10 @@ function importLitegraphGraph(
             .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
           const staticInput = schema.items.some((item) =>
             item.kind === 'input' && item.dynamic === undefined && item.id === input.name)
-          const scoped = !staticInput && (
-            preserveAliasSuffixes || families.some((family) => input.name!.startsWith(`${family.wirePath}.`))
-          )
+          const familyScoped = families.some((family) => input.name!.startsWith(`${family.wirePath}.`))
+          const scoped = !staticInput && (preserveAliasSuffixes || familyScoped)
           if (scoped) {
-            diags.push(imp(
-              'warning',
-              candidates.length === 0 ? 'import.dynamic.autogrowWireUnknown' : 'import.dynamic.autogrowWireAmbiguous',
-              `node ${n.id} ('${n.type}'): linked input '${input.name}' does not identify exactly one declared Autogrow member; endpoint left unresolved`,
-            ))
-            unresolvedInputEndpoints.add(`${n.id}:${slotIndex}`)
+            unresolvedFamilySlots.push({ slot: slotIndex, name: input.name, ambiguous: candidates.length > 0, familyScoped })
           }
           continue
         }
@@ -1976,6 +1976,16 @@ function importLitegraphGraph(
         if (endpoints.has(slot)) continue
         const matches = elaborated.filter((item) => item.origin.kind === 'branch' && item.apiName === input.name)
         if (matches.length === 1) endpoints.set(slot, { node: id, ...matches[0]!.address } as unknown as JsonObject)
+      }
+      for (const unresolved of unresolvedFamilySlots) {
+        if (endpoints.has(unresolved.slot) && !unresolved.familyScoped) continue
+        endpoints.delete(unresolved.slot)
+        diags.push(imp(
+          'warning',
+          unresolved.ambiguous ? 'import.dynamic.autogrowWireAmbiguous' : 'import.dynamic.autogrowWireUnknown',
+          `node ${n.id} ('${n.type}'): linked input '${unresolved.name}' does not identify exactly one declared Autogrow member; endpoint left unresolved`,
+        ))
+        unresolvedInputEndpoints.add(`${n.id}:${unresolved.slot}`)
       }
       if (endpoints.size > 0) importedInputEndpoints.set(n.id, endpoints)
     }
