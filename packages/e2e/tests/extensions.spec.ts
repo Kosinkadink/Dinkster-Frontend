@@ -160,14 +160,18 @@ const installDemoPack = (page: Page) =>
 const menu = (page: Page) => page.getByTestId('context-menu')
 const menuItem = (page: Page, id: string) => page.locator(`[data-item-id="${id}"]`)
 const hasWidgetKind = (page: Page) =>
-  page.evaluate(
-    () =>
-      (
-        window.__dinksterTest!.app as unknown as {
-          widgetRegistry: { kind(t: string): unknown }
-        }
-      ).widgetRegistry.kind('demo.widget.stars') !== undefined,
-  )
+  page.evaluate(() => {
+    // Resolve the widget registry the same way product rendering does:
+    // per-tab extension world when the served catalog carries an extension
+    // snapshot, else the root registry.
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): unknown
+      widgetRegistry: { kind(t: string): unknown }
+      widgetRegistryForTab(tab: unknown): { kind(t: string): unknown }
+    }
+    const tab = app.activeTab()
+    return app.widgetRegistryForTab(tab).kind('demo.widget.stars') !== undefined
+  })
 
 const activeWidgetView = (page: Page) => page.evaluate(() =>
   window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'n0')?.layout.rows
@@ -256,10 +260,6 @@ test('pack doors render a center editor and right panel through host UI', async 
 })
 
 test('installed pack lists in the Extensions panel and its menu item serves', async ({ page }) => {
-  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane's
-  // native dev-pack serve does not compose the widget-kind contribution the
-  // demo pack asserts.
-  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   await expect(page.getByTestId('extensions-empty')).toContainText('No extension packs')
   expect(await installDemoPack(page)).toEqual([])
 
@@ -443,10 +443,6 @@ test('fixture WidgetView opens a bounded host-rendered editor and dispatches dec
 })
 
 test('toggling one contribution removes exactly that feature and restores it', async ({ page }) => {
-  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane's
-  // native dev-pack serve does not compose the widget-kind contribution the
-  // demo pack asserts.
-  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   await installDemoPack(page)
   const menuToggle = page
     .locator('[data-contribution="demo.menu.hello"]')
