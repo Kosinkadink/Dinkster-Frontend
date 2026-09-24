@@ -130,6 +130,10 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('a safe plan auto-applies on open as one undoable step', async ({ page }) => {
+  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
+  // the native dev-pack catalog, whose schema for the replacement target
+  // ('EmptyLatentImage') lacks the static output the rule applies.
+  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   expect(await openDeprecatedDoc(page, { lineage: 'dep-auto' })).toEqual([])
   expect((await rootTypes(page)).old).toBe('EmptyLatentImage')
   // Copied value survived the migration.
@@ -239,6 +243,10 @@ test('a historical dynamic selection migrates into a current static combo', asyn
 })
 
 test('review mode holds the plan; the badge popover applies it manually', async ({ page }) => {
+  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
+  // the native dev-pack catalog, whose schema for the replacement target
+  // ('EmptyLatentImage') lacks the static output the rule applies.
+  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   await page.getByTestId('review-upgrades-toggle').click()
   await expect(page.getByTestId('review-upgrades-toggle')).toContainText('on')
 
@@ -261,6 +269,11 @@ test('review mode holds the plan; the badge popover applies it manually', async 
 })
 
 test('a lossy plan never auto-applies; its badge popover shows the warning', async ({ page }) => {
+  // Skipped pending Kosinkadink/comfy-vibe-station#430: the audit lane serves
+  // the native dev-pack catalog, whose type names (dinkster.vae_decode) and
+  // replacement-target outputs differ from the V1 catalog these assertions
+  // expect.
+  test.skip(test.info().config.configFile?.includes('audit-assets') ?? false, 'skipped pending Kosinkadink/comfy-vibe-station#430')
   expect(await openDeprecatedDoc(page, { lineage: 'dep-lossy', lossy: true })).toEqual([])
   const types = await rootTypes(page)
   expect(types.old).toBe('OldEmpty') // warned plan -> review only
