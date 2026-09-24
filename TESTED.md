@@ -4,5 +4,6 @@
 | Generic node events and MIME-capable file-drop loaders | X570 | 2026-09-18 | [comfy-vibe-station#95 evidence](https://github.com/Kosinkadink/comfy-vibe-station/issues/95#issuecomment-5738852123) |
 | Frontend-only Note and Markdown Note nodes | RipperPC (CPU-only) | 2026-09-20 | [comfy-vibe-station#151 evidence](https://github.com/Kosinkadink/comfy-vibe-station/issues/151#issuecomment-5748921593) |
 | Stable Diffusion template search aliases | X570 | 2026-09-21 | [comfy-vibe-station#253](https://github.com/Kosinkadink/comfy-vibe-station/issues/253) |
+| Native-catalog legacy nested-subgraph import | X570 (CPU-only) | 2026-09-24 | [comfy-vibe-station#431 evidence](https://github.com/Kosinkadink/comfy-vibe-station/issues/431#issuecomment-5810896290) |
 
 These evidence links are in the maintainers' private tracker and require access.

@@ -1798,6 +1798,7 @@ function importLitegraphGraph(
   const viewNodes: Record<string, NodeViewState> = {}
   const importedInputEndpoints = new Map<number, Map<number, JsonObject>>()
   const importedOutputEndpoints = new Map<number, Map<number, JsonObject>>()
+  const unresolvedInputEndpoints = new Set<string>()
   let maxOrdinal = 0
 
   const posOf = (n: LgNode): { x: number; y: number } => {
@@ -1928,6 +1929,7 @@ function importLitegraphGraph(
               candidates.length === 0 ? 'import.dynamic.autogrowWireUnknown' : 'import.dynamic.autogrowWireAmbiguous',
               `node ${n.id} ('${n.type}'): linked input '${input.name}' does not identify exactly one declared Autogrow member; endpoint left unresolved`,
             ))
+            unresolvedInputEndpoints.add(`${n.id}:${slotIndex}`)
           }
           continue
         }
@@ -2218,6 +2220,7 @@ function importLitegraphGraph(
       }
       continue
     }
+    if (unresolvedInputEndpoints.has(`${wire.toNode}:${wire.toSlot}`)) continue
     const toEndpoint = importedInputEndpoints.get(wire.toNode)?.get(wire.toSlot) ?? { node: `n${wire.toNode}`, port: toPort }
 
     if (feed === undefined) continue // dangling sugar chain: nothing to connect
