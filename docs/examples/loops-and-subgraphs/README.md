@@ -6,6 +6,12 @@ compiler. `expected-results.json` records only deterministic terminal outcomes;
 it intentionally excludes job identities, timestamps, cache state, and runtime
 fingerprints.
 
+Fold regions may omit state ports when only ordered execution is needed. Region
+outputs may use `last` to return the final body value or typed absence for zero
+iterations. A region's `cachePolicy` is `reuse` when omitted; `rerun` bypasses
+cache reads, writes, and same-run single-flight reuse for its body occurrences.
+Nested regions apply their own policy and retain occurrence-scoped identity.
+
 `packages/client/test/executable-examples.test.ts` checks every authored document
 against its compiled graph during the normal test suite. With a compatible local
 Dinkster backend, set `DINKSTER_LIVE_URL` to also assert all nine successful results:

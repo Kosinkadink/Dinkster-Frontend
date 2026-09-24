@@ -60,6 +60,7 @@ import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
 import { isAssetRefValue, isSaveTargetValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
+import { convertLitegraphLoops } from './import-litegraph-loops.js'
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
 
@@ -2368,6 +2369,8 @@ function importLitegraphGraph(
       },
     },
   } as unknown as JsonObject
+
+  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags)
 
   // Error-level import diagnostics (e.g. untranslatable subgraph definitions)
   // block the import outright: a partially-translated workflow is corruption.

@@ -1,0 +1,333 @@
+{
+  "config": {},
+  "extra": {
+    "issue408": {
+      "api_prompt": {
+        "close": {
+          "class_type": "EndLoop",
+          "inputs": {
+            "accumulate": true,
+            "output_value": [
+              "state",
+              0
+            ]
+          }
+        },
+        "items": {
+          "class_type": "Issue408IntegerList",
+          "inputs": {}
+        },
+        "loop": {
+          "class_type": "StartLoop",
+          "inputs": {
+            "mode": "List",
+            "mode.list": [
+              "items",
+              0
+            ]
+          }
+        },
+        "state": {
+          "class_type": "Issue408CaptureLoopState",
+          "inputs": {
+            "index": [
+              "loop",
+              0
+            ],
+            "is_first": [
+              "loop",
+              1
+            ],
+            "is_last": [
+              "loop",
+              2
+            ],
+            "item": [
+              "loop",
+              3
+            ]
+          }
+        }
+      },
+      "outputs": [
+        "close"
+      ],
+      "recorded_cpu_result": {
+        "observed": {
+          "loop_state_values": [
+            [
+              0,
+              true,
+              false,
+              10
+            ],
+            [
+              1,
+              false,
+              true,
+              20
+            ]
+          ]
+        },
+        "progress": [
+          [
+            "Iteration 0 / 2",
+            "loop"
+          ],
+          [
+            "Iteration 1 / 2",
+            "loop"
+          ],
+          [
+            "Iteration 2 / 2",
+            "loop"
+          ]
+        ],
+        "runs": 1
+      }
+    }
+  },
+  "groups": [],
+  "last_link_id": 6,
+  "last_node_id": 4,
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      1,
+      "*"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      0,
+      "*"
+    ],
+    [
+      3,
+      2,
+      1,
+      3,
+      1,
+      "*"
+    ],
+    [
+      4,
+      2,
+      2,
+      3,
+      2,
+      "*"
+    ],
+    [
+      5,
+      2,
+      3,
+      3,
+      3,
+      "*"
+    ],
+    [
+      6,
+      3,
+      0,
+      4,
+      0,
+      "*"
+    ]
+  ],
+  "nodes": [
+    {
+      "flags": {},
+      "id": 1,
+      "inputs": [],
+      "mode": 0,
+      "order": 0,
+      "outputs": [
+        {
+          "links": [
+            1
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        80,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408IntegerList"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408IntegerList",
+      "widgets_values": {}
+    },
+    {
+      "flags": {},
+      "id": 2,
+      "inputs": [
+        {
+          "link": null,
+          "name": "mode",
+          "type": "*"
+        },
+        {
+          "link": 1,
+          "name": "mode.list",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 1,
+      "outputs": [
+        {
+          "links": [
+            2
+          ],
+          "name": "output_0",
+          "type": "*"
+        },
+        {
+          "links": [
+            3
+          ],
+          "name": "output_1",
+          "type": "*"
+        },
+        {
+          "links": [
+            4
+          ],
+          "name": "output_2",
+          "type": "*"
+        },
+        {
+          "links": [
+            5
+          ],
+          "name": "output_3",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_4",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        390,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "StartLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "StartLoop",
+      "widgets_values": {
+        "mode": "List"
+      }
+    },
+    {
+      "flags": {},
+      "id": 3,
+      "inputs": [
+        {
+          "link": 2,
+          "name": "index",
+          "type": "*"
+        },
+        {
+          "link": 3,
+          "name": "is_first",
+          "type": "*"
+        },
+        {
+          "link": 4,
+          "name": "is_last",
+          "type": "*"
+        },
+        {
+          "link": 5,
+          "name": "item",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 2,
+      "outputs": [
+        {
+          "links": [
+            6
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        700,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408CaptureLoopState"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408CaptureLoopState",
+      "widgets_values": {}
+    },
+    {
+      "flags": {},
+      "id": 4,
+      "inputs": [
+        {
+          "link": 6,
+          "name": "output_value",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "accumulate",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 3,
+      "outputs": [
+        {
+          "links": null,
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        1010,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "EndLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "EndLoop",
+      "widgets_values": {
+        "accumulate": true
+      }
+    }
+  ],
+  "version": 0.4
+}

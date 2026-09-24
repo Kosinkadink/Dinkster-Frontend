@@ -269,7 +269,8 @@ describe('basic translation', () => {
     expect(Object.keys(graph.nodes)).toHaveLength(66)
     for (const [alias, canonical] of Object.entries(trellis2Aliases)) {
       const authoredCount = nodes.filter((node) => node.type === alias).length
-      expect(Object.values(graph.nodes).filter((node) => node.type === canonical)).toHaveLength(authoredCount)
+      const expectedType = resolve(alias) === undefined ? canonical : alias
+      expect(Object.values(graph.nodes).filter((node) => node.type === expectedType)).toHaveLength(authoredCount)
     }
 
     const pathTypes = Object.values(graph.nodes).map((node) => node.type)

@@ -916,6 +916,8 @@ export interface NodeSchema {
    * affordances available rather than hide them all).
    */
   readonly emitsPreviews?: boolean
+  /** Execution may request unsupported runtime graph expansion (wire 46). */
+  readonly mayExpandGraph?: boolean
   /** Full help content is available from the paged docs catalog (wire 42). */
   readonly hasDocs?: boolean
   /**

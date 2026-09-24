@@ -222,6 +222,7 @@ function regionFromJson(value: Json | undefined): RegionContract | undefined {
     ...(region.continueOutput !== undefined ? { continueOutput: region.continueOutput } : {}),
     ...(region.binding !== undefined ? { binding: region.binding } : {}),
     ...(region.maxIterations !== undefined ? { maxIterations: region.maxIterations } : {}),
+    ...(region.cachePolicy !== undefined ? { cachePolicy: region.cachePolicy } : {}),
   }
 }
 
@@ -315,8 +316,8 @@ const regionSetOutputRole: CommandDefinition = {
   id: 'region.setOutputRole',
   run(doc, params, tx) {
     if (!isObj(params) || typeof params.outputId !== 'string' || params.outputId.length === 0 ||
-        (params.role !== 'gather' && params.role !== 'compact' && params.role !== 'state' && params.role !== 'flatten')) {
-      return [err('params.invalid', "region.setOutputRole: params must be {graphId, nodeId, outputId, role:'gather'|'compact'|'state'|'flatten', statePort?}")]
+        (params.role !== 'gather' && params.role !== 'compact' && params.role !== 'state' && params.role !== 'flatten' && params.role !== 'last')) {
+      return [err('params.invalid', "region.setOutputRole: params must be {graphId, nodeId, outputId, role:'gather'|'compact'|'state'|'flatten'|'last', statePort?}")]
     }
     if (params.role === 'state' && (typeof params.statePort !== 'string' || params.statePort.length === 0)) {
       return [err('params.invalid', 'region.setOutputRole: state role requires a non-empty statePort')]
@@ -334,7 +335,7 @@ const regionSetOutputRole: CommandDefinition = {
         if (role.kind === 'state' && role.statePort === params.statePort) delete outputRoles[outputId]
       }
       outputRoles = { ...outputRoles, [params.outputId]: { kind: 'state', statePort: params.statePort as string } }
-    } else if (params.role === 'compact' || params.role === 'flatten') {
+    } else if (params.role === 'compact' || params.role === 'flatten' || params.role === 'last') {
       outputRoles = { ...outputRoles, [params.outputId]: { kind: params.role } }
     }
     const next = { ...region } as Record<string, unknown>

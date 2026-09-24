@@ -1,0 +1,568 @@
+{
+  "config": {},
+  "extra": {
+    "issue408": {
+      "api_prompt": {
+        "capture": {
+          "class_type": "Issue408Capture",
+          "inputs": {
+            "value": [
+              "outer_close",
+              0
+            ]
+          }
+        },
+        "increment": {
+          "class_type": "Issue408Increment",
+          "inputs": {
+            "value": [
+              "inner",
+              0
+            ]
+          }
+        },
+        "inner": {
+          "class_type": "StartLoop",
+          "inputs": {
+            "cache_iterations": true,
+            "mode": "simple",
+            "mode.num_iterations": 2,
+            "parent_iteration": [
+              "outer",
+              0
+            ]
+          }
+        },
+        "inner_close": {
+          "class_type": "EndLoop",
+          "inputs": {
+            "accumulate": true,
+            "output_value": [
+              "increment",
+              0
+            ]
+          }
+        },
+        "outer": {
+          "class_type": "StartLoop",
+          "inputs": {
+            "cache_iterations": false,
+            "mode": "simple",
+            "mode.num_iterations": 2
+          }
+        },
+        "outer_close": {
+          "class_type": "EndLoop",
+          "inputs": {
+            "accumulate": true,
+            "output_value": [
+              "inner_close",
+              0
+            ],
+            "termination0": [
+              "outer_probe",
+              0
+            ]
+          }
+        },
+        "outer_probe": {
+          "class_type": "Issue408OuterProbe",
+          "inputs": {
+            "value": [
+              "outer",
+              0
+            ]
+          }
+        }
+      },
+      "outputs": [
+        "capture"
+      ],
+      "recorded_cpu_result": {
+        "observed": {
+          "increment_calls": [
+            1,
+            2,
+            1,
+            2
+          ],
+          "outer_probe_calls": [
+            1,
+            2,
+            1,
+            2
+          ]
+        },
+        "progress": [
+          [
+            "Iteration 0 / 2",
+            "outer"
+          ],
+          [
+            "Iteration 0 / 2",
+            "outer.0.0.0_inner"
+          ],
+          [
+            "Iteration 1 / 2",
+            "outer.0.0.0_inner"
+          ],
+          [
+            "Iteration 2 / 2",
+            "outer.0.0.0_inner"
+          ],
+          [
+            "Iteration 1 / 2",
+            "outer"
+          ],
+          [
+            "Iteration 0 / 2",
+            "outer.0.0.1_inner"
+          ],
+          [
+            "Iteration 1 / 2",
+            "outer.0.0.1_inner"
+          ],
+          [
+            "Iteration 2 / 2",
+            "outer.0.0.1_inner"
+          ],
+          [
+            "Iteration 2 / 2",
+            "outer"
+          ],
+          [
+            "Iteration 0 / 2",
+            "outer"
+          ],
+          [
+            "Iteration 0 / 2",
+            "outer.0.0.0_inner"
+          ],
+          [
+            "Iteration 1 / 2",
+            "outer.0.0.0_inner"
+          ],
+          [
+            "Iteration 2 / 2",
+            "outer.0.0.0_inner"
+          ],
+          [
+            "Iteration 1 / 2",
+            "outer"
+          ],
+          [
+            "Iteration 0 / 2",
+            "outer.0.0.1_inner"
+          ],
+          [
+            "Iteration 1 / 2",
+            "outer.0.0.1_inner"
+          ],
+          [
+            "Iteration 2 / 2",
+            "outer.0.0.1_inner"
+          ],
+          [
+            "Iteration 2 / 2",
+            "outer"
+          ]
+        ],
+        "runs": 2
+      }
+    }
+  },
+  "groups": [],
+  "last_link_id": 7,
+  "last_node_id": 7,
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "*"
+    ],
+    [
+      2,
+      1,
+      0,
+      3,
+      3,
+      "*"
+    ],
+    [
+      3,
+      3,
+      0,
+      4,
+      0,
+      "*"
+    ],
+    [
+      4,
+      4,
+      0,
+      5,
+      0,
+      "*"
+    ],
+    [
+      5,
+      5,
+      0,
+      6,
+      0,
+      "*"
+    ],
+    [
+      6,
+      2,
+      0,
+      6,
+      2,
+      "*"
+    ],
+    [
+      7,
+      6,
+      0,
+      7,
+      0,
+      "*"
+    ]
+  ],
+  "nodes": [
+    {
+      "flags": {},
+      "id": 1,
+      "inputs": [
+        {
+          "link": null,
+          "name": "mode",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "mode.num_iterations",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "cache_iterations",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 0,
+      "outputs": [
+        {
+          "links": [
+            1,
+            2
+          ],
+          "name": "output_0",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_1",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_2",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_3",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_4",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        80,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "StartLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "StartLoop",
+      "widgets_values": {
+        "cache_iterations": false,
+        "mode": "simple",
+        "mode.num_iterations": 2
+      }
+    },
+    {
+      "flags": {},
+      "id": 2,
+      "inputs": [
+        {
+          "link": 1,
+          "name": "value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 1,
+      "outputs": [
+        {
+          "links": [
+            6
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        390,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408OuterProbe"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408OuterProbe",
+      "widgets_values": {}
+    },
+    {
+      "flags": {},
+      "id": 3,
+      "inputs": [
+        {
+          "link": null,
+          "name": "mode",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "mode.num_iterations",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "cache_iterations",
+          "type": "*"
+        },
+        {
+          "link": 2,
+          "name": "parent_iteration",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 2,
+      "outputs": [
+        {
+          "links": [
+            3
+          ],
+          "name": "output_0",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_1",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_2",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_3",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_4",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        700,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "StartLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "StartLoop",
+      "widgets_values": {
+        "cache_iterations": true,
+        "mode": "simple",
+        "mode.num_iterations": 2
+      }
+    },
+    {
+      "flags": {},
+      "id": 4,
+      "inputs": [
+        {
+          "link": 3,
+          "name": "value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 3,
+      "outputs": [
+        {
+          "links": [
+            4
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        1010,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408Increment"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408Increment",
+      "widgets_values": {}
+    },
+    {
+      "flags": {},
+      "id": 5,
+      "inputs": [
+        {
+          "link": 4,
+          "name": "output_value",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "accumulate",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 4,
+      "outputs": [
+        {
+          "links": [
+            5
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        80,
+        300
+      ],
+      "properties": {
+        "Node name for S&R": "EndLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "EndLoop",
+      "widgets_values": {
+        "accumulate": true
+      }
+    },
+    {
+      "flags": {},
+      "id": 6,
+      "inputs": [
+        {
+          "link": 5,
+          "name": "output_value",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "accumulate",
+          "type": "*"
+        },
+        {
+          "link": 6,
+          "name": "termination0",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 5,
+      "outputs": [
+        {
+          "links": [
+            7
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        390,
+        300
+      ],
+      "properties": {
+        "Node name for S&R": "EndLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "EndLoop",
+      "widgets_values": {
+        "accumulate": true
+      }
+    },
+    {
+      "flags": {},
+      "id": 7,
+      "inputs": [
+        {
+          "link": 7,
+          "name": "value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 6,
+      "outputs": [],
+      "pos": [
+        700,
+        300
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408Capture"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408Capture",
+      "widgets_values": {}
+    }
+  ],
+  "version": 0.4
+}

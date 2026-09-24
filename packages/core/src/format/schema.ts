@@ -512,6 +512,18 @@ export const WORKFLOW_SCHEMA = {
               {
                 type: 'object',
                 additionalProperties: false,
+                required: ['kind'],
+                properties: { kind: { const: 'compact' } },
+              },
+              {
+                type: 'object',
+                additionalProperties: false,
+                required: ['kind'],
+                properties: { kind: { const: 'last' } },
+              },
+              {
+                type: 'object',
+                additionalProperties: false,
                 required: ['kind', 'statePort'],
                 properties: {
                   kind: { const: 'state' },
@@ -524,6 +536,7 @@ export const WORKFLOW_SCHEMA = {
         continueOutput: { type: 'string', minLength: 1 },
         binding: { enum: ['zip', 'cross', 'broadcast'] },
         maxIterations: { type: 'integer', minimum: 0, maximum: 9007199254740991 },
+        cachePolicy: { enum: ['reuse', 'rerun'] },
       },
     },
     linkData: {
