@@ -35,6 +35,9 @@ The subset uses synthetic inputs and checked-in fixtures:
 - Core `dinkster-inline-value.test.ts`: scalar event decoding and invalid inputs.
 - E2E `ci-workflow.test.ts`: workflow triggers, unit selection, credentials
   and browser-isolation contracts.
+- E2E `starter-execution-support.test.ts`: the starter execution matrix and
+  the `DINKSTER_STARTER_OVERRIDES` file-contract validation used by the
+  opt-in `tests/starter-execution-live.spec.ts` live harness.
 - App `extension-dogfooding.test.ts`: built-in widget, command, and editor
   registrations use the same public doors available to packs.
 - `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
@@ -45,6 +48,29 @@ running service. The required `CI_RUNNERS` repository variable controls every
 job. Pull requests select its `linux` entry for same-repository branches and
 `forkLinux` for forks. Both entries name GitHub-hosted Linux runners; the other
 values select hosted images for main validation, schedules, and manual runs.
+
+## Live starter execution
+
+`packages/e2e/tests/starter-execution-live.spec.ts` opens every advertised
+starter through the template gallery, resolves real held assets, compiles and
+queues the graph, waits for the terminal job, and checks its saved output kind.
+It is opt-in and serial because it writes to a real backend. Set
+`DINKSTER_STARTER_EXECUTION_E2E=1` and `DINKSTER_NATIVE_BACKEND`; optionally
+select one exact family with `DINKSTER_STARTER_EXECUTION_FAMILY`. Retained runs
+also set `DINKSTER_STARTER_RECEIPT_DIR`, `DINKSTER_REVISION`,
+`DINKSTER_FRONTEND_REVISION`, `DINKSTER_TEST_HOST`, `DINKSTER_TEST_GPU`, and
+`DINKSTER_STARTER_EXACT_COMMAND`. `DINKSTER_STARTER_OVERRIDES` may name a JSON
+file of pinned model substitutions and bounded workflow values; every model
+substitution requires its exact byte size and SHA-256.
+
+```bash
+pnpm --filter @dinkster/e2e exec playwright test \
+  --project=backend-serial tests/starter-execution-live.spec.ts
+```
+
+The composition preflight always checks the complete starter matrix, even
+when one family is selected. Missing Qwen Image, TripoSplat, Wan 2.1, or Wan
+2.2 packs report the issue 248 blocker without a pack reload or retry.
 
 ## Full validation
 

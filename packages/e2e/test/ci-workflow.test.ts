@@ -130,6 +130,7 @@ describe('fast pull-request and full validation workflows', () => {
       'test/object-info.golden.test.ts',
       'test/events.golden.test.ts',
       'test/ci-workflow.test.ts',
+      'test/starter-execution-support.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
     ])
