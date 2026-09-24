@@ -6,7 +6,7 @@ import { compile } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../src/format/document.js'
-import { importLitegraph } from '../src/format/import-litegraph.js'
+import { importLitegraph, resolveImportedAssetLiterals } from '../src/format/import-litegraph.js'
 import { asConnectionId, isPortEndpoint } from '../src/ids.js'
 import { planReplacement } from '../src/replace/plan.js'
 import { comfyAliasCatalogFromDinksterWire } from '../src/schema/comfy-alias.js'
@@ -33,6 +33,14 @@ const resolve = (type: string): NodeSchema | undefined => {
 }
 
 const nativeResolve = (type: string): NodeSchema | undefined => native.schemas.get(type) ?? nativeByAlias.get(type)
+
+const assetRef = (name: string): JsonObject => ({
+  digest: `blake3:${createHash('sha256').update(name).digest('hex')}`,
+  name,
+  size: 1,
+  mediaType: name.endsWith('.png') ? 'image/png' : 'application/x-safetensors',
+  virtualPath: name.endsWith('.png') ? `mounts/comfy-input/${name}` : `mounts/comfy-models/${name}`,
+})
 
 const errorDiagnostics = (items: readonly { readonly severity: string }[]) => items.filter((item) => item.severity === 'error')
 
@@ -312,8 +320,17 @@ describe('official MiniMax H3 workflows', () => {
         .filter((node) => aliases.catalog.recordsBySourceType.has(node.type)),
     ).toEqual([])
 
+    const resolved = resolveImportedAssetLiterals(document, nativeResolve, assetRef)
+    expect(resolved.unresolved).toEqual([])
+    const resolvedGraph = resolved.document.graphs[resolved.document.root]!
+    expect(onlyNode(resolvedGraph, 'dinkster.load_diffusion_model').values.diffusion_model).toEqual(assetRef(
+      name === 'video_minimax_h3_t2v.json' || name === 'video_minimax_h3_i2v.json'
+        ? 'minimax_h3_fl2va_pruned_int8_convrot.safetensors'
+        : 'minimax_h3_ref2va_pruned_int8_convrot.safetensors',
+    ))
+    expect(onlyNode(resolvedGraph, 'dinkster.load_clip').values.text_encoder).toEqual(assetRef('qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'))
     const compiled = compile({
-      document,
+      document: resolved.document,
       revision: 1,
       resolve: nativeResolve,
       scope: { kind: 'full' },
@@ -334,8 +351,10 @@ describe('official MiniMax H3 workflows', () => {
         .filter((node) => aliases.catalog.recordsBySourceType.has(node.type)),
     ).toEqual([])
 
+    const resolved = resolveImportedAssetLiterals(document, nativeResolve, assetRef)
+    expect(resolved.unresolved).toEqual([])
     const compiled = compile({
-      document,
+      document: resolved.document,
       revision: 1,
       resolve: nativeResolve,
       scope: { kind: 'full' },
@@ -344,6 +363,10 @@ describe('official MiniMax H3 workflows', () => {
     })
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
     if (!compiled.ok) throw new Error('unreachable')
+    const assetInputs = Object.values(compiled.artifact.prompt).flatMap((node) =>
+      Object.entries(node.inputs).filter(([input]) => ['diffusion_model', 'vae', 'text_encoder', 'lora', 'image'].includes(input)).map(([, value]) => value))
+    expect(assetInputs.every((value) => Array.isArray(value) || typeof value !== 'string')).toBe(true)
+    expect(assetInputs.some((value) => !Array.isArray(value) && typeof value === 'object' && value !== null && 'digest' in value)).toBe(true)
     assertVariantExecution(compiled.artifact.prompt, variant)
   })
 })

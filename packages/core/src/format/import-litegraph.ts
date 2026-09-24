@@ -45,6 +45,7 @@ import { normalizeComboOption, normalizedComboOptions } from '../schema/combo-op
 import {
   FORMAT_VERSION,
   type ControllerMode,
+  type GraphDef,
   type GroupViewState,
   type Json,
   type JsonObject,
@@ -55,7 +56,8 @@ import {
 import { ownJson } from './json.js'
 import { validateDocumentShape } from './validate.js'
 import { checkDocument } from '../invariants.js'
-import { isSaveTargetValue } from '../schema/widget-defaults.js'
+import { isPortEndpoint } from '../ids.js'
+import { isAssetRefValue, isSaveTargetValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
@@ -1016,6 +1018,72 @@ export function importLitegraph(
   return { ...result, document: Object.freeze({ ...result.document,
     lineage: `lg-${fnv1a(JSON.stringify(ingress.value))}` as WorkflowDocument['lineage'],
   }) }
+}
+
+export interface ImportedAssetLiteral {
+  readonly graphId: string
+  readonly nodeId: string
+  readonly inputId: string
+  readonly name: string
+}
+
+export interface ImportedAssetResolution {
+  readonly document: WorkflowDocument
+  readonly unresolved: readonly ImportedAssetLiteral[]
+}
+
+/** Replace legacy filename strings on native ASSET inputs from a trusted catalog lookup. */
+export function resolveImportedAssetLiterals(
+  document: WorkflowDocument,
+  resolve: (type: string) => NodeSchema | undefined,
+  assetForName: (name: string) => Json | undefined,
+): ImportedAssetResolution {
+  const unresolved: ImportedAssetLiteral[] = []
+  const graphs = Object.fromEntries(Object.entries(document.graphs).map(([graphId, graph]) => {
+    const nodes = Object.fromEntries(Object.entries(graph.nodes).map(([nodeId, node]) => {
+      const schema = resolve(node.type)
+      if (!schema) return [nodeId, node]
+      let values: Record<string, Json> | undefined
+      for (const item of schema.items) {
+        if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET') continue
+        const value = node.values[item.id]
+        if (typeof value !== 'string') continue
+        const asset = assetForName(value)
+        if (!isAssetRefValue(asset)) {
+          unresolved.push({ graphId, nodeId, inputId: item.id, name: value })
+          continue
+        }
+        values ??= { ...node.values }
+        values[item.id] = asset as Json
+      }
+      return [nodeId, values === undefined ? node : { ...node, values }]
+    })) as GraphDef['nodes']
+    let valueSources = graph.valueSources
+    for (const [sourceId, source] of Object.entries(graph.valueSources ?? {})) {
+      if (typeof source.value !== 'string') continue
+      const targets = Object.values(graph.links).flatMap((link) => {
+        if (!('valueSource' in link.from) || link.from.valueSource !== sourceId || !isPortEndpoint(link.to)) return []
+        const target = link.to
+        const node = nodes[target.node]
+        const schema = node === undefined ? undefined : resolve(node.type)
+        const input = schema?.items.find((item) => item.kind === 'input' && item.id === target.port)
+        return input?.kind === 'input' && input.widget?.widgetType === 'ASSET'
+          ? [{ nodeId: target.node, inputId: target.port }]
+          : []
+      })
+      const outgoing = Object.values(graph.links).filter((link) =>
+        'valueSource' in link.from && link.from.valueSource === sourceId)
+      if (targets.length === 0 || targets.length !== outgoing.length) continue
+      const asset = assetForName(source.value)
+      if (!isAssetRefValue(asset)) {
+        unresolved.push(...targets.map((target) => ({ graphId, ...target, name: source.value as string })))
+        continue
+      }
+      valueSources = { ...valueSources, [sourceId]: { ...source, value: asset as Json } }
+    }
+    return [graphId, { ...graph, nodes, ...(valueSources === undefined ? {} : { valueSources }) }]
+  })) as WorkflowDocument['graphs']
+  return { document: { ...document, graphs }, unresolved }
 }
 
 function importLitegraphGraph(
