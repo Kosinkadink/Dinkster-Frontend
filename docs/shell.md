@@ -250,10 +250,10 @@ it or discarding that session's unsaved edits.
 
 An absent or empty `definitions.subgraphs` field is valid in an ordinary or
 template workflow. A nonempty field imports supported nested definitions. When
-the current catalog cannot resolve an otherwise representable authored boundary,
-the importer preserves the definition and reports
-`import.subgraphs.boundaryUnresolved` in Problems instead of silently flattening
-it. Unsupported structural boundaries use the documented per-instance fallback.
+the current catalog lacks a boundary node schema, the importer preserves the
+definition and reports `import.subgraphs.boundaryUnresolved` in Problems. A
+boundary port incompatible with an available schema uses the documented
+per-instance inline fallback, as do unsupported structural boundaries.
 
 The status bar has a polite live region for transient operation feedback. A
 successful library save reports `Saved to <backend> library`; a failed save

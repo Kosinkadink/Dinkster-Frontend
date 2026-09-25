@@ -77,14 +77,15 @@ seed-controller entries. Legacy `proxyWidgets` references promote matching
 inner widgets; missing host values inherit the definition's saved values.
 Unresolved widget state stays under `importer.subgraphWidgets` with a warning.
 
-A definition whose authored boundary endpoints can be represented but cannot be
-resolved against the current node schemas retains its definition and nested
-instances. Its authored slot types provide a review-only interface and
-`import.subgraphs.boundaryUnresolved` reports the limitation in Problems.
-Unresolved dynamic input endpoints are also reported and their invalid links are
-omitted. Structural boundaries that cannot be represented are inlined per
-occurrence with `import.subgraphs.inlined`; connections, values, controllers,
-and nested supported instances remain independent per occurrence. The original
+A definition whose authored boundary references a node schema unavailable in
+the current catalog retains its definition and nested instances. Its authored
+slot types provide a review-only interface and `import.subgraphs.boundaryUnresolved`
+reports the limitation in Problems. When the schema is available but the
+authored port is incompatible, the definition is inlined per occurrence with
+`import.subgraphs.inlined`. Unresolved dynamic input endpoints are also reported
+and their invalid links are omitted. Other structural boundaries that cannot be
+represented use the same inline fallback; connections, values, controllers, and
+nested supported instances remain independent per occurrence. The original
 definition catalog and removed instance state remain under importer extension
 fields for review. Cycles and malformed definitions refuse the import; fallback
 never invents a backend node alias. The boundary-forwarding cases in
