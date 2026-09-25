@@ -95,13 +95,14 @@ for (const name of templates) test(`imports and drills into official nested subg
   expect(errors).toEqual([])
 })
 
-test('renders inlined structural boundaries with independent instance values', async ({ page }, testInfo) => {
+test('reports an unrepresentable structural boundary without opening a lossy document', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${inAuditLane() ? nativeCatalog.schemaCount : Object.keys(schemas).length} node schemas`))
   const result = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
+    const before = app.activeTab()!
     const failures = app.openDocument({ nodes: [
       ...[1, 2].map((id) => ({ id, type: 'primitive-subgraph', pos: [100, id * 250],
         widgets_values: [`Prompt ${id}`], properties: { proxyWidgets: [['1', 'value']] },
@@ -112,14 +113,15 @@ test('renders inlined structural boundaries with independent instance values', a
       id: 'primitive-subgraph', name: 'Text', inputs: [], outputs: [{ id: 'text', name: 'text', type: 'STRING', linkIds: [1] }],
       nodes: [{ id: 1, type: 'PrimitiveNode', pos: [0, 0], outputs: [{ name: 'STRING', type: 'STRING' }], widgets_values: ['Default'] }],
       links: [{ id: 1, origin_id: 1, origin_slot: 0, target_id: -20, target_slot: 0, type: 'STRING' }],
-    }] } }, 'Inlined subgraph values')
-    return { failures, doc: JSON.parse(JSON.stringify(app.activeTab()!.store.doc)) }
+    }] } }, 'Unsupported subgraph boundary')
+    return {
+      failures: failures.map((failure: any) => ({ code: failure.code, severity: failure.severity })),
+      problems: app.problems.get().map(({ code, severity }) => ({ code, severity })),
+      activeTabUnchanged: app.activeTab()!.id === before.id,
+    }
   })
-  expect(result.failures).toEqual([])
-  expect(Object.values(result.doc.graphs.g0.valueSources).map((source: any) => source.value)).toEqual(['Prompt 1', 'Prompt 2'])
-  expect(Object.keys(result.doc.graphs.g0.links)).toHaveLength(2)
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBeGreaterThan(0)
-  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 80, y: 0, scale: 0.7 }))
-  await page.screenshot({ path: testInfo.outputPath('fallback.png') })
+  expect(result.failures).toContainEqual({ code: 'import.subgraphs.boundaryUnsupported', severity: 'error' })
+  expect(result.problems).toContainEqual({ code: 'import.subgraphs.boundaryUnsupported', severity: 'error' })
+  expect(result.activeTabUnchanged).toBe(true)
   expect(errors).toEqual([])
 })

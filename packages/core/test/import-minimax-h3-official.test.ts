@@ -46,6 +46,21 @@ const errorDiagnostics = (items: readonly { readonly severity: string }[]) => it
 
 const nodesOfType = (graph: GraphDef, type: string): NodeData[] => Object.values(graph.nodes).filter((node) => node.type === type)
 
+const documentNodes = (document: WorkflowDocument, type: string): NodeData[] =>
+  Object.values(document.graphs).flatMap((graph) => nodesOfType(graph, type))
+
+const onlyDocumentNode = (document: WorkflowDocument, type: string): NodeData => {
+  const nodes = documentNodes(document, type)
+  expect(nodes, `expected one ${type} node`).toHaveLength(1)
+  return nodes[0]!
+}
+
+const mainGraph = (document: WorkflowDocument): GraphDef => {
+  const candidates = Object.values(document.graphs).filter((graph) => nodesOfType(graph, 'dinkster.load_diffusion_model').length > 0)
+  expect(candidates, `expected one generation graph in ${Object.keys(document.graphs).join(', ')}`).toHaveLength(1)
+  return candidates[0]!
+}
+
 const onlyNode = (graph: GraphDef, type: string): NodeData => {
   const nodes = nodesOfType(graph, type)
   expect(nodes, `expected one ${type} node`).toHaveLength(1)
@@ -59,17 +74,17 @@ const directSource = (graph: GraphDef, node: NodeData, port: string): NodeData =
   return graph.nodes[isPortEndpoint(link!.from) ? link!.from.node : '']!
 }
 
-function assertCommonValues(graph: GraphDef): void {
-  expect(nodesOfType(graph, 'dinkster.load_vae').map((node) => node.values.vae)).toEqual([
+function assertCommonValues(document: WorkflowDocument): void {
+  expect(documentNodes(document, 'dinkster.load_vae').map((node) => node.values.vae)).toEqual([
     'minimax_h3_video_vae_int8_convrot.safetensors',
     'minimax_h3_audio_vae_fp32.safetensors',
   ])
-  expect(onlyNode(graph, 'dinkster.load_clip').values).toMatchObject({
+  expect(onlyDocumentNode(document, 'dinkster.load_clip').values).toMatchObject({
     text_encoder: 'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',
     type: 'minimax',
   })
-  expect(onlyNode(graph, 'dinkster.ksampler_select').values.sampler_name).toBe('dinkster.res_multistep')
-  expect(onlyNode(graph, 'dinkster.basic_scheduler').values).toMatchObject({
+  expect(onlyDocumentNode(document, 'dinkster.ksampler_select').values.sampler_name).toBe('dinkster.res_multistep')
+  expect(onlyDocumentNode(document, 'dinkster.basic_scheduler').values).toMatchObject({
     scheduler: 'dinkster.simple',
     denoise: 1,
   })
@@ -82,33 +97,35 @@ interface VariantExpectation {
 }
 
 function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDocument, variant?: VariantExpectation): void {
-  const graph = document.graphs[document.root]!
-  assertCommonValues(graph)
-  const model = onlyNode(graph, 'dinkster.load_diffusion_model')
-  const lora = onlyNode(graph, 'dinkster.load_lora_model_only')
-  const noise = onlyNode(graph, 'dinkster.random_noise')
+  assertCommonValues(document)
+  const graph = mainGraph(document)
+  const model = onlyDocumentNode(document, 'dinkster.load_diffusion_model')
+  const lora = onlyDocumentNode(document, 'dinkster.load_lora_model_only')
+  const noise = onlyDocumentNode(document, 'dinkster.random_noise')
 
   if (name === 'video_minimax_h3_t2v.json' || name === 'video_minimax_h3_i2v.json') {
+    expect(graph.id).not.toBe(document.root)
+    expect(Object.values(document.graphs[document.root]!.nodes).filter((node) => node.type === `#${graph.id}`)).toHaveLength(1)
     expect(model.values.diffusion_model).toBe('minimax_h3_fl2va_pruned_int8_convrot.safetensors')
     expect(lora.values).toMatchObject({
       lora: variant?.lora ?? 'minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
       strength_model: 1,
     })
     expect(noise.values.noise_seed).toBe(1)
-    expect(onlyNode(graph, 'dinkster.resolution_selector').values).toMatchObject({
+    expect(onlyDocumentNode(document, 'dinkster.resolution_selector').values).toMatchObject({
       aspect_ratio: name.includes('i2v') ? '1:1 (Square)' : '16:9 (Widescreen)',
       megapixels: 0.4,
       multiple: 32,
     })
-    expect(onlyNode(graph, 'dinkster.minimax_h3_image_to_video').values).toMatchObject({
+    expect(onlyDocumentNode(document, 'dinkster.minimax_h3_image_to_video').values).toMatchObject({
       width: 1344,
       height: 768,
       length: 73,
       prompt: expect.stringContaining('Vaporwave title sequence look'),
     })
-    expect(nodesOfType(graph, 'dinkster.int').map((node) => node.values.value)).toEqual([20, variant?.fastSteps ?? 6])
-    expect(onlyNode(graph, 'dinkster.boolean').values.value).toBe(variant?.enabled ?? false)
-    if (name.includes('i2v')) expect(onlyNode(graph, 'dinkster.load_image').values.image).toBe('transparent_rgb_gaming_mouse.png')
+    expect(documentNodes(document, 'dinkster.int').map((node) => node.values.value)).toEqual([20, variant?.fastSteps ?? 6])
+    expect(onlyDocumentNode(document, 'dinkster.boolean').values.value).toBe(variant?.enabled ?? false)
+    if (name.includes('i2v')) expect(onlyDocumentNode(document, 'dinkster.load_image').values.image).toBe('transparent_rgb_gaming_mouse.png')
     return
   }
 
@@ -117,19 +134,19 @@ function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDo
     lora: variant?.lora ?? 'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors',
     strength_model: 1,
   })
-  expect(onlyNode(graph, 'dinkster.minimax_h3_reference_to_video').values).toMatchObject({
+  expect(onlyDocumentNode(document, 'dinkster.minimax_h3_reference_to_video').values).toMatchObject({
     width: 1344,
     height: 768,
     length: 124,
     ref_image_size: 'match',
   })
-  expect(nodesOfType(graph, 'dinkster.int').map((node) => node.values.value)).toEqual([20, variant?.fastSteps ?? 4])
-  expect(onlyNode(graph, 'dinkster.boolean').values.value).toBe(variant?.enabled ?? false)
+  expect(documentNodes(document, 'dinkster.int').map((node) => node.values.value)).toEqual([20, variant?.fastSteps ?? 4])
+  expect(onlyDocumentNode(document, 'dinkster.boolean').values.value).toBe(variant?.enabled ?? false)
 
   if (name === 'video_minimax_h3_r2v.json') {
     expect(noise.values.noise_seed).toBe(261662374822964)
-    expect(onlyNode(graph, 'dinkster.string_multiline').values.value).toEqual(expect.stringContaining('Use <Picture 2> and <Picture 1> as reference frames'))
-    const reference = onlyNode(graph, 'dinkster.minimax_h3_reference_to_video')
+    expect(onlyDocumentNode(document, 'dinkster.string_multiline').values.value).toEqual(expect.stringContaining('Use <Picture 2> and <Picture 1> as reference frames'))
+    const reference = onlyDocumentNode(document, 'dinkster.minimax_h3_reference_to_video')
     const orderedImages = Object.values(graph.links)
       .flatMap((link) => {
         if (!isPortEndpoint(link.to) || link.to.node !== reference.id || link.to.port !== 'ref_images.ref_images' || !isPortEndpoint(link.from)) return []
@@ -147,8 +164,8 @@ function assertOfficialValues(name: (typeof cases)[number], document: WorkflowDo
   }
 
   expect(noise.values.noise_seed).toBe(148096032077131)
-  expect(onlyNode(graph, 'dinkster.string_multiline').values.value).toEqual(expect.stringContaining('[Shot 4] At 00:05.000'))
-  const guides = nodesOfType(graph, 'dinkster.minimax_h3_add_guide')
+  expect(onlyDocumentNode(document, 'dinkster.string_multiline').values.value).toEqual(expect.stringContaining('[Shot 4] At 00:05.000'))
+  const guides = documentNodes(document, 'dinkster.minimax_h3_add_guide')
   expect(guides).toHaveLength(3)
   const guideInputs = guides.map((guide) => {
     const image = directSource(graph, guide, 'image')
@@ -195,16 +212,23 @@ function replaceMaintainedAliases(document: WorkflowDocument): WorkflowDocument 
   throw new Error('maintained aliases did not converge')
 }
 
-function assertOfficialTopology(
+function assertPreservedSubgraph(
   name: (typeof cases)[number],
   imported: { readonly diagnostics: readonly { readonly code: string }[]; readonly document?: WorkflowDocument },
 ): void {
-  if (name !== 'video_minimax_h3_t2v.json' && name !== 'video_minimax_h3_i2v.json') return
-  const definitions = (fixture(name) as JsonObject)['definitions'] as JsonObject
-  const subgraphs = definitions['subgraphs'] as readonly JsonObject[]
-  const subgraphId = subgraphs[0]!['id'] as string
-  expect(imported.diagnostics.filter((item) => item.code === 'import.subgraphs.boundaryUnresolved'), name).toEqual([])
-  expect(Object.keys(imported.document!.graphs), name).not.toContain(subgraphId)
+  const definitions = (fixture(name) as JsonObject)['definitions'] as JsonObject | undefined
+  const subgraphs = definitions?.['subgraphs'] as readonly JsonObject[] | undefined
+  const subgraphId = subgraphs?.[0]?.['id'] as string | undefined
+  const unresolved = imported.diagnostics.filter((item) => item.code === 'import.subgraphs.boundaryUnresolved')
+  if (subgraphId === undefined) {
+    expect(unresolved, name).toEqual([])
+    return
+  }
+  expect(unresolved, name).toHaveLength(1)
+  expect(Object.keys(imported.document!.graphs), name).toContain(subgraphId)
+  const root = imported.document!.graphs[imported.document!.root]!
+  expect(Object.values(root.nodes).filter((node) => node.type === `#${subgraphId}`), name).toHaveLength(1)
+  expect(Object.keys(imported.document!.graphs[subgraphId]!.nodes), name).toHaveLength(21)
 }
 
 const cases = ['video_minimax_h3_t2v.json', 'video_minimax_h3_i2v.json', 'video_minimax_h3_r2v.json', 'video_minimax_h3_multiframe_reference.json'] as const
@@ -324,7 +348,7 @@ describe('official MiniMax H3 workflows', () => {
   it.each(cases)('imports %s verbatim as an executable native document', (name) => {
     const imported = importLitegraph(fixture(name) as JsonObject, resolve, (type) => aliases.catalog.recordsByNodeClass.has(type))
     expect(errorDiagnostics(imported.diagnostics), JSON.stringify(imported.diagnostics)).toEqual([])
-    assertOfficialTopology(name, imported)
+    assertPreservedSubgraph(name, imported)
     const document = replaceMaintainedAliases(imported.document!)
     assertOfficialValues(name, document)
     expect(
@@ -335,7 +359,7 @@ describe('official MiniMax H3 workflows', () => {
 
     const resolved = resolveImportedAssetLiterals(document, nativeResolve, assetRef)
     expect(resolved.unresolved).toEqual([])
-    const resolvedGraph = resolved.document.graphs[resolved.document.root]!
+    const resolvedGraph = mainGraph(resolved.document)
     expect(onlyNode(resolvedGraph, 'dinkster.load_diffusion_model').values.diffusion_model).toEqual(assetRef(
       name === 'video_minimax_h3_t2v.json' || name === 'video_minimax_h3_i2v.json'
         ? 'minimax_h3_fl2va_pruned_int8_convrot.safetensors'
@@ -356,7 +380,7 @@ describe('official MiniMax H3 workflows', () => {
   it.each(variants)('imports the $label variant of $name through the same native path', ({ name, label: _label, ...variant }) => {
     const imported = importLitegraph(configureVariant(fixture(name), variant), resolve, (type) => aliases.catalog.recordsByNodeClass.has(type))
     expect(errorDiagnostics(imported.diagnostics), JSON.stringify(imported.diagnostics)).toEqual([])
-    assertOfficialTopology(name, imported)
+    assertPreservedSubgraph(name, imported)
     const document = replaceMaintainedAliases(imported.document!)
     assertOfficialValues(name, document, variant)
     expect(

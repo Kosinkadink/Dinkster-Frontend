@@ -84,7 +84,7 @@ describe('LiteGraph subgraphs', () => {
     expect(result.document!.graphs.g0!.nodes.n1!.type).toBe('#outer')
   })
 
-  it('inlines a boundary port that is incompatible with an available schema', () => {
+  it('preserves a boundary port that is incompatible with an available schema', () => {
     const incompatibleSchema: NodeSchema = {
       ...schema,
       items: [{ ...schema.items[0]!, id: 'current_value' }, schema.items[1]!],
@@ -94,24 +94,23 @@ describe('LiteGraph subgraphs', () => {
       (type) => type === 'Relay' ? incompatibleSchema : undefined,
     )
     expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
-    expect(result.diagnostics.map((item) => item.code)).toContain('import.subgraphs.inlined')
-    expect(result.diagnostics.map((item) => item.code)).not.toContain('import.subgraphs.boundaryUnresolved')
-    expect(Object.keys(result.document!.graphs)).toEqual(['g0'])
+    expect(result.diagnostics.filter((item) => item.code === 'import.subgraphs.boundaryUnresolved')).toHaveLength(1)
+    expect(result.diagnostics.map((item) => item.code)).not.toContain('import.subgraphs.inlined')
+    expect(Object.keys(result.document!.graphs).sort()).toEqual(['g0', 'inner'])
+    expect(result.document!.graphs.g0!.nodes.n1!.type).toBe('#inner')
+    expect(result.document!.graphs['inner']!.nodes.n1!.type).toBe('Relay')
   })
 
-  it('inlines a structural boundary while retaining nested definitions and instances', () => {
+  it('fails instead of returning a lossy document for an unrepresentable structural boundary', () => {
     const outer = { ...definition('outer'), nodes: [instance(1), { id: 2, type: 'Reroute',
       inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] }],
     links: [link(1, -10, 0, 2, 0), link(2, 2, 0, 1, 0), link(3, 1, 0, -20, 0)] }
     const raw = { nodes: [instance(1, 'outer'), instance(2, 'outer', 31)], links: [], definitions: { subgraphs: [outer, definition()] } }
     const result = importLitegraph(raw as unknown as JsonObject, resolve)
-    expect(result.diagnostics.map((item) => item.code)).toContain('import.subgraphs.inlined')
-    const doc = imported(raw)
-    expect(Object.keys(doc.graphs).sort()).toEqual(['g0', 'inner'])
-    expect(Object.values(doc.graphs.g0!.nodes).map((node) => node.type)).toEqual(['#inner', '#inner'])
-    expect(Object.values(doc.graphs.g0!.valueSources!).map((source) => source.value)).toEqual([19, 31])
-    expect(Object.keys(doc.graphs.g0!.reroutes)).toHaveLength(2)
-    expect(Object.values(prompt(doc)).map((node) => node.inputs['value']).sort()).toEqual([19, 31])
+    expect(result.document).toBeUndefined()
+    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
+      .toEqual(['import.subgraphs.boundaryUnsupported'])
+    expect(result.diagnostics.map((item) => item.code)).not.toContain('import.subgraphs.inlined')
   })
 
   it('migrates legacy proxy widgets without interpreting missing host values as overrides', () => {
@@ -137,14 +136,15 @@ describe('LiteGraph subgraphs', () => {
     expect(prompt(doc, resolver)['n1.n1']!.inputs['value']).toBe(19)
   })
 
-  it('uses the authored input.link and first virtual-output driver like LiteGraph', () => {
+  it('fails instead of selecting one of multiple virtual-output drivers', () => {
     const def = definition()
     def.nodes.push(relay(2))
     def.nodes[0]!.inputs[0]!.link = 4
     def.links.push(link(3, 2, 0, -20, 0), link(4, 2, 0, 1, 0))
-    const doc = imported({ nodes: [instance(1)], definitions: { subgraphs: [def] } })
-    const compiled = prompt(doc)
-    expect(Object.values(compiled).find((node) => Array.isArray(node.inputs['value']))?.inputs['value']).toEqual(['n1_n2', 0])
+    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    expect(result.document).toBeUndefined()
+    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
+      .toEqual(['import.subgraphs.boundaryUnsupported'])
   })
 
   it('maps input members using the existing autogrow decoder', () => {
@@ -160,26 +160,28 @@ describe('LiteGraph subgraphs', () => {
     expect(doc.graphs['inner']!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'items.value', members: ['m0'] })
   })
 
-  it.each([2, 4])('preserves mode %s when inlining a structural producer', (mode) => {
+  it.each([2, 4])('reports mode %s when its structural producer cannot be preserved', (mode) => {
     const def = { ...definition(), nodes: [{ id: 1, type: 'PrimitiveNode', widgets_values: [7], outputs: [{ name: 'INT' }] }],
       inputs: [], links: [link(2, 1, 0, -20, 0)] }
     const target = { ...relay(2), inputs: [{ name: 'value', widget: { name: 'value' }, link: 1 }] }
-    const doc = imported({ nodes: [{ ...instance(1), inputs: [], widgets_values: [], mode }, target], links: [[1, 1, 0, 2, 0, 'INT']], definitions: { subgraphs: [def] } })
-    expect(prompt(doc)['n2']!.inputs['value']).toBe(7)
-    expect(Object.values(doc.graphs.g0!.links)).toEqual([])
+    const result = importLitegraph({ nodes: [{ ...instance(1), inputs: [], widgets_values: [], mode }, target],
+      links: [[1, 1, 0, 2, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    expect(result.document).toBeUndefined()
+    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
+      .toEqual(['import.subgraphs.boundaryUnsupported'])
   })
 
-  it('preserves per-instance primitive proxy values and controllers through fallback', () => {
+  it('reports primitive proxy instances whose output boundary cannot be preserved', () => {
     const def = { ...definition(), inputs: [], nodes: [
       { id: 1, type: 'PrimitiveNode', outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
     ], links: [link(2, 1, 0, -20, 0)] }
     const host = (id: number, value: number) => ({ ...instance(id), inputs: [], widgets_values: [value, 'randomize'],
       properties: { proxyWidgets: [['1', 'value'], ['1', 'control_after_generate']] } })
-    const doc = imported({ nodes: [host(1, 11), host(2, 29), relay(3), relay(4)],
-      links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 4, 0, 'INT']], definitions: { subgraphs: [def] } })
-    expect(prompt(doc)['n3']!.inputs['value']).toBe(11)
-    expect(prompt(doc)['n4']!.inputs['value']).toBe(29)
-    expect(Object.values(doc.graphs.g0!.valueSources!).map((source) => source.controller)).toEqual(['randomize', 'randomize'])
+    const result = importLitegraph({ nodes: [host(1, 11), host(2, 29), relay(3), relay(4)],
+      links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 4, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    expect(result.document).toBeUndefined()
+    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
+      .toEqual(['import.subgraphs.boundaryUnsupported'])
   })
 
   it.each([['value', '2'], ['1: 2: value', undefined]])('resolves nested legacy widget %s without confusing identical names', (name, sourceId) => {

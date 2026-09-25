@@ -1,5 +1,4 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { matchBypassInput } from '../compile/bypass.js'
 import { checkDocument } from '../invariants.js'
 import { deriveBoundarySchema } from '../schema/derive-boundary.js'
 import { inputsOf, type NodeSchema, type TypeExpr } from '../schema/model.js'
@@ -20,9 +19,7 @@ interface Definition {
   inputNode: number
   outputNode: number
   schema?: NodeSchema
-  body?: Mutable
   view?: Mutable
-  inline: boolean
 }
 
 const object = (value: unknown): value is JsonObject =>
@@ -30,7 +27,6 @@ const object = (value: unknown): value is JsonObject =>
 const integerId = (value: unknown): boolean =>
   (typeof value === 'number' && Number.isSafeInteger(value)) ||
   (typeof value === 'string' && /^-?(0|[1-9][0-9]*)$/.test(value) && Number.isSafeInteger(Number(value)))
-const endpointKey = (end: Mutable): string => JSON.stringify(Object.entries(end).sort(([a], [b]) => a.localeCompare(b)))
 const nodeEnd = (end: Mutable, node: string): boolean => end['node'] === node
 const importedSlotType = (value: unknown): TypeExpr => {
   if (Array.isArray(value)) return { kind: 'concrete', name: 'COMBO' }
@@ -125,7 +121,7 @@ export function importLitegraphSubgraphs(
         fail('import.subgraphs.invalid', `subgraph '${raw['id']}' exhausts node IDs`)
         continue
       }
-      definitions.set(raw['id'], { raw: mutable, inputNode, outputNode: inputNode + 1, inline: false })
+      definitions.set(raw['id'], { raw: mutable, inputNode, outputNode: inputNode + 1 })
       collect(mutable, depth + 1)
     }
     delete graph['definitions']
@@ -295,13 +291,6 @@ export function importLitegraphSubgraphs(
       node['ext'] = { ...node['ext'], 'importer.subgraphWidgets': {
         values: source['properties']['dinkster.rawWidgets'], proxies: source['properties']['proxyWidgets'] ?? [],
       } }
-      if (def.inline) {
-        if (Object.keys(doc['graphs']['g0']['nodes']).length + Object.keys(def.body!['nodes']).length > 100_000) {
-          fail('import.subgraphs.budget', 'inlined workflow exceeds 100000 nodes')
-          return undefined
-        }
-        inlineInstance(doc['graphs']['g0'], doc['view']['graphs']['g0'], id, def)
-      }
     }
     return doc as WorkflowDocument
   }
@@ -382,7 +371,6 @@ export function importLitegraphSubgraphs(
       }
       delete body['nets'][netId]
     }
-    def.body = JSON.parse(JSON.stringify(body))
     def.view = JSON.parse(JSON.stringify(doc.view.graphs['g0']))
     const nativeBody = body as GraphDef
     const links = Object.values(nativeBody.links)
@@ -441,53 +429,42 @@ export function importLitegraphSubgraphs(
     }
     const derived = deriveBoundarySchema(candidate, localResolve)
     const deriveErrors = derived.diagnostics.filter((item) => item.severity === 'error')
-    const unavailableSchemaBoundary = deriveErrors.some((item) => item.code === 'boundary.unresolvedSchema')
-    const incompatibleBoundary = deriveErrors.length > 0 && !unavailableSchemaBoundary
-    const unresolvedBoundary = !unsupported && unavailableSchemaBoundary
-    def.inline = unsupported || incompatibleBoundary || (!derived.schema && !unresolvedBoundary)
-    if (def.inline) {
-      diagnostics.push(diag('warning', 'import', 'import.subgraphs.inlined', `subgraph '${id}' is inlined per instance: ${unsupported ? 'boundary endpoint has no supported binding' : derived.diagnostics.map((item) => item.code).join(', ')}`))
-      def.schema = {
-        ...probe, type: `litegraph-inline:${id}`, displayName: candidate.name,
-        items: [
-          ...def.raw['inputs'].map((slot: Mutable) => ({ kind: 'input', id: slot['id'], type: { kind: 'wildcard' }, optional: true,
-            widget: { widgetType: 'STRING', options: {} } })),
-          ...def.raw['outputs'].map((slot: Mutable) => ({ kind: 'output', id: slot['id'], type: { kind: 'wildcard' } })),
-        ],
-      }
-    } else {
-      def.schema = derived.schema ?? {
-        ...probe,
-        type: `#${id}`,
-        displayName: candidate.name,
-        items: [
-          ...def.raw['inputs'].map((slot: Mutable) => ({
-            kind: 'input' as const,
-            id: slot['id'],
-            type: importedSlotType(slot['type']),
-            optional: true,
-          })),
-          ...def.raw['outputs'].map((slot: Mutable) => ({
-            kind: 'output' as const,
-            id: slot['id'],
-            type: importedSlotType(slot['type']),
-          })),
-        ],
-      }
-      if (unresolvedBoundary) {
-        diagnostics.push(diag(
-          'warning',
-          'import',
-          'import.subgraphs.boundaryUnresolved',
-          `subgraph '${id}' keeps its authored definition, but its boundary cannot be resolved against the current node schemas and requires review`,
-        ))
-      }
-      graphs[id] = candidate
-      const view = { ...def.view, nodes: { ...def.view!['nodes'] } }
-      delete view.nodes[`n${def.inputNode}`]
-      delete view.nodes[`n${def.outputNode}`]
-      views[id] = view
+    if (unsupported) {
+      fail('import.subgraphs.boundaryUnsupported', `subgraph '${id}' cannot preserve an authored boundary endpoint`)
+      return
     }
+    const unresolvedBoundary = deriveErrors.length > 0 || !derived.schema
+    def.schema = derived.schema ?? {
+      ...probe,
+      type: `#${id}`,
+      displayName: candidate.name,
+      items: [
+        ...def.raw['inputs'].map((slot: Mutable) => ({
+          kind: 'input' as const,
+          id: slot['id'],
+          type: importedSlotType(slot['type']),
+          optional: true,
+        })),
+        ...def.raw['outputs'].map((slot: Mutable) => ({
+          kind: 'output' as const,
+          id: slot['id'],
+          type: importedSlotType(slot['type']),
+        })),
+      ],
+    }
+    if (unresolvedBoundary) {
+      diagnostics.push(diag(
+        'warning',
+        'import',
+        'import.subgraphs.boundaryUnresolved',
+        `subgraph '${id}' keeps its authored definition, but its boundary cannot be resolved against the current node schemas and requires review`,
+      ))
+    }
+    graphs[id] = candidate
+    const view = { ...def.view, nodes: { ...def.view!['nodes'] } }
+    delete view.nodes[`n${def.inputNode}`]
+    delete view.nodes[`n${def.outputNode}`]
+    views[id] = view
     schemas.set(def.schema.type, def.schema)
     visiting.delete(id)
     done.add(id)
@@ -506,108 +483,4 @@ export function importLitegraphSubgraphs(
   const owned = ownJson(result)
   if (!owned.ok) return { diagnostics: [...diagnostics, diag('error', 'import', 'import.subgraphs.invalid', owned.reason)] }
   return { document: owned.value as unknown as WorkflowDocument, diagnostics }
-}
-
-/** Splice boundary probes, retaining child instances and occurrence-local state. */
-function inlineInstance(graph: Mutable, view: Mutable, instanceId: string, def: Definition): void {
-  const instance = graph['nodes'][instanceId]
-  graph['ext'] ??= {}
-  graph['ext']['importer.inlinedInstances'] = { ...graph['ext']['importer.inlinedInstances'],
-    [instanceId]: { ...instance, definition: def.raw['id'] } }
-  const body: Mutable = JSON.parse(JSON.stringify(def.body))
-  const prefix = `${instanceId}_`
-  const remapEnd = (end: Mutable): Mutable => Object.fromEntries(Object.entries(end).map(([key, value]) =>
-    [key, ['node', 'reroute', 'valueSource', 'selector'].includes(key) ? `${prefix}${value}` : value]))
-  const edges: Mutable[] = Object.values(graph['links'])
-  // Nets become scoped explicit deliveries so a probe never remains a net source.
-  for (const net of Object.values(graph['nets']) as Mutable[]) for (const sink of net['sinks']) edges.push({ from: net['source'], to: sink })
-  graph['nets'] = {}
-  for (const link of Object.values(body['links']) as Mutable[]) edges.push({ from: remapEnd(link['from']), to: remapEnd(link['to']) })
-  for (const net of Object.values(body['nets']) as Mutable[]) for (const sink of net['sinks']) edges.push({ from: remapEnd(net['source']), to: remapEnd(sink) })
-  const aliases = new Map<string, Mutable | undefined>()
-  const inputProbe = `${prefix}n${def.inputNode}`
-  const outputProbe = `${prefix}n${def.outputNode}`
-  const drivers = new Map(edges.map((edge) => [endpointKey(edge['to']), edge['from'] as Mutable]))
-  for (const [index, slot] of def.raw['inputs'].entries()) {
-    if (slot['proxyPrimitive'] !== undefined) {
-      const source = body['valueSources']?.[`v${slot['proxyPrimitive']}`]
-      if (source && Object.hasOwn(instance['values'], slot['id'])) source['value'] = instance['values'][slot['id']]
-      if (source && instance['controllers']?.[slot['id']]) source['controller'] = instance['controllers'][slot['id']]
-      continue
-    }
-    let source = drivers.get(endpointKey({ node: instanceId, port: slot['id'] }))
-    if (!source && Object.hasOwn(instance['values'], slot['id'])) {
-      const id = `${prefix}value${index}`
-      graph['valueSources'] ??= {}
-      graph['valueSources'][id] = { id, value: instance['values'][slot['id']],
-        ...(instance['controllers']?.[slot['id']] ? { controller: instance['controllers'][slot['id']] } : {}) }
-      source = { valueSource: id }
-    }
-    aliases.set(endpointKey({ node: inputProbe, port: `i${index}` }), source)
-  }
-  const bypassInputs: { index: number; type: TypeExpr; driver: Mutable }[] = def.raw['inputs'].flatMap(
-    (slot: Mutable, index: number) => {
-      const driver = drivers.get(endpointKey({ node: instanceId, port: slot['id'] }))
-      return driver ? [{ index, type: importedSlotType(slot['type']), driver }] : []
-    },
-  )
-  for (const [index, slot] of def.raw['outputs'].entries()) {
-    let driver = drivers.get(endpointKey({ node: outputProbe, port: `o${index}` }))
-    if (instance['mode'] === 'muted') driver = undefined
-    if (instance['mode'] === 'bypassed') {
-      driver = matchBypassInput({ index, type: importedSlotType(slot['type']) }, bypassInputs)?.driver
-    }
-    aliases.set(endpointKey({ node: instanceId, port: slot['id'] }), driver)
-  }
-  const follow = (end: Mutable, seen = new Set<string>()): Mutable | undefined => {
-    const key = endpointKey(end)
-    if (!aliases.has(key)) return end
-    if (seen.has(key)) return undefined
-    seen.add(key)
-    const next = aliases.get(key)
-    return next && follow(next, seen)
-  }
-  graph['links'] = {}
-  for (const edge of edges) {
-    if (nodeEnd(edge['to'], instanceId) || nodeEnd(edge['to'], outputProbe)) continue
-    const from = follow(edge['from'])
-    if (!from) continue
-    const id = `l${graph['nextOrdinal']++}`
-    graph['links'][id] = { id, from, to: edge['to'] }
-  }
-  for (const collection of ['nodes', 'reroutes', 'valueSources', 'selectors']) {
-    for (const [id, item] of Object.entries(body[collection] ?? {}) as [string, Mutable][]) {
-      if (collection === 'nodes' && (id === `n${def.inputNode}` || id === `n${def.outputNode}`)) continue
-      graph[collection] ??= {}
-      graph[collection][`${prefix}${id}`] = { ...item, id: `${prefix}${id}`,
-        ...(collection === 'nodes' && ['muted', 'bypassed'].includes(instance['mode']) ? { mode: 'muted' } : {}) }
-    }
-  }
-  const position = view['nodes'][instanceId]?.['position'] ?? { x: 0, y: 0 }
-  const positions = ['nodes', 'reroutes', 'valueSources'].flatMap((collection) =>
-    Object.entries(def.view?.[collection] ?? {}).flatMap(([id, item]) =>
-      id === `n${def.inputNode}` || id === `n${def.outputNode}` ? [] : [(item as Mutable)['position']]))
-    .filter((point) => point !== undefined)
-  const minX = positions.reduce((min, point) => Math.min(min, point.x), Infinity)
-  const minY = positions.reduce((min, point) => Math.min(min, point.y), Infinity)
-  const offset = { x: position.x - (Number.isFinite(minX) ? minX : 0), y: position.y - (Number.isFinite(minY) ? minY : 0) }
-  for (const collection of ['nodes', 'reroutes', 'valueSources', 'groups']) {
-    for (const [id, item] of Object.entries(def.view?.[collection] ?? {}) as [string, Mutable][]) {
-      if (collection === 'nodes' && (id === `n${def.inputNode}` || id === `n${def.outputNode}`)) continue
-      view[collection] ??= {}
-      view[collection][`${prefix}${id}`] = { ...item,
-        ...(item['position'] ? { position: { x: item['position'].x + offset.x, y: item['position'].y + offset.y } } : {}),
-        ...(item['bounds'] ? { bounds: { ...item['bounds'], x: item['bounds'].x + offset.x, y: item['bounds'].y + offset.y } } : {}),
-        ...(item['id'] ? { id: `${prefix}${id}` } : {}),
-      }
-    }
-  }
-  const notes = def.view?.['ext']?.['importer.notes']
-  if (Array.isArray(notes)) {
-    view['ext'] ??= {}
-    view['ext']['importer.notes'] = [...view['ext']['importer.notes'] ?? [], ...notes.map((note: Mutable) =>
-      ({ ...note, position: { x: note['position'].x + offset.x, y: note['position'].y + offset.y } }))]
-  }
-  delete graph['nodes'][instanceId]
-  delete view['nodes'][instanceId]
 }
