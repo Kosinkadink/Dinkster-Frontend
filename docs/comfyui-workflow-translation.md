@@ -77,18 +77,15 @@ seed-controller entries. Legacy `proxyWidgets` references promote matching
 inner widgets; missing host values inherit the definition's saved values.
 Unresolved widget state stays under `importer.subgraphWidgets` with a warning.
 
-A definition whose authored boundary references a node schema unavailable in
-the current catalog retains its definition and nested instances. Its authored
-slot types provide a review-only interface and `import.subgraphs.boundaryUnresolved`
-reports the limitation in Problems. When the schema is available but the
-authored port is incompatible, the definition is inlined per occurrence with
-`import.subgraphs.inlined`. Unresolved dynamic input endpoints are also reported
-and their invalid links are omitted. Other structural boundaries that cannot be
-represented use the same inline fallback; connections, values, controllers, and
-nested supported instances remain independent per occurrence. The original
-definition catalog and removed instance state remain under importer extension
-fields for review. Cycles and malformed definitions refuse the import; fallback
-never invents a backend node alias. The boundary-forwarding cases in
+An authored definition and its nested instances remain real subgraphs whether
+the current catalog lacks a node schema or exposes an incompatible port. Its
+authored slot types provide a review-only interface and
+`import.subgraphs.boundaryUnresolved` reports the limitation in Problems.
+Unresolved dynamic input endpoints are also reported and their invalid links
+are omitted. If a structural boundary cannot be represented without dropping
+an endpoint, `import.subgraphs.boundaryUnsupported` refuses the import instead
+of returning a flattened or lossy document. Cycles and malformed definitions
+also refuse the import; preservation never invents a backend node alias. The boundary-forwarding cases in
 [issue #397](https://github.com/Kosinkadink/Dinkster-Frontend/issues/397) remain separate.
 
 The format reference is Comfy-Org/ComfyUI_frontend revision
@@ -157,8 +154,8 @@ pnpm coverage:subgraphs --templates /path/to/workflow_templates \
 The template checkout must be clean. Both corpus revisions and the schema
 source are recorded; backend statuses describe the supplied report's corpus,
 not newly added templates. `definitions` means native definitions were retained,
-`inlined` means at least one definition needed fallback, `blocked` means no
-document was produced, and `not-needed` identifies workflows without subgraphs.
+`blocked` means no document was produced, and `not-needed` identifies workflows
+without subgraphs.
 Missing schemas remain unresolved nodes with raw values, not executable aliases.
 
 Against workflow_templates `db9d5859d09c21a2d4101a1c18f64fc2f70e4fa4`, all

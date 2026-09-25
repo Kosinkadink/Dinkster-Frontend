@@ -12,8 +12,7 @@ export function coverageRow(path, workflow, backend, resolver) {
   const codes = [...new Set(result.diagnostics.map((item) => item.code))].sort()
   const subgraphCount = workflow.definitions?.subgraphs?.length ?? 0
   const status = !result.document ? 'blocked'
-    : subgraphCount === 0 ? 'not-needed'
-    : codes.includes('import.subgraphs.inlined') ? 'inlined' : 'definitions'
+    : subgraphCount === 0 ? 'not-needed' : 'definitions'
   const counts = backend?.statusCounts
   const aliasStatus = !backend ? 'not-in-backend-report'
     : counts?.quarantine > 0 ? 'missing-backend-alias'
