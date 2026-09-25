@@ -115,7 +115,7 @@ test('reports an unrepresentable structural boundary without opening a lossy doc
       links: [{ id: 1, origin_id: 1, origin_slot: 0, target_id: -20, target_slot: 0, type: 'STRING' }],
     }] } }, 'Unsupported subgraph boundary')
     return {
-      failures: failures.map(({ code, severity }) => ({ code, severity })),
+      failures: failures.map((failure: any) => ({ code: failure.code, severity: failure.severity })),
       problems: app.problems.get().map(({ code, severity }) => ({ code, severity })),
       activeTabUnchanged: app.activeTab()!.id === before.id,
     }
