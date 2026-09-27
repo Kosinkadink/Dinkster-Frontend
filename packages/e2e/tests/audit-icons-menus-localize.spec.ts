@@ -114,5 +114,5 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
   const loop = await nodePoint(page, 'loop')
   await page.mouse.move(loop.x, loop.y)
   await expect(page.getByTestId('app-tooltip')).toContainText('While region')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Repeats state state while continue is true, up to 12 iterations.')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Carries loop state (state) through repeated runs until continue is false or 12 iterations are reached.')
 })
