@@ -1710,3 +1710,19 @@ exceeded the unchanged 33 ms average-frame budget while the integrated sample
 passed it. Node decoration lookups retain the direct title path when a node has
 no color, suffix, or status, avoiding per-frame array allocation on ordinary
 nodes.
+
+## 2026-09-27 Occurrence-aware region schemas
+
+Comparison base: `987e3ed127525fc1f54197617beec49f0ac18b8f`. One base
+sample and one integrated sample ran concurrently on X570 with Node 22.23.2
+and the unchanged `packages/canvas/test/perf.test.ts` workloads.
+
+| Scene build | Base | Occurrence-aware schemas |
+| --- | ---: | ---: |
+| Plain 1200-node graph | 48 ms | 51 ms |
+| Feature-heavy 1200-node graph | 75 ms | 74 ms |
+| 60-instance subgraph root | 3 ms | 5 ms |
+
+All unchanged 2-second budgets pass. Scene solving now resolves concrete
+subgraph nodes through their occurrence contracts, including region list
+ports; ordinary backend-node resolution remains unchanged.

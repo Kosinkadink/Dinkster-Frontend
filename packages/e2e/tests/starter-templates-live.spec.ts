@@ -41,6 +41,13 @@ const EXPECTED_FAMILIES = [
   "dinkster.z_image",
   "dinkster.z_image_pixel_space",
 ] as const;
+const EXPECTED_LOOPS = [
+  "loop-map-images",
+  "loop-gather-image-batch",
+  "loop-fold-scan-images",
+  "loop-while-until",
+  "loop-per-item-image-spawn",
+] as const;
 
 interface TemplateDescriptor {
   readonly pack: string;
@@ -61,9 +68,11 @@ async function starterTemplates(): Promise<
       templates?: TemplateDescriptor[];
     };
     const families = new Set<string>(EXPECTED_FAMILIES);
+    const loops = new Set<string>(EXPECTED_LOOPS);
     return payload.templates?.filter(
       (template) =>
-        template.family !== undefined && families.has(template.family),
+        (template.family !== undefined && families.has(template.family)) ||
+        loops.has(template.id),
     );
   } catch {
     return undefined;
@@ -192,11 +201,9 @@ async function openTemplateGallery(page: Page): Promise<void> {
     .click();
 }
 
-test("all starter families load through the current wire with zero problem-panel errors", async ({
+test("all starter families and loop templates load with zero problem-panel errors", async ({
   page,
 }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const templates = await starterTemplates();
   test.skip(
     templates === undefined,
@@ -206,11 +213,14 @@ test("all starter families load through the current wire with zero problem-panel
     templates!.length === 0,
     `native backend at ${NATIVE_BACKEND} has no starter templates`,
   );
-  expect(templates!.map((template) => template.family).sort()).toEqual([
+  expect(templates!.flatMap((template) => template.family ?? []).sort()).toEqual([
     ...EXPECTED_FAMILIES,
   ]);
+  expect(templates!.filter((template) => template.id.startsWith("loop-")).map((template) => template.id).sort()).toEqual([
+    ...EXPECTED_LOOPS,
+  ].sort());
 
-  const owner = await connect(page);
+  const owner = await connectNativeFrontend(page);
   await makeModelsAvailable(page);
   await openTemplateGallery(page);
   const gallery = page.getByTestId("template-gallery");
@@ -243,17 +253,16 @@ test("all starter families load through the current wire with zero problem-panel
           row: template,
         },
       ),
-      template.family,
+      template.id,
     ).toBe(true);
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () => window.__dinksterTest!.app.activeTab()?.store.doc.lineage,
-        ),
-      )
-      .toBe(`starter-${template.id}`);
-    expect(await errorProblems(page), template.family).toEqual([]);
-    await expect(panelErrors, template.family).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => ({
+      lineage: window.__dinksterTest!.app.activeTab()?.store.doc.lineage,
+      title: window.__dinksterTest!.app.activeTab()?.title,
+    }))).toMatchObject(template.family === undefined
+      ? { title: template.name }
+      : { lineage: `starter-${template.id}` });
+    expect(await errorProblems(page), template.id).toEqual([]);
+    await expect(panelErrors, template.id).toHaveCount(0);
   }
 });
 

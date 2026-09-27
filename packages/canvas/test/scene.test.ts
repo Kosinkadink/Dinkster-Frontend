@@ -1512,6 +1512,76 @@ describe('solver verdicts on scene edges', () => {
     })
   }
 
+  it('solves region occurrences through their list contract', () => {
+    const image = typed('IMAGE')
+    const listImage = { kind: 'list' as const, element: image }
+    const source: NodeSchema = {
+      type: 'ListSource', displayName: 'List source', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'output', id: 'images', type: listImage }],
+    }
+    const bodyNode: NodeSchema = {
+      type: 'BodyNode', displayName: 'Body node', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        { kind: 'input', id: 'image', type: image, optional: false },
+        { kind: 'output', id: 'image', type: image },
+      ],
+    }
+    const listSink: NodeSchema = {
+      type: 'ListSink', displayName: 'List sink', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'images', type: listImage, optional: false }],
+    }
+    const doc: WorkflowDocument = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('region-solve'), root: asGraphDefId('root'),
+      graphs: {
+        root: {
+          id: asGraphDefId('root'), name: 'Root',
+          nodes: {
+            source: { id: asNodeId('source'), type: source.type, values: {} },
+            loopA: { id: asNodeId('loopA'), type: '#body', values: {}, region: { kind: 'map', elementPorts: ['item'] } },
+            loopB: { id: asNodeId('loopB'), type: '#body', values: {}, region: { kind: 'map', elementPorts: ['item'] } },
+            sink: { id: asNodeId('sink'), type: listSink.type, values: {} },
+          },
+          links: {
+            intoLoop: { id: asLinkId('intoLoop'), from: { node: asNodeId('source'), port: asPortId('images') }, to: { node: asNodeId('loopA'), port: asPortId('item') } },
+            betweenLoops: { id: asLinkId('betweenLoops'), from: { node: asNodeId('loopA'), port: asPortId('result') }, to: { node: asNodeId('loopB'), port: asPortId('item') } },
+            outOfLoop: { id: asLinkId('outOfLoop'), from: { node: asNodeId('loopB'), port: asPortId('result') }, to: { node: asNodeId('sink'), port: asPortId('images') } },
+          },
+          nets: {}, reroutes: {}, nextOrdinal: 4,
+        },
+        body: {
+          id: asGraphDefId('body'), name: 'Body',
+          nodes: { work: { id: asNodeId('work'), type: bodyNode.type, values: {} } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+          boundary: {
+            inputs: [{ id: asPortId('item'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
+            outputs: [{ id: asPortId('result'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
+          },
+        },
+      },
+      view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
+    }
+    const base = (type: string) => [source, bodyNode, listSink].find((schema) => schema.type === type)
+    const scene = buildScene({
+      document: doc, graphId: 'root', resolve: documentResolver(doc, base),
+      tokens: defaultTokens, measure, widgetMeasure,
+    })
+
+    expect(scene.diagnostics.filter((diagnostic) =>
+      diagnostic.code === 'solve.listIntoScalar' || diagnostic.code === 'solve.scalarIntoList')).toEqual([])
+    expect(scene.links.map((link) => link.mismatch)).toEqual([undefined, undefined, undefined])
+    const loopPins = scene.nodes.find((node) => node.id === 'loopA')!.layout.pins
+    expect(loopPins.find((pin) => pin.portId === 'item')?.type).toEqual(listImage)
+    expect(loopPins.find((pin) => pin.portId === 'result')?.type).toEqual(listImage)
+
+    const drilled = buildScene({
+      document: doc, graphId: 'body', resolve: documentResolver(doc, base),
+      tokens: defaultTokens, measure, widgetMeasure,
+      occurrence: { owner: { instancePath: [], node: asNodeId('loopB') }, plannerAvailable: true },
+    })
+    expect(drilled.diagnostics.filter((diagnostic) =>
+      diagnostic.code === 'solve.listIntoScalar' || diagnostic.code === 'solve.scalarIntoList')).toEqual([])
+  })
+
   it('an incompatible link is marked mismatch; a compatible one is not', () => {
     const scene = verdictScene('link')
     const bad = scene.links.find((l) => l.id === 'bad')!

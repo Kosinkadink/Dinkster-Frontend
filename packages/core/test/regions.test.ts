@@ -433,6 +433,19 @@ describe('region occurrence boundary projection', () => {
     expect(outputsOf(whileSchema).some((item) => item.id === 'continue')).toBe(false)
   })
 
+  it('labels occurrence ports by loop role instead of body implementation names', () => {
+    const doc = documentWith({
+      kind: 'fold',
+      elementPorts: ['item'],
+      statePorts: ['state'],
+      outputRoles: { result: { kind: 'state', statePort: 'state' }, others: { kind: 'compact' } },
+    })
+    const schema = documentNodeResolver(doc, resolve)('root', doc.graphs.root!.nodes.n0!)!
+
+    expect(inputsOf(schema).map((item) => item.displayName)).toEqual(['Element', 'State', 'Capture'])
+    expect(outputsOf(schema).map((item) => item.displayName)).toEqual(['Gather', 'State', 'Compact', 'Gather 2'])
+  })
+
   it('keeps occurrence schema cache identity injective for arbitrary ids', () => {
     const doc = documentWith({ kind: 'map', elementPorts: ['item'] })
     const first = doc.graphs.root!.nodes.n0!

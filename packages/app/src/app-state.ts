@@ -56,6 +56,7 @@ import {
   isValueDiagnostic,
   loadDocument,
   inputsOf,
+  isPortEndpoint,
   maskPaintSourceNodeId,
   nodeStatesFromDinksterJob,
   numericStepConstraints,
@@ -2304,6 +2305,66 @@ export interface AppLogEntry {
 const descriptorWithId = <T extends object>(id: string, descriptor: T): T & { readonly id: string } => {
   const copy = Object.defineProperties({}, Object.getOwnPropertyDescriptors(descriptor))
   return Object.defineProperty(copy, 'id', { configurable: true, enumerable: true, value: id }) as T & { readonly id: string }
+}
+
+const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocument => {
+  if (!Object.values(document.graphs).some((graph) =>
+    Object.values(graph.nodes).some((node) => node.region !== undefined))) return document
+
+  const graphViews = Object.fromEntries(Object.entries(document.graphs).map(([graphId, graph]) => {
+    const nodeIds = Object.keys(graph.nodes)
+    const successors = new Map(nodeIds.map((id) => [id, new Set<string>()]))
+    const indegree = new Map(nodeIds.map((id) => [id, 0]))
+    const connect = (from: string, to: string): void => {
+      if (from === to || !successors.has(from) || !successors.has(to) || successors.get(from)!.has(to)) return
+      successors.get(from)!.add(to)
+      indegree.set(to, indegree.get(to)! + 1)
+    }
+    for (const link of Object.values(graph.links)) {
+      if (isPortEndpoint(link.from) && isPortEndpoint(link.to)) connect(link.from.node, link.to.node)
+    }
+    for (const net of Object.values(graph.nets)) {
+      for (const sink of net.sinks) connect(net.source.node, sink.node)
+    }
+
+    const ranks = new Map(nodeIds.map((id) => [id, 0]))
+    const queue = nodeIds.filter((id) => indegree.get(id) === 0)
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const id = queue[cursor]!
+      for (const next of successors.get(id)!) {
+        ranks.set(next, Math.max(ranks.get(next)!, ranks.get(id)! + 1))
+        indegree.set(next, indegree.get(next)! - 1)
+        if (indegree.get(next) === 0) queue.push(next)
+      }
+    }
+
+    const previous = document.view.graphs[graphId]
+    const hasDependentGeometry =
+      Object.keys(graph.reroutes).length > 0 ||
+      Object.keys(graph.valueSources ?? {}).length > 0 ||
+      Object.keys(graph.selectors ?? {}).length > 0 ||
+      Object.keys(previous?.reroutes ?? {}).length > 0 ||
+      Object.keys(previous?.valueSources ?? {}).length > 0 ||
+      Object.keys(previous?.selectors ?? {}).length > 0 ||
+      Object.keys(previous?.groups ?? {}).length > 0 ||
+      previous?.boundary !== undefined
+    if (queue.length !== nodeIds.length || hasDependentGeometry) {
+      return [graphId, previous ?? { nodes: {} }]
+    }
+
+    const rows = new Map<number, number>()
+    const nodes = Object.fromEntries(nodeIds.map((id) => {
+      const rank = ranks.get(id)!
+      const row = rows.get(rank) ?? 0
+      rows.set(rank, row + 1)
+      return [id, {
+        ...previous?.nodes[id],
+        position: { x: 80 + rank * 520, y: 120 + row * 420 },
+      }]
+    }))
+    return [graphId, { ...previous, nodes }]
+  }))
+  return { ...document, view: { ...document.view, graphs: graphViews } }
 }
 
 export class AppState {
@@ -6687,7 +6748,7 @@ export class AppState {
       // Liveness BEFORE payload checks (see openFromLibrary).
       if (!this.ownerStillLive(backend)) return false
       if (!document) return false
-      if (this.openDocument(document, title, backend).length > 0) {
+      if (this.openDocument(readableRegionTemplateLayout(document), title, backend).length > 0) {
         // openDocument already reported the load diagnostics; append the
         // template context so the failure is attributable (the library
         // overlay stays open and shape errors alone don't say which
@@ -6718,7 +6779,7 @@ export class AppState {
     try {
       const document = await catalog.fetchBody(template)
       if (!this.ownerStillLive(backend) || document === undefined) return false
-      if (this.openDocument(document, title, backend).length > 0) return false
+      if (this.openDocument(readableRegionTemplateLayout(document), title, backend).length > 0) return false
       const tab = this.activeTab()
       if (tab) {
         this.setTabTarget(tab.id, backend.id)

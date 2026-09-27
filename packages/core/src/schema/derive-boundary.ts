@@ -38,7 +38,7 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { generatedBoundaryLabel } from './boundary-labels.js'
+import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.js'
 import { isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type RegionContract } from '../format/document.js'
 import { isPortEndpoint, portAddressKey, type DynamicMemberId, type PortId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
@@ -1227,20 +1227,26 @@ export function deriveBoundarySchema(
     const elements = new Set(region.elementPorts ?? [])
     const state = new Set(region.statePorts ?? [])
     const outputRoles = region.outputRoles ?? {}
+    const inputRoleLabels = regionBoundaryLabels(def.boundary?.inputs ?? [], region, 'inputs')
+    const outputRoleLabels = regionBoundaryLabels(def.boundary?.outputs ?? [], region, 'outputs')
+    const explicitInputLabels = new Set((def.boundary?.inputs ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
+    const explicitOutputLabels = new Set((def.boundary?.outputs ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
     const stateInputTypes = new Map(
       items.flatMap((item) => item.kind === 'input' && state.has(item.id) ? [[item.id, item.type] as const] : []),
     )
     const projected: InterfaceItem[] = []
     for (const item of items) {
       if (item.kind === 'input') {
+        const roleLabel = inputRoleLabels.get(item.id)
+        const named = explicitInputLabels.has(item.id) || roleLabel === undefined ? item : { ...item, displayName: roleLabel }
         if (elements.has(item.id)) {
           if (item.widget !== undefined) {
             fail('doc.region.elementPromoted', `region element input '${item.id}' cannot promote a scalar widget`)
           }
-          projected.push({ ...item, type: { kind: 'list', element: item.type } })
+          projected.push({ ...named, type: { kind: 'list', element: item.type } })
         } else {
           // State and broadcast ports retain the ordinary boundary contract.
-          projected.push(item)
+          projected.push(named)
         }
         continue
       }
@@ -1257,12 +1263,14 @@ export function deriveBoundarySchema(
         continue
       }
       const role = Object.hasOwn(outputRoles, item.id) ? outputRoles[item.id] : undefined
+      const roleLabel = outputRoleLabels.get(item.id)
+      const named = explicitOutputLabels.has(item.id) || roleLabel === undefined ? item : { ...item, displayName: roleLabel }
       if (role === undefined || role.kind === 'gather' || role.kind === 'compact') {
         if (canonicalTypeIdOf(sourceType) === undefined) {
           const roleName = role?.kind ?? 'gather'
           diags.push(diag('warning', 'schema', 'doc.region.gatherNonConcrete', `[${def.id}] region ${roleName} output '${item.id}' is not statically runtime-resolvable`))
         }
-        const { isList: _isList, ...withoutLegacyList } = item
+        const { isList: _isList, ...withoutLegacyList } = named
         projected.push({ ...withoutLegacyList, type: { kind: 'list', element: sourceType } })
       } else if (role.kind === 'flatten') {
         if (sourceType.kind !== 'list') {
@@ -1271,14 +1279,14 @@ export function deriveBoundarySchema(
           if (canonicalTypeIdOf(sourceType) === undefined) {
             diags.push(diag('warning', 'schema', 'doc.region.flattenNonConcrete', `[${def.id}] region flatten output '${item.id}' is not statically runtime-resolvable`))
           }
-          const { isList: _isList, ...withoutLegacyList } = item
+          const { isList: _isList, ...withoutLegacyList } = named
           projected.push({ ...withoutLegacyList, type: sourceType })
         }
       } else if (role.kind === 'last') {
         if (canonicalTypeIdOf(sourceType) === undefined) {
           diags.push(diag('warning', 'schema', 'doc.region.lastNonConcrete', `[${def.id}] region last output '${item.id}' is not statically runtime-resolvable`))
         }
-        const { isList: _isList, ...withoutLegacyList } = item
+        const { isList: _isList, ...withoutLegacyList } = named
         projected.push({ ...withoutLegacyList, type: sourceType })
       } else {
         const carriedType = stateInputTypes.get(role.statePort)
@@ -1287,7 +1295,7 @@ export function deriveBoundarySchema(
           const message = `[${def.id}] region state output '${item.id}' does not produce a value compatible with state input '${role.statePort}'`
           diags.push(diag(severity, 'schema', 'doc.region.stateTypeMismatch', message))
         }
-        const { isList: _isList, ...withoutLegacyList } = item
+        const { isList: _isList, ...withoutLegacyList } = named
         projected.push({ ...withoutLegacyList, type: carriedType ?? sourceType })
       }
     }

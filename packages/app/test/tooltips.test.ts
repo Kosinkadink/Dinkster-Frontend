@@ -548,21 +548,21 @@ describe('canvas tooltip provider', () => {
       hit: { node: { node: { type: '#body', region }, layout: { title: 'Region' } } },
     })
     expect(resolveCanvasTooltip(header({ kind: 'map', elementPorts: ['item'], binding: 'cross' }), { detailed: false }))
-      .toEqual({ title: 'Map region', lines: ['Runs once per item from item using cross binding and gathers outputs.'] })
+      .toEqual({ title: 'Map region', lines: ['Takes a list from item, runs the body once per item, and gathers the results into lists using cross binding.'] })
     expect(resolveCanvasTooltip(header({ kind: 'fold', elementPorts: ['item'], statePorts: ['state'] }), { detailed: false })?.lines)
-      .toEqual(['Reduces items from item through loop state state.'])
+      .toEqual(['Runs once per item from item and carries loop state (state) from each iteration into the next.'])
     expect(resolveCanvasTooltip(header({ kind: 'while', statePorts: ['state'], continueOutput: 'continue', maxIterations: 12 }), { detailed: false })?.lines)
-      .toEqual(['Repeats state state while continue is true, up to 12 iterations.'])
+      .toEqual(['Carries loop state (state) through repeated runs until continue is false or 12 iterations are reached.'])
     expect(resolveCanvasTooltip(header({
       kind: 'map', elementPorts: ['item'], maxIterations: 8,
       outputRoles: { batches: { kind: 'flatten' }, state: { kind: 'state', statePort: 'seed' } },
     }), { detailed: false })?.lines).toEqual([
-      'Runs once per item from item using zip binding, up to 8 iterations. Outputs: batches flattened; state carries seed state.',
+      'Takes a list from item, runs the body once per item, and gathers the results into lists using zip binding, up to 8 iterations. Outputs: batches flattened; state carries seed state.',
     ])
     expect(resolveCanvasTooltip(header({
       kind: 'fold', elementPorts: ['item'], statePorts: ['state'], binding: 'broadcast', maxIterations: 4,
     }), { detailed: false })?.lines).toEqual([
-      'Reduces items from item through loop state state using broadcast binding, up to 4 iterations.',
+      'Runs once per item from item and carries loop state (state) from each iteration into the next using broadcast binding, up to 4 iterations.',
     ])
   })
 
