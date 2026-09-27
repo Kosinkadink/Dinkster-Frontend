@@ -283,6 +283,69 @@ describe('mid-flight owner loss', () => {
     expect(codes).not.toContain('template.openFailed')
   })
 
+  it('opens region templates with a readable left-to-right layout', async () => {
+    const { a } = twoBackends()
+    const template = structuredClone(DOC) as any
+    template.lineage = 'region-template-layout'
+    template.graphs.g0.nodes = {
+      source: { id: 'source', type: 'std.math.add_ints', values: { a: 1, b: 2 } },
+      loop: { id: 'loop', type: '#body', values: {}, region: { kind: 'map', elementPorts: ['value'] } },
+      sink: { id: 'sink', type: 'std.math.add_ints', values: { b: 0 } },
+    }
+    template.graphs.g0.links = {
+      first: { id: 'first', from: { node: 'source', port: 'sum' }, to: { node: 'loop', port: 'value' } },
+      second: { id: 'second', from: { node: 'loop', port: 'result' }, to: { node: 'sink', port: 'a' } },
+    }
+    template.graphs.g0.nextOrdinal = 3
+    template.graphs.body = {
+      id: 'body', name: 'Body',
+      nodes: { work: { id: 'work', type: 'std.math.add_ints', values: { b: 1 } } },
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      boundary: {
+        inputs: [{ id: 'value', binds: { kind: 'port', node: 'work', port: 'a' } }],
+        outputs: [{ id: 'result', binds: { kind: 'port', node: 'work', port: 'sum' } }],
+      },
+    }
+    template.view.graphs = {
+      g0: { nodes: {
+        source: { position: { x: 0, y: 0 } },
+        loop: { position: { x: 100, y: 0 } },
+        sink: { position: { x: 100, y: 0 } },
+      } },
+      body: { nodes: {} },
+    }
+    const fetchTemplate = vi.spyOn(a.connection, 'fetchTemplateBody').mockResolvedValueOnce(template)
+
+    expect(await app.openTemplate('core', 'loop', 'Loop', a.id)).toBe(true)
+    expect(app.activeTab()!.store.doc.view.graphs.g0!.nodes).toMatchObject({
+      source: { position: { x: 80, y: 120 } },
+      loop: { position: { x: 600, y: 120 } },
+      sink: { position: { x: 1120, y: 120 } },
+    })
+    expect(app.activeTab()!.store.doc.view.graphs.body!.nodes.work).toMatchObject({
+      position: { x: 80, y: 120 },
+    })
+
+    const grouped = structuredClone(template)
+    grouped.lineage = 'region-template-grouped'
+    grouped.view.graphs.g0.groups = {
+      keep: { id: 'keep', title: 'Keep', bounds: { x: -10, y: -10, width: 250, height: 250 } },
+    }
+    fetchTemplate.mockResolvedValueOnce(grouped)
+    expect(await app.openTemplate('core', 'grouped', 'Grouped', a.id)).toBe(true)
+    expect(app.activeTab()!.store.doc.view.graphs.g0).toEqual(grouped.view.graphs.g0)
+
+    const cyclic = structuredClone(template)
+    cyclic.lineage = 'region-template-cyclic'
+    cyclic.graphs.g0.links.second.to = { node: 'source', port: 'a' }
+    cyclic.graphs.g0.links.tail = {
+      id: 'tail', from: { node: 'loop', port: 'result' }, to: { node: 'sink', port: 'a' },
+    }
+    fetchTemplate.mockResolvedValueOnce(cyclic)
+    expect(await app.openTemplate('core', 'cyclic', 'Cyclic', a.id)).toBe(true)
+    expect(app.activeTab()!.store.doc.view.graphs.g0).toEqual(cyclic.view.graphs.g0)
+  })
+
   it('a run whose backend vanishes mid-open installs no target', async () => {
     const { a } = twoBackends()
     vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())

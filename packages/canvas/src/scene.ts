@@ -16,6 +16,7 @@ import {
   canonicalCompatTypeIdOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
+  documentNodeResolver,
   effectiveValueSourceSpec,
   effectiveOccurrenceTopology,
   elabKeyOf,
@@ -34,6 +35,7 @@ import {
   occurrenceFamilyEndpoint,
   occurrenceSubtreeKey,
   portRefKey,
+  regionBoundaryLabels,
   outputsOf,
   samePortRef,
   solveGraphTypes,
@@ -700,6 +702,33 @@ export function boundaryNodesInGroup(scene: Scene, group: SceneGroup): Array<'in
 
 type ProjectedTypeConstraint = NonNullable<NonNullable<Parameters<typeof solveGraphTypes>[2]>['projectedInputs']>[number]
 
+function projectTypeThroughRegionInputs(
+  document: WorkflowDocument,
+  link: import('@dinkster/core').EffectiveLink,
+  type: TypeExpr,
+): TypeExpr {
+  if (link.identity.kind !== 'parentLeg') return type
+  let graph = document.graphs[document.root]
+  let routeIndex = 0
+  let projected = type
+  for (const nodeId of link.to.instancePath) {
+    const node = graph?.nodes[nodeId]
+    const bodyId = subgraphDefIdOf(node?.type ?? '')
+    if (node === undefined || bodyId === undefined) break
+    const index = link.identity.route.findIndex((leg, candidate) =>
+      candidate >= routeIndex && leg.graph === bodyId)
+    if (index >= 0) {
+      const leg = link.identity.route[index]!
+      if (node.region?.elementPorts?.includes(leg.boundaryId) && projected.kind === 'list') {
+        projected = projected.element
+      }
+      routeIndex = index + 1
+    }
+    graph = document.graphs[bodyId]
+  }
+  return projected
+}
+
 /** Resolve parent producers outward so each drilled graph receives only its occurrence's constraints. */
 function projectedTypeConstraints(
   document: WorkflowDocument,
@@ -707,6 +736,7 @@ function projectedTypeConstraints(
   topology: EffectiveOccurrenceTopology,
   graphId: string,
 ): readonly ProjectedTypeConstraint[] {
+  const resolveDocumentNode = documentNodeResolver(document, resolve)
   type ProjectionSolve = {
     readonly graph: GraphDef
     readonly result: SolveResult
@@ -724,7 +754,7 @@ function projectedTypeConstraints(
       if (trace.kind !== 'output') return []
       const type = solved.result.portTypeOf(trace.ref.node, 'output', elabKeyOf(trace.ref))
       return type === undefined ? [] : [{
-        type,
+        type: projectTypeThroughRegionInputs(document, link, type),
         to: link.to.endpoint as PortRef,
         label: `projected ${JSON.stringify(link.identity)}`,
         variableSource: solved.variableSources.get(trace.ref.node)!,
@@ -799,6 +829,7 @@ function projectedTypeConstraints(
       }
     }
     const result = solveGraphTypes(solveGraph, resolve, {
+      resolveNode: (node) => resolveDocumentNode(sourceGraphId, node),
       connectivityOf,
       projectedInputs: constraintsOf(effective, graph.id),
     })
@@ -974,6 +1005,7 @@ export function updateSceneNodePositions(
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
+  const resolveNode = documentNodeResolver(input.document, input.resolve)
   const view = input.document.view.graphs[input.graphId]
   const positioned = positionedSceneCache.get(def)
   if (view !== undefined && input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined &&
@@ -1128,6 +1160,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   // here (rather than teaching layout about graph constraints) preserves the
   // document -> elaboration -> solving -> rendering dependency direction.
   const solvedTypes = solveGraphTypes(effectiveGraph, input.resolve, {
+    resolveNode: (node) => resolveNode(input.graphId, node),
     connectivityOf,
     ...(effective === undefined ? {} : {
       projectedInputs: projectedTypeConstraints(input.document, input.resolve, effective, def.id),
@@ -1190,7 +1223,6 @@ export function buildScene(input: BuildSceneInput): Scene {
   for (const node of Object.values(def.nodes)) {
     const view = viewNodes[node.id]
     const pos = view?.position ?? { x: 40, y: (fallbackY += 120) }
-    const schema = input.resolve(node.type)
     const sectionOverrides = view?.sections
       ? Object.fromEntries(Object.entries(view.sections).map(([id, s]) => [id, s.collapsed]))
       : undefined
@@ -1205,6 +1237,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(occurrenceDynamic !== undefined ? { dynamic: occurrenceDynamic } : {}),
           ...(occurrenceControllers !== undefined ? { controllers: occurrenceControllers } : {}),
         }
+    const schema = resolveNode(input.graphId, occurrenceNode)
     const elaborated = schema
       ? elaborateInterface(schema, occurrenceNode, connectivityOf(node.id))
       : undefined
@@ -1844,32 +1877,6 @@ export function buildScene(input: BuildSceneInput): Scene {
     const derivedInputs = derived ? inputsOf(derived) : []
     const derivedOutputs = derived ? outputsOf(derived) : []
 
-    const boundaryLabel = (
-      item: BoundaryItem,
-      derivedLabel: string | undefined,
-      defaults: ReadonlyMap<string, string>,
-    ): string => {
-      if (item.displayName !== undefined) return item.displayName
-      if (derivedLabel !== undefined) return derivedLabel
-      return defaults.get(item.id) ?? 'Boundary'
-    }
-
-    const slotsOf = (items: readonly BoundaryItem[], side: 'inputs' | 'outputs'): BoundarySlotInfo[] => {
-      const defaults = defaultBoundaryLabels(items)
-      return items.map((item) => {
-        const spec =
-          side === 'inputs'
-            ? derivedInputs.find((s) => s.id === item.id)
-            : derivedOutputs.find((s) => s.id === item.id)
-        return {
-          id: item.id,
-          label: boundaryLabel(item, spec?.displayName, defaults),
-          ...(spec !== undefined ? { type: spec.type } : {}),
-          ...(item.binds.kind === 'family' ? { family: true as const } : {}),
-        }
-      })
-    }
-
     let ownerNode: NodeData | undefined
     if (input.occurrence !== undefined) {
       let ownerGraph = input.document.graphs[input.document.root]
@@ -1879,6 +1886,36 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
       ownerNode = ownerGraph?.nodes[input.occurrence.owner.node]
     }
+
+    const boundaryLabel = (
+      item: BoundaryItem,
+      derivedLabel: string | undefined,
+      defaults: ReadonlyMap<string, string>,
+      roles: ReadonlyMap<string, string> | undefined,
+    ): string => {
+      if (item.displayName !== undefined) return item.displayName
+      if (roles !== undefined) return roles.get(item.id) ?? 'Boundary'
+      if (derivedLabel !== undefined) return derivedLabel
+      return defaults.get(item.id) ?? 'Boundary'
+    }
+
+    const slotsOf = (items: readonly BoundaryItem[], side: 'inputs' | 'outputs'): BoundarySlotInfo[] => {
+      const defaults = defaultBoundaryLabels(items)
+      const roles = ownerNode?.region === undefined ? undefined : regionBoundaryLabels(items, ownerNode.region, side)
+      return items.map((item) => {
+        const spec =
+          side === 'inputs'
+            ? derivedInputs.find((s) => s.id === item.id)
+            : derivedOutputs.find((s) => s.id === item.id)
+        return {
+          id: item.id,
+          label: boundaryLabel(item, spec?.displayName, defaults, roles),
+          ...(spec !== undefined ? { type: spec.type } : {}),
+          ...(item.binds.kind === 'family' ? { family: true as const } : {}),
+        }
+      })
+    }
+
     const regionIndexSlots: BoundarySlotInfo[] = ownerNode?.region === undefined ? [] : [{
       id: REGION_INDEX_SLOT,
       label: 'Index',

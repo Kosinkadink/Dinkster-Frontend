@@ -129,7 +129,7 @@ const iterationLimit = (region: RegionContract): string =>
 
 const outputSummary = (region: RegionContract): string => {
   const roles = Object.entries(region.outputRoles ?? {})
-  if (roles.length === 0) return ' and gathers outputs'
+  if (roles.length === 0) return ''
   return `. Outputs: ${roles.map(([id, role]) => role.kind === 'flatten'
     ? `${id} flattened`
     : role.kind === 'compact'
@@ -165,18 +165,18 @@ export function regionContractTooltip(region: RegionContract): TooltipContent {
   if (region.kind === 'map') {
     return {
       title: 'Map region',
-      lines: [`Runs once per item from ${joinedPorts(region.elementPorts)} using ${region.binding ?? 'zip'} binding${iterationLimit(region)}${outputSummary(region)}.`],
+      lines: [`Takes a list from ${joinedPorts(region.elementPorts)}, runs the body once per item, and gathers the results into lists using ${region.binding ?? 'zip'} binding${iterationLimit(region)}${outputSummary(region)}.`],
     }
   }
   if (region.kind === 'fold') {
     return {
       title: 'Fold region',
-      lines: [`Reduces items from ${joinedPorts(region.elementPorts)} through loop state ${joinedPorts(region.statePorts)}${region.binding === undefined ? '' : ` using ${region.binding} binding`}${iterationLimit(region)}.`],
+      lines: [`Runs once per item from ${joinedPorts(region.elementPorts)} and carries loop state (${joinedPorts(region.statePorts)}) from each iteration into the next${region.binding === undefined ? '' : ` using ${region.binding} binding`}${iterationLimit(region)}.`],
     }
   }
   return {
     title: 'While region',
-    lines: [`Repeats state ${joinedPorts(region.statePorts)} while ${region.continueOutput ?? 'the continuation output'} is true${region.maxIterations === undefined ? '.' : `, up to ${region.maxIterations} iterations.`}`],
+    lines: [`Carries loop state (${joinedPorts(region.statePorts)}) through repeated runs until ${region.continueOutput ?? 'the continuation output'} is false${region.maxIterations === undefined ? '.' : ` or ${region.maxIterations} iterations are reached.`}`],
   }
 }
 

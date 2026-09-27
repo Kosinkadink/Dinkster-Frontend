@@ -131,6 +131,18 @@ describe('canonical list type ids', () => {
   })
 })
 
+describe('node-aware schema resolution', () => {
+  it('does not fall back to a type schema when concrete-node resolution fails', () => {
+    const solved = solveGraphTypes(
+      defOf({ nodes: { source: { type: 'ImageSrc' } } }),
+      resolve,
+      { resolveNode: () => undefined },
+    )
+
+    expect(solved.portTypeOf(n('source'), 'output', 'out')).toBeUndefined()
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Advisory compatibility
 // ---------------------------------------------------------------------------

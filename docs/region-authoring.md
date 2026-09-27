@@ -1,9 +1,17 @@
 # Region authoring
 
-Regions repeat a subgraph body with map, fold, or while semantics. The region
-contract belongs to the subgraph occurrence, not to its shared definition.
-Two occurrences of one definition can therefore have different roles and
-configuration.
+Regions are loops around a subgraph. A map loop takes a list, runs the body
+once for each item, and gathers the results into a new list. A fold loop also
+runs once per item, but carries state from one iteration into the next. A
+while loop carries state and repeats until its Continuation output is false or
+its iteration limit is reached.
+
+The region contract belongs to the subgraph occurrence, not to its shared
+definition. Two occurrences of one definition can therefore have different
+roles and configuration. On the canvas, role labels explain how values cross
+the loop boundary: Element is one item from an input list, Capture is reused
+unchanged on every iteration, Gather collects one result per iteration, and
+State carries a value to the next iteration.
 
 ## Create a region
 

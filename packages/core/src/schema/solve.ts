@@ -66,7 +66,7 @@ import {
   type Connectivity,
   type ElaborateOptions,
 } from './elaborate.js'
-import { cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
+import { cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type TypeExpr } from './model.js'
 
 /** Every variable occurring in `t`, including inside list/asset elements. */
 function* nestedVariablesOf(t: TypeExpr): Generator<TypeExpr & { kind: 'variable' }> {
@@ -258,6 +258,8 @@ const resolutionOfRoot = (root: VarRecord): VarResolution => {
 // ---------------------------------------------------------------------------
 
 export interface SolveOptions extends ElaborateOptions {
+  /** Resolve a concrete node when its schema depends on occurrence-local data. */
+  readonly resolveNode?: (node: NodeData) => NodeSchema | undefined
   /** Optional occurrence-aware connectivity used by scene projections. */
   readonly connectivityOf?: (nodeId: NodeId) => Connectivity
   /** Producer types projected through a parent occurrence input. */
@@ -300,7 +302,9 @@ export function solveGraphTypes(
   const optionalOutputs = new Map<NodeId, Set<string>>()
   const failInputs = new Map<NodeId, Set<string>>()
   for (const node of Object.values(def.nodes) as NodeData[]) {
-    const schema = resolve(node.type)
+    const schema = options.resolveNode === undefined
+      ? resolve(node.type)
+      : options.resolveNode(node)
     if (!schema) continue // structural validators own "unresolvable type"
     const e = elaborateInterface(schema, node, connectivityOf(node.id), options)
     const inputs = new Map<string, TypeExpr>()
