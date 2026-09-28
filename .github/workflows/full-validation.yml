@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: d2e257fc44b09dda66b5a27352286c52697be55d
+  DINKSTER_REF: 3707858261929f19d410e709cbc1f752da38c959
 
 jobs:
   validation-plan:
@@ -191,7 +191,7 @@ jobs:
       - name: Install hosted compatibility dependencies
         run: |
           uv pip install --python .ci/ComfyUI/venv/bin/python --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match \
-            "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@470c4f67d7b68afab9f894bbe69f7cfac5f2a82e" \
+            "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@dacdebc66f097e9889ce66e36e41c25a7b8f6494" \
             packaging "dinkster-kitchen==0.2.35.post1" "dinkster-aimdo==0.5.5.post2" \
             "sentencepiece==0.2.1" "tokenizers==0.23.1"
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
