@@ -483,6 +483,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain(
       "`--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`",
     )
+    expect(hostedConfig).toContain("'--comfy-arg=--cpu'")
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
