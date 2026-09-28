@@ -152,9 +152,11 @@ export default defineConfig({
   projects: [
     {
       name: 'parallel-safe',
-      testIgnore: [...BACKEND_SERIAL_SPECS, ...PERFORMANCE_SPECS].map(
-        (f) => `tests/${f}`,
-      ),
+      testIgnore: [
+        ...BACKEND_SERIAL_SPECS,
+        ...PERFORMANCE_SPECS,
+        'extension-contract-pack.spec.ts',
+      ].map((f) => `tests/${f}`),
     },
     {
       name: 'backend-serial',

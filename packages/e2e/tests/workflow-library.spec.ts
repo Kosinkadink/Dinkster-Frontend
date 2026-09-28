@@ -39,11 +39,12 @@ async function openNamedCopy(page: Page, title: string): Promise<void> {
       values: { width: 8, height: 8 },
     }
     doc.view.graphs[doc.root]!.nodes.n0 ??= { position: { x: 120, y: 120 } }
-    return (app.openDocument as unknown as (
-      value: unknown,
-      title: string,
-      backend: typeof owner,
-    ) => unknown[])(doc, name, owner)
+    const diagnostics = app.openDocument(doc, name)
+    const opened = app.activeTab()
+    if (diagnostics.length === 0 && opened !== undefined) {
+      app.setTabTarget(opened.id, owner.id)
+    }
+    return diagnostics
   }, title)
   expect(failures).toEqual([])
 }
