@@ -24,7 +24,7 @@ const nativeCatalog = JSON.parse(readFileSync(
   'utf8',
 )) as {
   emptyLatent: { type: string; outputs: [string, ...string[]] }
-  emptySd3Latent: { type: string }
+  emptyMinimaxH3Av: { type: string }
   vaeDecode: { type: string }
 }
 const inAuditLane = () => (test.info().config.configFile ?? '').includes('audit-assets')
@@ -34,18 +34,23 @@ interface DeprecationIds {
   targetType: string
   sourceOutput: string
   sinkType: string
+  targetBatchInput: string
 }
 
 const deprecationIds = (): DeprecationIds => {
   if (inAuditLane()) {
     return {
       sourceType: nativeCatalog.emptyLatent.type,
-      targetType: nativeCatalog.emptySd3Latent.type,
+      targetType: nativeCatalog.emptyMinimaxH3Av.type,
       sourceOutput: nativeCatalog.emptyLatent.outputs[0],
       sinkType: nativeCatalog.vaeDecode.type,
+      targetBatchInput: 'frame_count',
     }
   }
-  return { sourceType: 'OldEmpty', targetType: 'EmptyLatentImage', sourceOutput: 'out0', sinkType: 'VAEDecode' }
+  return {
+    sourceType: 'OldEmpty', targetType: 'EmptyLatentImage', sourceOutput: 'out0',
+    sinkType: 'VAEDecode', targetBatchInput: 'batch_size',
+  }
 }
 
 /** Reset the viewport to identity so world coords == canvas CSS pixels. */
@@ -80,8 +85,8 @@ async function openDeprecatedDoc(
   page: Page,
   opts: { lineage: string; lossy?: boolean },
 ): Promise<readonly unknown[]> {
-  const { sourceType, targetType, sourceOutput, sinkType } = deprecationIds()
-  const diagnostics = await page.evaluate(({ lineage, lossy, sourceType, targetType, sourceOutput, sinkType }) => {
+  const ids = deprecationIds()
+  const diagnostics = await page.evaluate(({ lineage, lossy, sourceType, targetType, sourceOutput, sinkType, targetBatchInput }) => {
     const app = window.__dinksterTest!.app
     app.registerReplacementRule('pack', {
       from: sourceType,
@@ -94,7 +99,7 @@ async function openDeprecatedDoc(
               inputs: {
                 width: { kind: 'copy', input: 'width' },
                 height: { kind: 'copy', input: 'height' },
-                batch_size: { kind: 'copy', input: 'batch_size' },
+                [targetBatchInput]: { kind: 'copy', input: 'batch_size' },
               },
               outputs: { [sourceOutput]: sourceOutput },
             },
@@ -124,7 +129,7 @@ async function openDeprecatedDoc(
       },
       `Dep ${lineage}`,
     )
-  }, { ...opts, ...deprecationIds() })
+  }, { ...opts, ...ids })
   // The shared-store handoff dismisses focus-scoped popovers on the local store.
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()

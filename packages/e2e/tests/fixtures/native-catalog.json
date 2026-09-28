@@ -1,15 +1,15 @@
 {
-  "_provenance": "Derived once from the dinkster-serve dev-pack catalog (packages/dinkster-nodes-dev/dinkster-pack.toml) at Dinkster 8465b152, wire /api/nodes, 2026-09-24. Refreshing this file is a reviewed diff; tests must never read the live catalog to build expectations.",
-  "schemaCount": 507,
+  "_provenance": "Derived once from the dinkster-serve dev-pack catalog (packages/dinkster-nodes-dev/dinkster-pack.toml) at Dinkster d2e257fc44b09dda66b5a27352286c52697be55d, wire /api/nodes, 2026-09-28. Refreshing this file is a reviewed diff; tests must never read the live catalog to build expectations.",
+  "schemaCount": 264,
   "emptyLatent": {
     "type": "dinkster.empty_latent_image",
     "alias": "EmptyLatentImage",
     "inputs": ["width", "height", "batch_size"],
     "outputs": ["latent"]
   },
-  "emptySd3Latent": {
-    "type": "dinkster.empty_sd3_latent_image",
-    "inputs": ["width", "height", "batch_size"],
+  "emptyMinimaxH3Av": {
+    "type": "dinkster.empty_minimax_h3_av",
+    "inputs": ["width", "height", "frame_count"],
     "outputs": ["latent"]
   },
   "vaeDecode": {
