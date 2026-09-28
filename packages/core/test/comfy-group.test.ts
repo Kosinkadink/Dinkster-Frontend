@@ -100,13 +100,13 @@ const validRecord = () => ({
 const payload = (record: unknown, sourceSchemas: readonly unknown[] = [
   wireSchema(sourceA, ['value', 'amount'], ['value']),
   wireSchema(sourceB, ['value', 'amount', 'sam_model'], ['value'], { sam_model: 'optional-socket' }),
-]): DinksterNodesPayload => ({
+], format = 'dinkster-comfy-group/1'): DinksterNodesPayload => ({
   schemaVersion: 1,
   packs: {
     core: {
       displayName: 'core',
       comfyGroups: {
-        format: 'dinkster-inference-group/1',
+        format,
         sourceSchemas,
         groupSchemas: [wireSchema(groupType, ['value', 'amount'], ['value'])],
         records: [record],
@@ -116,6 +116,21 @@ const payload = (record: unknown, sourceSchemas: readonly unknown[] = [
 })
 
 describe('ComfyUI exact-group registry wire', () => {
+  it('rejects the inference registry format', () => {
+    const result = comfyGroupCatalogFromDinksterWire(
+      payload(validRecord(), undefined, 'dinkster-inference-group/1'),
+      new Map([['dinkster.blend', nativeSchema('dinkster.blend')]]),
+    )
+
+    expect(result.catalog.records).toEqual([])
+    expect(result.diagnostics).toHaveLength(1)
+    expect(result.diagnostics[0]).toMatchObject({
+      severity: 'error',
+      code: 'schema.comfyGroup.invalid',
+    })
+    expect(result.diagnostics[0]?.message).toContain("unsupported format 'dinkster-inference-group/1'")
+  })
+
   it('decodes a strict connected pattern and keeps its schemas import-only', () => {
     const result = comfyGroupCatalogFromDinksterWire(
       payload(validRecord()),

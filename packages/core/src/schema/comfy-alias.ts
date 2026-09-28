@@ -22,8 +22,7 @@ import {
   type ComfyTolerance,
 } from './comfy-registry-codec.js'
 
-export const COMFY_ALIAS_FORMAT = 'dinkster-inference-alias/1'
-const LEGACY_COMFY_ALIAS_FORMAT = 'dinkster-comfy-alias/1'
+export const COMFY_ALIAS_FORMAT = 'dinkster-comfy-alias/1'
 export { COMFY_CORE_REVISION }
 
 export type ComfyAliasMappingKind = ComfyMappingKind
@@ -69,7 +68,7 @@ const parsePackRegistry = (
   nativeSchemas: ReadonlyMap<string, NodeSchema>,
 ): ParsedPackRegistry => {
   const raw = fields(value, `pack '${ownerPack}' comfyAliases`, ['format', 'sourceSchemas', 'records'])
-  if (raw['format'] !== COMFY_ALIAS_FORMAT && raw['format'] !== LEGACY_COMFY_ALIAS_FORMAT) {
+  if (raw['format'] !== COMFY_ALIAS_FORMAT) {
     throw new Error(`unsupported format '${String(raw['format'])}'`)
   }
   const sourceSchemas = new Map<string, NodeSchema>()

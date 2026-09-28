@@ -23,8 +23,7 @@ import {
   type ComfySource,
 } from './comfy-registry-codec.js'
 
-export const COMFY_GROUP_FORMAT = 'dinkster-inference-group/1'
-const LEGACY_COMFY_GROUP_FORMAT = 'dinkster-comfy-group/1'
+export const COMFY_GROUP_FORMAT = 'dinkster-comfy-group/1'
 const MAX_GROUP_NODES = 16
 const MAX_GROUP_EDGES = 64
 const STRUCTURAL_ID = /^[A-Za-z0-9_-]+$/
@@ -352,7 +351,7 @@ const parsePackRegistry = (
 ): ParsedPackRegistry => {
   const where = `pack '${ownerPack}' comfyGroups`
   const raw = fields(value, where, ['format', 'sourceSchemas', 'groupSchemas', 'records'])
-  if (raw['format'] !== COMFY_GROUP_FORMAT && raw['format'] !== LEGACY_COMFY_GROUP_FORMAT) {
+  if (raw['format'] !== COMFY_GROUP_FORMAT) {
     throw new Error(`unsupported format '${String(raw['format'])}'`)
   }
   const schemas = (key: 'sourceSchemas' | 'groupSchemas'): ReadonlyMap<string, NodeSchema> => {

@@ -69,13 +69,14 @@ const payload = (
   records: readonly unknown[],
   sourceSchemas: readonly unknown[],
   pack = 'core',
+  format = 'dinkster-comfy-alias/1',
 ): DinksterNodesPayload => ({
   schemaVersion: 1,
   packs: {
     [pack]: {
       displayName: pack,
       comfyAliases: {
-        format: 'dinkster-inference-alias/1',
+        format,
         sourceSchemas,
         records,
       },
@@ -84,6 +85,27 @@ const payload = (
 })
 
 describe('ComfyUI alias registry wire', () => {
+  it('rejects the inference registry format', () => {
+    const sourceType = 'comfy_alias:comfy-core/LegacyAdd'
+    const result = comfyAliasCatalogFromDinksterWire(
+      payload(
+        [record('LegacyAdd', sourceType, 'dinkster.math.add')],
+        [sourceSchema(sourceType)],
+        'core',
+        'dinkster-inference-alias/1',
+      ),
+      new Map([['dinkster.math.add', nativeSchema('dinkster.math.add')]]),
+    )
+
+    expect(result.catalog.records).toEqual([])
+    expect(result.diagnostics).toHaveLength(1)
+    expect(result.diagnostics[0]).toMatchObject({
+      severity: 'error',
+      code: 'schema.comfyAlias.invalid',
+    })
+    expect(result.diagnostics[0]?.message).toContain("unsupported format 'dinkster-inference-alias/1'")
+  })
+
   it('decodes source schemas, op records, and family records separately', () => {
     const opType = 'comfy_alias:comfy-core/LegacyAdd'
     const familyType = 'comfy_alias:comfy-core/LegacyVariadic'
