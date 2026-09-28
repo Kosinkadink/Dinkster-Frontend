@@ -1,9 +1,10 @@
 # ComfyUI Workflow Translation
 
-Dinkster translates maintained ComfyUI classes through `dinkster-comfy-alias/1`
+Dinkster translates maintained ComfyUI classes through `dinkster-inference-alias/1`
 registries delivered by installed native packs. Each record identifies one
 ComfyUI source class and snapshot, its native carrier, a declarative
 replacement rule, and either op-level or family-level confidence evidence.
+The decoder also accepts the previous format identifier for saved catalogs.
 Core records are pinned to ComfyUI revision
 `b5cc8830279eae909a59de030af1e50761c36751`.
 
@@ -191,7 +192,8 @@ source or record collisions, unsupported family shapes, and unsafe replacement
 plans fail closed with diagnostics.
 
 Installed packs can also maintain exact connected-node translations through
-`dinkster-comfy-group/1`. A record pins the member source snapshots, node modes,
+`dinkster-inference-group/1`. The previous format identifier remains accepted
+for saved catalogs. A record pins the member source snapshots, node modes,
 internal edges, boundary ports, copied parameters, static constants, an anchor,
 and a replacement rule. Import matches this data before creating document
 nodes. A match collapses to an import-only group schema at the anchor's identity
