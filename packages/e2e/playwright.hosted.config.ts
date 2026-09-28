@@ -96,6 +96,7 @@ export default defineConfig({
         '--host 127.0.0.1',
         `--port ${nativePort}`,
         '--disable-p2p',
+        '--comfy-arg=--cpu',
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,

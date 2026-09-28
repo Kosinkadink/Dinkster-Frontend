@@ -381,7 +381,7 @@ describe('fast pull-request and full validation workflows', () => {
           (step) => step.name === 'Install hosted compatibility dependencies',
         )!
         expect(compatibilityInstall.run).toContain(
-          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@470c4f67d7b68afab9f894bbe69f7cfac5f2a82e',
+          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@dacdebc66f097e9889ce66e36e41c25a7b8f6494',
         )
         expect(compatibilityInstall.run).toContain(
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
@@ -483,6 +483,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain(
       "`--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`",
     )
+    expect(hostedConfig).toContain("'--comfy-arg=--cpu'")
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
