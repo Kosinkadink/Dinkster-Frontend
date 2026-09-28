@@ -68,6 +68,9 @@ test('catalog execution policies do not add implementation badges to node cards'
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('proof.adaptive') ?? false,
+  )).toBe(true)
   await openProof(page)
   baselineWidths = await page.evaluate(() =>
     window.__dinksterTest!.renderer!.getScene().nodes.map((node) => node.layout.width))

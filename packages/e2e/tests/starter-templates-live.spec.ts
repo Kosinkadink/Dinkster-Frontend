@@ -13,34 +13,7 @@ const NATIVE_BACKEND =
   process.env["DINKSTER_NATIVE_BACKEND"] ?? "http://127.0.0.1:8765";
 const proofDir = process.env["DINKSTER_TEMPLATE_PROOF_DIR"];
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true });
-const EXPECTED_FAMILIES = [
-  "dinkster.anima",
-  "dinkster.chroma",
-  "dinkster.chroma_radiance",
-  "dinkster.flux2_dev",
-  "dinkster.flux2_klein_4b",
-  "dinkster.flux2_klein_9b",
-  "dinkster.flux_dev",
-  "dinkster.flux_schnell",
-  "dinkster.ideogram4",
-  "dinkster.krea2",
-  "dinkster.ltxav",
-  "dinkster.ltxv",
-  "dinkster.lumina2",
-  "dinkster.minimax_h3",
-  "dinkster.minimax_music3",
-  "dinkster.qwen_image",
-  "dinkster.sd15",
-  "dinkster.sdxl",
-  "dinkster.sdxl_refiner",
-  "dinkster.seedvr2",
-  "dinkster.trellis2",
-  "dinkster.triposplat",
-  "dinkster.wan21",
-  "dinkster.wan22",
-  "dinkster.z_image",
-  "dinkster.z_image_pixel_space",
-] as const;
+const EXPECTED_FAMILIES: readonly string[] = [];
 const EXPECTED_LOOPS = [
   "loop-map-images",
   "loop-gather-image-batch",
@@ -209,10 +182,6 @@ test("all starter families and loop templates load with zero problem-panel error
     templates === undefined,
     `no native Dinkster backend reachable at ${NATIVE_BACKEND}`,
   );
-  test.skip(
-    templates!.length === 0,
-    `native backend at ${NATIVE_BACKEND} has no starter templates`,
-  );
   expect(templates!.flatMap((template) => template.family ?? []).sort()).toEqual([
     ...EXPECTED_FAMILIES,
   ]);
@@ -225,6 +194,11 @@ test("all starter families and loop templates load with zero problem-panel error
   await openTemplateGallery(page);
   const gallery = page.getByTestId("template-gallery");
   await expect(gallery).toBeVisible();
+  for (const template of templates!) {
+    await expect(
+      gallery.getByTestId("template-card").filter({ hasText: template.name }),
+    ).toBeVisible();
+  }
   await expect(gallery.locator('[data-family^="dinkster."]')).toHaveCount(
     EXPECTED_FAMILIES.length,
   );
