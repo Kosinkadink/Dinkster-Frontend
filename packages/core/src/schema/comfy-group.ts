@@ -23,7 +23,7 @@ import {
   type ComfySource,
 } from './comfy-registry-codec.js'
 
-export const COMFY_GROUP_FORMAT = 'dinkster-inference-group/1'
+export const COMFY_GROUP_FORMAT = 'dinkster-comfy-group/1'
 const MAX_GROUP_NODES = 16
 const MAX_GROUP_EDGES = 64
 const STRUCTURAL_ID = /^[A-Za-z0-9_-]+$/

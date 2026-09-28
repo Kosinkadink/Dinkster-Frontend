@@ -22,7 +22,7 @@ import {
   type ComfyTolerance,
 } from './comfy-registry-codec.js'
 
-export const COMFY_ALIAS_FORMAT = 'dinkster-inference-alias/1'
+export const COMFY_ALIAS_FORMAT = 'dinkster-comfy-alias/1'
 export { COMFY_CORE_REVISION }
 
 export type ComfyAliasMappingKind = ComfyMappingKind
