@@ -381,7 +381,7 @@ describe('fast pull-request and full validation workflows', () => {
           (step) => step.name === 'Install hosted compatibility dependencies',
         )!
         expect(compatibilityInstall.run).toContain(
-          'uv export --project .ci/Dinkster --locked --package dinkster-inference-torch --extra torch',
+          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@470c4f67d7b68afab9f894bbe69f7cfac5f2a82e',
         )
         expect(compatibilityInstall.run).toContain(
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
@@ -390,11 +390,12 @@ describe('fast pull-request and full validation workflows', () => {
           '--index https://download.pytorch.org/whl/cpu',
         )
         expect(compatibilityInstall.run).toContain(
-          '--constraint "${RUNNER_TEMP}/dinkster-torch-constraints.txt"',
+          '"dinkster-kitchen==0.2.35.post1" "dinkster-aimdo==0.5.5.post2"',
         )
         expect(compatibilityInstall.run).toContain(
-          'dinkster-kitchen dinkster-aimdo sentencepiece tokenizers',
+          '"sentencepiece==0.2.1" "tokenizers==0.23.1"',
         )
+        expect(compatibilityInstall.run).not.toContain('uv export')
         const extensionProof = steps.find(
           (step) =>
             step.name === 'Prove the ordinary third-party pack contract',
