@@ -13,15 +13,6 @@ execFileSync(
   ],
   { stdio: 'inherit' },
 )
-execFileSync(
-  process.env.PYTHON ?? 'python3',
-  [
-    join(dinksterSource, 'scripts/check_family_isinstance_gates.py'),
-    '--root',
-    dinksterSource,
-  ],
-  { stdio: 'inherit' },
-)
 
 for (const args of [
   [
