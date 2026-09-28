@@ -75,7 +75,7 @@ const payload = (
     [pack]: {
       displayName: pack,
       comfyAliases: {
-        format: 'dinkster-comfy-alias/1',
+        format: 'dinkster-inference-alias/1',
         sourceSchemas,
         records,
       },

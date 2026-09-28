@@ -50,7 +50,7 @@ const exactGroupPayload = (): Record<string, unknown> => {
   const groupSchema = source('comfy.EmptyImage', groupType)
   groupSchema.interface = groupSchema.interface.filter((item: { role: string }) => item.role === 'input')
   raw['packs']['comfy'].comfyGroups = {
-    format: 'dinkster-comfy-group/1',
+    format: 'dinkster-inference-group/1',
     sourceSchemas: [
       source('comfy.EmptyImage', emptyType),
       source('comfy.PreviewImage', previewType),

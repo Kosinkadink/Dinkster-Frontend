@@ -106,7 +106,7 @@ const payload = (record: unknown, sourceSchemas: readonly unknown[] = [
     core: {
       displayName: 'core',
       comfyGroups: {
-        format: 'dinkster-comfy-group/1',
+        format: 'dinkster-inference-group/1',
         sourceSchemas,
         groupSchemas: [wireSchema(groupType, ['value', 'amount'], ['value'])],
         records: [record],
