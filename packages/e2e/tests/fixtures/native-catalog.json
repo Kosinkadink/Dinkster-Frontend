@@ -1,6 +1,6 @@
 {
-  "_provenance": "Derived once from the dinkster-serve dev-pack catalog (packages/dinkster-nodes-dev/dinkster-pack.toml) at Dinkster d2e257fc44b09dda66b5a27352286c52697be55d, wire /api/nodes, 2026-09-28. Refreshing this file is a reviewed diff; tests must never read the live catalog to build expectations.",
-  "schemaCount": 264,
+  "_provenance": "Derived once from the dinkster-serve dev-pack catalog (packages/dinkster-nodes-dev/dinkster-pack.toml) with the extension-contract fixture at Dinkster fb4b9d23703fdb2612a2689543fc9cbdf1112b6e, wire /api/nodes, 2026-09-28. Refreshing this file is a reviewed diff; tests must never read the live catalog to build expectations.",
+  "schemaCount": 265,
   "emptyLatent": {
     "type": "dinkster.empty_latent_image",
     "alias": "EmptyLatentImage",

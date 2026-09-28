@@ -19,7 +19,9 @@ const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0
 async function openNamedCopy(page: Page, title: string): Promise<void> {
   const failures = await page.evaluate((name) => {
     const app = window.__dinksterTest!.app
-    const doc = structuredClone(app.activeTab()!.store.doc) as unknown as {
+    const source = app.activeTab()!
+    const owner = app.backendForTab(source)
+    const doc = structuredClone(source.store.doc) as unknown as {
       lineage: string
       root: string
       graphs: Record<string, {
@@ -37,9 +39,22 @@ async function openNamedCopy(page: Page, title: string): Promise<void> {
       values: { width: 8, height: 8 },
     }
     doc.view.graphs[doc.root]!.nodes.n0 ??= { position: { x: 120, y: 120 } }
-    return app.openDocument(doc, name)
+    return (app.openDocument as unknown as (
+      value: unknown,
+      title: string,
+      backend: typeof owner,
+    ) => unknown[])(doc, name, owner)
   }, title)
   expect(failures).toEqual([])
+}
+
+async function waitForDocumentToSettle(page: Page): Promise<void> {
+  await expect(async () => {
+    const before = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+    await page.waitForTimeout(500)
+    const after = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+    expect(after).toBe(before)
+  }).toPass({ timeout: 15_000 })
 }
 
 async function openWorkflows(page: Page): Promise<void> {
@@ -71,23 +86,50 @@ async function targetNativeBackend(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()
-    return tab === undefined ? undefined : app.backendForTab(tab).protocol
-  })).toBe('dinkster')
+    if (tab === undefined) return undefined
+    const backend = app.backendForTab(tab)
+    return `${backend.protocol}:${backend.schemaState.get().status}`
+  }), { timeout: 15_000 }).toBe('dinkster:ready')
+  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await expect(page.getByTestId('status-bar')).not.toContainText('loading schemas')
+  await expect(page.getByTestId('composition-progress')).not.toBeVisible()
 }
 
 async function saveWorkflow(page: Page): Promise<void> {
   const save = page.locator('[data-testid=context-menu-item][data-item-id="workflow.save"]')
-  // The app menu deliberately closes when availability-affecting state
-  // changes (backend ticks, document changes). Live-backend activity can
-  // race an open menu shut - even between visibility check and click, which
-  // detaches the item mid-action - so keep the CLICK inside the reopen loop
-  // too: exactly what a user does when a menu closes under them.
+  // Wait for the response and the app's save chain so the link and dirty
+  // state are committed before the test issues another action.
+  if (!(await save.isVisible())) await page.getByTestId('dinkster-menu-button').click()
+  await expect(save).toBeVisible()
+  await expect(save).not.toHaveClass(/disabled/)
+  await Promise.all([
+    page.waitForResponse(
+      (candidate) =>
+        new URL(candidate.url()).pathname.startsWith('/api/library') &&
+        ['POST', 'PATCH'].includes(candidate.request().method()),
+      { timeout: 15_000 },
+    ),
+    save.click(),
+  ])
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { id: string } | undefined
+      saveChains: Map<string, Promise<boolean>>
+    }
+    const tab = app.activeTab()
+    const saving = tab === undefined ? undefined : app.saveChains.get(tab.id)
+    if (saving !== undefined) await saving
+  })
+}
+
+async function saveWorkflowUntilClean(page: Page): Promise<void> {
+  const dirty = page.locator('.tab.active .tab-dirty')
+  // A document change during an in-flight save is intentionally not marked
+  // clean. Save the newer revision just as a user would after that race.
   await expect(async () => {
-    if (!(await save.isVisible())) await page.getByTestId('dinkster-menu-button').click()
-    await expect(save).toBeVisible({ timeout: 1000 })
-    await expect(save).not.toHaveClass(/disabled/)
-    await save.click({ timeout: 2000 })
-  }).toPass({ timeout: 15_000 })
+    await saveWorkflow(page)
+    await expect(dirty).not.toBeVisible({ timeout: 2000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 test.beforeEach(async ({ page }) => {
@@ -103,12 +145,12 @@ test.beforeEach(async ({ page }) => {
 
 test('save new workflow, patch the same record, and reopen modified content', async ({ page }) => {
   const title = uniqueName('save-patch-open')
-  await openNamedCopy(page, title)
   await targetNativeBackend(page)
+  await openNamedCopy(page, title)
+  await waitForDocumentToSettle(page)
 
   await expect(page.locator('.tab.active .tab-dirty')).toBeVisible()
-  await saveWorkflow(page)
-  await expect(page.locator('.tab.active .tab-dirty')).not.toBeVisible()
+  await saveWorkflowUntilClean(page)
 
   await openWorkflows(page)
   await expect(workflowRow(page, title)).toHaveCount(1)
@@ -127,8 +169,7 @@ test('save new workflow, patch the same record, and reopen modified content', as
   expect(changed).toBe(true)
   await expect(page.locator('.tab.active .tab-dirty')).toBeVisible()
 
-  await saveWorkflow(page)
-  await expect(page.locator('.tab.active .tab-dirty')).not.toBeVisible()
+  await saveWorkflowUntilClean(page)
   await openWorkflows(page)
   // A linked tab must PATCH its original record, never POST a duplicate.
   await expect(workflowRow(page, title)).toHaveCount(1)
@@ -154,25 +195,31 @@ test('save new workflow, patch the same record, and reopen modified content', as
 
 test('failed new save surfaces a Problem, stays dirty, and retries successfully', async ({ page }) => {
   const title = uniqueName('save-retry')
-  await openNamedCopy(page, title)
   await targetNativeBackend(page)
+  await openNamedCopy(page, title)
+  await waitForDocumentToSettle(page)
 
-  const createRoute = '**/api/library'
+  const createRoute = '**/api/library*'
+  let failureInjected = false
   await page.route(createRoute, async (route) => {
     if (route.request().method() === 'POST') {
+      failureInjected = true
       await route.fulfill({ status: 500, body: 'injected save failure' })
     } else {
       await route.continue()
     }
   })
   await saveWorkflow(page)
+  expect(failureInjected).toBe(true)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.problems.get().some((problem) => problem.code === 'library.saveFailed'),
+  )).toBe(true)
   await expect(page.getByTestId('problems-panel')).toContainText('library.saveFailed')
   await expect(page.getByTestId('problems-panel')).toContainText('POST /api/library failed: 500')
   await expect(page.locator('.tab.active .tab-dirty')).toBeVisible()
 
   await page.unroute(createRoute)
-  await saveWorkflow(page)
-  await expect(page.locator('.tab.active .tab-dirty')).not.toBeVisible()
+  await saveWorkflowUntilClean(page)
   await openWorkflows(page)
   await expect(workflowRow(page, title)).toHaveCount(1)
 })

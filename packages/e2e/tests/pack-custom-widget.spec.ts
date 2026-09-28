@@ -60,6 +60,9 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
   })
   await openRailPanel(page, 'Problems')
   await expect(page.getByTestId('problems-panel')).toContainText("widget kind 'isopack.size' is not available; using the raw-value editor")
+  await page.evaluate(() => {
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
   await page.mouse.click(...await widgetPoint(page))
   await expect(page.getByTestId('widget-editor')).toHaveAttribute('data-editor-mode', 'raw')
   await expect(page.getByTestId('widget-editor').locator('textarea')).toHaveValue('8')
