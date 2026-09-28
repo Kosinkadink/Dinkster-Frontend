@@ -79,15 +79,16 @@ test('ResizeImageMask DynamicCombo choice is accepted and completes on Dinkster'
 
   expect(submitted).toBeDefined()
   expect(submitted!.graph.nodes.resize).toEqual({
-    nodeType: 'comfy.ResizeImageMaskNode',
+    nodeType: 'dinkster.image.resize',
     inputs: {
-      input: { $link: { node: 'source', output: 'image' } },
-      scale_method: 'bicubic',
-      'resize_type.width': 32,
-      'resize_type.height': 24,
-      'resize_type.crop': 'disabled',
+      apply: 'always',
+      fit_rounding: 'round',
+      image: { $link: { node: 'source', output: 'image' } },
+      interpolation: 'bicubic',
+      'target.height': 24,
+      'target.width': 32,
     },
-    slotVariants: { resize_type: 'scale dimensions' },
+    slotVariants: { divisibility: 'none', mode: 'stretch', target: 'dimensions' },
   })
 
   const completed = await request.get(
