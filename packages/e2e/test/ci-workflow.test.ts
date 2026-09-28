@@ -469,6 +469,10 @@ describe('fast pull-request and full validation workflows', () => {
       "argumentProject ?? process.env['DINKSTER_E2E_PROJECT']",
     )
     expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
+    expect(baseConfig).toContain("'extension-contract-pack.spec.ts'")
+    expect(extensionContractConfig).toContain(
+      "testMatch: ['extension-contract-pack.spec.ts']",
+    )
     expect(hostedConfig).toContain('if (argumentProject)')
     expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
