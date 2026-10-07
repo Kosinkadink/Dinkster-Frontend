@@ -19,17 +19,20 @@ describe('memory visualization history', () => {
     expect(appendMemorySample(first, sample(1000))).toEqual([sample(0), sample(1000)])
   })
 
-  it('retains 1,200 samples independently from the newest 120-sample viewport', () => {
+  it('retains only the last two minutes after repeated wraparound', () => {
     let history: readonly MemorySample[] = []
-    for (let timestamp = 0; timestamp <= MEMORY_HISTORY_LIMIT * 1000; timestamp += 1000) history = appendMemorySample(history, sample(timestamp))
+    for (let timestamp = 0; timestamp <= 500_000; timestamp += 1000) {
+      history = appendMemorySample(history, sample(timestamp))
+      expect(history.length).toBeLessThanOrEqual(120)
+    }
 
-    expect(history).toHaveLength(MEMORY_HISTORY_LIMIT)
-    expect(history[0]?.timestamp).toBe(1000)
-    expect(history.at(-1)?.timestamp).toBe(MEMORY_HISTORY_LIMIT * 1000)
-    expect(liveMemorySamples(history)).toHaveLength(MEMORY_LIVE_VIEWPORT_LIMIT)
-    expect(liveMemorySamples(history)[0]?.timestamp).toBe((MEMORY_HISTORY_LIMIT - MEMORY_LIVE_VIEWPORT_LIMIT + 1) * 1000)
-    expect(liveMemorySamples(history, 120).map((item) => item.timestamp)).toEqual(history.slice(-120).map((item) => item.timestamp))
-    expect(liveMemorySamples(history, 121)).toHaveLength(121)
+    expect(MEMORY_HISTORY_LIMIT).toBe(120)
+    expect(MEMORY_LIVE_VIEWPORT_LIMIT).toBe(120)
+    expect(history).toHaveLength(120)
+    expect(history[0]?.timestamp).toBe(381_000)
+    expect(history.at(-1)?.timestamp).toBe(500_000)
+    expect(liveMemorySamples(history)).toEqual(history)
+    expect(liveMemorySamples(history, 3).map((item) => item.timestamp)).toEqual([498_000, 499_000, 500_000])
   })
 })
 

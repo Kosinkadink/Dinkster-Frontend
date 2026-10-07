@@ -137,6 +137,17 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await primary.locator('[aria-label="Page flag ranges table"]').focus()
   await expect(primary.locator('[aria-label="Page flag ranges table"]')).toBeFocused()
 
+  const deviceNode = await primary.locator('[data-device="cuda:0"]').elementHandle()
+  const itemNode = await primary.locator('.memory-consumer-item').elementHandle()
+  for (let update = 1; update <= 100; update++) {
+    primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus, queue: { ...baseStatus.queue, queued: update } }))
+    await expect(primary.getByTestId('memory-queue')).toContainText(`Queued${update}`)
+    await expect(primary.locator('.memory-data-disclosure[open]')).toHaveCount(2)
+    await expect(primary.locator('[aria-label="Page flag ranges table"]')).toBeFocused()
+  }
+  expect(await deviceNode!.evaluate(node => node.isConnected)).toBe(true)
+  expect(await itemNode!.evaluate(node => node.isConnected)).toBe(true)
+
   await scrollPanelToTop(page)
   await testInfo.attach('memory-wide-telemetry.png', { body: await capture(page, 'memory-wide-telemetry.png'), contentType: 'image/png' })
 
@@ -160,6 +171,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
 
   primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
   await expect(primary.locator('.memory-telemetry-state')).toHaveText('Live')
+  const samplesBefore = Number(await primary.locator('.memory-graph canvas').getAttribute('data-samples'))
   await page.waitForTimeout(1100)
   primarySocket!.send(JSON.stringify({
     type: 'memory_status', ...baseStatus,
@@ -169,7 +181,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
     },
   }))
   await expect(primary.locator('[data-device="cuda:0"]')).toContainText('Footprint6.0 GiB')
-  await expect(primary.locator('.memory-graph canvas')).toHaveAttribute('data-samples', '3')
+  await expect(primary.locator('.memory-graph canvas')).toHaveAttribute('data-samples', String(samplesBefore + 1))
   await expect(primary.locator('.memory-graph-state')).toHaveCount(0)
   primarySocket!.send(JSON.stringify({
     type: 'memory_status', ...baseStatus,

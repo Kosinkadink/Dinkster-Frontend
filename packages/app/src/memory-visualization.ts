@@ -1,6 +1,6 @@
 import type { MemoryGovernorDevice, MemoryStatus } from '@dinkster/client'
 
-export const MEMORY_HISTORY_LIMIT = 1200
+export const MEMORY_HISTORY_LIMIT = 120
 export const MEMORY_LIVE_VIEWPORT_LIMIT = 120
 export const MEMORY_SAMPLE_INTERVAL_MS = 1000
 export const PAGE_PULSE_TICKS = 6

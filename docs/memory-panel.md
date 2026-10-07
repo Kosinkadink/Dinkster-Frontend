@@ -21,12 +21,17 @@ controls follow the device overview so they remain adjacent without displacing
 the live bars and model residency visuals.
 
 The history graph records at most one sample per second in a bounded
-1,200-sample in-memory ring and displays the newest 120 samples. It presents
+120-sample in-memory window labelled **last 120 s**. Older samples are dropped,
+not accumulated in hidden scrollback. It presents
 footprint, reservations, and capacity. Hovering adds a crosshair with sample
 time and byte values. An expandable, keyboard-focusable table exposes the
 visible samples as text. Stale and disconnected state belongs to the panel,
 not the graph; no history sample is appended while the connection is not live.
 Reloading clears this local history.
+
+Device names, consumer ids and item ids keep their cards stable while telemetry
+refreshes. Open history and page-flag disclosures, keyboard focus and table
+scroll positions remain in place through updates.
 
 ## Consumers, pages, and leases
 

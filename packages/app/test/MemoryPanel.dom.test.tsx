@@ -162,6 +162,51 @@ describe('memory visualization logic', () => {
 })
 
 describe('MemoryPanel', () => {
+  it('retains device, consumer, item, disclosures, hover, focus and scroll through 100 fresh payloads', async () => {
+    const status = createSignal<ConnectionStatus>('connected')
+    let push: ((next: MemoryStatus) => void) | undefined
+    let now = 0
+    const connection = {
+      status, fetchMemoryStatus: vi.fn(async () => structuredClone(payload)),
+      onMemoryStatus: (listener: (next: MemoryStatus) => void) => { push = listener; return () => {} },
+      fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn(),
+    }
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <MemoryPanel connection={connection} label="Stable" now={() => now} />, root)
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    const device = root.querySelector('.memory-device')!
+    const consumer = root.querySelector('.memory-consumer')!
+    const item = root.querySelector('.memory-consumer-item')!
+    const disclosures = [...root.querySelectorAll<HTMLDetailsElement>('details.memory-data-disclosure')]
+    expect(disclosures).toHaveLength(2)
+    for (const disclosure of disclosures) {
+      disclosure.open = true
+      disclosure.dispatchEvent(new Event('toggle'))
+    }
+    const table = root.querySelector<HTMLElement>('[aria-label="Page flag ranges table"]')!
+    table.scrollTop = 37; table.focus()
+    const canvas = root.querySelector<HTMLCanvasElement>('.memory-graph canvas')!
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 1, bubbles: true }))
+    const hover = root.querySelector('.memory-graph p')!.textContent
+    expect(hover).toContain('footprint')
+    for (let update = 1; update <= 100; update++) {
+      now = update * 1000
+      const next = structuredClone(payload)
+      push!({ ...next, queue: { ...next.queue, queued: update } })
+      await Promise.resolve(); await Promise.resolve()
+      expect(root.querySelector('.memory-device')).toBe(device)
+      expect(root.querySelector('.memory-consumer')).toBe(consumer)
+      expect(root.querySelector('.memory-consumer-item')).toBe(item)
+      expect(disclosures.every((disclosure) => disclosure.isConnected && disclosure.open)).toBe(true)
+      expect(document.activeElement).toBe(table)
+      expect(table.scrollTop).toBe(37)
+      expect(root.querySelector('.memory-graph p')!.textContent).toBe(hover)
+    }
+    expect(root.querySelector('[data-testid="memory-queue"]')!.textContent).toContain('Queued100')
+    expect(canvas.dataset.samples).toBe('101')
+    unmount()
+  })
+
   it('renders raw, Aimdo-corrected, governed, queue, lease, detail, and restart-policy labels', async () => {
     const status = createSignal<ConnectionStatus>('disconnected')
     const runtimeSection = (value: unknown, mutability: 'live' | 'on-worker-restart' = 'live') => ({ value, source: 'default' as const, mutability, writable: true, persistence: { available: true, persisted: true } })
