@@ -155,6 +155,7 @@ export default defineConfig({
       testIgnore: [
         ...BACKEND_SERIAL_SPECS,
         ...PERFORMANCE_SPECS,
+        ...(process.env['DINKSTER_P2P_TESTS'] === '1' ? [] : ['p2p-onboarding.spec.ts']),
         'extension-contract-pack.spec.ts',
       ].map((f) => `tests/${f}`),
     },

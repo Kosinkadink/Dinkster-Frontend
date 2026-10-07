@@ -4,6 +4,9 @@ Open **Memory** from the activity bar to inspect each native Dinkster backend.
 Every backend has a separate labelled section with its own telemetry, device
 identities, consumer disclosures, history, and runtime settings.
 
+Memory remains available when P2P and workflow templates are disabled (the
+default). It uses memory telemetry endpoints, not the P2P or template catalog.
+
 The section status distinguishes initial loading, live data, stale retained
 data, and a disconnected backend. A failed refresh leaves previous facts
 visible and labels them retained instead of presenting them as current.

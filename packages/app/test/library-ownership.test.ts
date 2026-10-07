@@ -95,6 +95,8 @@ function twoBackends(): {
   const a = app.addBackend('http://native-a:8000', 'A', false, 'dinkster')
   const b = app.addBackend('http://native-b:8000', 'B', false, 'dinkster')
   if (!a || a.protocol !== 'dinkster' || !b || b.protocol !== 'dinkster') throw new Error('addBackend rejected')
+  a.templatesEnabled.set(true)
+  b.templatesEnabled.set(true)
   a.registry.set(buildDinksterRegistry(a.id, nodesPayload))
   b.registry.set(buildDinksterRegistry(b.id, nodesPayload))
   expect(app.openDocument(DOC, 'Doc')).toEqual([])

@@ -38,6 +38,7 @@ type GuideState =
 export function LearnPanel(props: {
   readonly backend: LearnBackend | undefined
   readonly locale: string
+  readonly templatesEnabled?: boolean
   readonly onOpenTemplate: (pack: string, template: string, title: string, owner: string) => void
 }) {
   const [query, setQuery] = createSignal('')
@@ -162,7 +163,7 @@ export function LearnPanel(props: {
               <Markdown
                 blocks={loaded().blocks}
                 assets={loaded().assets}
-                templateAction={{
+                templateAction={props.templatesEnabled === true ? {
                   label: message('learn.action.openTemplate'),
                   open: (template) => props.onOpenTemplate(
                     loaded().descriptor.pack,
@@ -170,7 +171,7 @@ export function LearnPanel(props: {
                     loaded().page.title,
                     props.backend!.id,
                   ),
-                }}
+                } : undefined}
               />
             </article>
           )}</Show>

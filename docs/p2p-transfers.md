@@ -1,7 +1,14 @@
 # P2P transfers
 
-P2P is off on a fresh installation and does not show a first-run prompt. The
-P2P panel has one sharing toggle for downloads and background seeding, shows
+P2P is disabled by default and is not installed by the base backend package.
+The panel, its shell commands and runtime settings are absent until a backend
+reports `features.p2p.enabled` true. The backend requires its optional `p2p`
+extra and explicit startup feature opt-in; saved transfer preferences do not
+activate the feature. Disabled servers expose no P2P or LAN mapping routes
+and advertise no mDNS service. The seed and diagnostics CLI entry points
+exit with "P2P is disabled".
+
+When explicitly enabled, the retained optional panel has one sharing toggle for downloads and background seeding, shows
 the current seeding state, and retains controls for limits and live activity.
 Saved settings where downloads and background seeding differ appear as mixed;
 turning the mixed sharing control on enables both capabilities.

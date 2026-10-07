@@ -11,6 +11,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.{ts,tsx}'],
-    exclude: [...configDefaults.exclude, 'test/**/*.dom.test.tsx'],
+    exclude: [...configDefaults.exclude, 'test/**/*.dom.test.tsx', ...(process.env['DINKSTER_P2P_TESTS'] === '1' ? [] : ['test/p2p-catalog.test.ts'])],
   },
 })

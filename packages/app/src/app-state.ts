@@ -2243,6 +2243,8 @@ interface BackendBase {
   readonly registry: Signal<SchemaRegistry | undefined>
   /** Execution locations advertised by the current native server life. */
   readonly workerCatalog: Signal<WorkerCatalogState>
+  readonly p2pEnabled: Signal<boolean>
+  readonly templatesEnabled: Signal<boolean>
   /** Current schema request state for truthful backend-management feedback. */
   readonly schemaState: Signal<
     | { readonly status: 'idle' | 'loading' | 'waiting' | 'ready' }
@@ -2964,14 +2966,6 @@ export class AppState {
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.controlSurfaces.enabled', get name() { return t('settings.features.controlSurfaces') }, type: 'boolean', defaultValue: false })
-    this.settings.register({
-      id: 'templates.registryUrl',
-      get name() { return t('settings.templates.registryUrl.name') },
-      get description() { return t('settings.templates.registryUrl.description') },
-      category: 'templates',
-      type: 'string',
-      defaultValue: '',
-    })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
@@ -3036,11 +3030,6 @@ export class AppState {
     })
     register('workflow.open', 'command.workflow.open', 'Ctrl+O', () => {
       setPanelOpen(this.panels, this.dock, 'library', 'left', true)
-    })
-    this.frontendDoors.command('workflow.openTemplateGallery', {
-      get label() { return t('command.workflow.openTemplateGallery') },
-      run: () => this.templateGalleryOpen.set(true),
-      enabled: () => activeTabNow() !== undefined && activeTabNow()?.execution === undefined,
     })
     this.frontendDoors.command('workflow.importFile', {
       get label() { return t('command.workflow.importFile') },
@@ -3997,6 +3986,8 @@ export class AppState {
       baseUrl,
       registry,
       workerCatalog,
+      p2pEnabled: createSignal(false),
+      templatesEnabled: createSignal(false),
       schemaState: createSignal<
         | { readonly status: 'idle' | 'loading' | 'waiting' | 'ready' }
         | { readonly status: 'error'; readonly message: string }
@@ -4086,6 +4077,8 @@ export class AppState {
           this.flushWorkspaceRegistrations(id)
         }),
         base.workerCatalog.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.p2pEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.compatSkips.subscribe(() => this.backendsTick.update((v) => v + 1)),
@@ -4140,6 +4133,11 @@ export class AppState {
       const requestCurrentDiagnostics = (gen: number): void => {
         requestDiagnostics(gen)
         requestCompositionProblems(gen)
+        void connection.fetchRuntimeSettings().then((settings) => {
+          if (gen !== staleGen) return
+          base.p2pEnabled.set(settings.features?.p2p?.enabled === true)
+          base.templatesEnabled.set(settings.features?.templates?.enabled === true)
+        }).catch(() => undefined)
       }
       refreshDiagnostics = () => requestCurrentDiagnostics(staleGen)
       const startRefresh = (why: string): void => {
@@ -4224,6 +4222,9 @@ export class AppState {
       }
       const refreshOnConnect = (): void => {
         staleGen += 1
+        base.p2pEnabled.set(false)
+        base.templatesEnabled.set(false)
+        requestCurrentDiagnostics(staleGen)
         // graphFeatures and the extension snapshot pair are load-bearing and
         // belong to one server lifetime. Strip both from every observable
         // registry SYNCHRONOUSLY, so no work inside the refresh window uses
@@ -4244,7 +4245,12 @@ export class AppState {
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
         if (status === 'connected') refreshOnConnect()
-        else this.invalidateWorkerCatalog(nativeBackend)
+        else {
+          staleGen += 1
+          base.p2pEnabled.set(false)
+          base.templatesEnabled.set(false)
+          this.invalidateWorkerCatalog(nativeBackend)
+        }
       }
       const disposeConnection = wire(
         connection,
@@ -6742,7 +6748,7 @@ export class AppState {
    */
   async openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean> {
     const backend = this.ownedLibraryBackend(owner)
-    if (!backend) return false
+    if (!backend?.templatesEnabled.get()) return false
     try {
       const document = await backend.connection.fetchTemplateBody(packId, templateId)
       // Liveness BEFORE payload checks (see openFromLibrary).
@@ -6774,7 +6780,7 @@ export class AppState {
 
   async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
     const backend = this.libraryBackend()
-    if (backend?.protocol !== 'dinkster') return false
+    if (backend?.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return false
     const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
     try {
       const document = await catalog.fetchBody(template)

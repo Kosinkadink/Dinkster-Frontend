@@ -270,7 +270,9 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
     const current = data()
     if (!current) return []
     const all = [...current.categories.available, ...Object.keys(current.settings).filter((category) => !current.categories.available.includes(category))]
-    return props.categories === undefined ? all : all.filter((category) => props.categories!.includes(category))
+    return all.filter((category) =>
+      (category !== 'p2p' || current.features?.p2p?.enabled === true)
+      && (props.categories === undefined || props.categories.includes(category)))
   }
   const editable = (category: string, section: RuntimeSettingSection): boolean =>
     (data()?.categories.granted.length ?? 0) > 0 && data()!.categories.granted.includes(category) && section.writable
