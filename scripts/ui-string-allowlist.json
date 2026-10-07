@@ -724,6 +724,7 @@
     "text:([]) const [error, setError] = createSignal('') const [rejected, setRejected] = createSignal",
     "text:(props.section.value) const [loggingRows, setLoggingRows] = createSignal",
     "text:Math.round(sizeBytes(value) / 1024 ** 2) const CATEGORY_LABELS: Readonly",
+    "text:asRecord(draft())[device] ?? props.memoryStatus?.memoryGovernor?.[device]?.budgetBytes ?? props.memoryStatus?.memoryGovernor?.[device]?.measured?.totalBytes ?? 0 return (",
     "text:const asRecord = (value: unknown): Record",
     "text:settings().settings[category] return",
     "text:typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record"
