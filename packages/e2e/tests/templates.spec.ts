@@ -17,6 +17,11 @@ const TEMPLATE_DOC = {
 }
 
 async function openTemplatesPanel(page: Page): Promise<void> {
+  await page.routeWebSocket('**/api/events*', () => {})
+  await page.route(`${MOCK}/api/settings`, (route) => route.fulfill({ json: {
+    features: { templates: { enabled: true }, p2p: { enabled: false } },
+    categories: { granted: [], available: [] }, settings: {},
+  } }))
   await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 },
     packs: { demo: { displayName: 'Demo Pack', assets: [{ id: 'model', name: 'Demo Model', digest: 'blake3:x', kind: 'model/checkpoint', size: 1024 }] } },
@@ -39,7 +44,7 @@ async function openTemplatesPanel(page: Page): Promise<void> {
   await page.route(`${MOCK}/api/packs/demo/templates/starter`, (route) => void route.fulfill({ json: TEMPLATE_DOC }))
 
   await page.goto('/')
-  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined)).toBe(true)
   await page.getByTestId('backends-toggle').click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()

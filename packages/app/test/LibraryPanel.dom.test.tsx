@@ -23,6 +23,27 @@ afterEach(() => {
 })
 
 describe('LibraryPanel', () => {
+  it('adds and withdraws a capability-controlled source without leaving its results reachable', async () => {
+    const packs = source('packs', 'Packs', [{ id: 'pack', title: 'Installed pack' }])
+    const templates = source('templates', 'Templates', [{ id: 'starter', title: 'Starter workflow' }])
+    const [sources, setSources] = createSignal<readonly CollectionSource[]>([packs])
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryPanel backend={() => backend} sources={sources()} />, root)
+    await vi.waitFor(() => expect(root.textContent).toContain('Installed pack'))
+    setSources([packs, templates])
+    root.querySelector<HTMLButtonElement>('[data-source="templates"]')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Starter workflow'))
+    setSources([packs])
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('packs')
+      expect(root.querySelector('[data-source="templates"]')).toBeNull()
+      expect(root.textContent).not.toContain('Starter workflow')
+      expect(root.textContent).toContain('Installed pack')
+    })
+    dispose()
+  })
+
   it('updates open detail and transition chrome when the active locale changes', async () => {
     registerCatalog('de-DE', {
       'library.action.confirmDelete': '[Loschen bestatigen]',

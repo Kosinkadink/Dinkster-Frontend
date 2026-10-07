@@ -31,6 +31,18 @@ afterEach(() => {
 })
 
 describe('RuntimeSettingsPanel', () => {
+  it('hides P2P settings despite granted write permissions when the feature is disabled', async () => {
+    const { root } = mount({
+      features: { p2p: { enabled: false } },
+      categories: { granted: ['p2p'], available: ['jobs', 'p2p'] },
+      settings: { jobs: section({ maxRunningJobs: 2 }), p2p: section({ downloadsEnabled: true }) },
+    })
+    root.querySelector<HTMLButtonElement>('.runtime-settings-toggle')!.click()
+    await flush()
+    expect(root.querySelector('[data-category="jobs"]')).not.toBeNull()
+    expect(root.querySelector('[data-category="p2p"]')).toBeNull()
+  })
+
   it('updates mounted runtime settings from the active locale catalog', async () => {
     registerCatalog('de-DE', {
       'runtimeSettings.category.jobs': '[Auftragsparallelitat]',

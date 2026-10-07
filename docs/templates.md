@@ -1,6 +1,17 @@
 # Starter templates
 
-An empty workflow stays on the canvas and offers **Browse starter templates**. Open the gallery from that button, the Library, or **Open template gallery** in universal search. Dismiss it with **Start blank**, the close button, Escape, or the backdrop. Failed catalog and template loads stay in the gallery with a retry button and never block dismissal. Opening, restoring, or switching to a working document also dismisses it. Templates are grouped by model family and show a thumbnail, source, description, and exact missing-model requirements. When no model folders are mounted, the gallery explains where models are read from. If the server allows mount changes, browser users can add a read-only folder by typing its server filesystem path in the gallery.
+Workflow templates are disabled by default. The backend's
+`features.templates.enabled` defaults to false. Until it reports true, the
+empty-canvas gallery button, gallery mount, universal-search command,
+Library Templates source, Learn template action and registry setting are
+absent. Catalog, body and thumbnail endpoints return 404 when disabled.
+Guide text remains available without template actions.
+
+The retained optional gallery behaves as follows when the backend explicitly
+enables templates. An empty workflow offers **Browse starter templates**.
+Open the gallery from that button, the Library, or **Open template gallery**
+in universal search. Dismiss it with **Start blank**, the close button, Escape,
+or the backdrop. Failed loads remain retryable and do not block dismissal.
 
 The Library sidebar and starter gallery search template identity, names, descriptions, families, and tags. Search lowercases the query and each searchable field, removes spaces and punctuation, and then performs a substring match. Thus `SD 1.5`, `sd1.5`, and `SD15` all match the `sd15` template id. `SDXL` matches the `sdxl` id, while `Stable Diffusion XL` matches the template name. Searches such as `stable`, `diffusion`, and `diffusion 1.5` continue to match the full template name. The Library pack selector applies the backend's exact pack filter.
 
@@ -12,7 +23,7 @@ Opening a template fits and centers its graph. When the complete graph fits at t
 
 ## Remote catalog
 
-Set **Template registry URL** in Settings to combine templates from a registry with the installed templates. The frontend consumes catalog version 1:
+When templates are enabled, set **Template registry URL** in Settings to combine templates from a registry with the installed templates. The frontend consumes catalog version 1:
 
 - `GET /index/templates` - descriptors from each pack's latest release. Descriptors carry `pack`, `version`, workflow digest, family, models, and optional thumbnail metadata.
 - `GET /index/packs/{pack}/versions/{version}/templates/{id}` - template body verified against the descriptor's SHA-256 digest before it is opened.

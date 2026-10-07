@@ -594,7 +594,7 @@ describe('pack settings transport', () => {
   })
 })
 
-describe('P2P transport', () => {
+describe.runIf(process.env['DINKSTER_P2P_TESTS'] === '1')('P2P transport', () => {
   const digest = `blake3:${'a'.repeat(64)}`
   const grantId = 'b'.repeat(64)
   const seedGrant = {

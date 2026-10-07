@@ -49,6 +49,10 @@ if (argumentProject) {
   mkdirSync(nativeOutput, { recursive: true })
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
   writeFileSync(
+    resolve(nativeLibrary, 'settings.json'),
+    JSON.stringify({ features: { p2p: { enabled: false }, templates: { enabled: true } } }),
+  )
+  writeFileSync(
     resolve(nativeLibrary, 'mounts.toml'),
     `[settings]\noutput-mount = "output"\n\n[mounts.output]\npath = ${JSON.stringify(nativeOutput)}\nmode = "readwrite"\n`,
   )

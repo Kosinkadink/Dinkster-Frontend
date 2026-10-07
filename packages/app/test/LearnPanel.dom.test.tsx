@@ -57,7 +57,7 @@ describe('LearnPanel', () => {
     const openTemplate = vi.fn()
     const host = document.createElement('div')
     document.body.append(host)
-    dispose = render(() => <LearnPanel backend={backend} locale={locale()} onOpenTemplate={openTemplate} />, host)
+    dispose = render(() => <LearnPanel backend={backend} locale={locale()} templatesEnabled={true} onOpenTemplate={openTemplate} />, host)
 
     await vi.waitFor(() => expect(host.querySelectorAll('.learn-guide-card')).toHaveLength(2))
     const search = host.querySelector('input')!

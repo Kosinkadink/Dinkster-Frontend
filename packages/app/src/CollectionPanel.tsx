@@ -175,6 +175,10 @@ export function CollectionPanel(props: {
 
   const source = (): CollectionSource | undefined => props.sources.find((s) => s.id === sourceId())
 
+  createEffect(() => {
+    if (source() === undefined) setSourceId(props.sources[0]?.id ?? '')
+  })
+
   const filterOptions = (filter: NonNullable<CollectionSource['filters']>[number]) => {
     void items()
     const options = filter.options()

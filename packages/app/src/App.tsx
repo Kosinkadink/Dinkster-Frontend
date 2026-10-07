@@ -540,7 +540,14 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const librarySources = [packsSource(app), templatesSource(app), workflowsSource(app), historySource(app), runsSource(app)]
+  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), historySource(app), runsSource(app)]
+  const libraryTemplatesEnabled = createMemo(() => {
+    tabs()
+    activeTabId()
+    backendsTick()
+    return app.libraryBackend()?.templatesEnabled.get() === true
+  })
+  const librarySources = createMemo(() => builtinLibrarySources.filter((source) => source.id !== 'templates' || libraryTemplatesEnabled()))
   // The backend the library browses (the active tab's target). A memo so
   // the panel re-pages exactly when the resolved backend IDENTITY changes
   // (tab switch onto another backend, retarget, backend removal) - not on
@@ -1219,7 +1226,7 @@ export function App(props: {
   // state.
   const LibraryBody = () => (
     <LibraryPanel
-      sources={librarySources}
+      sources={librarySources()}
       backend={() => {
         const backend = activeBackend()
         return { label: backend.label, protocol: backend.protocol, status: statusOf(backend) }
@@ -1376,6 +1383,7 @@ export function App(props: {
         return <LearnPanel
           backend={backend.protocol === 'dinkster' ? { id: backend.id, connection: backend.connection } : undefined}
           locale={locale().tag}
+          templatesEnabled={activeBackend().templatesEnabled.get()}
           onOpenTemplate={(pack, template, title, owner) => { void app.openTemplate(pack, template, title, owner) }}
         />
       },
@@ -1420,16 +1428,6 @@ export function App(props: {
       toggleTestId: 'memory-sidebar-toggle', component: () => <div class="memory-panels">
         <For each={backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')} fallback={<p>{message('shell.backend.noneNative')}</p>}>
           {(backend) => <MemoryPanel connection={backend.connection} backendId={backend.id} label={backend.label} />}
-        </For>
-      </div>,
-    }),
-    registerBuiltinPanel({
-      id: 'p2p', get title() { return message('p2p.tabTitle') }, icon: Network,
-      get description() { return message('p2p.panelDescription') }, get ariaLabel() { return message('p2p.title') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 36,
-      toggleTestId: 'p2p-sidebar-toggle', component: () => <div class="p2p-panels">
-        <For each={backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')} fallback={<p>{message('shell.backend.noneNative')}</p>}>
-          {(backend) => <P2PPanel connection={backend.connection} backendId={backend.id} backendLabel={backend.label} />}
         </For>
       </div>,
     }),
@@ -1558,6 +1556,47 @@ export function App(props: {
   onCleanup(() => {
     for (const un of unregisterPanels) un()
   })
+  const p2pBackends = createMemo(() => {
+    backendsTick()
+    return backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster' && backend.p2pEnabled.get())
+  })
+  const p2pAvailable = createMemo(() => p2pBackends().length > 0)
+  const templatesAvailable = createMemo(() => {
+    backendsTick()
+    return backends().some((backend) => backend.templatesEnabled.get())
+  })
+  createEffect(() => {
+    if (!p2pAvailable()) return
+    const unregister = registerBuiltinPanel({
+      id: 'p2p', get title() { return message('p2p.tabTitle') }, icon: Network,
+      get description() { return message('p2p.panelDescription') }, get ariaLabel() { return message('p2p.title') },
+      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 36,
+      toggleTestId: 'p2p-sidebar-toggle', component: () => <div class="p2p-panels">
+        <For each={p2pBackends()}>
+          {(backend) => <P2PPanel connection={backend.connection} backendId={backend.id} backendLabel={backend.label} />}
+        </For>
+      </div>,
+    })
+    onCleanup(unregister)
+  })
+  createEffect(() => {
+    if (!templatesAvailable()) {
+      app.templateGalleryOpen.set(false)
+      return
+    }
+    const unregisterSetting = app.settings.register({
+      id: 'templates.registryUrl',
+      get name() { return t('settings.templates.registryUrl.name') },
+      get description() { return t('settings.templates.registryUrl.description') },
+      category: 'templates', type: 'string', defaultValue: '',
+    })
+    const unregisterCommand = app.frontendDoors.command('workflow.openTemplateGallery', {
+      get label() { return t('command.workflow.openTemplateGallery') },
+      run: () => app.templateGalleryOpen.set(true),
+      enabled: () => app.activeTab() !== undefined && app.activeTab()?.execution === undefined && activeBackend().templatesEnabled.get(),
+    })
+    onCleanup(() => { unregisterCommand(); unregisterSetting() })
+  })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
   const GraphEditor = (editorProps: { readonly host?: EditorHostContext }) => {
@@ -1590,12 +1629,14 @@ export function App(props: {
           {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
           {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />
       </div>
-      <Show when={empty() && !galleryRequested()}>
+      <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
         <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
           {message('templateGallery.open')}
         </ProductButton>
       </Show>
-      <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
+      <Show when={activeBackend().templatesEnabled.get()}>
+        <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
+      </Show>
     </div>
   }
   const unregisterEditors = app.frontendDoors.editor(GRAPH_EDITOR_KIND, {

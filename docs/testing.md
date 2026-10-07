@@ -86,7 +86,10 @@ pins:
 
 The heavy jobs retain the shared memory-only dependency identity action and
 clean checkouts without persisted credentials. The audit-assets browser starts the
-pinned Dinkster checkout and uses frontend/native ports 15376/15377. Full E2E
+pinned Dinkster checkout and uses frontend/native ports 15376/15377. Its subgraph
+import readiness count follows the served `/api/nodes` catalog; graph structure
+and diagnostic expectations remain fixed goldens in `native-catalog.json`.
+Full E2E
 uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
 compatibility dependencies into the pinned ComfyUI interpreter used by its
 full composition. Its contract proof separately starts Dinkster with
@@ -94,6 +97,10 @@ full composition. Its contract proof separately starts Dinkster with
 on ports 15420/15421, activates the fixture pack's immutable frontend module,
 renders two custom nodes linked through the pack's custom value type, executes
 the consumer, and observes its typed route and event in host-owned UI.
+The isolated hosted library explicitly enables templates for positive gallery
+and loop-template coverage; P2P stays disabled. Template-dependent route fixtures
+also report templates enabled. Disabled-feature specs override those capabilities
+to assert the production default, which remains disabled for both features.
 Base, hosted and audit Playwright servers explicitly enable the v1
 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing

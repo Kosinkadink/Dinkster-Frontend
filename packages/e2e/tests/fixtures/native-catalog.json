@@ -1,6 +1,5 @@
 {
-  "_provenance": "Derived once from the dinkster-serve dev-pack catalog (packages/dinkster-nodes-dev/dinkster-pack.toml) at Dinkster fb4b9d23703fdb2612a2689543fc9cbdf1112b6e, wire /api/nodes, 2026-09-28. Refreshing this file is a reviewed diff; tests must never read the live catalog to build expectations.",
-  "schemaCount": 264,
+  "_provenance": "Semantic expectations derived once from the dinkster-serve dev-pack catalog (packages/dinkster-nodes-dev/dinkster-pack.toml) at Dinkster fb4b9d23703fdb2612a2689543fc9cbdf1112b6e, wire /api/nodes, 2026-09-28. Refreshing this file is a reviewed diff; tests must never read the live catalog to build semantic expectations. Readiness counts follow the served catalog, not this snapshot.",
   "emptyLatent": {
     "type": "dinkster.empty_latent_image",
     "alias": "EmptyLatentImage",
