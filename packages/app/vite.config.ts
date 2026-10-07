@@ -76,6 +76,7 @@ export default defineConfig({
       '/api/sessions': { ...nativeHttp, ws: true },
       '/api': nativeHttp,
       '/memory': nativeHttp,
+      '/cache': nativeHttp,
       '/supervisor': nativeHttp,
       // Legacy ComfyUI (v1) endpoints.
       '/object_info': v1Http,
