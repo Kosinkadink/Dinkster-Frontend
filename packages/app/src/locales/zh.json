@@ -1222,6 +1222,7 @@
   "runtimeSettings.memory.budget": "{device} 内存预算",
   "runtimeSettings.memory.budgetMiB": "{device} 预算 (MiB)",
   "runtimeSettings.memory.budgetSlider": "{device} 内存预算滑块",
+  "runtimeSettings.memory.automatic": "自动（无显式预算）",
   "runtimeSettings.memory.headroom": "内存余量",
   "runtimeSettings.memory.headroomBytes": "内存余量（字节或 K/M/G/T）",
   "runtimeSettings.memory.headroomMiB": "内存余量 (MiB)",

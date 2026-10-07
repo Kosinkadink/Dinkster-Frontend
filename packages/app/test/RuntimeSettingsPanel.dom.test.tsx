@@ -190,6 +190,26 @@ describe('RuntimeSettingsPanel', () => {
     expect(root.textContent).toContain('This change is in-memory only')
   })
 
+  it('allows an explicit override for a reported device with no configured budget', async () => {
+    const update = vi.fn(async (_category: string, value: unknown) => section(value))
+    const root = document.createElement('div'); document.body.append(root)
+    render(() => <RuntimeSettingsPanel alwaysOpen memoryControls connection={{
+      fetchRuntimeSettings: vi.fn(async () => ({ categories: { granted: ['memory-budgets'], available: ['memory-budgets'] }, settings: { 'memory-budgets': section({}) } })),
+      updateRuntimeSetting: update,
+    }} memoryStatus={{ devices: {}, queue: { queued: 0, running: [], maxRunningJobs: 1, paused: false }, leases: [], memoryGovernor: {
+      'vram:cuda:1': { budgetBytes: 6 * 1024 ** 3, reservedBytes: 0, consumerFootprintBytes: 0, availableBytes: 6 * 1024 ** 3, measured: { freeBytes: 7 * 1024 ** 3, totalBytes: 8 * 1024 ** 3 }, consumers: {} },
+    } }} />, root)
+    await flush()
+    expect(root.textContent).toContain('Automatic (no explicit budget)')
+    const number = root.querySelector<HTMLInputElement>('[aria-label="vram:cuda:1 memory budget"]')!
+    expect(number.value).toBe('6144')
+    expect(update).not.toHaveBeenCalled()
+    number.value = '4096'; number.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    root.querySelector<HTMLFormElement>('form[data-category="memory-budgets"]')!.requestSubmit()
+    await flush()
+    expect(update).toHaveBeenCalledWith('memory-budgets', { 'vram:cuda:1': 4096 * 1024 ** 2 })
+  })
+
   it('keeps product budget inputs and sliders synchronized without saving before Apply', async () => {
     const update = vi.fn(async (_category: string, value: unknown) => section(value))
     const connection = {

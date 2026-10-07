@@ -1220,6 +1220,7 @@
   "runtimeSettings.memory.budget": "{device} memory budget",
   "runtimeSettings.memory.budgetMiB": "{device} budget (MiB)",
   "runtimeSettings.memory.budgetSlider": "{device} memory budget slider",
+  "runtimeSettings.memory.automatic": "Automatic (no explicit budget)",
   "runtimeSettings.memory.headroom": "Memory headroom",
   "runtimeSettings.memory.headroomBytes": "Headroom (bytes or K/M/G/T)",
   "runtimeSettings.memory.headroomMiB": "Headroom (MiB)",

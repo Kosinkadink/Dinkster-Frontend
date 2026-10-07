@@ -95,7 +95,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await page.route(`${PRIMARY}/supervisor/status`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${PRIMARY}/system_stats`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${PRIMARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
-  await page.route(`${PRIMARY}/api/settings`, (route) => route.fulfill({ json: settings }))
+  await page.route(`${PRIMARY}/api/settings`, (route) => route.fulfill({ json: { ...settings, settings: { ...settings.settings, 'memory-budgets': section({}) } } }))
   await page.route(`${PRIMARY}/api/settings/memory-headroom`, (route) => rejectHeadroom ? route.fulfill({ status: 400, json: {
     error: 'invalid-settings', category: 'memory-headroom', message: 'Headroom exceeds server policy.', offendingFlag: '--reserve-vram', owner: 'host-policy',
   } }) : route.fulfill({ json: section(route.request().postDataJSON()) }))
@@ -193,6 +193,8 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
 
   const budgetSection = primary.locator('.runtime-setting-category[data-category="memory-budgets"]')
   const budget = budgetSection.getByRole('spinbutton', { name: 'cuda:0 budget (MiB)', exact: true })
+  await expect(budgetSection).toContainText('Current settingAutomatic (no explicit budget)')
+  await expect(budget).toHaveValue('8192')
   await budget.fill('4096')
   primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
   await expect(budget).toHaveValue('4096')

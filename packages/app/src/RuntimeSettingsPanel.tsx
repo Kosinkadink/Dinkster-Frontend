@@ -55,6 +55,7 @@ function CategoryEditor(props: {
   readonly onSaveStart: () => void
   readonly onSaved: (section: RuntimeSettingSection) => void
   readonly memoryControls?: boolean
+  readonly memoryStatus?: MemoryStatus
 }) {
   const message = useAppMessage()
   const categoryLabel = (): string => {
@@ -113,13 +114,14 @@ function CategoryEditor(props: {
   }
   const editorId = createUniqueId()
   const fieldId = (name: string): string => `${editorId}-runtime-${props.category}-${encodeURIComponent(name)}`
+  const budgetValue = (device: string): unknown => asRecord(draft())[device] ?? props.memoryStatus?.memoryGovernor?.[device]?.budgetBytes ?? props.memoryStatus?.memoryGovernor?.[device]?.measured?.totalBytes ?? 0
 
   return (
     <form class="runtime-settings-editor" data-category={props.category} onSubmit={(event) => void save(event)}>
       <fieldset disabled={saving()}>
         <legend>{message('runtimeSettings.editor.legend', { category: categoryLabel() })}</legend>
         <Show when={props.category === 'memory-budgets'}>
-          <For each={Object.keys(asRecord(props.section.value))}>{(device) => {
+          <For each={[...new Set([...Object.keys(asRecord(props.section.value)), ...Object.keys(props.memoryControls ? props.memoryStatus?.memoryGovernor ?? {} : {})])]}>{(device) => {
             const controlId = fieldId(`memory-${device}`)
             const ids = productFieldIds(controlId)
             return <ProductField controlId={controlId} label={props.memoryControls ? message('runtimeSettings.memory.budgetMiB', { device }) : device} layout="stack">
@@ -127,8 +129,8 @@ function CategoryEditor(props: {
                 <input id={controlId} aria-label={message('runtimeSettings.memory.budget', { device })} aria-labelledby={ids.label} value={String(asRecord(draft())[device])} onInput={(event) => change({ ...asRecord(draft()), [device]: sizeValue(event.currentTarget.value) })} />
               }>
                 <div class="runtime-memory-control">
-                  <ProductNumberInput id={controlId} ariaLabel={message('runtimeSettings.memory.budget', { device })} ariaLabelledBy={ids.label} inputMode="numeric" min={0} step={64} value={sizeMiB(asRecord(draft())[device])} onInput={(value) => change({ ...asRecord(draft()), [device]: Number(value) * 1024 ** 2 })} />
-                  <ProductSlider ariaLabel={message('runtimeSettings.memory.budgetSlider', { device })} min={0} max={budgetMaximums()[device] ?? 1024} step={64} value={sizeMiB(asRecord(draft())[device])} onInput={(value) => change({ ...asRecord(draft()), [device]: value * 1024 ** 2 })} />
+                  <ProductNumberInput id={controlId} ariaLabel={message('runtimeSettings.memory.budget', { device })} ariaLabelledBy={ids.label} inputMode="numeric" min={0} step={64} value={sizeMiB(budgetValue(device))} onInput={(value) => change({ ...asRecord(draft()), [device]: Number(value) * 1024 ** 2 })} />
+                  <ProductSlider ariaLabel={message('runtimeSettings.memory.budgetSlider', { device })} min={0} max={budgetMaximums()[device] ?? Math.max(1024, sizeMiB(props.memoryStatus?.memoryGovernor?.[device]?.budgetBytes ?? props.memoryStatus?.memoryGovernor?.[device]?.measured?.totalBytes) * 2)} step={64} value={sizeMiB(budgetValue(device))} onInput={(value) => change({ ...asRecord(draft()), [device]: value * 1024 ** 2 })} />
                 </div>
               </Show>
             </ProductField>
@@ -292,7 +294,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
   }
   const memoryValue = (category: string, value: unknown): string => {
     const mib = (bytes: unknown): string => `${Number((sizeBytes(bytes) / 1024 ** 2).toFixed(3))} MiB`
-    if (category === 'memory-budgets') return Object.entries(asRecord(value)).map(([device, bytes]) => `${device}: ${mib(bytes)}`).join('; ') || message('memory.metric.unavailable')
+    if (category === 'memory-budgets') return Object.entries(asRecord(value)).map(([device, bytes]) => `${device}: ${mib(bytes)}`).join('; ') || message('runtimeSettings.memory.automatic')
     return category === 'memory-headroom' ? mib(value) : String(value)
   }
   const effectiveMemoryValue = (category: string): string => {
@@ -339,7 +341,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
                     <Show when={item().mutability === 'on-worker-restart'}><ProductNotice tone="info">{message('runtimeSettings.notice.workerRestart')}</ProductNotice></Show>
                     <Show when={!settings().categories.granted.includes(category)}><ProductNotice tone="warning">{message('runtimeSettings.warning.categoryNotGranted', { category: categoryLabel(category) })}</ProductNotice></Show>
                     <Show when={settings().categories.granted.includes(category) && !item().writable}><ProductNotice tone="info">{message('runtimeSettings.notice.readOnly')}</ProductNotice></Show>
-                    <Show when={editable(category, item()) && knownEditor(category)}><CategoryEditor category={category} section={item()} connection={props.connection} onSaveStart={invalidateLoad} onSaved={(updated) => replace(category, updated)} {...(props.memoryControls === undefined ? {} : { memoryControls: props.memoryControls })} /></Show>
+                    <Show when={editable(category, item()) && knownEditor(category)}><CategoryEditor category={category} section={item()} connection={props.connection} onSaveStart={invalidateLoad} onSaved={(updated) => replace(category, updated)} {...(props.memoryControls === undefined ? {} : { memoryControls: props.memoryControls })} {...(props.memoryStatus === undefined ? {} : { memoryStatus: props.memoryStatus })} /></Show>
                     <Show when={item().source === 'runtime' && (!item().persistence.available || !item().persistence.persisted)}><ProductNotice tone="status">{message('runtimeSettings.notice.memoryOnly')}</ProductNotice></Show>
                   </div>
                 </details>

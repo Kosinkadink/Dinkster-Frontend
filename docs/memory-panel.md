@@ -81,6 +81,9 @@ Current settings display readable MiB values rather than raw JSON. Effective
 budget/headroom values come from live telemetry, while Aimdo lists the policy
 applied to each existing worker. A changed next-start policy does not claim
 that running workers changed; missing applied telemetry remains not reported.
+Reported memory devices have budget inputs even without an explicit override.
+The current setting is labelled automatic; the editor starts from the live
+budget or measured capacity and sends an override only after Apply.
 
 Unload all requests all sheddable device memory from the governor. Each model
 has an unload action scoped to its consumer and item id. The result reports
