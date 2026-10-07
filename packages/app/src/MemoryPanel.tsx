@@ -3,6 +3,7 @@ import { formatDate } from '@dinkster/core'
 import type { ConnectionStatus, DinksterConnection, MemoryGovernorDevice, MemoryStatus } from '@dinkster/client'
 import { ProductNotice } from './ProductForm.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
+import { useAppMessage } from './locale.js'
 import {
   appendMemorySample,
   deviceBarSegments,
@@ -177,6 +178,7 @@ function cssColor(host: HTMLElement, name: string): string {
 }
 
 function MemoryGraph(props: { readonly samples: readonly MemorySample[] }) {
+  const message = useAppMessage()
   let host: HTMLDivElement | undefined
   let canvas: HTMLCanvasElement | undefined
   const [hover, setHover] = createSignal<MemorySample>()
@@ -232,7 +234,7 @@ function MemoryGraph(props: { readonly samples: readonly MemorySample[] }) {
     </div>
     <p>{hover() === undefined ? 'Footprint, reservations, and capacity' : `${formatDate(hover()!.timestamp, { timeStyle: 'medium' })} - ${formatBytes(hover()!.footprintBytes)} footprint, ${formatBytes(hover()!.reservedBytes)} reserved`}</p>
     <details class="memory-data-disclosure" open={open()} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>History data (last 120 s)</summary>
+      <summary>{message('memory.history.window')}</summary>
       <div class="memory-table-scroll" tabindex="0" aria-label="Memory history table">
         <table><thead><tr><th>Time</th><th>Footprint</th><th>Reserved</th><th>Capacity</th></tr></thead><tbody>
           <For each={visibleSamples()}>{(sample) => <tr><td>{formatDate(sample.timestamp, { timeStyle: 'medium' })}</td><td>{formatBytes(sample.footprintBytes)}</td><td>{formatBytes(sample.reservedBytes)}</td><td>{formatBytes(sample.capacityBytes)}</td></tr>}</For>

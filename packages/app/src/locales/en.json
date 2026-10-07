@@ -903,6 +903,7 @@
   "mediaInspector.status.notReportedForKind": "Not reported for this value kind",
   "mediaInspector.status.ownerUnavailable": "Execution owner unavailable.",
   "mediaInspector.summary.inspect": "Inspect {nodeId} / {outputId}",
+  "memory.history.window": "History data (last 120 s)",
   "learn.action.back": "Back to guides",
   "learn.action.loadMore": "Load more",
   "learn.action.openTemplate": "Open template",

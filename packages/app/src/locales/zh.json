@@ -905,6 +905,7 @@
   "mediaInspector.status.notReportedForKind": "未报告此值类型",
   "mediaInspector.status.ownerUnavailable": "执行所有者不可用。",
   "mediaInspector.summary.inspect": "检查 {nodeId} / {outputId}",
+  "memory.history.window": "历史数据 (最近 120 秒)",
   "learn.action.back": "返回指南",
   "learn.action.loadMore": "加载更多",
   "learn.action.openTemplate": "打开模板",
