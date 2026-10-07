@@ -105,6 +105,10 @@ test('refreshes the remote family gallery and opens a digest-verified template',
     throw new Error('local registry did not bind')
   const registryUrl = `http://127.0.0.1:${address.port}`
   try {
+    await page.route('/api/settings', (route) => route.fulfill({ json: {
+      features: { templates: { enabled: true }, p2p: { enabled: false } },
+      categories: { granted: [], available: [] }, settings: {},
+    } }))
     await page.route('/api/nodes*', (route) =>
       route.fulfill({
         json: {

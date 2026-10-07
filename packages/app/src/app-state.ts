@@ -4133,6 +4133,11 @@ export class AppState {
       const requestCurrentDiagnostics = (gen: number): void => {
         requestDiagnostics(gen)
         requestCompositionProblems(gen)
+        void connection.fetchRuntimeSettings().then((settings) => {
+          if (gen !== staleGen) return
+          base.p2pEnabled.set(settings.features?.p2p?.enabled === true)
+          base.templatesEnabled.set(settings.features?.templates?.enabled === true)
+        }).catch(() => undefined)
       }
       refreshDiagnostics = () => requestCurrentDiagnostics(staleGen)
       const startRefresh = (why: string): void => {
@@ -4219,12 +4224,7 @@ export class AppState {
         staleGen += 1
         base.p2pEnabled.set(false)
         base.templatesEnabled.set(false)
-        const generation = staleGen
-        void connection.fetchRuntimeSettings().then((settings) => {
-          if (generation !== staleGen || connection.status.get() !== 'connected') return
-          base.p2pEnabled.set(settings.features?.p2p?.enabled === true)
-          base.templatesEnabled.set(settings.features?.templates?.enabled === true)
-        }).catch(() => undefined)
+        requestCurrentDiagnostics(staleGen)
         // graphFeatures and the extension snapshot pair are load-bearing and
         // belong to one server lifetime. Strip both from every observable
         // registry SYNCHRONOUSLY, so no work inside the refresh window uses

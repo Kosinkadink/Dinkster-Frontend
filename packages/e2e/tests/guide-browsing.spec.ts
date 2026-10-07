@@ -15,6 +15,10 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
   const pageRequests: string[] = []
   const templateRequests: string[] = []
 
+  await page.route('/api/settings', (route) => route.fulfill({ json: {
+    features: { templates: { enabled: true }, p2p: { enabled: false } },
+    categories: { granted: [], available: [] }, settings: {},
+  } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/api/nodes*', (route) => {
     nodeRequests += 1
