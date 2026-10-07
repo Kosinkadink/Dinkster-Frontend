@@ -257,6 +257,10 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary).toContainText('Memory governor telemetry is unsupported')
   await expect(primary).toContainText('Lease telemetry is unsupported')
   if (proofDir) await captureAt(page, primary.getByText('Memory governor telemetry is unsupported'), 'memory-unsupported.png')
+  primarySocket!.close()
+  await expect(primary.locator('.memory-telemetry-state')).toHaveText('Disconnected')
+  await scrollPanelToTop(page)
+  if (proofDir) await capture(page, 'memory-disconnected.png')
 })
 
 test('Memory surface remains usable on touch, narrow layout, reduced motion, and 200 percent equivalent zoom', async ({ browser, baseURL }, testInfo) => {
@@ -284,6 +288,7 @@ test('Memory surface remains usable on touch, narrow layout, reduced motion, and
   await expect(panel).toContainText('Flux model with a long descriptive residency label')
   await expect(panel.locator('.memory-consumer > button')).toHaveCSS('min-height', '40px')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await scrollPanelToTop(page)
   await testInfo.attach('memory-narrow.png', { body: await capture(page, 'memory-narrow.png'), contentType: 'image/png' })
 
   await page.setViewportSize({ width: 720, height: 450 })
