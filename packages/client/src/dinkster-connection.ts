@@ -865,6 +865,15 @@ export interface MemoryStatus {
   readonly memoryGovernor: Readonly<Record<string, MemoryGovernorDevice>> | null
   readonly leases: readonly { readonly reservationId: string; readonly device: string; readonly bytes: number; readonly expiresInSeconds: number }[] | null
   readonly consumerDetails?: Readonly<Record<string, readonly MemoryConsumerItem[]>>
+  readonly acceleratorPolicy?: {
+    readonly physicalHeadroomBytes: number
+    readonly aimdoConfiguredPolicy?: string
+    readonly aimdoPoliciesByWorker?: Readonly<Record<string, string>>
+    readonly devices: Readonly<Record<string, {
+      readonly governorAdmission: { readonly budgetBytes: number | null; readonly effectiveBudgetBytes?: number }
+      readonly residencyApplied: { readonly budgetsByWorker: Readonly<Record<string, number | null>> }
+    }>>
+  }
 }
 
 function decodeMemoryStatus(value: unknown): MemoryStatus | undefined {
@@ -893,6 +902,15 @@ function decodeMemoryStatus(value: unknown): MemoryStatus | undefined {
   })) return undefined
   if (Array.isArray(status['leases']) && !status['leases'].every((lease) => record(lease) &&
     typeof lease['reservationId'] === 'string' && typeof lease['device'] === 'string' && finite(lease['bytes']) && finite(lease['expiresInSeconds']))) return undefined
+  const policy = status['acceleratorPolicy']
+  if (policy !== undefined && (!record(policy) || !finite(policy['physicalHeadroomBytes']) || !record(policy['devices']) ||
+    (policy['aimdoConfiguredPolicy'] !== undefined && typeof policy['aimdoConfiguredPolicy'] !== 'string') ||
+    (policy['aimdoPoliciesByWorker'] !== undefined && (!record(policy['aimdoPoliciesByWorker']) || !Object.values(policy['aimdoPoliciesByWorker']).every((value) => typeof value === 'string'))) ||
+    !Object.values(policy['devices']).every((device) => record(device) && record(device['governorAdmission']) &&
+      (device['governorAdmission']['budgetBytes'] === null || finite(device['governorAdmission']['budgetBytes'])) &&
+      (device['governorAdmission']['effectiveBudgetBytes'] === undefined || finite(device['governorAdmission']['effectiveBudgetBytes'])) &&
+      record(device['residencyApplied']) && record(device['residencyApplied']['budgetsByWorker']) &&
+      Object.values(device['residencyApplied']['budgetsByWorker']).every((budget) => budget === null || finite(budget))))) return undefined
   if (status['consumerDetails'] !== undefined && (!record(status['consumerDetails']) || !Object.values(status['consumerDetails']).every((items) => Array.isArray(items) && items.every((item) => {
     if (!record(item) || typeof item['itemId'] !== 'string' || typeof item['displayName'] !== 'string' || !numberRecord(item['bytesByResidency'])) return false
     const pages = item['pages']

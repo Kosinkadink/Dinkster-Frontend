@@ -2,6 +2,7 @@ import { createEffect, createSignal, createUniqueId, For, Index, onMount, Show }
 import {
   RuntimeSettingsError,
   type DinksterConnection,
+  type MemoryStatus,
   type RuntimeSettingSection,
   type RuntimeSettings,
 } from '@dinkster/client'
@@ -235,7 +236,7 @@ function CategoryEditor(props: {
   )
 }
 
-export function RuntimeSettingsPanel(props: { readonly connection: SettingsConnection; readonly backendLabel?: string; readonly categories?: readonly string[]; readonly alwaysOpen?: boolean; readonly memoryControls?: boolean; readonly showGrantWarnings?: boolean }) {
+export function RuntimeSettingsPanel(props: { readonly connection: SettingsConnection; readonly backendLabel?: string; readonly categories?: readonly string[]; readonly alwaysOpen?: boolean; readonly memoryControls?: boolean; readonly showGrantWarnings?: boolean; readonly memoryStatus?: MemoryStatus }) {
   const message = useAppMessage()
   const [open, setOpen] = createSignal(props.alwaysOpen === true)
   const [loading, setLoading] = createSignal(false)
@@ -289,6 +290,17 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
     const current = data()
     if (current) setData({ ...current, settings: { ...current.settings, [category]: section } })
   }
+  const memoryValue = (category: string, value: unknown): string => {
+    const mib = (bytes: unknown): string => `${Number((sizeBytes(bytes) / 1024 ** 2).toFixed(3))} MiB`
+    if (category === 'memory-budgets') return Object.entries(asRecord(value)).map(([device, bytes]) => `${device}: ${mib(bytes)}`).join('; ') || message('memory.metric.unavailable')
+    return category === 'memory-headroom' ? mib(value) : String(value)
+  }
+  const effectiveMemoryValue = (category: string): string => {
+    const policy = props.memoryStatus?.acceleratorPolicy
+    if (category === 'memory-headroom') return policy === undefined ? message('memory.metric.unavailable') : memoryValue(category, policy.physicalHeadroomBytes)
+    if (category === 'aimdo-policy') return Object.entries(policy?.aimdoPoliciesByWorker ?? {}).map(([worker, value]) => `${worker}: ${value}`).join('; ') || message('memory.metric.unavailable')
+    return Object.entries(props.memoryStatus?.memoryGovernor ?? {}).map(([device, value]) => `${device}: ${value.budgetBytes === null ? message('memory.metric.unavailable') : memoryValue('memory-headroom', policy?.devices[device]?.governorAdmission.effectiveBudgetBytes ?? value.budgetBytes)}`).join('; ') || message('memory.metric.unavailable')
+  }
 
   return (
     <section class="runtime-settings" data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
@@ -316,7 +328,10 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
                   </summary>
                   <div class="runtime-setting-content">
                     <dl class="runtime-setting-metadata">
-                      <div><dt>{message('runtimeSettings.metadata.effectiveValue')}</dt><dd><code>{JSON.stringify(item().value)}</code></dd></div>
+                      <Show when={props.memoryControls} fallback={<div><dt>{message('runtimeSettings.metadata.effectiveValue')}</dt><dd><code>{JSON.stringify(item().value)}</code></dd></div>}>
+                        <div><dt>{message('runtimeSettings.metadata.currentValue')}</dt><dd>{memoryValue(category, item().value)}</dd></div>
+                        <div><dt>{message(category === 'aimdo-policy' ? 'runtimeSettings.metadata.appliedWorkers' : 'runtimeSettings.metadata.effectiveValue')}</dt><dd>{effectiveMemoryValue(category)}</dd></div>
+                      </Show>
                       <div><dt>{message('runtimeSettings.metadata.source')}</dt><dd>{item().source}</dd></div>
                       <div><dt>{message('runtimeSettings.metadata.mutability')}</dt><dd>{item().mutability}</dd></div>
                       <div><dt>{message('runtimeSettings.metadata.persistence')}</dt><dd>{message(item().persistence.available ? item().persistence.persisted ? 'runtimeSettings.persistence.persisted' : 'runtimeSettings.persistence.notPersisted' : 'runtimeSettings.persistence.unavailable')}</dd></div>

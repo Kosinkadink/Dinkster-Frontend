@@ -77,6 +77,10 @@ workers started after the change. This composes the shared runtime settings
 surface: loading and refresh errors, grants, read-only state, dirty drafts,
 saving, returned-section replacement, validation or permission rejection,
 rejected flags, and persistence retain their existing behavior.
+Current settings display readable MiB values rather than raw JSON. Effective
+budget/headroom values come from live telemetry, while Aimdo lists the policy
+applied to each existing worker. A changed next-start policy does not claim
+that running workers changed; missing applied telemetry remains not reported.
 
 Unload all requests all sheddable device memory from the governor. Each model
 has an unload action scoped to its consumer and item id. The result reports

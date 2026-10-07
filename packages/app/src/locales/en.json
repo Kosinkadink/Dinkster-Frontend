@@ -1223,6 +1223,8 @@
   "runtimeSettings.memory.headroomMiB": "Headroom (MiB)",
   "runtimeSettings.memory.headroomSlider": "Memory headroom slider",
   "runtimeSettings.metadata.effectiveValue": "Effective value",
+  "runtimeSettings.metadata.currentValue": "Current setting",
+  "runtimeSettings.metadata.appliedWorkers": "Applied worker policies",
   "runtimeSettings.metadata.mutability": "Mutability",
   "runtimeSettings.metadata.persistence": "Persistence",
   "runtimeSettings.metadata.source": "Source",

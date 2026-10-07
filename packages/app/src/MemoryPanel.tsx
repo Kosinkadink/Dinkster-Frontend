@@ -482,7 +482,7 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
       <section class="memory-controls" aria-label={`${props.label} memory and Aimdo settings`}>
         <header><div><span class="memory-eyebrow">Server settings</span><h3>Memory and Aimdo controls</h3></div></header>
         <p>Budget and headroom changes apply live. Aimdo policy applies to workers started after the change.</p>
-        <RuntimeSettingsPanel connection={props.connection} backendLabel={props.label} categories={['memory-budgets', 'memory-headroom', 'aimdo-policy']} alwaysOpen memoryControls showGrantWarnings />
+        <RuntimeSettingsPanel connection={props.connection} backendLabel={props.label} categories={['memory-budgets', 'memory-headroom', 'aimdo-policy']} alwaysOpen memoryControls showGrantWarnings memoryStatus={data()} />
       </section>
       <section class="memory-leases" aria-label="Active memory leases">
         <header><div><span class="memory-eyebrow">Reservations</span><h3>Active leases</h3></div><Show when={data().leases !== null}><span>{data().leases!.length} active</span></Show></header>

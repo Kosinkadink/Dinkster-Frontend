@@ -1225,6 +1225,8 @@
   "runtimeSettings.memory.headroomMiB": "内存余量 (MiB)",
   "runtimeSettings.memory.headroomSlider": "内存余量滑块",
   "runtimeSettings.metadata.effectiveValue": "有效值",
+  "runtimeSettings.metadata.currentValue": "当前设置",
+  "runtimeSettings.metadata.appliedWorkers": "已应用的工作进程策略",
   "runtimeSettings.metadata.mutability": "可变性",
   "runtimeSettings.metadata.persistence": "持久化",
   "runtimeSettings.metadata.source": "源",

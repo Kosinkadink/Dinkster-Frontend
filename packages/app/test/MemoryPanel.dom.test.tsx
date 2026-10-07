@@ -249,7 +249,10 @@ describe('MemoryPanel', () => {
     const status = createSignal<ConnectionStatus>('disconnected')
     const runtimeSection = (value: unknown, mutability: 'live' | 'on-worker-restart' = 'live') => ({ value, source: 'default' as const, mutability, writable: true, persistence: { available: true, persisted: true } })
     const updateRuntimeSetting = vi.fn(async (_category: string, value: unknown) => runtimeSection(value))
-    const zeroSegmentPayload: MemoryStatus = { ...payload, memoryGovernor: { 'cuda:0': { ...payload.memoryGovernor!['cuda:0']!, reservedBytes: 0 } } }
+    const zeroSegmentPayload: MemoryStatus = { ...payload, memoryGovernor: { 'cuda:0': { ...payload.memoryGovernor!['cuda:0']!, reservedBytes: 0 } },
+      acceleratorPolicy: { physicalHeadroomBytes: 128 * 1024 ** 2, aimdoConfiguredPolicy: 'auto', aimdoPoliciesByWorker: { 'worker-one': 'off' },
+        devices: { 'cuda:0': { governorAdmission: { budgetBytes: 8 * 1024 ** 3, effectiveBudgetBytes: 7 * 1024 ** 3 }, residencyApplied: { budgetsByWorker: {} } } } },
+    }
     const connection = {
       status, fetchMemoryStatus: vi.fn(async () => zeroSegmentPayload), onMemoryStatus: () => () => {},
       fetchRuntimeSettings: vi.fn(async () => ({
@@ -282,6 +285,10 @@ describe('MemoryPanel', () => {
     expect(root.querySelector('[data-category="memory-budgets"]')).not.toBeNull()
     expect(root.querySelector('[data-category="jobs"]')).toBeNull()
     expect(root.querySelector('[data-category="aimdo-policy"]')?.textContent).toContain('Changes apply to workers started later.')
+    expect(root.querySelector('[data-category="memory-budgets"]')?.textContent).toContain('Current settingcuda:0: 8192 MiB')
+    expect(root.querySelector('[data-category="memory-budgets"]')?.textContent).toContain('Effective valuecuda:0: 7168 MiB')
+    expect(root.querySelector('[data-category="memory-headroom"]')?.textContent).toContain('Effective value128 MiB')
+    expect(root.querySelector('[data-category="aimdo-policy"]')?.textContent).toContain('Applied worker policiesworker-one: off')
     const headroom = root.querySelector<HTMLInputElement>('[aria-label="Memory headroom"]')!
     headroom.value = '512'; headroom.dispatchEvent(new InputEvent('input', { bubbles: true }))
     root.querySelector<HTMLFormElement>('form[data-category="memory-headroom"]')!.requestSubmit()
