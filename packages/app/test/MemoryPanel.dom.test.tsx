@@ -169,7 +169,7 @@ describe('MemoryPanel', () => {
       measured: { freeBytes: 5 * 1024 ** 3, totalBytes: 12 * 1024 ** 3, driverFreeBytes: 4 * 1024 ** 3,
         torchAllocatedBytes: 2 * 1024 ** 3, torchReservedBytes: 3 * 1024 ** 3,
         gpuName: 'Measured GPU', gpuUtilizationPercent: 73, gpuTemperatureCelsius: 61,
-        gpuPowerMilliwatts: 121000, processRssBytes: 1536 * 1024 ** 2, pinnedHostBytes: 512 * 1024 ** 2 },
+        gpuPowerMilliwatts: 121000, gpuPowerLimitMilliwatts: 170000, processRssBytes: 1536 * 1024 ** 2, pinnedHostBytes: 512 * 1024 ** 2 },
     } } }
     const unloadMemory = vi.fn(async () => ({ requestedBytes: 1000, freedBytes: 700 }))
     const resetMemoryPeak = vi.fn(async () => {})
@@ -183,6 +183,7 @@ describe('MemoryPanel', () => {
     expect(fact('Torch allocated')).toBe('2.0 GiB')
     expect(fact('Torch reserved')).toBe('3.0 GiB')
     expect(fact('GPU power')).toBe('121.0 W')
+    expect(fact('GPU power limit')).toBe('170.0 W')
     expect(fact('Pinned host memory')).toBe('512 MiB')
     const click = async (label: string): Promise<void> => {
       [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)!.click()

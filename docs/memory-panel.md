@@ -23,7 +23,7 @@ the live bars and model residency visuals.
 Worker measurements show torch allocated/reserved, device total/used/free,
 observed peak, process RSS and pinned host memory separately from governor
 accounting. NVIDIA telemetry supplies GPU name, utilization, temperature and
-power when available. Reset peak sets the peak to current device usage.
+power and its limit when available. Reset peak sets the peak to current device usage.
 Unavailable metrics remain labelled as not reported.
 
 The history graph records at most one sample per second in a bounded

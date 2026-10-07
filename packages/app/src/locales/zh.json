@@ -917,6 +917,7 @@
   "memory.metric.gpuUtilization": "GPU 利用率",
   "memory.metric.gpuTemperature": "GPU 温度",
   "memory.metric.gpuPower": "GPU 功率",
+  "memory.metric.gpuPowerLimit": "GPU 功率限制",
   "memory.metric.processRss": "工作进程 RSS",
   "memory.metric.pinnedHost": "固定主机内存",
   "memory.action.resetPeak": "重置峰值",

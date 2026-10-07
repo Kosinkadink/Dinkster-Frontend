@@ -915,6 +915,7 @@
   "memory.metric.gpuUtilization": "GPU utilization",
   "memory.metric.gpuTemperature": "GPU temperature",
   "memory.metric.gpuPower": "GPU power",
+  "memory.metric.gpuPowerLimit": "GPU power limit",
   "memory.metric.processRss": "Worker process RSS",
   "memory.metric.pinnedHost": "Pinned host memory",
   "memory.action.resetPeak": "Reset peak",

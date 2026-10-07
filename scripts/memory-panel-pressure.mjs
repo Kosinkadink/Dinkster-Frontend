@@ -20,7 +20,7 @@ try {
   await page.waitForTimeout(300)
   await panel.locator('.memory-device').screenshot({ path: join(output, 'pressure-loaded.png') })
   await panel.getByText('History data').click()
-  await panel.locator('.memory-graph').screenshot({ path: join(output, 'pressure-history-open.png') })
+  await panel.locator('.memory-device').screenshot({ path: join(output, 'pressure-history-open.png') })
   const loaded = await (await page.request.get(`${url}/memory/status?details=1`)).json()
   await panel.getByRole('button', { name: 'Reset peak', exact: true }).focus()
   await page.keyboard.press('Enter')

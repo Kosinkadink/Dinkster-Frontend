@@ -427,6 +427,7 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
               <div><dt>{message('memory.metric.gpuUtilization')}</dt><dd>{governor().measured?.gpuUtilizationPercent === undefined ? message('memory.metric.unavailable') : `${governor().measured!.gpuUtilizationPercent}%`}</dd></div>
               <div><dt>{message('memory.metric.gpuTemperature')}</dt><dd>{governor().measured?.gpuTemperatureCelsius === undefined ? message('memory.metric.unavailable') : `${governor().measured!.gpuTemperatureCelsius} C`}</dd></div>
               <div><dt>{message('memory.metric.gpuPower')}</dt><dd>{governor().measured?.gpuPowerMilliwatts === undefined ? message('memory.metric.unavailable') : `${(governor().measured!.gpuPowerMilliwatts! / 1000).toFixed(1)} W`}</dd></div>
+              <div><dt>{message('memory.metric.gpuPowerLimit')}</dt><dd>{governor().measured?.gpuPowerLimitMilliwatts === undefined ? message('memory.metric.unavailable') : `${(governor().measured!.gpuPowerLimitMilliwatts! / 1000).toFixed(1)} W`}</dd></div>
               <div><dt>{message('memory.metric.processRss')}</dt><dd>{formatBytes(governor().measured?.processRssBytes)}</dd></div>
               <div><dt>{message('memory.metric.pinnedHost')}</dt><dd>{formatBytes(governor().measured?.pinnedHostBytes)}</dd></div>
             </dl>

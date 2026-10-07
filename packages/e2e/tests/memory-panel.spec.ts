@@ -99,6 +99,8 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await page.route(`${PRIMARY}/api/settings/memory-headroom`, (route) => rejectHeadroom ? route.fulfill({ status: 400, json: {
     error: 'invalid-settings', category: 'memory-headroom', message: 'Headroom exceeds server policy.', offendingFlag: '--reserve-vram', owner: 'host-policy',
   } }) : route.fulfill({ json: section(route.request().postDataJSON()) }))
+  await page.route(`${PRIMARY}/api/settings/memory-budgets`, (route) => route.fulfill({ json: section(route.request().postDataJSON()) }))
+  await page.route(`${PRIMARY}/api/settings/aimdo-policy`, (route) => route.fulfill({ json: section(route.request().postDataJSON(), 'on-worker-restart') }))
   await page.route(`${PRIMARY}/memory/status*`, (route) => {
     const details = new URL(route.request().url()).searchParams.get('details') === '1'
     if (details) detailRequests++
@@ -188,7 +190,40 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary.locator('.runtime-setting-category[data-category="memory-headroom"]')).toContainText('Current setting384 MiB')
   await expect(apply).toBeDisabled()
   if (proofDir) await primary.locator('.runtime-setting-category[data-category="memory-headroom"]').screenshot({ path: join(proofDir, 'memory-headroom-applied.png') })
-  if (proofDir) await primary.locator('.runtime-setting-category[data-category="aimdo-policy"]').screenshot({ path: join(proofDir, 'memory-aimdo-applied.png') })
+
+  const budgetSection = primary.locator('.runtime-setting-category[data-category="memory-budgets"]')
+  const budget = budgetSection.getByRole('spinbutton', { name: 'cuda:0 budget (MiB)', exact: true })
+  await budget.fill('4096')
+  primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
+  await expect(budget).toHaveValue('4096')
+  await budgetSection.getByRole('button', { name: 'Revert', exact: true }).click()
+  await expect(budget).toHaveValue('8192')
+  await budget.fill('6144')
+  if (proofDir) await budgetSection.screenshot({ path: join(proofDir, 'memory-budget-editing.png') })
+  await budgetSection.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(budgetSection).toContainText('Current settingcuda:0: 6144 MiB')
+  await expect(budgetSection).toContainText('Effective valuecuda:0: 8192 MiB')
+  await expect(budgetSection.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
+  if (proofDir) await budgetSection.screenshot({ path: join(proofDir, 'memory-budget-applied.png') })
+
+  const aimdoSection = primary.locator('.runtime-setting-category[data-category="aimdo-policy"]')
+  const aimdo = aimdoSection.getByRole('combobox')
+  await aimdo.click()
+  await page.getByRole('option', { name: 'on', exact: true }).click()
+  primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
+  await expect(aimdo).toHaveText('on')
+  await aimdoSection.getByRole('button', { name: 'Revert', exact: true }).click()
+  await expect(aimdo).toHaveText('auto')
+  await aimdo.focus()
+  await aimdo.press('Enter')
+  await page.keyboard.press('Home')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(aimdo).toHaveText('on')
+  await aimdoSection.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(aimdoSection).toContainText('Current settingon')
+  await expect(aimdoSection).toContainText('Applied worker policiesworker-one: off')
+  if (proofDir) await aimdoSection.screenshot({ path: join(proofDir, 'memory-aimdo-applied.png') })
 
   baseFails = true
   await expect(primary.locator('.memory-telemetry-state')).toHaveText('Stale', { timeout: 12_000 })
