@@ -94,6 +94,10 @@ full composition. Its contract proof separately starts Dinkster with
 on ports 15420/15421, activates the fixture pack's immutable frontend module,
 renders two custom nodes linked through the pack's custom value type, executes
 the consumer, and observes its typed route and event in host-owned UI.
+The isolated hosted library explicitly enables templates for positive gallery
+and loop-template coverage; P2P stays disabled. Template-dependent route fixtures
+also report templates enabled. Disabled-feature specs override those capabilities
+to assert the production default, which remains disabled for both features.
 Base, hosted and audit Playwright servers explicitly enable the v1
 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing

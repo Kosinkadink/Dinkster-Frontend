@@ -51,6 +51,11 @@ async function installFixture(page: Page): Promise<{
   let templateRequests = 0
   let release: (() => void) | undefined
 
+  await page.route('/api/settings', (route) => route.fulfill({ json: {
+    features: { p2p: { enabled: false }, templates: { enabled: true } },
+    categories: { granted: [], available: [] },
+    settings: {},
+  } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'fixture has no supervisor' }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('/api/history/runs*', (route) => route.fulfill({ json: { records: [] } }))
