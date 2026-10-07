@@ -19,7 +19,9 @@ export function appendMemorySample(
 ): readonly MemorySample[] {
   const previous = samples.at(-1)
   if (previous !== undefined && sample.timestamp - previous.timestamp < MEMORY_SAMPLE_INTERVAL_MS) return samples
-  return [...samples.slice(Math.max(0, samples.length - limit + 1)), sample]
+  const cutoff = sample.timestamp - MEMORY_HISTORY_LIMIT * MEMORY_SAMPLE_INTERVAL_MS
+  const recent = samples.filter((entry) => entry.timestamp > cutoff)
+  return [...recent.slice(Math.max(0, recent.length - limit + 1)), sample]
 }
 
 export function liveMemorySamples(

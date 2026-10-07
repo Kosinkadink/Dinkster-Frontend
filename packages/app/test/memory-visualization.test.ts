@@ -35,6 +35,15 @@ describe('memory visualization history', () => {
     expect(liveMemorySamples(history)).toEqual(history)
     expect(liveMemorySamples(history, 3).map((item) => item.timestamp)).toEqual([498_000, 499_000, 500_000])
   })
+
+  it('expires old samples at the two-minute boundary during slow fallback polling', () => {
+    expect(appendMemorySample([sample(0), sample(1)], sample(120_000))).toEqual([sample(1), sample(120_000)])
+    let history: readonly MemorySample[] = []
+    for (let timestamp = 0; timestamp <= 600_000; timestamp += 5000) history = appendMemorySample(history, sample(timestamp))
+    expect(history).toHaveLength(24)
+    expect(history[0]?.timestamp).toBe(485_000)
+    expect(history.at(-1)?.timestamp).toBe(600_000)
+  })
 })
 
 describe('memory visualization device bars', () => {

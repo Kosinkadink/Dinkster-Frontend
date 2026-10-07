@@ -28,7 +28,8 @@ Unavailable metrics remain labelled as not reported.
 
 The history graph records at most one sample per second in a bounded
 120-sample in-memory window labelled **last 120 s**. Older samples are dropped,
-not accumulated in hidden scrollback. It presents
+not accumulated in hidden scrollback. Samples older than the window also
+expire when fallback polling is slower than one second. It presents
 footprint, reservations, and capacity. Hovering adds a crosshair with sample
 time and byte values. An expandable, keyboard-focusable table exposes the
 visible samples as text. Stale and disconnected state belongs to the panel,
