@@ -153,9 +153,12 @@ test('refreshes the remote family gallery and opens a digest-verified template',
         ),
       )
       .toBe(true)
-    await expect.poll(() => page.evaluate(() =>
-      window.__dinksterTest!.app.settings.list().some((setting) => setting.id === 'templates.registryUrl'),
-    )).toBe(true)
+    await expect.poll(() => page.evaluate(() => {
+      const app = window.__dinksterTest!.app as unknown as {
+        settings: { list(): readonly { id: string }[] }
+      }
+      return app.settings.list().some((setting) => setting.id === 'templates.registryUrl')
+    })).toBe(true)
     await page.evaluate((registry) => {
       const app = window.__dinksterTest!.app as unknown as {
         settings: { set(id: string, value: string): void }

@@ -33,7 +33,11 @@ test('disabled features have no entry points or background requests', async ({ p
   await expect(page.getByTestId('template-gallery')).toHaveCount(0)
   await expect(page.getByTestId('p2p-sidebar-toggle')).toHaveCount(0)
   expect(await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
+    const app = window.__dinksterTest!.app as unknown as {
+      panels: { get(id: string): unknown }
+      commands: { get(id: string): unknown }
+      settings: { list(): readonly { id: string }[] }
+    }
     return {
       p2pPanel: app.panels.get('p2p') !== undefined,
       templateCommand: app.commands.get('workflow.openTemplateGallery') !== undefined,
@@ -44,7 +48,11 @@ test('disabled features have no entry points or background requests', async ({ p
   await page.getByTestId('library-toggle').click()
   await expect(page.getByTestId('library-overlay')).toBeVisible()
   await expect(page.locator('[data-source="templates"]')).toHaveCount(0)
+  await page.getByTestId('library-source-select').click()
+  await expect(page.getByRole('option', { name: 'Templates', exact: true })).toHaveCount(0)
+  await page.mouse.move(800, 450)
   await page.screenshot({ path: testInfo.outputPath('disabled-library.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
   await page.getByTestId('learn-toggle').click()
   await expect(page.getByTestId('learn-panel')).toBeVisible()
   await page.locator('.learn-guide-card').click()
