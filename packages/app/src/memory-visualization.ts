@@ -1,6 +1,6 @@
 import type { MemoryGovernorDevice, MemoryStatus } from '@dinkster/client'
 
-export const MEMORY_HISTORY_LIMIT = 1200
+export const MEMORY_HISTORY_LIMIT = 120
 export const MEMORY_LIVE_VIEWPORT_LIMIT = 120
 export const MEMORY_SAMPLE_INTERVAL_MS = 1000
 export const PAGE_PULSE_TICKS = 6
@@ -19,7 +19,9 @@ export function appendMemorySample(
 ): readonly MemorySample[] {
   const previous = samples.at(-1)
   if (previous !== undefined && sample.timestamp - previous.timestamp < MEMORY_SAMPLE_INTERVAL_MS) return samples
-  return [...samples.slice(Math.max(0, samples.length - limit + 1)), sample]
+  const cutoff = sample.timestamp - MEMORY_HISTORY_LIMIT * MEMORY_SAMPLE_INTERVAL_MS
+  const recent = samples.filter((entry) => entry.timestamp > cutoff)
+  return [...recent.slice(Math.max(0, recent.length - limit + 1)), sample]
 }
 
 export function liveMemorySamples(
@@ -96,6 +98,13 @@ export interface HeatmapCell {
   readonly resident: boolean
   readonly pulse: PagePulse
   readonly age: number
+}
+
+export function pageCellColor(cell: HeatmapCell): string {
+  const target = cell.resident ? [230, 126, 34] : [58, 58, 58]
+  const source = cell.resident ? [255, 220, 0] : [200, 60, 60]
+  const fraction = cell.pulse === 'none' ? 0 : cell.age / PAGE_PULSE_TICKS
+  return `rgb(${target.map((channel, index) => Math.round(source[index]! * fraction + channel * (1 - fraction))).join(',')})`
 }
 
 export function pageIsResident(flag: number): boolean {

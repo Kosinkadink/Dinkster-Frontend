@@ -574,6 +574,7 @@
     "attribute:aria-label:Active memory leases",
     "attribute:aria-label:Memory history table",
     "attribute:aria-label:Page flag ranges table",
+    "text:& Partial",
     "text:('idle') const [detailReady, setDetailReady] = createSignal",
     "text:() const [detailState, setDetailState] = createSignal",
     "text:() const [details, setDetails] = createSignal",
@@ -625,6 +626,7 @@
     "text:Time",
     "text:Transition",
     "text:Waiting for memory telemetry",
+    "text:entry.itemId === itemId)! return",
     "text:props.backendId ?? props.label let clockTimer: ReturnType",
     "text:pulse === 'in' ? 'Moved in' : pulse === 'out' ? 'Moved out' : 'No change' return",
     "text:type Timer = ReturnType",
@@ -721,6 +723,7 @@
     "text:([]) const [error, setError] = createSignal('') const [rejected, setRejected] = createSignal",
     "text:(props.section.value) const [loggingRows, setLoggingRows] = createSignal",
     "text:Math.round(sizeBytes(value) / 1024 ** 2) const CATEGORY_LABELS: Readonly",
+    "text:asRecord(draft())[device] ?? props.memoryStatus?.acceleratorPolicy?.devices[device]?.governorAdmission.effectiveBudgetBytes ?? props.memoryStatus?.memoryGovernor?.[device]?.budgetBytes ?? props.memoryStatus?.memoryGovernor?.[device]?.measured?.totalBytes ?? 0 return (",
     "text:const asRecord = (value: unknown): Record",
     "text:settings().settings[category] return",
     "text:typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record"

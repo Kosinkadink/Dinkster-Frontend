@@ -6,6 +6,7 @@ import {
   liveMemorySamples,
   MEMORY_HISTORY_LIMIT,
   MEMORY_LIVE_VIEWPORT_LIMIT,
+  pageCellColor,
   PAGE_PULSE_TICKS,
   type MemorySample,
 } from '../src/memory-visualization.js'
@@ -19,17 +20,29 @@ describe('memory visualization history', () => {
     expect(appendMemorySample(first, sample(1000))).toEqual([sample(0), sample(1000)])
   })
 
-  it('retains 1,200 samples independently from the newest 120-sample viewport', () => {
+  it('retains only the last two minutes after repeated wraparound', () => {
     let history: readonly MemorySample[] = []
-    for (let timestamp = 0; timestamp <= MEMORY_HISTORY_LIMIT * 1000; timestamp += 1000) history = appendMemorySample(history, sample(timestamp))
+    for (let timestamp = 0; timestamp <= 500_000; timestamp += 1000) {
+      history = appendMemorySample(history, sample(timestamp))
+      expect(history.length).toBeLessThanOrEqual(120)
+    }
 
-    expect(history).toHaveLength(MEMORY_HISTORY_LIMIT)
-    expect(history[0]?.timestamp).toBe(1000)
-    expect(history.at(-1)?.timestamp).toBe(MEMORY_HISTORY_LIMIT * 1000)
-    expect(liveMemorySamples(history)).toHaveLength(MEMORY_LIVE_VIEWPORT_LIMIT)
-    expect(liveMemorySamples(history)[0]?.timestamp).toBe((MEMORY_HISTORY_LIMIT - MEMORY_LIVE_VIEWPORT_LIMIT + 1) * 1000)
-    expect(liveMemorySamples(history, 120).map((item) => item.timestamp)).toEqual(history.slice(-120).map((item) => item.timestamp))
-    expect(liveMemorySamples(history, 121)).toHaveLength(121)
+    expect(MEMORY_HISTORY_LIMIT).toBe(120)
+    expect(MEMORY_LIVE_VIEWPORT_LIMIT).toBe(120)
+    expect(history).toHaveLength(120)
+    expect(history[0]?.timestamp).toBe(381_000)
+    expect(history.at(-1)?.timestamp).toBe(500_000)
+    expect(liveMemorySamples(history)).toEqual(history)
+    expect(liveMemorySamples(history, 3).map((item) => item.timestamp)).toEqual([498_000, 499_000, 500_000])
+  })
+
+  it('expires old samples at the two-minute boundary during slow fallback polling', () => {
+    expect(appendMemorySample([sample(0), sample(1)], sample(120_000))).toEqual([sample(1), sample(120_000)])
+    let history: readonly MemorySample[] = []
+    for (let timestamp = 0; timestamp <= 600_000; timestamp += 5000) history = appendMemorySample(history, sample(timestamp))
+    expect(history).toHaveLength(24)
+    expect(history[0]?.timestamp).toBe(485_000)
+    expect(history.at(-1)?.timestamp).toBe(600_000)
   })
 })
 
@@ -51,6 +64,15 @@ describe('memory visualization device bars', () => {
 })
 
 describe('memory visualization page transitions', () => {
+  it('matches the reference RGB interpolation rather than fading alpha', () => {
+    expect(pageCellColor({ resident: true, pulse: 'none', age: 0 })).toBe('rgb(230,126,34)')
+    expect(pageCellColor({ resident: false, pulse: 'none', age: 0 })).toBe('rgb(58,58,58)')
+    expect(pageCellColor({ resident: true, pulse: 'in', age: 6 })).toBe('rgb(255,220,0)')
+    expect(pageCellColor({ resident: true, pulse: 'in', age: 3 })).toBe('rgb(243,173,17)')
+    expect(pageCellColor({ resident: false, pulse: 'out', age: 6 })).toBe('rgb(200,60,60)')
+    expect(pageCellColor({ resident: false, pulse: 'out', age: 1 })).toBe('rgb(82,58,58)')
+  })
+
   it('ages page-ins and page-outs independently for exactly six samples', () => {
     const initial = diffHeatmapFlags(undefined, [0, 1])
     let cells = diffHeatmapFlags(initial, [1, 0])

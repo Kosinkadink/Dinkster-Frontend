@@ -4376,6 +4376,25 @@ describe('uuidv4 (default jobId factory)', () => {
 })
 
 describe('memory telemetry transport', () => {
+  it('uses governor trim filters for model unload and omits them for unload-all', async () => {
+    const requests: { url: string; body: unknown }[] = []
+    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://test', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike,
+      fetchFn: async (url, init) => {
+        requests.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+        return jsonResponse(200, { requestedBytes: 900, freedBytes: 650 })
+      },
+    })
+    expect(await connection.unloadMemory('vram:cuda:1', 'models', 'model-2')).toEqual({ requestedBytes: 900, freedBytes: 650 })
+    await connection.unloadMemory('vram:cuda:1')
+    await connection.resetMemoryPeak('vram:cuda:1')
+    expect(requests).toEqual([
+      { url: 'http://test/cache/trim', body: { device: 'vram:cuda:1', consumers: ['models'], items: ['model-2'] } },
+      { url: 'http://test/cache/trim', body: { device: 'vram:cuda:1' } },
+      { url: 'http://test/memory/reset-peak', body: { device: 'vram:cuda:1' } },
+    ])
+  })
+
   it('uses the detail query only on request and emits pushed memory_status outside normalized execution events', async () => {
     const urls: string[] = []
     let socket!: WebSocketLike

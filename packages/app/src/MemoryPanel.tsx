@@ -1,8 +1,10 @@
 import { createEffect, createSignal, createUniqueId, For, onCleanup, onMount, Show } from 'solid-js'
 import { formatDate } from '@dinkster/core'
 import type { ConnectionStatus, DinksterConnection, MemoryGovernorDevice, MemoryStatus } from '@dinkster/client'
+import { ProductButton } from './ProductControls.js'
 import { ProductNotice } from './ProductForm.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
+import { useAppMessage } from './locale.js'
 import {
   appendMemorySample,
   deviceBarSegments,
@@ -10,7 +12,7 @@ import {
   liveMemorySamples,
   memoryDetailKey,
   overBudgetBytes,
-  PAGE_PULSE_TICKS,
+  pageCellColor,
   pageFlagRanges,
   pageIsResident,
   residencySegments,
@@ -20,7 +22,7 @@ import {
   type MemorySample,
 } from './memory-visualization.js'
 
-type MemoryConnection = Pick<DinksterConnection, 'status' | 'fetchMemoryStatus' | 'onMemoryStatus' | 'fetchRuntimeSettings' | 'updateRuntimeSetting'>
+type MemoryConnection = Pick<DinksterConnection, 'status' | 'fetchMemoryStatus' | 'onMemoryStatus' | 'fetchRuntimeSettings' | 'updateRuntimeSetting'> & Partial<Pick<DinksterConnection, 'resetMemoryPeak' | 'unloadMemory'>>
 type Timer = ReturnType<typeof setInterval>
 type TelemetryPresentationState = 'loading' | 'live' | 'stale' | 'disconnected'
 
@@ -177,9 +179,11 @@ function cssColor(host: HTMLElement, name: string): string {
 }
 
 function MemoryGraph(props: { readonly samples: readonly MemorySample[] }) {
+  const message = useAppMessage()
   let host: HTMLDivElement | undefined
   let canvas: HTMLCanvasElement | undefined
   const [hover, setHover] = createSignal<MemorySample>()
+  const [open, setOpen] = createSignal(false)
   const draw = (): void => {
     if (canvas === undefined || host === undefined) return
     const context = canvas.getContext('2d')
@@ -230,8 +234,8 @@ function MemoryGraph(props: { readonly samples: readonly MemorySample[] }) {
       <canvas ref={canvas} role="img" aria-label={graphLabel()} data-samples={visibleSamples().length} onMouseMove={move} onMouseLeave={() => { setHover(undefined); draw() }} />
     </div>
     <p>{hover() === undefined ? 'Footprint, reservations, and capacity' : `${formatDate(hover()!.timestamp, { timeStyle: 'medium' })} - ${formatBytes(hover()!.footprintBytes)} footprint, ${formatBytes(hover()!.reservedBytes)} reserved`}</p>
-    <details class="memory-data-disclosure">
-      <summary>History data ({visibleSamples().length} {visibleSamples().length === 1 ? 'sample' : 'samples'})</summary>
+    <details class="memory-data-disclosure" open={open()} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>{message('memory.history.window')}</summary>
       <div class="memory-table-scroll" tabindex="0" aria-label="Memory history table">
         <table><thead><tr><th>Time</th><th>Footprint</th><th>Reserved</th><th>Capacity</th></tr></thead><tbody>
           <For each={visibleSamples()}>{(sample) => <tr><td>{formatDate(sample.timestamp, { timeStyle: 'medium' })}</td><td>{formatBytes(sample.footprintBytes)}</td><td>{formatBytes(sample.reservedBytes)}</td><td>{formatBytes(sample.capacityBytes)}</td></tr>}</For>
@@ -244,6 +248,7 @@ function MemoryGraph(props: { readonly samples: readonly MemorySample[] }) {
 function PageHeatmap(props: { readonly pageBytes: number; readonly pageCount: number; readonly flags: readonly number[]; readonly cells: readonly HeatmapCell[]; readonly retained: boolean }) {
   let host: HTMLDivElement | undefined
   let canvas: HTMLCanvasElement | undefined
+  const [open, setOpen] = createSignal(false)
   const draw = (): void => {
     if (canvas === undefined || host === undefined) return
     const context = canvas.getContext('2d')
@@ -254,14 +259,9 @@ function PageHeatmap(props: { readonly pageBytes: number; readonly pageCount: nu
     canvas.width = width * ratio; canvas.height = height * ratio; canvas.style.height = `${height}px`
     context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height)
     props.cells.forEach((cell, index) => {
-      const progress = cell.age / PAGE_PULSE_TICKS
-      const base = cell.resident ? cssColor(host, '--dinkster-warning-border') : cssColor(host, '--dinkster-border-subtle')
-      const pulse = cell.pulse === 'in' ? cssColor(host, '--dinkster-border-focus') : cell.pulse === 'out' ? cssColor(host, '--dinkster-danger-border') : base
-      context.globalAlpha = cell.pulse === 'none' ? 1 : Math.max(.35, progress)
-      context.fillStyle = pulse
+      context.fillStyle = pageCellColor(cell)
       context.fillRect(index % columns * pitch, Math.floor(index / columns) * pitch, 6, 6)
     })
-    context.globalAlpha = 1
   }
   createEffect(draw)
   onMount(() => {
@@ -275,7 +275,7 @@ function PageHeatmap(props: { readonly pageBytes: number; readonly pageCount: nu
   return <div class="memory-heatmap" ref={host}>
     <canvas ref={canvas} role="img" aria-label={`Page residency heatmap: ${resident()} of ${props.pageCount} pages resident, ${props.cells.filter((cell) => cell.pulse === 'in').length} moved in, ${props.cells.filter((cell) => cell.pulse === 'out').length} moved out${props.retained ? ', retained telemetry' : ''}`} data-page-in={props.cells.filter((cell) => cell.pulse === 'in').length} data-page-out={props.cells.filter((cell) => cell.pulse === 'out').length} />
     <p>{resident()}/{props.pageCount} resident pages - {formatBytes(resident() * props.pageBytes)} resident / {formatBytes(props.pageCount * props.pageBytes)} total{props.retained ? ' - retained telemetry' : ''}</p>
-    <details class="memory-data-disclosure">
+    <details class="memory-data-disclosure" open={open()} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>Page flag data ({ranges().length} ranges)</summary>
       <div class="memory-table-scroll" tabindex="0" aria-label="Page flag ranges table">
         <table><thead><tr><th>Pages</th><th>Resident</th><th>Transition</th><th>Server flag</th></tr></thead><tbody>
@@ -291,6 +291,10 @@ const consumerKey = (device: string, consumer: string): string => identityKey(de
 const collapsedStorageKey = (backend: string, device: string, consumer: string): string => `dinkster.memory.consumer.${identityKey(backend, device, consumer)}.collapsed`
 
 export function MemoryPanel(props: { readonly connection: MemoryConnection; readonly backendId?: string; readonly label: string; readonly now?: () => number }) {
+  const message = useAppMessage()
+  const [actionPending, setActionPending] = createSignal(false)
+  const [actionError, setActionError] = createSignal('')
+  const [actionResult, setActionResult] = createSignal('')
   const [status, setStatus] = createSignal<MemoryStatus>()
   const [details, setDetails] = createSignal<MemoryStatus['consumerDetails']>()
   const [detailState, setDetailState] = createSignal<'idle' | 'loading' | 'loaded' | 'failed'>('idle')
@@ -349,6 +353,23 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
     for (const key of restoredKeys) controller?.setExpanded(key, true)
     if (restoredKeys.length === 0 && retained.size > 0) controller?.refreshDetails()
   }
+  const act = async (device: string, resetPeak: boolean, consumer?: string, item?: string): Promise<void> => {
+    if (actionPending() || retained()) return
+    setActionPending(true); setActionError(''); setActionResult('')
+    try {
+      if (resetPeak) {
+        await props.connection.resetMemoryPeak!(device)
+        setActionResult(message('memory.action.peakReset'))
+      } else {
+        const result = await props.connection.unloadMemory!(device, consumer, item)
+        setActionResult(message('memory.action.unloaded', { freed: formatBytes(result.freedBytes), requested: formatBytes(result.requestedBytes) }))
+      }
+      accept(await props.connection.fetchMemoryStatus(), false)
+      controller?.refreshDetails()
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause))
+    } finally { setActionPending(false) }
+  }
   onMount(() => {
     statusDisposer = props.connection.status.subscribe(setConnectionState)
     controller = new MemoryStatusController(props.connection, accept, (cause, isDetails) => {
@@ -384,32 +405,57 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
     <Show when={presentationState() === 'stale'}><ProductNotice tone="warning">Telemetry is stale. Retained values remain visible while polling retries.</ProductNotice></Show>
     <Show when={presentationState() === 'disconnected'}><ProductNotice tone="error">Backend disconnected. All visible telemetry is retained from the last update.</ProductNotice></Show>
     <Show when={baseError()}>{(message) => <ProductNotice tone="error"><span>Memory telemetry request failed: {message()}.</span><Show when={status() !== undefined}> Retained values remain visible.</Show></ProductNotice>}</Show>
+    <Show when={actionError()}><ProductNotice tone="error">{actionError()}</ProductNotice></Show>
+    <Show when={actionResult()}><ProductNotice tone="status">{actionResult()}</ProductNotice></Show>
     <Show when={status()} fallback={<div class="memory-loading-state" role="status"><strong>Waiting for memory telemetry</strong><span>Queue, device, lease, and consumer facts will appear when the backend responds.</span></div>}>{(data) => <>
       <Show when={data().memoryGovernor === null}><ProductNotice tone="warning">Memory governor telemetry is unsupported on this backend. Execution occupancy remains available.</ProductNotice></Show>
       <div class="memory-devices">
-        <For each={projectDevices(data())} fallback={<div class="memory-empty-state"><strong>No devices reported</strong><span>The backend returned no execution or memory device facts.</span></div>}>{(row) => <article class="memory-device" data-device={row.device}>
-          <header><div><span class="memory-eyebrow">Device</span><h3>{row.device}</h3></div><span class="memory-execution-fact">{row.execution}</span></header>
-          <Show when={row.governor}>{(governor) => <>
+        <For each={projectDevices(data()).map((row) => row.device)} fallback={<div class="memory-empty-state"><strong>No devices reported</strong><span>The backend returned no execution or memory device facts.</span></div>}>{(device) => <article class="memory-device" data-device={device}>
+          <header><div><span class="memory-eyebrow">Device</span><h3>{device}</h3></div><span class="memory-execution-fact">{data().devices[device] ? `${data().devices[device]!.executionInUse}/${data().devices[device]!.executionCapacity} execution slots` : 'No execution lane'}</span></header>
+          <Show when={data().memoryGovernor?.[device]}>{(governor) => <>
             <Show when={governor().budgetBytes === null}><ProductNotice tone={governor().measured === null ? 'warning' : 'info'}>{governor().measured === null ? 'Budget and device measurement are unavailable.' : 'No governor budget is reported. The visualization uses measured device memory only.'}</ProductNotice></Show>
             <Show when={overBudgetBytes(governor()) > 0}><ProductNotice tone="error"><strong>Over budget by {formatBytes(overBudgetBytes(governor()))}</strong></ProductNotice></Show>
             <Show when={governor().budgetBytes !== null || governor().measured !== null}><SegmentBar segments={deviceBarSegments(governor())} class="memory-device-stack" /></Show>
-            <section class="memory-consumers" aria-label={`${row.device} memory consumers`}>
+            <dl class="memory-device-facts">
+              <div><dt>{message('memory.metric.gpuName')}</dt><dd>{governor().measured?.gpuName ?? message('memory.metric.unavailable')}</dd></div>
+              <div><dt>{message('memory.metric.torchAllocated')}</dt><dd>{formatBytes(governor().measured?.torchAllocatedBytes)}</dd></div>
+              <div><dt>{message('memory.metric.torchReserved')}</dt><dd>{formatBytes(governor().measured?.torchReservedBytes)}</dd></div>
+              <div><dt>{message('memory.metric.deviceTotal')}</dt><dd>{formatBytes(governor().measured?.totalBytes)}</dd></div>
+              <div><dt>{message('memory.metric.deviceUsed')}</dt><dd>{formatBytes(governor().measured ? governor().measured!.totalBytes - (governor().measured!.driverFreeBytes ?? governor().measured!.freeBytes) : undefined)}</dd></div>
+              <div><dt>{message('memory.metric.deviceFree')}</dt><dd>{formatBytes(governor().measured?.driverFreeBytes ?? governor().measured?.freeBytes)}</dd></div>
+              <div><dt>{message('memory.metric.peak')}</dt><dd>{formatBytes(governor().peakUsedBytes)}</dd></div>
+              <div><dt>{message('memory.metric.gpuUtilization')}</dt><dd>{governor().measured?.gpuUtilizationPercent === undefined ? message('memory.metric.unavailable') : `${governor().measured!.gpuUtilizationPercent}%`}</dd></div>
+              <div><dt>{message('memory.metric.gpuTemperature')}</dt><dd>{governor().measured?.gpuTemperatureCelsius === undefined ? message('memory.metric.unavailable') : `${governor().measured!.gpuTemperatureCelsius} C`}</dd></div>
+              <div><dt>{message('memory.metric.gpuPower')}</dt><dd>{governor().measured?.gpuPowerMilliwatts === undefined ? message('memory.metric.unavailable') : `${(governor().measured!.gpuPowerMilliwatts! / 1000).toFixed(1)} W`}</dd></div>
+              <div><dt>{message('memory.metric.gpuPowerLimit')}</dt><dd>{governor().measured?.gpuPowerLimitMilliwatts === undefined ? message('memory.metric.unavailable') : `${(governor().measured!.gpuPowerLimitMilliwatts! / 1000).toFixed(1)} W`}</dd></div>
+              <div><dt>{message('memory.metric.processRss')}</dt><dd>{formatBytes(governor().measured?.processRssBytes)}</dd></div>
+              <div><dt>{message('memory.metric.pinnedHost')}</dt><dd>{formatBytes(governor().measured?.pinnedHostBytes)}</dd></div>
+            </dl>
+            <div class="product-action-footer">
+              <ProductButton type="button" disabled={retained() || actionPending() || props.connection.resetMemoryPeak === undefined || governor().measured === null} onClick={() => void act(device, true)}>{message('memory.action.resetPeak')}</ProductButton>
+              <ProductButton type="button" variant="danger" disabled={retained() || actionPending() || props.connection.unloadMemory === undefined || governor().consumerFootprintBytes === 0} onClick={() => void act(device, false)}>{message('memory.action.unloadAll')}</ProductButton>
+            </div>
+            <section class="memory-consumers" aria-label={`${device} memory consumers`}>
               <header><div><span class="memory-eyebrow">Residency</span><h4>Consumers</h4></div><span>{Object.keys(governor().consumers).length} reported</span></header>
-              <For each={Object.entries(governor().consumers)} fallback={<div class="memory-empty-state"><strong>No consumers</strong><span>This device currently reports no resident memory consumers.</span></div>}>{([consumer, bytes]) => {
-                const key = consumerKey(row.device, consumer)
-                const detailId = `${panelId}-memory-consumer-${identityKey(row.device, consumer)}`
+              <For each={Object.keys(governor().consumers)} fallback={<div class="memory-empty-state"><strong>No consumers</strong><span>This device currently reports no resident memory consumers.</span></div>}>{(consumer) => {
+                const key = consumerKey(device, consumer)
+                const detailId = `${panelId}-memory-consumer-${identityKey(device, consumer)}`
                 return <section class="memory-consumer" data-consumer={consumer}>
-                  <button type="button" aria-expanded={expanded().has(key)} aria-controls={detailId} onClick={() => toggle(row.device, consumer)}><span><i aria-hidden="true">{expanded().has(key) ? 'v' : '>'}</i><span>{consumer}</span></span><strong>{formatBytes(bytes)}</strong></button>
+                  <button type="button" aria-expanded={expanded().has(key)} aria-controls={detailId} onClick={() => toggle(device, consumer)}><span><i aria-hidden="true">{expanded().has(key) ? 'v' : '>'}</i><span>{consumer}</span></span><strong>{formatBytes(governor().consumers[consumer])}</strong></button>
                   <Show when={expanded().has(key)}><div id={detailId} class="memory-consumer-details">
                     <Show when={detailState() === 'loading' && !detailReady().has(key)}><ProductNotice tone="status">Loading item details...</ProductNotice></Show>
                     <Show when={detailError()}>{(message) => <ProductNotice tone="error">Item details failed to refresh: {message()}.{detailReady().has(key) ? ' Retained details remain visible.' : ''}</ProductNotice>}</Show>
                     <Show when={detailReady().has(key)}>
                       <Show when={details() !== undefined && Object.prototype.hasOwnProperty.call(details(), consumer)} fallback={<ProductNotice tone="info">Detail telemetry is unsupported for this consumer.</ProductNotice>}>
-                        <For each={details()![consumer] ?? []} fallback={<div class="memory-empty-state"><strong>No item details</strong><span>The backend supports details but returned no items for this consumer.</span></div>}>{(item) => <article class="memory-consumer-item">
-                          <header><strong>{item.displayName}</strong><span>{formatBytes(Object.values(item.bytesByResidency).reduce((sum, value) => sum + value, 0))}</span></header>
-                          <SegmentBar segments={residencySegments(item.bytesByResidency)} />
-                          <Show when={item.pages}>{(pages) => <PageHeatmap pageBytes={pages().pageBytes} pageCount={pages().pageCount} flags={pages().flags} cells={heatmaps()[memoryDetailKey(consumer, item.itemId)] ?? diffHeatmapFlags(undefined, pages().flags)} retained={retained() || detailState() === 'failed'} />}</Show>
-                        </article>}</For>
+                        <For each={(details()![consumer] ?? []).map((item) => item.itemId)} fallback={<div class="memory-empty-state"><strong>No item details</strong><span>The backend supports details but returned no items for this consumer.</span></div>}>{(itemId) => {
+                          const item = () => details()![consumer]!.find((entry) => entry.itemId === itemId)!
+                          return <article class="memory-consumer-item">
+                            <header><strong>{item().displayName}</strong><span>{formatBytes(Object.values(item().bytesByResidency).reduce((sum, value) => sum + value, 0))}</span></header>
+                            <ProductButton type="button" size="compact" disabled={retained() || actionPending() || props.connection.unloadMemory === undefined} onClick={() => void act(device, false, consumer, itemId)}>{message('memory.action.unloadModel', { model: item().displayName })}</ProductButton>
+                            <SegmentBar segments={residencySegments(item().bytesByResidency)} />
+                            <Show when={item().pages}>{(pages) => <PageHeatmap pageBytes={pages().pageBytes} pageCount={pages().pageCount} flags={pages().flags} cells={heatmaps()[memoryDetailKey(consumer, itemId)] ?? diffHeatmapFlags(undefined, pages().flags)} retained={retained() || detailState() === 'failed'} />}</Show>
+                          </article>
+                        }}</For>
                       </Show>
                     </Show>
                   </div></Show>
@@ -424,9 +470,9 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
               <div><dt>Raw capacity</dt><dd>{formatBytes(governor().measured?.totalBytes)}</dd></div>
               <div><dt>Aimdo-corrected free</dt><dd>{formatBytes(governor().measured?.freeBytes)}</dd></div>
             </dl>
-            <Show when={governor().budgetBytes !== null || governor().measured !== null}><MemoryGraph samples={history()[row.device] ?? []} /></Show>
+            <Show when={governor().budgetBytes !== null || governor().measured !== null}><MemoryGraph samples={history()[device] ?? []} /></Show>
           </>}</Show>
-          <Show when={!row.governor}><ProductNotice tone="info">Governor metrics are unavailable for this device. Execution occupancy is still authoritative.</ProductNotice></Show>
+          <Show when={!data().memoryGovernor?.[device]}><ProductNotice tone="info">Governor metrics are unavailable for this device. Execution occupancy is still authoritative.</ProductNotice></Show>
         </article>}</For>
       </div>
       <dl class="memory-queue-facts" data-testid="memory-queue">
@@ -437,7 +483,7 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
       <section class="memory-controls" aria-label={`${props.label} memory and Aimdo settings`}>
         <header><div><span class="memory-eyebrow">Server settings</span><h3>Memory and Aimdo controls</h3></div></header>
         <p>Budget and headroom changes apply live. Aimdo policy applies to workers started after the change.</p>
-        <RuntimeSettingsPanel connection={props.connection} backendLabel={props.label} categories={['memory-budgets', 'memory-headroom', 'aimdo-policy']} alwaysOpen memoryControls showGrantWarnings />
+        <RuntimeSettingsPanel connection={props.connection} backendLabel={props.label} categories={['memory-budgets', 'memory-headroom', 'aimdo-policy']} alwaysOpen memoryControls showGrantWarnings memoryStatus={data()} />
       </section>
       <section class="memory-leases" aria-label="Active memory leases">
         <header><div><span class="memory-eyebrow">Reservations</span><h3>Active leases</h3></div><Show when={data().leases !== null}><span>{data().leases!.length} active</span></Show></header>

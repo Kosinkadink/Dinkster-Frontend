@@ -43,13 +43,21 @@ const baseStatus = {
   memoryGovernor: {
     'cuda:0': {
       budgetBytes: 8589934592, reservedBytes: 2147483648, consumerFootprintBytes: 7516192768, availableBytes: -1073741824,
-      measured: { freeBytes: 5368709120, totalBytes: 12884901888 },
+      peakUsedBytes: 9 * 2 ** 30,
+      measured: { freeBytes: 5 * 2 ** 30, totalBytes: 12 * 2 ** 30,
+        torchAllocatedBytes: 2 * 2 ** 30, torchReservedBytes: 3 * 2 ** 30,
+        gpuName: 'NVIDIA GeForce RTX 3060', gpuUtilizationPercent: 75, gpuTemperatureCelsius: 62,
+        gpuPowerMilliwatts: 120000, processRssBytes: 8 * 2 ** 30, pinnedHostBytes: 2 * 2 ** 30 },
       consumers: { 'models/flux/very-long-consumer-name-that-wraps': 7516192768 },
     },
     'very-long-device-identity-that-must-wrap-without-colliding:1': {
       budgetBytes: null, reservedBytes: 0, consumerFootprintBytes: 0, availableBytes: null,
       measured: null, consumers: {},
     },
+  },
+  acceleratorPolicy: { physicalHeadroomBytes: 256 * 2 ** 20, aimdoConfiguredPolicy: 'auto',
+    aimdoPoliciesByWorker: { 'worker-one': 'off' },
+    devices: { 'cuda:0': { governorAdmission: { budgetBytes: 8 * 2 ** 30, effectiveBudgetBytes: 8 * 2 ** 30 }, residencyApplied: { budgetsByWorker: {} } } },
   },
   leases: [{ reservationId: 'reservation-with-a-long-authoritative-id', device: 'cuda:0', bytes: 1073741824, expiresInSeconds: 30 }],
 }
@@ -60,7 +68,7 @@ const detailedStatus = {
     'models/flux/very-long-consumer-name-that-wraps': [{
       itemId: 'model-1', displayName: 'Flux model with a long descriptive residency label',
       bytesByResidency: { device: 6442450944, host: 1073741824 },
-      pages: { pageBytes: 1048576, pageCount: 8, flags: [1, 1, 3, 2, 2, 0, 1, 1] },
+      pages: { pageBytes: 1048576, pageCount: 700, flags: Array.from({ length: 700 }, (_, index) => index % 5 < 3 ? 1 : 0) },
     }],
   },
 }
@@ -80,16 +88,19 @@ async function scrollPanelToTop(page: Page): Promise<void> {
 test('Memory and Aimdo surface covers wide lifecycle, details, settings, and multiple backends', async ({ page }, testInfo) => {
   let detailRequests = 0
   let baseFails = false
+  let rejectHeadroom = true
   let primarySocket: WebSocketRoute | undefined
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.route(`${PRIMARY}/supervisor/status`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${PRIMARY}/system_stats`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${PRIMARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
-  await page.route(`${PRIMARY}/api/settings`, (route) => route.fulfill({ json: settings }))
-  await page.route(`${PRIMARY}/api/settings/memory-headroom`, (route) => route.fulfill({ status: 400, json: {
+  await page.route(`${PRIMARY}/api/settings`, (route) => route.fulfill({ json: { ...settings, settings: { ...settings.settings, 'memory-budgets': section({}) } } }))
+  await page.route(`${PRIMARY}/api/settings/memory-headroom`, (route) => rejectHeadroom ? route.fulfill({ status: 400, json: {
     error: 'invalid-settings', category: 'memory-headroom', message: 'Headroom exceeds server policy.', offendingFlag: '--reserve-vram', owner: 'host-policy',
-  } }))
+  } }) : route.fulfill({ json: section(route.request().postDataJSON()) }))
+  await page.route(`${PRIMARY}/api/settings/memory-budgets`, (route) => route.fulfill({ json: section(route.request().postDataJSON()) }))
+  await page.route(`${PRIMARY}/api/settings/aimdo-policy`, (route) => route.fulfill({ json: section(route.request().postDataJSON(), 'on-worker-restart') }))
   await page.route(`${PRIMARY}/memory/status*`, (route) => {
     const details = new URL(route.request().url()).searchParams.get('details') === '1'
     if (details) detailRequests++
@@ -122,7 +133,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary).toContainText('Flux model with a long descriptive residency label')
   expect(detailRequests).toBe(1)
 
-  const consumer = primary.locator('.memory-consumer button')
+  const consumer = primary.locator('.memory-consumer > button')
   await consumer.focus()
   await page.keyboard.press('Enter')
   await expect(consumer).toHaveAttribute('aria-expanded', 'false')
@@ -137,6 +148,21 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await primary.locator('[aria-label="Page flag ranges table"]').focus()
   await expect(primary.locator('[aria-label="Page flag ranges table"]')).toBeFocused()
 
+  const deviceNode = await primary.locator('[data-device="cuda:0"]').elementHandle()
+  const itemNode = await primary.locator('.memory-consumer-item').elementHandle()
+  for (let update = 1; update <= 100; update++) {
+    primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus, queue: { ...baseStatus.queue, queued: update } }))
+    await expect(primary.getByTestId('memory-queue')).toContainText(`Queued${update}`)
+    await expect(primary.locator('.memory-data-disclosure[open]')).toHaveCount(2)
+    await expect(primary.locator('[aria-label="Page flag ranges table"]')).toBeFocused()
+  }
+  expect(await deviceNode!.evaluate(node => node.isConnected)).toBe(true)
+  expect(await itemNode!.evaluate(node => node.isConnected)).toBe(true)
+
+  if (proofDir) {
+    await primary.locator('.memory-consumer-item').screenshot({ path: join(proofDir, 'memory-pages-open.png') })
+    await primary.locator('.memory-graph').screenshot({ path: join(proofDir, 'memory-history-open.png') })
+  }
   await scrollPanelToTop(page)
   await testInfo.attach('memory-wide-telemetry.png', { body: await capture(page, 'memory-wide-telemetry.png'), contentType: 'image/png' })
 
@@ -144,6 +170,8 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   const headroom = primary.getByRole('spinbutton', { name: 'Headroom (MiB)' })
   await headroom.fill('512')
   await expect(primary).toContainText('Unsaved changes')
+  primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
+  await expect(headroom).toHaveValue('512')
   const apply = primary.locator('form[data-category="memory-headroom"] button[type="submit"]')
   await expect(apply).toBeEnabled()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
@@ -152,6 +180,52 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary).toContainText('Rejected flag: --reserve-vram (owned by host-policy).')
 
   await testInfo.attach('memory-settings-rejected.png', { body: await capture(page, 'memory-settings-rejected.png'), contentType: 'image/png' })
+  if (proofDir) await primary.locator('.runtime-setting-category[data-category="memory-headroom"]').screenshot({ path: join(proofDir, 'memory-headroom-validation.png') })
+  await primary.locator('form[data-category="memory-headroom"]').getByRole('button', { name: 'Revert' }).click()
+  await expect(headroom).toHaveValue('256')
+  await expect(primary.getByText('Headroom exceeds server policy.')).toHaveCount(0)
+  rejectHeadroom = false
+  await headroom.fill('384')
+  await headroom.press('Enter')
+  await expect(primary.locator('.runtime-setting-category[data-category="memory-headroom"]')).toContainText('Current setting384 MiB')
+  await expect(apply).toBeDisabled()
+  if (proofDir) await primary.locator('.runtime-setting-category[data-category="memory-headroom"]').screenshot({ path: join(proofDir, 'memory-headroom-applied.png') })
+
+  const budgetSection = primary.locator('.runtime-setting-category[data-category="memory-budgets"]')
+  const budget = budgetSection.getByRole('spinbutton', { name: 'cuda:0 budget (MiB)', exact: true })
+  await expect(budgetSection).toContainText('Current settingAutomatic (no explicit budget)')
+  await expect(budget).toHaveValue('8192')
+  await budget.fill('4096')
+  primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
+  await expect(budget).toHaveValue('4096')
+  await budgetSection.getByRole('button', { name: 'Revert', exact: true }).click()
+  await expect(budget).toHaveValue('8192')
+  await budget.fill('6144')
+  if (proofDir) await budgetSection.screenshot({ path: join(proofDir, 'memory-budget-editing.png') })
+  await budgetSection.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(budgetSection).toContainText('Current settingcuda:0: 6144 MiB')
+  await expect(budgetSection).toContainText('Effective valuecuda:0: 8192 MiB')
+  await expect(budgetSection.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
+  if (proofDir) await budgetSection.screenshot({ path: join(proofDir, 'memory-budget-applied.png') })
+
+  const aimdoSection = primary.locator('.runtime-setting-category[data-category="aimdo-policy"]')
+  const aimdo = aimdoSection.getByRole('combobox')
+  await aimdo.click()
+  await page.getByRole('option', { name: 'on', exact: true }).click()
+  primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
+  await expect(aimdo).toHaveText('on')
+  await aimdoSection.getByRole('button', { name: 'Revert', exact: true }).click()
+  await expect(aimdo).toHaveText('auto')
+  await aimdo.focus()
+  await aimdo.press('Enter')
+  await page.keyboard.press('Home')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(aimdo).toHaveText('on')
+  await aimdoSection.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(aimdoSection).toContainText('Current settingon')
+  await expect(aimdoSection).toContainText('Applied worker policiesworker-one: off')
+  if (proofDir) await aimdoSection.screenshot({ path: join(proofDir, 'memory-aimdo-applied.png') })
 
   baseFails = true
   await expect(primary.locator('.memory-telemetry-state')).toHaveText('Stale', { timeout: 12_000 })
@@ -160,6 +234,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
 
   primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
   await expect(primary.locator('.memory-telemetry-state')).toHaveText('Live')
+  const samplesBefore = Number(await primary.locator('.memory-graph canvas').getAttribute('data-samples'))
   await page.waitForTimeout(1100)
   primarySocket!.send(JSON.stringify({
     type: 'memory_status', ...baseStatus,
@@ -169,7 +244,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
     },
   }))
   await expect(primary.locator('[data-device="cuda:0"]')).toContainText('Footprint6.0 GiB')
-  await expect(primary.locator('.memory-graph canvas')).toHaveAttribute('data-samples', '3')
+  await expect(primary.locator('.memory-graph canvas')).toHaveAttribute('data-samples', String(samplesBefore + 1))
   await expect(primary.locator('.memory-graph-state')).toHaveCount(0)
   primarySocket!.send(JSON.stringify({
     type: 'memory_status', ...baseStatus,
@@ -184,6 +259,10 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary).toContainText('Memory governor telemetry is unsupported')
   await expect(primary).toContainText('Lease telemetry is unsupported')
   if (proofDir) await captureAt(page, primary.getByText('Memory governor telemetry is unsupported'), 'memory-unsupported.png')
+  primarySocket!.close()
+  await expect(primary.locator('.memory-telemetry-state')).toHaveText('Disconnected')
+  await scrollPanelToTop(page)
+  if (proofDir) await capture(page, 'memory-disconnected.png')
 })
 
 test('Memory surface remains usable on touch, narrow layout, reduced motion, and 200 percent equivalent zoom', async ({ browser, baseURL }, testInfo) => {
@@ -205,12 +284,13 @@ test('Memory surface remains usable on touch, narrow layout, reduced motion, and
   if (await page.getByTestId('rail-toggle').getAttribute('aria-pressed') === 'true') await page.getByTestId('rail-toggle').tap()
   const panel = page.getByTestId('memory-panel').filter({ hasText: PRIMARY })
   await expect(panel).toContainText('Flux model with a long descriptive residency label')
-  await panel.locator('.memory-consumer button').tap()
-  await expect(panel.locator('.memory-consumer button')).toHaveAttribute('aria-expanded', 'false')
-  await panel.locator('.memory-consumer button').tap()
+  await panel.locator('.memory-consumer > button').tap()
+  await expect(panel.locator('.memory-consumer > button')).toHaveAttribute('aria-expanded', 'false')
+  await panel.locator('.memory-consumer > button').tap()
   await expect(panel).toContainText('Flux model with a long descriptive residency label')
-  await expect(panel.locator('.memory-consumer button')).toHaveCSS('min-height', '40px')
+  await expect(panel.locator('.memory-consumer > button')).toHaveCSS('min-height', '40px')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await scrollPanelToTop(page)
   await testInfo.attach('memory-narrow.png', { body: await capture(page, 'memory-narrow.png'), contentType: 'image/png' })
 
   await page.setViewportSize({ width: 720, height: 450 })
