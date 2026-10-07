@@ -43,7 +43,11 @@ const baseStatus = {
   memoryGovernor: {
     'cuda:0': {
       budgetBytes: 8589934592, reservedBytes: 2147483648, consumerFootprintBytes: 7516192768, availableBytes: -1073741824,
-      measured: { freeBytes: 5368709120, totalBytes: 12884901888 },
+      peakUsedBytes: 9 * 2 ** 30,
+      measured: { freeBytes: 5 * 2 ** 30, totalBytes: 12 * 2 ** 30,
+        torchAllocatedBytes: 2 * 2 ** 30, torchReservedBytes: 3 * 2 ** 30,
+        gpuName: 'NVIDIA GeForce RTX 3060', gpuUtilizationPercent: 75, gpuTemperatureCelsius: 62,
+        gpuPowerMilliwatts: 120000, processRssBytes: 8 * 2 ** 30, pinnedHostBytes: 2 * 2 ** 30 },
       consumers: { 'models/flux/very-long-consumer-name-that-wraps': 7516192768 },
     },
     'very-long-device-identity-that-must-wrap-without-colliding:1': {
@@ -60,7 +64,7 @@ const detailedStatus = {
     'models/flux/very-long-consumer-name-that-wraps': [{
       itemId: 'model-1', displayName: 'Flux model with a long descriptive residency label',
       bytesByResidency: { device: 6442450944, host: 1073741824 },
-      pages: { pageBytes: 1048576, pageCount: 8, flags: [1, 1, 3, 2, 2, 0, 1, 1] },
+      pages: { pageBytes: 1048576, pageCount: 700, flags: Array.from({ length: 700 }, (_, index) => index % 5 < 3 ? 1 : 0) },
     }],
   },
 }
@@ -122,7 +126,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary).toContainText('Flux model with a long descriptive residency label')
   expect(detailRequests).toBe(1)
 
-  const consumer = primary.locator('.memory-consumer button')
+  const consumer = primary.locator('.memory-consumer > button')
   await consumer.focus()
   await page.keyboard.press('Enter')
   await expect(consumer).toHaveAttribute('aria-expanded', 'false')
@@ -148,6 +152,10 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   expect(await deviceNode!.evaluate(node => node.isConnected)).toBe(true)
   expect(await itemNode!.evaluate(node => node.isConnected)).toBe(true)
 
+  if (proofDir) {
+    await primary.locator('.memory-consumer-item').screenshot({ path: join(proofDir, 'memory-pages-open.png') })
+    await primary.locator('.memory-graph').screenshot({ path: join(proofDir, 'memory-history-open.png') })
+  }
   await scrollPanelToTop(page)
   await testInfo.attach('memory-wide-telemetry.png', { body: await capture(page, 'memory-wide-telemetry.png'), contentType: 'image/png' })
 
@@ -217,11 +225,11 @@ test('Memory surface remains usable on touch, narrow layout, reduced motion, and
   if (await page.getByTestId('rail-toggle').getAttribute('aria-pressed') === 'true') await page.getByTestId('rail-toggle').tap()
   const panel = page.getByTestId('memory-panel').filter({ hasText: PRIMARY })
   await expect(panel).toContainText('Flux model with a long descriptive residency label')
-  await panel.locator('.memory-consumer button').tap()
-  await expect(panel.locator('.memory-consumer button')).toHaveAttribute('aria-expanded', 'false')
-  await panel.locator('.memory-consumer button').tap()
+  await panel.locator('.memory-consumer > button').tap()
+  await expect(panel.locator('.memory-consumer > button')).toHaveAttribute('aria-expanded', 'false')
+  await panel.locator('.memory-consumer > button').tap()
   await expect(panel).toContainText('Flux model with a long descriptive residency label')
-  await expect(panel.locator('.memory-consumer button')).toHaveCSS('min-height', '40px')
+  await expect(panel.locator('.memory-consumer > button')).toHaveCSS('min-height', '40px')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   await testInfo.attach('memory-narrow.png', { body: await capture(page, 'memory-narrow.png'), contentType: 'image/png' })
 

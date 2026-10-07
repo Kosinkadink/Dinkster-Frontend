@@ -98,6 +98,13 @@ export interface HeatmapCell {
   readonly age: number
 }
 
+export function pageCellColor(cell: HeatmapCell): string {
+  const target = cell.resident ? [230, 126, 34] : [58, 58, 58]
+  const source = cell.resident ? [255, 220, 0] : [200, 60, 60]
+  const fraction = cell.pulse === 'none' ? 0 : cell.age / PAGE_PULSE_TICKS
+  return `rgb(${target.map((channel, index) => Math.round(source[index]! * fraction + channel * (1 - fraction))).join(',')})`
+}
+
 export function pageIsResident(flag: number): boolean {
   return (flag & 1) !== 0
 }

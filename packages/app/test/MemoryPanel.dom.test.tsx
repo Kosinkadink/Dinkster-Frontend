@@ -162,6 +162,44 @@ describe('memory visualization logic', () => {
 })
 
 describe('MemoryPanel', () => {
+  it('shows measured usage and dispatches peak, model and whole-device actions', async () => {
+    const status = createSignal<ConnectionStatus>('connected')
+    const measured: MemoryStatus = { ...payload, memoryGovernor: { 'cuda:0': {
+      ...payload.memoryGovernor!['cuda:0']!, peakUsedBytes: 11 * 1024 ** 3,
+      measured: { freeBytes: 5 * 1024 ** 3, totalBytes: 12 * 1024 ** 3, driverFreeBytes: 4 * 1024 ** 3,
+        torchAllocatedBytes: 2 * 1024 ** 3, torchReservedBytes: 3 * 1024 ** 3,
+        gpuName: 'Measured GPU', gpuUtilizationPercent: 73, gpuTemperatureCelsius: 61,
+        gpuPowerMilliwatts: 121000, processRssBytes: 1536 * 1024 ** 2, pinnedHostBytes: 512 * 1024 ** 2 },
+    } } }
+    const unloadMemory = vi.fn(async () => ({ requestedBytes: 1000, freedBytes: 700 }))
+    const resetMemoryPeak = vi.fn(async () => {})
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <MemoryPanel connection={{ status, fetchMemoryStatus: vi.fn(async () => measured),
+      onMemoryStatus: () => () => {}, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn(), unloadMemory, resetMemoryPeak }} label="Actions" />, root)
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    expect(root.textContent).toContain('Measured GPU')
+    const fact = (label: string): string | null => [...root.querySelectorAll('dt')].find((entry) => entry.textContent === label)?.nextElementSibling?.textContent ?? null
+    expect(fact('Device used')).toBe('8.0 GiB')
+    expect(fact('Torch allocated')).toBe('2.0 GiB')
+    expect(fact('Torch reserved')).toBe('3.0 GiB')
+    expect(fact('GPU power')).toBe('121.0 W')
+    expect(fact('Pinned host memory')).toBe('512 MiB')
+    const click = async (label: string): Promise<void> => {
+      [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)!.click()
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    }
+    await click('Reset peak')
+    expect(resetMemoryPeak).toHaveBeenCalledWith('cuda:0')
+    await click('Unload Flux model')
+    expect(unloadMemory).toHaveBeenLastCalledWith('cuda:0', 'models', 'm1')
+    await click('Unload all')
+    expect(unloadMemory).toHaveBeenLastCalledWith('cuda:0', undefined, undefined)
+    expect(root.textContent).toContain('Freed 700 B of 1000 B requested. In-use memory may remain.')
+    status.set('disconnected')
+    expect([...root.querySelectorAll<HTMLButtonElement>('.product-button')].every((button) => button.disabled)).toBe(true)
+    unmount()
+  })
+
   it('retains device, consumer, item, disclosures, hover, focus and scroll through 100 fresh payloads', async () => {
     const status = createSignal<ConnectionStatus>('connected')
     let push: ((next: MemoryStatus) => void) | undefined
@@ -338,7 +376,7 @@ describe('MemoryPanel', () => {
     const root = document.createElement('div'); document.body.append(root)
     const unmount = render(() => <><MemoryPanel connection={connection} label="One" /><MemoryPanel connection={connection} label="Two" /></>, root)
     await Promise.resolve(); await Promise.resolve()
-    const buttons = root.querySelectorAll<HTMLButtonElement>('.memory-consumer button')
+    const buttons = root.querySelectorAll<HTMLButtonElement>('.memory-consumer > button')
     expect(buttons[0]!.getAttribute('aria-expanded')).toBe('true')
     expect(buttons[1]!.getAttribute('aria-expanded')).toBe('true')
     const ids = [...buttons].map((button) => button.getAttribute('aria-controls'))
@@ -471,7 +509,7 @@ describe('MemoryPanel', () => {
     const root = document.createElement('div'); document.body.append(root)
     const unmount = render(() => <MemoryPanel connection={connection} label="Retained" />, root)
     await Promise.resolve(); await Promise.resolve()
-    const consumers = root.querySelectorAll<HTMLButtonElement>('.memory-consumer button')
+    const consumers = root.querySelectorAll<HTMLButtonElement>('.memory-consumer > button')
     expect(root.textContent).toContain('Flux model')
     consumers[1]!.click(); await Promise.resolve(); await Promise.resolve()
     expect(root.textContent).toContain('Item details failed to refresh: detail offline. Retained details remain visible.')

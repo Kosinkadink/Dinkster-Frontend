@@ -575,6 +575,7 @@
     "attribute:aria-label:Active memory leases",
     "attribute:aria-label:Memory history table",
     "attribute:aria-label:Page flag ranges table",
+    "text:& Partial",
     "text:('idle') const [detailReady, setDetailReady] = createSignal",
     "text:() const [detailState, setDetailState] = createSignal",
     "text:() const [details, setDetails] = createSignal",

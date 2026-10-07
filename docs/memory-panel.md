@@ -20,6 +20,12 @@ Over-budget availability remains a prominent error fact. Budget and headroom
 controls follow the device overview so they remain adjacent without displacing
 the live bars and model residency visuals.
 
+Worker measurements show torch allocated/reserved, device total/used/free,
+observed peak, process RSS and pinned host memory separately from governor
+accounting. NVIDIA telemetry supplies GPU name, utilization, temperature and
+power when available. Reset peak sets the peak to current device usage.
+Unavailable metrics remain labelled as not reported.
+
 The history graph records at most one sample per second in a bounded
 120-sample in-memory window labelled **last 120 s**. Older samples are dropped,
 not accumulated in hidden scrollback. It presents
@@ -44,7 +50,11 @@ sample and superseded requests are ignored. Detail failure remains local and
 keeps previously loaded details visible as retained.
 
 When page flags are available, a canvas heatmap draws compact cells and wraps
-them to the card width. Flag bit 0 means resident. Transition cues distinguish
+them row by row to the card width, without moving or scrolling cells between
+updates. It matches the reference's 6 px cells and 1 px gaps. Resident cells
+are orange and unloaded cells gray; six-update RGB transitions fade yellow
+to resident for page-in and red to gray for page-out. Flag bit 0 means
+resident. Transition cues distinguish
 page-in and page-out activity without replacing the server flag. A textual
 summary reports resident pages and bytes. An expandable, keyboard-focusable
 range table exposes every raw flag, its resident interpretation, and page-in
@@ -67,6 +77,11 @@ workers started after the change. This composes the shared runtime settings
 surface: loading and refresh errors, grants, read-only state, dirty drafts,
 saving, returned-section replacement, validation or permission rejection,
 rejected flags, and persistence retain their existing behavior.
+
+Unload all requests all sheddable device memory from the governor. Each model
+has an unload action scoped to its consumer and item id. The result reports
+actual freed bytes; active memory can remain. Unload and peak-reset actions
+are disabled while telemetry is retained or another action is pending.
 
 Fault and offload activity counters are absent because the backend does not
 define them. They must not be inferred from other telemetry.

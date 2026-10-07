@@ -830,6 +830,16 @@ async function p2pRequestError(response: Response, operation: string): Promise<P
 export interface MemoryMeasurement {
   readonly freeBytes: number
   readonly totalBytes: number
+  readonly driverFreeBytes?: number
+  readonly torchAllocatedBytes?: number
+  readonly torchReservedBytes?: number
+  readonly processRssBytes?: number
+  readonly pinnedHostBytes?: number
+  readonly gpuName?: string
+  readonly gpuUtilizationPercent?: number
+  readonly gpuTemperatureCelsius?: number
+  readonly gpuPowerMilliwatts?: number
+  readonly gpuPowerLimitMilliwatts?: number
 }
 
 export interface MemoryGovernorDevice {
@@ -838,6 +848,7 @@ export interface MemoryGovernorDevice {
   readonly consumerFootprintBytes: number
   readonly availableBytes: number | null
   readonly measured: MemoryMeasurement | null
+  readonly peakUsedBytes?: number | null
   readonly consumers: Readonly<Record<string, number>>
 }
 
@@ -874,8 +885,11 @@ function decodeMemoryStatus(value: unknown): MemoryStatus | undefined {
     if (!record(device) || (device['budgetBytes'] !== null && !finite(device['budgetBytes'])) ||
       !finite(device['reservedBytes']) || !finite(device['consumerFootprintBytes']) ||
       (device['availableBytes'] !== null && !finite(device['availableBytes'])) || !numberRecord(device['consumers'])) return false
+    if (device['peakUsedBytes'] !== undefined && device['peakUsedBytes'] !== null && !finite(device['peakUsedBytes'])) return false
     const measured = device['measured']
-    return measured === null || (record(measured) && finite(measured['freeBytes']) && finite(measured['totalBytes']))
+    return measured === null || (record(measured) && finite(measured['freeBytes']) && finite(measured['totalBytes']) &&
+      ['driverFreeBytes', 'torchAllocatedBytes', 'torchReservedBytes', 'processRssBytes', 'pinnedHostBytes', 'gpuUtilizationPercent', 'gpuTemperatureCelsius', 'gpuPowerMilliwatts', 'gpuPowerLimitMilliwatts'].every((key) => measured[key] === undefined || (finite(measured[key]) && measured[key] >= 0)) &&
+      (measured['gpuName'] === undefined || typeof measured['gpuName'] === 'string'))
   })) return undefined
   if (Array.isArray(status['leases']) && !status['leases'].every((lease) => record(lease) &&
     typeof lease['reservationId'] === 'string' && typeof lease['device'] === 'string' && finite(lease['bytes']) && finite(lease['expiresInSeconds']))) return undefined
@@ -2286,6 +2300,24 @@ export class DinksterConnection {
     const status = decodeMemoryStatus(await res.json())
     if (status === undefined) throw new Error('GET /memory/status: malformed response')
     return status
+  }
+
+  async resetMemoryPeak(device: string): Promise<void> {
+    const res = await this.fetchFn(`${this.baseUrl}/memory/reset-peak`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device }),
+    })
+    if (!res.ok) throw new Error(`POST /memory/reset-peak failed: ${res.status}`)
+  }
+
+  async unloadMemory(device: string, consumer?: string, item?: string): Promise<{ readonly requestedBytes: number; readonly freedBytes: number }> {
+    const res = await this.fetchFn(`${this.baseUrl}/cache/trim`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device, ...(consumer === undefined ? {} : { consumers: [consumer] }), ...(item === undefined ? {} : { items: [item] }) }),
+    })
+    if (!res.ok) throw new Error(`POST /cache/trim failed: ${res.status}`)
+    const result: unknown = await res.json()
+    if (!record(result) || typeof result['requestedBytes'] !== 'number' || typeof result['freedBytes'] !== 'number') throw new Error('POST /cache/trim: malformed response')
+    return { requestedBytes: result['requestedBytes'], freedBytes: result['freedBytes'] }
   }
 
   /** Update one discovered category; the server owns validation and gating. */

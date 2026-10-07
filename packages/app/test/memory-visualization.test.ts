@@ -6,6 +6,7 @@ import {
   liveMemorySamples,
   MEMORY_HISTORY_LIMIT,
   MEMORY_LIVE_VIEWPORT_LIMIT,
+  pageCellColor,
   PAGE_PULSE_TICKS,
   type MemorySample,
 } from '../src/memory-visualization.js'
@@ -54,6 +55,15 @@ describe('memory visualization device bars', () => {
 })
 
 describe('memory visualization page transitions', () => {
+  it('matches the reference RGB interpolation rather than fading alpha', () => {
+    expect(pageCellColor({ resident: true, pulse: 'none', age: 0 })).toBe('rgb(230,126,34)')
+    expect(pageCellColor({ resident: false, pulse: 'none', age: 0 })).toBe('rgb(58,58,58)')
+    expect(pageCellColor({ resident: true, pulse: 'in', age: 6 })).toBe('rgb(255,220,0)')
+    expect(pageCellColor({ resident: true, pulse: 'in', age: 3 })).toBe('rgb(243,173,17)')
+    expect(pageCellColor({ resident: false, pulse: 'out', age: 6 })).toBe('rgb(200,60,60)')
+    expect(pageCellColor({ resident: false, pulse: 'out', age: 1 })).toBe('rgb(82,58,58)')
+  })
+
   it('ages page-ins and page-outs independently for exactly six samples', () => {
     const initial = diffHeatmapFlags(undefined, [0, 1])
     let cells = diffHeatmapFlags(initial, [1, 0])
