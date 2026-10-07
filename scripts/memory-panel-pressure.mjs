@@ -14,6 +14,7 @@ try {
   const panel = page.getByTestId('memory-panel').first()
   await expect(panel.locator('.memory-telemetry-state')).toHaveText('Live')
   await expect(panel).toContainText('Torch allocated10 GiB')
+  await page.getByTestId('memory-sidebar-toggle').evaluate((element) => element.blur())
   await page.waitForTimeout(8000)
   await page.mouse.move(1000, 250)
   await page.waitForTimeout(300)
