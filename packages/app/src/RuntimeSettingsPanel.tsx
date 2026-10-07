@@ -55,7 +55,7 @@ function CategoryEditor(props: {
   readonly onSaveStart: () => void
   readonly onSaved: (section: RuntimeSettingSection) => void
   readonly memoryControls?: boolean
-  readonly memoryStatus?: MemoryStatus
+  readonly memoryStatus?: MemoryStatus | undefined
 }) {
   const message = useAppMessage()
   const categoryLabel = (): string => {
@@ -114,7 +114,7 @@ function CategoryEditor(props: {
   }
   const editorId = createUniqueId()
   const fieldId = (name: string): string => `${editorId}-runtime-${props.category}-${encodeURIComponent(name)}`
-  const budgetValue = (device: string): unknown => asRecord(draft())[device] ?? props.memoryStatus?.memoryGovernor?.[device]?.budgetBytes ?? props.memoryStatus?.memoryGovernor?.[device]?.measured?.totalBytes ?? 0
+  const budgetValue = (device: string): unknown => asRecord(draft())[device] ?? props.memoryStatus?.acceleratorPolicy?.devices[device]?.governorAdmission.effectiveBudgetBytes ?? props.memoryStatus?.memoryGovernor?.[device]?.budgetBytes ?? props.memoryStatus?.memoryGovernor?.[device]?.measured?.totalBytes ?? 0
 
   return (
     <form class="runtime-settings-editor" data-category={props.category} onSubmit={(event) => void save(event)}>
@@ -301,7 +301,10 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
     const policy = props.memoryStatus?.acceleratorPolicy
     if (category === 'memory-headroom') return policy === undefined ? message('memory.metric.unavailable') : memoryValue(category, policy.physicalHeadroomBytes)
     if (category === 'aimdo-policy') return Object.entries(policy?.aimdoPoliciesByWorker ?? {}).map(([worker, value]) => `${worker}: ${value}`).join('; ') || message('memory.metric.unavailable')
-    return Object.entries(props.memoryStatus?.memoryGovernor ?? {}).map(([device, value]) => `${device}: ${value.budgetBytes === null ? message('memory.metric.unavailable') : memoryValue('memory-headroom', policy?.devices[device]?.governorAdmission.effectiveBudgetBytes ?? value.budgetBytes)}`).join('; ') || message('memory.metric.unavailable')
+    return Object.entries(props.memoryStatus?.memoryGovernor ?? {}).map(([device, value]) => {
+      const budget = policy?.devices[device]?.governorAdmission.effectiveBudgetBytes ?? value.budgetBytes
+      return `${device}: ${budget === null ? message('memory.metric.unavailable') : memoryValue('memory-headroom', budget)}`
+    }).join('; ') || message('memory.metric.unavailable')
   }
 
   return (
@@ -341,7 +344,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
                     <Show when={item().mutability === 'on-worker-restart'}><ProductNotice tone="info">{message('runtimeSettings.notice.workerRestart')}</ProductNotice></Show>
                     <Show when={!settings().categories.granted.includes(category)}><ProductNotice tone="warning">{message('runtimeSettings.warning.categoryNotGranted', { category: categoryLabel(category) })}</ProductNotice></Show>
                     <Show when={settings().categories.granted.includes(category) && !item().writable}><ProductNotice tone="info">{message('runtimeSettings.notice.readOnly')}</ProductNotice></Show>
-                    <Show when={editable(category, item()) && knownEditor(category)}><CategoryEditor category={category} section={item()} connection={props.connection} onSaveStart={invalidateLoad} onSaved={(updated) => replace(category, updated)} {...(props.memoryControls === undefined ? {} : { memoryControls: props.memoryControls })} {...(props.memoryStatus === undefined ? {} : { memoryStatus: props.memoryStatus })} /></Show>
+                    <Show when={editable(category, item()) && knownEditor(category)}><CategoryEditor category={category} section={item()} connection={props.connection} onSaveStart={invalidateLoad} onSaved={(updated) => replace(category, updated)} memoryStatus={props.memoryStatus} {...(props.memoryControls === undefined ? {} : { memoryControls: props.memoryControls })} /></Show>
                     <Show when={item().source === 'runtime' && (!item().persistence.available || !item().persistence.persisted)}><ProductNotice tone="status">{message('runtimeSettings.notice.memoryOnly')}</ProductNotice></Show>
                   </div>
                 </details>
