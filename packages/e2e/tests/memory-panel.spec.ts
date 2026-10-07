@@ -55,6 +55,10 @@ const baseStatus = {
       measured: null, consumers: {},
     },
   },
+  acceleratorPolicy: { physicalHeadroomBytes: 256 * 2 ** 20, aimdoConfiguredPolicy: 'auto',
+    aimdoPoliciesByWorker: { 'worker-one': 'off' },
+    devices: { 'cuda:0': { governorAdmission: { budgetBytes: 8 * 2 ** 30, effectiveBudgetBytes: 8 * 2 ** 30 }, residencyApplied: { budgetsByWorker: {} } } },
+  },
   leases: [{ reservationId: 'reservation-with-a-long-authoritative-id', device: 'cuda:0', bytes: 1073741824, expiresInSeconds: 30 }],
 }
 
@@ -84,6 +88,7 @@ async function scrollPanelToTop(page: Page): Promise<void> {
 test('Memory and Aimdo surface covers wide lifecycle, details, settings, and multiple backends', async ({ page }, testInfo) => {
   let detailRequests = 0
   let baseFails = false
+  let rejectHeadroom = true
   let primarySocket: WebSocketRoute | undefined
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
@@ -91,9 +96,9 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await page.route(`${PRIMARY}/system_stats`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${PRIMARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
   await page.route(`${PRIMARY}/api/settings`, (route) => route.fulfill({ json: settings }))
-  await page.route(`${PRIMARY}/api/settings/memory-headroom`, (route) => route.fulfill({ status: 400, json: {
+  await page.route(`${PRIMARY}/api/settings/memory-headroom`, (route) => rejectHeadroom ? route.fulfill({ status: 400, json: {
     error: 'invalid-settings', category: 'memory-headroom', message: 'Headroom exceeds server policy.', offendingFlag: '--reserve-vram', owner: 'host-policy',
-  } }))
+  } }) : route.fulfill({ json: section(route.request().postDataJSON()) }))
   await page.route(`${PRIMARY}/memory/status*`, (route) => {
     const details = new URL(route.request().url()).searchParams.get('details') === '1'
     if (details) detailRequests++
@@ -163,6 +168,8 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   const headroom = primary.getByRole('spinbutton', { name: 'Headroom (MiB)' })
   await headroom.fill('512')
   await expect(primary).toContainText('Unsaved changes')
+  primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus }))
+  await expect(headroom).toHaveValue('512')
   const apply = primary.locator('form[data-category="memory-headroom"] button[type="submit"]')
   await expect(apply).toBeEnabled()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
@@ -171,6 +178,17 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary).toContainText('Rejected flag: --reserve-vram (owned by host-policy).')
 
   await testInfo.attach('memory-settings-rejected.png', { body: await capture(page, 'memory-settings-rejected.png'), contentType: 'image/png' })
+  if (proofDir) await primary.locator('.runtime-setting-category[data-category="memory-headroom"]').screenshot({ path: join(proofDir, 'memory-headroom-validation.png') })
+  await primary.locator('form[data-category="memory-headroom"]').getByRole('button', { name: 'Revert' }).click()
+  await expect(headroom).toHaveValue('256')
+  await expect(primary.getByText('Headroom exceeds server policy.')).toHaveCount(0)
+  rejectHeadroom = false
+  await headroom.fill('384')
+  await headroom.press('Enter')
+  await expect(primary.locator('.runtime-setting-category[data-category="memory-headroom"]')).toContainText('Current setting384 MiB')
+  await expect(apply).toBeDisabled()
+  if (proofDir) await primary.locator('.runtime-setting-category[data-category="memory-headroom"]').screenshot({ path: join(proofDir, 'memory-headroom-applied.png') })
+  if (proofDir) await primary.locator('.runtime-setting-category[data-category="aimdo-policy"]').screenshot({ path: join(proofDir, 'memory-aimdo-applied.png') })
 
   baseFails = true
   await expect(primary.locator('.memory-telemetry-state')).toHaveText('Stale', { timeout: 12_000 })

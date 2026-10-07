@@ -1185,6 +1185,7 @@
   "runtimeSettings.action.refreshAriaLabel": "刷新 {backend} 运行时设置",
   "runtimeSettings.action.remove": "移除",
   "runtimeSettings.action.reset": "重置",
+  "runtimeSettings.action.revert": "还原",
   "runtimeSettings.action.show": "显示",
   "runtimeSettings.aimdo.policy": "策略",
   "runtimeSettings.backend": "后端",

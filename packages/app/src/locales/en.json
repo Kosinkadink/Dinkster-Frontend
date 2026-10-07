@@ -1183,6 +1183,7 @@
   "runtimeSettings.action.refreshAriaLabel": "Refresh {backend} runtime settings",
   "runtimeSettings.action.remove": "Remove",
   "runtimeSettings.action.reset": "Reset",
+  "runtimeSettings.action.revert": "Revert",
   "runtimeSettings.action.show": "Show",
   "runtimeSettings.aimdo.policy": "Policy",
   "runtimeSettings.backend": "Backend",

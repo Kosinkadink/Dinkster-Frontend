@@ -227,7 +227,7 @@ function CategoryEditor(props: {
           <button type="button" class="product-form-add" onClick={() => syncLogging(logging()['level'], [...loggingRows(), { id: ++loggingRowId, name: '', level: 'info' }])}>{message('runtimeSettings.logging.addOverride')}</button>
         </Show>
         <ProductActionFooter status={message(saving() ? 'runtimeSettings.status.savingChanges' : dirty() ? 'runtimeSettings.status.unsavedChanges' : 'runtimeSettings.status.clean')}>
-          <button type="button" disabled={!dirty() || saving()} onClick={reset}>{message('runtimeSettings.action.reset')}</button>
+          <button type="button" disabled={!dirty() || saving()} onClick={reset}>{message(props.memoryControls ? 'runtimeSettings.action.revert' : 'runtimeSettings.action.reset')}</button>
           <button type="submit" class="primary" disabled={!dirty() || saving()}>{message(saving() ? 'runtimeSettings.status.saving' : 'runtimeSettings.action.apply')}</button>
         </ProductActionFooter>
       </fieldset>

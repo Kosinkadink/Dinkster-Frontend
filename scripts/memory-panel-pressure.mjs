@@ -8,7 +8,7 @@ if (!output) throw new Error('Usage: node scripts/memory-panel-pressure.mjs <fro
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  const page = await browser.newPage({ viewport: { width: 1440, height: 2600 } })
   await page.goto(url)
   await page.getByTestId('memory-sidebar-toggle').click()
   const panel = page.getByTestId('memory-panel').first()
