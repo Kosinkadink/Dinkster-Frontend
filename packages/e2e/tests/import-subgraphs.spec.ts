@@ -3,9 +3,8 @@ import { expect, test, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 const schemas = readJson('../../core/fixtures/object_info.json')
-// Exact values derived once from the served dev-pack catalog; see the
-// fixture's _provenance. The audit lane serves that catalog instead of the
-// V1-style object_info fixture the route-mocked lanes use.
+// Import results stay independent of the current backend catalog; see the
+// fixture's _provenance for the graph and diagnostic goldens.
 const nativeCatalog = readJson('./fixtures/native-catalog.json')
 // test.info() is only valid inside a running test, so this stays a function.
 const inAuditLane = () => (test.info().config.configFile ?? '').includes('audit-assets')
@@ -31,6 +30,18 @@ async function enterInstance(page: Page, id: string): Promise<void> {
   await page.mouse.dblclick(point.x, point.y)
 }
 
+async function expectSchemasReady(page: Page): Promise<void> {
+  let schemaCount = Object.keys(schemas).length
+  if (inAuditLane()) {
+    const response = await page.request.get('/api/nodes')
+    expect(response.ok()).toBe(true)
+    const catalog = await response.json()
+    schemaCount = Object.keys(catalog.nodes).length
+  }
+  expect(schemaCount).toBeGreaterThan(0)
+  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: schemas }))
@@ -43,7 +54,7 @@ for (const name of templates) test(`imports and drills into official nested subg
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${inAuditLane() ? nativeCatalog.schemaCount : Object.keys(schemas).length} node schemas`))
+  await expectSchemasReady(page)
   const workflow = readJson(`../../core/fixtures/workflows/official-subgraphs/${name}`)
   const result = await page.evaluate(({ workflow, name }) => {
     const app = window.__dinksterTest!.app
@@ -99,7 +110,7 @@ test('reports an unrepresentable structural boundary without opening a lossy doc
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`${inAuditLane() ? nativeCatalog.schemaCount : Object.keys(schemas).length} node schemas`))
+  await expectSchemasReady(page)
   const result = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const before = app.activeTab()!

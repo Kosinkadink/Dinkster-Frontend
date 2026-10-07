@@ -86,7 +86,10 @@ pins:
 
 The heavy jobs retain the shared memory-only dependency identity action and
 clean checkouts without persisted credentials. The audit-assets browser starts the
-pinned Dinkster checkout and uses frontend/native ports 15376/15377. Full E2E
+pinned Dinkster checkout and uses frontend/native ports 15376/15377. Its subgraph
+import readiness count follows the served `/api/nodes` catalog; graph structure
+and diagnostic expectations remain fixed goldens in `native-catalog.json`.
+Full E2E
 uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
 compatibility dependencies into the pinned ComfyUI interpreter used by its
 full composition. Its contract proof separately starts Dinkster with
