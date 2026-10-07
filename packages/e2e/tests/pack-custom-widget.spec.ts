@@ -3,17 +3,16 @@ import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CUSTOM_WIDGET_PROOF_DIR']
 
-async function widgetPoint(page: Page): Promise<[number, number]> {
+async function widgetPoint(page: Page): Promise<{ x: number; y: number }> {
   return page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const viewport = renderer.getViewport()
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'blob')!
     const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'size')!
-    const canvas = document.querySelector<HTMLElement>('[data-testid="graph-canvas"]')!.getBoundingClientRect()
-    return [
-      canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
-      canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
-    ]
+    return {
+      x: (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
   })
 }
 
@@ -63,7 +62,7 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
   await page.evaluate(() => {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
-  await page.mouse.click(...await widgetPoint(page))
+  await page.getByTestId('graph-canvas').click({ position: await widgetPoint(page) })
   await expect(page.getByTestId('widget-editor')).toHaveAttribute('data-editor-mode', 'raw')
   await expect(page.getByTestId('widget-editor').locator('textarea')).toHaveValue('8')
   await page.keyboard.press('Escape')
@@ -108,7 +107,7 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
     window.__dinksterTest!.renderer!.getScene().nodes[0]?.layout.rows
       .find((row) => row.kind === 'widget' && row.inputId === 'size')?.viewId,
   )).toBe('isopack.size.view')
-  await page.mouse.click(...await widgetPoint(page))
+  await page.getByTestId('graph-canvas').click({ position: await widgetPoint(page) })
   await expect(page.getByTestId('widget-editor')).toBeVisible()
   await expect(page.getByTestId('widget-editor-host-ui')).toContainText('Pack size: 8 bytes')
 

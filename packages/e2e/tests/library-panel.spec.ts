@@ -51,6 +51,11 @@ async function installFixture(page: Page): Promise<{
   let templateRequests = 0
   let release: (() => void) | undefined
 
+  await page.route('/api/settings', (route) => route.fulfill({ json: {
+    features: { p2p: { enabled: false }, templates: { enabled: true } },
+    categories: { granted: [], available: [] },
+    settings: {},
+  } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'fixture has no supervisor' }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('/api/history/runs*', (route) => route.fulfill({ json: { records: [] } }))
@@ -238,8 +243,9 @@ test('Library direct content preserves provenance, states, overflow, and respons
     app.connection.disconnect()
   })
   await expect(library.locator('.library-backend-context')).toContainText('disconnected')
-  await expect(library).toHaveAttribute('data-source', 'templates')
-  await expect(library.locator('[data-testid="collection-source"][data-source="templates"]')).toHaveAttribute('aria-pressed', 'true')
+  await expect(library).toHaveAttribute('data-source', 'packs')
+  await expect(library.locator('[data-testid="collection-source"][data-source="templates"]')).toHaveCount(0)
+  await expect(library.locator('[data-testid="collection-source"][data-source="packs"]')).toHaveAttribute('aria-pressed', 'true')
   await page.setViewportSize({ width: 390, height: 844 })
   const compactSource = library.getByTestId('library-source-select')
   await expect(compactSource).toBeVisible()
