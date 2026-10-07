@@ -358,7 +358,6 @@
     "text:props.searchPriority === 'primary' ?",
     "text:return",
     "text:return (",
-    "text:s.id === sourceId()) const filterOptions = (filter: NonNullable",
     "text:viewportRect.bottom) viewport.scrollTop += entryRect.bottom - viewportRect.bottom else if (entryRect.top"
   ],
   "CompositorEditor.tsx": [
