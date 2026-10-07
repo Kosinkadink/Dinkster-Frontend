@@ -541,10 +541,13 @@ export function App(props: {
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
   const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), historySource(app), runsSource(app)]
-  const librarySources = () => {
+  const libraryTemplatesEnabled = createMemo(() => {
+    tabs()
+    activeTabId()
     backendsTick()
-    return builtinLibrarySources.filter((source) => source.id !== 'templates' || activeBackend().templatesEnabled.get())
-  }
+    return app.libraryBackend()?.templatesEnabled.get() === true
+  })
+  const librarySources = createMemo(() => builtinLibrarySources.filter((source) => source.id !== 'templates' || libraryTemplatesEnabled()))
   // The backend the library browses (the active tab's target). A memo so
   // the panel re-pages exactly when the resolved backend IDENTITY changes
   // (tab switch onto another backend, retarget, backend removal) - not on

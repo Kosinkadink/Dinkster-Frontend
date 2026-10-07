@@ -1,4 +1,4 @@
-import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
 import type { ConnectionStatus } from '@dinkster/client'
 import type { CollectionEntry, CollectionSource, MessageParams } from '@dinkster/core'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
@@ -259,7 +259,7 @@ export function LibraryPanel(props: LibraryPanelProps) {
       if (transitionSourceId() === settledSourceId) setTransitionSourceId(undefined)
     })
   }
-  const panelSources = props.sources.map((source): CollectionSource => ({
+  const panelSources = createMemo(() => props.sources.map((source): CollectionSource => ({
     ...source,
     page: async (request) => {
       const requestId = ++requestSequence
@@ -273,7 +273,13 @@ export function LibraryPanel(props: LibraryPanelProps) {
         throw error
       }
     },
-  }))
+  })))
+  createEffect(() => {
+    if (!props.sources.some((source) => source.id === sourceId())) {
+      setSourceId(props.sources[0]?.id ?? '')
+      setTransitionSourceId(undefined)
+    }
+  })
   const sourceLabel = () => props.sources.find((source) => source.id === sourceId())?.label ?? 'library'
   const directSource = () => DIRECT_LIBRARY_SOURCES.has(sourceId())
   const activitySource = () => ACTIVITY_SOURCES.has(sourceId())
@@ -334,7 +340,7 @@ export function LibraryPanel(props: LibraryPanelProps) {
         <span role="status">{props.backend().protocol === 'dinkster' ? 'Dinkster' : 'ComfyUI'} - {props.backend().status}</span>
       </div>
       <CollectionPanel
-        sources={panelSources}
+        sources={panelSources()}
         sourceRail={({ selectedId, select }) => <LibrarySourceControl
           sources={props.sources}
           selectedId={selectedId}
