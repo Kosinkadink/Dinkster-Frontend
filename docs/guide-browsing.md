@@ -7,7 +7,9 @@ shows an explicit notice when it falls back to the guide's default locale.
 Pack names, tags, and guide body content remain backend-owned data.
 
 Guide Markdown uses the constrained renderer described in [node help](node-help.md).
-A valid `dinkster-example` block may offer one pack-owned template:
+A valid `dinkster-example` block may offer one pack-owned template only when
+the backend reports `features.templates.enabled` true. Templates default to
+disabled; guide text remains available, without a template-opening action:
 
 ````text
 ```dinkster-example

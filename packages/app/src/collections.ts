@@ -235,7 +235,9 @@ export function templatesSource(app: AppState): CollectionSource {
       const offset = rawOffset === undefined ? 0 : Number(rawOffset)
       if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('invalid template continuation')
       const pack = req.filters?.['pack']
-      const catalog = new RemoteTemplateCatalog(app.settings.get<string>('templates.registryUrl'))
+      const registryUrl = app.settings.list().some((setting) => setting.id === 'templates.registryUrl')
+        ? app.settings.get<string>('templates.registryUrl') : ''
+      const catalog = new RemoteTemplateCatalog(registryUrl)
       const [local, remote] = await Promise.all([allLocalTemplates(backend), catalog.list()])
       const query = normalizeTemplateSearch(req.query.trim())
       const templates = [

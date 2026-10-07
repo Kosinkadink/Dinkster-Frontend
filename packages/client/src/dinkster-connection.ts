@@ -391,6 +391,10 @@ export interface RuntimeSettingSection {
 }
 
 export interface RuntimeSettings {
+  readonly features?: {
+    readonly p2p?: { readonly enabled: boolean }
+    readonly templates?: { readonly enabled: boolean }
+  }
   readonly categories: {
     readonly granted: readonly string[]
     readonly available: readonly string[]
