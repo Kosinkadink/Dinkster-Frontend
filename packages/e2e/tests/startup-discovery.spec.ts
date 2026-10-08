@@ -154,6 +154,8 @@ test('native clean startup stays blank with a richer compatibility catalog', asy
 })
 
 test('same-origin native mode has an explicit cascading hover/menu smoke path', async ({ page }) => {
+  // The menu uses the mocked catalog, not the hosted engine's event stream.
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),
   )
@@ -164,6 +166,10 @@ test('same-origin native mode has an explicit cascading hover/menu smoke path', 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol ?? 'pending'))
     .toBe('dinkster')
+  await expect.poll(() => page.evaluate(() => {
+    const backend = window.__dinksterTest?.app.backends.get()[0]
+    return backend?.connection.status.get() === 'connected' && backend.registry.get()?.schemas.has('demo.node')
+  })).toBe(true)
 
   await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
