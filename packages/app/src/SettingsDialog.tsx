@@ -358,7 +358,7 @@ export function SettingsDialog(props: {
               <Show when={category().startsWith('pack:')} fallback={
                 <Show when={category() !== 'keybindings'} fallback={
                   <div class="keybinding-table">
-                    <For each={props.commands.list()}>{keybindingRow}</For>
+                    <For each={(changed(), props.commands.list())}>{keybindingRow}</For>
                   </div>
                 }>
                   <For each={visible()}>{settingRow}</For>
