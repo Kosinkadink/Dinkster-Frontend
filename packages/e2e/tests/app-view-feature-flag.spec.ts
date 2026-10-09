@@ -56,21 +56,18 @@ test('default-off restores app tabs as Graph and hides every App View entry poin
   await page.getByTestId('lens-switcher').click()
   await expect(page.getByRole('menuitemradio', { name: /Exposure/ })).toHaveCount(0)
   await page.keyboard.press('Escape')
-  expect(await page.evaluate(() => {
+  const promotionItems = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
-    const context = { doc: tab.store.doc, graphId: 'root', selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0 }
+    const context = { doc: tab.store.doc as import('@dinkster/core').WorkflowDocument, graphId: 'root',
+      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0 }
     return [
       ...app.menuRegistry.resolve({ ...context, target: { kind: 'widget', nodeId: 'input', inputId: 'steps' } }),
       ...app.menuRegistry.resolve({ ...context, target: { kind: 'node', nodeId: 'input', previewSurface: true } }),
     ].flatMap((group) => group.items).map((item) => item.id)
-  })).not.toEqual(expect.arrayContaining(['core.widget.expose.toggle']))
-  expect(await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const tab = app.activeTab()!
-    return app.menuRegistry.resolve({ doc: tab.store.doc, graphId: 'root', selection: { nodes: [], links: [], reroutes: [] },
-      worldX: 0, worldY: 0, target: { kind: 'node', nodeId: 'input', previewSurface: true } }).flatMap((group) => group.items).map((item) => item.id)
-  })).not.toContain('core.node.preview.expose.toggle')
+  })
+  expect(promotionItems).not.toContain('core.widget.expose.toggle')
+  expect(promotionItems).not.toContain('core.node.preview.expose.toggle')
   await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
   await page.reload()
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
