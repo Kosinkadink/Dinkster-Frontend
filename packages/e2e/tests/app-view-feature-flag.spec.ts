@@ -15,6 +15,10 @@ const workflow = {
 
 test.beforeEach(async ({ page }) => {
   await page.route('/api/**', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'app-view-flag-test', schemaWire: 1 }, packs: {}, nodes: {},
+  } }))
+  await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
@@ -27,6 +31,7 @@ test.beforeEach(async ({ page }) => {
   }, { workflow })
   await page.goto('/')
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FlagInput', displayName: 'Flag input', category: 'test', source: 'v3', isOutputNode: false,
