@@ -462,6 +462,10 @@ export function App(props: {
     settingsTick()
     return app.settings.get<boolean>('features.controlSurfaces.enabled')
   }
+  const appViewEnabled = createMemo((): boolean => {
+    settingsTick()
+    return app.appViewEnabled
+  })
   const backends = useSignal(app.backends)
   const backendsTick = useSignal(app.backendsTick)
   const hostUiTick = useSignal(app.hostUiContributions.changed)
@@ -1645,13 +1649,17 @@ export function App(props: {
     component: (host) => <GraphEditor {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterEditors)
-  // The form-style app view uses the same public descriptor API.
-  const unregisterAppEditor = app.frontendDoors.editor(APP_EDITOR_KIND, {
-    roles: builtinEditorRoles(APP_EDITOR_KIND),
-    get title() { return message('shell.editor.appView') },
-    component: (host) => <AppView app={app} {...(host !== undefined ? { host } : {})} />,
+  createEffect(() => {
+    if (!appViewEnabled()) return
+    onCleanup(app.frontendDoors.editor(APP_EDITOR_KIND, {
+      roles: builtinEditorRoles(APP_EDITOR_KIND),
+      get title() { return message('shell.editor.appView') },
+      component: (host) => <AppView app={app} {...(host !== undefined ? { host } : {})} />,
+    }))
+    for (const { id, ...binding } of builtinEditorBindings.filter((binding) => binding.editor === APP_EDITOR_KIND)) {
+      onCleanup(app.frontendDoors.editorBinding(id, binding))
+    }
   })
-  onCleanup(unregisterAppEditor)
   const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
     roles: builtinEditorRoles(IMAGE_EDITOR_KIND),
     get title() { return message('shell.editor.image') },
@@ -1670,7 +1678,7 @@ export function App(props: {
     component: (host) => <GlslEditor app={app} {...(host !== undefined ? { host } : {})} />,
   })
   onCleanup(unregisterGlslEditor)
-  const unregisterEditorBindings = builtinEditorBindings.map(({ id, ...binding }) =>
+  const unregisterEditorBindings = builtinEditorBindings.filter((binding) => binding.editor !== APP_EDITOR_KIND).map(({ id, ...binding }) =>
     app.frontendDoors.editorBinding(id, binding))
   onCleanup(() => unregisterEditorBindings.reverse().forEach((unregister) => unregister()))
   /**
@@ -2361,8 +2369,9 @@ export function App(props: {
               drilled={paneEditorKind() === GRAPH_EDITOR_KIND && paneGraphStackDepth() > 1}
               disabled={!paneActiveTab() || paneActiveTab()!.execution !== undefined}
               activeView={paneEditorKind()}
+              appViewEnabled={appViewEnabled()}
               activeLens={paneCanvasLens()}
-              lenses={app.lensRegistry.list()}
+              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || appViewEnabled())}
               viewMenuOpen={viewMenu()}
               lensMenuOpen={lensMenu()}
               onToggleViewMenu={() => { setLensMenu(false); setViewMenu((open) => !open) }}

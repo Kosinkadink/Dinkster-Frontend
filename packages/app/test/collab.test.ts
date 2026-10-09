@@ -1611,6 +1611,7 @@ describe('reload rejoin', () => {
 
     const gated = gatedTransport(server)
     const app2 = new AppState({ collabTransport: gated.transport })
+    app2.settings.set('features.appView.enabled', true)
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     const rejoin = app2.rejoinCollabSessions()
     // Switching the projection replaces the Tab OBJECT but keeps the store;

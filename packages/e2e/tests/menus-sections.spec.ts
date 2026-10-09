@@ -5,7 +5,7 @@
  * synthetic schema through the SAME public extension API (registerSchemas)
  * and open a matching workflow document.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 

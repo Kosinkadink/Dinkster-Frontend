@@ -15,6 +15,7 @@ afterEach(() => {
 describe('App View queue button component', () => {
   it('replaces the full-run fallback with named partial actions and an accessible target picker', async () => {
     const app = new AppState({ defaultProtocol: 'dinkster' })
+    app.settings.set('features.appView.enabled', true)
     app.registerSchemas([{
       type: 'QueueOutput',
       displayName: 'Queue output',

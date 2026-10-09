@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, type Page } from './fixtures.js'
 
 const selectTab = (page: Page, title: string) =>
   page.getByTestId('tab-bar').locator('.tab-select', { hasText: title })

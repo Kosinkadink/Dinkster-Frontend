@@ -116,6 +116,7 @@ interface DinksterBridgePreviewEvent {
 interface DinksterBridgeTab {
   id: string
   title: string
+  editorKind: string
   execution?: DinksterBridgeExecutionRef
   store: {
     revision: number
@@ -305,6 +306,11 @@ interface DinksterTestBridge {
       simulateConnectionLoss(): void
     }
     tabs: { get(): readonly DinksterBridgeTab[] }
+    readonly appViewEnabled: boolean
+    settings: { set(id: string, value: unknown): void }
+    commands: { get(id: string): { id: string } | undefined }
+    menuRegistry: import('@dinkster/core').MenuRegistry
+    flushPersistTabs(): void
     activeTab(): DinksterBridgeTab | undefined
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }): { ok: boolean; diagnostics?: readonly unknown[] }
     /** Queue a tab against its target backend (same path as the queue button). */

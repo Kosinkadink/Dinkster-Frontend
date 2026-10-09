@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,

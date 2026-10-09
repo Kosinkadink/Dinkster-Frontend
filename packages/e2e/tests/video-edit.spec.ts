@@ -1,4 +1,5 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
+import type { TestInfo } from '@playwright/test'
 import { readFile, writeFile } from 'node:fs/promises'
 
 const contract = JSON.parse(await readFile(new URL('../fixtures/video-edit-contract.json', import.meta.url), 'utf8')) as {

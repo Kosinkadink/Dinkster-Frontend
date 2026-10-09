@@ -559,6 +559,7 @@ export function CanvasViewControls(props: {
   readonly drilled: boolean
   readonly disabled: boolean
   readonly activeView: string
+  readonly appViewEnabled: boolean
   readonly activeLens: { readonly id: string; readonly label: string }
   readonly lenses: readonly { readonly id: string; readonly label: string; readonly description: string }[]
   readonly viewMenuOpen: boolean
@@ -587,7 +588,9 @@ export function CanvasViewControls(props: {
           <div class="lens-menu view-menu" role="menu">
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.views')}</div>
             <button role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></button>
-            <button role="menuitemradio" aria-checked={props.activeView === APP_EDITOR_KIND} onClick={() => props.onSelectView(APP_EDITOR_KIND)}><strong>{message('canvas.viewControls.view.app')}</strong></button>
+            <Show when={props.appViewEnabled}>
+              <button role="menuitemradio" aria-checked={props.activeView === APP_EDITOR_KIND} onClick={() => props.onSelectView(APP_EDITOR_KIND)}><strong>{message('canvas.viewControls.view.app')}</strong></button>
+            </Show>
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.namedNets')}</div>
             <button
               role="menuitem"
@@ -2215,6 +2218,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly extensionsGeneration: number
   }
   const [menu, setMenu] = createSolidSignal<OwnedMenuAnchor | undefined>(undefined)
+  const appViewEnabled = createMemo(() => (settingsTick(), props.app.appViewEnabled))
+  createEffect(() => { appViewEnabled(); setMenu(undefined) })
   const workerCatalog = (): WorkerCatalogState | undefined => {
     backendsTick()
     tabTargets()

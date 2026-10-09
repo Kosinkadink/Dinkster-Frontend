@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, appViewTest as test } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 test('canvas view menus localize in place without changing registry data or app state', async ({ page, request }) => {

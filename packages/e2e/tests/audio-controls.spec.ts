@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 import { readFile } from 'node:fs/promises'
 
 const descriptor = { typeId: 'comfy.AUDIO', fingerprint: 'audio-source-unchanged', meta: { sample_rate: 48000, channels: 6, layout: '5.1', duration: 12, batch: 3 } }

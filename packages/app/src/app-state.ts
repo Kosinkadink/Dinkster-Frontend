@@ -2903,6 +2903,7 @@ export class AppState {
   }
   private disposed = false
   private readonly unsubscribePackLocale: () => void
+  private readonly unsubscribeAppView: () => void
 
   /**
    * Persisted memberships whose startup rejoin failed TRANSIENTLY (backend
@@ -2966,6 +2967,7 @@ export class AppState {
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.controlSurfaces.enabled', get name() { return t('settings.features.controlSurfaces') }, type: 'boolean', defaultValue: false })
+    this.settings.register({ id: 'features.appView.enabled', get name() { return t('settings.features.appView') }, type: 'boolean', defaultValue: false })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
@@ -3042,12 +3044,6 @@ export class AppState {
         const tab = activeTabNow()
         return tab !== undefined && tab.execution === undefined
       },
-    })
-    // Alt+ combo: Ctrl+Shift+P/A are browser-reserved (private window, tab
-    // search) and the Alt band already hosts view commands (zoom).
-    register('view.toggleAppView', 'command.view.toggleAppView', 'Alt+V', () => {
-      const tab = activeTabNow()
-      if (tab) this.setTabEditorKind(tab.id, tab.editorKind === APP_EDITOR_KIND ? GRAPH_EDITOR_KIND : APP_EDITOR_KIND)
     })
     register('edit.selectAll', 'command.edit.selectAll', 'Ctrl+A', () => this.canvasBridge.get()?.selectAll(), () => this.canvasBridge.get() !== undefined)
     register('edit.delete', 'command.edit.delete', 'Delete', () => this.canvasBridge.get()?.deleteSelection(), () => this.canvasBridge.get() !== undefined)
@@ -3138,7 +3134,11 @@ export class AppState {
     registerCoreWidgets(this.frontendDoors)
     registerCoreWidgetEditors(this.widgetRegistry)
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
-    for (const contribution of coreMenuContributions()) this.menuRegistry.register(contribution)
+    for (const contribution of coreMenuContributions()) this.menuRegistry.register(
+      contribution.id === 'core.widget.expose' || contribution.id === 'core.node.preview.expose'
+        ? { ...contribution, resolve: (context) => this.appViewEnabled ? contribution.resolve(context) : [] }
+        : contribution,
+    )
     // Reset-to-default items are schema-aware: they resolve through the
     // ACTIVE tab's target backend (defaults differ per backend registry).
     for (const contribution of resetMenuContributions(() => {
@@ -3363,12 +3363,40 @@ export class AppState {
         if (backend.protocol === 'dinkster') void this.refreshPackLocaleOverlay(backend)
       }
     })
+    let unregisterAppView: (() => void) | undefined
+    const syncAppView = (): void => {
+      if (this.appViewEnabled) {
+        if (unregisterAppView) return
+        const unregisterCommand = this.frontendDoors.command('view.toggleAppView', {
+          get label() { return t('command.view.toggleAppView') },
+          run: () => {
+            const tab = this.activeTab()
+            if (tab) this.setTabEditorKind(tab.id, tab.editorKind === APP_EDITOR_KIND ? GRAPH_EDITOR_KIND : APP_EDITOR_KIND)
+          },
+        })
+        const unregisterBinding = this.keybindings.register({ command: 'view.toggleAppView', combo: 'Alt+V' })
+        unregisterAppView = () => { unregisterBinding(); unregisterCommand() }
+      } else {
+        unregisterAppView?.()
+        unregisterAppView = undefined
+        for (const tab of this.tabs.get()) {
+          if (tab.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(tab.id, GRAPH_EDITOR_KIND)
+        }
+        for (const [tabId, lens] of this.lenses.get()) {
+          if (lens === 'exposure') this.setLens(tabId, 'standard')
+        }
+      }
+    }
+    syncAppView()
+    const unsubscribe = this.settings.changed.subscribe(syncAppView)
+    this.unsubscribeAppView = () => { unsubscribe(); unregisterAppView?.() }
   }
 
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.unsubscribePackLocale()
+    this.unsubscribeAppView()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
     this.submissionWorlds.clear()
     for (const worlds of this.extensionWorlds.values()) for (const world of worlds.values()) world.dispose()
@@ -3585,7 +3613,7 @@ export class AppState {
         } else {
           const editorKind = isSessionOnlyEditorKind(tab.editorKind)
             ? tab.editorKind
-            : (record.editorKind ?? GRAPH_EDITOR_KIND)
+            : this.availableEditorKind(record.editorKind ?? GRAPH_EDITOR_KIND)
           if (tab.title !== record.title || tab.editorKind !== editorKind) {
             tab = { ...tab, title: record.title, editorKind }
           }
@@ -4949,11 +4977,12 @@ export class AppState {
 
   /** Active canvas lens of a tab ('standard' when never switched). */
   lensFor(tabId: string): CanvasLens {
-    return this.lenses.get().get(tabId) ?? 'standard'
+    const lens = this.lenses.get().get(tabId) ?? 'standard'
+    return lens === 'exposure' && !this.appViewEnabled ? 'standard' : lens
   }
 
   setLens(tabId: string, lens: CanvasLens): void {
-    if (!this.lensRegistry.get(lens)) return
+    if (!this.lensRegistry.get(lens) || (lens === 'exposure' && !this.appViewEnabled)) return
     this.lenses.update((m) => {
       const next = new Map(m)
       if (lens === 'standard') next.delete(tabId)
@@ -4964,6 +4993,7 @@ export class AppState {
 
   /** Toggle a tab between the default view and the given lens. */
   toggleLens(tabId: string, lens: Exclude<CanvasLens, 'standard'>): void {
+    if (lens === 'exposure' && !this.appViewEnabled) return
     this.lenses.update((m) => {
       const next = new Map(m)
       if (next.get(tabId) === lens) next.delete(tabId)
@@ -5000,6 +5030,7 @@ export class AppState {
    * semantics are canvas-rendered today.
    */
   setTabEditorKind(tabId: string, editorKind: string): void {
+    editorKind = this.availableEditorKind(editorKind)
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || tab.editorKind === editorKind) return
     if (editorKind !== IMAGE_EDITOR_KIND && this.imageEditorTarget.get()?.tabId === tabId) this.imageEditorTarget.set(undefined)
@@ -5413,6 +5444,14 @@ export class AppState {
     this.setTabEditorKind(target.tabId, GRAPH_EDITOR_KIND)
   }
 
+  get appViewEnabled(): boolean {
+    return this.settings.get<boolean>('features.appView.enabled')
+  }
+
+  private availableEditorKind(editorKind: string): string {
+    return editorKind === APP_EDITOR_KIND && !this.appViewEnabled ? GRAPH_EDITOR_KIND : editorKind
+  }
+
   private makeTab(
     document: WorkflowDocument,
     title: string,
@@ -5436,7 +5475,7 @@ export class AppState {
     return {
       id: execution ? `frozen:${executionKey(execution)}` : document.lineage,
       title,
-      editorKind,
+      editorKind: this.availableEditorKind(editorKind),
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),

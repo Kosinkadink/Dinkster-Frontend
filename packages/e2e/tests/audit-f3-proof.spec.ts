@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, appViewTest as test } from './fixtures.js'
 
 test('proves product numeric, slider, and color controls without native chrome', async ({ page, request }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

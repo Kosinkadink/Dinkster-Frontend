@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, nativeAppViewTest as test } from './fixtures.js'
 
 for (const nested of [false, true]) for (const batchSupported of [false, true]) test(`IMAGE batch in Canvas and App View (nested list: ${nested}, batch capability: ${batchSupported})`, async ({ page }, testInfo) => {
   const errors: string[] = []

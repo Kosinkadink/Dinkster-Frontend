@@ -98,7 +98,20 @@ export async function openRailPanel(page: Page, title: string): Promise<void> {
   await expect(tab).toHaveAttribute('aria-selected', 'true')
 }
 
-export const test = base.extend({
+export const nativeTest = base.extend<{ appView: boolean }>({
+  appView: [false, { option: true }],
+  context: async ({ context, appView }, use) => {
+    if (appView) await context.addInitScript(() => {
+      const stored = JSON.parse(localStorage.getItem('dinkster.settings') ?? 'null')
+      localStorage.setItem('dinkster.settings', JSON.stringify({
+        v: 1, values: { ...stored?.values, 'features.appView.enabled': true },
+      }))
+    })
+    await use(context)
+  },
+})
+
+export const test = nativeTest.extend({
   page: async ({ page }, use) => {
     if (process.env['DINKSTER_E2E_FIXTURE_MODE'] === 'legacy' || process.env['DINKSTER_E2E_USE_NATIVE'] !== '1') {
       await page.route('/api/nodes*', (route) =>
@@ -125,5 +138,7 @@ export const test = base.extend({
   },
 })
 
-export { base as nativeTest, expect }
-export type { Page, Locator, Route, Request } from '@playwright/test'
+export const appViewTest = test.extend({ appView: true })
+export const nativeAppViewTest = nativeTest.extend({ appView: true })
+export { expect }
+export type { Page, Locator, Route, Request, WebSocketRoute } from '@playwright/test'
