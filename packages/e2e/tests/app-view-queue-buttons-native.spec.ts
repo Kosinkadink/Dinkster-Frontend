@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeAppViewTest as test } from './fixtures.js'
 
 const nativeBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 

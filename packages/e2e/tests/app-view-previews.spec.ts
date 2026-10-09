@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/app-view-preview-promotion'
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')

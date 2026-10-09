@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, type Page } from './fixtures.js'
 
 async function selectAppView(page: Page): Promise<void> {
   await page.getByTestId('views-switcher').click()

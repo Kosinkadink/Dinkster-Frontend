@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 
 const mp4 = readFileSync(new URL('../fixtures/media-overlay/with_metadata.mp4', import.meta.url))
 const png = readFileSync(new URL('../fixtures/media-overlay/with_metadata.png', import.meta.url))

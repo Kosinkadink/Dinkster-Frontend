@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/app-view-layout-flow'
 const gridProofDir = '/tmp/app-view-layout-grid'

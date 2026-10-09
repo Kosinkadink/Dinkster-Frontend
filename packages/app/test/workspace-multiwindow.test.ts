@@ -580,6 +580,7 @@ describe('AppState multi-window workspace', () => {
   it('keeps the shared session alive when a tab is replaced with new metadata', async () => {
     const factory = authorityFactories()
     const app = new AppState()
+    app.settings.set('features.appView.enabled', true)
     app.openDocument(workflow(), 'Shared workflow')
     await app.enableWorkspaceAuthority(factory.document, factory.workspace)
     const promoted = app.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!

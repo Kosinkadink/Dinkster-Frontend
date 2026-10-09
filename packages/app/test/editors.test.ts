@@ -277,6 +277,7 @@ describe('Tab editorKind', () => {
 
   it('setTabEditorKind swaps the projection but keeps id, session, and view state', () => {
     const app = new AppState()
+    app.settings.set('features.appView.enabled', true)
     const tab = app.tabs.get()[0]!
     app.setTabEditorKind(tab.id, APP_EDITOR_KIND)
     const swapped = app.tabs.get().find((t) => t.id === tab.id)!
@@ -656,6 +657,7 @@ describe('Tab editorKind', () => {
   it('editorKind persists (non-graph only) and restores across a reload', () => {
     g.localStorage = makeStorage()
     const app = new AppState()
+    app.settings.set('features.appView.enabled', true)
     const tab = app.tabs.get()[0]!
     app.setTabEditorKind(tab.id, APP_EDITOR_KIND)
     app.flushPersistTabs()
@@ -671,6 +673,41 @@ describe('Tab editorKind', () => {
     // Reload: the restored tab reopens in the app view.
     const app2 = new AppState()
     expect(app2.tabs.get().find((t) => t.id === tab.id)?.editorKind).toBe(APP_EDITOR_KIND)
+  })
+
+  it('App View is default-off and falls back on restore without changing authored data', () => {
+    g.localStorage = makeStorage()
+    const author = new AppState()
+    expect(author.appViewEnabled).toBe(false)
+    expect(author.commands.get('view.toggleAppView')).toBeUndefined()
+    expect(author.keybindings.match({ key: 'v', altKey: true } as KeyboardEvent)).toBeUndefined()
+    const tab = author.activeTab()!
+    author.setTabEditorKind(tab.id, APP_EDITOR_KIND)
+    expect(author.activeTab()!.editorKind).toBe(GRAPH_EDITOR_KIND)
+    author.settings.set('features.appView.enabled', true)
+    const nodeId = Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)[0]!
+    tab.store.dispatch({ command: 'params.expose', params: { graphId: tab.store.doc.root, nodeId, inputId: 'steps' } })
+    const exposed = tab.store.doc.ext?.['dinkster.exposed']
+    expect(exposed).toEqual([{ graphId: tab.store.doc.root, nodeId, inputId: 'steps' }])
+    author.setTabEditorKind(tab.id, APP_EDITOR_KIND)
+    author.flushPersistTabs()
+    author.dispose()
+    g.localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: {} }))
+
+    const restored = new AppState()
+    expect(restored.activeTab()!.editorKind).toBe(GRAPH_EDITOR_KIND)
+    expect(restored.activeTab()!.store.doc.ext?.['dinkster.exposed']).toEqual(exposed)
+    restored.settings.set('features.appView.enabled', true)
+    expect(restored.keybindings.match({ key: 'v', altKey: true } as KeyboardEvent)).toBe('view.toggleAppView')
+    restored.commands.get('view.toggleAppView')!.run()
+    expect(restored.activeTab()!.editorKind).toBe(APP_EDITOR_KIND)
+    restored.setLens(tab.id, 'exposure')
+    restored.settings.set('features.appView.enabled', false)
+    expect(restored.activeTab()!.editorKind).toBe(GRAPH_EDITOR_KIND)
+    expect(restored.lensFor(tab.id)).toBe('standard')
+    expect(restored.commands.get('view.toggleAppView')).toBeUndefined()
+    expect(restored.activeTab()!.store.doc.ext?.['dinkster.exposed']).toEqual(exposed)
+    restored.dispose()
   })
 
   it('an unknown persisted editorKind is preserved, not silently coerced to graph', () => {

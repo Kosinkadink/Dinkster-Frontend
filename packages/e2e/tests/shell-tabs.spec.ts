@@ -4,7 +4,7 @@
  * work to the shared backend.
  */
 import type { Locator, Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import { expect, appViewTest as test } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const captureDragGhost = async (page: Page, name: string): Promise<void> => {

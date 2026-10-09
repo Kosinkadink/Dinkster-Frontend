@@ -79,7 +79,7 @@ function menuFixture(saveDisabled = false) {
   return { root, save, keybindings, dispose }
 }
 
-function canvasViewControlsFixture() {
+function canvasViewControlsFixture(appViewEnabled = true) {
   const root = document.createElement('div')
   document.body.append(root)
   const [activeView, setActiveView] = createSignal<string>(GRAPH_EDITOR_KIND)
@@ -96,6 +96,7 @@ function canvasViewControlsFixture() {
       drilled={false}
       disabled={false}
       activeView={activeView()}
+      appViewEnabled={appViewEnabled}
       activeLens={{ id: 'standard', label: 'Standard' }}
       lenses={[
         { id: 'standard', label: 'Standard', description: 'Default graph presentation.' },
@@ -115,6 +116,14 @@ function canvasViewControlsFixture() {
 }
 
 describe('canvas view controls', () => {
+  it('omits App View when its feature is disabled without hiding graph controls', () => {
+    const { root, setViewMenuOpen, dispose } = canvasViewControlsFixture(false)
+    setViewMenuOpen(true)
+    expect([...root.querySelectorAll('.view-menu [role="menuitemradio"]')].map((item) => item.textContent?.trim())).toEqual(['Graph'])
+    expect(root.querySelector('[data-testid="net-display-all-tags"]')).not.toBeNull()
+    dispose()
+  })
+
   it('shows the active view name and lists both views', () => {
     const { root, setViewMenuOpen, dispose } = canvasViewControlsFixture()
     expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('Graph')

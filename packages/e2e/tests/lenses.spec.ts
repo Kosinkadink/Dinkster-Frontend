@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, appViewTest as test } from './fixtures.js'
 
 test('canvas view controls switch views and lenses without stale placeholders', async ({ page }) => {
   await page.goto('/')

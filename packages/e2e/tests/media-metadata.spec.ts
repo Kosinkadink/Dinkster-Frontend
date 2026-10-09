@@ -1,4 +1,4 @@
-import { expect, test, type WebSocketRoute } from '@playwright/test'
+import { expect, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const descriptors = {

@@ -1,5 +1,17 @@
 # App View
 
+App View is experimental and off by default. To opt in, open Settings and
+enable **Enable App View (experimental)** under **Features App View**
+(`features.appView.enabled`). This uses the same persisted boolean settings
+mechanism as Control Surfaces and applies immediately across the shell.
+
+While disabled, the App selector, toggle command and shortcut, widget and
+preview promotion menus, and Exposure lens are hidden. Persisted `app` tabs
+open in Graph View. Disabling also returns open App View tabs to Graph View;
+it does not change `dinkster.exposed`, `dinkster.exposedPreviews`, or
+`dinkster.appLayout`. Re-enabling restores access to the authored content;
+select App View again to use it.
+
 App View is the `app` editor kind. It presents selected workflow inputs,
 previews, instructions, and groups without the node canvas while retaining the
 same document, command store, schema registry, execution store, undo history,
