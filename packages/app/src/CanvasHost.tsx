@@ -2218,6 +2218,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly extensionsGeneration: number
   }
   const [menu, setMenu] = createSolidSignal<OwnedMenuAnchor | undefined>(undefined)
+  const appViewEnabled = createMemo(() => (settingsTick(), props.app.appViewEnabled))
+  createEffect(() => { appViewEnabled(); setMenu(undefined) })
   const workerCatalog = (): WorkerCatalogState | undefined => {
     backendsTick()
     tabTargets()

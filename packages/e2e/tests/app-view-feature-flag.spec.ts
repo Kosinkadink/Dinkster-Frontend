@@ -110,4 +110,18 @@ test('opting in restores authored controls and disabling returns to Graph withou
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('features.appView.enabled', true))
   await page.keyboard.press('Alt+v')
   await expect(page.getByTestId('app-view')).toBeVisible()
+  await page.keyboard.press('Alt+v')
+  await expect(page.getByTestId('graph-canvas')).toBeVisible()
+  const widgetPoint = await page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'input')!
+    const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'steps')!
+    const viewport = window.__dinksterTest!.renderer!.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return { x: canvas.left + viewport.x + (node.x + node.layout.width / 2) * viewport.scale,
+      y: canvas.top + viewport.y + (node.y + row.y + row.height / 2) * viewport.scale }
+  })
+  await page.mouse.click(widgetPoint.x, widgetPoint.y, { button: 'right' })
+  await expect(page.locator('[data-item-id="core.widget.expose.toggle"]')).toBeVisible()
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('features.appView.enabled', false))
+  await expect(page.locator('[data-item-id="core.widget.expose.toggle"]')).toHaveCount(0)
 })

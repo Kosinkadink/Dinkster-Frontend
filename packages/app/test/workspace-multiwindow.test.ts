@@ -136,6 +136,30 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it('opens incoming App tabs as Graph while preserving exposure in a default-off window', async () => {
+    const factory = authorityFactories()
+    const author = new AppState()
+    author.settings.set('features.appView.enabled', true)
+    const exposed = [{ graphId: 'g0', nodeId: 'n1', inputId: 'amount', label: 'Amount' }]
+    author.openDocument({ ...workflow(), ext: { 'dinkster.exposed': exposed } }, 'Shared app')
+    author.setTabEditorKind('multi-window-workflow', 'app')
+    await author.enableWorkspaceAuthority(factory.document, factory.workspace)
+    const viewer = new AppState()
+    await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
+    await drainTasks()
+    const received = () => viewer.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
+    expect(received().editorKind).toBe('graph')
+    expect(received().store.doc.ext?.['dinkster.exposed']).toEqual(exposed)
+    author.setTabEditorKind('multi-window-workflow', 'graph')
+    await drainTasks()
+    author.setTabEditorKind('multi-window-workflow', 'app')
+    await drainTasks()
+    expect(received().editorKind).toBe('graph')
+    expect(received().store.doc.ext?.['dinkster.exposed']).toEqual(exposed)
+    author.dispose()
+    viewer.dispose()
+  })
+
   it('uses one authoritative document with shared edit and undo visibility', async () => {
     const factory = authorityFactories()
     const first = new AppState()
