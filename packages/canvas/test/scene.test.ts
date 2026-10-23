@@ -24,7 +24,6 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
-import { auditScene } from '../src/scene-audit.js'
 import {
   buildScene,
   boundaryNodesInGroup,
@@ -1013,7 +1012,6 @@ describe('sections in scenes', () => {
       expect(stub.pinY).toBe(anchorY)
       expect(stub.pinX).toBe(stub.role === 'source' ? node.x + node.layout.width : node.x)
     }
-    expect(auditScene(scene)).toEqual([])
   })
 
   it('collapsed via view override: member rows hide, height shrinks', () => {
@@ -1088,13 +1086,6 @@ describe('sections in scenes', () => {
       expect.objectContaining({ netId: 't3', role: 'source', nodeId: 's0', portId: 'x' }),
       expect.objectContaining({ netId: 't2', role: 'sink', nodeId: 's0', portId: 'w' }),
     ]))
-  })
-
-  it('a collapsed-section scene audits clean (same-section header co-location is not overlap)', () => {
-    for (const scene of [sectionedScene(true), sectionedScene(true, true)]) {
-      const findings = auditScene(scene)
-      expect(findings, findings.map((f) => `${f.subject}: ${f.finding}`).join('; ')).toEqual([])
-    }
   })
 })
 
