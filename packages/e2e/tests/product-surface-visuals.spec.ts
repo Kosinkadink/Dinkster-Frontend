@@ -1,6 +1,17 @@
 import { fileURLToPath } from 'node:url'
 import { expect, appViewTest as test, type Page } from './fixtures.js'
 
+test.use({
+  launchOptions: {
+    env: {
+      ...process.env,
+      ...(process.platform === 'linux' ? {
+        FONTCONFIG_FILE: fileURLToPath(new URL('../fixtures/fonts/fonts.conf', import.meta.url)),
+      } : {}),
+    },
+  },
+})
+
 test.beforeEach(async ({ page }) => {
   for (const weight of ['Regular', 'Bold']) {
     await page.route(`/visual-font-${weight}.ttf`, (route) => route.fulfill({
@@ -42,6 +53,16 @@ const boot = async (page: Page): Promise<void> => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await page.addStyleTag({ content: `
+    @font-face { font-family: ProductVisual; src: url('/visual-font-Regular.ttf'); font-weight: 100 500; }
+    @font-face { font-family: ProductVisual; src: url('/visual-font-Bold.ttf'); font-weight: 600 900; }
+    :root { --dinkster-font-family: ProductVisual, sans-serif !important; }
+  ` })
+  await page.evaluate(() => Promise.all([
+    document.fonts.load('400 13px ProductVisual'),
+    document.fonts.load('700 13px ProductVisual'),
+  ]))
+  expect(await page.evaluate(() => document.fonts.check('13px ProductVisual'))).toBe(true)
 }
 
 const closeGallery = async (page: Page): Promise<void> => {
@@ -90,16 +111,6 @@ const openModal = async (page: Page, id: string): Promise<void> => {
 
 test('shell controls at desktop and compact widths', async ({ page }) => {
   await boot(page)
-  await page.addStyleTag({ content: `
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Regular.ttf'); font-weight: 100 500; }
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Bold.ttf'); font-weight: 600 900; }
-    :root { --dinkster-font-family: ProductVisual, sans-serif !important; }
-  ` })
-  await page.evaluate(() => Promise.all([
-    document.fonts.load('400 13px ProductVisual'),
-    document.fonts.load('700 13px ProductVisual'),
-  ]))
-  expect(await page.evaluate(() => document.fonts.check('13px ProductVisual'))).toBe(true)
   await closeGallery(page)
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
@@ -323,16 +334,6 @@ test('modal visual matrix', async ({ page }) => {
 
 test('populated app-view controls and arrange visuals', async ({ page }) => {
   await boot(page)
-  await page.addStyleTag({ content: `
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Regular.ttf'); font-weight: 100 500; }
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Bold.ttf'); font-weight: 600 900; }
-    :root { --dinkster-font-family: ProductVisual, sans-serif !important; }
-  ` })
-  await page.evaluate(() => Promise.all([
-    document.fonts.load('400 13px ProductVisual'),
-    document.fonts.load('700 13px ProductVisual'),
-  ]))
-  expect(await page.evaluate(() => document.fonts.check('13px ProductVisual'))).toBe(true)
   await closeGallery(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
