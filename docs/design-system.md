@@ -102,6 +102,9 @@ bodies do not supply private shell headers, tab chrome, or resize chrome.
 Status-bar Product buttons retain their shared colors, borders and focus
 behavior but use intrinsic metadata-line height without vertical padding to
 preserve the 28 px desktop footer and its canvas space.
+Desktop status groups use the shared 8 px gap so full metadata and contribution
+labels fit at 1280 px with wider system fonts. Compact status groups retain
+their wrapping layout.
 
 Transient product UI shares `.floating-surface` for root chrome and uses
 `placeFloatingSurface` for block, inline, or point anchoring. Universal search
