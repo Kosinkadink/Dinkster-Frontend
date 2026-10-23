@@ -693,7 +693,7 @@ test('status layout media queries are complementary at fractional widths', async
 test.afterEach(async ({ page }, testInfo) => {
   if (!testInfo.title.startsWith('desktop status preserves the canvas') || testInfo.status === testInfo.expectedStatus) return
   const geometry = await page.getByTestId('status-bar').evaluate((footer) => {
-    const elements = [footer, ...footer.querySelectorAll('*')]
+    const elements = [footer, ...Array.from(footer.querySelectorAll('*'))]
     return {
       viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },
       fonts: { status: document.fonts.status, systemUi: document.fonts.check('11px system-ui') },
