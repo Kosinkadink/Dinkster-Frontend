@@ -690,6 +690,38 @@ test('status layout media queries are complementary at fractional widths', async
   expect(matches).toEqual(widths.map((width) => ({ width, matches: [width <= 520, width > 520] })))
 })
 
+test.afterEach(async ({ page }, testInfo) => {
+  if (!testInfo.title.startsWith('desktop status preserves the canvas') || testInfo.status === testInfo.expectedStatus) return
+  const geometry = await page.getByTestId('status-bar').evaluate((footer) => {
+    const elements = [footer, ...footer.querySelectorAll('*')]
+    return {
+      viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },
+      fonts: { status: document.fonts.status, systemUi: document.fonts.check('11px system-ui') },
+      elements: elements.map((element) => {
+        const style = getComputedStyle(element)
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        return {
+          tag: element.tagName,
+          class: element.className,
+          text: element.textContent,
+          bounds: element.getBoundingClientRect().toJSON(),
+          textRects: Array.from(range.getClientRects(), (rect) => rect.toJSON()),
+          clientWidth: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+          style: Object.fromEntries([
+            'display', 'flex', 'flex-wrap', 'flex-direction', 'gap', 'min-width',
+            'max-width', 'min-height', 'padding', 'box-sizing', 'font-family',
+            'font-size', 'font-weight', 'line-height', 'white-space', 'overflow-wrap',
+          ].map((name) => [name, style.getPropertyValue(name)])),
+        }
+      }),
+    }
+  })
+  await testInfo.attach('footer-geometry', { body: JSON.stringify(geometry, null, 2), contentType: 'application/json' })
+  await testInfo.attach('footer-page', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' })
+})
+
 for (const [width, height] of [[1280, 800], [1920, 1080]] as const) {
   test(`desktop status preserves the canvas with an active contribution at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height })
