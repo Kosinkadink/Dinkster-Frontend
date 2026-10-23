@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
-import { dirname, relative, resolve } from 'node:path'
+import { basename, dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
 const args = process.argv.slice(2)
@@ -25,10 +25,7 @@ async function files(directory) {
     if (entry.name === 'node_modules' || entry.name === 'dist') continue
     const path = resolve(directory, entry.name)
     if (entry.isDirectory()) found.push(...(await files(path)))
-    else if (
-      entry.isFile() &&
-      (/\.(?:ts|tsx)$/u.test(entry.name) || entry.name === 'styles.css')
-    )
+    else if (entry.isFile() && /\.(?:ts|tsx|css)$/u.test(entry.name))
       found.push(path)
   }
   return found
@@ -74,11 +71,24 @@ const counts = []
 const sourceRoot = args.includes('--source')
   ? root
   : resolve(root, 'packages/app/src')
+const declaredTokens = new Set(
+  (
+    await readFile(
+      new URL('../packages/core/src/ui/tokens.ts', import.meta.url),
+      'utf8',
+    )
+  ).match(/--dinkster-[\w-]+(?=['"]:)/gu) ?? [],
+)
+const tokenReferences = []
 for (const path of (await files(sourceRoot)).sort()) {
   const relativePath = relative(root, path).replaceAll('\\', '/')
   const sourceText = await readFile(path, 'utf8')
+  for (const match of sourceText.matchAll(/(--dinkster-[\w-]+)['"]?\s*:/gu))
+    declaredTokens.add(match[1])
+  for (const match of sourceText.matchAll(/var\(\s*(--dinkster-[\w-]+)/gu))
+    tokenReferences.push({ name: match[1], path: relativePath })
   if (path.endsWith('.css')) {
-    const count = countCss(sourceText)
+    const count = basename(path) === 'styles.css' ? countCss(sourceText) : 0
     if (count > 0)
       counts.push({ kind: 'cssLiteral', path: relativePath, count })
     continue
@@ -97,6 +107,16 @@ for (const path of (await files(sourceRoot)).sort()) {
       path: relativePath,
       count: result.inlineStyle,
     })
+}
+
+const undefinedTokens = tokenReferences.filter(
+  ({ name }) => !declaredTokens.has(name),
+)
+if (undefinedTokens.length > 0) {
+  console.error('Undefined design tokens:')
+  for (const { name, path } of undefinedTokens)
+    console.error(`  ${path}: ${name}`)
+  process.exit(1)
 }
 
 let allowlist

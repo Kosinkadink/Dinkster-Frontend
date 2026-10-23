@@ -77,6 +77,11 @@ meaning, shapes, and bounded interaction state. It does not receive DOM
 elevation or motion tokens. DOM surfaces consume the generated
 `--dinkster-*` variables.
 
+`pnpm check:raw-controls` also rejects undefined `--dinkster-*` references in
+app TypeScript and every app stylesheet. Use a name from the shared projection
+or a local CSS declaration. Compact controls use `control-compact-height`,
+caption text uses the metadata type scale, and monospace labels use `font-mono`.
+
 Selected surfaces use `text.onSelected` for foreground content. Token objects
 and their projections are recursively frozen at runtime.
 

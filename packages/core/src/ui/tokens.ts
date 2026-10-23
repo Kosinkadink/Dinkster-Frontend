@@ -28,6 +28,7 @@ export interface SemanticDesignTokens {
   }
   readonly type: {
     readonly fontFamily: string
+    readonly fontMono: string
     readonly metadata: TypeToken
     readonly body: TypeToken
     readonly section: TypeToken
@@ -104,6 +105,7 @@ export const semanticDesignTokens = deepFreeze({
   },
   type: {
     fontFamily: 'system-ui, sans-serif',
+    fontMono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
     metadata: { fontSize: 11, lineHeight: 16, fontWeight: 400 },
     body: { fontSize: 13, lineHeight: 20, fontWeight: 400 },
     section: { fontSize: 15, lineHeight: 20, fontWeight: 500 },
@@ -209,6 +211,7 @@ export const semanticCssVariables = deepFreeze({
   '--dinkster-space-24': px(semanticDesignTokens.space[24]),
   '--dinkster-space-32': px(semanticDesignTokens.space[32]),
   '--dinkster-font-family': semanticDesignTokens.type.fontFamily,
+  '--dinkster-font-mono': semanticDesignTokens.type.fontMono,
   '--dinkster-type-metadata-size': px(semanticDesignTokens.type.metadata.fontSize),
   '--dinkster-type-metadata-line': px(semanticDesignTokens.type.metadata.lineHeight),
   '--dinkster-type-metadata-weight': String(semanticDesignTokens.type.metadata.fontWeight),
