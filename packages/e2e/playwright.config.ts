@@ -134,6 +134,7 @@ const NATIVE_WITHOUT_V1_SPECS = [
 export default defineConfig({
   testDir: './tests',
   timeout: 60_000,
+  reporter: [[process.env['CI'] ? 'dot' : 'list'], ['./custom-widget-server-reporter.ts']],
   // SH3 (amended 2026-07-27): every worker shares ONE dev server and ONE
   // live backend per protocol. The dev server tolerates concurrent
   // clients, but specs that execute prompts or write server state

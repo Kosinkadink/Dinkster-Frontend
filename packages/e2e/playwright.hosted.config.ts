@@ -141,5 +141,5 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 180_000,
     },
-  ],
+  ].map((server) => ({ ...server, stdout: 'pipe' as const })),
 })
