@@ -3,9 +3,31 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProductCheckbox, ProductRadio } from '../src/ProductControls.js'
+import { ProductCheckbox, ProductFileInput, ProductRadio } from '../src/ProductControls.js'
 
 afterEach(() => document.body.replaceChildren())
+
+describe('ProductFileInput', () => {
+  it('keeps file selection hidden while forwarding the ref, accept filter and selected files', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    let picker!: HTMLInputElement
+    let selected: File | undefined
+    const dispose = render(() => <ProductFileInput ref={picker} accept="image/png" onChange={(event) => {
+      selected = event.currentTarget.files?.[0]
+    }} />, root)
+    const file = new File(['raster'], 'layer.png', { type: 'image/png' })
+    const transfer = new DataTransfer()
+    transfer.items.add(file)
+    picker.files = transfer.files
+    picker.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(picker.type).toBe('file')
+    expect(picker.hidden).toBe(true)
+    expect(picker.accept).toBe('image/png')
+    expect(selected).toBe(file)
+    dispose()
+  })
+})
 
 describe('ProductCheckbox', () => {
   it('exposes controlled boolean and mixed state with one activation callback', () => {
