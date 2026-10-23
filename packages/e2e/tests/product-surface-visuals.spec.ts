@@ -109,6 +109,22 @@ const openModal = async (page: Page, id: string): Promise<void> => {
   )
 }
 
+test('shell controls at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await expect(page.getByTestId('left-panel-toggle')).toBeVisible()
+    await expect(page.getByTestId('backends-toggle')).toBeVisible()
+    await screenshot(page, `shell-controls-${width}`)
+    await page.getByTestId('dinkster-menu-button').click()
+    await expect(page.getByTestId('dinkster-menu-button')).toHaveAttribute('aria-expanded', 'true')
+    await screenshot(page, `shell-menu-${width}`)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('dinkster-menu-button')).toBeFocused()
+  }
+})
+
 test('populated image workspace at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
