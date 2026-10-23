@@ -226,6 +226,14 @@ jobs:
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
           DINKSTER_E2E_PORT: "15420"
           DINKSTER_E2E_NATIVE_PORT: "15421"
+      - name: Retain browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-${{ strategy.job-index }}
+          path: packages/e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   e2e:
     if: always() && needs.validation-plan.outputs.run-heavy == 'true'
