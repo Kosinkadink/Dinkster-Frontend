@@ -44,3 +44,28 @@ be replaced by a UI-only timeline model or invented service routes.
   narrow layout and refusal screenshots. It asserts no media API requests.
 
 The browser fixture is not a backend simulation or render/OTIO round-trip test.
+
+## Preserved source
+
+The `timeline-viewport` branch retains the viewport and its standalone fixtures:
+
+- `packages/app/src/TimelineViewport.tsx`: controlled viewport and lane components.
+- `packages/app/src/timeline-view.ts`: bounded ticks, time labels and frame-grid seeking.
+- `packages/app/src/timeline-viewport.css`: ruler, playhead, lane and toolbar layout.
+- `packages/app/test/TimelineViewport.dom.test.tsx`: component interaction contract.
+- `packages/app/test/timeline-view.test.ts`: tick and seeking unit tests.
+- `packages/app/test/fixtures/timeline-viewport.tsx`: synthetic document-independent lanes.
+- `packages/e2e/tests/timeline-viewport.spec.ts`: real-browser fixture interactions and captures.
+
+The branch also retains `packages/canvas/src/scene-audit.ts` and
+`packages/canvas/test/scene-audit.test.ts`. These audit graph-scene geometry,
+pin identity and link endpoints; they are not a timeline document model or
+an integration of the viewport with the graph editor. Other canvas tests
+call `auditScene` as an additional geometry assertion.
+
+The viewport is not reachable through a registered product editor. Its
+fixtures demonstrate navigation and layout only. A usable timeline still
+needs the authoritative document and render contract described above,
+editor registration, document-backed lane content and graph commands for
+editing and persistence. Nothing in this branch supplies those missing
+contracts or changes how existing image, video or graph editors work.
