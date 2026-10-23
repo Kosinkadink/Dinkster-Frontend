@@ -12,10 +12,10 @@ for (const width of [1440, 900]) {
     await page.route('/api/composition', (route) => route.fulfill({ json: {} }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
-    await page.waitForFunction(() => window.__dinksterTest?.app.registry.get() !== undefined)
+    await expect(page.getByTestId('status-bar')).toContainText('node schemas')
     await page.evaluate((doc) => {
       const app = window.__dinksterTest!.app
-      app.templateGalleryOpen.set(false)
+      ;(app as unknown as { templateGalleryOpen: { set(value: boolean): void } }).templateGalleryOpen.set(false)
       app.openDocument(doc, 'Blocked workflow')
       app.dock.setOpen('right', false)
     }, workflow)
