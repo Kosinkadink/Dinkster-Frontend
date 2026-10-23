@@ -116,9 +116,8 @@ async function bootstrap(): Promise<void> {
   window.__dinksterTest = { app, semanticDerivations: 0, syntheticWorkflow }
   const catalogPath = import.meta.env['VITE_DINKSTER_FEDERATED_CATALOG_PATH']
   const candidatesPath = import.meta.env['VITE_DINKSTER_FEDERATED_CANDIDATES_PATH']
-  const resolvePath = import.meta.env['VITE_DINKSTER_FEDERATED_RESOLVE_PATH']
   const federatedAssets = catalogPath && candidatesPath
-    ? assetDtoV1Contract({ catalog: catalogPath, candidates: candidatesPath, ...(resolvePath ? { resolve: resolvePath } : {}) })
+    ? assetDtoV1Contract({ catalog: catalogPath, candidates: candidatesPath })
     : undefined
   render(() => <App
     app={app}

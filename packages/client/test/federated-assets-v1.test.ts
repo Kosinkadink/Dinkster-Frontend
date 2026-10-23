@@ -3,11 +3,9 @@ import { readFileSync } from 'node:fs'
 import {
   AssetDtoV1Client,
   assetDtoV1Contract,
-  decodeAssetResolveResponseV1,
   decodeCandidatesResponseV1,
   decodeCatalogResponseV1,
   decodeErrorResponseV1,
-  encodeAssetResolveRequestV1,
   encodeCandidatesRequestV1,
   encodeCatalogRequestV1,
 } from '../src/index.js'
@@ -28,7 +26,6 @@ describe('federated asset DTO v1', () => {
     expect(encodeCandidatesRequestV1(candidatesRequest)).toEqual(fixture.candidatesRequest)
     expect(decodeCatalogResponseV1(fixture.catalogResponse).items).toHaveLength(2)
     expect(decodeCandidatesResponseV1(fixture.candidatesResponse).selectedCandidate?.reason).toBe('explicit-selection')
-    expect(decodeAssetResolveResponseV1(fixture.resolveResponse).repair?.documentDigest).toBe('revision:7')
     expect(decodeErrorResponseV1(fixture.errors.authentication401, 401).error.code).toBe('authentication-required')
     expect(decodeErrorResponseV1(fixture.errors.forbidden403, 403).error.code).toBe('forbidden')
     expect(decodeErrorResponseV1(fixture.errors.invalidRequest400, 400).error.code).toBe('invalid-request')
@@ -50,19 +47,16 @@ describe('federated asset DTO v1', () => {
     expect(() => decodeErrorResponseV1(fixture.errors.authentication401, 403)).toThrow('status')
   })
 
-  it('enforces opaque cursor bounds, identifier controls, error field types, and empty document tokens', () => {
+  it('enforces opaque cursor bounds, identifier controls, and error field types', () => {
     expect(() => decodeCatalogResponseV1({ ...fixture.catalogResponse, nextCursor: 'x'.repeat(4097) })).toThrow('cursor')
     expect(() => decodeCandidatesResponseV1({ ...fixture.candidatesResponse, nextCursor: 'x'.repeat(4097) })).toThrow('cursor')
     const controlled = structuredClone(fixture.catalogResponse)
     controlled.items[0].logicalId = 'bad\u0000id'
     expect(() => decodeCatalogResponseV1(controlled)).toThrow('candidate')
     expect(() => decodeErrorResponseV1({ contractVersion: 1, error: { code: 'invalid-request', reason: 'bad', field: null } }, 400)).toThrow('field')
-    const emptyToken = structuredClone(fixture.resolveResponse)
-    emptyToken.repair.documentDigest = ''
-    expect(decodeAssetResolveResponseV1(emptyToken).repair?.documentDigest).toBe('')
   })
 
-  it('matches Python code-point lengths, ordering, scope whitespace, and repair target sets', () => {
+  it('matches Python code-point lengths, ordering, and scope whitespace', () => {
     const nonBmp = String.fromCodePoint(0x1f600)
     expect(encodeCatalogRequestV1({ cursor: nonBmp.repeat(4096), scope: '\u0001scope' }).cursor).toHaveLength(8192)
     expect(() => encodeCatalogRequestV1({ cursor: nonBmp.repeat(4097) })).toThrow('cursor')
@@ -72,16 +66,6 @@ describe('federated asset DTO v1', () => {
       { ...ordered.items[1], logicalId: '\u{10000}' },
     ]
     expect(decodeCatalogResponseV1(ordered).items).toHaveLength(2)
-    const mismatchedRepair = structuredClone(fixture.resolveResponse)
-    mismatchedRepair.repair.preconditions = [
-      { ...mismatchedRepair.repair.preconditions[0], pointer: '/a' },
-      { ...mismatchedRepair.repair.preconditions[0], pointer: '/b\n/c' },
-    ]
-    mismatchedRepair.repair.replacements = [
-      { ...mismatchedRepair.repair.replacements[0], pointer: '/a\n/b' },
-      { ...mismatchedRepair.repair.replacements[0], pointer: '/c' },
-    ]
-    expect(() => decodeAssetResolveResponseV1(mismatchedRepair)).toThrow('targets')
   })
 
   it('fails closed on nested request trust boundaries', () => {
@@ -89,9 +73,6 @@ describe('federated asset DTO v1', () => {
     expect(() => encodeCandidatesRequestV1({ context, expected: {} })).toThrow('digest or size')
     expect(() => encodeCandidatesRequestV1({ context, expected: { digest: `blake3:${'a'.repeat(64)}` }, selection: { logicalId: 'x', variantId: 'y', digest: `blake3:${'b'.repeat(64)}` } })).toThrow('equal')
     expect(() => encodeCandidatesRequestV1(Object.create({ context }))).toThrow('plain object')
-    const current = fixture.resolveResponse.selected
-    expect(() => encodeAssetResolveRequestV1({ mode: 'existing', context, document: { digest: 'revision:1', occurrences: [{ pointer: '/bad~2pointer', current }] } })).toThrow('pointer')
-    expect(() => encodeAssetResolveRequestV1({ mode: 'existing', context, document: { digest: 'revision:1', occurrences: Array.from({ length: 257 }, () => ({ pointer: '/x', current })) } })).toThrow('occurrences')
   })
 
   it('rejects JSON arrays masquerading as enum strings', () => {
@@ -116,10 +97,6 @@ describe('federated asset DTO v1', () => {
     const reasonArray = structuredClone(fixture.candidatesResponse)
     reasonArray.selectedCandidate.reason = ['explicit-selection']
     expect(() => decodeCandidatesResponseV1(reasonArray)).toThrow(/invalid selected reason/)
-
-    const resolveStatusArray = structuredClone(fixture.resolveResponse)
-    resolveStatusArray.status = ['resolved-existing']
-    expect(() => decodeAssetResolveResponseV1(resolveStatusArray)).toThrow(/invalid resolve status/)
 
     const errorCodeArray = structuredClone(fixture.errors.authentication401)
     errorCodeArray.error.code = ['authentication-required']
@@ -150,11 +127,6 @@ describe('federated asset DTO v1', () => {
     const context = { assetKind: 'model', schema: { nodeType: 'Load', inputId: 'model' }, accept: Array(1) as string[] }
     expect(() => encodeCandidatesRequestV1({ context })).toThrow('context')
     expect(() => encodeCatalogRequestV1({ availability: Array(1) as ('local')[] })).toThrow('filters')
-    expect(() => encodeAssetResolveRequestV1({
-      mode: 'existing',
-      context: { ...context, accept: [] },
-      consents: { license: Array(1) as string[] },
-    })).toThrow('consents')
     expect(() => decodeCatalogResponseV1({ contractVersion: 1, items: Array(1) })).toThrow()
   })
 
@@ -196,13 +168,6 @@ describe('federated asset DTO v1', () => {
     expect(() => operation === 'catalog'
       ? client.catalog({})
       : client.candidates({ context: { assetKind: 'model', schema: { nodeType: 'Load', inputId: 'model' }, accept: [] } })).toThrow('contractVersion')
-  })
-
-  it('does not probe resolve when its injected path is absent', () => {
-    const fetchFn = vi.fn()
-    const client = new AssetDtoV1Client('', assetDtoV1Contract(TEST_PATHS), fetchFn)
-    expect(() => client.resolve({ mode: 'existing', context: { assetKind: 'model', schema: { nodeType: 'Load', inputId: 'model' }, accept: [] } })).toThrow('resolve path is not configured')
-    expect(fetchFn).not.toHaveBeenCalled()
   })
 
   it('supports bearer injection through the fetch wrapper', async () => {
