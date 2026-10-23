@@ -20,6 +20,7 @@ export function ProductNumberInput(props: {
   readonly disabled?: boolean
   /** Emit explicitly typed defaults when absence has distinct storage meaning. */
   readonly commitUnchanged?: boolean
+  readonly normalizeCommit?: (raw: string) => string
   readonly onCommit?: (raw: string) => void
   readonly onInput?: (raw: string) => void
   readonly onRevert?: () => void
@@ -66,8 +67,10 @@ export function ProductNumberInput(props: {
   const commit = (): void => {
     if (!dirty || props.onCommit === undefined) return
     dirty = false
-    if (raw() === committed() && !props.commitUnchanged) return
-    props.onCommit(raw())
+    const next = props.normalizeCommit?.(raw()) ?? raw()
+    setRaw(next)
+    if (next === committed() && !props.commitUnchanged) return
+    props.onCommit(next)
   }
   const syncAndCommit = (value: string): void => {
     if (value !== raw()) {

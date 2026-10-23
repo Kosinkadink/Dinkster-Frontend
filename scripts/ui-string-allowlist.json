@@ -426,7 +426,6 @@
     "text:props.status.phase === 'failed' return ("
   ],
   "ExecutedImageViewer.tsx": [
-    "attribute:aria-label:Compare split",
     "attribute:aria-label:Execution provenance",
     "attribute:aria-label:Fit image",
     "attribute:aria-label:Image viewer controls",

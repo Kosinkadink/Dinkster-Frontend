@@ -139,15 +139,17 @@ describe('ExecutedImageViewer', () => {
     mounted.dispose()
   })
 
-  it('keeps compare sides independent and leaves range arrow keys with the range input', () => {
+  it('keeps compare sides independent and leaves slider arrow keys with the slider', () => {
     const mounted = mount()
     const button = (text: string) => [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === text)!
     button('Compare slider').click()
     mounted.root.querySelector<HTMLButtonElement>('[aria-label="Next left image"]')!.click()
     expect(mounted.root.querySelector<HTMLInputElement>('[aria-label="Left image number"]')!.value).toBe('2')
     expect(mounted.root.querySelector<HTMLInputElement>('[aria-label="Right image number"]')!.value).toBe('2')
-    const range = mounted.root.querySelector<HTMLInputElement>('[aria-label="Compare split"]')!
-    range.value = '35'; range.dispatchEvent(new Event('input', { bubbles: true }))
+    const range = mounted.root.querySelector<HTMLElement>('[aria-label="Compare split"]')!
+    range.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    for (let i = 0; i < 35; i++) range.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(range.getAttribute('aria-valuenow')).toBe('35')
     expect(mounted.root.querySelector<HTMLElement>('figure')!.style.clipPath).toBe('inset(0 65% 0 0)')
     range.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
     expect(mounted.root.querySelector<HTMLInputElement>('[aria-label="Left image number"]')!.value).toBe('2')
