@@ -50,7 +50,7 @@ if (argumentProject) {
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
   writeFileSync(
     resolve(nativeLibrary, 'settings.json'),
-    JSON.stringify({ features: { p2p: { enabled: false }, templates: { enabled: true } } }),
+    JSON.stringify({ features: { templates: { enabled: true } } }),
   )
   writeFileSync(
     resolve(nativeLibrary, 'mounts.toml'),
@@ -99,7 +99,6 @@ export default defineConfig({
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
         '--host 127.0.0.1',
         `--port ${nativePort}`,
-        '--disable-p2p',
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,

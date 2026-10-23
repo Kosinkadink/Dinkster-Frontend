@@ -2243,7 +2243,6 @@ interface BackendBase {
   readonly registry: Signal<SchemaRegistry | undefined>
   /** Execution locations advertised by the current native server life. */
   readonly workerCatalog: Signal<WorkerCatalogState>
-  readonly p2pEnabled: Signal<boolean>
   readonly templatesEnabled: Signal<boolean>
   /** Current schema request state for truthful backend-management feedback. */
   readonly schemaState: Signal<
@@ -4014,7 +4013,6 @@ export class AppState {
       baseUrl,
       registry,
       workerCatalog,
-      p2pEnabled: createSignal(false),
       templatesEnabled: createSignal(false),
       schemaState: createSignal<
         | { readonly status: 'idle' | 'loading' | 'waiting' | 'ready' }
@@ -4105,7 +4103,6 @@ export class AppState {
           this.flushWorkspaceRegistrations(id)
         }),
         base.workerCatalog.subscribe(() => this.backendsTick.update((v) => v + 1)),
-        base.p2pEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
@@ -4163,7 +4160,6 @@ export class AppState {
         requestCompositionProblems(gen)
         void connection.fetchRuntimeSettings().then((settings) => {
           if (gen !== staleGen) return
-          base.p2pEnabled.set(settings.features?.p2p?.enabled === true)
           base.templatesEnabled.set(settings.features?.templates?.enabled === true)
         }).catch(() => undefined)
       }
@@ -4250,7 +4246,6 @@ export class AppState {
       }
       const refreshOnConnect = (): void => {
         staleGen += 1
-        base.p2pEnabled.set(false)
         base.templatesEnabled.set(false)
         requestCurrentDiagnostics(staleGen)
         // graphFeatures and the extension snapshot pair are load-bearing and
@@ -4275,7 +4270,6 @@ export class AppState {
         if (status === 'connected') refreshOnConnect()
         else {
           staleGen += 1
-          base.p2pEnabled.set(false)
           base.templatesEnabled.set(false)
           this.invalidateWorkerCatalog(nativeBackend)
         }
