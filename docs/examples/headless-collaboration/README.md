@@ -1,6 +1,6 @@
 # Headless collaboration demo
 
-This example directory holds a Node 22+ participant for shared Dinkster
+This example directory holds a Node 26.12+ participant for shared Dinkster
 workflow sessions. It is not part of the pnpm workspace; it links the
 `@dinkster/core` and `@dinkster/client` packages from this checkout through
 relative `link:` dependencies. It can join a named session, discover the first
@@ -12,8 +12,8 @@ usable node-to-node link. Otherwise, it copies one node. The client marks the
 first copy and moves it in four steps so a browser participant can watch the
 update.
 
-Node 22 or newer is required. The client uses Node's built-in `fetch` and
-`WebSocket` implementations.
+Use Node 26.12 or newer within 26.x and pnpm 12.15.0, matching the repository
+toolchain. The client uses Node's built-in `fetch` and `WebSocket` implementations.
 
 ## Run against a local stack
 
