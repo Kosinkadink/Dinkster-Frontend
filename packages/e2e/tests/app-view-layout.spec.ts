@@ -95,12 +95,14 @@ test('authors text and a group, renders the clean flow, and restores it after re
   await page.getByTestId('app-layout-text-input').fill('Build **great** things with [docs](https://example.com).')
   await page.getByTestId('app-layout-text-input').blur()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision + 1)
-  await page.getByTestId('app-layout-text-role').selectOption('heading')
+  await page.getByTestId('app-layout-text-role').click()
+  await page.getByRole('option', { name: 'Heading', exact: true }).click()
 
   await page.getByTestId('app-layout-add-group').click()
   await page.getByTestId('app-layout-group-title').fill('Controls')
   await page.getByTestId('app-layout-group-title').blur()
-  await page.getByTestId('app-view-row').getByTestId('app-layout-parent').selectOption({ label: 'Controls' })
+  await page.getByTestId('app-view-row').getByTestId('app-layout-parent').click()
+  await page.getByRole('option', { name: 'Controls', exact: true }).click()
 
   const authored = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.appLayout'])
   expect(authored).toMatchObject({
@@ -156,7 +158,8 @@ test('an unexposed placed control is hidden in use mode and removable in arrange
   await page.getByTestId('app-layout-add-group').click()
   await page.getByTestId('app-layout-group-title').fill('Controls')
   await page.getByTestId('app-layout-group-title').blur()
-  await page.getByTestId('app-view-row').getByTestId('app-layout-parent').selectOption({ label: 'Controls' })
+  await page.getByTestId('app-view-row').getByTestId('app-layout-parent').click()
+  await page.getByRole('option', { name: 'Controls', exact: true }).click()
 
   await page.evaluate(() => {
     window.__dinksterTest!.app.activeTab()!.store.dispatch({

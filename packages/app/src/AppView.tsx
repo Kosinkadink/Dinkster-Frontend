@@ -64,7 +64,7 @@ import { useSignal } from './solid-adapter.js'
 import { isTextTarget } from './settings.js'
 import { parseNumericCommit, widgetCommitError } from './widget-commit.js'
 import { Icon } from './Icon.js'
-import { ProductCheckbox } from './ProductControls.js'
+import { ProductButton, ProductCheckbox, ProductTextArea, ProductTextInput } from './ProductControls.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
 import { AppWidgetPreview } from './AppWidgetPreview.js'
@@ -117,7 +117,7 @@ function AppViewStringInput(props: {
     if (value !== props.value) props.onCommit(value)
   }
   return props.multiline
-    ? <textarea
+    ? <ProductTextArea
         class="app-view-control multiline"
         data-testid="app-view-text"
         aria-labelledby={props.ariaLabelledBy}
@@ -126,7 +126,7 @@ function AppViewStringInput(props: {
         onChange={(event) => commit(event.currentTarget.value)}
         onBlur={(event) => commit(event.currentTarget.value)}
       />
-    : <input
+    : <ProductTextInput
         class="app-view-control"
         data-testid="app-view-text"
         type="text"
@@ -178,7 +178,7 @@ function AppViewColorPicker(props: {
   }
   return (
     <>
-      <button
+      <ProductButton
         ref={trigger}
         type="button"
         class="app-view-color product-color-trigger"
@@ -192,7 +192,7 @@ function AppViewColorPicker(props: {
       >
         <span class="product-color-swatch" style={{ background: displayed() }} aria-hidden="true" />
         <span>{displayed()}</span>
-      </button>
+      </ProductButton>
       <Show when={open()}>
         <Portal mount={trigger?.closest('dialog') ?? document.body}>
           <div
@@ -205,11 +205,11 @@ function AppViewColorPicker(props: {
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={escape}
           >
-            <label>{message('appView.color.hex')}<input ref={field} aria-label={message('appView.color.hex')} value={draft()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') commit(draft()) }} /></label>
+            <label>{message('appView.color.hex')}<ProductTextInput ref={field} aria-label={message('appView.color.hex')} value={draft()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') commit(draft()) }} /></label>
             <div class="product-color-grid" aria-label={message('appView.color.presets')}>
-              <For each={presets}>{(color) => <button type="button" aria-label={message('appView.color.select', { color })} style={{ background: color }} onClick={() => commit(color)} />}</For>
+              <For each={presets}>{(color) => <ProductButton type="button" aria-label={message('appView.color.select', { color })} style={{ background: color }} onClick={() => commit(color)} />}</For>
             </div>
-            <button type="button" disabled={!/^#[0-9a-f]{6}$/i.test(draft())} onClick={() => commit(draft())}>{message('appView.color.apply')}</button>
+            <ProductButton type="button" variant="primary" disabled={!/^#[0-9a-f]{6}$/i.test(draft())} onClick={() => commit(draft())}>{message('appView.color.apply')}</ProductButton>
           </div>
         </Portal>
       </Show>
@@ -1191,23 +1191,24 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       : undefined
     return (
       <Show when={groups().length > 0 || parentId() !== undefined}>
-        <select
+        <ProductSelect
           class="app-layout-parent"
-          data-testid="app-layout-parent"
-          aria-label={message('appView.layout.groupFor', { label: flowLabel(selectProps.item) })}
-          value={parentId() ?? ''}
-          onChange={(event) => {
-            const target = event.currentTarget.value || undefined
+          testId="app-layout-parent"
+          ariaLabel={message('appView.layout.groupFor', { label: flowLabel(selectProps.item) })}
+          options={[
+            { id: '', label: message('appView.layout.topLevel'), value: '' },
+            ...groups().map((group) => ({ id: group.id, label: group.title, value: group.id })),
+          ]}
+          selectedId={parentId() ?? ''}
+          onSelect={(option) => {
+            const target = option.value || undefined
             if (target === parentId()) return
             const index = target === undefined
               ? topLevelLayoutCount()
               : layoutGroups().find((group) => group.id === target)?.children.length ?? 0
             moveFlowItem(selectProps.item, target, index)
           }}
-        >
-          <option value="">{message('appView.layout.topLevel')}</option>
-          <For each={groups()}>{(group) => <option value={group.id}>{group.title}</option>}</For>
-        </select>
+        />
       </Show>
     )
   }
@@ -1285,7 +1286,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       <div class="app-layout-queue" data-testid="app-layout-queue">
         <Show when={arrange()}>
           <div class="app-layout-item-toolbar">
-            <input
+            <ProductTextInput
               class="app-layout-queue-label"
               data-testid="app-layout-queue-label"
               aria-label={message('appView.queue.label')}
@@ -1300,10 +1301,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             />
             <ParentSelect item={queueProps.flow} />
             <Show when={!queueProps.inGrid && !mobileEditing()}>
-              <button class="app-view-tool" aria-label={message('appView.queue.moveUp', { label: queueProps.flow.item.label })} disabled={queueProps.index === 0} onClick={() => moveFlowItem(queueProps.flow, queueProps.flow.parentId, queueProps.index - 1)}><Icon icon={ArrowUp} /></button>
-              <button class="app-view-tool" aria-label={message('appView.queue.moveDown', { label: queueProps.flow.item.label })} disabled={queueProps.index === layoutSiblingCount(queueProps.flow, queueProps.count) - 1} onClick={() => moveFlowItem(queueProps.flow, queueProps.flow.parentId, queueProps.index + 1)}><Icon icon={ArrowDown} /></button>
+              <ProductButton variant="ghost" size="compact" class="app-view-tool" aria-label={message('appView.queue.moveUp', { label: queueProps.flow.item.label })} disabled={queueProps.index === 0} onClick={() => moveFlowItem(queueProps.flow, queueProps.flow.parentId, queueProps.index - 1)}><Icon icon={ArrowUp} /></ProductButton>
+              <ProductButton variant="ghost" size="compact" class="app-view-tool" aria-label={message('appView.queue.moveDown', { label: queueProps.flow.item.label })} disabled={queueProps.index === layoutSiblingCount(queueProps.flow, queueProps.count) - 1} onClick={() => moveFlowItem(queueProps.flow, queueProps.flow.parentId, queueProps.index + 1)}><Icon icon={ArrowDown} /></ProductButton>
             </Show>
-            <button class="app-view-tool" data-testid="app-layout-remove" aria-label={message('appView.queue.remove', { label: queueProps.flow.item.label })} onClick={() => dispatchLayout('app.layout.remove', { id: queueProps.flow.item.id })}><Icon icon={X} /></button>
+            <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-layout-remove" aria-label={message('appView.queue.remove', { label: queueProps.flow.item.label })} onClick={() => dispatchLayout('app.layout.remove', { id: queueProps.flow.item.id })}><Icon icon={X} /></ProductButton>
           </div>
           <fieldset class="app-layout-queue-targets" data-testid="app-layout-queue-targets">
             <legend>{message('appView.queue.targets')}</legend>
@@ -1311,11 +1312,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               const selected = () => queueProps.flow.item.targets.some((target) =>
                 target.graphId === option.graphId && target.nodeId === option.nodeId)
               return <label>
-                <input
-                  type="checkbox"
+                <ProductCheckbox
+                  ariaLabel={option.label}
                   checked={selected()}
                   disabled={selected() && queueProps.flow.item.targets.length === 1}
-                  onChange={(event) => setTargets(option.graphId, option.nodeId, event.currentTarget.checked)}
+                  onChange={(checked) => setTargets(option.graphId, option.nodeId, checked)}
                 />
                 <span>{option.label}</span>
                 <small>{option.context}</small>
@@ -1328,7 +1329,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             </p>
           </Show>
         </Show>
-        <button
+        <ProductButton
+          variant="primary"
           type="button"
           class="app-view-queue app-layout-queue-button"
           data-testid="app-layout-queue-button"
@@ -1337,7 +1339,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           onClick={() => void run()}
         >
           <Icon icon={Play} /> {queueProps.flow.item.label}
-        </button>
+        </ProductButton>
         <span id={stateId} class="app-layout-queue-state" data-testid="app-layout-queue-state" role="status" aria-live="polite">{state()}</span>
       </div>
     )
@@ -1399,51 +1401,52 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       <Show when={arrange()} fallback={<TextContent item={textProps.flow.item} />}>
         <div class="app-layout-text-editor" data-testid="app-layout-text-editor">
           <div class="app-layout-item-toolbar">
-            <select
+            <ProductSelect
               class="app-layout-role"
-              data-testid="app-layout-text-role"
-              aria-label={message('appView.text.style')}
-              value={textProps.flow.item.role}
-              onChange={(event) => dispatchLayout('app.layout.setText', {
+              testId="app-layout-text-role"
+              ariaLabel={message('appView.text.style')}
+              selectedId={textProps.flow.item.role}
+              options={[
+                { id: 'heading', label: message('appView.text.heading'), value: 'heading' },
+                { id: 'body', label: message('appView.text.body'), value: 'body' },
+                { id: 'caption', label: message('appView.text.caption'), value: 'caption' },
+              ]}
+              onSelect={(option) => dispatchLayout('app.layout.setText', {
                 id: textProps.flow.item.id,
-                role: event.currentTarget.value,
+                role: option.value,
               })}
-            >
-              <option value="heading">{message('appView.text.heading')}</option>
-              <option value="body">{message('appView.text.body')}</option>
-              <option value="caption">{message('appView.text.caption')}</option>
-            </select>
+            />
             <ParentSelect item={textProps.flow} />
             <Show when={!textProps.inGrid && !mobileEditing()}>
-              <button
+              <ProductButton variant="ghost" size="compact"
                 class="app-view-tool"
                 data-testid="app-layout-move-up"
                 aria-label={message('appView.text.moveUp')}
                 disabled={textProps.index === 0}
                 onClick={() => moveFlowItem(textProps.flow, textProps.flow.parentId, textProps.index - 1)}
-              ><Icon icon={ArrowUp} /></button>
-              <button
+              ><Icon icon={ArrowUp} /></ProductButton>
+              <ProductButton variant="ghost" size="compact"
                 class="app-view-tool"
                 data-testid="app-layout-move-down"
                 aria-label={message('appView.text.moveDown')}
                 disabled={textProps.index === layoutSiblingCount(textProps.flow, textProps.count) - 1}
                 onClick={() => moveFlowItem(textProps.flow, textProps.flow.parentId, textProps.index + 1)}
-              ><Icon icon={ArrowDown} /></button>
+              ><Icon icon={ArrowDown} /></ProductButton>
             </Show>
-            <button
+            <ProductButton variant="ghost" size="compact"
               class="app-view-tool"
               data-testid="app-layout-remove"
               aria-label={message('appView.text.remove')}
               onClick={() => dispatchLayout('app.layout.remove', { id: textProps.flow.item.id })}
-            ><Icon icon={X} /></button>
+            ><Icon icon={X} /></ProductButton>
           </div>
           <div class="app-layout-format-toolbar" aria-label={message('appView.text.formatting')}>
-            <button type="button" aria-label={message('appView.text.bold')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('**', '**', message('appView.text.boldPlaceholder'))}>B</button>
-            <button type="button" aria-label={message('appView.text.italic')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('*', '*', message('appView.text.italicPlaceholder'))}><em>I</em></button>
-            <button type="button" aria-label={message('appView.text.link')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('[', '](https://)', message('appView.text.linkPlaceholder'))}>{message('appView.text.link')}</button>
+            <ProductButton size="compact" type="button" aria-label={message('appView.text.bold')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('**', '**', message('appView.text.boldPlaceholder'))}>B</ProductButton>
+            <ProductButton size="compact" type="button" aria-label={message('appView.text.italic')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('*', '*', message('appView.text.italicPlaceholder'))}><em>I</em></ProductButton>
+            <ProductButton size="compact" type="button" aria-label={message('appView.text.link')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('[', '](https://)', message('appView.text.linkPlaceholder'))}>{message('appView.text.link')}</ProductButton>
             <span>{message('appView.text.formattingHint')}</span>
           </div>
-          <textarea
+          <ProductTextArea
             ref={editor}
             class="app-layout-text-input"
             data-testid="app-layout-text-input"
@@ -1539,7 +1542,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             <ComboControl row={liveRow()} />
           </Match>
           <Match when={spec().widgetType === 'VIDEO_EDIT'}>
-            <button type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>{message('appView.control.editTrimCrop')}</button>
+            <ProductButton type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>{message('appView.control.editTrimCrop')}</ProductButton>
           </Match>
         </Switch>
       )
@@ -1597,7 +1600,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               </span>
             }
           >
-            <input
+            <ProductTextInput
               class="app-view-rename"
               data-testid="app-view-rename"
               aria-label={message('appView.action.rename', { label: label() })}
@@ -1618,22 +1621,22 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             <span class="app-view-row-tools">
               <ParentSelect item={controlProps.flow} />
               <Show when={!layoutOwned()}>
-                <button
+                <ProductButton variant="ghost" size="compact"
                   class="app-view-tool"
                   data-testid="app-layout-place"
                   aria-label={message('appView.action.placeInFlow', { label: label() })}
                   onClick={() => addAutomaticPlacement(controlProps.flow, undefined, topLevelLayoutCount())}
-                ><Icon icon={Plus} /></button>
+                ><Icon icon={Plus} /></ProductButton>
               </Show>
               <Show when={!controlProps.inGrid && !mobileEditing()}>
-                <button
+                <ProductButton variant="ghost" size="compact"
                   class="app-view-tool"
                   data-testid="app-view-move-up"
                   aria-label={message('appView.action.moveUp', { label: label() })}
                   disabled={(layoutOwned() ? controlProps.index : controlProps.flow.registryIndex) === 0}
                   onClick={() => move(-1)}
-                ><Icon icon={ArrowUp} /></button>
-                <button
+                ><Icon icon={ArrowUp} /></ProductButton>
+                <ProductButton variant="ghost" size="compact"
                   class="app-view-tool"
                   data-testid="app-view-move-down"
                   aria-label={message('appView.action.moveDown', { label: label() })}
@@ -1641,20 +1644,20 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
                     ? controlProps.index === layoutSiblingCount(controlProps.flow, controlProps.count) - 1
                     : controlProps.flow.registryIndex === rows().length - 1}
                   onClick={() => move(1)}
-                ><Icon icon={ArrowDown} /></button>
+                ><Icon icon={ArrowDown} /></ProductButton>
               </Show>
-              <button
+              <ProductButton variant="ghost" size="compact"
                 class="app-view-tool"
                 data-testid="app-view-rename-start"
                 aria-label={message('appView.action.rename', { label: label() })}
                 onClick={() => setRenaming(rowKey(row().entry))}
-              ><Icon icon={Pencil} /></button>
-              <button
+              ><Icon icon={Pencil} /></ProductButton>
+              <ProductButton variant="ghost" size="compact"
                 class="app-view-tool"
                 data-testid="app-view-remove"
                 aria-label={message('appView.action.remove', { label: label() })}
                 onClick={() => dispatchEntry('params.unexpose', row().entry)}
-              ><Icon icon={X} /></button>
+              ><Icon icon={X} /></ProductButton>
             </span>
           </Show>
         </div>
@@ -1786,7 +1789,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               </span>
             }
           >
-            <input
+            <ProductTextInput
               class="app-view-rename"
               data-testid="app-preview-rename"
               aria-label={message('appView.action.rename', { label: label() })}
@@ -1807,19 +1810,19 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             <span class="app-view-row-tools">
               <ParentSelect item={previewProps.flow} />
               <Show when={!layoutOwned()}>
-                <button
+                <ProductButton variant="ghost" size="compact"
                   class="app-view-tool"
                   data-testid="app-layout-place"
                   aria-label={message('appView.action.placeInFlow', { label: label() })}
                   onClick={() => addAutomaticPlacement(previewProps.flow, undefined, topLevelLayoutCount())}
-                ><Icon icon={Plus} /></button>
+                ><Icon icon={Plus} /></ProductButton>
               </Show>
               <Show when={!previewProps.inGrid && !mobileEditing()}>
-                <button class="app-view-tool" data-testid="app-preview-move-up" aria-label={message('appView.action.moveUp', { label: label() })} disabled={(layoutOwned() ? previewProps.index : previewProps.flow.registryIndex) === 0} onClick={() => move(-1)}><Icon icon={ArrowUp} /></button>
-                <button class="app-view-tool" data-testid="app-preview-move-down" aria-label={message('appView.action.moveDown', { label: label() })} disabled={layoutOwned() ? previewProps.index === layoutSiblingCount(previewProps.flow, previewProps.count) - 1 : previewProps.flow.registryIndex === previewCandidates().length - 1} onClick={() => move(1)}><Icon icon={ArrowDown} /></button>
+                <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-preview-move-up" aria-label={message('appView.action.moveUp', { label: label() })} disabled={(layoutOwned() ? previewProps.index : previewProps.flow.registryIndex) === 0} onClick={() => move(-1)}><Icon icon={ArrowUp} /></ProductButton>
+                <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-preview-move-down" aria-label={message('appView.action.moveDown', { label: label() })} disabled={layoutOwned() ? previewProps.index === layoutSiblingCount(previewProps.flow, previewProps.count) - 1 : previewProps.flow.registryIndex === previewCandidates().length - 1} onClick={() => move(1)}><Icon icon={ArrowDown} /></ProductButton>
               </Show>
-              <button class="app-view-tool" data-testid="app-preview-rename-start" aria-label={message('appView.action.rename', { label: label() })} onClick={() => setPreviewRenaming(previewRowKey(row().entry))}><Icon icon={Pencil} /></button>
-              <button class="app-view-tool" data-testid="app-preview-remove" aria-label={message('appView.action.remove', { label: label() })} onClick={() => dispatchPreviewEntry('previews.unexpose', row().entry)}><Icon icon={X} /></button>
+              <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-preview-rename-start" aria-label={message('appView.action.rename', { label: label() })} onClick={() => setPreviewRenaming(previewRowKey(row().entry))}><Icon icon={Pencil} /></ProductButton>
+              <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-preview-remove" aria-label={message('appView.action.remove', { label: label() })} onClick={() => dispatchPreviewEntry('previews.unexpose', row().entry)}><Icon icon={X} /></ProductButton>
             </span>
           </Show>
         </div>
@@ -1846,10 +1849,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               event.preventDefault(); event.stopPropagation(); pageImage(event.key === 'ArrowRight' ? 1 : -1)
             }
           }}>
-            <button type="button" aria-label={message('appView.images.previous')} disabled={selected().index === 0} onClick={() => pageImage(-1)}>{message('appView.images.previousShort')}</button>
+            <ProductButton size="compact" type="button" aria-label={message('appView.images.previous')} disabled={selected().index === 0} onClick={() => pageImage(-1)}>{message('appView.images.previousShort')}</ProductButton>
             <span aria-live="polite">{selected().index + 1} / {selected().count}</span>
-            <button type="button" aria-label={message('appView.images.next')} disabled={selected().index >= selected().count - 1} onClick={() => pageImage(1)}>{message('appView.images.nextShort')}</button>
-            <button type="button" onClick={openImages}>{message('appView.images.openViewer')}</button>
+            <ProductButton size="compact" type="button" aria-label={message('appView.images.next')} disabled={selected().index >= selected().count - 1} onClick={() => pageImage(1)}>{message('appView.images.nextShort')}</ProductButton>
+            <ProductButton size="compact" type="button" onClick={openImages}>{message('appView.images.openViewer')}</ProductButton>
           </div>
         }</Show>
         <Show when={viewer()}>{(selected) => <ExecutedImageViewer images={selected().output.images} batch={selected().output.batch}
@@ -1873,10 +1876,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         <div class="app-layout-item-toolbar">
           <ParentSelect item={missingProps.flow} />
           <Show when={!missingProps.inGrid && !mobileEditing()}>
-            <button class="app-view-tool" aria-label={message('appView.missing.moveUp')} disabled={missingProps.index === 0} onClick={() => moveFlowItem(missingProps.flow, missingProps.flow.parentId, missingProps.index - 1)}><Icon icon={ArrowUp} /></button>
-            <button class="app-view-tool" aria-label={message('appView.missing.moveDown')} disabled={missingProps.index === layoutSiblingCount(missingProps.flow, missingProps.count) - 1} onClick={() => moveFlowItem(missingProps.flow, missingProps.flow.parentId, missingProps.index + 1)}><Icon icon={ArrowDown} /></button>
+            <ProductButton variant="ghost" size="compact" class="app-view-tool" aria-label={message('appView.missing.moveUp')} disabled={missingProps.index === 0} onClick={() => moveFlowItem(missingProps.flow, missingProps.flow.parentId, missingProps.index - 1)}><Icon icon={ArrowUp} /></ProductButton>
+            <ProductButton variant="ghost" size="compact" class="app-view-tool" aria-label={message('appView.missing.moveDown')} disabled={missingProps.index === layoutSiblingCount(missingProps.flow, missingProps.count) - 1} onClick={() => moveFlowItem(missingProps.flow, missingProps.flow.parentId, missingProps.index + 1)}><Icon icon={ArrowDown} /></ProductButton>
           </Show>
-          <button class="app-view-tool" data-testid="app-layout-remove" aria-label={message('appView.missing.remove')} onClick={() => dispatchLayout('app.layout.remove', { id: missingProps.flow.item.id })}><Icon icon={X} /></button>
+          <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-layout-remove" aria-label={message('appView.missing.remove')} onClick={() => dispatchLayout('app.layout.remove', { id: missingProps.flow.item.id })}><Icon icon={X} /></ProductButton>
         </div>
       </div>
     </Show>
@@ -1902,7 +1905,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             when={arrange()}
             fallback={<h2>{groupProps.flow.item.title}</h2>}
           >
-            <input
+            <ProductTextInput
               class="app-layout-group-title"
               data-testid="app-layout-group-title"
               aria-label={message('appView.group.title')}
@@ -1919,10 +1922,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             />
             <div class="app-layout-item-toolbar">
               <Show when={!groupProps.inGrid && !mobileEditing()}>
-                <button class="app-view-tool" aria-label={message('appView.group.moveUp', { title: groupProps.flow.item.title })} disabled={groupProps.index === 0} onClick={() => moveFlowItem(groupProps.flow, undefined, groupProps.index - 1)}><Icon icon={ArrowUp} /></button>
-                <button class="app-view-tool" aria-label={message('appView.group.moveDown', { title: groupProps.flow.item.title })} disabled={groupProps.index === layoutSiblingCount(groupProps.flow, groupProps.count) - 1} onClick={() => moveFlowItem(groupProps.flow, undefined, groupProps.index + 1)}><Icon icon={ArrowDown} /></button>
+                <ProductButton variant="ghost" size="compact" class="app-view-tool" aria-label={message('appView.group.moveUp', { title: groupProps.flow.item.title })} disabled={groupProps.index === 0} onClick={() => moveFlowItem(groupProps.flow, undefined, groupProps.index - 1)}><Icon icon={ArrowUp} /></ProductButton>
+                <ProductButton variant="ghost" size="compact" class="app-view-tool" aria-label={message('appView.group.moveDown', { title: groupProps.flow.item.title })} disabled={groupProps.index === layoutSiblingCount(groupProps.flow, groupProps.count) - 1} onClick={() => moveFlowItem(groupProps.flow, undefined, groupProps.index + 1)}><Icon icon={ArrowDown} /></ProductButton>
               </Show>
-              <button class="app-view-tool" data-testid="app-layout-remove" aria-label={message('appView.group.remove', { title: groupProps.flow.item.title })} onClick={() => dispatchLayout('app.layout.remove', { id: groupProps.flow.item.id })}><Icon icon={X} /></button>
+              <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-layout-remove" aria-label={message('appView.group.remove', { title: groupProps.flow.item.title })} onClick={() => dispatchLayout('app.layout.remove', { id: groupProps.flow.item.id })}><Icon icon={X} /></ProductButton>
             </div>
           </Show>
         </div>
@@ -2005,7 +2008,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         onKeyUp={(event) => gridKeyUp(event, gridProps.item)}
       >
         <Show when={arrange()}>
-          <button
+          <ProductButton size="compact"
             type="button"
             class="app-layout-grid-drag"
             data-testid="app-layout-grid-drag"
@@ -2016,18 +2019,18 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             onPointerDown={(event) => beginGridPointer(event, gridProps.item, 'move')}
             onKeyDown={(event) => gridKeyDown(event, gridProps.item, 'move')}
             onKeyUp={(event) => gridKeyUp(event, gridProps.item, 'move')}
-          ><Icon icon={GripVertical} /></button>
-          <button
+          ><Icon icon={GripVertical} /></ProductButton>
+          <ProductButton size="compact"
             type="button"
             class="app-layout-grid-flow"
             data-testid="app-layout-grid-clear"
             aria-label={message('appView.grid.returnToFlow', { label: flowLabel(gridProps.item) })}
             tabindex={0}
             onClick={() => dispatchLayout('app.layout.setGrid', { id: id(), grid: null })}
-          >{message('appView.layout.flow')}</button>
-          <button type="button" class="app-layout-grid-resize right" data-testid="app-layout-grid-resize-right" data-grid-keyboard-target="right" aria-label={message('appView.grid.resizeWidth', { label: flowLabel(gridProps.item) })} aria-keyshortcuts="ArrowLeft ArrowRight Escape" tabindex={0} onPointerDown={(event) => beginGridPointer(event, gridProps.item, 'right')} onKeyDown={(event) => gridKeyDown(event, gridProps.item, 'right')} onKeyUp={(event) => gridKeyUp(event, gridProps.item, 'right')} />
-          <button type="button" class="app-layout-grid-resize bottom" data-testid="app-layout-grid-resize-bottom" data-grid-keyboard-target="bottom" aria-label={message('appView.grid.resizeHeight', { label: flowLabel(gridProps.item) })} aria-keyshortcuts="ArrowUp ArrowDown Escape" tabindex={0} onPointerDown={(event) => beginGridPointer(event, gridProps.item, 'bottom')} onKeyDown={(event) => gridKeyDown(event, gridProps.item, 'bottom')} onKeyUp={(event) => gridKeyUp(event, gridProps.item, 'bottom')} />
-          <button type="button" class="app-layout-grid-resize corner" data-testid="app-layout-grid-resize-corner" data-grid-keyboard-target="corner" aria-label={message('appView.grid.resize', { label: flowLabel(gridProps.item) })} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Escape" tabindex={0} onPointerDown={(event) => beginGridPointer(event, gridProps.item, 'corner')} onKeyDown={(event) => gridKeyDown(event, gridProps.item, 'corner')} onKeyUp={(event) => gridKeyUp(event, gridProps.item, 'corner')} />
+          >{message('appView.layout.flow')}</ProductButton>
+          <ProductButton size="compact" type="button" class="app-layout-grid-resize right" data-testid="app-layout-grid-resize-right" data-grid-keyboard-target="right" aria-label={message('appView.grid.resizeWidth', { label: flowLabel(gridProps.item) })} aria-keyshortcuts="ArrowLeft ArrowRight Escape" tabindex={0} onPointerDown={(event) => beginGridPointer(event, gridProps.item, 'right')} onKeyDown={(event) => gridKeyDown(event, gridProps.item, 'right')} onKeyUp={(event) => gridKeyUp(event, gridProps.item, 'right')} />
+          <ProductButton size="compact" type="button" class="app-layout-grid-resize bottom" data-testid="app-layout-grid-resize-bottom" data-grid-keyboard-target="bottom" aria-label={message('appView.grid.resizeHeight', { label: flowLabel(gridProps.item) })} aria-keyshortcuts="ArrowUp ArrowDown Escape" tabindex={0} onPointerDown={(event) => beginGridPointer(event, gridProps.item, 'bottom')} onKeyDown={(event) => gridKeyDown(event, gridProps.item, 'bottom')} onKeyUp={(event) => gridKeyUp(event, gridProps.item, 'bottom')} />
+          <ProductButton size="compact" type="button" class="app-layout-grid-resize corner" data-testid="app-layout-grid-resize-corner" data-grid-keyboard-target="corner" aria-label={message('appView.grid.resize', { label: flowLabel(gridProps.item) })} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Escape" tabindex={0} onPointerDown={(event) => beginGridPointer(event, gridProps.item, 'corner')} onKeyDown={(event) => gridKeyDown(event, gridProps.item, 'corner')} onKeyUp={(event) => gridKeyUp(event, gridProps.item, 'corner')} />
         </Show>
         <FlowPlacement item={gridProps.item} index={gridProps.index} count={gridItems().length} inGrid />
       </div>
@@ -2139,22 +2142,22 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               onDragEnd={() => setMobileDragged(undefined)}
             ><Icon icon={GripVertical} /></span>
             <span>{flowLabel(mobileProps.item)}</span>
-            <button
+            <ProductButton variant="ghost" size="compact"
               type="button"
               class="app-view-tool"
               data-testid="app-layout-mobile-up"
               aria-label={message('appView.mobile.moveUp', { label: flowLabel(mobileProps.item) })}
               disabled={mobileProps.index === 0}
               onClick={() => moveMobile(id()!, mobileProps.index - 1)}
-            ><Icon icon={ArrowUp} /></button>
-            <button
+            ><Icon icon={ArrowUp} /></ProductButton>
+            <ProductButton variant="ghost" size="compact"
               type="button"
               class="app-view-tool"
               data-testid="app-layout-mobile-down"
               aria-label={message('appView.mobile.moveDown', { label: flowLabel(mobileProps.item) })}
               disabled={mobileProps.index === mobileItems().length - 1}
               onClick={() => moveMobile(id()!, mobileProps.index + 1)}
-            ><Icon icon={ArrowDown} /></button>
+            ><Icon icon={ArrowDown} /></ProductButton>
           </div>
         </Show>
         <FlowPlacement item={mobileProps.item} index={mobileProps.index} count={mobileItems().length} />
@@ -2193,7 +2196,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             {(description) => <p class="app-view-description">{description()}</p>}
           </Show>
         </div>
-        <button
+        <ProductButton
           class="app-view-arrange-toggle"
           data-testid="app-view-arrange-toggle"
           aria-pressed={arrange()}
@@ -2204,9 +2207,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           }}
         >
           <Icon icon={SlidersHorizontal} /> {message('appView.arrange')}
-        </button>
+        </ProductButton>
         <Show when={!documentLayout()?.desktop.items.some((item) => item.kind === 'queue')}>
-          <button
+          <ProductButton variant="primary"
             class="app-view-queue"
             data-testid="app-view-queue"
             disabled={frozen() || !activeTab()}
@@ -2216,53 +2219,53 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             }}
           >
             <Icon icon={Play} /> {message('appView.queue')}
-          </button>
+          </ProductButton>
         </Show>
       </header>
       <Show when={arrange()}>
         <div class="app-layout-arrange-controls" data-testid="app-layout-arrange-controls">
           <div class="app-layout-breakpoint-toggle" role="group" aria-label={message('appView.breakpoint.label')}>
-            <button
+            <ProductButton size="compact"
               type="button"
               data-testid="app-layout-breakpoint-desktop"
               aria-pressed={arrangeBreakpoint() === 'desktop'}
               onPointerDown={preservePortalDraftFocus}
               onClick={() => requestArrangeBreakpoint('desktop')}
-            >{message('appView.breakpoint.desktop')}</button>
-            <button
+            >{message('appView.breakpoint.desktop')}</ProductButton>
+            <ProductButton size="compact"
               type="button"
               data-testid="app-layout-breakpoint-mobile"
               aria-pressed={arrangeBreakpoint() === 'mobile'}
               onPointerDown={preservePortalDraftFocus}
               onClick={() => requestArrangeBreakpoint('mobile')}
-            >{message('appView.breakpoint.mobile')}</button>
+            >{message('appView.breakpoint.mobile')}</ProductButton>
           </div>
           <Show when={documentLayout()?.mobile.customized === true}>
-            <button
+            <ProductButton size="compact"
               type="button"
               class="app-layout-reset-mobile"
               data-testid="app-layout-reset-mobile"
               onClick={() => dispatchLayout('app.layout.resetMobile', {})}
-            >{message('appView.breakpoint.resetAutomatic')}</button>
+            >{message('appView.breakpoint.resetAutomatic')}</ProductButton>
           </Show>
         </div>
         <div class="app-layout-palette" data-testid="app-layout-palette">
           <span>{message('appView.content.add')}</span>
-          <button
+          <ProductButton size="compact"
             type="button"
             data-testid="app-layout-add-text"
             onClick={() => dispatchLayout('app.layout.add', {
               item: { id: freshLayoutId('text'), kind: 'text', role: 'body', text: message('appView.content.defaultInstructions') },
             })}
-          ><Icon icon={Plus} /> {message('appView.content.text')}</button>
-          <button
+          ><Icon icon={Plus} /> {message('appView.content.text')}</ProductButton>
+          <ProductButton size="compact"
             type="button"
             data-testid="app-layout-add-group"
             onClick={() => dispatchLayout('app.layout.add', {
               item: { id: freshLayoutId('group'), kind: 'group', title: message('appView.content.defaultGroup'), children: [] },
             })}
-          ><Icon icon={FolderPlus} /> {message('appView.content.group')}</button>
-          <button
+          ><Icon icon={FolderPlus} /> {message('appView.content.group')}</ProductButton>
+          <ProductButton size="compact"
             type="button"
             data-testid="app-layout-add-queue"
             disabled={queueTargetOptions().length === 0}
@@ -2278,7 +2281,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
                 },
               })
             }}
-          ><Icon icon={Play} /> {message('appView.content.queue')}</button>
+          ><Icon icon={Play} /> {message('appView.content.queue')}</ProductButton>
         </div>
       </Show>
       <Show
@@ -2339,12 +2342,12 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
                           >
                             <Show when={arrange() && topLevel()}>
                               <div class="app-layout-flow-toolbar">
-                                <button
+                                <ProductButton size="compact"
                                   type="button"
                                   data-testid="app-layout-grid-place"
                                   aria-label={message('appView.grid.place', { label: flowLabel(item()) })}
                                   onClick={() => placeInGrid(item())}
-                                >{message('appView.grid.placeShort')}</button>
+                                >{message('appView.grid.placeShort')}</ProductButton>
                               </div>
                             </Show>
                             <FlowPlacement item={item()} index={index()} count={fallbackItems().length} />
