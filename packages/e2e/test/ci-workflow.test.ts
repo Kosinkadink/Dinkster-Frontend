@@ -414,6 +414,9 @@ describe('fast pull-request and full validation workflows', () => {
           'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@c4ce40550e77f5a3b9b8d2f96597a4d6c24c1377',
         )
         expect(compatibilityInstall.run).toContain(
+          'uv pip install --python .ci/Dinkster/.venv-torch/bin/python',
+        )
+        expect(compatibilityInstall.run).not.toContain(
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
         )
         expect(compatibilityInstall.run).toContain(
@@ -515,7 +518,7 @@ describe('fast pull-request and full validation workflows', () => {
       '`--comfy-root ${JSON.stringify(comfyRoot)}`',
     )
     expect(hostedConfig).toContain(
-      "`--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`",
+      "`--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`",
     )
     expect(hostedConfig).not.toContain("'--comfy-arg=--cpu'")
     expect(extensionContractConfig).toContain("'--no-default-packs'")

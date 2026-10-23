@@ -190,7 +190,10 @@ jobs:
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
       - name: Install hosted compatibility dependencies
         run: |
-          uv pip install --python .ci/ComfyUI/venv/bin/python --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match \
+          uv venv --python 3.12 .ci/Dinkster/.venv-torch
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python -r .ci/ComfyUI/requirements.txt
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match \
             "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@c4ce40550e77f5a3b9b8d2f96597a4d6c24c1377" \
             packaging "comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0" \
             "sentencepiece==0.2.1" "tokenizers==0.23.1"
