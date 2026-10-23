@@ -48,6 +48,21 @@ describe('ProductNumberInput', () => {
     expect(reverts).toHaveBeenCalledOnce()
   })
 
+  it('normalizes committed display text even when the controlled value is unchanged', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [value, setValue] = createSignal('2')
+    render(() => <ProductNumberInput value={value()} min={1} max={3}
+      normalizeCommit={(raw) => raw.trim() === '' ? value() : String(Math.max(1, Math.min(3, Math.trunc(Number(raw)))))}
+      onCommit={setValue} />, root)
+    for (const [raw, expected] of [['', '2'], ['2.8', '2'], ['0', '1'], ['99', '3']]) {
+      input(root).value = raw!
+      input(root).dispatchEvent(new Event('change', { bubbles: true }))
+      expect(input(root).value).toBe(expected)
+      expect(value()).toBe(expected)
+    }
+  })
+
   it('supports bounded keyboard stepping without committing navigation twice', () => {
     const commits = vi.fn()
     const root = document.createElement('div')

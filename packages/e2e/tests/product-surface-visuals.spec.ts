@@ -125,6 +125,53 @@ test('shell controls at desktop and compact widths', async ({ page }) => {
   }
 })
 
+test('populated output viewer in single, grid and compare modes', async ({ page }) => {
+  await page.route(/\/view(?:\?|$)/, (route) => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#173f6c"/><circle cx="420" cy="180" r="100" fill="#d7a86e"/></svg>',
+  }))
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'OutputVisual', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
+    }])
+    const diagnostics = app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-visual', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Image output', nodes: { save: { id: 'save', type: 'OutputVisual', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { save: { position: { x: 120, y: 100 } } } } } },
+    }, 'Image output')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    const compiled = app.compileTab(app.activeTab()!)
+    if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+    const ref = { connection: compiled.artifact.connection, prompt: 'visual-output' }
+    const store = app.store as unknown as { register(ref: unknown, artifact: unknown, now: number): void; apply(event: unknown): void }
+    store.register(ref, compiled.artifact, 0)
+    store.apply({ kind: 'started', execution: ref, timestamp: 0 })
+    store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'save', timestamp: 0,
+      output: { images: [{ filename: 'coastline.png' }, { filename: 'sunset.png' }] } })
+    store.apply({ kind: 'completed', execution: ref, timestamp: 0 })
+  })
+  await openRail(page, 'Outputs')
+  await page.locator('.output-thumbnail').first().click()
+  const viewer = page.getByTestId('output-viewer')
+  await expect(viewer.locator('img')).toBeVisible()
+  await expect(viewer.locator('.output-availability')).toContainText('Available')
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await viewer.getByRole('button', { name: 'Single', exact: true }).click()
+    await screenshot(page, `output-viewer-single-${width}`)
+    await viewer.getByRole('button', { name: 'Show all images' }).click()
+    await expect(viewer.getByRole('listitem')).toHaveCount(2)
+    await screenshot(page, `output-viewer-grid-${width}`)
+    await viewer.getByRole('button', { name: 'Compare slider' }).click()
+    await expect(viewer.getByRole('slider', { name: 'Compare split' })).toBeVisible()
+    await screenshot(page, `output-viewer-compare-${width}`)
+  }
+})
+
 test('populated image workspace at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
