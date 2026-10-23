@@ -48,6 +48,12 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
+Product surface screenshots load the checked-in Noto Sans regular/bold fixtures
+under `packages/e2e/fixtures/fonts` rather than relying on the host's system-ui
+font. The font files retain their upstream license alongside them. Screenshot
+thresholds stay unchanged. Failed hosted browser lanes retain their actual,
+expected and diff images in `browser-failure-*` artifacts for seven days.
+
 `.github/workflows/full-validation.yml` runs on pushes to main, every two
 hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, and on manual
 dispatch. The `on.schedule`
