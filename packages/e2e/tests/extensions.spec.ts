@@ -7,7 +7,7 @@
  * across reloads. Host/registry mechanics (categories, policy, refusals)
  * are unit-tested in core; this proves the user-visible wiring.
  */
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { expect, openRailPanel, test, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
@@ -718,8 +718,12 @@ test.afterEach(async ({ page }, testInfo) => {
       }),
     }
   })
-  await testInfo.attach('footer-geometry', { body: JSON.stringify(geometry, null, 2), contentType: 'application/json' })
-  await testInfo.attach('footer-page', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' })
+  const geometryPath = testInfo.outputPath('footer-geometry.json')
+  const screenshotPath = testInfo.outputPath('footer-page.png')
+  writeFileSync(geometryPath, JSON.stringify(geometry, null, 2))
+  await page.screenshot({ path: screenshotPath, animations: 'disabled' })
+  await testInfo.attach('footer-geometry', { path: geometryPath, contentType: 'application/json' })
+  await testInfo.attach('footer-page', { path: screenshotPath, contentType: 'image/png' })
 })
 
 for (const [width, height] of [[1280, 800], [1920, 1080]] as const) {
