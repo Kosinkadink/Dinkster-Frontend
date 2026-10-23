@@ -197,7 +197,11 @@ describe('MemoryPanel', () => {
     expect(unloadMemory).toHaveBeenLastCalledWith('cuda:0', undefined, undefined)
     expect(root.textContent).toContain('Freed 700 B of 1000 B requested. In-use memory may remain.')
     status.set('disconnected')
-    expect([...root.querySelectorAll<HTMLButtonElement>('.product-button')].every((button) => button.disabled)).toBe(true)
+    for (const label of ['Reset peak', 'Unload Flux model', 'Unload all']) {
+      const action = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)
+      expect(action).toBeDefined()
+      expect(action!.disabled).toBe(true)
+    }
     unmount()
   })
 
