@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
-import { dirname, relative, resolve } from 'node:path'
+import { basename, dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
 const args = process.argv.slice(2)
@@ -88,7 +88,7 @@ for (const path of (await files(sourceRoot)).sort()) {
   for (const match of sourceText.matchAll(/var\(\s*(--dinkster-[\w-]+)/gu))
     tokenReferences.push({ name: match[1], path: relativePath })
   if (path.endsWith('.css')) {
-    const count = path.endsWith('/styles.css') ? countCss(sourceText) : 0
+    const count = basename(path) === 'styles.css' ? countCss(sourceText) : 0
     if (count > 0)
       counts.push({ kind: 'cssLiteral', path: relativePath, count })
     continue
