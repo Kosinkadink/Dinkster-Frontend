@@ -12,6 +12,10 @@ Full architecture: [docs/architecture.md](docs/architecture.md).
 
 ## Run from source
 
+Use Node.js 26.12 or newer within the 26.x release line and pnpm 11.28.8
+(the version pinned by `packageManager`). With nvm, run `nvm install` and
+`nvm use` in this checkout, then `npm install --global pnpm@11.28.8`.
+
 Clone Dinkster and Dinkster-Frontend beside each other. Prepare the backend,
 then install and start the frontend development server:
 
