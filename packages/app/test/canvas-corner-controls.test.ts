@@ -35,10 +35,11 @@ describe('canvas corner controls', () => {
   it('keeps the overlay wrapper click-through and gives controls usable targets and states', () => {
     expect(styles).toMatch(/\.canvas-corner-controls\s*\{[^}]*pointer-events:\s*none/s)
     expect(styles).toMatch(/\.canvas-corner-controls\s+(?:button|\.canvas-corner-button)[^{]*\{[^}]*min-width:\s*36px[^}]*min-height:\s*36px/s)
-    expect(styles).toContain('.canvas-corner-button:focus-visible')
-    expect(styles).toContain('.canvas-corner-button:active:not(:disabled)')
+    expect(source).toMatch(/<ProductButton[^>]*class="canvas-corner-button"/)
+    expect(styles).toMatch(/:is\(button,[^}]*:focus-visible\s*\{[^}]*outline:\s*var\(--dinkster-focus-ring-width\) solid var\(--dinkster-border-focus\)/s)
+    expect(styles).toContain('.product-button:active:not(:disabled)')
     expect(styles).toMatch(/\.minimap-setting-row\s*\{[^}]*min-height:\s*36px/s)
-    expect(styles).toContain('.minimap-setting-row:active')
+    expect(source).toMatch(/<ProductButton[^>]*role="switch" class="minimap-setting-row"/)
   })
 
   it('stacks the minimap above the corner bar and keeps the settings menu beside the cluster', () => {
@@ -87,9 +88,9 @@ describe('canvas corner controls', () => {
     expect(start).toBeGreaterThanOrEqual(0)
     expect(end).toBeGreaterThan(start)
     expect(chrome).toContain('background: var(--dinkster-surface-panel)')
-    expect(chrome).toContain('color: var(--dinkster-text-secondary)')
+    expect(styles).toMatch(/\.product-button\s*\{[^}]*color:\s*var\(--dinkster-text-primary\)/s)
     expect(chrome).toContain('border: 1px solid var(--dinkster-border-strong)')
-    expect(chrome).toContain('outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus)')
+    expect(styles).toMatch(/:is\(button,[^}]*:focus-visible\s*\{[^}]*outline:\s*var\(--dinkster-focus-ring-width\) solid var\(--dinkster-border-focus\)/s)
     expect(chrome).toContain('transition: transform var(--dinkster-motion-fast) var(--dinkster-motion-easing)')
     expect(chrome).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i)
   })
