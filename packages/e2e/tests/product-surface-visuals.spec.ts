@@ -81,6 +81,25 @@ const openModal = async (page: Page, id: string): Promise<void> => {
   )
 }
 
+test('canvas chrome at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await expect(page.getByTestId('canvas-zoom-in')).toBeVisible()
+    await screenshot(page, `canvas-chrome-${width}`)
+    await page.getByTestId('minimap-settings').click()
+    await expect(page.locator('.minimap-menu')).toBeVisible()
+    await screenshot(page, `canvas-minimap-settings-${width}`)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.minimap-menu')).toBeHidden()
+    await page.getByTestId('views-switcher').click()
+    await expect(page.getByRole('menuitem', { name: /Noodles/ })).toBeVisible()
+    await screenshot(page, `canvas-view-menu-${width}`)
+    await page.getByTestId('views-switcher').click()
+  }
+})
+
 test('shell and canvas visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
