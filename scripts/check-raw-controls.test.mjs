@@ -9,6 +9,35 @@ import test from 'node:test'
 const exec = promisify(execFile)
 const script = resolve('scripts/check-raw-controls.mjs')
 
+test('design tokens resolve from the shared projection or local declarations in every stylesheet', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'dinkster-tokens-'))
+  const allowlist = join(source, 'allowlist.json')
+  const css = join(source, 'panel.css')
+  const args = [script, '--source', source, '--allowlist', allowlist]
+  try {
+    await writeFile(
+      css,
+      ':root { --dinkster-local: var(--dinkster-text-primary); }\n.panel { color: var(--dinkster-local); }\n',
+    )
+    await exec(process.execPath, [...args, '--write'])
+    await exec(process.execPath, args)
+    await writeFile(css, '.panel { color: var(--dinkster-unknown); }\n')
+    await assert.rejects(exec(process.execPath, args), (error) =>
+      String(error.stderr).includes('panel.css: --dinkster-unknown'),
+    )
+    await writeFile(css, ':root { --dinkster-local: red; }\n')
+    await writeFile(
+      join(source, 'Example.tsx'),
+      'export const Example = () => <div title="var(--dinkster-unknown)" />\n',
+    )
+    await assert.rejects(exec(process.execPath, args), (error) =>
+      String(error.stderr).includes('Example.tsx: --dinkster-unknown'),
+    )
+  } finally {
+    await rm(source, { recursive: true, force: true })
+  }
+})
+
 test('raw-control ratchet rejects new controls and styling literals but accepts reductions', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dinkster-raw-controls-'))
   const source = join(root, 'src')
