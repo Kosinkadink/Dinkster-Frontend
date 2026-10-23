@@ -168,6 +168,12 @@ window or an open side panel), never covering the minimap or the bar.
 The cluster's wrapper is click-through; canvas gestures outside the visible
 controls continue to reach the graph.
 
+Canvas view and lens menus, minimap and zoom actions, output preview actions,
+breadcrumbs, and canvas dialogs use `ProductButton`. Compact ghost buttons
+serve menu rows and icon actions; primary styling marks the image-load action.
+Surface CSS retains menu placement and the corner bar's 36-pixel hit targets;
+the Product primitive owns control colors, borders, focus, and disabled states.
+
 ## Node display names
 
 Right-click a node and choose **Rename...** to edit its displayed title in the

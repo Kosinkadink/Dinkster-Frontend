@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 377,
+    "rawControl": 338,
     "inlineStyle": 65,
-    "cssLiteral": 394
+    "cssLiteral": 393
   },
   "entries": [
     {
@@ -76,12 +76,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/BoundaryPanel.tsx",
       "count": 11,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/CanvasHost.tsx",
-      "count": 39,
       "issue": 382
     },
     {
@@ -507,7 +501,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 394,
+      "count": 393,
       "issue": 382
     },
     {
