@@ -238,6 +238,20 @@ test('populated compositor controls at desktop and compact widths', async ({ pag
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
     await screenshot(page, `compositor-controls-${width}`)
+    const flip = editor.getByRole('button', { name: 'Flip horizontal', exact: true })
+    await flip.scrollIntoViewIfNeeded()
+    await flip.click()
+    await expect(flip).toHaveAttribute('aria-pressed', 'true')
+    await screenshot(page, `compositor-controls-selected-${width}`)
+    await editor.getByRole('combobox', { name: 'Blend mode' }).click()
+    await expect(page.getByRole('option', { name: 'screen', exact: true })).toBeVisible()
+    await screenshot(page, `compositor-controls-options-${width}`)
+    await page.getByRole('option', { name: 'luminosity', exact: true }).scrollIntoViewIfNeeded()
+    await expect(page.getByRole('option', { name: 'luminosity', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await flip.scrollIntoViewIfNeeded()
+    await flip.click()
+    await editor.locator('.compositor-properties').evaluate((element) => { element.scrollTop = 0 })
   }
 })
 
