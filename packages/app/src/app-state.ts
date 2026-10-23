@@ -2765,6 +2765,7 @@ export class AppState {
    */
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
+  readonly queueRefusal = createSignal<Tab | undefined>(undefined)
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
   /**
@@ -8187,7 +8188,7 @@ export class AppState {
   ): boolean {
     if (this.placementIsCurrent(tab, backend, compiledDocument, placement)) return true
     if (this.tabs.get().includes(tab)) {
-      this.replaceProblems(tab.id, [
+      this.refuseQueue(tab, [
         ...diagnostics,
         diag(
           'error',
@@ -8215,7 +8216,7 @@ export class AppState {
     const routed = new Set(worker?.routedNodeTypes ?? [])
     const unroutable = selected.filter((node) => node.region === undefined && !routed.has(node.type))
     if (selected.length === 0 || worker?.status !== 'connected' || unroutable.length > 0) {
-      this.replaceProblems(tab.id, [diag(
+      this.refuseQueue(tab, [diag(
         'error',
         'compile',
         'submit.workerUnavailable',
@@ -8231,6 +8232,11 @@ export class AppState {
     await this.queue(tab, { kind: 'full' }, selected.map((node) => node.id), placement)
   }
 
+  private refuseQueue(tab: Tab, diagnostics: readonly Diagnostic[]): void {
+    this.replaceProblems(tab.id, diagnostics)
+    this.queueRefusal.set(tab)
+  }
+
   async queue(
     tab: Tab,
     scope: ExecutionScope = { kind: 'full' },
@@ -8238,6 +8244,7 @@ export class AppState {
     placement?: Readonly<Record<string, string>>,
   ): Promise<void> {
     if (this.disposed || tab.execution) return // frozen views never queue
+    this.queueRefusal.set(undefined)
     const promotion = this.workspacePromotions.get(tab.id)
     if (promotion?.tab === tab) {
       await promotion.promise
@@ -8258,7 +8265,7 @@ export class AppState {
       // Queueing refreshes THIS tab's Problems entries (compile results
       // supersede open-time/previous-queue entries); other tabs' entries
       // and app-scoped entries are untouched.
-      this.replaceProblems(tab.id, this.queueRefusalDiagnostics(tab, result.diagnostics))
+      this.refuseQueue(tab, this.queueRefusalDiagnostics(tab, result.diagnostics))
       return
     }
     const missingRequired = requiredRootNodes.filter((required) =>
@@ -8269,7 +8276,7 @@ export class AppState {
       }),
     )
     if (missingRequired.length > 0) {
-      this.replaceProblems(tab.id, [diag(
+      this.refuseQueue(tab, [diag(
         'error',
         'compile',
         'compile.scope.inactiveSelection',
@@ -8351,7 +8358,7 @@ export class AppState {
         // rejection must not clobber (or resurrect entries under) the
         // replacement session that reuses this tab id.
         if (this.tabs.get().includes(tab)) {
-          this.replaceProblems(tab.id, [...result.artifact.diagnostics, ...submitted.diagnostics])
+          this.refuseQueue(tab, [...result.artifact.diagnostics, ...submitted.diagnostics])
         }
         return
       }
@@ -8373,6 +8380,7 @@ export class AppState {
           message: `failed to submit prompt: ${e instanceof Error ? e.message : String(e)}`,
         },
       ])
+      this.queueRefusal.set(tab)
     } finally {
       if (!consentOwnsLease) lease.release()
     }
@@ -8400,7 +8408,7 @@ export class AppState {
     const gate = current.diagnostics.filter((diagnostic) =>
       diagnostic.code === 'compile.wire15.modesUnsupported')
     if (gate.length === 0) return false
-    this.replaceProblems(tab.id, gate)
+    this.refuseQueue(tab, gate)
     return true
   }
 

@@ -272,6 +272,16 @@ body,
 .product-empty-state-hint { color: var(--dinkster-text-secondary); }
 .product-empty-state-action { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
 
+.queue-refusal-toast {
+  position: fixed;
+  right: var(--dinkster-space-16);
+  bottom: 48px;
+  z-index: 30;
+  width: min(380px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+.queue-refusal-toast .product-empty-state-hint { display: grid; gap: var(--dinkster-space-4); }
+
 .product-list-row { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--dinkster-space-8); padding: var(--dinkster-space-8) var(--dinkster-space-12); border-bottom: 1px solid var(--dinkster-border-subtle); }
 .product-list-row.selected { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); }
 .product-list-row-copy { min-width: 0; }

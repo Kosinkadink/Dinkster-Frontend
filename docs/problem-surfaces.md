@@ -14,6 +14,12 @@ All three read the same composed diagnostics list (solver diagnostics,
 owner-scoped live problems, and the active execution's artifact diagnostics
 and errors), so their counts can never disagree.
 
+When a queue attempt is refused, a Product error toast repeats the Problems
+indicator summary and lists counts by severity. Show Problems opens the
+Problems panel directly, including when its tab is in overflow. Dismiss or a
+new queue attempt clears the toast; switching documents hides another
+document's refusal. Queue eligibility and diagnostic codes are unchanged.
+
 Native backend pack failures are restored from the process-lifetime
 `/api/composition` snapshot on schema load, refresh, and reconnect. A later
 healthy snapshot clears only that backend's pack failures, leaving unrelated
