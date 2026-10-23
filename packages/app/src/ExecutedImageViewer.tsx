@@ -5,6 +5,9 @@ import { ModalSurface } from './ModalSurface.js'
 import { executedImageLabel, type ExecutedImage, type ExecutedImageBatch } from './executed-image-inventory.js'
 import { DigestValue } from './asset-browser/presentation.js'
 import { useAppMessage } from './locale.js'
+import { ProductButton } from './ProductControls.js'
+import { ProductNumberInput } from './ProductNumberInput.js'
+import { ProductSlider } from './ProductSlider.js'
 import './image-compare.css'
 
 export interface ExecutionOutputProvenance {
@@ -110,7 +113,7 @@ export function ExecutedImageFacts(props: {
       <div class="output-availability" data-availability={props.availability.toLowerCase()}>
         <dt>Availability</dt><dd>{props.availability}</dd>
       </div>
-      <Show when={props.onReveal}><div><dt>{message('outputFile.file')}</dt><dd><button type="button" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</button></dd></div></Show>
+      <Show when={props.onReveal}><div><dt>{message('outputFile.file')}</dt><dd><ProductButton size="compact" type="button" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</ProductButton></dd></div></Show>
     </dl>
   )
 }
@@ -181,15 +184,14 @@ export function ExecutedImageViewer(props: {
         }
       }}>
       <strong>{side.name}</strong>
-      <button type="button" aria-label={`Previous ${side.name.toLowerCase()} image`} disabled={selected() === 0} onClick={() => change(selected() - 1)}>Previous</button>
-      <label>Image <input aria-label={`${side.name} image number`} type="number" min="1" max={count()} value={selected() + 1}
-        onChange={(event) => {
-          const input = event.currentTarget
-          if (Number.isFinite(input.valueAsNumber)) change(input.valueAsNumber - 1)
-          input.value = String(selected() + 1)
-        }} /></label>
+      <ProductButton size="compact" type="button" aria-label={`Previous ${side.name.toLowerCase()} image`} disabled={selected() === 0} onClick={() => change(selected() - 1)}>Previous</ProductButton>
+      <label>Image <ProductNumberInput ariaLabel={`${side.name} image number`} integer min={1} max={count()} value={selected() + 1}
+        normalizeCommit={(raw) => {
+          const parsed = raw.trim() === '' ? NaN : Number(raw)
+          return String(Number.isFinite(parsed) ? clamp(parsed - 1, count()) + 1 : selected() + 1)
+        }} onCommit={(raw) => change(Number(raw) - 1)} /></label>
       <span>of {count()}</span>
-      <button type="button" aria-label={`Next ${side.name.toLowerCase()} image`} disabled={selected() >= count() - 1} onClick={() => change(selected() + 1)}>Next</button>
+      <ProductButton size="compact" type="button" aria-label={`Next ${side.name.toLowerCase()} image`} disabled={selected() >= count() - 1} onClick={() => change(selected() + 1)}>Next</ProductButton>
     </div>
   }
 
@@ -222,30 +224,30 @@ export function ExecutedImageViewer(props: {
         </Show>
       </section>
       <div class="output-viewer-toolbar" role="toolbar" aria-label="Image viewer controls">
-        <button type="button" aria-pressed={mode() === 'single'} onClick={() => setMode('single')}>Single</button>
-        <button type="button" aria-label="Show all images" aria-pressed={mode() === 'grid'} onClick={() => { setGridPage(Math.floor(index() / 4)); setMode('grid') }}>Grid</button>
-        <button type="button" aria-pressed={mode() === 'slider'} onClick={() => setMode('slider')}>Compare slider</button>
-        <button type="button" aria-pressed={mode() === 'side-by-side'} onClick={() => setMode('side-by-side')}>Side by side</button>
+        <ProductButton size="compact" variant={mode() === 'single' ? 'primary' : 'secondary'} type="button" aria-pressed={mode() === 'single'} onClick={() => setMode('single')}>Single</ProductButton>
+        <ProductButton size="compact" variant={mode() === 'grid' ? 'primary' : 'secondary'} type="button" aria-label="Show all images" aria-pressed={mode() === 'grid'} onClick={() => { setGridPage(Math.floor(index() / 4)); setMode('grid') }}>Grid</ProductButton>
+        <ProductButton size="compact" variant={mode() === 'slider' ? 'primary' : 'secondary'} type="button" aria-pressed={mode() === 'slider'} onClick={() => setMode('slider')}>Compare slider</ProductButton>
+        <ProductButton size="compact" variant={mode() === 'side-by-side' ? 'primary' : 'secondary'} type="button" aria-pressed={mode() === 'side-by-side'} onClick={() => setMode('side-by-side')}>Side by side</ProductButton>
         <Show when={mode() === 'single'}>
-          <button type="button" aria-label="Previous image" disabled={index() <= 0} onClick={() => page(-1)}>Previous</button>
+          <ProductButton size="compact" type="button" aria-label="Previous image" disabled={index() <= 0} onClick={() => page(-1)}>Previous</ProductButton>
           <span data-testid="output-viewer-position" aria-live="polite">{index() + 1} / {count()}</span>
-          <button type="button" aria-label="Next image" disabled={index() >= count() - 1} onClick={() => page(1)}>Next</button>
-          <button type="button" aria-label="Fit image" aria-pressed={scale() === 'fit'} onClick={() => setScale('fit')}>Fit</button>
-          <button type="button" aria-label="100%" aria-pressed={scale() === 100} onClick={() => setScale(100)}>100%</button>
-          <button type="button" aria-label="Zoom out" onClick={() => setScale((value) => Math.max(25, (value === 'fit' ? 100 : value) - 25))}>-</button>
-          <button type="button" aria-label="Zoom in" onClick={() => setScale((value) => Math.min(400, (value === 'fit' ? 100 : value) + 25))}>+</button>
+          <ProductButton size="compact" type="button" aria-label="Next image" disabled={index() >= count() - 1} onClick={() => page(1)}>Next</ProductButton>
+          <ProductButton size="compact" variant={scale() === 'fit' ? 'primary' : 'secondary'} type="button" aria-label="Fit image" aria-pressed={scale() === 'fit'} onClick={() => setScale('fit')}>Fit</ProductButton>
+          <ProductButton size="compact" variant={scale() === 100 ? 'primary' : 'secondary'} type="button" aria-label="100%" aria-pressed={scale() === 100} onClick={() => setScale(100)}>100%</ProductButton>
+          <ProductButton size="compact" type="button" aria-label="Zoom out" onClick={() => setScale((value) => Math.max(25, (value === 'fit' ? 100 : value) - 25))}>-</ProductButton>
+          <ProductButton size="compact" type="button" aria-label="Zoom in" onClick={() => setScale((value) => Math.min(400, (value === 'fit' ? 100 : value) + 25))}>+</ProductButton>
         </Show>
         <Show when={mode() === 'grid'}>
-          <button type="button" disabled={gridPage() === 0} onClick={() => setGridPage((page) => page - 1)}>Previous grid page</button>
+          <ProductButton size="compact" type="button" disabled={gridPage() === 0} onClick={() => setGridPage((page) => page - 1)}>Previous grid page</ProductButton>
           <span>{gridPage() * 4 + 1}-{Math.min(count(), gridPage() * 4 + 4)} of {count()}</span>
-          <button type="button" disabled={(gridPage() + 1) * 4 >= count()} onClick={() => setGridPage((page) => page + 1)}>Next grid page</button>
+          <ProductButton size="compact" type="button" disabled={(gridPage() + 1) * 4 >= count()} onClick={() => setGridPage((page) => page + 1)}>Next grid page</ProductButton>
         </Show>
       </div>
       <Show when={mode() === 'slider' || mode() === 'side-by-side'}>
         <div class="output-compare-controls"><CompareSide name="Left" /><CompareSide name="Right" /></div>
         <Show when={mode() === 'slider'}>
           <label class="output-compare-range">Compare split: {split()}%
-            <input type="range" min="0" max="100" value={split()} aria-label="Compare split" onInput={(event) => setSplit(event.currentTarget.valueAsNumber)} />
+            <ProductSlider min={0} max={100} value={split()} ariaLabel="Compare split" onInput={setSplit} />
           </label>
         </Show>
         <div class="output-compare-stage" classList={{ slider: mode() === 'slider' }} data-testid="output-compare-stage">
@@ -290,7 +292,9 @@ export function ExecutedImageViewer(props: {
         <div class="output-viewer-grid" data-testid="output-viewer-grid" role="list" aria-label={`${count()} execution images`}>
           <For each={gridImages()}>{({ image, index: itemIndex }) => (
             <div role="listitem">
-              <button
+              <ProductButton
+                size="compact"
+                variant={itemIndex === index() ? 'primary' : 'secondary'}
                 type="button"
                 aria-label={executedImageLabel(image, itemIndex, count())}
                 aria-pressed={itemIndex === index()}
@@ -304,7 +308,7 @@ export function ExecutedImageViewer(props: {
                 <span class="output-viewer-grid-position">{props.batch === undefined ? 'Output' : 'Batch image'} {itemIndex + 1}</span>
                 <span class="output-viewer-grid-identity">{image.name ?? image.digest ?? image.outputId}</span>
                 <span class="output-viewer-grid-provenance">Node {image.runtimeId} - {image.outputId} - {availability(image)}</span>
-              </button>
+              </ProductButton>
             </div>
           )}</For>
         </div>

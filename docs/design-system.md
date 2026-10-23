@@ -38,6 +38,22 @@ raw controls, and `rawControl` or `cssLiteral` ceilings above the current total.
 After removing controls or literals, run `pnpm check:raw-controls:write` to remove
 stale entries and lower ceilings. Write mode never permits count increases.
 
+The executed image viewer uses compact `ProductButton` controls and grid tiles,
+`ProductNumberInput` for independent left/right image selection, and
+`ProductSlider` for the compare split. Selected modes use the primary variant.
+Number inputs can normalize committed text with `normalizeCommit`; the viewer
+restores blank input and clamps/truncates image numbers before displaying them,
+including when the selected image does not change. Grid and toolbar CSS owns
+layout only; shared primitives own control colors, borders and focus states.
+
+The compositor editor uses the same buttons, number inputs, checkboxes,
+sliders, text input and select controls as the Image document workspace.
+Layer selection and flips expose pressed state with the primary variant.
+`ProductColorInput` keeps the native color picker and forwards native input
+props while using shared input styling; the compositor retains lowercase
+color storage. Recipe edits, preview geometry and apply/refusal rules remain
+owned by the editor, not by the controls.
+
 | Primitive            | Contract                                                                                                                                          | Adopted surfaces                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `ProductButton`      | Native button props; primary, secondary, danger and ghost variants; control and compact sizes; loading disables activation and exposes busy state | Learn, Node help, Activity, Execution log, Problems, Desktop management, mounts, audio recorder and Image document empty state |
@@ -91,6 +107,12 @@ workflow tabs, activity rail, panel hosts, the right zone's tab row, status
 bar, focus rings, and responsive sheets use semantic surface, text, border,
 space, type, shape, interaction, motion, and elevation roles. Feature panel
 bodies do not supply private shell headers, tab chrome, or resize chrome.
+Status-bar Product buttons retain their shared colors, borders and focus
+behavior but use intrinsic metadata-line height without vertical padding to
+preserve the 28 px desktop footer and its canvas space.
+Desktop status groups use the shared 8 px gap so full metadata and contribution
+labels fit at 1280 px with wider system fonts. Compact status groups retain
+their wrapping layout.
 
 Transient product UI shares `.floating-surface` for root chrome and uses
 `placeFloatingSurface` for block, inline, or point anchoring. Universal search

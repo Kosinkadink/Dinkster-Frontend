@@ -27,6 +27,11 @@ export function ProductFileInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputEl
   return <input {...props} type="file" hidden />
 }
 
+export function ProductColorInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  const [local, input] = splitProps(props, ['class'])
+  return <input {...input} type="color" class={`product-text-input product-color-input${local.class ? ` ${local.class}` : ''}`} />
+}
+
 export function ProductTextInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   readonly type?: ProductTextInputType
   readonly invalid?: boolean

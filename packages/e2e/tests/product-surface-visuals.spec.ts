@@ -125,6 +125,136 @@ test('shell controls at desktop and compact widths', async ({ page }) => {
   }
 })
 
+test('populated output viewer in single, grid and compare modes', async ({ page }) => {
+  await page.route(/\/view(?:\?|$)/, (route) => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#173f6c"/><circle cx="420" cy="180" r="100" fill="#d7a86e"/></svg>',
+  }))
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'OutputVisual', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
+    }])
+    const diagnostics = app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-visual', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Image output', nodes: { save: { id: 'save', type: 'OutputVisual', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { save: { position: { x: 120, y: 100 } } } } } },
+    }, 'Image output')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    const compiled = app.compileTab(app.activeTab()!)
+    if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+    const ref = { connection: compiled.artifact.connection, prompt: 'visual-output' }
+    const store = app.store as unknown as { register(ref: unknown, artifact: unknown, now: number): void; apply(event: unknown): void }
+    store.register(ref, compiled.artifact, 0)
+    store.apply({ kind: 'started', execution: ref, timestamp: 0 })
+    store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'save', timestamp: 0,
+      output: { images: [{ filename: 'coastline.png' }, { filename: 'sunset.png' }] } })
+    store.apply({ kind: 'completed', execution: ref, timestamp: 0 })
+  })
+  await openRail(page, 'Outputs')
+  await page.locator('.output-thumbnail').first().click()
+  const viewer = page.getByTestId('output-viewer')
+  await expect(viewer.locator('img')).toBeVisible()
+  await expect(viewer.locator('.output-availability')).toContainText('Available')
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await viewer.getByRole('button', { name: 'Single', exact: true }).click()
+    await screenshot(page, `output-viewer-single-${width}`)
+    await viewer.getByRole('button', { name: 'Show all images' }).click()
+    await expect(viewer.getByRole('listitem')).toHaveCount(2)
+    await screenshot(page, `output-viewer-grid-${width}`)
+    await viewer.getByRole('button', { name: 'Compare slider' }).click()
+    await expect(viewer.getByRole('slider', { name: 'Compare split' })).toBeVisible()
+    await screenshot(page, `output-viewer-compare-${width}`)
+  }
+})
+
+test('populated compositor controls at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'CompositorVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
+      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'dinkster.compositor' },
+        widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
+    }])
+    const diagnostics = app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'compositor-visual', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Compositor', nodes: { create: { id: 'create', type: 'CompositorVisual', values: { recipe: { version: 2, documentDigest: null, commands: [] } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { create: { position: { x: 120, y: 100 } } } } } },
+    }, 'Compositor')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    const tab = app.activeTab()!
+    const editorApp = app as unknown as {
+      compositorTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
+      openCompositorEditor(target: unknown): boolean
+      registerRun(tab: unknown, ref: unknown, artifact: unknown, now: number): void
+    }
+    const target = editorApp.compositorTargetForInput(tab, 'g0', 'create', 'recipe')!
+    const compiled = app.compileTab(tab)
+    if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+    const ref = { connection: compiled.artifact.connection, prompt: 'compositor-visual' }
+    editorApp.registerRun(tab, ref, compiled.artifact, 0)
+    const digest = `blake3:${'a'.repeat(64)}`
+    const transform = (x: number, y: number, width: number, height: number) => ({
+      a: 1_000_000, b: 0, c: 0, d: 1_000_000, tx: x * 1_000_000, ty: y * 1_000_000,
+      components: { x, y, width, height, rotation: 0, flipHorizontal: false, flipVertical: false, sourceWidth: width, sourceHeight: height },
+    })
+    const resource = (id: string, width: number, height: number) => ({ id, kind: 'raster', digest, byteSize: 1, mediaType: 'image/png', width, height, colorSpace: 'srgb', channelDepth: 8, alphaMode: 'straight' })
+    const imageDocument = {
+      format: 'dinkster-image', formatVersion: 2, lineage: 'compositor-visual-state',
+      canvas: { width: 320, height: 240, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha', background: [4112, 8224, 12336, 32768] },
+      allocation: { nextOrdinal: 4 }, rootLayerIds: ['l0', 'l2'],
+      layers: {
+        l0: { id: 'l0', kind: 'raster', name: 'Background', visible: true, opacity: 65535, transform: transform(0, 0, 320, 240), blendMode: 'normal', clipping: 'none', maskIds: [], resourceId: 'r1', sourceRect: { x: 0, y: 0, width: 320, height: 240 }, z_index: 0 },
+        l2: { id: 'l2', kind: 'raster', name: 'Overlay', visible: true, opacity: 49151, transform: transform(40, 30, 80, 60), blendMode: 'screen', clipping: 'none', maskIds: [], resourceId: 'r3', sourceRect: { x: 0, y: 0, width: 80, height: 60 }, z_index: 1 },
+      },
+      masks: {}, resources: { r1: resource('r1', 320, 240), r3: resource('r3', 80, 60) },
+    }
+    const runtimeNodeId = 'create'
+    const store = app.store as unknown as { apply(event: unknown): void }
+    store.apply({ kind: 'preview', execution: ref, timestamp: 0, runtimeNodeId,
+      channel: 'application/vnd.dinkster.compositor-state+json', stream: 'compositor-state',
+      payload: { version: 2, document: imageDocument, documentDigest: digest, stale: false, layerStreams: ['compositor.layer.0', 'compositor.layer.1'] } })
+    for (const [index, color] of ['#173f6c', '#d7a86e'].entries()) {
+      const canvas = document.createElement('canvas')
+      canvas.width = index === 0 ? 320 : 80
+      canvas.height = index === 0 ? 240 : 60
+      const context = canvas.getContext('2d')!
+      context.fillStyle = color
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      const bytes = Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]!), (character) => character.charCodeAt(0))
+      store.apply({ kind: 'preview', execution: ref, timestamp: 0, runtimeNodeId, channel: 'image/png', stream: `compositor.layer.${index}`, payload: bytes.buffer })
+    }
+    if (!editorApp.openCompositorEditor(target)) throw new Error('Compositor fixture did not open')
+  })
+  const editor = page.getByTestId('compositor-editor')
+  await expect(editor.locator('.compositor-layer-row')).toHaveCount(2)
+  await expect(editor.getByTestId('compositor-preview-canvas').locator('img')).toHaveCount(2)
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await screenshot(page, `compositor-controls-${width}`)
+    const flip = editor.getByRole('button', { name: 'Flip horizontal', exact: true })
+    await flip.scrollIntoViewIfNeeded()
+    await flip.click()
+    await expect(flip).toHaveAttribute('aria-pressed', 'true')
+    await screenshot(page, `compositor-controls-selected-${width}`)
+    await editor.getByRole('combobox', { name: 'Blend mode' }).click()
+    await expect(page.getByRole('option', { name: 'screen', exact: true })).toBeVisible()
+    await screenshot(page, `compositor-controls-options-${width}`)
+    await page.getByRole('option', { name: 'luminosity', exact: true }).scrollIntoViewIfNeeded()
+    await expect(page.getByRole('option', { name: 'luminosity', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await flip.scrollIntoViewIfNeeded()
+    await flip.click()
+    await editor.locator('.compositor-properties').evaluate((element) => { element.scrollTop = 0 })
+  }
+})
+
 test('populated image workspace at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
