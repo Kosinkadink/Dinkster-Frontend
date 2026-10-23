@@ -61,6 +61,12 @@ structure; numeric, slider, select and checkbox editors use their existing
 Product controls. Native form submission, disabled fieldsets, grants, reset
 and refresh behavior remain owned by the runtime settings panel.
 
+The output descriptor editor uses compact `ProductButton` actions,
+`ProductTextInput` name/ID fields, `ProductTextArea` stored JSON and the existing
+`ProductSelect` type picker. Semantic tokens style its entry and stale-link
+containers. The editor retains draft commits, profile probing, read-only
+metadata, exact stored JSON and stale-link disconnection behavior.
+
 | Primitive            | Contract                                                                                                                                          | Adopted surfaces                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `ProductButton`      | Native button props; primary, secondary, danger and ghost variants; control and compact sizes; loading disables activation and exposes busy state | Learn, Node help, Activity, Execution log, Problems, Desktop management, mounts, audio recorder and Image document empty state |
