@@ -17,7 +17,7 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
 
   await page.routeWebSocket('**/api/events*', () => {})
   await page.route('/api/settings', (route) => route.fulfill({ json: {
-    features: { templates: { enabled: true }, p2p: { enabled: false } },
+    features: { templates: { enabled: true } },
     categories: { granted: [], available: [] }, settings: {},
   } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))

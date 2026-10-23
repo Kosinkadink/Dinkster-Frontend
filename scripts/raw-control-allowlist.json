@@ -283,12 +283,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/P2PPanel.tsx",
-      "count": 12,
-      "issue": 382
-    },
-    {
       "kind": "inlineStyle",
       "path": "packages/app/src/PanelDragOverlay.tsx",
       "count": 4,

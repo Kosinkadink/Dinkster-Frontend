@@ -52,7 +52,7 @@ async function installFixture(page: Page): Promise<{
   let release: (() => void) | undefined
 
   await page.route('/api/settings', (route) => route.fulfill({ json: {
-    features: { p2p: { enabled: false }, templates: { enabled: true } },
+    features: { templates: { enabled: true } },
     categories: { granted: [], available: [] },
     settings: {},
   } }))

@@ -382,7 +382,6 @@ test('settings is pinned under the two-line label-under-icon rail controls', asy
   const standardNames = ['Workflow library', 'Assets', 'Backends', 'Memory telemetry', 'Activity', 'Execution log', 'Settings']
   const namesWithGuides = [standardNames[0]!, 'Learning guides', ...standardNames.slice(1)]
   expect([standardNames, namesWithGuides]).toContainEqual(names)
-  await expect(page.getByTestId('p2p-sidebar-toggle')).toHaveCount(0)
 })
 
 test('draggable shell edges keep a seven pixel hit target and highlight a thicker edge', async ({ page }) => {

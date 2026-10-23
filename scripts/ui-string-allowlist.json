@@ -667,14 +667,6 @@
     "text:(); const [selected, setSelected] = createSignal(\"\"); const [saving, setSaving] = createSignal(false); const [error, setError] = createSignal(\"\"); const load = async (): Promise",
     "text:mount.mode === \"readwrite\") ?? []; const save = async (): Promise"
   ],
-  "P2PPanel.tsx": [
-    "text:() const [draft, setDraft] = createSignal",
-    "text:() const [loading, setLoading] = createSignal(true) const [busy, setBusy] = createSignal(false) const [notice, setNotice] = createSignal('') const [error, setError] = createSignal('') const [invalid, setInvalid] = createSignal",
-    "text:() const [status, setStatus] = createSignal",
-    "text:(new Set",
-    "text:= 0 && (key === 'internetSeedRatio' || (Number.isSafeInteger(scaled) && scaled",
-    "text:invalid().has(key) return"
-  ],
   "ProductControls.tsx": [
     "text:('[role=\"radio\"]')] const current = radios.indexOf(control) for (let offset = 1; offset",
     "text:void readonly id?: string readonly class?: string readonly testId?: string readonly ariaLabel?: string readonly ariaLabelledBy?: string readonly ariaDescribedBy?: string | undefined readonly ariaInvalid?: boolean readonly disabled?: boolean readonly enterActivates?: boolean readonly dataAttributes?: Readonly"
