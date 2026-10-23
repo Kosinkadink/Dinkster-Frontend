@@ -84,8 +84,11 @@ describe('fast pull-request and full validation workflows', () => {
     const manifest = JSON.parse(
       await readFile(resolve(root, 'package.json'), 'utf8'),
     ) as { packageManager: string; engines: Record<string, string> }
-    expect(manifest.engines).toEqual({ node: '>=26.12 <27', pnpm: '>=12' })
-    expect(manifest.packageManager).toBe('pnpm@12.15.0')
+    expect(manifest.engines).toEqual({
+      node: '>=26.12 <27',
+      pnpm: '>=11.28.8 <12',
+    })
+    expect(manifest.packageManager).toBe('pnpm@11.28.8')
     expect((await readFile(resolve(root, '.nvmrc'), 'utf8')).trim()).toBe('26')
     for (const workflow of [fast, full]) {
       const installJobs = Object.values(workflow.jobs).filter((job) =>
@@ -102,7 +105,7 @@ describe('fast pull-request and full validation workflows', () => {
         expect(
           job.steps!.find((step) => step.uses === 'pnpm/action-setup@v4')
             ?.with?.['version'],
-        ).toBe('12.15.0')
+        ).toBe('11.28.8')
       }
     }
   })

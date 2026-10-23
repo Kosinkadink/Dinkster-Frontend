@@ -55,11 +55,12 @@ const workspacePatterns = (root) => {
   for (const [index, raw] of lines.entries()) {
     const line = raw.replace(/\s+#.*$/, '')
     if (!line.trim()) continue
-    if (!inPackages && /^packages:\s*$/.test(line)) {
-      inPackages = true
+    if (/^[a-zA-Z][\w.-]*:/.test(line)) {
+      inPackages = /^packages:\s*$/.test(line)
       continue
     }
-    const match = inPackages ? /^\s+-\s+([^\s]+)\s*$/.exec(line) : undefined
+    if (!inPackages) continue
+    const match = /^\s+-\s+([^\s]+)\s*$/.exec(line)
     if (!match)
       throw new Error(
         `unsupported pnpm-workspace.yaml syntax on line ${index + 1}`,
@@ -74,7 +75,7 @@ const workspacePatterns = (root) => {
     }
     patterns.push(pattern)
   }
-  if (!inPackages || patterns.length === 0)
+  if (patterns.length === 0)
     throw new Error('pnpm-workspace.yaml has no package patterns')
   return patterns
 }

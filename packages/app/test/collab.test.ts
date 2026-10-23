@@ -225,7 +225,11 @@ class FakeCollabServer {
 // Harness
 // ---------------------------------------------------------------------------
 
+afterEach(() => vi.unstubAllGlobals())
+
 const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
+  // Each participant represents a separate browser tab, not Node's shared storage.
+  vi.stubGlobal('sessionStorage', fakeStorage())
   const app = new AppState({ collabTransport: server.transport })
   if (withBackend) app.addBackend('http://collab', 'collab', false, 'dinkster')
   return app

@@ -12,7 +12,7 @@ usable node-to-node link. Otherwise, it copies one node. The client marks the
 first copy and moves it in four steps so a browser participant can watch the
 update.
 
-Use Node 26.12 or newer within 26.x and pnpm 12.15.0, matching the repository
+Use Node 26.12 or newer within 26.x and pnpm 11.28.8, matching the repository
 toolchain. The client uses Node's built-in `fetch` and `WebSocket` implementations.
 
 ## Run against a local stack

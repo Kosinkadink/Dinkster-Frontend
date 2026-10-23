@@ -43,7 +43,7 @@ jobs:
           python-version: "3.12"
       - uses: pnpm/action-setup@v4
         with:
-          version: 12.15.0
+          version: 11.28.8
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - uses: actions/setup-node@v4
         with:
