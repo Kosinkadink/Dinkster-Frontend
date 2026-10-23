@@ -1,7 +1,7 @@
 # Headless collaboration demo
 
 The headless collaboration example under `docs/examples/headless-collaboration/`
-is a Node 22+ participant for shared workflow sessions. It can join a named
+is a Node 26.12+ participant for shared workflow sessions. It can join a named
 session, discover the first session in the app's `shared` scope, or create a
 session from a minimal empty document.
 

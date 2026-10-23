@@ -111,6 +111,18 @@ test('accepts one explicit V1 connection-kind entry', () =>
     assert.doesNotThrow(() => checkV1Boundary(root))
   }))
 
+test('checks package boundaries alongside dependency build permissions', () =>
+  withFixture((root) => {
+    write(
+      root,
+      'pnpm-workspace.yaml',
+      'allowBuilds:\n  esbuild: true\npackages:\n  - packages/*\nstrictDepBuilds: true\n',
+    )
+    assert.doesNotThrow(() => checkV1Boundary(root))
+    write(root, 'packages/core/src/index.ts', "import './comfy-v1.js'\n")
+    assert.throws(() => checkV1Boundary(root), /V1/)
+  }))
+
 test('ignores non-package directories matched by a workspace glob', () =>
   withFixture((root) => {
     write(root, 'packages/removed-package/node_modules/.keep', '')

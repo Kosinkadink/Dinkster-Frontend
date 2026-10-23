@@ -80,6 +80,36 @@ describe('fast pull-request and full validation workflows', () => {
     expect(full.env?.['DINKSTER_REF']).toBe(fast.env?.['DINKSTER_REF'])
   })
 
+  it('uses the supported Node and pnpm toolchain in every install job', async () => {
+    const manifest = JSON.parse(
+      await readFile(resolve(root, 'package.json'), 'utf8'),
+    ) as { packageManager: string; engines: Record<string, string> }
+    expect(manifest.engines).toEqual({
+      node: '>=26.12 <27',
+      pnpm: '>=11.28.8 <12',
+    })
+    expect(manifest.packageManager).toBe('pnpm@11.28.8')
+    expect((await readFile(resolve(root, '.nvmrc'), 'utf8')).trim()).toBe('26')
+    for (const workflow of [fast, full]) {
+      const installJobs = Object.values(workflow.jobs).filter((job) =>
+        job.steps?.some(
+          (step) => step.run === 'pnpm install --frozen-lockfile',
+        ),
+      )
+      expect(installJobs.length).toBeGreaterThan(0)
+      for (const job of installJobs) {
+        expect(
+          job.steps!.find((step) => step.uses === 'actions/setup-node@v4')
+            ?.with?.['node-version'],
+        ).toBe(26)
+        expect(
+          job.steps!.find((step) => step.uses === 'pnpm/action-setup@v4')
+            ?.with?.['version'],
+        ).toBe('11.28.8')
+      }
+    }
+  })
+
   it('runs exactly one bounded job without a PR label path', () => {
     expect(fast.on).toEqual({
       pull_request: null,

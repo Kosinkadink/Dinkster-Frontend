@@ -170,8 +170,9 @@ const settleEdits = async (
 }
 
 async function main(): Promise<void> {
-  const major = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10)
-  if (major < 22) throw new Error(`Node 22 or newer is required; found ${process.versions.node}`)
+  const [major, minor] = process.versions.node.split('.').map(Number)
+  if (major !== 26 || minor === undefined || minor < 12)
+    throw new Error(`Node 26.12 or newer within 26.x is required; found ${process.versions.node}`)
   const options = parseArgs(process.argv.slice(2))
   const selected = await resolveSession(options)
   try {

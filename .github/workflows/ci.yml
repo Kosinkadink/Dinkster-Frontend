@@ -43,11 +43,11 @@ jobs:
           python-version: "3.12"
       - uses: pnpm/action-setup@v4
         with:
-          version: 10.31.0
+          version: 11.28.8
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
