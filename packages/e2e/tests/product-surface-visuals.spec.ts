@@ -241,7 +241,6 @@ test('dock visual matrix', async ({ page }) => {
     ['assets-toggle', '12-assets'],
     ['backends-sidebar-toggle', '13-backends'],
     ['memory-sidebar-toggle', '14-memory'],
-    ['p2p-sidebar-toggle', '15-p2p'],
     ['logs-toggle', '16-activity'],
     ['execution-log-toggle', '17-execution-log'],
   ] as const

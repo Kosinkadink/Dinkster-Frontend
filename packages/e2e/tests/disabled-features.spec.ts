@@ -1,9 +1,9 @@
 import { expect, test } from './fixtures.js'
 
-test('disabled features have no entry points or background requests', async ({ page }, testInfo) => {
+test('disabled templates have no entry points or background requests', async ({ page }, testInfo) => {
   const featureRequests: string[] = []
   page.on('request', (request) => {
-    if (/\/api\/(templates|p2p)|\/index\/templates/.test(request.url())) {
+    if (/\/api\/templates|\/index\/templates/.test(request.url())) {
       featureRequests.push(request.url())
     }
   })
@@ -13,7 +13,7 @@ test('disabled features have no entry points or background requests', async ({ p
     packs: {}, nodes: {},
   } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: {
-    features: { p2p: { enabled: false }, templates: { enabled: false } },
+    features: { templates: { enabled: false } },
     categories: { granted: [], available: [] }, settings: {},
   } }))
   await page.routeWebSocket('**/api/events*', () => {})
@@ -31,7 +31,6 @@ test('disabled features have no entry points or background requests', async ({ p
   )).toBe(true)
   await expect(page.getByRole('button', { name: 'Browse starter templates' })).toHaveCount(0)
   await expect(page.getByTestId('template-gallery')).toHaveCount(0)
-  await expect(page.getByTestId('p2p-sidebar-toggle')).toHaveCount(0)
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
       panels: { get(id: string): unknown }
@@ -39,11 +38,10 @@ test('disabled features have no entry points or background requests', async ({ p
       settings: { list(): readonly { id: string }[] }
     }
     return {
-      p2pPanel: app.panels.get('p2p') !== undefined,
       templateCommand: app.commands.get('workflow.openTemplateGallery') !== undefined,
       registrySetting: app.settings.list().some((setting) => setting.id === 'templates.registryUrl'),
     }
-  })).toEqual({ p2pPanel: false, templateCommand: false, registrySetting: false })
+  })).toEqual({ templateCommand: false, registrySetting: false })
   await page.screenshot({ path: testInfo.outputPath('disabled-default.png'), animations: 'disabled' })
   await page.getByTestId('library-toggle').click()
   await expect(page.getByTestId('library-overlay')).toBeVisible()

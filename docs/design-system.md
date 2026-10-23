@@ -54,7 +54,7 @@ The raw-control baseline after these adoptions is 441 controls, 70 inline-style
 attributes and 423 CSS color/radius literals. The largest remaining control
 surfaces are App view (60), Canvas host overlays (39), Image document's editor
 controls outside its converted empty state (36), App shell (20), Executed image
-viewer (18), Compositor editor (15), Runtime settings (13), and Video edit, P2P,
+viewer (18), Compositor editor (15), Runtime settings (13), and Video edit,
 Output descriptor and Combo editor (12 each). Their counts may shrink but may
 not grow. This inventory is a migration queue, not a second component system.
 

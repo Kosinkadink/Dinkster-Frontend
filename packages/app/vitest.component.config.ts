@@ -17,7 +17,6 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['test/**/*.dom.test.tsx'],
-    exclude: process.env['DINKSTER_P2P_TESTS'] === '1' ? [] : ['test/P2PPanel.dom.test.tsx'],
     setupFiles: ['./vitest.storage.setup.ts'],
   },
 })

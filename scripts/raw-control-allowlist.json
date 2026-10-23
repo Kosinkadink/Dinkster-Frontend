@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 302,
+    "rawControl": 290,
     "inlineStyle": 65,
     "cssLiteral": 385
   },
@@ -262,12 +262,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/OutputMountSettings.tsx",
       "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/P2PPanel.tsx",
-      "count": 12,
       "issue": 382
     },
     {
