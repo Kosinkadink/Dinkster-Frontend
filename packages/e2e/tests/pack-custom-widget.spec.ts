@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, openRailPanel, test as base, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CUSTOM_WIDGET_PROOF_DIR']
@@ -31,12 +31,15 @@ const test = base.extend<{ widgetDiagnostics: void }>({
     })
     await use()
     if (testInfo.status === testInfo.expectedStatus) return
+    mkdirSync(testInfo.outputDir, { recursive: true })
+    const consolePath = testInfo.outputPath('custom-widget-console.json')
+    writeFileSync(consolePath, JSON.stringify(consoleMessages, null, 2))
     await testInfo.attach('custom-widget-console', {
-      body: JSON.stringify(consoleMessages, null, 2), contentType: 'application/json',
+      path: consolePath, contentType: 'application/json',
     })
     if (page.isClosed()) return
-    await testInfo.attach('custom-widget-dialog-state', {
-      body: JSON.stringify(await page.evaluate(() => ({
+    const statePath = testInfo.outputPath('custom-widget-dialog-state.json')
+    writeFileSync(statePath, JSON.stringify(await page.evaluate(() => ({
         at: new Date().toISOString(), url: location.href,
         viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
         activeElement: document.activeElement?.outerHTML,
@@ -45,10 +48,14 @@ const test = base.extend<{ widgetDiagnostics: void }>({
           display: getComputedStyle(element).display, visibility: getComputedStyle(element).visibility,
         })),
         clicks: (window as unknown as { __customWidgetClicks?: object[] }).__customWidgetClicks,
-      })), null, 2), contentType: 'application/json',
+      })), null, 2))
+    await testInfo.attach('custom-widget-dialog-state', {
+      path: statePath, contentType: 'application/json',
     })
+    const screenshotPath = testInfo.outputPath('custom-widget-failure.png')
+    await page.screenshot({ path: screenshotPath, animations: 'disabled', fullPage: true })
     await testInfo.attach('custom-widget-failure', {
-      body: await page.screenshot({ animations: 'disabled', fullPage: true }), contentType: 'image/png',
+      path: screenshotPath, contentType: 'image/png',
     })
   }, { auto: true }],
 })

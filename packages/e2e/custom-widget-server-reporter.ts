@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 
 export default class CustomWidgetServerReporter implements Reporter {
@@ -19,7 +19,7 @@ export default class CustomWidgetServerReporter implements Reporter {
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
-    if (!test.location.file.endsWith('/pack-custom-widget.spec.ts') || result.status === test.expectedStatus) return
+    if (basename(test.location.file) !== 'pack-custom-widget.spec.ts' || result.status === test.expectedStatus) return
     const directory = join(test.parent.project()!.outputDir, 'custom-widget-server')
     mkdirSync(directory, { recursive: true })
     const path = join(directory, `${test.id.replace(/[^a-zA-Z0-9-]/g, '_')}-${result.retry}.log`)
