@@ -88,6 +88,35 @@ const openModal = async (page: Page, id: string): Promise<void> => {
   )
 }
 
+test('populated image workspace at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.getByTestId('image-documents-button').click()
+  const workspace = page.getByTestId('image-document-workspace')
+  const bytes = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 400
+    const context = canvas.getContext('2d')!
+    const gradient = context.createLinearGradient(0, 0, 640, 400)
+    gradient.addColorStop(0, '#173f6c')
+    gradient.addColorStop(1, '#d7a86e')
+    context.fillStyle = gradient
+    context.fillRect(0, 0, 640, 400)
+    return [...new Uint8Array(await (await fetch(canvas.toDataURL('image/png'))).arrayBuffer())]
+  })
+  await workspace.locator('.image-document-tabs input[type=file]').setInputFiles({
+    name: 'Coastline.png', mimeType: 'image/png', buffer: Buffer.from(bytes),
+  })
+  await expect(page.getByTestId('image-document-editor')).toBeVisible()
+  await expect(workspace.locator('.image-document-layer-row')).toHaveCount(1)
+  await expect(workspace.locator('.image-document-preview canvas')).toHaveAttribute('width', '640')
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await screenshot(page, `image-workspace-${width}`)
+  }
+})
+
 test('canvas chrome at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
