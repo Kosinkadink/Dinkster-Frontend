@@ -192,21 +192,12 @@ body,
 }
 
 .app-menu { position: relative; }
-.app-menu-button {
-  display: inline-flex;
-  align-items: center;
+.app-menu-button.product-button {
   gap: var(--dinkster-space-4);
-  min-height: var(--dinkster-control-compact-height);
-  padding: var(--dinkster-space-4);
-  color: var(--dinkster-text-primary);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--dinkster-radius-control);
-  cursor: pointer;
+  padding-inline: var(--dinkster-space-4);
+  font-weight: var(--dinkster-weight-semibold);
 }
-.app-menu-button:hover,
 .app-menu-button[aria-expanded='true'] { background: var(--dinkster-interaction-hover); }
-.app-menu-button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
 .app-menu-caret {
   width: 0;
   height: 0;
@@ -767,9 +758,8 @@ body,
   justify-content: center;
   gap: 5px;
 }
-.settings-button { min-width: var(--dinkster-control-compact-height); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4); color: var(--dinkster-text-secondary); background: transparent; border: 1px solid transparent; border-radius: var(--dinkster-radius-control); cursor: pointer; }
-.settings-button:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-.settings-button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
+.settings-button { min-width: var(--dinkster-control-compact-height); }
+.settings-button.product-button { padding-inline: var(--dinkster-space-4); }
 .customize-layout-button { width: var(--dinkster-control-compact-height); height: var(--dinkster-control-compact-height); outline: none; }
 /* ModalHost chrome (docs/shell.md): one native <dialog> surface (showModal;
    the top layer needs no z-index) for every modal-placed panel; per-panel
@@ -3372,16 +3362,9 @@ body,
   width: 100%;
   min-width: 0;
   gap: var(--dinkster-space-8);
-  padding: var(--dinkster-space-8);
-  color: var(--dinkster-text-primary);
-  background: var(--dinkster-surface-inset);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: var(--dinkster-radius-card);
-  cursor: pointer;
   text-align: left;
+  white-space: normal;
 }
-.output-thumbnail:hover { border-color: var(--dinkster-border-focus); background: var(--dinkster-interaction-hover); }
-.output-thumbnail:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .output-thumbnail-preview { position: relative; display: grid; width: 100%; min-height: 128px; aspect-ratio: 16 / 10; overflow: hidden; place-items: center; background: var(--dinkster-surface-canvas); border-radius: var(--dinkster-radius-small); }
 .output-thumbnail-preview img { width: 100%; height: 100%; object-fit: cover; }
 .output-thumbnail-position { position: absolute; left: var(--dinkster-space-8); top: var(--dinkster-space-8); max-width: calc(100% - var(--dinkster-space-16)); padding: 2px var(--dinkster-space-8); color: var(--dinkster-text-primary); background: color-mix(in srgb, var(--dinkster-surface-canvas) 88%, transparent); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-capsule); font-size: var(--dinkster-type-metadata-size); }
@@ -5525,7 +5508,6 @@ body,
   padding-inline: var(--dinkster-space-8);
 }
 
-.shell-region-toggle,
 .sidebar-button {
   color: var(--dinkster-text-secondary);
   background: transparent;
@@ -5534,13 +5516,12 @@ body,
   cursor: pointer;
 }
 
-.shell-region-toggle {
+.shell-region-toggle.product-button {
   width: var(--dinkster-control-compact-height);
   height: var(--dinkster-control-compact-height);
   padding: var(--dinkster-space-4);
 }
 
-.shell-region-toggle:hover:not(:disabled),
 .sidebar-button:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 
 .shell-region-toggle[aria-pressed='true'],
@@ -5550,7 +5531,6 @@ body,
   border-color: var(--dinkster-accent-border);
 }
 
-.shell-region-toggle:focus-visible,
 .sidebar-button:focus-visible {
   outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
   outline-offset: -1px;
@@ -5568,7 +5548,6 @@ body,
 }
 
 .shell-region-icon-panel[data-active='true'] { fill: currentColor; }
-.shell-region-toggle:disabled { color: var(--dinkster-text-disabled); cursor: default; opacity: var(--dinkster-interaction-disabled-opacity); }
 
 .left-sidebar {
   width: 72px;
@@ -5681,7 +5660,7 @@ body,
 
 .dock-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; }
 
-.shell-panel-header-action,
+.shell-panel-header-action:not(.product-button),
 .dock-close,
 .shell-panel-close {
   min-height: var(--dinkster-control-compact-height);
@@ -5692,14 +5671,14 @@ body,
   cursor: pointer;
 }
 
-.shell-panel-header-action { padding: var(--dinkster-space-4) var(--dinkster-space-8); font: inherit; }
+.shell-panel-header-action:not(.product-button) { padding: var(--dinkster-space-4) var(--dinkster-space-8); font: inherit; }
 .dock-close,
 .shell-panel-close { display: inline-flex; align-items: center; justify-content: center; width: var(--dinkster-control-compact-height); padding: 0; }
-.shell-panel-header-action:hover,
+.shell-panel-header-action:not(.product-button):hover,
 .dock-close:hover,
 .shell-panel-close:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .dock-close:focus-visible,
-.shell-panel-header-action:focus-visible,
+.shell-panel-header-action:not(.product-button):focus-visible,
 .shell-panel-close:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
 
 .rail-panel-body { min-height: 0; padding: var(--dinkster-space-12); }
@@ -6102,15 +6081,7 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 .statusbar .host-ui-row { flex-wrap: wrap; }
 .statusbar-toggle {
   flex: none;
-  padding: 0;
-  color: var(--dinkster-text-secondary);
-  background: none;
-  border: 0;
-  font: inherit;
-  cursor: pointer;
 }
-.statusbar-toggle:hover { color: var(--dinkster-text-primary); }
-.statusbar-toggle:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .statusbar-backend,
 .statusbar-composing { color: var(--dinkster-info-foreground); }
 

@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 302,
+    "rawControl": 282,
     "inlineStyle": 65,
     "cssLiteral": 385
   },
@@ -10,12 +10,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/AgentPermissionsPanel.tsx",
       "count": 6,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/App.tsx",
-      "count": 20,
       "issue": 382
     },
     {
