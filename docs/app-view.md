@@ -34,6 +34,10 @@ controls. Arrange state belongs to the tab UI, survives an editor-kind switch,
 and is not document data or persisted across reloads. Frozen tabs cannot enter
 Arrange mode.
 
+App View uses the shared Product button, text, number, checkbox and select
+controls in both modes. Group and text-style selectors support the same
+combobox keyboard navigation and focus restoration as shell settings.
+
 The Arrange toggle exposes its current state with `aria-pressed`.
 The Desktop and Mobile layout preview buttons are another pressed-button group;
 that selection changes only the authoring preview. Use mode always follows the

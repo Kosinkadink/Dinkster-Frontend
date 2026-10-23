@@ -81,6 +81,25 @@ const openModal = async (page: Page, id: string): Promise<void> => {
   )
 }
 
+test('canvas chrome at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await expect(page.getByTestId('canvas-zoom-in')).toBeVisible()
+    await screenshot(page, `canvas-chrome-${width}`)
+    await page.getByTestId('minimap-settings').click()
+    await expect(page.locator('.minimap-menu')).toBeVisible()
+    await screenshot(page, `canvas-minimap-settings-${width}`)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.minimap-menu')).toBeHidden()
+    await page.getByTestId('views-switcher').click()
+    await expect(page.getByRole('menuitem', { name: /Noodles/ })).toBeVisible()
+    await screenshot(page, `canvas-view-menu-${width}`)
+    await page.getByTestId('views-switcher').click()
+  }
+})
+
 test('shell and canvas visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
@@ -237,6 +256,60 @@ test('modal visual matrix', async ({ page }) => {
       readonly modalPanel: { set(value: string): void }
     }).modalPanel.set(''))
   }
+})
+
+test('populated app-view controls and arrange visuals', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const inputs = [
+      { id: 'prompt', label: 'Prompt', widgetType: 'STRING', value: 'A quiet mountain lake' },
+      { id: 'steps', label: 'Steps', widgetType: 'INT', value: 24 },
+      { id: 'enabled', label: 'Enabled', widgetType: 'BOOLEAN', value: true },
+      { id: 'color', label: 'Color', widgetType: 'COLOR', value: '#3498db' },
+    ]
+    app.registerSchemas([{
+      type: 'AppViewVisual', displayName: 'Image settings', category: 'test', source: 'visual', isOutputNode: true,
+      items: inputs.map((input) => ({
+        kind: 'input', id: input.id, type: { kind: 'concrete', name: input.widgetType }, optional: false,
+        widget: { widgetType: input.widgetType, options: {}, default: input.value },
+      })),
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-visual', root: 'g0',
+      meta: { title: 'Landscape studio', description: 'Set the prompt and image controls, then queue the workflow.' },
+      graphs: { g0: {
+        id: 'g0', name: 'root', nodes: { settings: { id: 'settings', type: 'AppViewVisual', values: {} } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+      } },
+      view: { graphs: { g0: { nodes: { settings: { position: { x: 100, y: 100 } } } } } },
+      ext: {
+        'dinkster.exposed': inputs.map((input) => ({ graphId: 'g0', nodeId: 'settings', inputId: input.id, label: input.label })),
+        'dinkster.appLayout': {
+          version: 1,
+          desktop: { items: [
+            { id: 'instructions', kind: 'text', role: 'body', text: 'Choose the look for your next image.' },
+            { id: 'controls', kind: 'group', title: 'Image controls', children: ['prompt', 'steps', 'enabled', 'color'] },
+            ...inputs.map((input) => ({ id: input.id, kind: 'control', ref: { graphId: 'g0', nodeId: 'settings', inputId: input.id } })),
+          ] },
+          mobile: { customized: false, items: [], order: [] },
+        },
+      },
+    }, 'Landscape studio')
+  })
+  await page.getByTestId('views-switcher').click()
+  await page.getByRole('menuitemradio', { name: 'App view', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Prompt', exact: true })).toHaveValue('A quiet mountain lake')
+  await expect(page.getByRole('spinbutton', { name: 'Steps', exact: true })).toHaveValue('24')
+  await expect(page.getByRole('checkbox', { name: 'Toggle Enabled' })).toBeChecked()
+  await expect(page.getByTestId('app-view-color')).toContainText('#3498db')
+  await screenshot(page, 'app-view-controls')
+  await page.setViewportSize({ width: 1440, height: 1400 })
+  await page.getByTestId('app-view-arrange-toggle').click()
+  await expect(page.getByTestId('app-layout-text-input')).toHaveValue('Choose the look for your next image.')
+  await expect(page.getByTestId('app-layout-group-title')).toHaveValue('Image controls')
+  await screenshot(page, 'app-view-arrange-controls')
 })
 
 test('document and app-view visual matrix', async ({ page }) => {

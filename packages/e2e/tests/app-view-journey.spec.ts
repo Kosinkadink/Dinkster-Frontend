@@ -152,14 +152,16 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
   await page.getByTestId('app-layout-add-text').click()
   await page.getByTestId('app-layout-text-input').fill('Create a **finished portrait** with the controls below.')
   await page.getByTestId('app-layout-text-input').blur()
-  await page.getByTestId('app-layout-text-role').selectOption('heading')
+  await page.getByTestId('app-layout-text-role').click()
+  await page.getByRole('option', { name: 'Heading', exact: true }).click()
   await page.getByTestId('app-layout-add-group').click()
   await page.getByTestId('app-layout-group-title').fill('Controls')
   await page.getByTestId('app-layout-group-title').blur()
   const promptRow = page.getByTestId('app-view-row').filter({
     has: page.getByTestId('app-view-label').filter({ hasText: /^Prompt/ }),
   })
-  await promptRow.getByTestId('app-layout-parent').selectOption({ label: 'Controls' })
+  await promptRow.getByTestId('app-layout-parent').click()
+  await page.getByRole('option', { name: 'Controls', exact: true }).click()
 
   await page.getByRole('button', { name: /Place Create a \*\*finished portrait\*\*/ }).click()
   await page.getByRole('button', { name: 'Place Controls in grid' }).click()

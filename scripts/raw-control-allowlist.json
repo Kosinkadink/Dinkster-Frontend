@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 441,
-    "inlineStyle": 70,
-    "cssLiteral": 423
+    "rawControl": 338,
+    "inlineStyle": 65,
+    "cssLiteral": 393
   },
   "entries": [
     {
@@ -22,12 +22,6 @@
       "kind": "inlineStyle",
       "path": "packages/app/src/App.tsx",
       "count": 7,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/AppView.tsx",
-      "count": 60,
       "issue": 382
     },
     {
@@ -82,12 +76,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/BoundaryPanel.tsx",
       "count": 11,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/CanvasHost.tsx",
-      "count": 39,
       "issue": 382
     },
     {
@@ -380,18 +368,6 @@
     },
     {
       "kind": "rawControl",
-      "path": "packages/app/src/TimelineViewport.tsx",
-      "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/TimelineViewport.tsx",
-      "count": 5,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
       "path": "packages/app/src/UniversalSearch.tsx",
       "count": 2,
       "issue": 382
@@ -519,7 +495,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 423,
+      "count": 393,
       "issue": 382
     },
     {

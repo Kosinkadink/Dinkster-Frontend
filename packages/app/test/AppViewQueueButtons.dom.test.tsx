@@ -77,7 +77,11 @@ describe('App View queue button component', () => {
     expect(arrangedStates.map((state) => state?.textContent)).toEqual(['Bereit', 'Bereit'])
     expect(targetGroups[0]?.querySelector('legend')).toBe(targetLegend)
     expect(targetLegend?.textContent).toBe('Teilziele')
-    expect(targetGroups[0]?.querySelectorAll('input[type="checkbox"]')).toHaveLength(2)
+    const targets = [...targetGroups[0]!.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')]
+    expect(targets).toHaveLength(2)
+    expect(targets.map((target) => target.getAttribute('aria-label'))).toEqual(['Base result', 'Upscale result'])
+    expect(targets.map((target) => target.getAttribute('aria-checked'))).toEqual(['true', 'false'])
+    expect(targets.map((target) => target.disabled)).toEqual([true, false])
     expect(targetGroups[0]?.textContent).toContain('Base result')
     expect(targetGroups[0]?.textContent).toContain('Upscale result')
 

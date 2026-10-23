@@ -24,7 +24,7 @@ process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
 export default defineConfig({
   globalSetup: './hosted-global-setup.ts',
   testDir: './tests',
-  testMatch: ['audit-assets-surface.spec.ts', 'import-subgraphs.spec.ts', 'boundary-conditional.spec.ts', 'boundary-output-families.spec.ts', 'boundary-output-refusals.spec.ts', 'media-metadata.spec.ts', 'image-batch.spec.ts', 'video-preview-controls.spec.ts', 'video-edit.spec.ts', 'timeline-viewport.spec.ts', 'deprecation.spec.ts', 'audio-controls.spec.ts', 'image-document-graph.spec.ts', 'image-editor.spec.ts', 'schema41-stream.spec.ts', 'extensions.spec.ts', 'extension-panes.spec.ts', 'delegated-agents.spec.ts'],
+  testMatch: ['audit-assets-surface.spec.ts', 'import-subgraphs.spec.ts', 'boundary-conditional.spec.ts', 'boundary-output-families.spec.ts', 'boundary-output-refusals.spec.ts', 'media-metadata.spec.ts', 'image-batch.spec.ts', 'video-preview-controls.spec.ts', 'video-edit.spec.ts', 'deprecation.spec.ts', 'audio-controls.spec.ts', 'image-document-graph.spec.ts', 'image-editor.spec.ts', 'schema41-stream.spec.ts', 'extensions.spec.ts', 'extension-panes.spec.ts', 'delegated-agents.spec.ts'],
   timeout: 60_000,
   workers: 1,
   reporter: 'line',

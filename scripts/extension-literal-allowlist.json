@@ -91,7 +91,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1507,
+      "line": 1510,
       "column": 24,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -99,7 +99,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1507,
+      "line": 1510,
       "column": 55,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -107,7 +107,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1511,
+      "line": 1514,
       "column": 26,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -115,7 +115,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1512,
+      "line": 1515,
       "column": 24,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -123,7 +123,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1517,
+      "line": 1520,
       "column": 52,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -131,7 +131,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1521,
+      "line": 1524,
       "column": 24,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -139,7 +139,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1530,
+      "line": 1533,
       "column": 24,
       "symbol": "widgetType:COLOR",
       "issue": 122
@@ -147,7 +147,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1538,
+      "line": 1541,
       "column": 24,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -155,7 +155,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1541,
+      "line": 1544,
       "column": 24,
       "symbol": "widgetType:VIDEO_EDIT",
       "issue": 122
@@ -163,7 +163,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4239,
+      "line": 4240,
       "column": 15,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -171,7 +171,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4725,
+      "line": 4726,
       "column": 27,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -179,7 +179,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4821,
+      "line": 4822,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -187,7 +187,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4902,
+      "line": 4903,
       "column": 36,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -195,7 +195,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4919,
+      "line": 4920,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -203,7 +203,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 6700,
+      "line": 6701,
       "column": 19,
       "symbol": "widgetType:ASSET",
       "issue": 122
