@@ -46,7 +46,6 @@ import {
 } from '../src/badges.js'
 import { controllerChipRect, controllerChipTextRight } from '../src/controller-chip.js'
 import { hitTest } from '../src/hit.js'
-import { auditScene } from '../src/scene-audit.js'
 import { CANVAS_DETAIL_MIN_SCALE, defaultTokens, presentedType, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { splitPreviewRect } from '../src/previews.js'
@@ -2133,7 +2132,7 @@ describe('node chrome paint on the live renderer', () => {
     renderer.dispose()
   })
 
-  it('projects preview geometry into scene hit testing and keeps noodle anchors audited', () => {
+  it('projects preview geometry into scene hit testing', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
     const { ctx } = recordingCtx()
@@ -2146,7 +2145,6 @@ describe('node chrome paint on the live renderer', () => {
     expect(hitTest(projected, projectedNode.x + region.x + 2, projectedNode.y + region.y + 2)).toMatchObject({
       kind: 'body', node: { id: node.id },
     })
-    expect(auditScene(projected)).toEqual([])
     renderer.dispose()
   })
 

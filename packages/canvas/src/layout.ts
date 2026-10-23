@@ -251,8 +251,7 @@ export interface PinLayout extends DynamicAnnotations {
   readonly maybeAbsent?: true
   /**
    * Present when this pin is a visible proxy for a connected port hidden by
-   * a collapsed section. Proxies share the section header row's center;
-   * scene-audit treats same-section co-location as intentional.
+   * a collapsed section. Proxies share the section header row's center.
    */
   readonly collapsedSection?: string
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
