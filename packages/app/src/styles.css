@@ -931,8 +931,8 @@ body,
 .settings-search::placeholder { color: var(--dinkster-text-muted); }
 .settings-search:focus-visible { border-color: var(--dinkster-border-focus); box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected); }
 .settings-search-clear,
-.product-field-actions button,
-.product-form-add {
+.product-field-actions button:not(.product-button),
+.product-form-add:not(.product-button) {
   min-height: var(--dinkster-control-compact-height);
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
   color: var(--dinkster-text-secondary);
@@ -943,15 +943,15 @@ body,
   cursor: pointer;
 }
 .settings-search-clear:hover,
-.product-field-actions button:hover,
-.product-form-add:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+.product-field-actions button:not(.product-button):hover,
+.product-form-add:not(.product-button):hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .settings-search-clear:focus-visible,
-.product-field-actions button:focus-visible,
-.product-form-add:focus-visible,
+.product-field-actions button:not(.product-button):focus-visible,
+.product-form-add:not(.product-button):focus-visible,
 .settings-categories button:focus-visible,
 .settings-result-heading:focus-visible,
 .binding-capture:focus-visible,
-.product-field-control > input:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
+.product-field-control > input:not(.product-text-input):focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
 .settings-body { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: calc(var(--dinkster-space-32) * 8) minmax(0, 1fr); }
 .settings-categories { min-width: 0; padding: var(--dinkster-space-8); overflow: auto; background: var(--dinkster-surface-panel); border-inline-end: 1px solid var(--dinkster-border-subtle); }
 .settings-categories button { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); width: 100%; min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-secondary); background: transparent; border: 1px solid transparent; border-radius: var(--dinkster-radius-control); font: inherit; text-align: start; cursor: pointer; }
@@ -987,7 +987,7 @@ body,
 .product-field-control > input,
 .product-field-control > .product-number,
 .product-field-control > .product-select { width: 100%; }
-.product-field-control > input,
+.product-field-control > input:not(.product-text-input),
 .binding-capture { min-width: 0; min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; }
 .binding-capture { width: 100%; cursor: pointer; }
 .product-field-actions { grid-area: actions; display: flex; align-items: center; justify-content: flex-end; gap: var(--dinkster-space-4); }
@@ -1010,12 +1010,12 @@ body,
 .product-action-footer { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--dinkster-space-12); padding-top: var(--dinkster-space-12); border-top: 1px solid var(--dinkster-border-subtle); }
 .product-action-status { min-width: 0; color: var(--dinkster-text-secondary); overflow-wrap: anywhere; }
 .product-action-buttons { display: flex; flex: 1; flex-wrap: wrap; justify-content: flex-end; gap: var(--dinkster-space-8); }
-.product-action-buttons button { display: inline-flex; align-items: center; justify-content: center; gap: var(--dinkster-space-4); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
-.product-action-buttons button:hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-.product-action-buttons button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
-.product-action-buttons button:disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
-.product-action-buttons button.primary { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
-.product-action-buttons button.danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
+.product-action-buttons button:not(.product-button) { display: inline-flex; align-items: center; justify-content: center; gap: var(--dinkster-space-4); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
+.product-action-buttons button:not(.product-button):hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+.product-action-buttons button:not(.product-button):focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.product-action-buttons button:not(.product-button):disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
+.product-action-buttons button:not(.product-button).primary { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
+.product-action-buttons button:not(.product-button).danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
 
 .queue-button {
   background: #2e7d32;
@@ -4124,26 +4124,19 @@ body,
 .backend-add-error { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-danger-foreground); font-weight: var(--dinkster-weight-medium); }
 .backend-add-controls button,
 .backend-actions button,
-.connection-profiles button,
-.runtime-settings-toolbar button,
-.runtime-settings-toggle { min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
+.connection-profiles button { min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
 .backend-add-controls button:hover:not(:disabled),
 .backend-actions button:hover:not(:disabled),
-.connection-profiles button:hover:not(:disabled),
-.runtime-settings-toolbar button:hover:not(:disabled),
-.runtime-settings-toggle:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+.connection-profiles button:hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .backend-add-controls button:focus-visible,
 .backend-actions button:focus-visible,
 .connection-profiles button:focus-visible,
-.runtime-settings-toolbar button:focus-visible,
-.runtime-settings-toggle:focus-visible,
 .backend-url-input:focus-visible,
 .connection-profiles input:focus-visible,
 .runtime-setting-category > summary:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .backend-add-controls button:disabled,
 .backend-actions button:disabled,
-.connection-profiles button:disabled,
-.runtime-settings-toolbar button:disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
+.connection-profiles button:disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
 .backend-list { display: grid; gap: var(--dinkster-space-12); min-width: 0; }
 .backend-card { display: grid; gap: var(--dinkster-space-12); }
 .backend-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; }
@@ -4217,7 +4210,6 @@ body,
 .runtime-settings-editor .product-field-control > input,
 .runtime-settings-editor .product-field-control > .product-number,
 .runtime-settings-editor .product-field-control > .product-select { width: 100%; }
-.runtime-settings-editor .product-field-control > input { min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; }
 .runtime-settings-editor .product-form-add { margin-top: var(--dinkster-space-8); }
 
 .runtime-memory-control { display: grid; grid-template-columns: minmax(calc(var(--dinkster-space-32) * 3), auto) minmax(calc(var(--dinkster-space-32) * 3), 1fr); align-items: center; gap: var(--dinkster-space-12); width: 100%; }
@@ -4243,8 +4235,7 @@ body,
   .runtime-settings-toolbar { align-items: stretch; flex-direction: column; }
   .backend-status { align-self: flex-start; }
   .backend-add-controls button,
-  .backend-actions button,
-  .runtime-settings-toolbar button { min-height: var(--dinkster-input-primary-height); }
+  .backend-actions button { min-height: var(--dinkster-input-primary-height); }
   .backend-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .runtime-setting-category > summary { align-items: flex-start; }
   .runtime-setting-access { white-space: normal; text-align: right; }

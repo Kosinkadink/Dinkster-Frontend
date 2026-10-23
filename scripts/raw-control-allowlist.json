@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 237,
+    "rawControl": 224,
     "inlineStyle": 65,
     "cssLiteral": 379
   },
@@ -280,12 +280,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/RegionIterationInspector.tsx",
       "count": 3,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/RuntimeSettingsPanel.tsx",
-      "count": 13,
       "issue": 382
     },
     {
