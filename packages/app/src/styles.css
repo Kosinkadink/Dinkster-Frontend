@@ -6027,8 +6027,10 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 .host-ui-contribution { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; }
 .statusbar .host-ui-group { max-width: 100%; }
 .statusbar .host-ui-row { flex-wrap: wrap; }
-.statusbar-toggle {
+.statusbar-toggle.product-button {
   flex: none;
+  min-height: 0;
+  padding-block: 0;
 }
 .statusbar-backend,
 .statusbar-composing { color: var(--dinkster-info-foreground); }
