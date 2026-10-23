@@ -248,7 +248,7 @@ instead of replacing an existing environment or invalidating its snapshots.
 The host CUDA version check is not evidence that isolated pack workers can run
 an NVIDIA generation workload; that requires separate integration verification.
 
-On Windows with Node.js 22 and pnpm 10.31.0:
+On Windows with Node.js 26.12 or newer within 26.x and pnpm 11.28.8:
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -424,9 +424,9 @@ Keep it on loopback and note its port. The examples below use backend port
 Backend acceleration and model support follow that guide, not the frontend's OS.
 No Desktop installer has been released for Windows, Linux, or macOS.
 
-Install Git, Node.js 22 and pnpm 10.31.0. With Node's Corepack available,
-`corepack enable` enables the pnpm shim; the repository's `packageManager`
-field selects the version. Repository access is required to clone this private
+Install Git, Node.js 26.12 or newer within 26.x and pnpm 11.28.8
+(`npm install --global pnpm@11.28.8`). The repository's `packageManager`
+field pins that version. Repository access is required to clone this private
 frontend. From a terminal, clone it, select the reviewed frontend release tag
 or commit compatible with the backend, and run these commands in that checkout:
 

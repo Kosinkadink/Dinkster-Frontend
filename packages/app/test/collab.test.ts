@@ -225,6 +225,10 @@ class FakeCollabServer {
 // Harness
 // ---------------------------------------------------------------------------
 
+// AppStates model separate browser tabs, not Node's process-wide session storage.
+beforeEach(() => vi.stubGlobal('sessionStorage', undefined))
+afterEach(() => vi.unstubAllGlobals())
+
 const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
   const app = new AppState({ collabTransport: server.transport })
   if (withBackend) app.addBackend('http://collab', 'collab', false, 'dinkster')
