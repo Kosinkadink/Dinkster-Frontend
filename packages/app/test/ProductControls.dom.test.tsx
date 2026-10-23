@@ -3,9 +3,30 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProductCheckbox, ProductFileInput, ProductRadio } from '../src/ProductControls.js'
+import { ProductCheckbox, ProductColorInput, ProductFileInput, ProductRadio } from '../src/ProductControls.js'
 
 afterEach(() => document.body.replaceChildren())
+
+describe('ProductColorInput', () => {
+  it('keeps the native picker and forwards controlled color, input and disabled state', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [value, setValue] = createSignal('#173f6c')
+    const [disabled, setDisabled] = createSignal(false)
+    render(() => <ProductColorInput aria-label="Background color" value={value()} disabled={disabled()}
+      onInput={(event) => setValue(event.currentTarget.value)} />, root)
+    const picker = root.querySelector<HTMLInputElement>('[aria-label="Background color"]')!
+    expect(picker.type).toBe('color')
+    expect(picker.value).toBe('#173f6c')
+    picker.value = '#102030'
+    picker.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    expect(value()).toBe('#102030')
+    setValue('#d7a86e')
+    expect(picker.value).toBe('#d7a86e')
+    setDisabled(true)
+    expect(picker.disabled).toBe(true)
+  })
+})
 
 describe('ProductFileInput', () => {
   it('keeps file selection hidden while forwarding the ref, accept filter and selected files', () => {

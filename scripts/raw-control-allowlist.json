@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 252,
+    "rawControl": 237,
     "inlineStyle": 65,
-    "cssLiteral": 385
+    "cssLiteral": 379
   },
   "entries": [
     {
@@ -94,12 +94,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/CollectionPanel.tsx",
       "count": 9,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/CompositorEditor.tsx",
-      "count": 15,
       "issue": 382
     },
     {
@@ -477,7 +471,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 385,
+      "count": 379,
       "issue": 382
     },
     {

@@ -46,6 +46,14 @@ restores blank input and clamps/truncates image numbers before displaying them,
 including when the selected image does not change. Grid and toolbar CSS owns
 layout only; shared primitives own control colors, borders and focus states.
 
+The compositor editor uses the same buttons, number inputs, checkboxes,
+sliders, text input and select controls as the Image document workspace.
+Layer selection and flips expose pressed state with the primary variant.
+`ProductColorInput` keeps the native color picker and forwards native input
+props while using shared input styling; the compositor retains lowercase
+color storage. Recipe edits, preview geometry and apply/refusal rules remain
+owned by the editor, not by the controls.
+
 | Primitive            | Contract                                                                                                                                          | Adopted surfaces                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `ProductButton`      | Native button props; primary, secondary, danger and ghost variants; control and compact sizes; loading disables activation and exposes busy state | Learn, Node help, Activity, Execution log, Problems, Desktop management, mounts, audio recorder and Image document empty state |

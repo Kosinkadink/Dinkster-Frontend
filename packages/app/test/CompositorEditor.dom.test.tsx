@@ -107,6 +107,15 @@ describe('CompositorEditor', () => {
       .find((input) => input.value === 'Overlay')!
     name.value = 'Watermark'
     name.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    const x = mounted.root.querySelector<HTMLInputElement>('[role="spinbutton"][aria-label="X"]')!
+    x.value = '12.5'
+    x.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    mounted.root.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="Visible"]')!.click()
+    const opacity = mounted.root.querySelector<HTMLElement>('[role="slider"][aria-label="Opacity"]')!
+    opacity.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    for (let i = 0; i < 25; i++) opacity.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    mounted.root.querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
+    document.querySelector<HTMLElement>('[role="option"][data-option-id="multiply"]')!.click()
     const lower = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent === 'Lower')!
     lower.click()
@@ -123,8 +132,12 @@ describe('CompositorEditor', () => {
     expect(value.documentDigest).toBe(assetDigest)
     expect(value.commands).toContainEqual({
       op: 'layer', id: 'l2',
-      changes: { name: 'Watermark', visible: true, opacity: 49_151, blendMode: 'screen' },
+      changes: { name: 'Watermark', visible: false, opacity: 16_384, blendMode: 'multiply' },
     })
+    expect(value.commands).toContainEqual({ op: 'transform', id: 'l2', components: {
+      x: 12.5, y: 30, width: 80, height: 60, rotation: 0,
+      flipHorizontal: false, flipVertical: false, sourceWidth: 80, sourceHeight: 60,
+    } })
     expect(value.commands.at(-1)).toEqual({ op: 'reorder', ids: ['l2', 'l0'] })
     expect(mounted.app.imageEditorTarget.get()).toBeUndefined()
     mounted.dispose()
