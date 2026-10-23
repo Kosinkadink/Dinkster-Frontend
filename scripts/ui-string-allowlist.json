@@ -770,20 +770,6 @@
   "TemplateGallery.tsx": [
     "text:props.app.libraryBackend()?.connection) const [mountSettings, setMountSettings] = createSignal"
   ],
-  "TimelineViewport.tsx": [
-    "attribute:aria-label:Playhead seconds",
-    "attribute:aria-label:Timeline playhead",
-    "attribute:aria-label:Timeline viewport",
-    "attribute:aria-label:Timeline zoom",
-    "attribute:aria-label:Timeline zoom level",
-    "attribute:aria-label:Zoom in timeline",
-    "attribute:aria-label:Zoom out timeline",
-    "text:= 0 && left + timelineTimeLabel(time).length * 8 + 6",
-    "text:Fit timeline",
-    "text:Playhead (seconds)",
-    "text:Time (seconds)",
-    "text:Timeline"
-  ],
   "UniversalSearch.tsx": [
     "attribute:aria-label:Search Dinkster",
     "attribute:aria-label:Search results",
