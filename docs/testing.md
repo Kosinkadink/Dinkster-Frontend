@@ -48,7 +48,7 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
-Product surface screenshots load the checked-in Noto Sans regular/bold fixtures
+Populated App View screenshots load the checked-in Noto Sans regular/bold fixtures
 under `packages/e2e/fixtures/fonts` rather than relying on the host's system-ui
 font. The font files retain their upstream license alongside them. Screenshot
 thresholds stay unchanged. Failed hosted browser lanes retain their actual,
