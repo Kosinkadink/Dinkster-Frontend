@@ -17,7 +17,6 @@ import Server from 'lucide-solid/icons/server'
 import Terminal from 'lucide-solid/icons/terminal'
 import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
-import Network from 'lucide-solid/icons/network'
 import { currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { ActivityLog } from './ActivityLog.js'
@@ -72,7 +71,6 @@ import {
 } from './desktop-bridge.js'
 import { coordinateBrowserWindows } from './browser-window-layout.js'
 import { MemoryPanel } from './MemoryPanel.js'
-import { P2PPanel } from './P2PPanel.js'
 import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
@@ -1560,28 +1558,9 @@ export function App(props: {
   onCleanup(() => {
     for (const un of unregisterPanels) un()
   })
-  const p2pBackends = createMemo(() => {
-    backendsTick()
-    return backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster' && backend.p2pEnabled.get())
-  })
-  const p2pAvailable = createMemo(() => p2pBackends().length > 0)
   const templatesAvailable = createMemo(() => {
     backendsTick()
     return backends().some((backend) => backend.templatesEnabled.get())
-  })
-  createEffect(() => {
-    if (!p2pAvailable()) return
-    const unregister = registerBuiltinPanel({
-      id: 'p2p', get title() { return message('p2p.tabTitle') }, icon: Network,
-      get description() { return message('p2p.panelDescription') }, get ariaLabel() { return message('p2p.title') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 36,
-      toggleTestId: 'p2p-sidebar-toggle', component: () => <div class="p2p-panels">
-        <For each={p2pBackends()}>
-          {(backend) => <P2PPanel connection={backend.connection} backendId={backend.id} backendLabel={backend.label} />}
-        </For>
-      </div>,
-    })
-    onCleanup(unregister)
   })
   createEffect(() => {
     if (!templatesAvailable()) {

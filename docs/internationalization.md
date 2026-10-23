@@ -24,7 +24,7 @@ English and Chinese are the explicit catalog choices. Automatic browser or
 desktop locale selection follows the same host catalog and base-language
 fallback path. The initial Chinese catalog was machine translated and requires
 human language review. The host shell, command and
-setting registries, App View, runtime-settings editor, and P2P surfaces resolve
+setting registries, App View, and runtime-settings editor resolve
 their frontend-authored text from the active catalog. Backend labels, workflow
 content, diagnostics, and other user-authored values remain data rather than
 catalog messages. English and Chinese are left-to-right, but Automatic also

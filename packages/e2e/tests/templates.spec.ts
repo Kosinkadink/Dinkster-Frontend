@@ -19,7 +19,7 @@ const TEMPLATE_DOC = {
 async function openTemplatesPanel(page: Page): Promise<void> {
   await page.routeWebSocket('**/api/events*', () => {})
   await page.route(`${MOCK}/api/settings`, (route) => route.fulfill({ json: {
-    features: { templates: { enabled: true }, p2p: { enabled: false } },
+    features: { templates: { enabled: true } },
     categories: { granted: [], available: [] }, settings: {},
   } }))
   await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
