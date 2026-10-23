@@ -6040,7 +6040,11 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 .statusbar-composing { color: var(--dinkster-info-foreground); }
 
 @media not all and (max-width: 520px) {
-  .statusbar .host-ui-column { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-12); }
+  .statusbar,
+  .statusbar-left,
+  .statusbar-right,
+  .statusbar .host-ui-row { gap: var(--dinkster-space-8); }
+  .statusbar .host-ui-column { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-8); }
 }
 
 @media (max-width: 520px) {
