@@ -23,6 +23,10 @@ export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
 
 type ProductTextInputType = 'text' | 'search' | 'url' | 'password' | 'email' | 'tel'
 
+export function ProductFileInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type' | 'hidden'>) {
+  return <input {...props} type="file" hidden />
+}
+
 export function ProductTextInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   readonly type?: ProductTextInputType
   readonly invalid?: boolean

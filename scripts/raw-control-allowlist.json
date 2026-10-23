@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 326,
+    "rawControl": 290,
     "inlineStyle": 65,
-    "cssLiteral": 393
+    "cssLiteral": 385
   },
   "entries": [
     {
@@ -172,12 +172,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/GlslEditor.tsx",
       "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/ImageDocumentWorkspace.tsx",
-      "count": 36,
       "issue": 382
     },
     {
@@ -495,7 +489,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 393,
+      "count": 385,
       "issue": 382
     },
     {
