@@ -91,6 +91,9 @@ workflow tabs, activity rail, panel hosts, the right zone's tab row, status
 bar, focus rings, and responsive sheets use semantic surface, text, border,
 space, type, shape, interaction, motion, and elevation roles. Feature panel
 bodies do not supply private shell headers, tab chrome, or resize chrome.
+Status-bar Product buttons retain their shared colors, borders and focus
+behavior but use intrinsic metadata-line height without vertical padding to
+preserve the 28 px desktop footer and its canvas space.
 
 Transient product UI shares `.floating-surface` for root chrome and uses
 `placeFloatingSurface` for block, inline, or point anchoring. Universal search
