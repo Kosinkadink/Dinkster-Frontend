@@ -160,7 +160,10 @@ const totals = Object.fromEntries(
 const ceilingProblems = kinds.filter(
   (kind) =>
     !Number.isInteger(allowlist.ceilings?.[kind]) ||
-    totals[kind] > allowlist.ceilings[kind],
+    totals[kind] > allowlist.ceilings[kind] ||
+    (!write &&
+      kind !== 'inlineStyle' &&
+      totals[kind] < allowlist.ceilings[kind]),
 )
 const initializing =
   write &&
@@ -169,7 +172,7 @@ const initializing =
 
 if (!initializing && (growth.length > 0 || ceilingProblems.length > 0)) {
   console.error(
-    'Raw controls and styling literals exceed the checked-in ratchet:',
+    'Raw-control ratchet mismatch; reduce stale ceilings with `pnpm check:raw-controls:write`:',
   )
   for (const entry of growth)
     console.error(
