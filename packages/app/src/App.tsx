@@ -41,6 +41,7 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { SurfacePanel } from './SurfacePanel.js'
@@ -446,6 +447,7 @@ export function App(props: {
   const collabTabs = useSignal(app.collabTabs)
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
+  const queueRefusal = useSignal(app.queueRefusal)
   const solveDiagnostics = useSignal(app.solveDiagnostics)
   const logs = useSignal(app.logs)
   const overlayPins = useSignal(app.overlayPins)
@@ -2823,6 +2825,31 @@ export function App(props: {
           <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
           <Show when={tip().detailed}><For each={tip().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
         </div>
+      )}</Show>
+      <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
+        <ProductEmptyState
+          class="queue-refusal-toast"
+          testId="queue-refusal-toast"
+          tone="error"
+          title={message('problems.queueRefused')}
+          hint={<>
+            <span>{summary().label}</span>
+            <span>{message('problems.severityCounts', {
+              errors: problemDiagnostics().filter((problem) => problem.severity === 'error').length,
+              warnings: problemDiagnostics().filter((problem) => problem.severity === 'warning').length,
+              info: problemDiagnostics().filter((problem) => problem.severity === 'info').length,
+            })}</span>
+          </>}
+          action={<>
+            <ProductButton size="compact" onClick={() => {
+              setPanelOpen(app.panels, app.dock, 'problems', 'right', true)
+              app.queueRefusal.set(undefined)
+            }}>{message('problems.action.open')}</ProductButton>
+            <ProductButton size="compact" variant="ghost" onClick={() => app.queueRefusal.set(undefined)}>
+              {message('problems.action.dismiss')}
+            </ProductButton>
+          </>}
+        />
       )}</Show>
       <TransientStatus message={transientStatus()} />
       <footer class="statusbar" data-testid="status-bar" aria-label={message('shell.applicationStatus')} hidden={!statusBarVisible() && placementStatus() === undefined && transientStatus() === undefined}>
