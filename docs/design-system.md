@@ -33,6 +33,11 @@ Every host control uses one of these primitives. A native control or styling
 literal may remain only when it is recorded by `pnpm check:raw-controls` and
 linked to tracked work. New exceptions and increases are rejected.
 
+The check rejects stale allowlist entries, including files with zero remaining
+raw controls, and `rawControl` or `cssLiteral` ceilings above the current total.
+After removing controls or literals, run `pnpm check:raw-controls:write` to remove
+stale entries and lower ceilings. Write mode never permits count increases.
+
 | Primitive            | Contract                                                                                                                                          | Adopted surfaces                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `ProductButton`      | Native button props; primary, secondary, danger and ghost variants; control and compact sizes; loading disables activation and exposes busy state | Learn, Node help, Activity, Execution log, Problems, Desktop management, mounts, audio recorder and Image document empty state |
