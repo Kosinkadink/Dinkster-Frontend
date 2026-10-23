@@ -1,8 +1,8 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 441,
-    "inlineStyle": 70,
+    "rawControl": 437,
+    "inlineStyle": 65,
     "cssLiteral": 423
   },
   "entries": [
@@ -382,18 +382,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/TemplateGallery.tsx",
       "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/TimelineViewport.tsx",
-      "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/TimelineViewport.tsx",
-      "count": 5,
       "issue": 382
     },
     {
