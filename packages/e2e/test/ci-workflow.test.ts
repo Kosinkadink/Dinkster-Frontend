@@ -410,9 +410,7 @@ describe('fast pull-request and full validation workflows', () => {
         const compatibilityInstall = steps.find(
           (step) => step.name === 'Install hosted compatibility dependencies',
         )!
-        expect(compatibilityInstall.run).toContain(
-          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@dacdebc66f097e9889ce66e36e41c25a7b8f6494',
-        )
+        expect(compatibilityInstall.run).not.toContain('dinkster-inference')
         expect(compatibilityInstall.run).toContain(
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
         )
