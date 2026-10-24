@@ -66,6 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          clean: true
           persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
