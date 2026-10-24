@@ -2875,7 +2875,7 @@ function compileImpl(
     }
     return { nodes }
   }
-  const dinksterGraph = includedRegions.length > 0 ? buildNativeGraph() : undefined
+  const dinksterGraph = emitRegions && included.size > 0 ? buildNativeGraph() : undefined
   if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext))
   if (diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
