@@ -117,7 +117,7 @@ textarea {
   border-radius: 6px;
   color: var(--dinkster-danger-foreground);
   background: var(--dinkster-danger-background);
-  font: 12px/1.5 monospace;
+  font: 12px/1.5 var(--dinkster-font-mono);
   white-space: pre-wrap;
 }
 
@@ -1390,7 +1390,7 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 11px/1.3 monospace;
+  font: 11px/1.3 var(--dinkster-font-mono);
   color: #d8e3ef;
 }
 .node-output-pager button.node-output-reveal {
@@ -2398,7 +2398,7 @@ body,
   align-items: center;
   gap: 10px;
   padding: 5px 12px;
-  font: 12px/1.4 sans-serif;
+  font: 12px/1.4 var(--dinkster-font-family);
   color: #d0d0d0;
   background: #252525f2;
   border: 1px solid #3a3a3a;
@@ -2435,7 +2435,7 @@ body,
   border: 1px solid #4a4a4a;
   border-radius: 4px;
   padding: 2px 10px;
-  font: 12px/1.4 sans-serif;
+  font: 12px/1.4 var(--dinkster-font-family);
   cursor: pointer;
 }
 
@@ -2455,7 +2455,7 @@ body,
   border: 1px solid #3a3a3a;
   border-radius: 6px;
   outline: none;
-  font: 12px/1.4 sans-serif;
+  font: 12px/1.4 var(--dinkster-font-family);
   color: #d0d0d0;
 }
 
@@ -2496,7 +2496,7 @@ body,
   border: 1px solid #3a3a3a;
   border-radius: 6px;
   color: #d0d0d0;
-  font: 12px/1.4 sans-serif;
+  font: 12px/1.4 var(--dinkster-font-family);
   pointer-events: none;
   white-space: pre-wrap;
 }
@@ -2765,7 +2765,7 @@ body,
   background: #1a1a1a;
   color: #e0e0e0;
   border: none;
-  font: 12px/1.4 sans-serif;
+  font: 12px/1.4 var(--dinkster-font-family);
   padding: 6px 8px;
   outline: none;
 }
@@ -4388,7 +4388,7 @@ body,
   border: none;
   color: #808080;
   cursor: pointer;
-  font: 11px/1 sans-serif;
+  font: 11px/1 var(--dinkster-font-family);
   padding: 2px 4px;
 }
 
@@ -4440,7 +4440,7 @@ body,
 }
 
 .surface-group-select {
-  font: 12px/1.4 sans-serif;
+  font: 12px/1.4 var(--dinkster-font-family);
 }
 
 .banner-button:disabled {
@@ -5127,7 +5127,7 @@ body,
   justify-content: center;
   background: #31414f;
   color: #9fc6e8;
-  font: 700 12px/1 sans-serif;
+  font: 700 12px/1 var(--dinkster-font-family);
 }
 
 .collection-text {
@@ -5140,7 +5140,7 @@ body,
 
 .collection-title {
   color: #d8d8d8;
-  font: 600 13px/1.3 sans-serif;
+  font: 600 13px/1.3 var(--dinkster-font-family);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5156,7 +5156,7 @@ body,
 
 .collection-subtitle {
   color: #909090;
-  font: 11px/1.3 sans-serif;
+  font: 11px/1.3 var(--dinkster-font-family);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5178,7 +5178,7 @@ body,
   color: #a8a8a8;
   border-radius: 4px;
   padding: 1px 6px;
-  font: 10px/1.5 sans-serif;
+  font: 10px/1.5 var(--dinkster-font-family);
 }
 .collection-badge[data-badge='installed'] { color: var(--dinkster-success-foreground); background: var(--dinkster-success-background); border: 1px solid var(--dinkster-success-border); }
 .collection-badge:is([data-badge='downloadable'], [data-badge='resolving']) { color: var(--dinkster-info-foreground); background: var(--dinkster-info-background); border: 1px solid var(--dinkster-info-border); }
@@ -5197,12 +5197,12 @@ body,
 
 .collection-details dt {
   color: #808080;
-  font: 11px/1.4 sans-serif;
+  font: 11px/1.4 var(--dinkster-font-family);
 }
 
 .collection-details dd {
   color: #c0c0c0;
-  font: 11px/1.4 sans-serif;
+  font: 11px/1.4 var(--dinkster-font-family);
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -5220,7 +5220,7 @@ body,
   border: 1px solid #4a3535;
   border-radius: 5px;
   padding: 3px 9px;
-  font: 11px/1.4 sans-serif;
+  font: 11px/1.4 var(--dinkster-font-family);
   cursor: pointer;
 }
 
@@ -5253,7 +5253,7 @@ body,
 
 .collection-total {
   color: #909090;
-  font: 11px/1.4 sans-serif;
+  font: 11px/1.4 var(--dinkster-font-family);
 }
 
 .collection-more {
