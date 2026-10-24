@@ -75,6 +75,10 @@ Retained-value refusals keep their reason and explanation in a neutral status
 card, not an execution error alert. Selection and stale-read cancellation
 remain owned by the inspector.
 
+The workflow queue popover uses ProductEmptyState when its owner has no jobs.
+Queue activation, disclosure, keyboard navigation and Escape focus restoration
+remain owned by the queue control.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.

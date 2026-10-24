@@ -1711,7 +1711,6 @@ body,
 .workflow-queue-list::-webkit-scrollbar { width: 8px; }
 .workflow-queue-list::-webkit-scrollbar-track { background: var(--dinkster-surface-inset); }
 .workflow-queue-list::-webkit-scrollbar-thumb { background: var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); }
-.workflow-queue-empty { margin: var(--dinkster-space-4); color: var(--dinkster-text-muted); }
 
 @media (max-width: 520px) {
   .workflow-queue-control { max-width: calc(100% - var(--dinkster-space-16)); }

@@ -1002,6 +1002,42 @@ test('Region iteration states keep unavailable, loading and retained refusal exp
   await page.evaluate(() => (window as unknown as { disposeRegionVisual(): void }).disposeRegionVisual())
 })
 
+test('Workflow queue empty popover preserves disclosure and Escape focus', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const componentPath = '/src/WorkflowQueueControl.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { WorkflowQueueControl } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('div')
+    host.style.cssText = 'position:absolute;top:64px;right:16px;width:440px;z-index:20'
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => WorkflowQueueControl({
+      owner: { id: 'queue-visual', title: 'Empty workflow', lineage: 'queue-visual' },
+      executions: [], canQueue: true,
+      onQueue: () => { host.dataset['queued'] = 'true' }, onOpenExecution: () => {},
+    }), host)
+    ;(window as unknown as { disposeQueueVisual: () => void }).disposeQueueVisual = () => { dispose(); host.remove() }
+  })
+  const control = page.locator('[data-testid="workflow-queue-control"][data-owner="queue-visual"]')
+  const toggle = control.getByTestId('workflow-queue-toggle')
+  await toggle.click()
+  const popover = control.getByRole('region', { name: 'Queue for Empty workflow' })
+  await expect(popover.getByText('No jobs for this workflow.', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `workflow-queue-empty-${width}`)
+  }
+  await toggle.press('Escape')
+  await expect(popover).toBeHidden()
+  await expect(toggle).toBeFocused()
+  await control.getByTestId('queue-button').click()
+  await expect(control.locator('..')).toHaveAttribute('data-queued', 'true')
+  await page.evaluate(() => (window as unknown as { disposeQueueVisual(): void }).disposeQueueVisual())
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

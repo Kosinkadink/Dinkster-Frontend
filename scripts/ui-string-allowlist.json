@@ -844,7 +844,7 @@
     "attribute:aria-label:Workflow jobs",
     "attribute:data-tooltip-detail:Ctrl+Enter",
     "attribute:data-tooltip-label:Queue workflow",
-    "text:No jobs for this workflow.",
+    "attribute:title:No jobs for this workflow.",
     "text:Queue"
   ],
   "WorkflowTabs.tsx": [

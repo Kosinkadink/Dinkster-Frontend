@@ -4,6 +4,7 @@ import type { ExecutionRef, LineageId } from '@dinkster/core'
 import Play from 'lucide-solid/icons/play'
 import { ExecutionActivityCard, executionProgress } from './ExecutionActivityCard.js'
 import { Icon } from './Icon.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 export interface WorkflowQueueOwner {
   readonly id: string
@@ -138,7 +139,7 @@ export function WorkflowQueueControl(props: {
             <strong>{props.owner.title}</strong>
             <span>{summary()}</span>
           </header>
-          <Show when={props.executions.length > 0} fallback={<p class="workflow-queue-empty">No jobs for this workflow.</p>}>
+          <Show when={props.executions.length > 0} fallback={<ProductEmptyState title="No jobs for this workflow." />}>
             <div
               ref={list}
               class="workflow-queue-list"
