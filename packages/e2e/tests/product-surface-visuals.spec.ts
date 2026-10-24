@@ -125,6 +125,43 @@ test('shell controls at desktop and compact widths', async ({ page }) => {
   }
 })
 
+test('writable runtime argument and logging controls at desktop and compact widths', async ({ page }) => {
+  const settings = {
+    categories: { granted: ['worker-comfy-args', 'logging'], available: ['worker-comfy-args', 'logging'] },
+    settings: {
+      'worker-comfy-args': { value: ['--preview-method', 'latent2rgb'], source: 'runtime', mutability: 'on-worker-restart', writable: true, persistence: { available: true, persisted: false } },
+      logging: { value: { level: 'info', overrides: { 'dinkster.engine': 'debug' } }, source: 'config', mutability: 'live', writable: true, persistence: { available: true, persisted: true } },
+    },
+  }
+  await page.route('**/api/settings*', (route) => route.fulfill({ json: settings }))
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      addBackend(url: string, label: string, persist: boolean, protocol: string): void
+    }
+    app.addBackend('/runtime-visual', 'Runtime visual', false, 'dinkster')
+  })
+  await page.getByTestId('backends-sidebar-toggle').click()
+  const runtime = page.getByTestId('runtime-settings').first()
+  await runtime.locator('.runtime-settings-toggle').click()
+  const argumentsCategory = runtime.locator('details[data-category="worker-comfy-args"]')
+  const loggingCategory = runtime.locator('details[data-category="logging"]')
+  await expect(argumentsCategory.getByRole('textbox')).toHaveCount(2)
+  await expect(loggingCategory.getByRole('textbox')).toHaveCount(2)
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await loggingCategory.evaluate((element) => { element.removeAttribute('open') })
+    await argumentsCategory.evaluate((element) => { element.setAttribute('open', '') })
+    await argumentsCategory.locator('fieldset').scrollIntoViewIfNeeded()
+    await screenshot(page, `runtime-arguments-${width}`)
+    await argumentsCategory.evaluate((element) => { element.removeAttribute('open') })
+    await loggingCategory.evaluate((element) => { element.setAttribute('open', '') })
+    await loggingCategory.locator('fieldset').scrollIntoViewIfNeeded()
+    await screenshot(page, `runtime-logging-${width}`)
+  }
+})
+
 test('populated output viewer in single, grid and compare modes', async ({ page }) => {
   await page.route(/\/view(?:\?|$)/, (route) => route.fulfill({
     contentType: 'image/svg+xml',
