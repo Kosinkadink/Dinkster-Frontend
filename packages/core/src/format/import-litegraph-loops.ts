@@ -602,6 +602,7 @@ export function convertLitegraphListConsumers(
     ][]) {
       if (
         node['type'] === 'EndLoop' &&
+        (node['mode'] === undefined || node['mode'] === 'active') &&
         !flattened.has(id) &&
         localResolve('std.list.concat')
       ) {

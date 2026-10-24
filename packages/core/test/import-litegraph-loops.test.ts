@@ -310,9 +310,14 @@ const workflowFiles = readdirSync(fixtureRoot)
   .sort()
 
 describe('explicit imported list utilities', () => {
-  it.each([false, true])(
-    'flattens declared list-backed native loop results only (list: %s)',
-    (listSource) => {
+  it.each([
+    [false, 0],
+    [true, 0],
+    [true, 2],
+    [true, 4],
+  ] as const)(
+    'flattens active declared list-backed native loop results only (list: %s, mode: %s)',
+    (listSource, mode) => {
       const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
       const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
       const list: TypeExpr = { kind: 'list', element: variable }
@@ -383,6 +388,7 @@ describe('explicit imported list utilities', () => {
             {
               id: 2,
               type: 'EndLoop',
+              mode,
               inputs: [{ name: 'output_value', link: 1 }],
               outputs: [{ name: 'outputs' }],
             },
@@ -396,8 +402,9 @@ describe('explicit imported list utilities', () => {
       ).toEqual([])
       const document = imported.document!
       const helper = document.graphs.g0!.nodes.loop_result_n2
-      expect(helper !== undefined).toBe(listSource)
-      if (listSource)
+      const adapted = listSource && mode === 0
+      expect(helper !== undefined).toBe(adapted)
+      if (adapted)
         expect(helper!.region).toMatchObject({
           kind: 'map',
           outputRoles: { list: { kind: 'flatten' } },
@@ -415,7 +422,7 @@ describe('explicit imported list utilities', () => {
         compiled.ok,
         compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
       ).toBe(true)
-      if (compiled.ok && listSource) {
+      if (compiled.ok && adapted) {
         expect(
           compiled.artifact.dinksterGraph!.nodes.loop_result_n2,
         ).toMatchObject({
