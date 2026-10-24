@@ -78,6 +78,7 @@ import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from 
 import {
   buildGraphConnectivity,
   elabInputsOf,
+  elabKeyOf,
   elabOutputsOf,
   elaborateInterface,
   valueKeyOf,
@@ -87,6 +88,7 @@ import {
   type ElaboratedOutput,
   type PortAddress,
 } from '../schema/elaborate.js'
+import { solveGraphTypes } from '../schema/solve.js'
 import {
   buildBoundaryCrossings,
   crossingTargets,
@@ -2502,6 +2504,7 @@ function compileImpl(
     if (!validatesNode(fn.runtimeId)) continue
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue // never reaches the prompt
+      if (input.origin.kind === 'member' && input.origin.ghost === true) continue
       const spec = input.spec
       if (fn.inputs[spec.id] !== undefined) continue
       if (spec.hidden === true) continue
@@ -2757,6 +2760,9 @@ function compileImpl(
       : { node: localRuntimeId(outputs[0]!.src.runtimeId, region), output }
   }
   const validationContext = new Map<string, DinksterGraphValidationNode>()
+  const solvedTypes = new Map(Object.values(doc.graphs).map((graph) => [graph.id,
+    solveGraphTypes(graph, resolve, { resolveNode: (node) => resolveNode(graph.id, node) }),
+  ]))
   const validationNode = (fn: FlatNode): DinksterGraphValidationNode => {
     const inputTypes: Record<string, TypeExpr> = {}
     const inputPorts: Record<string, PortRef> = {}
@@ -2791,9 +2797,10 @@ function compileImpl(
     for (const output of fn.elab.outputs) {
       if (output.wireable === false) continue
       const outputId = nativeOutputId(fn.runtimeId, output)
+      const solved = solvedTypes.get(fn.graphId)?.portTypeOf(fn.node.id, 'output', elabKeyOf(output.address))
       outputTypes[outputId] = output.spec.type.kind === 'variable' && selectorOutputType !== undefined
         ? selectorOutputType
-        : output.spec.type
+        : solved ?? output.spec.type
       outputPorts[outputId] = {
         node: fn.occ.node,
         port: output.address.port as PortRef['port'],

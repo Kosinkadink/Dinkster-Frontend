@@ -31,6 +31,14 @@ The `DinksterConnection.guessAssets` client batches at 64 names per sequential r
 
 ## Dynamic construct compatibility
 
+Imported `CreateList` nodes become explicit typed list construction and
+concatenation. Connected inputs keep their authored slot order, including
+sparse or out-of-order input names. Declared list outputs are concatenated;
+scalar outputs are wrapped as single elements. Payload shape never decides
+cardinality. `GetItemFromList` becomes explicit element selection, with a
+list-valued index first selecting index zero. These translations do not add
+implicit broadcast behavior to the engine.
+
 ComfyUI serializes widget values positionally. For a DynamicCombo it writes
 the selector first, then the selected branch's widget values in schema order,
 then resumes the containing branch or node. Dinkster's importer decodes that

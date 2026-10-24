@@ -60,7 +60,7 @@ import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
 import { isAssetRefValue, isSaveTargetValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
-import { convertLitegraphLoops } from './import-litegraph-loops.js'
+import { convertLitegraphLists, convertLitegraphLoops } from './import-litegraph-loops.js'
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
 
@@ -1444,7 +1444,9 @@ function importLitegraphGraph(
   const importedNodeType = (node: LgNode): string =>
     node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt' : node.type
   const resolveImported = (node: LgNode): NodeSchema | undefined =>
-    preparedGroupNodes.has(node.id)
+    node.type === 'CreateList' || node.type === 'GetItemFromList'
+      ? undefined
+      : preparedGroupNodes.has(node.id)
       ? comfyGroups?.groupSchemas.get(node.type)
       : groupPreparation.sourceSchemas.get(node.id) ?? resolve(importedNodeType(node))
 
@@ -1838,6 +1840,14 @@ function importLitegraphGraph(
     }
 
     const id = `n${n.id}`
+    if (n.type === 'CreateList' || n.type === 'GetItemFromList') {
+      const index = Array.isArray(n.widgets_values) ? n.widgets_values[0] : (n.widgets_values as Readonly<Record<string, Json>> | undefined)?.['index']
+      nodes[id] = { id, type: n.type, values: n.type === 'GetItemFromList' ? { index: index ?? 0 } : {} }
+      importedOutputEndpoints.set(n.id, new Map((n.outputs ?? []).map((output, slot) =>
+        [slot, { node: id, port: output.name ?? '*' }])))
+      viewNodes[id] = { position: posOf(n) }
+      continue
+    }
     const schema = resolveImported(n)
     const preparedGroup = preparedGroupNodes.get(n.id)
     const values: Record<string, Json> = { ...preparedGroup?.values }
@@ -2377,6 +2387,7 @@ function importLitegraphGraph(
     },
   } as unknown as JsonObject
 
+  convertLitegraphLists(document, rawNodes, resolve)
   convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags)
 
   // Error-level import diagnostics (e.g. untranslatable subgraph definitions)
