@@ -435,10 +435,12 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | `ASSET` | `core.asset`: selected name, `N assets`, or `no asset` | Native product dialog with shared `CollectionPanel`, upload for non-model kinds, image/video preview, details, a right-side selection panel with a staged-selection Remove action, Cancel, and a primary Use-asset commit; modal warranted: yes, for a focus-contained browser | declared type determines single/list/merge selection; top-level semantic `kind`; MIME `accept`; `default`; display name; AssetRef digest/name/size/media type/virtual path; classified image uploads are limited to 256 MiB, audio/video and latent uploads to 1 GiB, and generic uploads to 16 MiB per file; model upload is disabled | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/asset-browser.test.ts`, `app/test/LogicalModelCollection.dom.test.tsx`, `e2e/asset-widget.spec.ts`, `e2e/asset-browser.spec.ts`, `e2e/logical-model-picker.spec.ts`, `e2e/w9-f8-media-upload.spec.ts` |
 | `SAVE_TARGET` | `core.saveTarget`: mount, prefix, and descriptor-only suffix | Anchored mount/prefix popover with canonical declared type, declared output format, ready writable-mount choice, and grammar-validated prefix entry | `default`, display-only `suffix`, declared socket type, display name; mount and relative-prefix grammar; backend mount readiness/mode | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `e2e/save-target.spec.ts` |
 
-Unknown widget types and registered views without `editorUi` use the generic
-shared text popover. A registered `editorUi` uses the host-decoded path above;
-it never executes provider DOM. Only schema-less value sources use the existing
-raw JSON fallback.
+Unavailable widget kinds use the raw JSON fallback; registered views without
+`editorUi` use the generic shared text popover. A registered `editorUi` uses
+the host-decoded path above; it never executes provider DOM. Schema-less
+value sources also use the raw JSON fallback. An unavailable-kind draft
+survives scene refreshes while its document and declared row contract remain
+unchanged; document, schema, target, or extension changes still invalidate it.
 
 ## COMBO editor
 
