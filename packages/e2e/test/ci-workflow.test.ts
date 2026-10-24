@@ -411,16 +411,19 @@ describe('fast pull-request and full validation workflows', () => {
           (step) => step.name === 'Install hosted compatibility dependencies',
         )!
         expect(compatibilityInstall.run).toContain(
-          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@dacdebc66f097e9889ce66e36e41c25a7b8f6494',
+          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@c4ce40550e77f5a3b9b8d2f96597a4d6c24c1377',
         )
         expect(compatibilityInstall.run).toContain(
+          'uv pip install --python .ci/Dinkster/.venv-torch/bin/python',
+        )
+        expect(compatibilityInstall.run).not.toContain(
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
         )
         expect(compatibilityInstall.run).toContain(
           '--index https://download.pytorch.org/whl/cpu',
         )
         expect(compatibilityInstall.run).toContain(
-          '"dinkster-kitchen==0.2.35.post1" "dinkster-aimdo==0.5.5.post2"',
+          '"comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0"',
         )
         expect(compatibilityInstall.run).toContain(
           '"sentencepiece==0.2.1" "tokenizers==0.23.1"',
@@ -515,7 +518,7 @@ describe('fast pull-request and full validation workflows', () => {
       '`--comfy-root ${JSON.stringify(comfyRoot)}`',
     )
     expect(hostedConfig).toContain(
-      "`--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`",
+      "`--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`",
     )
     expect(hostedConfig).not.toContain("'--comfy-arg=--cpu'")
     expect(extensionContractConfig).toContain("'--no-default-packs'")

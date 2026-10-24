@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: 1a681440c71e3eee7231471c3fead748c4c60d64
+  DINKSTER_REF: 598e8e6d9545ac70b69c7afa4c8890b2e36da3bf
 
 jobs:
   validation-plan:
@@ -190,9 +190,12 @@ jobs:
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
       - name: Install hosted compatibility dependencies
         run: |
-          uv pip install --python .ci/ComfyUI/venv/bin/python --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match \
-            "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@dacdebc66f097e9889ce66e36e41c25a7b8f6494" \
-            packaging "dinkster-kitchen==0.2.35.post1" "dinkster-aimdo==0.5.5.post2" \
+          uv venv --python 3.12 .ci/Dinkster/.venv-torch
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python -r .ci/ComfyUI/requirements.txt
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match \
+            "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@c4ce40550e77f5a3b9b8d2f96597a4d6c24c1377" \
+            packaging "comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0" \
             "sentencepiece==0.2.1" "tokenizers==0.23.1"
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:

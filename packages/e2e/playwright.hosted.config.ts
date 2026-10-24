@@ -106,7 +106,7 @@ export default defineConfig({
         '--execution-cache-mode memory',
         '--allow-mount-changes',
         `--comfy-root ${JSON.stringify(comfyRoot)}`,
-        `--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
+        `--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`,
       ].join(' '),
       cwd: dinksterRoot,
       env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },
