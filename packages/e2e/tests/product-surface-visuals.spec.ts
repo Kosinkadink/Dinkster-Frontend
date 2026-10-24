@@ -892,6 +892,56 @@ test('Control surfaces explain empty bindings and invalid configuration and pres
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['source']!.mode)).toBe('muted')
 })
 
+test('Badge popover empty and unavailable states preserve focus and actions', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const [name, badge, text] of [
+    ['error', 'core.error', 'No error details recorded.'],
+    ['info', 'core.log.info', 'No log records for this run.'],
+    ['warning', 'core.log.warning', 'No log records for this run.'],
+    ['problem', 'core.problem.error', 'No problem details recorded.'],
+    ['subgraph', 'core.subgraph', 'Definition missing.'],
+    ['replacement', 'core.deprecated', 'Node missing.'],
+  ] as const) {
+    await page.evaluate(async (badge) => {
+      const target = window as unknown as { disposeBadgeVisual?: () => void }
+      target.disposeBadgeVisual?.()
+      const componentPath = '/src/BadgePopover.tsx'
+      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+      const { BadgePopover } = await import(componentPath)
+      const { render } = await import(rendererPath)
+      const host = document.createElement('div')
+      document.querySelector('.canvas-pane')!.append(host)
+      const dispose = render(() => BadgePopover({
+        anchor: { x: 32, y: 96, nodeId: 'source', badge: { id: badge, glyph: '!', color: '#f00' } },
+        errors: () => [], nodeLogs: () => [], problems: () => [],
+        subgraphInfo: () => undefined, replacementInfo: () => undefined,
+        onOpenSubgraph: () => {}, onApplyReplacement: () => {}, onClose: () => {},
+        onDismissError: () => { host.dataset['action'] = 'dismiss' },
+        onOpenExecutionLog: () => { host.dataset['action'] = 'log' },
+      }), host)
+      target.disposeBadgeVisual = () => { dispose(); host.remove() }
+    }, badge)
+    const popover = page.getByTestId('badge-popover')
+    await expect(popover).toBeFocused()
+    await expect(popover.getByText(text, { exact: true })).toBeVisible()
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `badge-${name}-empty-${width}`)
+    }
+    if (badge === 'core.error') {
+      await popover.getByRole('button', { name: 'Dismiss', exact: true }).click()
+      await expect(popover.locator('..')).toHaveAttribute('data-action', 'dismiss')
+    }
+    if (badge === 'core.log.info' || badge === 'core.log.warning') {
+      await popover.getByRole('button', { name: 'Open in Execution log', exact: true }).click()
+      await expect(popover.locator('..')).toHaveAttribute('data-action', 'log')
+    }
+  }
+  await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

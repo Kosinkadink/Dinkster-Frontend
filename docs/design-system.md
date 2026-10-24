@@ -64,6 +64,11 @@ is an alert; unsupported surfaces remain inert and removable. Bindings use
 ProductListRow inside list items, retaining removal actions and warning details
 for unresolved bindings without changing bulk mode commands.
 
+Badge popovers use ProductEmptyState when error, log or problem details are
+absent and when subgraph or replacement data is unavailable. These are missing
+detail messages, not new runtime alerts; popover focus and existing actions
+retain their behavior.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.
