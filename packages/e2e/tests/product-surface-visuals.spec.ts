@@ -454,6 +454,47 @@ test('runtime panel headers and backend add error at desktop and compact widths'
   }
 })
 
+test('Boundary prompt and definition empty states at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await openRail(page, 'Boundary')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
+      createWorkflow(): void
+    }).createWorkflow())
+    await expect(page.getByTestId('boundary-prompt')).toContainText('Open a subgraph definition')
+    await expect(page.getByTestId('boundary-prompt').getByRole('button')).toHaveCount(0)
+    await screenshot(page, `boundary-prompt-${width}`)
+    await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'boundary-visual', root: 'root',
+      graphs: {
+        root: {
+          id: 'root', name: 'Root', nodes: { occurrence: { id: 'occurrence', type: '#sub', values: {} } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+        },
+        sub: {
+          id: 'sub', name: 'Nested workflow', nodes: {}, links: {}, nets: {}, reroutes: {},
+          boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
+        },
+      },
+      view: { graphs: {
+        root: { nodes: { occurrence: { position: { x: 200, y: 100 } } } },
+        sub: { nodes: {} },
+      } },
+    }, 'Boundary visual'))
+    const open = page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Nested workflow', exact: true })
+    await expect(open).toBeEnabled()
+    await screenshot(page, `boundary-open-definition-${width}`)
+    await open.click()
+    await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
+    await expect(page.getByTestId('boundary-empty')).toHaveCount(2)
+    await expect(page.getByTestId('boundary-empty').first()).toContainText('No workflow inputs are exposed.')
+    await expect(page.getByTestId('boundary-empty').last()).toContainText('No workflow outputs are exposed.')
+    await screenshot(page, `boundary-empty-sections-${width}`)
+  }
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

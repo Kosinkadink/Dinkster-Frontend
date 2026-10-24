@@ -157,7 +157,6 @@
     "text:ReplacementBadgeInfo"
   ],
   "BoundaryPanel.tsx": [
-    "attribute:aria-label:Boundary editor",
     "attribute:aria-label:Maximum iterations",
     "attribute:aria-label:Region binding",
     "text:(undefined) const [nameDrafts, setNameDrafts] = createSolidSignal",

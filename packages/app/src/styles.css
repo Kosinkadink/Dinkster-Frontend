@@ -3942,7 +3942,6 @@ body,
 .boundary-state-badge[data-tone='pinned'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 .boundary-state-badge[data-tone='frozen'] { color: var(--dinkster-warning-foreground); background: var(--dinkster-warning-background); border-color: var(--dinkster-warning-border); }
 .boundary-frozen,
-.boundary-empty,
 .boundary-message {
   min-width: 0;
   padding: var(--dinkster-space-8) var(--dinkster-space-12);
@@ -3958,7 +3957,6 @@ body,
 .boundary-side-heading h3,
 .boundary-section-heading h3 { margin-top: 2px; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); text-transform: capitalize; }
 .boundary-count { min-width: var(--dinkster-space-24); justify-content: center; padding-inline: var(--dinkster-space-4); }
-.boundary-empty { color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); border-style: dashed; }
 .boundary-items { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
 .boundary-item {
   min-width: 0;
