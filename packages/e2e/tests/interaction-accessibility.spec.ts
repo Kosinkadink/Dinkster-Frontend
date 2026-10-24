@@ -67,7 +67,7 @@ async function installProofSurfaces(page: Page): Promise<void> {
       items: [{
         kind: 'input',
         id: 'seed',
-        type: { kind: 'concrete', name: 'core.int' },
+        type: { kind: 'concrete', name: 'INT' },
         optional: false,
         widget: {
           widgetType: 'INT',

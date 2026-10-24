@@ -121,9 +121,9 @@ describe('pairing', () => {
   })
 
   it.each([
-    ['INT', 'core.int'],
-    ['FLOAT', 'core.float'],
-    ['BOOLEAN', 'core.boolean'],
+    ['INT', 'INT'],
+    ['FLOAT', 'FLOAT'],
+    ['BOOLEAN', 'BOOLEAN'],
   ] as const)('renders forceInput wire-15 %s family members as pairable socket rows', (widgetType, typeName) => {
     const family = input('values', {
       type: { kind: 'wildcard' },
@@ -181,7 +181,7 @@ describe('pairing', () => {
   it('derives a numeric literal for a wire-15 scalar union while retaining its socket type', () => {
     const scalar = {
       kind: 'union' as const,
-      names: ['core.float', 'core.int', 'core.boolean'],
+      names: ['FLOAT', 'INT', 'BOOLEAN'],
     }
     const family = input('values', {
       type: { kind: 'wildcard' },
@@ -208,7 +208,7 @@ describe('pairing', () => {
   it('uses a decimal editor for a named integer/boolean union', () => {
     const scalar = {
       kind: 'union' as const,
-      names: ['core.int', 'core.boolean'],
+      names: ['INT', 'BOOLEAN'],
     }
     const family = input('values', {
       type: { kind: 'wildcard' },
@@ -236,7 +236,7 @@ describe('pairing', () => {
         materialization: 'wire15',
         naming: { kind: 'prefix', prefix: 'value', min: 1, max: 3 },
         template: [input('value', {
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           widget: { widgetType: 'INT', options: {} },
           forceInput: true,
         })],
@@ -256,7 +256,7 @@ describe('pairing', () => {
         options: [{
           key: 'active',
           inputs: [input('value', {
-            type: { kind: 'concrete', name: 'core.int' },
+            type: { kind: 'concrete', name: 'INT' },
             widget: { widgetType: 'INT', options: {} },
             forceInput: true,
           })],
@@ -298,7 +298,7 @@ describe('declared order', () => {
 
 describe('wire-17 widget representations', () => {
   const represented = widget('text', {
-    type: { kind: 'concrete', name: 'core.string' },
+    type: { kind: 'concrete', name: 'STRING' },
     widget: {
       widgetType: 'STRING',
       options: { multiline: true },
@@ -338,7 +338,7 @@ describe('wire-17 widget representations', () => {
 
   it('treats an ordinary string multiline hint as its switchable default', () => {
     const ordinary = widget('text', {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
     })
     const layout = (selection?: string) => layoutNode(
@@ -359,7 +359,7 @@ describe('wire-17 widget representations', () => {
 
   it('retains dynamic API names for schema completion sources', () => {
     const dynamic = schemaOf([widget('text', {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: {} },
     })])
     const row = layoutNode(
@@ -375,7 +375,7 @@ describe('wire-17 widget representations', () => {
             address: { port: 'values.value', members: [asDynamicMemberId('m0')] },
             apiName: 'values.value0',
             spec: widget('values.value#m0', {
-              type: { kind: 'concrete', name: 'core.string' },
+              type: { kind: 'concrete', name: 'STRING' },
               widget: { widgetType: 'STRING', options: {} },
             }),
             origin: { kind: 'member', construct: 'values', ordinal: 0, wire15Naming: 'prefix' },
@@ -392,7 +392,7 @@ describe('wire-17 widget representations', () => {
 describe('document-time selector branch display', () => {
   const selectorSchema = (): NodeSchema => ({
     ...schemaOf([
-      widget('switch', { type: { kind: 'concrete', name: 'core.boolean' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
+      widget('switch', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
       input('on_false'),
       input('on_true'),
       output('result'),
@@ -495,7 +495,7 @@ describe('after-generate controller rows', () => {
 
   it('reuses controller chip metadata for a remote COMBO after-refresh slot', () => {
     const combo = widget('model', {
-      type: { kind: 'concrete', name: 'core.combo' },
+      type: { kind: 'concrete', name: 'COMBO' },
       widget: {
         widgetType: 'COMBO', options: {}, default: 'a', controller: 'after_refresh',
         remote: { route: '/models', refreshButton: true, controlAfterRefresh: 'first' },
@@ -705,7 +705,7 @@ describe('manual size override', () => {
 
   it('gives one active core.text row all extra height and shifts following rows and pins', () => {
     const items = [
-      widget('text', { type: { kind: 'concrete', name: 'core.string' }, widget: { widgetType: 'STRING', options: { multiline: true } } }),
+      widget('text', { type: { kind: 'concrete', name: 'STRING' }, widget: { widgetType: 'STRING', options: { multiline: true } } }),
       input('after'),
     ]
     const natural = doLayout(items)
@@ -723,7 +723,7 @@ describe('manual size override', () => {
 
   it('shares extra height across active core.text rows in schema order with remainder on the final row', () => {
     const text = (id: string) => widget(id, {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
     })
     const items = [text('first'), widget('number'), text('second'), input('after')]
@@ -744,12 +744,12 @@ describe('manual size override', () => {
 
   it('does not give manual height surplus to an inactive core.text branch', () => {
     const text = (id: string) => widget(id, {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
     })
     const items = [
       widget('switch', {
-        type: { kind: 'concrete', name: 'core.boolean' },
+        type: { kind: 'concrete', name: 'BOOLEAN' },
         widget: { widgetType: 'BOOLEAN', options: {} },
       }),
       text('active'),
@@ -775,7 +775,7 @@ describe('manual size override', () => {
 
   it('leaves core.line and every following row at natural geometry when manually grown', () => {
     const represented = widget('text', {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: {
         widgetType: 'STRING', options: { multiline: true },
         representations: {
@@ -829,7 +829,7 @@ describe('in-node preview region', () => {
 
   it('expands and clears without changing a manually sized multiline row', () => {
     const items = [widget('text', {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
     })]
     const natural = doLayout(items)
@@ -908,7 +908,7 @@ describe('in-node preview region', () => {
     )
 
     const textItems = [widget('text', {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
     })]
     const text = doLayout(textItems)
@@ -1300,17 +1300,17 @@ describe('sections', () => {
   })
 })
 
-describe('v14 core.combo layout', () => {
+describe('v14 COMBO layout', () => {
   const comboWidget = (id: string, over: Partial<InputSpec> = {}): InputSpec =>
-    input(id, { type: { kind: 'concrete', name: 'core.combo' }, widget: { widgetType: 'COMBO', options: { options: ['a', 'b'] } }, ...over })
+    input(id, { type: { kind: 'concrete', name: 'COMBO' }, widget: { widgetType: 'COMBO', options: { options: ['a', 'b'] } }, ...over })
   const comboOutput = (id: string): OutputSpec =>
-    ({ kind: 'output', id, type: { kind: 'concrete', name: 'core.combo' } })
+    ({ kind: 'output', id, type: { kind: 'concrete', name: 'COMBO' } })
 
-  it('preserves core.combo identity on widget pins, taps, and output slots', () => {
+  it('preserves COMBO identity on widget pins, taps, and output slots', () => {
     const l = doLayout([comboWidget('forced', { forceInput: true }), comboWidget('backed'), comboOutput('choice')])
-    expect(l.pins.filter((p) => ['forced', 'backed', 'choice'].includes(p.portId)).every((pin) => JSON.stringify(pin.type).includes('core.combo'))).toBe(true)
-    expect(l.pins.find((p) => p.portId === 'backed' && p.direction === 'out')).toMatchObject({ widgetTap: true, staticWidgetTap: true, type: { name: 'core.combo' } })
-    expect(l.rows.find((r) => r.kind === 'ports' && r.output?.portId === 'choice')).toMatchObject({ output: { type: { name: 'core.combo' } } })
+    expect(l.pins.filter((p) => ['forced', 'backed', 'choice'].includes(p.portId)).every((pin) => JSON.stringify(pin.type).includes('COMBO'))).toBe(true)
+    expect(l.pins.find((p) => p.portId === 'backed' && p.direction === 'out')).toMatchObject({ widgetTap: true, staticWidgetTap: true, type: { name: 'COMBO' } })
+    expect(l.rows.find((r) => r.kind === 'ports' && r.output?.portId === 'choice')).toMatchObject({ output: { type: { name: 'COMBO' } } })
   })
 
   it('does not mark DynamicCombo selector or active branch widget taps as static', () => {

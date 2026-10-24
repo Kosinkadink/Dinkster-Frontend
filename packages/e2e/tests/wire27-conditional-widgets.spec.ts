@@ -5,11 +5,11 @@ const combo = (id: string, options: readonly string[], value: string) => ({
   role: 'input',
   id,
   required: false,
-  type: concrete('core.combo'),
+  type: concrete('COMBO'),
   default: value,
   widget: { type: 'COMBO', options },
 })
-const number = (id: string, type: 'core.int' | 'core.float', value: number) => ({
+const number = (id: string, type: 'INT' | 'FLOAT', value: number) => ({
   role: 'input',
   id,
   required: false,
@@ -19,23 +19,23 @@ const number = (id: string, type: 'core.int' | 'core.float', value: number) => (
 })
 
 const resizeInterface = [
-  { role: 'input', id: 'image', required: true, type: concrete('dinkster.image') },
+  { role: 'input', id: 'image', required: true, type: concrete('IMAGE') },
   combo('target', ['dimensions', 'width', 'height', 'longest', 'shortest', 'factor', 'total_pixels', 'multiple_of', 'match'], 'dimensions'),
-  number('width', 'core.int', 512),
-  number('height', 'core.int', 512),
-  number('size', 'core.int', 512),
-  number('factor', 'core.float', 1),
-  number('megapixels', 'core.float', 1),
-  number('multiple_of', 'core.int', 8),
-  number('resolution_steps', 'core.int', 1),
+  number('width', 'INT', 512),
+  number('height', 'INT', 512),
+  number('size', 'INT', 512),
+  number('factor', 'FLOAT', 1),
+  number('megapixels', 'FLOAT', 1),
+  number('multiple_of', 'INT', 8),
+  number('resolution_steps', 'INT', 1),
   combo('mode', ['stretch', 'fit', 'fill', 'pad'], 'stretch'),
   combo('interpolation', ['nearest-exact', 'bilinear', 'area', 'bicubic', 'lanczos'], 'bilinear'),
-  number('pad_value', 'core.float', 0),
+  number('pad_value', 'FLOAT', 0),
   combo('compatibility', ['native', 'kjnodes_v1', 'kjnodes_v2', 'essentials'], 'native'),
-  number('divisible_by', 'core.int', 0),
+  number('divisible_by', 'INT', 0),
   combo('anchor', ['center', 'top', 'bottom', 'left', 'right'], 'center'),
   combo('condition', ['always', 'downscale_if_bigger', 'upscale_if_smaller', 'if_bigger_area', 'if_smaller_area'], 'always'),
-  { role: 'output', id: 'image', type: concrete('dinkster.image') },
+  { role: 'output', id: 'image', type: concrete('IMAGE') },
 ]
 
 const widgetGroups = [

@@ -401,17 +401,17 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
       {
         type: 'dinkster.load_image', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
         items: [
-          { kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
-          { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' } },
-          { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'dinkster.mask' } },
+          { kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
+          { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
+          { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'MASK' } },
         ],
       },
       {
         type: 'dinkster.mask.paint', displayName: 'Paint Mask', category: 'test', source: 'v3', isOutputNode: false,
         items: [
-          { kind: 'input', id: 'source', type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
-          { kind: 'input', id: 'operations', type: { kind: 'concrete', name: 'core.string' }, optional: false, widget: { widgetType: 'STRING', options: { multiline: true } } },
-          { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'dinkster.mask' } },
+          { kind: 'input', id: 'source', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
+          { kind: 'input', id: 'operations', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: { multiline: true } } },
+          { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'MASK' } },
         ],
       },
     ] as never)

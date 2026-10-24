@@ -32,7 +32,7 @@ describe('typeColor', () => {
   it('normalizes bare case and core primitive namespaces through the renderer path', () => {
     expect(typeColor(defaultTokens, 'model')).toBe(COMFY_TYPE_COLORS.MODEL)
     expect(typeColor(defaultTokens, 'comfy.model')).toBe(COMFY_TYPE_COLORS.MODEL)
-    expect(typeColor(defaultTokens, 'core.int')).toBe(defaultTokens.typeColors.INT)
+    expect(typeColor(defaultTokens, 'INT')).toBe(defaultTokens.typeColors.INT)
   })
 
   it('colors structured values by their base type', () => {
@@ -49,24 +49,24 @@ describe('typeColor', () => {
 })
 
 describe('presentedType', () => {
-  const stringType: TypeExpr = { kind: 'concrete', name: 'core.string' }
-  const comboType: TypeExpr = { kind: 'concrete', name: 'core.combo' }
+  const stringType: TypeExpr = { kind: 'concrete', name: 'STRING' }
+  const comboType: TypeExpr = { kind: 'concrete', name: 'COMBO' }
 
-  it('presents concrete core.combo with the pinned COMBO identity', () => {
+  it('presents concrete COMBO with the pinned COMBO identity', () => {
     expect(presentedType(defaultTokens, comboType)).toEqual({
-      canonicalName: 'core.combo',
+      canonicalName: 'COMBO',
       label: 'COMBO',
-      color: defaultTokens.typeColors['core.combo'],
+      color: defaultTokens.typeColors['COMBO'],
       tooltip: 'COMBO (string with choices)',
     })
   })
 
-  it('leaves an unmarked core.string presentation unchanged', () => {
+  it('leaves an unmarked STRING presentation unchanged', () => {
     expect(presentedType(defaultTokens, stringType)).toEqual({
-      canonicalName: 'core.string',
-      label: 'core.string',
+      canonicalName: 'STRING',
+      label: 'STRING',
       color: defaultTokens.typeColors.STRING,
-      tooltip: 'core.string',
+      tooltip: 'STRING',
     })
   })
 

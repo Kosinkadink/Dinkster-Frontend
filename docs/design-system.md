@@ -38,10 +38,40 @@ raw controls, and `rawControl` or `cssLiteral` ceilings above the current total.
 After removing controls or literals, run `pnpm check:raw-controls:write` to remove
 stale entries and lower ceilings. Write mode never permits count increases.
 
+The executed image viewer uses compact `ProductButton` controls and grid tiles,
+`ProductNumberInput` for independent left/right image selection, and
+`ProductSlider` for the compare split. Selected modes use the primary variant.
+Number inputs can normalize committed text with `normalizeCommit`; the viewer
+restores blank input and clamps/truncates image numbers before displaying them,
+including when the selected image does not change. Grid and toolbar CSS owns
+layout only; shared primitives own control colors, borders and focus states.
+
+The compositor editor uses the same buttons, number inputs, checkboxes,
+sliders, text input and select controls as the Image document workspace.
+Layer selection and flips expose pressed state with the primary variant.
+`ProductColorInput` keeps the native color picker and forwards native input
+props while using shared input styling; the compositor retains lowercase
+color storage. Recipe edits, preview geometry and apply/refusal rules remain
+owned by the editor, not by the controls.
+
+Runtime settings uses compact `ProductButton` actions and `ProductTextInput`
+fields for worker arguments, logger overrides and textual memory values.
+`ProductField`, `ProductNotice` and `ProductActionFooter` retain the form
+structure; numeric, slider, select and checkbox editors use their existing
+Product controls. Native form submission, disabled fieldsets, grants, reset
+and refresh behavior remain owned by the runtime settings panel.
+
+The output descriptor editor uses compact `ProductButton` actions,
+`ProductTextInput` name/ID fields, `ProductTextArea` stored JSON and the existing
+`ProductSelect` type picker. Semantic tokens style its entry and stale-link
+containers. The editor retains draft commits, profile probing, read-only
+metadata, exact stored JSON and stale-link disconnection behavior.
+
 | Primitive            | Contract                                                                                                                                          | Adopted surfaces                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `ProductButton`      | Native button props; primary, secondary, danger and ghost variants; control and compact sizes; loading disables activation and exposes busy state | Learn, Node help, Activity, Execution log, Problems, Desktop management, mounts, audio recorder and Image document empty state |
 | `ProductTextInput`   | Native text input props and invalid state                                                                                                         | Learn, Desktop management and mounts                                                                                           |
+| `ProductFileInput`   | Hidden native file input; forwards ref, accept, multiple and change events to a separately labelled activation button                              | Image document import, layers and masks                                                                                        |
 | `ProductTextArea`    | Native textarea props and invalid state                                                                                                           | Desktop management                                                                                                             |
 | `ProductSelect`      | Labelled combobox/listbox with controlled selection, keyboard navigation and focus restoration                                                    | Settings, Execution log and Desktop management                                                                                 |
 | `ProductPanelHeader` | Level-two title, optional count and actions                                                                                                       | Problems                                                                                                                       |
@@ -53,7 +83,7 @@ The raw-control baseline after these adoptions is 441 controls, 70 inline-style
 attributes and 423 CSS color/radius literals. The largest remaining control
 surfaces are App view (60), Canvas host overlays (39), Image document's editor
 controls outside its converted empty state (36), App shell (20), Executed image
-viewer (18), Compositor editor (15), Runtime settings (13), and Video edit, P2P,
+viewer (18), Compositor editor (15), Runtime settings (13), and Video edit,
 Output descriptor and Combo editor (12 each). Their counts may shrink but may
 not grow. This inventory is a migration queue, not a second component system.
 
@@ -82,6 +112,17 @@ app TypeScript and every app stylesheet. Use a name from the shared projection
 or a local CSS declaration. Compact controls use `control-compact-height`,
 caption text uses the metadata type scale, and monospace labels use `font-mono`.
 
+The application bundles Noto Sans regular, bold and italic and Noto Sans Mono
+in `packages/app/public/fonts`, with the SIL Open Font License beside them.
+DOM and canvas text share these faces through the type tokens. Font faces use
+`font-display: block`; startup waits for them before canvas text measurement.
+Generic sans-serif and monospace families are fallback glyph sources only.
+To replace the fonts, replace the woff2 assets and license, update
+`packages/app/src/fonts.css`, the font loads in `main.tsx`, and the two family
+tokens in `packages/core/src/ui/tokens.ts`, then regenerate the visual baselines.
+These woff2 files are lossless conversions of Debian `fonts-noto-core` and
+`fonts-noto-mono` version `20201225-2`, made with FontTools 4.67.0 and Brotli 1.2.1.
+
 Selected surfaces use `text.onSelected` for foreground content. Token objects
 and their projections are recursively frozen at runtime.
 
@@ -90,6 +131,12 @@ workflow tabs, activity rail, panel hosts, the right zone's tab row, status
 bar, focus rings, and responsive sheets use semantic surface, text, border,
 space, type, shape, interaction, motion, and elevation roles. Feature panel
 bodies do not supply private shell headers, tab chrome, or resize chrome.
+Status-bar Product buttons retain their shared colors, borders and focus
+behavior but use intrinsic metadata-line height without vertical padding to
+preserve the 28 px desktop footer and its canvas space.
+Desktop status groups use the shared 8 px gap so full metadata and contribution
+labels fit at 1280 px with wider system fonts. Compact status groups retain
+their wrapping layout.
 
 Transient product UI shares `.floating-surface` for root chrome and uses
 `placeFloatingSurface` for block, inline, or point anchoring. Universal search

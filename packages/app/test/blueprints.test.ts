@@ -303,7 +303,7 @@ describe('insertBlueprintIntoTab', () => {
           id: 'seed',
           type: { kind: 'concrete', name: 'INT' },
           optional: false,
-          widget: { widgetType: 'core.int', options: {}, default: 7 },
+          widget: { widgetType: 'INT', options: {}, default: 7 },
         },
         { kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } },
       ],

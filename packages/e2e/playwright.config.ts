@@ -133,7 +133,9 @@ const NATIVE_WITHOUT_V1_SPECS = [
 
 export default defineConfig({
   testDir: './tests',
+  snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}{ext}',
   timeout: 60_000,
+  reporter: [[process.env['CI'] ? 'dot' : 'list'], ['./custom-widget-server-reporter.ts']],
   // SH3 (amended 2026-07-27): every worker shares ONE dev server and ONE
   // live backend per protocol. The dev server tolerates concurrent
   // clients, but specs that execute prompts or write server state
@@ -155,7 +157,6 @@ export default defineConfig({
       testIgnore: [
         ...BACKEND_SERIAL_SPECS,
         ...PERFORMANCE_SPECS,
-        ...(process.env['DINKSTER_P2P_TESTS'] === '1' ? [] : ['p2p-onboarding.spec.ts']),
         'extension-contract-pack.spec.ts',
       ].map((f) => `tests/${f}`),
     },
@@ -179,6 +180,16 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${devPort}`,
     viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    launchOptions: {
+      args: [
+        '--disable-gpu',
+        '--disable-gpu-compositing',
+        '--disable-partial-raster',
+        '--force-device-scale-factor=1',
+        '--font-render-hinting=none',
+      ],
+    },
   },
   webServer: [
     {

@@ -10,6 +10,11 @@ tabs to durable images. **New from image** creates a document from PNG, JPEG, or
 WebP. The workspace restores every valid draft in the current project and keeps
 workflow tabs unchanged when you switch back.
 
+The workspace uses shared Product buttons and text fields, including primary
+publish/render actions and danger actions for removal and ending a shared
+session. Hidden Product file inputs retain native image selection for documents,
+layers and masks. Toolbar actions wrap and layer actions reflow in narrow panes.
+
 The left pane owns the raster layer tree and stacking order. The right pane
 edits names, visibility, fixed-point affine transforms, opacity, blend mode,
 and raster masks. Mask controls include enable, invert, opacity, combine mode,
@@ -110,7 +115,7 @@ The live acceptance executes paint, layer, and flatten nodes and checks every
 decoded transparency-mask sample against the identically edited explicit bake.
 For other eligible inputs, **Bake to asset** explicitly replaces the input
 asset; **Cancel** leaves the workflow unchanged. Typed PNG inputs use the same
-editor and command guard for `asset<dinkster.image>` and `asset<comfy.IMAGE>`;
+editor and command guard for `asset<IMAGE>`;
 hidden and driven inputs are not writable.
 
 ## Authoritative render

@@ -20,6 +20,10 @@ import { isCompositorEditorTarget, type AppState, type CompositorEditorTarget } 
 import type { EditorHostContext } from './editors.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
+import { ProductButton, ProductCheckbox, ProductColorInput, ProductTextInput } from './ProductControls.js'
+import { ProductNumberInput } from './ProductNumberInput.js'
+import { ProductSelect } from './ProductSelect.js'
+import { ProductSlider } from './ProductSlider.js'
 
 interface RuntimeCompositor {
   readonly state: CompositorState
@@ -109,17 +113,14 @@ function NumberField(props: {
   readonly disabled: () => boolean
   readonly onInput: (value: number) => void
 }) {
-  return <label>{props.label}<input
-    type="number"
+  return <label>{props.label}<ProductNumberInput
+    ariaLabel={props.label}
     value={props.value()}
     min={props.min}
     max={props.max}
     step={props.step ?? 1}
     disabled={props.disabled()}
-    onInput={(event) => {
-      const value = event.currentTarget.valueAsNumber
-      if (Number.isFinite(value)) props.onInput(value)
-    }}
+    onInput={(raw) => props.onInput(Number(raw))}
   /></label>
 }
 
@@ -349,8 +350,8 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
         <header class="image-editor-header">
           <div><strong>{message('compositor.editor')}</strong><span>{message('compositor.title')}</span><small>{request().nodeId} / {request().inputId}</small></div>
           <div class="image-editor-actions">
-            <button onClick={() => props.app.closeImageEditor(request())}>{message('compositor.action.cancel')}</button>
-            <button class="primary" disabled={readonly() || !isConfiguredCompositorRecipe(draft())} onClick={apply}>{message('compositor.action.apply')}</button>
+            <ProductButton size="compact" onClick={() => props.app.closeImageEditor(request())}>{message('compositor.action.cancel')}</ProductButton>
+            <ProductButton size="compact" variant="primary" disabled={readonly() || !isConfiguredCompositorRecipe(draft())} onClick={apply}>{message('compositor.action.apply')}</ProductButton>
           </div>
         </header>
         <Show when={draft()} fallback={
@@ -364,20 +365,21 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
               <header><strong>{message('compositor.layers.title')}</strong><small>{recipe().layers.length} / 50</small></header>
               <div class="compositor-layer-list">
                 <For each={[...recipe().layers].reverse()}>{(layer) =>
-                  <button
+                  <ProductButton size="compact" variant={selectedId() === layer.id ? 'primary' : 'secondary'}
                     class="compositor-layer-row"
                     classList={{ selected: selectedId() === layer.id }}
+                    aria-pressed={selectedId() === layer.id}
                     onClick={() => setSelectedId(layer.id)}
                   >
                     <span classList={{ hidden: !layer.visible }}>{message(layer.visible ? 'compositor.layer.visible' : 'compositor.layer.hidden')}</span>
                     <strong>{layer.name}</strong>
                     <small>{layer.blend.replaceAll('_', ' ')}</small>
-                  </button>
+                  </ProductButton>
                 }</For>
               </div>
               <div class="compositor-layer-order">
-                <button disabled={!selectedLayer() || recipe().layers.at(-1)?.id === selectedId()} onClick={() => reorder(1)}>{message('compositor.layer.raise')}</button>
-                <button disabled={!selectedLayer() || recipe().layers[0]?.id === selectedId()} onClick={() => reorder(-1)}>{message('compositor.layer.lower')}</button>
+                <ProductButton size="compact" disabled={!selectedLayer() || recipe().layers.at(-1)?.id === selectedId()} onClick={() => reorder(1)}>{message('compositor.layer.raise')}</ProductButton>
+                <ProductButton size="compact" disabled={!selectedLayer() || recipe().layers[0]?.id === selectedId()} onClick={() => reorder(-1)}>{message('compositor.layer.lower')}</ProductButton>
               </div>
             </aside>
             <main class="compositor-preview-panel">
@@ -412,25 +414,24 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
                   <NumberField label={message('compositor.field.height')} value={() => recipe().canvas.height} min={1} max={16384} disabled={readonly}
                     onInput={(height) => setDraft({ ...recipe(), canvas: { ...recipe().canvas, height: Math.round(height) } })} />
                 </div>
-                <label class="compositor-check"><input type="checkbox" checked={recipe().background.visible} disabled={readonly()}
-                  onChange={(event) => setDraft({ ...recipe(), background: { ...recipe().background, visible: event.currentTarget.checked } })} />{message('compositor.background.enabled')}</label>
-                <label>{message('compositor.background.color')}<input type="color" value={recipe().background.color} disabled={readonly()}
+                <label class="compositor-check"><ProductCheckbox checked={recipe().background.visible} disabled={readonly()} ariaLabel={message('compositor.background.enabled')}
+                  onChange={(visible) => setDraft({ ...recipe(), background: { ...recipe().background, visible } })} />{message('compositor.background.enabled')}</label>
+                <label>{message('compositor.background.color')}<ProductColorInput value={recipe().background.color} disabled={readonly()}
                   onInput={(event) => setDraft({ ...recipe(), background: { ...recipe().background, color: event.currentTarget.value.toLowerCase() } })} /></label>
-                <label>{message('compositor.background.opacity')}<input type="range" min="0" max="1" step="0.01" value={recipe().background.opacity} disabled={readonly()}
-                  onInput={(event) => setDraft({ ...recipe(), background: { ...recipe().background, opacity: event.currentTarget.valueAsNumber } })} /></label>
+                <label>{message('compositor.background.opacity')}<ProductSlider min={0} max={1} step={0.01} value={recipe().background.opacity} disabled={readonly()} ariaLabel={message('compositor.background.opacity')}
+                  onInput={(opacity) => setDraft({ ...recipe(), background: { ...recipe().background, opacity } })} /></label>
               </fieldset>
               <Show when={selectedLayer()}>{(layer) => <fieldset>
                 <legend>{message('compositor.selected.title')}</legend>
-                <label>{message('compositor.field.name')}<input value={layer().name} maxlength="256" disabled={readonly()}
+                <label>{message('compositor.field.name')}<ProductTextInput value={layer().name} maxlength="256" disabled={readonly()}
                   onInput={(event) => updateSelected((value) => ({ ...value, name: event.currentTarget.value }))} /></label>
-                <label class="compositor-check"><input type="checkbox" checked={layer().visible} disabled={readonly()}
-                  onChange={(event) => updateSelected((value) => ({ ...value, visible: event.currentTarget.checked }))} />{message('compositor.layer.visible')}</label>
-                <label>{message('compositor.field.opacity')}<input type="range" min="0" max="1" step="0.01" value={layer().opacity} disabled={readonly()}
-                  onInput={(event) => updateSelected((value) => ({ ...value, opacity: event.currentTarget.valueAsNumber }))} /></label>
-                <label>{message('compositor.field.blendMode')}<select value={layer().blend} disabled={readonly()}
-                  onChange={(event) => updateSelected((value) => ({ ...value, blend: event.currentTarget.value as CompositorLayer['blend'] }))}>
-                  <For each={COMPOSITOR_BLEND_MODES}>{(mode) => <option value={mode}>{mode.replaceAll('_', ' ')}</option>}</For>
-                </select></label>
+                <label class="compositor-check"><ProductCheckbox checked={layer().visible} disabled={readonly()} ariaLabel={message('compositor.layer.visible')}
+                  onChange={(visible) => updateSelected((value) => ({ ...value, visible }))} />{message('compositor.layer.visible')}</label>
+                <label>{message('compositor.field.opacity')}<ProductSlider min={0} max={1} step={0.01} value={layer().opacity} disabled={readonly()} ariaLabel={message('compositor.field.opacity')}
+                  onInput={(opacity) => updateSelected((value) => ({ ...value, opacity }))} /></label>
+                <label>{message('compositor.field.blendMode')}<ProductSelect selectedId={layer().blend} disabled={readonly()} ariaLabel={message('compositor.field.blendMode')}
+                  options={COMPOSITOR_BLEND_MODES.map((mode) => ({ id: mode, label: mode.replaceAll('_', ' '), value: mode }))}
+                  onSelect={(option) => updateSelected((value) => ({ ...value, blend: option.value }))} /></label>
                 <div class="compositor-field-grid">
                   <NumberField label={message('compositor.field.x')} value={() => layer().transform.x} disabled={readonly} onInput={(value) => updateTransform('x', value)} />
                   <NumberField label={message('compositor.field.y')} value={() => layer().transform.y} disabled={readonly} onInput={(value) => updateTransform('y', value)} />
@@ -440,8 +441,8 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
                 <NumberField label={message('compositor.field.rotationDegrees')} value={() => layer().transform.rotation * 180 / Math.PI} step={0.1} disabled={readonly}
                   onInput={(value) => updateTransform('rotation', value * Math.PI / 180)} />
                 <div class="compositor-flips">
-                  <button classList={{ selected: layer().flipH }} onClick={() => updateSelected((value) => ({ ...value, flipH: !value.flipH }))}>{message('compositor.flip.horizontal')}</button>
-                  <button classList={{ selected: layer().flipV }} onClick={() => updateSelected((value) => ({ ...value, flipV: !value.flipV }))}>{message('compositor.flip.vertical')}</button>
+                  <ProductButton size="compact" variant={layer().flipH ? 'primary' : 'secondary'} aria-pressed={layer().flipH} onClick={() => updateSelected((value) => ({ ...value, flipH: !value.flipH }))}>{message('compositor.flip.horizontal')}</ProductButton>
+                  <ProductButton size="compact" variant={layer().flipV ? 'primary' : 'secondary'} aria-pressed={layer().flipV} onClick={() => updateSelected((value) => ({ ...value, flipV: !value.flipV }))}>{message('compositor.flip.vertical')}</ProductButton>
                 </div>
               </fieldset>}</Show>
             </aside>

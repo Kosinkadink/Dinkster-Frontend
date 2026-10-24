@@ -6,7 +6,7 @@ import {
   type RuntimeSettingSection,
   type RuntimeSettings,
 } from '@dinkster/client'
-import { ProductCheckbox } from './ProductControls.js'
+import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
@@ -126,7 +126,7 @@ function CategoryEditor(props: {
             const ids = productFieldIds(controlId)
             return <ProductField controlId={controlId} label={props.memoryControls ? message('runtimeSettings.memory.budgetMiB', { device }) : device} layout="stack">
               <Show when={props.memoryControls} fallback={
-                <input id={controlId} aria-label={message('runtimeSettings.memory.budget', { device })} aria-labelledby={ids.label} value={String(asRecord(draft())[device])} onInput={(event) => change({ ...asRecord(draft()), [device]: sizeValue(event.currentTarget.value) })} />
+                <ProductTextInput id={controlId} aria-label={message('runtimeSettings.memory.budget', { device })} aria-labelledby={ids.label} value={String(asRecord(draft())[device])} onInput={(event) => change({ ...asRecord(draft()), [device]: sizeValue(event.currentTarget.value) })} />
               }>
                 <div class="runtime-memory-control">
                   <ProductNumberInput id={controlId} ariaLabel={message('runtimeSettings.memory.budget', { device })} ariaLabelledBy={ids.label} inputMode="numeric" min={0} step={64} value={sizeMiB(budgetValue(device))} onInput={(value) => change({ ...asRecord(draft()), [device]: Number(value) * 1024 ** 2 })} />
@@ -141,7 +141,7 @@ function CategoryEditor(props: {
             const controlId = fieldId('headroom')
             const ids = productFieldIds(controlId)
             return <ProductField controlId={controlId} label={message(props.memoryControls ? 'runtimeSettings.memory.headroomMiB' : 'runtimeSettings.memory.headroomBytes')} layout="stack">
-              <Show when={props.memoryControls} fallback={<input id={controlId} aria-label={message('runtimeSettings.memory.headroom')} aria-labelledby={ids.label} value={String(draft())} onInput={(event) => change(sizeValue(event.currentTarget.value))} />}>
+              <Show when={props.memoryControls} fallback={<ProductTextInput id={controlId} aria-label={message('runtimeSettings.memory.headroom')} aria-labelledby={ids.label} value={String(draft())} onInput={(event) => change(sizeValue(event.currentTarget.value))} />}>
                 <div class="runtime-memory-control">
                   <ProductNumberInput id={controlId} ariaLabel={message('runtimeSettings.memory.headroom')} ariaLabelledBy={ids.label} inputMode="numeric" min={0} step={64} value={sizeMiB(draft())} onInput={(value) => change(Number(value) * 1024 ** 2)} />
                   <ProductSlider ariaLabel={message('runtimeSettings.memory.headroomSlider')} min={0} max={headroomMaximum()} step={64} value={sizeMiB(draft())} onInput={(value) => change(value * 1024 ** 2)} />
@@ -187,12 +187,12 @@ function CategoryEditor(props: {
               controlId={fieldId(`argument-${row().id}`)}
               label={message('runtimeSettings.worker.argument', { number: index + 1 })}
               layout="compact"
-              actions={<button type="button" aria-label={message('runtimeSettings.worker.removeArgument', { number: index + 1 })} onClick={() => syncComfyArgs(comfyArgRows().filter((item) => item.id !== row().id))}>{message('runtimeSettings.action.remove')}</button>}
+              actions={<ProductButton size="compact" type="button" aria-label={message('runtimeSettings.worker.removeArgument', { number: index + 1 })} onClick={() => syncComfyArgs(comfyArgRows().filter((item) => item.id !== row().id))}>{message('runtimeSettings.action.remove')}</ProductButton>}
             >
-              <input id={fieldId(`argument-${row().id}`)} aria-label={message('runtimeSettings.worker.input', { number: index + 1 })} value={row().value} onInput={(event) => syncComfyArgs(comfyArgRows().map((item) => item.id === row().id ? { ...item, value: event.currentTarget.value } : item))} />
+              <ProductTextInput id={fieldId(`argument-${row().id}`)} aria-label={message('runtimeSettings.worker.input', { number: index + 1 })} value={row().value} onInput={(event) => syncComfyArgs(comfyArgRows().map((item) => item.id === row().id ? { ...item, value: event.currentTarget.value } : item))} />
             </ProductField>
           )}</Index>
-          <button type="button" class="product-form-add" onClick={() => syncComfyArgs([...comfyArgRows(), { id: ++comfyArgRowId, value: '' }])}>{message('runtimeSettings.worker.addArgument')}</button>
+          <ProductButton size="compact" type="button" class="product-form-add" onClick={() => syncComfyArgs([...comfyArgRows(), { id: ++comfyArgRowId, value: '' }])}>{message('runtimeSettings.worker.addArgument')}</ProductButton>
         </Show>
         <Show when={props.category === 'jobs'}>
           <ProductField controlId={fieldId('maximum-running')} label={message('runtimeSettings.jobs.maximumRunning')} layout="stack">
@@ -214,23 +214,23 @@ function CategoryEditor(props: {
           <Index each={loggingRows()}>{(row) => (
             <div class="runtime-override-group">
               <ProductField controlId={fieldId(`logger-${row().id}`)} label={message('runtimeSettings.logging.logger')} layout="compact">
-                <input id={fieldId(`logger-${row().id}`)} aria-label={message('runtimeSettings.logging.loggerName')} value={row().name} onInput={(event) => syncLogging(logging()['level'], loggingRows().map((item) => item.id === row().id ? { ...item, name: event.currentTarget.value } : item))} />
+                <ProductTextInput id={fieldId(`logger-${row().id}`)} aria-label={message('runtimeSettings.logging.loggerName')} value={row().name} onInput={(event) => syncLogging(logging()['level'], loggingRows().map((item) => item.id === row().id ? { ...item, name: event.currentTarget.value } : item))} />
               </ProductField>
               <ProductField
                 controlId={fieldId(`level-${row().id}`)}
                 label={message('runtimeSettings.logging.level')}
                 layout="compact"
-                actions={<button type="button" aria-label={message('runtimeSettings.logging.removeOverride', { logger: row().name || message('runtimeSettings.logging.newLogger') })} onClick={() => syncLogging(logging()['level'], loggingRows().filter((item) => item.id !== row().id))}>{message('runtimeSettings.action.remove')}</button>}
+                actions={<ProductButton size="compact" type="button" aria-label={message('runtimeSettings.logging.removeOverride', { logger: row().name || message('runtimeSettings.logging.newLogger') })} onClick={() => syncLogging(logging()['level'], loggingRows().filter((item) => item.id !== row().id))}>{message('runtimeSettings.action.remove')}</ProductButton>}
               >
-                <input id={fieldId(`level-${row().id}`)} aria-label={message('runtimeSettings.logging.logLevel', { logger: row().name || message('runtimeSettings.logging.newLogger') })} value={row().level} onInput={(event) => syncLogging(logging()['level'], loggingRows().map((item) => item.id === row().id ? { ...item, level: event.currentTarget.value } : item))} />
+                <ProductTextInput id={fieldId(`level-${row().id}`)} aria-label={message('runtimeSettings.logging.logLevel', { logger: row().name || message('runtimeSettings.logging.newLogger') })} value={row().level} onInput={(event) => syncLogging(logging()['level'], loggingRows().map((item) => item.id === row().id ? { ...item, level: event.currentTarget.value } : item))} />
               </ProductField>
             </div>
           )}</Index>
-          <button type="button" class="product-form-add" onClick={() => syncLogging(logging()['level'], [...loggingRows(), { id: ++loggingRowId, name: '', level: 'info' }])}>{message('runtimeSettings.logging.addOverride')}</button>
+          <ProductButton size="compact" type="button" class="product-form-add" onClick={() => syncLogging(logging()['level'], [...loggingRows(), { id: ++loggingRowId, name: '', level: 'info' }])}>{message('runtimeSettings.logging.addOverride')}</ProductButton>
         </Show>
         <ProductActionFooter status={message(saving() ? 'runtimeSettings.status.savingChanges' : dirty() ? 'runtimeSettings.status.unsavedChanges' : 'runtimeSettings.status.clean')}>
-          <button type="button" disabled={!dirty() || saving()} onClick={reset}>{message(props.memoryControls ? 'runtimeSettings.action.revert' : 'runtimeSettings.action.reset')}</button>
-          <button type="submit" class="primary" disabled={!dirty() || saving()}>{message(saving() ? 'runtimeSettings.status.saving' : 'runtimeSettings.action.apply')}</button>
+          <ProductButton size="compact" type="button" disabled={!dirty() || saving()} onClick={reset}>{message(props.memoryControls ? 'runtimeSettings.action.revert' : 'runtimeSettings.action.reset')}</ProductButton>
+          <ProductButton size="compact" type="submit" variant="primary" disabled={!dirty() || saving()}>{message(saving() ? 'runtimeSettings.status.saving' : 'runtimeSettings.action.apply')}</ProductButton>
         </ProductActionFooter>
       </fieldset>
       <Show when={error()}><ProductNotice tone="error"><span>{error()}</span><Show when={rejected()}>{(detail) => <><br /><span>{message('runtimeSettings.error.rejectedFlag', { flag: detail().offendingFlag, owner: detail().owner })}</span></>}</Show></ProductNotice></Show>
@@ -273,9 +273,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
     const current = data()
     if (!current) return []
     const all = [...current.categories.available, ...Object.keys(current.settings).filter((category) => !current.categories.available.includes(category))]
-    return all.filter((category) =>
-      (category !== 'p2p' || current.features?.p2p?.enabled === true)
-      && (props.categories === undefined || props.categories.includes(category)))
+    return all.filter((category) => props.categories === undefined || props.categories.includes(category))
   }
   const editable = (category: string, section: RuntimeSettingSection): boolean =>
     (data()?.categories.granted.length ?? 0) > 0 && data()!.categories.granted.includes(category) && section.writable
@@ -311,12 +309,12 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
 
   return (
     <section class="runtime-settings" data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
-      <Show when={props.alwaysOpen !== true}><button class="runtime-settings-toggle" aria-expanded={open()} aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })} onClick={toggle}><span>{message('runtimeSettings.panel.title')}</span><span aria-hidden="true">{message(open() ? 'runtimeSettings.action.hide' : 'runtimeSettings.action.show')}</span></button></Show>
+      <Show when={props.alwaysOpen !== true}><ProductButton size="compact" class="runtime-settings-toggle" aria-expanded={open()} aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })} onClick={toggle}><span>{message('runtimeSettings.panel.title')}</span><span aria-hidden="true">{message(open() ? 'runtimeSettings.action.hide' : 'runtimeSettings.action.show')}</span></ProductButton></Show>
       <Show when={open()}>
         <div class="runtime-settings-body">
           <div class="runtime-settings-toolbar">
             <div><Show when={props.alwaysOpen === true}><h3>{message('runtimeSettings.panel.title')}</h3></Show><p>{message('runtimeSettings.panel.description')}</p></div>
-            <button type="button" disabled={loading()} aria-label={message('runtimeSettings.action.refreshAriaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backendLower') })} onClick={() => void load()}>{message(loading() ? 'runtimeSettings.status.refreshing' : 'runtimeSettings.action.refresh')}</button>
+            <ProductButton size="compact" type="button" disabled={loading()} aria-label={message('runtimeSettings.action.refreshAriaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backendLower') })} onClick={() => void load()}>{message(loading() ? 'runtimeSettings.status.refreshing' : 'runtimeSettings.action.refresh')}</ProductButton>
           </div>
           <Show when={loading() && data() === undefined}><ProductNotice tone="status">{message('runtimeSettings.status.loading')}</ProductNotice></Show>
           <Show when={loading() && data() !== undefined}><ProductNotice tone="status">{message('runtimeSettings.status.refreshingVisible')}</ProductNotice></Show>

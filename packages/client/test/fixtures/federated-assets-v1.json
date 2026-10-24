@@ -421,56 +421,5 @@
   "provenance": {
     "backendCommit": "83fd0288d835039ff82ae796d426537b87dbf788",
     "module": "packages/dinkster-server/src/dinkster_server/federated_assets_v1.py"
-  },
-  "resolveResponse": {
-    "contractVersion": 1,
-    "repair": {
-      "atomic": true,
-      "documentDigest": "revision:7",
-      "preconditions": [
-        {
-          "equals": {
-            "digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "mediaType": "application/octet-stream",
-            "name": "alpha.safetensors",
-            "size": 123,
-            "virtualPath": "models/alpha.safetensors"
-          },
-          "pointer": "/nodes/0/inputs/model"
-        }
-      ],
-      "replacements": [
-        {
-          "pointer": "/nodes/0/inputs/model",
-          "value": {
-            "digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "mediaType": "application/octet-stream",
-            "name": "alpha.safetensors",
-            "size": 123,
-            "virtualPath": "models/alpha.safetensors"
-          }
-        }
-      ],
-      "type": "asset-ref-repair",
-      "version": 1
-    },
-    "selected": {
-      "digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "mediaType": "application/octet-stream",
-      "name": "alpha.safetensors",
-      "size": 123,
-      "virtualPath": "models/alpha.safetensors"
-    },
-    "selectedCandidate": {
-      "digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "logicalId": "alpha",
-      "reason": "explicit-selection",
-      "source": {
-        "providerId": "alpha",
-        "sourceId": "local"
-      },
-      "variantId": "fp16"
-    },
-    "status": "resolved-remapped"
   }
 }

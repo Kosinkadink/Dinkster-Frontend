@@ -65,7 +65,7 @@ async function openFixture(
 ): Promise<void> {
   await page.evaluate(({ values, links }) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
-      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'core.combo' : widgetType }, optional: false,
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
     })
     window.__dinksterTest!.app.registerSchemas([

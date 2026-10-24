@@ -19,27 +19,27 @@ const schema: NodeSchema = {
     {
       kind: 'input',
       id: 'count',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       optional: false,
       widget: { widgetType: 'INT', options: {}, default: 3 },
     },
     {
       kind: 'input',
       id: 'ordinary',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       optional: false,
       widget: { widgetType: 'INT', options: {}, default: 0 },
     },
     {
       kind: 'output',
       id: 'results',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       dynamic: {
         kind: 'autogrow',
         template: [{
           kind: 'input',
           id: 'result',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         }],
         materialization: 'wire15',

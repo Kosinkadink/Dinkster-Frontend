@@ -10,6 +10,7 @@ import { desktopBridge, type DesktopLifecycleStatus } from './desktop-bridge.js'
 import { bindLocale, bindPersistedLocale } from './locale.js'
 import { initializeProjectScope, projectIdFromSearch } from './projects.js'
 import type { CanvasTestHandles } from './test-bridge.js'
+import './fonts.css'
 import './styles.css'
 
 // The project scope namespaces every per-project storage key and shared
@@ -54,6 +55,13 @@ declare global {
 }
 
 async function bootstrap(): Promise<void> {
+  // Canvas measurement must use the same loaded faces as DOM text.
+  await Promise.all([
+    document.fonts.load('400 13px "Noto Sans"'),
+    document.fonts.load('600 13px "Noto Sans"'),
+    document.fonts.load('italic 600 13px "Noto Sans"'),
+    document.fonts.load('400 13px "Noto Sans Mono"'),
+  ])
   const desktop = desktopBridge()
   const desktopLocale = await desktop?.locale()
   const desktopLogs: string[] = []
@@ -116,9 +124,8 @@ async function bootstrap(): Promise<void> {
   window.__dinksterTest = { app, semanticDerivations: 0, syntheticWorkflow }
   const catalogPath = import.meta.env['VITE_DINKSTER_FEDERATED_CATALOG_PATH']
   const candidatesPath = import.meta.env['VITE_DINKSTER_FEDERATED_CANDIDATES_PATH']
-  const resolvePath = import.meta.env['VITE_DINKSTER_FEDERATED_RESOLVE_PATH']
   const federatedAssets = catalogPath && candidatesPath
-    ? assetDtoV1Contract({ catalog: catalogPath, candidates: candidatesPath, ...(resolvePath ? { resolve: resolvePath } : {}) })
+    ? assetDtoV1Contract({ catalog: catalogPath, candidates: candidatesPath })
     : undefined
   render(() => <App
     app={app}

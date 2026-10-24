@@ -48,18 +48,18 @@ describe('Dinkster schema wire', () => {
       interface: [
         { role: 'input', id: 'asset', type: concrete('dinkster.asset'), required: true, widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' } },
         { role: 'input', id: 'save', type: concrete('dinkster.save_target'), required: true, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
-        { role: 'input', id: 'combo', type: concrete('core.combo'), required: true, default: 'a', widget: { type: 'COMBO', options: ['a'] } },
-        { role: 'input', id: 'multi', type: { kind: 'list', element: concrete('core.combo') }, required: true, default: ['a'], widget: { type: 'MULTI_COMBO', options: ['a'] } },
-        { role: 'input', id: 'boolean', type: concrete('core.boolean'), required: true, default: true, widget: { type: 'BOOLEAN', labelOn: 'On' } },
-        { role: 'input', id: 'number', type: concrete('core.float'), required: true, default: 0.5, widget: { type: 'NUMBER', min: 0, max: 1 } },
-        { role: 'input', id: 'string', type: concrete('core.string'), required: true, default: '', widget: { type: 'STRING', multiline: true } },
-        { role: 'input', id: 'color', type: concrete('core.string'), required: true, default: '#000000', widget: { type: 'COLOR' } },
+        { role: 'input', id: 'combo', type: concrete('COMBO'), required: true, default: 'a', widget: { type: 'COMBO', options: ['a'] } },
+        { role: 'input', id: 'multi', type: { kind: 'list', element: concrete('COMBO') }, required: true, default: ['a'], widget: { type: 'MULTI_COMBO', options: ['a'] } },
+        { role: 'input', id: 'boolean', type: concrete('BOOLEAN'), required: true, default: true, widget: { type: 'BOOLEAN', labelOn: 'On' } },
+        { role: 'input', id: 'number', type: concrete('FLOAT'), required: true, default: 0.5, widget: { type: 'NUMBER', min: 0, max: 1 } },
+        { role: 'input', id: 'string', type: concrete('STRING'), required: true, default: '', widget: { type: 'STRING', multiline: true } },
+        { role: 'input', id: 'color', type: concrete('STRING'), required: true, default: '#000000', widget: { type: 'COLOR' } },
         { role: 'input', id: 'curve', type: concrete('dinkster.curve'), required: true, widget: { type: 'CURVE' } },
         { role: 'input', id: 'compositor', type: concrete('dinkster.compositor'), required: true, widget: { type: 'COMPOSITOR' } },
         {
           role: 'input',
           id: 'representations',
-          type: concrete('core.string'),
+          type: concrete('STRING'),
           required: true,
           default: '',
           widget: {
@@ -112,13 +112,37 @@ describe('Dinkster schema wire', () => {
     expect(inputsOf(result.schema!).at(-1)?.widget?.options).toEqual({ nested: { enabled: true, values: [1, null, 'two'] } })
   })
 
+  it('preserves exact integer constraints and rejects widgets on a different scalar domain', () => {
+    const parse = (socket: string, widget: object) => parseDinksterSchema('Scalar', {
+      schemaVersion: 1,
+      interface: [{ role: 'input', id: 'value', type: concrete(socket), required: true, widget }],
+    })
+    const integer = parse('INT', { type: 'NUMBER', min: '-9223372036854775808', max: '18446744073709551615', step: 1 })
+    expect(integer.diagnostics).toEqual([])
+    expect(inputsOf(integer.schema!)[0]?.widget).toMatchObject({
+      widgetType: 'INT', options: { min: '-9223372036854775808', max: '18446744073709551615', step: 1 },
+    })
+    for (const [socket, widget] of [
+      ['STRING', { type: 'NUMBER' }],
+      ['FLOAT', { type: 'NUMBER', min: '-9223372036854775808' }],
+      ['STRING', { type: 'COMBO', options: ['a'] }],
+      ['COMBO', { type: 'STRING' }],
+      ['INT', { type: 'BOOLEAN', labelOn: 'On' }],
+      ['INT', { type: 'NUMBER' }],
+    ] as const) {
+      const rejected = parse(socket, widget)
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
+    }
+  })
+
   it('rejects nested and mixed-domain widget representations', () => {
     const parse = (representations: readonly unknown[]) => parseDinksterSchema('Representations', {
       schemaVersion: 1,
       interface: [{
         role: 'input',
         id: 'value',
-        type: concrete('core.string'),
+        type: concrete('STRING'),
         required: true,
         widget: {
           type: 'REPRESENTATIONS',
@@ -157,13 +181,13 @@ describe('Dinkster schema wire', () => {
       schemaVersion: 1,
       interface: [
         { role: 'inputFamily', id: 'values', memberPrefix: 'value', minMembers: 1, template: [
-          { role: 'input', id: 'value', type: concrete('core.float'), required: false },
+          { role: 'input', id: 'value', type: concrete('FLOAT'), required: false },
         ] },
         { role: 'dynamicCombo', id: 'mode', default: 'on', options: [
-          { key: 'on', inputs: [{ role: 'input', id: 'strength', type: concrete('core.float'), required: false }] },
+          { key: 'on', inputs: [{ role: 'input', id: 'strength', type: concrete('FLOAT'), required: false }] },
         ] },
-        { role: 'dynamicSlot', id: 'source', required: false, slotType: concrete('dinkster.image'), inputs: [] },
-        { role: 'outputFamily', id: 'outputs', type: concrete('dinkster.image'), minMembers: 0 },
+        { role: 'dynamicSlot', id: 'source', required: false, slotType: concrete('IMAGE'), inputs: [] },
+        { role: 'outputFamily', id: 'outputs', type: concrete('IMAGE'), minMembers: 0 },
       ],
     })
     expect(result.diagnostics).toEqual([])

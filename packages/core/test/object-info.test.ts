@@ -21,7 +21,7 @@ describe('parseObjectInfoEntry', () => {
     })
     expect(valid.diagnostics).toEqual([])
     expect(inputsOf(valid.schema!)[0]).toMatchObject({
-      type: { kind: 'list', element: { kind: 'concrete', name: 'core.combo' } },
+      type: { kind: 'list', element: { kind: 'concrete', name: 'COMBO' } },
       widget: {
         widgetType: 'MULTI_COMBO',
         options: { options: ['beta', 'alpha', 'beta'], placeholder: 'Pick', chip: false },
@@ -42,7 +42,7 @@ describe('parseObjectInfoEntry', () => {
       output: [],
     })
     expect(inputsOf(legacy.schema!)[0]).toMatchObject({
-      type: { kind: 'list', element: { kind: 'concrete', name: 'core.combo' } },
+      type: { kind: 'list', element: { kind: 'concrete', name: 'COMBO' } },
       widget: { widgetType: 'MULTI_COMBO', options: { options: ['a', 'b'] }, default: ['b'] },
     })
 

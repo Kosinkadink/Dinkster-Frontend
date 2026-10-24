@@ -261,7 +261,7 @@ The type pill uses the same `typeColor` resolver and design tokens as canvas
 pins and noodles, including namespaced ids such as `comfy.IMAGE`. Its text is
 black or white according to the resolved color's relative luminance. The
 SAVE_TARGET editor labels the pill with the input's canonical declared type
-(for example `dinkster.save_target`) rather than the widget renderer family.
+(for example `SAVE_TARGET`) rather than the widget renderer family.
 Its output-format row and inline filename context come only from the widget
 descriptor's declared suffix. A `.png` suffix is displayed as `.png`; it is
 not expanded through a guessed extension registry. An absent or empty suffix
@@ -311,7 +311,10 @@ dimensions while it remains open. Its 18px label band, 14px content font, 20px
 line height, 6px padding, 8px reserved gutter, and corner radius scale with
 zoom and match the Canvas2D field. The editor stays inside the shared 2px
 top/bottom chrome inset, has no resize handle or browser outline, and uses a
-6px product-themed scrollbar with bounded vertical scrolling. The scrollbar
+6px product-themed scrollbar with bounded vertical scrolling. Generic widget
+field rules exclude Product fields without raising selector specificity, so
+the in-node borderless geometry overrides ordinary popover field chrome.
+The scrollbar
 starts at the content-box top, not below it. Overflowing painted content uses
 the same gutter while idle and hover; hover paints a proportional scrollbar
 indicator inside the rounded chrome. The painted indicator is deliberately

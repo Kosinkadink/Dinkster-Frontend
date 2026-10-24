@@ -14,11 +14,11 @@ const node = (entries: unknown[]) => ({ schemaVersion: schemaWire, signature: 'v
 const catalog = {
   schemaVersion: 1, epoch: 1, dinkster: { version: 'video-edit-test', schemaWire }, nodes: {
     'test.video': node([
-      input('source_version', 'core.int', 0),
+      input('source_version', 'INT', 0),
       { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
-      { role: 'output', id: 'images', type: typed('dinkster.image') },
-      { role: 'output', id: 'strict_duration', type: typed('core.boolean') },
-      { role: 'output', id: 'start_time', type: typed('core.float') },
+      { role: 'output', id: 'images', type: typed('IMAGE') },
+      { role: 'output', id: 'strict_duration', type: typed('BOOLEAN') },
+      { role: 'output', id: 'start_time', type: typed('FLOAT') },
     ]),
     ...contract.nodes,
     // Isolated compile targets; computational ports come from the backend fixture.
@@ -27,7 +27,7 @@ const catalog = {
     'test.video.edit': node([
       input('video', 'comfy.VIDEO'),
       { ...input('video_edit', 'comfy.VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
-      input('strict_duration', 'core.boolean', false),
+      input('strict_duration', 'BOOLEAN', false),
       { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
     ]),
   },
@@ -178,6 +178,25 @@ async function retainRoundTrip(
   return compiledNodeInputs
 }
 
+test('video trim and crop controls at desktop and compact widths', async ({ page }) => {
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    for (const kind of ['trim', 'crop'] as const) {
+      await openDocument(page, kind)
+      await page.route('**/api/values?*', (route) => route.fulfill({ json: {
+        available: true, descriptor, renditions: [{ kind: 'original', mime: 'video/mp4', default: true }],
+      } }))
+      await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: -350, y: 0, scale: 1 }))
+      await openEditor(page)
+      await expect(page.getByTestId('video-edit-source-facts')).toContainText('1920 x 1080')
+      await expect(page.getByTestId('video-edit-preview-unavailable')).toContainText('poster rendition is not advertised')
+      await expect(page).toHaveScreenshot(`video-${kind}-${width}.png`, { animations: 'disabled', maxDiffPixelRatio: 0.002 })
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(page.getByTestId('video-edit-editor')).toBeHidden()
+    }
+  }
+})
+
 test('native trim derives its widget, requests lazy source selectors, preserves JSON and undoes the sibling atomically', async ({ page }, info) => {
   const requests: URL[] = []
   await openDocument(page, 'trim')
@@ -216,7 +235,7 @@ test('native trim derives its widget, requests lazy source selectors, preserves 
   await page.getByTestId('video-trim-duration-seconds').fill('0')
   await page.getByTestId('video-trim-duration-seconds').press('Tab')
   await page.getByTestId('video-trim-strict').check()
-  await expect(page.getByRole('slider', { name: 'Playhead frame' })).toHaveAttribute('max', '239')
+  await expect(page.getByRole('slider', { name: 'Playhead frame' })).toHaveAttribute('aria-valuemax', '239')
   await expect.poll(() => requests.some((url) => url.searchParams.get('frame') === '2s')).toBe(true)
   await expect(page.getByRole('img', { name: 'Selected source frame' })).toBeVisible()
   await page.getByRole('img', { name: 'Selected source frame' }).evaluate((image) => (image as HTMLImageElement).decode())

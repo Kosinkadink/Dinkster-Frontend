@@ -536,7 +536,7 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
       webkitScrollbarWidth: scrollbar.width,
     }
   })
-  expect(styles.fontFamily).toContain('system-ui')
+  expect(styles.fontFamily).toContain('Noto Sans')
   expect(styles.fontSize).toBe('14px')
   expect(styles.lineHeight).toBe('20px')
   expect(styles.resize).toBe('none')

@@ -280,7 +280,7 @@ it('rejects virtual node kinds without a virtual port-free schema', () => {
       ...base.schema,
       items: [{
         kind: 'output', id: 'out',
-        type: { kind: 'concrete', name: 'core.string' },
+        type: { kind: 'concrete', name: 'STRING' },
       }],
     },
   })).toContainEqual(expect.objectContaining({ code: 'extension.activate-failed' }))

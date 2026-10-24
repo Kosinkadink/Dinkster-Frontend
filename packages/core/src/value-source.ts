@@ -185,7 +185,7 @@ const intersectTypes = (a: TypeExpr, b: TypeExpr): TypeExpr => {
   // form (never `concrete('list<...>')`). Open lists/variables/wildcards
   // yield undefined -> the other side wins (advisory display only).
   // atomNamesOf canonicalizes interchangeable comfy-compat spellings, so a
-  // source driving both dinkster.mask and comfy.MASK intersects to one MASK
+  // source driving both MASK and comfy.MASK intersects to one MASK
   // atom instead of collapsing to wildcard.
   const names = (t: TypeExpr): readonly string[] | undefined =>
     t.kind === 'concrete' || t.kind === 'union' || t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream' ? atomNamesOf(t) : undefined

@@ -35,7 +35,7 @@ function wav(): Buffer {
 
 const audio = wav()
 const outputs = [
-  { id: 'image', type: 'core.image', kind: 'image', rendition: 'png', mime: 'image/png' },
+  { id: 'image', type: 'IMAGE', kind: 'image', rendition: 'png', mime: 'image/png' },
   { id: 'mp4', type: 'core.video', kind: 'video', rendition: 'preview', mime: 'video/mp4' },
   { id: 'webm', type: 'core.video', kind: 'video', rendition: 'preview', mime: 'video/webm' },
   { id: 'audio', type: 'core.audio', kind: 'audio', rendition: 'window', mime: 'audio/wav' },
@@ -127,7 +127,7 @@ async function installGraph(page: Page): Promise<void> {
       items: [{ kind: 'output' as const, id: output, type: valueType, ...(preview ? { preview: true } : {}) }],
     })
     window.__dinksterTest!.app.registerSchemas([
-      schema('ProofImage', 'image', concrete('core.image')),
+      schema('ProofImage', 'image', concrete('IMAGE')),
       schema('ProofMp4', 'mp4', concrete('core.video')),
       schema('ProofWebm', 'webm', concrete('core.video')),
       schema('ProofAudio', 'audio', concrete('core.audio')),
@@ -138,7 +138,7 @@ async function installGraph(page: Page): Promise<void> {
       },
       schema('ProofFailed', 'failed', concrete('core.video')),
       schema('ProofUnmarked', 'unmarked', concrete('core.video'), false),
-      schema('ProofText', 'text', concrete('core.string'), false),
+      schema('ProofText', 'text', concrete('STRING'), false),
     ])
     const nodes = {
       image: { id: 'image', type: 'ProofImage', values: {} },
@@ -176,7 +176,7 @@ async function installGraph(page: Page): Promise<void> {
     store.apply({
       kind: 'nodeStates', execution: ref, timestamp: Date.now(),
       nodes: {
-        image: { state: 'done', outputs: { image: descriptor('core.image', 'proof-image') } },
+        image: { state: 'done', outputs: { image: descriptor('IMAGE', 'proof-image') } },
         mp4: { state: 'done', outputs: { mp4: descriptor('core.video', 'proof-mp4') } },
         webm: { state: 'done', outputs: { webm: descriptor('core.video', 'proof-webm') } },
         audio: { state: 'done', outputs: { audio: descriptor('core.audio', 'proof-audio') } },
@@ -184,7 +184,7 @@ async function installGraph(page: Page): Promise<void> {
         list: { state: 'done', outputs: { list: descriptor('list<core.video>', 'proof-list') } },
         failed: { state: 'done', outputs: { failed: descriptor('core.video', 'proof-failed') } },
         unmarked: { state: 'done', outputs: { unmarked: descriptor('core.video', 'proof-unmarked') } },
-        text: { state: 'done', outputs: { text: { ...descriptor('core.string', 'proof-text'), value: 'Recorded text wins' } } },
+        text: { state: 'done', outputs: { text: { ...descriptor('STRING', 'proof-text'), value: 'Recorded text wins' } } },
       },
     })
     store.hydrateArtifacts(ref, [{

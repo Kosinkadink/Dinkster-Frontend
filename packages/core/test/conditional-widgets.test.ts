@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { hiddenConditionalWidgets } from '../src/schema/conditional-widgets.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
 
-const widget = (id: string, widgetType = 'STRING', defaultValue?: unknown): InputSpec => ({ kind: 'input', id, type: { kind: 'concrete', name: 'core.string' }, optional: false, widget: { widgetType, options: {}, ...(defaultValue === undefined ? {} : { default: defaultValue }) } })
+const widget = (id: string, widgetType = 'STRING', defaultValue?: unknown): InputSpec => ({ kind: 'input', id, type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType, options: {}, ...(defaultValue === undefined ? {} : { default: defaultValue }) } })
 const schema: NodeSchema = { type: 'Generic', displayName: 'Generic', category: 'test', source: 'v3', isOutputNode: false, items: [widget('mode', 'STRING', 'basic'), widget('a'), widget('b')], widgetGroups: [{ input: 'mode', values: ['advanced'], members: ['a'] }, { input: 'mode', values: ['expert'], members: ['a', 'b'] }] }
 
 describe('conditional widget visibility', () => {

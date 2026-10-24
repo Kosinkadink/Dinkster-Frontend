@@ -19,6 +19,12 @@ fps and are approximate for variable-frame-rate media. `strict_duration`
 remains a separate sibling input; Apply commits both changes in one undo step.
 Linked strict inputs are read-only, and crop-only nodes do not gain one.
 
+Preview, crop presets, handles and footer actions use `ProductButton`;
+strict duration uses `ProductCheckbox`, and playhead/trim handles use
+`ProductSlider`. Numeric fields use `ProductNumberInput`. Sliders support
+arrow keys, Page Up/Down and Home/End; crop handles retain their source-pixel
+pointer and keyboard geometry. Editor layout uses shared semantic tokens.
+
 The Crop section stores source-pixel `x`, `y`, `width`, and `height`. A width
 or height less than or equal to zero means the full source frame. Crop
 handles and 16:9, 4:3, 1:1, and full-frame presets clamp to the source and

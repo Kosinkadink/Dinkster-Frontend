@@ -40,20 +40,20 @@ const helperSchemas = new Map<string, NodeSchema>([
         {
           kind: 'input',
           id: 'start',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
           widget: { widgetType: 'INT', options: {}, default: 0 },
         },
         {
           kind: 'input',
           id: 'stop',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         },
         {
           kind: 'input',
           id: 'step',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
           widget: { widgetType: 'INT', options: {}, default: 1 },
         },
@@ -62,7 +62,7 @@ const helperSchemas = new Map<string, NodeSchema>([
           id: 'list',
           type: {
             kind: 'list',
-            element: { kind: 'concrete', name: 'core.int' },
+            element: { kind: 'concrete', name: 'INT' },
           },
         },
       ],
@@ -80,19 +80,19 @@ const helperSchemas = new Map<string, NodeSchema>([
         {
           kind: 'input',
           id: 'a',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         },
         {
           kind: 'input',
           id: 'b',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         },
         {
           kind: 'output',
           id: 'sum',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
         },
       ],
     },
@@ -115,7 +115,7 @@ const helperSchemas = new Map<string, NodeSchema>([
         {
           kind: 'output',
           id: 'length',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
         },
       ],
     },
@@ -144,19 +144,19 @@ const helperSchemas = new Map<string, NodeSchema>([
         {
           kind: 'input',
           id: 'operation',
-          type: { kind: 'concrete', name: 'core.string' },
+          type: { kind: 'concrete', name: 'STRING' },
           optional: false,
         },
         {
           kind: 'input',
           id: 'epsilon',
-          type: { kind: 'concrete', name: 'core.float' },
+          type: { kind: 'concrete', name: 'FLOAT' },
           optional: false,
         },
         {
           kind: 'output',
           id: 'result',
-          type: { kind: 'concrete', name: 'core.boolean' },
+          type: { kind: 'concrete', name: 'BOOLEAN' },
         },
       ],
     },
@@ -173,7 +173,7 @@ const helperSchemas = new Map<string, NodeSchema>([
         {
           kind: 'input',
           id: 'condition',
-          type: { kind: 'concrete', name: 'core.boolean' },
+          type: { kind: 'concrete', name: 'BOOLEAN' },
           optional: false,
         },
         {
@@ -234,13 +234,13 @@ const fixtureSchema = (node: JsonObject): NodeSchema => {
             value['name'] === 'is_last' ||
             value['name'] === 'last' ||
             value['name'] === 'switch'
-          ? { kind: 'concrete' as const, name: 'core.boolean' }
+          ? { kind: 'concrete' as const, name: 'BOOLEAN' }
           : value['name'] === 'item'
             ? { kind: 'concrete' as const, name: 'core.value' }
             : value['name'] === 'value' ||
                 value['name'] === 'dependency' ||
                 value['name'] === 'index'
-              ? { kind: 'concrete' as const, name: 'core.int' }
+              ? { kind: 'concrete' as const, name: 'INT' }
               : typeExpr(value['type'])
     const widgets = node['widgets_values']
     const hasWidget =
@@ -279,14 +279,14 @@ const fixtureSchema = (node: JsonObject): NodeSchema => {
               kind: 'concrete',
               name: valueOutputs.has(node['type'] as string)
                 ? 'core.value'
-                : 'core.int',
+                : 'INT',
             },
           }
         : {
             kind: 'concrete',
             name: valueOutputs.has(node['type'] as string)
               ? 'core.value'
-              : 'core.int',
+              : 'INT',
           },
       ...(listOutputs.has(node['type'] as string) ? { isList: true } : {}),
     })

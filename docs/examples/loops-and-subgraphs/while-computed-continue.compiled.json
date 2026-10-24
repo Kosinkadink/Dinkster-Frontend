@@ -7,13 +7,13 @@
           "count": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "increment": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },

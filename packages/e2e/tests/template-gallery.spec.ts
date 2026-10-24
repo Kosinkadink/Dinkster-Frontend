@@ -107,7 +107,7 @@ test('refreshes the remote family gallery and opens a digest-verified template',
   try {
     await page.routeWebSocket('**/api/events*', () => {})
     await page.route('/api/settings', (route) => route.fulfill({ json: {
-      features: { templates: { enabled: true }, p2p: { enabled: false } },
+      features: { templates: { enabled: true } },
       categories: { granted: [], available: [] }, settings: {},
     } }))
     await page.route('/api/nodes*', (route) =>

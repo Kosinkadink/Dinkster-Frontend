@@ -1,8 +1,6 @@
 /**
- * Native dinkster boundary types display with their ComfyUI names and colors.
- * One alias table (typeDisplayAliases) drives both the label and the color,
- * the pin tooltip keeps the canonical dinkster id as secondary detail, and
- * unaliased dinkster types keep the deterministic fallback presentation.
+ * Native built-in pins display their canonical identities and palette colors.
+ * Only the existing ComfyUI IMAGE/MASK bridges have display aliases.
  */
 import { expect, test, type Page } from './fixtures.js'
 
@@ -13,16 +11,16 @@ const schema = {
   source: 'v3',
   isOutputNode: false,
   items: [
-    { kind: 'input', id: 'te', displayName: 'text encoder', type: { kind: 'concrete', name: 'dinkster.clip' }, optional: false },
-    { kind: 'input', id: 'codec', displayName: 'codec', type: { kind: 'concrete', name: 'dinkster.vae' }, optional: false },
-    { kind: 'input', id: 'control', displayName: 'control', type: { kind: 'concrete', name: 'dinkster.control' }, optional: false },
-    { kind: 'input', id: 'guider', displayName: 'guider', type: { kind: 'concrete', name: 'dinkster.guider' }, optional: false },
-    { kind: 'input', id: 'noise', displayName: 'noise', type: { kind: 'concrete', name: 'dinkster.noise' }, optional: false },
-    { kind: 'output', id: 'model', displayName: 'model', type: { kind: 'concrete', name: 'dinkster.model' } },
-    { kind: 'output', id: 'sampler', displayName: 'sampler', type: { kind: 'concrete', name: 'dinkster.sampler' } },
-    { kind: 'output', id: 'sigmas', displayName: 'sigmas', type: { kind: 'concrete', name: 'dinkster.sigmas' } },
-    { kind: 'output', id: 'cond', displayName: 'conditioning', type: { kind: 'concrete', name: 'dinkster.conditioning' } },
-    { kind: 'output', id: 'latent', displayName: 'latent', type: { kind: 'concrete', name: 'dinkster.latent' } },
+    { kind: 'input', id: 'te', displayName: 'text encoder', type: { kind: 'concrete', name: 'CLIP' }, optional: false },
+    { kind: 'input', id: 'codec', displayName: 'codec', type: { kind: 'concrete', name: 'VAE' }, optional: false },
+    { kind: 'input', id: 'control', displayName: 'control', type: { kind: 'concrete', name: 'comfy.CONTROL_NET' }, optional: false },
+    { kind: 'input', id: 'guider', displayName: 'guider', type: { kind: 'concrete', name: 'GUIDER' }, optional: false },
+    { kind: 'input', id: 'noise', displayName: 'noise', type: { kind: 'concrete', name: 'NOISE' }, optional: false },
+    { kind: 'output', id: 'model', displayName: 'model', type: { kind: 'concrete', name: 'MODEL' } },
+    { kind: 'output', id: 'sampler', displayName: 'sampler', type: { kind: 'concrete', name: 'SAMPLER' } },
+    { kind: 'output', id: 'sigmas', displayName: 'sigmas', type: { kind: 'concrete', name: 'SIGMAS' } },
+    { kind: 'output', id: 'cond', displayName: 'conditioning', type: { kind: 'concrete', name: 'CONDITIONING' } },
+    { kind: 'output', id: 'latent', displayName: 'latent', type: { kind: 'concrete', name: 'LATENT' } },
   ],
 }
 
@@ -34,18 +32,18 @@ const document_ = {
   view: { graphs: { g0: { nodes: { native: { position: { x: 120, y: 120 } } } } } },
 }
 
-/** Expected ComfyUI palette entries for each aliased pin, keyed by port id. */
-const expectations: Record<string, { alias: string; canonical: string; hex: string }> = {
-  te: { alias: 'CLIP', canonical: 'dinkster.clip', hex: '#FFD500' },
-  codec: { alias: 'VAE', canonical: 'dinkster.vae', hex: '#FF6E6E' },
-  control: { alias: 'CONTROL_NET', canonical: 'dinkster.control', hex: '#6EE7B7' },
-  guider: { alias: 'GUIDER', canonical: 'dinkster.guider', hex: '#66FFFF' },
-  noise: { alias: 'NOISE', canonical: 'dinkster.noise', hex: '#B0B0B0' },
-  model: { alias: 'MODEL', canonical: 'dinkster.model', hex: '#B39DDB' },
-  sampler: { alias: 'SAMPLER', canonical: 'dinkster.sampler', hex: '#ECB4B4' },
-  sigmas: { alias: 'SIGMAS', canonical: 'dinkster.sigmas', hex: '#CDFFCD' },
-  cond: { alias: 'CONDITIONING', canonical: 'dinkster.conditioning', hex: '#FFA931' },
-  latent: { alias: 'LATENT', canonical: 'dinkster.latent', hex: '#FF9CF9' },
+/** Expected native type labels and palette colors, keyed by port id. */
+const expectations: Record<string, { canonical: string; hex: string }> = {
+  te: { canonical: 'CLIP', hex: '#FFD500' },
+  codec: { canonical: 'VAE', hex: '#FF6E6E' },
+  control: { canonical: 'comfy.CONTROL_NET', hex: '#6EE7B7' },
+  guider: { canonical: 'GUIDER', hex: '#66FFFF' },
+  noise: { canonical: 'NOISE', hex: '#B0B0B0' },
+  model: { canonical: 'MODEL', hex: '#B39DDB' },
+  sampler: { canonical: 'SAMPLER', hex: '#ECB4B4' },
+  sigmas: { canonical: 'SIGMAS', hex: '#CDFFCD' },
+  cond: { canonical: 'CONDITIONING', hex: '#FFA931' },
+  latent: { canonical: 'LATENT', hex: '#FF9CF9' },
 }
 
 test.beforeEach(async ({ page }) => {
@@ -60,7 +58,7 @@ test.beforeEach(async ({ page }) => {
   }, { schema, doc: document_ })
 })
 
-test('native dinkster pins show ComfyUI alias names with the canonical id in the tooltip', async ({ page }) => {
+test('native built-in pins show the canonical id once in the tooltip', async ({ page }) => {
   const points = await page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'native')!
@@ -77,8 +75,7 @@ test('native dinkster pins show ComfyUI alias names with the canonical id in the
   for (const point of points) {
     const expected = expectations[point.portId]!
     await page.mouse.move(point.x, point.y)
-    await expect(tooltip).toContainText(`${expected.alias} (${expected.canonical})`, { timeout: 1_500 })
-    // The pin label row shows the alias, never the raw dinkster id.
+    await expect(tooltip.getByText(expected.canonical, { exact: true })).toBeVisible({ timeout: 1_500 })
     await expect(tooltip).not.toContainText(`${expected.canonical} (`)
     await page.mouse.move(point.x, point.y + 200)
     await expect(tooltip).toBeHidden()
@@ -112,15 +109,13 @@ test('native dinkster pins paint in the exact ComfyUI palette colors', async ({ 
 })
 
 test('visual artifact: native dinkster type node screenshot', async ({ page }, testInfo) => {
-  // Not a pixel assertion - a stable, human-reviewable artifact showing the
-  // aliased sockets in ComfyUI colors with ComfyUI names.
+  // A human-reviewable artifact complements the palette pixel assertions.
   await page.waitForTimeout(250)
   const path = testInfo.outputPath('dinkster-type-display.png')
   await page.getByTestId('graph-canvas').screenshot({ path })
   await testInfo.attach('dinkster-type-display', { path, contentType: 'image/png' })
 
-  // Second artifact: the CLIP pin hovered, so the tooltip's aliased type line
-  // ("CLIP (dinkster.clip)") is visible in the capture.
+  // Hover the CLIP pin to capture its canonical type label.
   const point = await page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'native')!
@@ -140,10 +135,10 @@ test('visual artifact: native dinkster type node screenshot', async ({ page }, t
 })
 
 // ---------------------------------------------------------------------------
-// dinkster.image <-> comfy.IMAGE: one value type across the comfy-compat
+// IMAGE <-> comfy.IMAGE: one value type across the comfy-compat
 // boundary. The backend registers both ids with the identical image-array
 // codec, so the frontend treats them as one atom: same IMAGE color and
-// label, and a native dinkster.image output legally drives a comfy.IMAGE input.
+// label, and a native IMAGE output legally drives a comfy.IMAGE input.
 // ---------------------------------------------------------------------------
 
 const imageSchemas = [
@@ -153,7 +148,7 @@ const imageSchemas = [
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'dinkster.image' } }],
+    items: [{ kind: 'output', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
   },
   {
     type: 'ComfyImageConsumer',
@@ -185,7 +180,7 @@ async function imagePinPoint(page: Page, nodeId: string, direction: 'in' | 'out'
   }, { nodeId, direction, portId })
 }
 
-test('a native dinkster.image output connects to a comfy.IMAGE input as one IMAGE type', async ({ page }, testInfo) => {
+test('a native IMAGE output connects to a comfy.IMAGE input as one IMAGE type', async ({ page }, testInfo) => {
   const diagnostics = await page.evaluate(({ schemas }) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas(schemas as never)
@@ -207,7 +202,7 @@ test('a native dinkster.image output connects to a comfy.IMAGE input as one IMAG
   const srcPin = await imagePinPoint(page, 'src', 'out', 'image')
   const tooltip = page.getByTestId('app-tooltip')
   await page.mouse.move(srcPin.x, srcPin.y)
-  await expect(tooltip).toContainText('IMAGE (dinkster.image)', { timeout: 1_500 })
+  await expect(tooltip.getByText('IMAGE', { exact: true })).toBeVisible({ timeout: 1_500 })
   await page.mouse.move(srcPin.x, srcPin.y + 250)
   await expect(tooltip).toBeHidden()
 
@@ -263,7 +258,7 @@ test('a native dinkster.image output connects to a comfy.IMAGE input as one IMAG
   await testInfo.attach('dinkster-image-comfy-image-connection', { path, contentType: 'image/png' })
 })
 
-// dinkster.mask <-> comfy.MASK: the second interchangeable pair; the backend
+// MASK <-> comfy.MASK: the second interchangeable pair; the backend
 // registers both ids with the shared image-array codec, so masks connect
 // across the boundary and both spellings present as MASK.
 
@@ -274,7 +269,7 @@ const maskSchemas = [
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'dinkster.mask' } }],
+    items: [{ kind: 'output', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'MASK' } }],
   },
   {
     type: 'ComfyMaskConsumer',
@@ -289,7 +284,7 @@ const maskSchemas = [
   },
 ]
 
-test('a native dinkster.mask output connects to a comfy.MASK input as one MASK type', async ({ page }, testInfo) => {
+test('a native MASK output connects to a comfy.MASK input as one MASK type', async ({ page }, testInfo) => {
   const diagnostics = await page.evaluate(({ schemas }) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas(schemas as never)
@@ -311,7 +306,7 @@ test('a native dinkster.mask output connects to a comfy.MASK input as one MASK t
   const srcPin = await imagePinPoint(page, 'src', 'out', 'mask')
   const tooltip = page.getByTestId('app-tooltip')
   await page.mouse.move(srcPin.x, srcPin.y)
-  await expect(tooltip).toContainText('MASK (dinkster.mask)', { timeout: 1_500 })
+  await expect(tooltip.getByText('MASK', { exact: true })).toBeVisible({ timeout: 1_500 })
   await page.mouse.move(srcPin.x, srcPin.y + 250)
   await expect(tooltip).toBeHidden()
 

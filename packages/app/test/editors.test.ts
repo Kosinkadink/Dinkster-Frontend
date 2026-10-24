@@ -111,11 +111,11 @@ const glslPayload = (): DinksterNodesPayload => ({
       interface: [
         {
           role: 'input', id: 'fragment_shader', required: false,
-          type: { kind: 'concrete', types: ['core.string'] },
+          type: { kind: 'concrete', types: ['STRING'] },
           default: '#version 300 es\nvoid main() {}',
           widget: { type: 'STRING', multiline: true },
         },
-        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['dinkster.image'] } },
+        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
   },
@@ -127,17 +127,17 @@ const maskPaintPayload = (): DinksterNodesPayload => ({
     'dinkster.load_image': {
       schemaVersion: 1, displayName: 'Load Image', category: 'image', idempotent: true, editorRole: 'image-source',
       interface: [
-        { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
-        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['dinkster.image'] } },
-        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['dinkster.mask'] } },
+        { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
+        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['MASK'] } },
       ],
     },
     'dinkster.mask.paint': {
       schemaVersion: 1, displayName: 'Paint Mask', category: 'image', idempotent: true, editorRole: 'mask-paint',
       interface: [
-        { role: 'input', id: 'source', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
-        { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['core.string'] }, widget: { type: 'STRING', multiline: true } },
-        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['dinkster.mask'] } },
+        { role: 'input', id: 'source', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
+        { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: true } },
+        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['MASK'] } },
       ],
     },
   },

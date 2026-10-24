@@ -2,7 +2,9 @@
 
 ## Fast pull-request checks
 
-`.github/workflows/ci.yml` runs exactly one job with a ten-minute limit.
+`.github/workflows/ci.yml` runs product screenshots and fast checks, each
+with a ten-minute limit. The required fast check also fails if screenshots
+fail, so a visual regression cannot bypass the existing merge requirement.
 After `pnpm install --frozen-lockfile`, reproduce it with:
 
 ```bash
@@ -25,8 +27,11 @@ to `scripts/ci-fast.mjs` and
 on existing application files. There is no repository-wide formatter or
 linter configuration.
 
-The job does not fetch a backend, install or run a browser, execute
-performance budgets, or run E2E shards. PR labels do not enable heavy jobs.
+The fast job does not run a browser, performance budgets or E2E shards.
+The screenshot job installs Chromium and runs `pnpm test:visual` on the same
+Linux runner image as full validation, without a live backend. It discovers
+specs containing screenshot assertions so new screenshot specs join the check.
+PR labels do not enable heavy jobs.
 
 The subset uses synthetic inputs and checked-in fixtures:
 
@@ -47,6 +52,21 @@ job. Pull requests select its `linux` entry for same-repository branches and
 values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
+
+Screenshots use the product's bundled fonts, including canvas text, without
+test-only font injection or host font configuration. Baseline paths are shared
+across projects and platforms; all validation lanes compare the same images.
+The shared Playwright configuration pins device scale to 1 and disables GPU
+rasterization/compositing, partial rasterization and font hinting. Repainting
+complete tiles avoids rounded control-edge differences from partial repaints.
+Exact decoded-pixel comparisons use the lockfile-pinned Linux Chromium;
+native Windows/macOS validate bundled
+font loading and geometry rather than cross-platform raster identity.
+Visual fixtures use fixed timestamps and wait for catalogs before capture.
+Run `pnpm test:visual --update-snapshots=all` to regenerate every baseline after
+reviewing a deliberate appearance change. Screenshot thresholds stay unchanged.
+Failed hosted browser lanes retain their actual,
+expected and diff images in `browser-failure-*` artifacts for seven days.
 
 `.github/workflows/full-validation.yml` runs on pushes to main, every two
 hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, and on manual
@@ -98,9 +118,9 @@ on ports 15420/15421, activates the fixture pack's immutable frontend module,
 renders two custom nodes linked through the pack's custom value type, executes
 the consumer, and observes its typed route and event in host-owned UI.
 The isolated hosted library explicitly enables templates for positive gallery
-and loop-template coverage; P2P stays disabled. Template-dependent route fixtures
-also report templates enabled. Disabled-feature specs override those capabilities
-to assert the production default, which remains disabled for both features.
+and loop-template coverage. Template-dependent route fixtures also report
+templates enabled. Disabled-feature specs override that capability to assert
+the production default, which remains disabled.
 Base, hosted and audit Playwright servers explicitly enable the v1
 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing

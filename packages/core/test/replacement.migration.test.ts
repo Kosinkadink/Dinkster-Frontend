@@ -994,14 +994,14 @@ describe('published Save Video v3 migration', () => {
       type: 'dinkster.video.assemble', displayName: 'Assemble Video', category: 'video',
       source: 'v3', isOutputNode: false,
       items: [
-        input('images', 'dinkster.image'),
-        input('fps', 'core.float', {
+        input('images', 'IMAGE'),
+        input('fps', 'FLOAT', {
           optional: true, widget: { widgetType: 'NUMBER', options: { min: 0.01, max: 1000, step: 0.01 }, default: 24 },
         }),
-        input('bit_depth', 'core.combo', {
+        input('bit_depth', 'COMBO', {
           optional: true, widget: { widgetType: 'COMBO', options: { options: ['auto', '8', '10'] }, default: 'auto' },
         }),
-        input('color_space', 'core.combo', {
+        input('color_space', 'COMBO', {
           optional: true, widget: { widgetType: 'COMBO', options: { options: ['sRGB', 'HDR', 'HDR PQ'] } },
         }),
         input('audio', 'comfy.AUDIO', { optional: true }),

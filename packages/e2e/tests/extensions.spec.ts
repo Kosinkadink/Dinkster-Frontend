@@ -690,9 +690,10 @@ test('status layout media queries are complementary at fractional widths', async
   expect(matches).toEqual(widths.map((width) => ({ width, matches: [width <= 520, width > 520] })))
 })
 
-for (const [width, height] of [[1280, 800], [1920, 1080]] as const) {
-  test(`desktop status preserves the canvas with an active contribution at ${width}x${height}`, async ({ page }) => {
+for (const [width, height, font] of [[1280, 800], [1920, 1080], [1280, 800, 'DejaVu Sans']] as const) {
+  test(`desktop status preserves the canvas with an active contribution at ${width}x${height}${font ? ` with ${font}` : ''}`, async ({ page }) => {
     await page.setViewportSize({ width, height })
+    if (font) await page.addStyleTag({ content: `.statusbar, .statusbar * { font-family: "${font}", sans-serif !important; }` })
     const status = page.getByTestId('status-bar')
     const canvas = page.getByTestId('graph-canvas')
     const baseline = (await canvas.boundingBox())!
@@ -701,7 +702,7 @@ for (const [width, height] of [[1280, 800], [1920, 1080]] as const) {
     await installSnapshot(page)
     await expect(status).toContainText('Preview policy: 30 fps | up to 96 frames, 384 px')
     await expect(status).toContainText('Waiting for video preview initialization')
-    await captureEditorProof(page, `snapshot-desktop-footer-${width}`)
+    await captureEditorProof(page, `snapshot-desktop-footer-${width}${font ? '-wide-font' : ''}`)
     expect((await status.boundingBox())!.height).toBe(28)
     const active = (await canvas.boundingBox())!
     expect(active.y + active.height).toBe(baseline.y + baseline.height)

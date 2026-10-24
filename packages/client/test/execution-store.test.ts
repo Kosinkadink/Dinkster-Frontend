@@ -638,7 +638,7 @@ describe('CL4 terminal transition hardening', () => {
       execution,
       timestamp: 2,
       nodes: {
-        rich: { state: 'done', outputs: { sum: { typeId: 'core.int', value: 7 } } },
+        rich: { state: 'done', outputs: { sum: { typeId: 'INT', value: 7 } } },
         why: { state: 'skipped', skipOrigin: 'p/out', skipReason: 'no value' },
         bare: { state: 'done' },
       },
@@ -652,13 +652,13 @@ describe('CL4 terminal transition hardening', () => {
         rich: { state: 'done' }, // bare: must not strip the live summary
         why: { state: 'skipped' }, // bare: must not strip provenance
         // descriptor-enriched: fills what the bare live event never carried
-        bare: { state: 'done', outputs: { out: { typeId: 'core.string' } } },
+        bare: { state: 'done', outputs: { out: { typeId: 'STRING' } } },
       },
     })
     const nodes = store.get(execution)!.nodes
-    expect(nodes['rich']).toEqual({ state: 'done', outputs: { sum: { typeId: 'core.int', value: 7 } } })
+    expect(nodes['rich']).toEqual({ state: 'done', outputs: { sum: { typeId: 'INT', value: 7 } } })
     expect(nodes['why']).toEqual({ state: 'skipped', skipOrigin: 'p/out', skipReason: 'no value' })
-    expect(nodes['bare']).toEqual({ state: 'done', outputs: { out: { typeId: 'core.string' } } })
+    expect(nodes['bare']).toEqual({ state: 'done', outputs: { out: { typeId: 'STRING' } } })
   })
 
   it('CL4 an authoritative terminal after inferred loss retracts the lost warning', () => {

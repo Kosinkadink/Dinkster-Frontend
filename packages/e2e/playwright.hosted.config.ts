@@ -62,7 +62,7 @@ if (argumentProject) {
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
   writeFileSync(
     resolve(nativeLibrary, 'settings.json'),
-    JSON.stringify({ features: { p2p: { enabled: false }, templates: { enabled: true } } }),
+    JSON.stringify({ features: { templates: { enabled: true } } }),
   )
   writeFileSync(
     resolve(nativeLibrary, 'mounts.toml'),
@@ -111,7 +111,6 @@ export default defineConfig({
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
         '--host 127.0.0.1',
         `--port ${nativePort}`,
-        '--disable-p2p',
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,
@@ -119,7 +118,7 @@ export default defineConfig({
         '--execution-cache-mode memory',
         '--allow-mount-changes',
         `--comfy-root ${JSON.stringify(comfyRoot)}`,
-        `--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
+        `--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`,
       ].join(' '),
       cwd: dinksterRoot,
       env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },
@@ -154,5 +153,5 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 180_000,
     },
-  ],
+  ].map((server) => ({ ...server, stdout: 'pipe' as const })),
 })

@@ -1,21 +1,15 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 338,
+    "rawControl": 200,
     "inlineStyle": 65,
-    "cssLiteral": 393
+    "cssLiteral": 376
   },
   "entries": [
     {
       "kind": "rawControl",
       "path": "packages/app/src/AgentPermissionsPanel.tsx",
       "count": 6,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/App.tsx",
-      "count": 20,
       "issue": 382
     },
     {
@@ -103,12 +97,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/CompositorEditor.tsx",
-      "count": 15,
-      "issue": 382
-    },
-    {
       "kind": "inlineStyle",
       "path": "packages/app/src/CompositorEditor.tsx",
       "count": 2,
@@ -151,12 +139,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/ExecutedImageViewer.tsx",
-      "count": 18,
-      "issue": 382
-    },
-    {
       "kind": "inlineStyle",
       "path": "packages/app/src/ExecutedImageViewer.tsx",
       "count": 4,
@@ -172,12 +154,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/GlslEditor.tsx",
       "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/ImageDocumentWorkspace.tsx",
-      "count": 36,
       "issue": 382
     },
     {
@@ -260,20 +236,8 @@
     },
     {
       "kind": "rawControl",
-      "path": "packages/app/src/OutputDescriptorEditor.tsx",
-      "count": 12,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
       "path": "packages/app/src/OutputMountSettings.tsx",
       "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/P2PPanel.tsx",
-      "count": 12,
       "issue": 382
     },
     {
@@ -310,12 +274,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/RegionIterationInspector.tsx",
       "count": 3,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/RuntimeSettingsPanel.tsx",
-      "count": 13,
       "issue": 382
     },
     {
@@ -382,12 +340,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/VideoDocumentEditor.tsx",
       "count": 7,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/VideoEditEditor.tsx",
-      "count": 12,
       "issue": 382
     },
     {
@@ -501,7 +453,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 393,
+      "count": 376,
       "issue": 382
     },
     {

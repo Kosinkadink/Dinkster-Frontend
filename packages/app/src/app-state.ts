@@ -1115,7 +1115,7 @@ export function controllerAdvancementPlan(
 
 /**
  * Legacy boolean tokens (wire v10): the exact two-option combo vocabularies
- * the backend now translates to core.boolean. Old documents stored the
+ * the backend now translates to BOOLEAN. Old documents stored the
  * option string; these are the ONLY strings normalizeLegacyBooleans rewrites.
  */
 const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
@@ -2243,7 +2243,6 @@ interface BackendBase {
   readonly registry: Signal<SchemaRegistry | undefined>
   /** Execution locations advertised by the current native server life. */
   readonly workerCatalog: Signal<WorkerCatalogState>
-  readonly p2pEnabled: Signal<boolean>
   readonly templatesEnabled: Signal<boolean>
   /** Current schema request state for truthful backend-management feedback. */
   readonly schemaState: Signal<
@@ -2765,6 +2764,7 @@ export class AppState {
    */
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
+  readonly queueRefusal = createSignal<Tab | undefined>(undefined)
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
   /**
@@ -4014,7 +4014,6 @@ export class AppState {
       baseUrl,
       registry,
       workerCatalog,
-      p2pEnabled: createSignal(false),
       templatesEnabled: createSignal(false),
       schemaState: createSignal<
         | { readonly status: 'idle' | 'loading' | 'waiting' | 'ready' }
@@ -4105,7 +4104,6 @@ export class AppState {
           this.flushWorkspaceRegistrations(id)
         }),
         base.workerCatalog.subscribe(() => this.backendsTick.update((v) => v + 1)),
-        base.p2pEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
@@ -4163,7 +4161,6 @@ export class AppState {
         requestCompositionProblems(gen)
         void connection.fetchRuntimeSettings().then((settings) => {
           if (gen !== staleGen) return
-          base.p2pEnabled.set(settings.features?.p2p?.enabled === true)
           base.templatesEnabled.set(settings.features?.templates?.enabled === true)
         }).catch(() => undefined)
       }
@@ -4250,7 +4247,6 @@ export class AppState {
       }
       const refreshOnConnect = (): void => {
         staleGen += 1
-        base.p2pEnabled.set(false)
         base.templatesEnabled.set(false)
         requestCurrentDiagnostics(staleGen)
         // graphFeatures and the extension snapshot pair are load-bearing and
@@ -4275,7 +4271,6 @@ export class AppState {
         if (status === 'connected') refreshOnConnect()
         else {
           staleGen += 1
-          base.p2pEnabled.set(false)
           base.templatesEnabled.set(false)
           this.invalidateWorkerCatalog(nativeBackend)
         }
@@ -4896,7 +4891,7 @@ export class AppState {
   }
 
   /**
-   * Wire v10 moved boolean-like two-option combos to real core.boolean
+   * Wire v10 moved boolean-like two-option combos to real BOOLEAN
    * inputs; documents saved before the flip stored the option STRING. On the
    * open boundary (and again on explicit retarget - see legacyBooleanPending),
    * rewrite exactly the recognized
@@ -5105,14 +5100,14 @@ export class AppState {
     const hasOccurrenceTopology = Object.values(tab.store.doc.occurrenceTopologies ?? {})
       .some((topology) => topology.bodyGraph === graphId)
     if (loaderSchema?.editorRole !== 'image-source' || candidate.inputId !== 'image' || hasOccurrenceTopology ||
-        schemaPortType(loaderSchema, 'input', 'image') !== 'asset<dinkster.image>' ||
-        schemaPortType(loaderSchema, 'output', 'image') !== 'dinkster.image' ||
-        schemaPortType(loaderSchema, 'output', 'mask') !== 'dinkster.mask' ||
-        schemaPortType(paintSchema, 'input', 'source') !== 'asset<dinkster.image>' ||
-        schemaPortType(paintSchema, 'input', 'operations') !== 'core.string' ||
+        schemaPortType(loaderSchema, 'input', 'image') !== 'asset<IMAGE>' ||
+        schemaPortType(loaderSchema, 'output', 'image') !== 'IMAGE' ||
+        schemaPortType(loaderSchema, 'output', 'mask') !== 'MASK' ||
+        schemaPortType(paintSchema, 'input', 'source') !== 'asset<IMAGE>' ||
+        schemaPortType(paintSchema, 'input', 'operations') !== 'STRING' ||
         inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.widgetType !== 'STRING' ||
         inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.options.multiline !== true ||
-        schemaPortType(paintSchema, 'output', 'mask') !== 'dinkster.mask') return paint ? undefined : base
+        schemaPortType(paintSchema, 'output', 'mask') !== 'MASK') return paint ? undefined : base
     const source = { node: candidate.nodeId, port: 'mask' }
     const expectedMaskLinkIds = Object.values(graph.links).filter((link) =>
       'node' in link.from && 'port' in link.from && link.from.node === source.node && link.from.port === source.port).map((link) => link.id).sort()
@@ -8187,7 +8182,7 @@ export class AppState {
   ): boolean {
     if (this.placementIsCurrent(tab, backend, compiledDocument, placement)) return true
     if (this.tabs.get().includes(tab)) {
-      this.replaceProblems(tab.id, [
+      this.refuseQueue(tab, [
         ...diagnostics,
         diag(
           'error',
@@ -8215,7 +8210,7 @@ export class AppState {
     const routed = new Set(worker?.routedNodeTypes ?? [])
     const unroutable = selected.filter((node) => node.region === undefined && !routed.has(node.type))
     if (selected.length === 0 || worker?.status !== 'connected' || unroutable.length > 0) {
-      this.replaceProblems(tab.id, [diag(
+      this.refuseQueue(tab, [diag(
         'error',
         'compile',
         'submit.workerUnavailable',
@@ -8231,6 +8226,11 @@ export class AppState {
     await this.queue(tab, { kind: 'full' }, selected.map((node) => node.id), placement)
   }
 
+  private refuseQueue(tab: Tab, diagnostics: readonly Diagnostic[]): void {
+    this.replaceProblems(tab.id, diagnostics)
+    this.queueRefusal.set(tab)
+  }
+
   async queue(
     tab: Tab,
     scope: ExecutionScope = { kind: 'full' },
@@ -8238,6 +8238,7 @@ export class AppState {
     placement?: Readonly<Record<string, string>>,
   ): Promise<void> {
     if (this.disposed || tab.execution) return // frozen views never queue
+    this.queueRefusal.set(undefined)
     const promotion = this.workspacePromotions.get(tab.id)
     if (promotion?.tab === tab) {
       await promotion.promise
@@ -8258,7 +8259,7 @@ export class AppState {
       // Queueing refreshes THIS tab's Problems entries (compile results
       // supersede open-time/previous-queue entries); other tabs' entries
       // and app-scoped entries are untouched.
-      this.replaceProblems(tab.id, this.queueRefusalDiagnostics(tab, result.diagnostics))
+      this.refuseQueue(tab, this.queueRefusalDiagnostics(tab, result.diagnostics))
       return
     }
     const missingRequired = requiredRootNodes.filter((required) =>
@@ -8269,7 +8270,7 @@ export class AppState {
       }),
     )
     if (missingRequired.length > 0) {
-      this.replaceProblems(tab.id, [diag(
+      this.refuseQueue(tab, [diag(
         'error',
         'compile',
         'compile.scope.inactiveSelection',
@@ -8351,7 +8352,7 @@ export class AppState {
         // rejection must not clobber (or resurrect entries under) the
         // replacement session that reuses this tab id.
         if (this.tabs.get().includes(tab)) {
-          this.replaceProblems(tab.id, [...result.artifact.diagnostics, ...submitted.diagnostics])
+          this.refuseQueue(tab, [...result.artifact.diagnostics, ...submitted.diagnostics])
         }
         return
       }
@@ -8373,6 +8374,7 @@ export class AppState {
           message: `failed to submit prompt: ${e instanceof Error ? e.message : String(e)}`,
         },
       ])
+      this.queueRefusal.set(tab)
     } finally {
       if (!consentOwnsLease) lease.release()
     }
@@ -8400,7 +8402,7 @@ export class AppState {
     const gate = current.diagnostics.filter((diagnostic) =>
       diagnostic.code === 'compile.wire15.modesUnsupported')
     if (gate.length === 0) return false
-    this.replaceProblems(tab.id, gate)
+    this.refuseQueue(tab, gate)
     return true
   }
 

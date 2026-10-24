@@ -6,7 +6,7 @@ const descriptors = {
   mask: { typeId: 'comfy.MASK', fingerprint: 'mask-source', meta: { polarity: 'coverage', semantic: 'selection', dtype: 'float32', storage_dtype: 'fp32' } },
   audio: { typeId: 'comfy.AUDIO', fingerprint: 'audio-source', meta: { sample_rate: 48000, channels: 2, layout: 'stereo', duration: 3.5, dtype: 'float32', storage_dtype: 'fp32' } },
   video: { typeId: 'comfy.VIDEO', fingerprint: 'video-source', meta: { container: 'mkv', probe: { video_codec: 'hevc', pix_fmt: 'yuv420p10le', alpha: false, bit_depth: 10, color_space: 'HDR PQ' }, effective: { duration: [7, 2], fps: [30000, 1001], frame_count: 105 } } },
-  scalar: { typeId: 'core.float', fingerprint: 'scalar-source' },
+  scalar: { typeId: 'FLOAT', fingerprint: 'scalar-source' },
   list: { typeId: 'list<comfy.IMAGE>', fingerprint: 'list-source' },
 }
 

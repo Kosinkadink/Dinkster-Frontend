@@ -3,9 +3,52 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProductCheckbox, ProductRadio } from '../src/ProductControls.js'
+import { ProductCheckbox, ProductColorInput, ProductFileInput, ProductRadio } from '../src/ProductControls.js'
 
 afterEach(() => document.body.replaceChildren())
+
+describe('ProductColorInput', () => {
+  it('keeps the native picker and forwards controlled color, input and disabled state', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [value, setValue] = createSignal('#173f6c')
+    const [disabled, setDisabled] = createSignal(false)
+    render(() => <ProductColorInput aria-label="Background color" value={value()} disabled={disabled()}
+      onInput={(event) => setValue(event.currentTarget.value)} />, root)
+    const picker = root.querySelector<HTMLInputElement>('[aria-label="Background color"]')!
+    expect(picker.type).toBe('color')
+    expect(picker.value).toBe('#173f6c')
+    picker.value = '#102030'
+    picker.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    expect(value()).toBe('#102030')
+    setValue('#d7a86e')
+    expect(picker.value).toBe('#d7a86e')
+    setDisabled(true)
+    expect(picker.disabled).toBe(true)
+  })
+})
+
+describe('ProductFileInput', () => {
+  it('keeps file selection hidden while forwarding the ref, accept filter and selected files', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    let picker!: HTMLInputElement
+    let selected: File | undefined
+    const dispose = render(() => <ProductFileInput ref={picker} accept="image/png" onChange={(event) => {
+      selected = event.currentTarget.files?.[0]
+    }} />, root)
+    const file = new File(['raster'], 'layer.png', { type: 'image/png' })
+    const transfer = new DataTransfer()
+    transfer.items.add(file)
+    picker.files = transfer.files
+    picker.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(picker.type).toBe('file')
+    expect(picker.hidden).toBe(true)
+    expect(picker.accept).toBe('image/png')
+    expect(selected).toBe(file)
+    dispose()
+  })
+})
 
 describe('ProductCheckbox', () => {
   it('exposes controlled boolean and mixed state with one activation callback', () => {

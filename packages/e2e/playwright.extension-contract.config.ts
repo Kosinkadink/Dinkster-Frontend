@@ -62,7 +62,6 @@ export default defineConfig({
         `--port ${nativePort}`,
         '--no-default-packs',
         `--pack ${JSON.stringify(pack)}`,
-        '--disable-p2p',
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/extension-contract-library'))}`,
       ].join(' '),

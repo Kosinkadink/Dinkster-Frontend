@@ -32,10 +32,10 @@ const imageSourceNode = {
       role: 'input',
       id: 'image',
       required: true,
-      type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } },
+      type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } },
       widget: { type: 'ASSET', accept: ['image/png'] },
     },
-    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['dinkster.image'] } },
+    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
   ],
 }
 

@@ -17,7 +17,6 @@ import Server from 'lucide-solid/icons/server'
 import Terminal from 'lucide-solid/icons/terminal'
 import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
-import Network from 'lucide-solid/icons/network'
 import { currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { ActivityLog } from './ActivityLog.js'
@@ -42,6 +41,7 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { SurfacePanel } from './SurfacePanel.js'
@@ -72,7 +72,6 @@ import {
 } from './desktop-bridge.js'
 import { coordinateBrowserWindows } from './browser-window-layout.js'
 import { MemoryPanel } from './MemoryPanel.js'
-import { P2PPanel } from './P2PPanel.js'
 import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
@@ -249,7 +248,7 @@ export function DinksterAppMenu(props: {
   })
   return (
     <div class="app-menu" ref={root}>
-      <button
+      <ProductButton variant="ghost" size="compact"
         ref={button}
         class="brand app-menu-button"
         data-testid="dinkster-menu-button"
@@ -269,7 +268,7 @@ export function DinksterAppMenu(props: {
         }}
       >
         <span>Dinkster</span><span class="app-menu-caret" aria-hidden="true" />
-      </button>
+      </ProductButton>
       <Show when={open()}>
         <ContextMenu
           menu={{ ...anchor(), worldX: 0, worldY: 0, groups: groups() }}
@@ -448,6 +447,7 @@ export function App(props: {
   const collabTabs = useSignal(app.collabTabs)
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
+  const queueRefusal = useSignal(app.queueRefusal)
   const solveDiagnostics = useSignal(app.solveDiagnostics)
   const logs = useSignal(app.logs)
   const overlayPins = useSignal(app.overlayPins)
@@ -1560,28 +1560,9 @@ export function App(props: {
   onCleanup(() => {
     for (const un of unregisterPanels) un()
   })
-  const p2pBackends = createMemo(() => {
-    backendsTick()
-    return backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster' && backend.p2pEnabled.get())
-  })
-  const p2pAvailable = createMemo(() => p2pBackends().length > 0)
   const templatesAvailable = createMemo(() => {
     backendsTick()
     return backends().some((backend) => backend.templatesEnabled.get())
-  })
-  createEffect(() => {
-    if (!p2pAvailable()) return
-    const unregister = registerBuiltinPanel({
-      id: 'p2p', get title() { return message('p2p.tabTitle') }, icon: Network,
-      get description() { return message('p2p.panelDescription') }, get ariaLabel() { return message('p2p.title') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 36,
-      toggleTestId: 'p2p-sidebar-toggle', component: () => <div class="p2p-panels">
-        <For each={p2pBackends()}>
-          {(backend) => <P2PPanel connection={backend.connection} backendId={backend.id} backendLabel={backend.label} />}
-        </For>
-      </div>,
-    })
-    onCleanup(unregister)
   })
   createEffect(() => {
     if (!templatesAvailable()) {
@@ -2354,14 +2335,14 @@ export function App(props: {
             <div class="detached-workspace-state" data-testid="detached-workspace-state">
               <h2>{message('shell.workflow.detached.title')}</h2>
               <p>{message('shell.workflow.detached.description')}</p>
-              <button type="button" onClick={() => app.createWorkflow()}>{message('shell.workflow.new')}</button>
+              <ProductButton variant="primary" type="button" onClick={() => app.createWorkflow()}>{message('shell.workflow.new')}</ProductButton>
             </div>
           </Show>
           <Show when={managedContext().kind === 'workflow' && !paneActiveTab()}>
             <div class="detached-workspace-state" data-testid="detached-workflow-missing">
               <h2>{message('shell.workflow.unavailable.title')}</h2>
               <p>{message('shell.workflow.unavailable.description')}</p>
-              <button type="button" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</button>
+              <ProductButton type="button" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</ProductButton>
             </div>
           </Show>
           <div class="canvas-stage-toolbar">
@@ -2454,9 +2435,9 @@ export function App(props: {
           <section class="native-panel-window native-panel-window-missing" data-testid="native-panel-window-missing">
             <h1>{message('shell.panel.unavailable.title')}</h1>
             <p>{message('shell.panel.unavailable.description')}</p>
-            <button type="button" data-testid="redock-window" onClick={redockCurrentWindow}>
+            <ProductButton type="button" data-testid="redock-window" onClick={redockCurrentWindow}>
               {message('shell.window.moveToMain')}
-            </button>
+            </ProductButton>
           </section>
         </Show>}
       >{(panel) => (
@@ -2468,7 +2449,7 @@ export function App(props: {
                 {(indicator) => <PanelIndicatorBadge indicator={indicator} />}
               </Show>
             </h1>
-            <button type="button" class="shell-panel-header-action" data-testid="redock-window" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</button>
+            <ProductButton variant="ghost" size="compact" type="button" class="shell-panel-header-action" data-testid="redock-window" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</ProductButton>
           </header>
           <div class="native-panel-window-content">
             {panel.component({
@@ -2495,8 +2476,8 @@ export function App(props: {
             <div class="close-tab-confirm">
               <p>{message('shell.close.confirm', { title: pending.title })}</p>
               <ProductActionFooter>
-                <button type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</button>
-                <button type="button" class="danger" onClick={confirmPendingClose}>{message('shell.close.discard')}</button>
+                <ProductButton type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</ProductButton>
+                <ProductButton variant="danger" type="button" onClick={confirmPendingClose}>{message('shell.close.discard')}</ProductButton>
               </ProductActionFooter>
             </div>
           </ModalSurface>
@@ -2518,13 +2499,13 @@ export function App(props: {
             ]}
           />
           <Show when={managedContext().kind === 'workflow'}>
-            <button class="redock-workflow" data-testid="redock-workflow" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</button>
+            <ProductButton size="compact" class="redock-workflow" data-testid="redock-workflow" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</ProductButton>
           </Show>
         </div>
         <UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />
         <div class="topbar-group topbar-group-right">
           <CustomizeLayoutButton commands={app.commands} />
-          <button
+          <ProductButton variant="ghost" size="compact"
             class="shell-region-toggle"
             data-testid="left-panel-toggle"
             data-tooltip-label={message('shell.toggle.leftPanel')}
@@ -2534,8 +2515,8 @@ export function App(props: {
             onClick={toggleLeftRegion}
           >
             <ShellRegionIcon region="left" active={leftOpen()} />
-          </button>
-          <button
+          </ProductButton>
+          <ProductButton variant="ghost" size="compact"
             class="shell-region-toggle"
             data-testid="bottom-panel-toggle"
             data-tooltip-label={message('shell.toggle.bottomPanel')}
@@ -2545,8 +2526,8 @@ export function App(props: {
             onClick={toggleBottomRegion}
           >
             <ShellRegionIcon region="bottom" active={bottomOpen()} />
-          </button>
-          <button
+          </ProductButton>
+          <ProductButton variant="ghost" size="compact"
             class="shell-region-toggle"
             data-testid="rail-toggle"
             data-tooltip-label={message('shell.toggle.rightRail')}
@@ -2556,9 +2537,9 @@ export function App(props: {
           >
             <ShellRegionIcon region="right" active={railOpen()} />
             <Show when={railIndicator()} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
-          </button>
+          </ProductButton>
           <Show when={managedContext().kind === 'primary'}>
-            <button
+            <ProductButton variant="ghost" size="compact"
               class="settings-button"
               data-testid="image-documents-button"
               data-tooltip-label={message('shell.imageDocuments.title')}
@@ -2567,12 +2548,12 @@ export function App(props: {
               aria-pressed={imageDocumentsOpen()}
               disabled={imageDocumentsBusy()}
               onClick={() => setImageDocumentsVisible(!imageDocumentsOpen())}
-            ><Icon icon={Images} /></button>
-            <button class="settings-button" data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} aria-label={message('shell.panel.projects.title')} onClick={() => app.modalPanel.set('projects')}><Icon icon={FolderOpen} /></button>
+            ><Icon icon={Images} /></ProductButton>
+            <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} aria-label={message('shell.panel.projects.title')} onClick={() => app.modalPanel.set('projects')}><Icon icon={FolderOpen} /></ProductButton>
           </Show>
-          <button class="settings-button" data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} aria-label={message('shell.panel.workspace.title')} onClick={() => app.modalPanel.set('collab')}><Icon icon={Users} /></button>
+          <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} aria-label={message('shell.panel.workspace.title')} onClick={() => app.modalPanel.set('collab')}><Icon icon={Users} /></ProductButton>
           <Show when={desktopBridge()}>
-            <button class="settings-button" data-testid="desktop-management-button" data-tooltip-label={message('shell.panel.desktop.title')} data-tooltip-detail={message('shell.desktop.tooltip')} aria-label={message('shell.panel.desktop.title')} onClick={() => app.modalPanel.set('desktop-management')}><Icon icon={HardDrive} /></button>
+            <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="desktop-management-button" data-tooltip-label={message('shell.panel.desktop.title')} data-tooltip-detail={message('shell.desktop.tooltip')} aria-label={message('shell.panel.desktop.title')} onClick={() => app.modalPanel.set('desktop-management')}><Icon icon={HardDrive} /></ProductButton>
           </Show>
         </div>
       </header>
@@ -2621,13 +2602,12 @@ export function App(props: {
               {sup().detail ? ` - ${sup().detail}` : ''}
             </span>
             <Show when={sup().state === 'failed' || sup().state === 'stopped'}>
-              <button
-                class="banner-button"
+              <ProductButton size="compact"
                 data-testid="engine-restart"
                 onClick={() => void app.restartEngine(activeBackend())}
               >
                 {message('shell.engine.restart')}
-              </button>
+              </ProductButton>
             </Show>
           </div>
         )}
@@ -2846,6 +2826,31 @@ export function App(props: {
           <Show when={tip().detailed}><For each={tip().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
         </div>
       )}</Show>
+      <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
+        <ProductEmptyState
+          class="queue-refusal-toast"
+          testId="queue-refusal-toast"
+          tone="error"
+          title={message('problems.queueRefused')}
+          hint={<>
+            <span>{summary().label}</span>
+            <span>{message('problems.severityCounts', {
+              errors: problemDiagnostics().filter((problem) => problem.severity === 'error').length,
+              warnings: problemDiagnostics().filter((problem) => problem.severity === 'warning').length,
+              info: problemDiagnostics().filter((problem) => problem.severity === 'info').length,
+            })}</span>
+          </>}
+          action={<>
+            <ProductButton size="compact" onClick={() => {
+              setPanelOpen(app.panels, app.dock, 'problems', 'right', true)
+              app.queueRefusal.set(undefined)
+            }}>{message('problems.action.open')}</ProductButton>
+            <ProductButton size="compact" variant="ghost" onClick={() => app.queueRefusal.set(undefined)}>
+              {message('problems.action.dismiss')}
+            </ProductButton>
+          </>}
+        />
+      )}</Show>
       <TransientStatus message={transientStatus()} />
       <footer class="statusbar" data-testid="status-bar" aria-label={message('shell.applicationStatus')} hidden={!statusBarVisible() && placementStatus() === undefined && transientStatus() === undefined}>
         <div class="statusbar-left" role="group" aria-label={message('shell.workspaceBackendStatus')}>
@@ -2895,7 +2900,7 @@ export function App(props: {
               />
             </span>
           )}</For>
-          <button
+          <ProductButton variant="ghost" size="compact"
             class="statusbar-toggle"
             data-testid="backends-toggle"
             aria-pressed={sidebarPressed('backends')}
@@ -2904,8 +2909,8 @@ export function App(props: {
             {multiBackend()
               ? message('shell.status.backendsCount', { count: backends().length })
               : message('shell.panel.backends.title')}
-          </button>
-          <button
+          </ProductButton>
+          <ProductButton variant="ghost" size="compact"
             class="statusbar-toggle"
             data-testid="review-upgrades-toggle"
             data-tooltip-label={message('shell.reviewUpgrades.tooltip')}
@@ -2914,7 +2919,7 @@ export function App(props: {
             onClick={() => app.reviewReplacements.update((v) => !v)}
           >
             {message('shell.reviewUpgrades.label', { state: message(reviewReplacements() ? 'shell.state.on' : 'shell.state.off') })}
-          </button>
+          </ProductButton>
         </div>
       </footer>
       </div>
@@ -3100,10 +3105,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
       <MediaDiagnostics diagnostics={props.execution.valueDiagnostics ?? []} />
       <For each={outputIdentities().layers}>{(identity) => {
         const [nodeId, outputId] = JSON.parse(identity) as [string, string]
-        return <button type="button" disabled={layerRequest(nodeId, outputId) === undefined} onClick={() => {
+        return <ProductButton type="button" disabled={layerRequest(nodeId, outputId) === undefined} onClick={() => {
           const request = layerRequest(nodeId, outputId)
           if (request !== undefined) props.onOpenLayers(request)
-        }}>Open layers: {nodeId} / {outputId}</button>
+        }}>Open layers: {nodeId} / {outputId}</ProductButton>
       }}</For>
       <For each={mediaValueGroups()}>{(group) => (
         <section class="output-iteration-group output-value-group" aria-label={group.label}>
@@ -3127,7 +3132,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
               <div class="output-iteration-images" role="list">
               <For each={group.images}>{({ image, index }) => (
               <div role="listitem">
-              <button
+              <ProductButton
                 type="button"
                 class="output-thumbnail"
                 aria-label={`Open ${executedImageLabel(image, index, images().length)}`}
@@ -3140,7 +3145,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
                   <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>
                 </span>
                 <ExecutedImageFacts image={image} availability={availability(image.key)} />
-              </button>
+              </ProductButton>
               </div>
               )}</For>
               </div>
