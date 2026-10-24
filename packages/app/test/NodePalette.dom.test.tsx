@@ -143,7 +143,7 @@ describe('NodePalette type disclosure', () => {
     expect(document.activeElement).toBe(trigger)
   })
 
-  it('shows display aliases for canonical options while committing the canonical value', async () => {
+  it('shows canonical types and ComfyUI bridges while committing the canonical value', async () => {
     const commits = vi.fn()
     const [selected, setSelected] = createSignal<ReadonlySet<string>>(new Set())
     const root = document.createElement('div')
@@ -152,7 +152,7 @@ describe('NodePalette type disclosure', () => {
       <SearchableTypeFilter
         label="Input"
         testid="palette-input-filter"
-        options={['CLIP', 'list<dinkster.latent>', 'comfy.IMAGE']}
+        options={['CLIP', 'list<LATENT>', 'comfy.IMAGE']}
         selected={selected()}
         onChange={(value) => { commits(value); setSelected(value) }}
         labelOf={typeIdDisplayLabel}
@@ -164,10 +164,10 @@ describe('NodePalette type disclosure', () => {
     trigger.click()
     await flushMicrotasks()
     const panel = document.getElementById(trigger.getAttribute('aria-controls')!)!
-    // Rows show the alias, never the raw dinkster id.
     expect(panel.textContent).toContain('CLIP')
     expect(panel.textContent).toContain('list<LATENT>')
-    expect(panel.textContent).not.toContain('CLIP')
+    expect(panel.textContent).not.toContain('comfy.IMAGE')
+    expect(panel.textContent).toContain('IMAGE')
 
     // Searching by the alias finds the option; committing selects the
     // CANONICAL value, which is what the port filters match against.
