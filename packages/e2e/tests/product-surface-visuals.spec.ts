@@ -834,6 +834,64 @@ test('Focused panel explains an empty context and absent document', async ({ pag
   }
 })
 
+test('Control surfaces explain empty bindings and invalid configuration and preserve row actions', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'features.controlSurfaces.enabled': true } })))
+  await boot(page)
+  await closeGallery(page)
+  const show = async (state: 'empty' | 'unbound' | 'invalid' | 'unknown' | 'bindings'): Promise<void> => {
+    await page.evaluate((state) => {
+      const app = window.__dinksterTest!.app
+      app.openDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: `surface-${state}`, root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'ProofNode', title: 'Source node', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+        view: { graphs: {} },
+        surfaces: state === 'empty' ? {} : { visual: {
+          id: 'visual', type: state === 'unknown' ? 'future.surface' : 'core.modePanel',
+          config: state === 'invalid' ? { title: 7 } : { title: 'Mode Panel', bindings: state === 'bindings' ? [
+            { kind: 'node', graphId: 'g0', nodeId: 'source' },
+            { kind: 'node', graphId: 'g0', nodeId: 'missing-node' },
+            { kind: 'future', label: 'Future binding' },
+          ] : [] },
+        } },
+      }, `Surface ${state}`)
+    }, state)
+    await openRail(page, 'Control surfaces')
+  }
+  const panel = page.getByTestId('surface-panel')
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `control-surfaces-${state}-${width}`)
+    }
+  }
+  await show('empty')
+  await expect(panel.getByText('None.', { exact: true })).toBeVisible()
+  await capture('empty')
+  await show('unbound')
+  await expect(panel.getByText('No bindings. Select nodes and bind them.', { exact: true })).toBeVisible()
+  await expect(panel.getByTestId('surface-apply-muted-visual')).toBeDisabled()
+  await capture('unbound')
+  await show('invalid')
+  await expect(panel.getByText('Config could not be decoded.', { exact: true })).toBeVisible()
+  await expect(panel.getByTestId('surface-remove-visual')).toBeEnabled()
+  await capture('invalid')
+  await show('unknown')
+  await expect(panel.getByText("Unknown surface type 'future.surface'.", { exact: true })).toBeVisible()
+  await expect(panel.getByTestId('surface-remove-visual')).toBeEnabled()
+  await capture('unknown')
+  await show('bindings')
+  await expect(panel.getByTestId('surface-binding-visual-0')).toHaveAttribute('data-status', 'ok')
+  await expect(panel.getByTestId('surface-binding-visual-1')).toHaveAttribute('data-status', 'missingNode')
+  await expect(panel.getByRole('listitem')).toHaveCount(3)
+  await capture('bindings')
+  await panel.getByTestId('surface-unbind-visual-1').click()
+  await expect(panel.getByRole('listitem')).toHaveCount(2)
+  await expect(panel.getByText('missing-node', { exact: true })).toHaveCount(0)
+  await panel.getByTestId('surface-apply-muted-visual').click()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['source']!.mode)).toBe('muted')
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

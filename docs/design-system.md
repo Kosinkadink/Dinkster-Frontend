@@ -58,6 +58,12 @@ The Focused panel uses ProductEmptyState for an absent document and a context
 without problems. Context selection, problem filtering and canvas navigation
 remain independent of the empty presentation.
 
+Control surfaces use ProductEmptyState for absent panels, empty bindings,
+unsupported surface types and malformed configurations. Malformed configuration
+is an alert; unsupported surfaces remain inert and removable. Bindings use
+ProductListRow inside list items, retaining removal actions and warning details
+for unresolved bindings without changing bulk mode commands.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.

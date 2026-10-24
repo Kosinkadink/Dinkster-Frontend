@@ -4365,33 +4365,13 @@ body,
   padding: 0;
 }
 
-.surface-binding {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #b8b8b8;
-  padding: 1px 0;
-}
-
-.surface-binding span:first-child {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.surface-binding[data-status='ok'] span:first-child {
-  color: #b8b8b8;
-}
-
-.surface-binding:not([data-status='ok']) span:first-child {
-  color: #8a6d3b;
+.mode-binding-unresolved {
+  color: var(--dinkster-warning-foreground);
   text-decoration: line-through;
 }
 
-.surface-binding-broken {
-  color: #e0c080;
+.mode-binding-warning {
+  color: var(--dinkster-warning-foreground);
   cursor: help;
 }
 
