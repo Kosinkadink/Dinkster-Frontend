@@ -5104,7 +5104,7 @@ export class AppState {
         schemaPortType(loaderSchema, 'output', 'image') !== 'dinkster.image' ||
         schemaPortType(loaderSchema, 'output', 'mask') !== 'dinkster.mask' ||
         schemaPortType(paintSchema, 'input', 'source') !== 'asset<dinkster.image>' ||
-        schemaPortType(paintSchema, 'input', 'operations') !== 'core.string' ||
+        schemaPortType(paintSchema, 'input', 'operations') !== 'STRING' ||
         inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.widgetType !== 'STRING' ||
         inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.options.multiline !== true ||
         schemaPortType(paintSchema, 'output', 'mask') !== 'dinkster.mask') return paint ? undefined : base

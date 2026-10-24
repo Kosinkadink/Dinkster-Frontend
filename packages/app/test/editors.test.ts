@@ -111,7 +111,7 @@ const glslPayload = (): DinksterNodesPayload => ({
       interface: [
         {
           role: 'input', id: 'fragment_shader', required: false,
-          type: { kind: 'concrete', types: ['core.string'] },
+          type: { kind: 'concrete', types: ['STRING'] },
           default: '#version 300 es\nvoid main() {}',
           widget: { type: 'STRING', multiline: true },
         },
@@ -136,7 +136,7 @@ const maskPaintPayload = (): DinksterNodesPayload => ({
       schemaVersion: 1, displayName: 'Paint Mask', category: 'image', idempotent: true, editorRole: 'mask-paint',
       interface: [
         { role: 'input', id: 'source', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
-        { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['core.string'] }, widget: { type: 'STRING', multiline: true } },
+        { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: true } },
         { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['dinkster.mask'] } },
       ],
     },

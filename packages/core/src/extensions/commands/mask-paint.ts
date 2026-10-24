@@ -113,7 +113,7 @@ function imageApplyMaskPaintOf(resolve?: (type: string) => NodeSchema | undefine
           paintInputs.find((input) => input.id === 'operations')?.type ?? {
             kind: 'wildcard',
           },
-        ) !== 'core.string' ||
+        ) !== 'STRING' ||
         paintInputs.find((input) => input.id === 'operations')?.widget?.widgetType !== 'STRING' ||
         paintInputs.find((input) => input.id === 'operations')?.widget?.options.multiline !== true ||
         canonicalTypeIdOf(
