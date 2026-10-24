@@ -242,7 +242,7 @@ describe('LibraryPanel', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <LibraryPanel backend={() => backend} sources={[pending]} />, root)
-    await vi.waitFor(() => expect(root.querySelector('[role="status"] .search-state-loading')).not.toBeNull())
+    await vi.waitFor(() => expect([...root.querySelectorAll('[role="status"]')].map((element) => element.textContent)).toContainEqual(expect.stringContaining('Loading packs')))
     expect(root.textContent).toContain('Loading packs')
     resolve({ items: [], total: 0 })
     await vi.waitFor(() => expect(root.textContent).toContain('No packs available'))

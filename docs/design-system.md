@@ -25,6 +25,13 @@ Successful reads clear the corresponding error; a failed initial mount load
 does not continue to claim it is loading. These presentation changes do not
 close the WebSocket or change backend wire contracts.
 
+Library collection and selection states, asset discovery and collection states,
+and the output rail use ProductEmptyState for empty, loading and error content.
+Collection request errors retain an enabled Retry action after the request
+settles; a retry re-reads the selected source without changing its selection.
+Output states preserve the distinction between an absent execution, waiting
+execution, retained-output loading, missing owner and failed execution.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.

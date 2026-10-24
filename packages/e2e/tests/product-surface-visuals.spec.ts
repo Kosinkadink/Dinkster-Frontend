@@ -553,6 +553,74 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
 })
 
+test('Library Assets and Outputs use shared empty and loading states', async ({ page }) => {
+  let mode: 'empty' | 'loading' | 'error' = 'empty'
+  let release: (() => void) | undefined
+  await page.route('**/collection-visual/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [] } })
+    if (path.endsWith('/api/library')) {
+      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      return mode === 'error'
+        ? route.fulfill({ status: 503, body: 'Library fixture unavailable' })
+        : route.fulfill({ json: { records: [] } })
+    }
+    const response = await page.request.get(route.request().url().replace('/collection-visual', ''))
+    return route.fulfill({ response })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { id: string }
+      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string }
+      setTabTarget(tab: string, backend: string): void
+      refreshBackendSchemas(backend: unknown): Promise<void>
+    }
+    const backend = app.addBackend('/collection-visual', 'Collection visual', false, 'dinkster')
+    app.setTabTarget(app.activeTab().id, backend.id)
+    await app.refreshBackendSchemas(backend)
+  })
+  await openDock(page, 'library-toggle')
+  const library = page.getByTestId('library-overlay')
+  for (const state of ['empty', 'loading', 'error'] as const) {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await library.getByTestId('library-source-select').click()
+    await page.getByRole('option', { name: 'History', exact: true }).click()
+    mode = state
+    await library.getByTestId('library-source-select').click()
+    await page.getByRole('option', { name: 'Workflows', exact: true }).click()
+    const presentation = library.locator('[data-collection-state]')
+    await expect(presentation).toHaveAttribute('data-collection-state', state)
+    if (state === 'loading') await expect(presentation.getByRole('status')).toContainText('Loading workflows')
+    if (state === 'error') await expect(presentation.getByRole('alert')).toContainText('GET /api/library failed: 503')
+    if (state === 'empty') await expect(presentation).toContainText('No saved workflows')
+    if (state === 'error') await expect(library.getByTestId('collection-retry')).toBeEnabled()
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(width / 2, height / 2)
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('app-tooltip')).toBeHidden()
+      await screenshot(page, `library-${state}-${width}`)
+    }
+    if (state === 'loading') { release?.(); await expect(presentation).toHaveAttribute('data-collection-state', 'empty') }
+  }
+  mode = 'empty'
+  await library.getByTestId('collection-retry').click()
+  await expect(library.getByTestId('collection-retry')).toHaveCount(0)
+  await openDock(page, 'assets-toggle')
+  await expect(page.getByTestId('assets-overlay')).toContainText('No assets')
+  await openRail(page, 'Outputs')
+  await expect(page.getByTestId('outputs-panel')).toContainText('No execution selected')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(width / 2, height / 2)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('app-tooltip')).toBeHidden()
+    await screenshot(page, `assets-outputs-empty-${width}`)
+  }
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

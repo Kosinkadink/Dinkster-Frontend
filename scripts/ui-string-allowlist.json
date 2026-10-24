@@ -7,6 +7,8 @@
   ],
   "App.tsx": [
     "attribute:aria-label:Execution provenance",
+    "attribute:title:No execution selected",
+    "attribute:title:Nothing queued for this workflow.",
     "text:'close' path), and closing restores focus to the opener. A body that must swallow keys - e.g. the settings keybinding capture - calls preventDefault on the keydown, which suppresses the native close request. The host owns the chrome (::backdrop, title, close button); a keyed Show remounts the body per panel, so opening IS the reset. aria-modal is redundant on a modal",
     "text:('.product-tablist') const body = element.querySelector",
     "text:('.product-tabpanel:not([hidden])') const overflowButton = element.querySelector",
@@ -27,9 +29,6 @@
     "text:Execution",
     "text:Execution owner removed or disconnected. Retained output routes are used when available.",
     "text:Image unavailable",
-    "text:No execution selected",
-    "text:Nothing queued for this workflow.",
-    "text:Run this workflow or open a recorded execution to inspect its outputs.",
     "text:Status",
     "text:app.panels.get(drag().panelId) return (",
     "text:app.settings.get",

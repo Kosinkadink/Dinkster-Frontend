@@ -5,7 +5,7 @@ import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js
 import { initialsOf } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
-import { SearchState } from './SearchSurface.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows'])
 const ACTIVITY_SOURCES = new Set(['history', 'runs'])
@@ -124,7 +124,7 @@ function LibraryDetailRail(props: {
       <Show
         when={props.entry}
         keyed
-        fallback={<div class="library-detail-empty"><strong>{props.message('library.detail.empty.title')}</strong><span>{props.message('library.detail.empty.description')}</span></div>}
+        fallback={<ProductEmptyState title={props.message('library.detail.empty.title')} hint={props.message('library.detail.empty.description')} />}
       >
         {(entry) => (
           <>
@@ -175,50 +175,51 @@ function LibraryDetailRail(props: {
 function DirectLibraryState(props: { readonly state: CollectionPanelState; readonly backend: LibraryBackendContext; readonly message: LibraryMessage }) {
   const source = () => props.state.sourceLabel.toLocaleLowerCase()
   if (props.state.kind === 'loading') {
-    return <div role="status"><SearchState kind="loading" title={props.message('library.state.loading.title', { source: source() })} detail={props.message('library.state.loading.directDetail', { source: props.state.sourceLabel, backend: props.backend.label })} /></div>
+    return <ProductEmptyState tone="loading" title={props.message('library.state.loading.title', { source: source() })} hint={props.message('library.state.loading.directDetail', { source: props.state.sourceLabel, backend: props.backend.label })} />
   }
   if (props.state.kind === 'error') {
-    return <div role="alert"><SearchState kind="error" title={props.message('library.state.unavailable.title', { source: props.state.sourceLabel })} detail={props.state.message ?? props.message('library.state.unavailable.directDetail', { source: props.state.sourceLabel, backend: props.backend.label })} /></div>
+    return <ProductEmptyState tone="error" title={props.message('library.state.unavailable.title', { source: props.state.sourceLabel })} hint={props.state.message ?? props.message('library.state.unavailable.directDetail', { source: props.state.sourceLabel, backend: props.backend.label })} />
   }
   if (props.state.kind === 'no-match') {
-    return <SearchState kind="empty" title={props.message('library.state.noMatch.title', { source: source() })} detail={props.message('library.state.noMatch.directDetail')} />
+    return <ProductEmptyState title={props.message('library.state.noMatch.title', { source: source() })} hint={props.message('library.state.noMatch.directDetail')} />
   }
   if (props.state.kind === 'no-compatible') {
-    return <SearchState kind="empty" title={props.message('library.state.noCompatible.title')} detail={props.message('library.state.noCompatible.detail')} />
+    return <ProductEmptyState title={props.message('library.state.noCompatible.title')} hint={props.message('library.state.noCompatible.detail')} />
   }
   if (props.state.sourceLabel === 'Packs') {
-    return <SearchState kind="empty" title={props.message('library.state.noPacks.title')} detail={props.message('library.state.noPacks.detail', { backend: props.backend.label })} />
+    return <ProductEmptyState title={props.message('library.state.noPacks.title')} hint={props.message('library.state.noPacks.detail', { backend: props.backend.label })} />
   }
   if (props.state.sourceLabel === 'Templates') {
-    return <SearchState kind="empty" title={props.message('library.state.noTemplates.title')} detail={props.message('library.state.noTemplates.detail', { backend: props.backend.label })} />
+    return <ProductEmptyState title={props.message('library.state.noTemplates.title')} hint={props.message('library.state.noTemplates.detail', { backend: props.backend.label })} />
   }
   if (props.backend.protocol === 'v1') {
-    return <SearchState kind="empty" title={props.message('library.state.savedWorkflowsUnavailable.title')} detail={props.message('library.state.savedWorkflowsUnavailable.detail')} />
+    return <ProductEmptyState title={props.message('library.state.savedWorkflowsUnavailable.title')} hint={props.message('library.state.savedWorkflowsUnavailable.detail')} />
   }
-  return <SearchState kind="empty" title={props.message('library.state.noSavedWorkflows.title')} detail={props.message('library.state.noSavedWorkflows.detail', { backend: props.backend.label })} />
+  return <ProductEmptyState title={props.message('library.state.noSavedWorkflows.title')} hint={props.message('library.state.noSavedWorkflows.detail', { backend: props.backend.label })} />
 }
 
 function ActivityState(props: { readonly state: CollectionPanelState; readonly backend: LibraryBackendContext; readonly message: LibraryMessage }) {
   const durable = props.state.sourceLabel === 'Runs'
   const noun = () => props.message(durable ? 'library.activity.durableRuns' : 'library.activity.localSnapshots')
   if (props.state.kind === 'loading') {
-    return <div role="status"><SearchState kind="loading" title={props.message('library.state.loading.title', { source: noun() })} detail={durable ? props.message('library.state.loading.runsDetail', { backend: props.backend.label }) : props.message('library.state.loading.historyDetail')} /></div>
+    return <ProductEmptyState tone="loading" title={props.message('library.state.loading.title', { source: noun() })} hint={durable ? props.message('library.state.loading.runsDetail', { backend: props.backend.label }) : props.message('library.state.loading.historyDetail')} />
   }
   if (props.state.kind === 'error') {
-    return <div role="alert"><SearchState kind="error" title={props.message('library.state.unavailable.title', { source: props.state.sourceLabel })} detail={props.state.message ?? props.message('library.state.unavailable.activityDetail', { source: noun() })} /></div>
+    return <ProductEmptyState tone="error" title={props.message('library.state.unavailable.title', { source: props.state.sourceLabel })} hint={props.state.message ?? props.message('library.state.unavailable.activityDetail', { source: noun() })} />
   }
   if (props.state.kind === 'no-match') {
-    return <SearchState kind="empty" title={props.message('library.state.noMatch.title', { source: noun() })} detail={props.message(durable ? 'library.state.noMatch.runsDetail' : 'library.state.noMatch.historyDetail')} />
+    return <ProductEmptyState title={props.message('library.state.noMatch.title', { source: noun() })} hint={props.message(durable ? 'library.state.noMatch.runsDetail' : 'library.state.noMatch.historyDetail')} />
   }
   if (durable && props.backend.protocol === 'v1') {
-    return <SearchState kind="empty" title={props.message('library.state.durableRunsUnavailable.title')} detail={props.message('library.state.durableRunsUnavailable.detail')} />
+    return <ProductEmptyState title={props.message('library.state.durableRunsUnavailable.title')} hint={props.message('library.state.durableRunsUnavailable.detail')} />
   }
-  return <SearchState kind="empty" title={props.message('library.state.none.title', { source: noun() })} detail={durable ? props.message('library.state.noRuns.detail', { backend: props.backend.label }) : props.message('library.state.noSnapshots.detail')} />
+  return <ProductEmptyState title={props.message('library.state.none.title', { source: noun() })} hint={durable ? props.message('library.state.noRuns.detail', { backend: props.backend.label }) : props.message('library.state.noSnapshots.detail')} />
 }
 
 function inheritedState(state: CollectionPanelState, message: LibraryMessage) {
-  return <p class="empty">
-    {state.kind === 'loading'
+  return <ProductEmptyState
+    tone={state.kind === 'error' ? 'error' : state.kind === 'loading' ? 'loading' : 'empty'}
+    title={state.kind === 'loading'
       ? message('library.inherited.loading')
       : state.kind === 'error'
         ? state.message
@@ -227,7 +228,7 @@ function inheritedState(state: CollectionPanelState, message: LibraryMessage) {
           : state.kind === 'no-compatible'
             ? message('library.inherited.noCompatible')
             : message('library.inherited.empty')}
-  </p>
+  />
 }
 
 export function LibraryPanel(props: LibraryPanelProps) {

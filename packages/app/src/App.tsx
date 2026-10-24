@@ -1276,7 +1276,7 @@ export function App(props: {
           baseUrl={backend.baseUrl}
           {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
         /></BackendMetadataState>
-      : <p class="empty">{message('shell.backend.assetsRequireNative')}</p>
+      : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
   }
   const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
   /**
@@ -1318,7 +1318,7 @@ export function App(props: {
   )
   const QueuePanel = () => (
     <div class="rail-panel-body" data-testid="queue-rail">
-      <Show when={workflowExecutions().length > 0} fallback={<p class="empty">Nothing queued for this workflow.</p>}>
+      <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title="Nothing queued for this workflow." />}>
         <For each={executionGroups()}>
           {(group) => (
             <div class="backend-group" role="list" aria-label={group.backend?.label ?? `${group.id} removed backend executions`}>
@@ -1344,9 +1344,8 @@ export function App(props: {
     <div class="rail-panel-body" data-testid="outputs-panel">
       <BackendMetadataState>
       <Show when={activeExecution()} fallback={
-        <div class="output-state" data-state="no-execution" role="status">
-          <strong>No execution selected</strong>
-          <span>Run this workflow or open a recorded execution to inspect its outputs.</span>
+        <div data-state="no-execution" role="status">
+          <ProductEmptyState title="No execution selected" hint="Run this workflow or open a recorded execution to inspect its outputs." />
         </div>
       }>
         {(exec) => <Outputs app={app} execution={exec()} onOpenLayers={(request) => {
@@ -3148,9 +3147,12 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
       )}</For>
       <div class="outputs" aria-label={`${images().length} execution images`}>
         <For each={imageGroups()} fallback={
-          <div class="output-state" data-state={emptyState().state} role={emptyState().state === 'error' ? 'alert' : 'status'}>
-            <strong>{emptyState().title}</strong>
-            <span>{emptyState().detail}</span>
+          <div data-state={emptyState().state} role={emptyState().state === 'empty' ? 'status' : undefined}>
+            <ProductEmptyState
+              tone={emptyState().state === 'error' || emptyState().state === 'owner-unavailable' ? 'error' : emptyState().state === 'waiting' || emptyState().state === 'loading' ? 'loading' : 'empty'}
+              title={emptyState().title}
+              hint={emptyState().detail}
+            />
           </div>
         }>
           {(group) => (
