@@ -54,6 +54,10 @@ Template gallery uses ProductEmptyState for loading, failed reads, empty catalog
 and searches without matches. Failed reads retain Retry, and the empty folder
 explanation preserves the permission-gated server-path form below it.
 
+The Focused panel uses ProductEmptyState for an absent document and a context
+without problems. Context selection, problem filtering and canvas navigation
+remain independent of the empty presentation.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.

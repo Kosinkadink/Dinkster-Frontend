@@ -806,6 +806,34 @@ test('Template gallery presents loading error retry and empty search states', as
   await capture('folder-form')
 })
 
+test('Focused panel explains an empty context and absent document', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'focused-empty', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: {} },
+    }, 'Empty workflow')
+  })
+  await openRail(page, 'Focused')
+  const panel = page.getByTestId('context-panel')
+  await expect(panel.getByTestId('context-no-problems')).toHaveText('None in this context.')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await screenshot(page, `focused-empty-${width}`)
+  }
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as { tabs: { set(value: readonly unknown[]): void } }
+    app.tabs.set([])
+  })
+  await expect(panel.getByText('No document is open.', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await screenshot(page, `focused-no-document-${width}`)
+  }
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
