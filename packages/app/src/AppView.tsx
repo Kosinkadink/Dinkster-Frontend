@@ -62,7 +62,7 @@ import type { AppState, Tab } from './app-state.js'
 import type { EditorHostContext } from './editors.js'
 import { useSignal } from './solid-adapter.js'
 import { isTextTarget } from './settings.js'
-import { parseNumericCommit, widgetCommitError } from './widget-commit.js'
+import { parseNumericCommit, parsePrimitiveListCommit, widgetCommitError } from './widget-commit.js'
 import { Icon } from './Icon.js'
 import { ProductButton, ProductCheckbox, ProductTextArea, ProductTextInput } from './ProductControls.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
@@ -1101,7 +1101,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       rect: { x: 0, y: 0, width: 0, height: 0 },
     })
   }
-  const editableKinds = new Set(['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COLOR', 'COMBO', 'VIDEO_EDIT'])
+  const editableKinds = new Set(['INT', 'FLOAT', 'STRING', 'LIST', 'BOOLEAN', 'COLOR', 'COMBO', 'VIDEO_EDIT'])
   const editable = (row: Extract<ParamRow, { kind: 'live' }>): boolean =>
     !frozen() &&
     !row.linked &&
@@ -1507,6 +1507,18 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             onCommit={(value) => commit(liveRow(), value)}
           />}
         >
+          <Match when={spec().widgetType === 'LIST'}>
+            <AppViewStringInput
+              value={JSON.stringify(liveRow().value ?? [])}
+              multiline={true}
+              ariaLabelledBy={accessibleLabelId}
+              onCommit={(raw) => {
+                const parsed = parsePrimitiveListCommit(raw, spec())
+                if (parsed.ok) commit(liveRow(), parsed.value)
+                else setError(liveRow().entry, parsed.error)
+              }}
+            />
+          </Match>
           <Match when={spec().widgetType === 'INT' || spec().widgetType === 'FLOAT'}>
             <ProductNumberInput
               class="app-view-control"

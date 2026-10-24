@@ -1623,6 +1623,25 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
+  it('edits primitive arrays as JSON and rejects scalar or nested drafts before writing', () => {
+    const ed = widgetState('LIST', {}, ['red', 'blue'])
+    const mounted = mountWidget({ ...ed, spec: { ...ed.spec!, element: { widgetType: 'STRING', options: {} } } })
+    const field = mounted.root.querySelector<HTMLTextAreaElement>('[data-testid="widget-editor"] textarea')!
+    expect(field.value).toBe('["red","blue"]')
+    for (const invalid of ['"red"', '[["red"]]', '[7]']) {
+      field.value = invalid
+      mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      expect(field.getAttribute('aria-invalid')).toBe('true')
+    }
+    field.value = '["blue,green","line\\nnext",""]'
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
+      command: 'node.setValue',
+      params: { graphId: 'g0', nodeId: 'n0', inputId: 'list', value: ['blue,green', 'line\nnext', ''] },
+    })
+  })
+
   it.each([
     ['INT', { min: 0, max: 4, step: 3 }, 2, '4', 4],
     ['FLOAT', { min: 0, max: 0.3, step: 0.1 }, 0.2, '0.27', 0.27],

@@ -1,14 +1,82 @@
 import { describe, expect, it } from 'vitest'
+import { compile } from '../src/compile/compile.js'
+import { importLitegraph } from '../src/format/import-litegraph.js'
+import { asConnectionId } from '../src/ids.js'
 import {
   DINKSTER_SCHEMA_WIRE_VERSION,
   parseDinksterNodes,
   parseDinksterSchema,
 } from '../src/schema/dinkster-wire.js'
-import { inputsOf } from '../src/schema/model.js'
+import { inputsOf, outputsOf } from '../src/schema/model.js'
 
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('binds primitive list widgets without changing their socket or scalar output', () => {
+    for (const [name, widget] of [
+      ['STRING', { type: 'STRING', multiline: false }],
+      ['INT', { type: 'NUMBER', min: -7, max: 19 }],
+      ['FLOAT', { type: 'NUMBER', round: false }],
+    ] as const) {
+      const result = parseDinksterSchema('ListConsumer', {
+        schemaVersion: 1,
+        interface: [
+          { role: 'input', id: 'values', type: { kind: 'list', element: concrete(name) }, required: true, widget },
+          { role: 'output', id: 'result', type: concrete(name) },
+        ],
+      })
+      expect(result.diagnostics).toEqual([])
+      const input = inputsOf(result.schema!)[0]!
+      expect(input.type).toEqual({ kind: 'list', element: { kind: 'concrete', name } })
+      expect(input.widget).toEqual({
+        widgetType: 'LIST', options: {},
+        element: { widgetType: name, options: name === 'STRING' ? { multiline: false } : name === 'INT' ? { min: -7, max: 19 } : { round: false } },
+      })
+      expect(outputsOf(result.schema!)[0]!.type).toEqual({ kind: 'concrete', name })
+    }
+  })
+
+  it('preserves list widget arrays through positional and keyed workflow import and compilation', () => {
+    const decoded = parseDinksterSchema('ListConsumer', {
+      schemaVersion: 1,
+      outputNode: true,
+      interface: [
+        { role: 'input', id: 'texts', type: { kind: 'list', element: concrete('STRING') }, required: true, widget: { type: 'STRING', multiline: false } },
+        { role: 'input', id: 'tail', type: concrete('INT'), required: true, widget: { type: 'NUMBER', min: 0 } },
+      ],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const resolve = (type: string) => type === 'ListConsumer' ? decoded.schema : undefined
+    const texts = ['one,two', '', 'line\nnext']
+    for (const widgets_values of [[texts, 17], { texts, tail: 17 }]) {
+      const imported = importLitegraph({
+        version: 0.4,
+        nodes: [{ id: 1, type: 'ListConsumer', widgets_values }],
+        links: [],
+      }, resolve)
+      expect(imported.diagnostics).toEqual([])
+      expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ texts, tail: 17 })
+      const compiled = compile({
+        document: imported.document!, revision: 1, resolve, scope: { kind: 'full' },
+        connection: asConnectionId('list-test'), schemaHash: 'list-test',
+      })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('list workflow compilation failed')
+      expect(compiled.artifact.prompt.n1!.inputs).toEqual({ texts, tail: 17 })
+    }
+  })
+
+  it('rejects mismatched and nested primitive-list widget bindings', () => {
+    for (const element of [concrete('INT'), { kind: 'list', element: concrete('STRING') }]) {
+      const result = parseDinksterSchema('BadList', {
+        schemaVersion: 1,
+        interface: [{ role: 'input', id: 'values', type: { kind: 'list', element }, required: true, widget: { type: 'STRING', multiline: false } }],
+      })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
+    }
+  })
+
   it('accepts only wire version 1 at the envelope and entry boundaries', () => {
     expect(DINKSTER_SCHEMA_WIRE_VERSION).toBe(1)
 

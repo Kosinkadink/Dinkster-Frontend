@@ -41,6 +41,7 @@ describe('core extension door dogfooding', () => {
       'BOOLEAN',
       'COMBO',
       'MULTI_COMBO',
+      'LIST',
       'COLOR',
       'CURVE',
       'COMPOSITOR',
