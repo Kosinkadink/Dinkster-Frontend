@@ -470,6 +470,10 @@ wrap in metadata regions, while image stages and metadata tails scroll
 independently at narrow widths and browser CSS zoom. See
 [Output inspection](output-inspection.md).
 
+App view validation and remote-choice failures use ProductNotice error feedback
+beside their existing controls. Correcting a local value clears its validation
+notice; a remote failure does not disable editing unrelated fields.
+
 ## Extension boundary
 
 Extensions contribute namespaced serializable content and commands. The host

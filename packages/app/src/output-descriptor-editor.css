@@ -54,11 +54,6 @@
   grid-column: 1 / -1;
 }
 
-.output-descriptor-notice {
-  border-left: 3px solid var(--dinkster-warning-border);
-  padding: var(--dinkster-space-8);
-}
-
 .output-descriptor-stale-links {
   display: grid;
   gap: var(--dinkster-space-8);

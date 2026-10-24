@@ -68,6 +68,7 @@ import { ProductButton, ProductCheckbox, ProductTextArea, ProductTextInput } fro
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProductNotice } from './ProductForm.js'
 import { AppWidgetPreview } from './AppWidgetPreview.js'
 import { AppPreviewSurface } from './AppPreviewSurface.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
@@ -1692,13 +1693,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               <InlineControl />
             </Show>
             <Show when={errors().get(rowKey(row().entry))}>
-              {(message) => <p class="app-view-error" data-testid="app-view-error" role="alert">{message()}</p>}
+              {(message) => <ProductNotice tone="error" testId="app-view-error">{message()}</ProductNotice>}
             </Show>
             <Show when={(() => {
               const remote = row().kind === 'live' ? remoteFor(row() as Extract<ParamRow, { kind: 'live' }>) : undefined
               return remote?.state === 'stale' || remote?.state === 'unavailable' ? remote.message : undefined
             })()}>
-              {(message) => <p class="app-view-error" data-testid="app-view-remote-error" role="alert">{message()}</p>}
+              {(message) => <ProductNotice tone="error" testId="app-view-remote-error">{message()}</ProductNotice>}
             </Show>
           </>
         </Show>

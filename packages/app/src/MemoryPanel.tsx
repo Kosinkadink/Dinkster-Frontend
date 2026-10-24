@@ -3,7 +3,7 @@ import { formatDate } from '@dinkster/core'
 import type { ConnectionStatus, DinksterConnection, MemoryGovernorDevice, MemoryStatus } from '@dinkster/client'
 import { ProductButton } from './ProductControls.js'
 import { ProductNotice } from './ProductForm.js'
-import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
+import { ProductEmptyState, ProductListRow, ProductPanelHeader } from './ProductSurfaces.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import { useAppMessage } from './locale.js'
 import {
@@ -490,9 +490,11 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
       <section class="memory-leases" aria-label="Active memory leases">
         <header><div><span class="memory-eyebrow">Reservations</span><h3>Active leases</h3></div><Show when={data().leases !== null}><span>{data().leases!.length} active</span></Show></header>
         <Show when={data().leases !== null} fallback={<ProductNotice tone="info">Lease telemetry is unsupported on this backend.</ProductNotice>}>
-          <div class="memory-lease-list"><For each={data().leases ?? []} fallback={<ProductEmptyState title="No active leases" hint="No temporary memory reservations are reported." />}>{(lease) => <article class="memory-lease">
-            <div><strong>{lease.device}</strong><code>{lease.reservationId}</code></div><span>{formatBytes(lease.bytes)}</span><span>{leaseSeconds(lease.expiresInSeconds, receivedAt(), clock())}s remaining</span>
-          </article>}</For></div>
+          <div class="memory-lease-list"><For each={data().leases ?? []} fallback={<ProductEmptyState title="No active leases" hint="No temporary memory reservations are reported." />}>{(lease) => <ProductListRow
+            primary={<strong>{lease.device}</strong>}
+            secondary={<code>{lease.reservationId}</code>}
+            actions={<><span>{formatBytes(lease.bytes)}</span><span>{leaseSeconds(lease.expiresInSeconds, receivedAt(), clock())}s remaining</span></>}
+          />}</For></div>
         </Show>
       </section>
     </>}</Show>

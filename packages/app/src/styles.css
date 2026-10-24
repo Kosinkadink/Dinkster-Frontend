@@ -4241,10 +4241,6 @@ body,
 .memory-heatmap { min-width: 0; }
 .memory-heatmap canvas { display: block; width: 100%; min-height: 7px; }
 .memory-lease-list { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
-.memory-lease { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--dinkster-space-12); min-width: 0; padding: var(--dinkster-space-8); background: var(--dinkster-surface-inset); border-radius: var(--dinkster-radius-control); }
-.memory-lease > div { display: grid; min-width: 0; }
-.memory-lease code { color: var(--dinkster-text-muted); overflow-wrap: anywhere; user-select: text; }
-.memory-lease > span { color: var(--dinkster-text-secondary); white-space: nowrap; }
 .memory-controls .runtime-settings { margin: 0; }
 .memory-controls .runtime-setting-category { display: block; min-width: 0; }
 .memory-controls .runtime-setting-category code { overflow-wrap: anywhere; }
@@ -4260,8 +4256,6 @@ body,
   .memory-leases > header > span { text-align: left; }
   .memory-queue-facts,
   .memory-device-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .memory-lease { grid-template-columns: minmax(0, 1fr); gap: var(--dinkster-space-4); }
-  .memory-lease > span { white-space: normal; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -7066,7 +7060,6 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .app-view-readonly { margin: 0; color: #aaa; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .app-view-hint { color: #666; font-size: 11px; }
 .app-view-stale { margin: 0; color: #d99; }
-.app-view-error { margin: 0; color: #ef9a9a; }
 .app-layout-arrange-controls {
   display: flex;
   flex-wrap: wrap;

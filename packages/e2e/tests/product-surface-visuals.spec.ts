@@ -419,6 +419,137 @@ test('shell and canvas visual matrix', async ({ page }) => {
   await screenshot(page, '09-universal-search')
 })
 
+test('App view validation and remote failures keep editable controls', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.route('**/api/choices/panel-state-visual*', (route) => route.fulfill({ status: 503, body: 'visual source unavailable' }))
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'AppNoticeVisual', displayName: 'App feedback', category: 'test', source: 'visual', isOutputNode: true,
+      items: [
+        { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 5 } },
+        { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: {}, default: 'old', remote: { route: '/api/choices/panel-state-visual', maxRetries: 0 } } },
+      ],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-notice-visual', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: { n: { id: 'n', type: 'AppNoticeVisual', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n: { position: { x: 100, y: 100 } } } } } },
+      ext: { 'dinkster.exposed': ['count', 'choice'].map((inputId) => ({ graphId: 'g0', nodeId: 'n', inputId })) },
+    }, 'App feedback')
+  })
+  await page.getByTestId('views-switcher').click()
+  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByTestId('app-view-number').fill('invalid')
+  await page.getByTestId('app-view-number').press('Enter')
+  await expect(page.getByTestId('app-view-error')).toHaveText('Enter an exact integer from -9223372036854775808 to 18446744073709551615.')
+  await page.getByTestId('app-view-combo').click()
+  await expect(page.getByTestId('app-view-remote-error')).toBeVisible()
+  await page.keyboard.press('Escape')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `app-control-errors-${width}`)
+  }
+  await page.getByTestId('app-view-number').fill('11')
+  await page.getByTestId('app-view-number').press('Enter')
+  await expect(page.getByTestId('app-view-error')).toHaveCount(0)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n!.values.count)).toBe(11)
+})
+
+test('Memory lease rows retain device identity, bytes and expiry', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const componentPath = '/src/MemoryPanel.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { MemoryPanel } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('section')
+    host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:720px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => MemoryPanel({ label: 'Lease visual', now: () => 0, connection: {
+      status: { get: () => 'connected', subscribe: () => () => {} },
+      onMemoryStatus: () => () => {},
+      fetchMemoryStatus: async () => ({
+        devices: {}, memoryGovernor: {}, consumerDetails: {},
+        queue: { queued: 3, running: [], maxRunningJobs: 2, paused: false },
+        leases: [
+          { reservationId: 'reservation-primary-long-identity', device: 'cuda:0', bytes: 1073741824, expiresInSeconds: 12 },
+          { reservationId: 'reservation-secondary', device: 'cpu', bytes: 1536, expiresInSeconds: 2 },
+        ],
+      }),
+      fetchRuntimeSettings: async () => ({ categories: { available: [], granted: [] }, settings: {} }),
+      updateRuntimeSetting: async () => { throw new Error('Read-only visual fixture') },
+    } }), host)
+    ;(window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual = () => { dispose(); host.remove() }
+  })
+  const leases = page.getByRole('region', { name: 'Active memory leases' })
+  await expect(leases).toContainText('2 active')
+  await expect(leases).toContainText('1.0 GiB')
+  await expect(leases).toContainText('1.5 KiB')
+  await expect(leases).toContainText('12s remaining')
+  await expect(leases).toContainText('2s remaining')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await leases.scrollIntoViewIfNeeded()
+    await page.mouse.move(0, 0)
+    await screenshot(page, `memory-lease-rows-${width}`)
+  }
+  await page.evaluate(() => (window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual())
+})
+
+test('Output descriptor invalid documents keep repair and probe feedback', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const profile of [false, true]) {
+    await page.evaluate(async (profile) => {
+      const componentPath = '/src/OutputDescriptorEditor.tsx'
+      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+      const { OutputDescriptorEditor } = await import(componentPath)
+      const { render } = await import(rendererPath)
+      const host = document.createElement('section')
+      host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:520px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
+      document.querySelector('.canvas-pane')!.append(host)
+      const app = window.__dinksterTest!.app
+      const dispose = render(() => OutputDescriptorEditor({
+        spec: { input: 'entries', choices: [{ id: 'float', type: { kind: 'concrete', name: 'core.float' } }], minEntries: 0, maxEntries: 3, fixedIds: false,
+          ...(profile ? { probe: { input: 'asset', kind: 'model', revision: '1' } } : {}) },
+        initial: '{', asset: undefined, staleLinks: [], app, tab: app.activeTab()!, isCurrent: () => true,
+        onDisconnect: () => {}, onCommit: () => { host.dataset['committed'] = 'true' }, onClose: () => { host.dataset['closed'] = 'true' },
+      }), host)
+      ;(window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual = () => { dispose(); host.remove() }
+    }, profile)
+    const editor = page.getByTestId('output-descriptor-editor')
+    await expect(editor.getByRole('status').first()).toBeVisible()
+    await expect(editor.getByTestId('output-descriptors-apply')).toBeDisabled()
+    await expect(editor.getByText(profile ? 'Probe the current asset to generate valid outputs.' : 'Use Stored JSON to repair invalid descriptors.', { exact: true })).toBeVisible()
+    if (profile) {
+      await editor.getByTestId('output-profile-probe').click()
+      await expect(editor.getByRole('alert')).toHaveText('Choose an asset before probing.')
+    }
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await editor.getByTestId('output-descriptors-apply').scrollIntoViewIfNeeded()
+      await page.mouse.move(0, 0)
+      await screenshot(page, `descriptor-invalid-${profile ? 'profile' : 'editable'}-${width}`)
+    }
+    if (!profile) {
+      await editor.getByRole('button', { name: 'Stored JSON', exact: true }).click()
+      await editor.getByRole('textbox', { name: 'Descriptor document', exact: true }).fill('{"entries":[]}')
+      await expect(editor.getByRole('status')).toHaveCount(0)
+      await expect(editor.getByTestId('output-descriptors-apply')).toBeEnabled()
+      await editor.getByTestId('output-descriptors-apply').click()
+      await expect(editor.locator('..')).toHaveAttribute('data-committed', 'true')
+    } else {
+      await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(editor.locator('..')).toHaveAttribute('data-closed', 'true')
+    }
+    await page.evaluate(() => (window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual())
+  }
+})
+
 test('runtime panel headers and backend add error at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
