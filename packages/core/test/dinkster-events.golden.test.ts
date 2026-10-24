@@ -31,7 +31,11 @@ import {
   type DinksterRawJson,
   type DinksterRawMessage,
 } from '../src/events/dinkster.js'
-import { isExecutionEvent, type NodeProgress, type NormalizedEvent } from '../src/events/contract.js'
+import {
+  isExecutionEvent,
+  type NodeProgress,
+  type NormalizedEvent,
+} from '../src/events/contract.js'
 import { compositorStateOf } from '../src/compositor.js'
 
 interface RecordedMessage extends Record<string, unknown> {
@@ -53,12 +57,13 @@ const fixture = JSON.parse(readFileSync(fixturePath, 'utf8')) as {
   streams: readonly RecordedStream[]
 }
 // Generator order: success, cached, skip-cascade, failure.
-const [successStream, cachedStream, skipStream, failureStream] = fixture.streams as [
-  RecordedStream,
-  RecordedStream,
-  RecordedStream,
-  RecordedStream,
-]
+const [successStream, cachedStream, skipStream, failureStream] =
+  fixture.streams as [
+    RecordedStream,
+    RecordedStream,
+    RecordedStream,
+    RecordedStream,
+  ]
 
 const CONN = asConnectionId('conn-test')
 const keyOf = (jobId: string): string =>
@@ -84,30 +89,49 @@ function replay(messages: readonly RecordedMessage[]): NormalizedEvent[] {
   return out
 }
 
-const nodeEntries = (events: readonly NormalizedEvent[]): [string, NodeProgress][] =>
-  events.flatMap((e) => (e.kind === 'nodeStates' ? Object.entries(e.nodes) : []))
+const nodeEntries = (
+  events: readonly NormalizedEvent[],
+): [string, NodeProgress][] =>
+  events.flatMap((e) =>
+    e.kind === 'nodeStates' ? Object.entries(e.nodes) : [],
+  )
 
 describe('dinkster region lifecycle events', () => {
   it('normalizes the served region event identifiers and payloads', () => {
     const events = replay([
       {
-        type: 'region_expanded', runId: 'run-region', jobId: 'job-region', nodeId: 'r',
+        type: 'region_expanded',
+        runId: 'run-region',
+        jobId: 'job-region',
+        nodeId: 'r',
         detail: { kind: 'map', binding: 'zip', iterations: 3 },
       },
       {
-        type: 'region_iteration_started', runId: 'run-region', jobId: 'job-region', nodeId: 'r',
+        type: 'region_iteration_started',
+        runId: 'run-region',
+        jobId: 'job-region',
+        nodeId: 'r',
         detail: { iteration: 0 },
       },
       {
-        type: 'region_iteration_finished', runId: 'run-region', jobId: 'job-region', nodeId: 'r',
+        type: 'region_iteration_finished',
+        runId: 'run-region',
+        jobId: 'job-region',
+        nodeId: 'r',
         detail: { iteration: 0 },
       },
       {
-        type: 'region_finished', runId: 'run-region', jobId: 'job-region', nodeId: 'r',
+        type: 'region_finished',
+        runId: 'run-region',
+        jobId: 'job-region',
+        nodeId: 'r',
         detail: { iterations: 3 },
       },
       {
-        type: 'region_expanded', runId: 'run-region', jobId: 'job-region', nodeId: 'w',
+        type: 'region_expanded',
+        runId: 'run-region',
+        jobId: 'job-region',
+        nodeId: 'w',
         detail: { kind: 'while', binding: 'zip', iterations: null },
       },
     ])
@@ -161,32 +185,69 @@ describe('dinkster execution semantics events', () => {
   it('normalizes one blocked reason and the expanded children under their parent', () => {
     const events = replay([
       {
-        type: 'node_blocked', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'consumer',
-        detail: { origin: 'source/value', message: 'source produced no value' },
+        type: 'node_blocked',
+        runId: 'run-semantics',
+        jobId: 'job-semantics',
+        nodeId: 'parent.0.0.child',
+        detail: {
+          origin: 'source/value',
+          message: 'source produced no value',
+          parentId: 'parent',
+          displayNodeId: 'parent',
+        },
       },
       {
-        type: 'node_expanded', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent',
-        detail: { children: ['parent/left', 'parent/right'], childCount: 2 },
+        type: 'node_expanded',
+        runId: 'run-semantics',
+        jobId: 'job-semantics',
+        nodeId: 'parent.0.0.child',
+        detail: {
+          children: ['parent.0.0.child/left', 'parent.0.0.child/right'],
+          childCount: 2,
+          parentId: 'parent',
+          displayNodeId: 'parent',
+        },
       },
       {
-        type: 'node_started', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent.0.0.output',
+        type: 'node_started',
+        runId: 'run-semantics',
+        jobId: 'job-semantics',
+        nodeId: 'parent.0.0.output',
         detail: { parentId: 'parent', displayNodeId: 'source' },
       },
     ])
     expect(events).toEqual([
       {
-        kind: 'nodeBlocked', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
-        runtimeNodeId: 'consumer', blocked: { origin: 'source/value', message: 'source produced no value' },
+        kind: 'nodeBlocked',
+        execution: { connection: CONN, prompt: 'job-semantics' },
+        timestamp: 0,
+        runtimeNodeId: 'parent.0.0.child',
+        blocked: {
+          origin: 'source/value',
+          message: 'source produced no value',
+          displayRuntimeNodeId: 'parent',
+        },
       },
       {
-        kind: 'nodeExpanded', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
-        runtimeNodeId: 'parent', expansion: { children: ['parent/left', 'parent/right'], childCount: 2 },
+        kind: 'nodeExpanded',
+        execution: { connection: CONN, prompt: 'job-semantics' },
+        timestamp: 0,
+        runtimeNodeId: 'parent.0.0.child',
+        expansion: {
+          children: ['parent.0.0.child/left', 'parent.0.0.child/right'],
+          childCount: 2,
+          displayRuntimeNodeId: 'parent',
+        },
       },
       {
-        kind: 'nodeStates', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
+        kind: 'nodeStates',
+        execution: { connection: CONN, prompt: 'job-semantics' },
+        timestamp: 0,
         nodes: {
           'parent.0.0.output': {
-            state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'source',
+            state: 'running',
+            parentRuntimeNodeId: 'parent',
+            displayRuntimeNodeId: 'source',
           },
         },
       },
@@ -195,16 +256,33 @@ describe('dinkster execution semantics events', () => {
 
   it('drops malformed blocked and expansion detail without guessing', () => {
     const malformed: string[] = []
-    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => malformed.push(detail))
-    expect(normalizer.normalize({
-      type: 'node_blocked', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'consumer',
-      detail: { origin: 'source/value' },
-    })).toEqual([])
-    expect(normalizer.normalize({
-      type: 'node_expanded', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent',
-      detail: { children: ['child'], childCount: 2 },
-    })).toEqual([])
-    expect(malformed).toEqual(['node_blocked with malformed detail', 'node_expanded with malformed detail'])
+    const normalizer = new DinksterNormalizer(
+      CONN,
+      () => 0,
+      (detail) => malformed.push(detail),
+    )
+    expect(
+      normalizer.normalize({
+        type: 'node_blocked',
+        runId: 'run-semantics',
+        jobId: 'job-semantics',
+        nodeId: 'consumer',
+        detail: { origin: 'source/value' },
+      }),
+    ).toEqual([])
+    expect(
+      normalizer.normalize({
+        type: 'node_expanded',
+        runId: 'run-semantics',
+        jobId: 'job-semantics',
+        nodeId: 'parent',
+        detail: { children: ['child'], childCount: 2 },
+      }),
+    ).toEqual([])
+    expect(malformed).toEqual([
+      'node_blocked with malformed detail',
+      'node_expanded with malformed detail',
+    ])
   })
 })
 
@@ -242,14 +320,22 @@ describe('dinkster stream replay: success', () => {
   it('carries per-output summaries on node_finished, length exactly for lists', () => {
     // detail.outputs (backend commit ea9ab93): {outputId: {typeId, length?}}
     // for INTERMEDIATE nodes mid-run, not just job-result targets.
-    const done = new Map(nodeEntries(events).filter(([, p]) => p.state === 'done'))
-    expect(done.get('r')!.outputs).toEqual({ items: { typeId: 'list<core.int>', length: 3 } })
-    expect(done.get('a')!.outputs).toEqual({ out: { typeId: 'core.int', value: 8 } })
+    const done = new Map(
+      nodeEntries(events).filter(([, p]) => p.state === 'done'),
+    )
+    expect(done.get('r')!.outputs).toEqual({
+      items: { typeId: 'list<core.int>', length: 3 },
+    })
+    expect(done.get('a')!.outputs).toEqual({
+      out: { typeId: 'core.int', value: 8 },
+    })
     expect(done.get('a')!.outputs!['out']).not.toHaveProperty('length')
   })
 
   it('normalizes progress to bounded values with max', () => {
-    const progress = nodeEntries(events).filter(([, p]) => p.value !== undefined)
+    const progress = nodeEntries(events).filter(
+      ([, p]) => p.value !== undefined,
+    )
     expect(progress.length).toBeGreaterThan(0)
     for (const [id, p] of progress) {
       expect(id).toBe('a')
@@ -271,15 +357,21 @@ describe('dinkster stream replay: success', () => {
     expect(preview.channel).toBe('image/jpeg')
     expect(preview.payload).toBeInstanceOf(ArrayBuffer)
     const original = successStream.messages.find((m) => m._binary === true)!
-    const expected = Uint8Array.from(atob(original._blobBase64!), (c) => c.charCodeAt(0))
+    const expected = Uint8Array.from(atob(original._blobBase64!), (c) =>
+      c.charCodeAt(0),
+    )
     expect(new Uint8Array(preview.payload as ArrayBuffer)).toEqual(expected)
   })
 })
 
 describe('preview frame-ring metadata', () => {
   const previewMsg = (data: Record<string, unknown>): RecordedMessage => ({
-    type: 'node_event', runId: 'run-ring', jobId: 'job-ring', nodeId: 'sampler',
-    event: 'preview', data: { mime: 'image/jpeg', ...data },
+    type: 'node_event',
+    runId: 'run-ring',
+    jobId: 'job-ring',
+    nodeId: 'sampler',
+    event: 'preview',
+    data: { mime: 'image/jpeg', ...data },
   })
   const only = (events: NormalizedEvent[]) => {
     expect(events).toHaveLength(1)
@@ -287,9 +379,11 @@ describe('preview frame-ring metadata', () => {
   }
 
   it('carries stream, ring addressing, and fps through normalization', () => {
-    const preview = only(replay([
-      previewMsg({ stream: 'video', frameIndex: 3, frameCount: 21, fps: 16 }),
-    ]))
+    const preview = only(
+      replay([
+        previewMsg({ stream: 'video', frameIndex: 3, frameCount: 21, fps: 16 }),
+      ]),
+    )
     expect(preview).toMatchObject({
       kind: 'preview',
       execution: { connection: CONN, prompt: 'job-ring' },
@@ -308,18 +402,23 @@ describe('preview frame-ring metadata', () => {
     ['non-integer frameIndex', { frameIndex: 1.5, frameCount: 21 }],
     ['frameIndex without frameCount', { frameIndex: 3 }],
     ['frameCount without frameIndex', { frameCount: 21 }],
-  ])('degrades a malformed ring (%s) to a plain still, keeping the frame', (_name, data) => {
-    const preview = only(replay([previewMsg({ ...data, fps: 16 })]))
-    expect(preview.kind).toBe('preview')
-    expect(preview.frameIndex).toBeUndefined()
-    expect(preview.frameCount).toBeUndefined()
-    expect(preview.fps).toBeUndefined()
-  })
+  ])(
+    'degrades a malformed ring (%s) to a plain still, keeping the frame',
+    (_name, data) => {
+      const preview = only(replay([previewMsg({ ...data, fps: 16 })]))
+      expect(preview.kind).toBe('preview')
+      expect(preview.frameIndex).toBeUndefined()
+      expect(preview.frameCount).toBeUndefined()
+      expect(preview.fps).toBeUndefined()
+    },
+  )
 
   it.each([[0], [-8], [Number.NaN], [Number.POSITIVE_INFINITY]])(
     'drops a useless fps (%s) but keeps valid ring addressing',
     (fps) => {
-      const preview = only(replay([previewMsg({ frameIndex: 0, frameCount: 4, fps })]))
+      const preview = only(
+        replay([previewMsg({ frameIndex: 0, frameCount: 4, fps })]),
+      )
       expect(preview.frameIndex).toBe(0)
       expect(preview.frameCount).toBe(4)
       expect(preview.fps).toBeUndefined()
@@ -336,8 +435,20 @@ describe('preview frame-ring metadata', () => {
 describe('execution arm receipts', () => {
   it('retains the selected arm from start through terminal node state', () => {
     const events = replay([
-      { type: 'node_started', runId: 'r-arm', jobId: 'j-arm', nodeId: 'k', detail: { executionArm: 'native' } },
-      { type: 'node_finished', runId: 'r-arm', jobId: 'j-arm', nodeId: 'k', detail: { executionArm: 'native', outputs: {} } },
+      {
+        type: 'node_started',
+        runId: 'r-arm',
+        jobId: 'j-arm',
+        nodeId: 'k',
+        detail: { executionArm: 'native' },
+      },
+      {
+        type: 'node_finished',
+        runId: 'r-arm',
+        jobId: 'j-arm',
+        nodeId: 'k',
+        detail: { executionArm: 'native', outputs: {} },
+      },
     ])
     expect(nodeEntries(events)).toEqual([
       ['k', { state: 'running', executionArm: 'native' }],
@@ -347,22 +458,88 @@ describe('execution arm receipts', () => {
 
   it('retains provider, pack, and worker attribution through terminal node state', () => {
     const events = replay([
-      { type: 'node_started', runId: 'r-worker', jobId: 'j-worker', nodeId: 'k', detail: { executionArm: 'native', provider: 'vision.depth.v3', pack: 'dinkster-vision-depth-anything-v3', worker: 'render-box' } },
-      { type: 'node_finished', runId: 'r-worker', jobId: 'j-worker', nodeId: 'k', detail: { executionArm: 'native', provider: 'vision.depth.v3', pack: 'dinkster-vision-depth-anything-v3', worker: 'render-box', outputs: {} } },
+      {
+        type: 'node_started',
+        runId: 'r-worker',
+        jobId: 'j-worker',
+        nodeId: 'k',
+        detail: {
+          executionArm: 'native',
+          provider: 'vision.depth.v3',
+          pack: 'dinkster-vision-depth-anything-v3',
+          worker: 'render-box',
+        },
+      },
+      {
+        type: 'node_finished',
+        runId: 'r-worker',
+        jobId: 'j-worker',
+        nodeId: 'k',
+        detail: {
+          executionArm: 'native',
+          provider: 'vision.depth.v3',
+          pack: 'dinkster-vision-depth-anything-v3',
+          worker: 'render-box',
+          outputs: {},
+        },
+      },
     ])
     expect(nodeEntries(events)).toEqual([
-      ['k', { state: 'running', executionArm: 'native', provider: 'vision.depth.v3', pack: 'dinkster-vision-depth-anything-v3', worker: 'render-box' }],
-      ['k', { state: 'done', executionArm: 'native', provider: 'vision.depth.v3', pack: 'dinkster-vision-depth-anything-v3', worker: 'render-box' }],
+      [
+        'k',
+        {
+          state: 'running',
+          executionArm: 'native',
+          provider: 'vision.depth.v3',
+          pack: 'dinkster-vision-depth-anything-v3',
+          worker: 'render-box',
+        },
+      ],
+      [
+        'k',
+        {
+          state: 'done',
+          executionArm: 'native',
+          provider: 'vision.depth.v3',
+          pack: 'dinkster-vision-depth-anything-v3',
+          worker: 'render-box',
+        },
+      ],
     ])
   })
 
   it('carries worker attribution when progress is the first observed node event', () => {
-    expect(nodeEntries(replay([{
-      type: 'node_event', event: 'progress', runId: 'r-progress', jobId: 'j-progress', nodeId: 'k',
-      executionArm: 'comfyui', provider: 'vision.remote', pack: 'vision-pack', worker: 'remote', data: { step: 1, total: 2 },
-    }]))).toEqual([['k', {
-      state: 'running', executionArm: 'comfyui', provider: 'vision.remote', pack: 'vision-pack', worker: 'remote', value: 0.5, max: 2,
-    }]])
+    expect(
+      nodeEntries(
+        replay([
+          {
+            type: 'node_event',
+            event: 'progress',
+            runId: 'r-progress',
+            jobId: 'j-progress',
+            nodeId: 'k',
+            executionArm: 'comfyui',
+            provider: 'vision.remote',
+            pack: 'vision-pack',
+            worker: 'remote',
+            data: { step: 1, total: 2 },
+          },
+        ]),
+      ),
+    ).toEqual([
+      [
+        'k',
+        {
+          state: 'running',
+          executionArm: 'comfyui',
+          provider: 'vision.remote',
+          pack: 'vision-pack',
+          worker: 'remote',
+          value: 0.5,
+          max: 2,
+        },
+      ],
+    ])
   })
 })
 
@@ -371,15 +548,23 @@ describe('dinkster stream replay: cached', () => {
 
   it('marks every node cached and completes once', () => {
     const cached = nodeEntries(events).filter(([, p]) => p.state === 'cached')
-    expect(new Set(cached.map(([id]) => id))).toEqual(new Set(['m', 'a', 'p', 'r']))
+    expect(new Set(cached.map(([id]) => id))).toEqual(
+      new Set(['m', 'a', 'p', 'r']),
+    )
     expect(events.filter((e) => e.kind === 'completed')).toHaveLength(1)
     expect(events.filter((e) => e.kind === 'error')).toHaveLength(0)
   })
 
   it('cache hits carry the same per-output summaries as fresh finishes', () => {
-    const cached = new Map(nodeEntries(events).filter(([, p]) => p.state === 'cached'))
-    expect(cached.get('r')!.outputs).toEqual({ items: { typeId: 'list<core.int>', length: 3 } })
-    expect(cached.get('a')!.outputs).toEqual({ out: { typeId: 'core.int', value: 8 } })
+    const cached = new Map(
+      nodeEntries(events).filter(([, p]) => p.state === 'cached'),
+    )
+    expect(cached.get('r')!.outputs).toEqual({
+      items: { typeId: 'list<core.int>', length: 3 },
+    })
+    expect(cached.get('a')!.outputs).toEqual({
+      out: { typeId: 'core.int', value: 8 },
+    })
   })
 })
 
@@ -395,7 +580,9 @@ describe('dinkster stream replay: skip cascade', () => {
 
   it('produces zero error events and still completes', () => {
     expect(events.filter((e) => e.kind === 'error')).toHaveLength(0)
-    expect(nodeEntries(events).filter(([, p]) => p.state === 'error')).toHaveLength(0)
+    expect(
+      nodeEntries(events).filter(([, p]) => p.state === 'error'),
+    ).toHaveLength(0)
     expect(events.filter((e) => e.kind === 'completed')).toHaveLength(1)
   })
 })
@@ -415,7 +602,9 @@ describe('dinkster stream replay: fail-policy failure (no node_failed event)', (
   })
 
   it('marks the culprit node error even though no node_failed was emitted', () => {
-    const errorStates = nodeEntries(events).filter(([, p]) => p.state === 'error')
+    const errorStates = nodeEntries(events).filter(
+      ([, p]) => p.state === 'error',
+    )
     expect(errorStates.map(([id]) => id)).toEqual(['s'])
     // The node that DID run still finishes normally.
     const doneStates = nodeEntries(events).filter(([, p]) => p.state === 'done')
@@ -426,16 +615,29 @@ describe('dinkster stream replay: fail-policy failure (no node_failed event)', (
 describe('routing guards', () => {
   it('drops events with no job identity instead of guessing', () => {
     const normalizer = new DinksterNormalizer(CONN, () => 0)
-    expect(normalizer.normalize({ type: 'node_started', nodeId: 'x' })).toEqual([])
+    expect(normalizer.normalize({ type: 'node_started', nodeId: 'x' })).toEqual(
+      [],
+    )
     expect(
-      normalizer.normalize({ type: 'node_started', nodeId: 'x', runId: 'never-seen' }),
+      normalizer.normalize({
+        type: 'node_started',
+        nodeId: 'x',
+        runId: 'never-seen',
+      }),
     ).toEqual([])
   })
 
   it('resolves runId-only stragglers via prior correlation', () => {
     const normalizer = new DinksterNormalizer(CONN, () => 0)
-    normalizer.normalize({ type: 'job_state', jobId: 'job-9', runId: 'run-9', state: 'running' })
-    const events = normalizer.normalize({ type: 'node_started', nodeId: 'x', runId: 'run-9' }).filter(isExecutionEvent)
+    normalizer.normalize({
+      type: 'job_state',
+      jobId: 'job-9',
+      runId: 'run-9',
+      state: 'running',
+    })
+    const events = normalizer
+      .normalize({ type: 'node_started', nodeId: 'x', runId: 'run-9' })
+      .filter(isExecutionEvent)
     expect(events).toHaveLength(1)
     expect(executionKey(events[0]!.execution)).toBe(keyOf('job-9'))
   })
@@ -443,7 +645,11 @@ describe('routing guards', () => {
   it('drops unknown event types without crashing', () => {
     const normalizer = new DinksterNormalizer(CONN, () => 0)
     expect(
-      normalizer.normalize({ type: 'totally_new_kind', jobId: 'job-1', nodeId: 'x' }),
+      normalizer.normalize({
+        type: 'totally_new_kind',
+        jobId: 'job-1',
+        nodeId: 'x',
+      }),
     ).toEqual([])
   })
 
@@ -451,7 +657,13 @@ describe('routing guards', () => {
     // failed -> straggling run_finished: must not read as a success reversal
     const n1 = new DinksterNormalizer(CONN, () => 0)
     expect(
-      n1.normalize({ type: 'job_state', jobId: 'j', state: 'failed', error: { message: 'boom' } })
+      n1
+        .normalize({
+          type: 'job_state',
+          jobId: 'j',
+          state: 'failed',
+          error: { message: 'boom' },
+        })
         .some((e) => e.kind === 'error'),
     ).toBe(true)
     expect(n1.normalize({ type: 'run_finished', jobId: 'j' })).toEqual([])
@@ -460,8 +672,17 @@ describe('routing guards', () => {
     expect(n2.normalize({ type: 'run_finished', jobId: 'j' })).toEqual([
       expect.objectContaining({ kind: 'completed' }),
     ])
-    expect(n2.normalize({ type: 'job_state', jobId: 'j', state: 'failed', error: { message: 'late' } })).toEqual([])
-    expect(n2.normalize({ type: 'job_state', jobId: 'j', state: 'cancelled' })).toEqual([])
+    expect(
+      n2.normalize({
+        type: 'job_state',
+        jobId: 'j',
+        state: 'failed',
+        error: { message: 'late' },
+      }),
+    ).toEqual([])
+    expect(
+      n2.normalize({ type: 'job_state', jobId: 'j', state: 'cancelled' }),
+    ).toEqual([])
   })
 
   it('never cross-routes concurrent jobs interleaved on one socket', () => {
@@ -499,7 +720,11 @@ describe('routing guards', () => {
 
   it('emits per-connection queue depth from queue_state', () => {
     const normalizer = new DinksterNormalizer(CONN, () => 0)
-    const events = normalizer.normalize({ type: 'queue_state', queued: 3, running: 1 })
+    const events = normalizer.normalize({
+      type: 'queue_state',
+      queued: 3,
+      running: 1,
+    })
     expect(events).toEqual([
       { kind: 'status', connection: CONN, timestamp: 0, queueRemaining: 3 },
     ])
@@ -510,18 +735,25 @@ describe('curve histogram previews', () => {
   const histogram = Array.from({ length: 256 }, (_, index) => index)
 
   it('normalizes an exact attributed histogram onto its own preview stream', () => {
-    expect(new DinksterNormalizer(CONN, () => 23).normalize({
-      type: 'node_event', jobId: 'curve-job', nodeId: 'curve',
-      event: 'dinkster.curve.histogram', data: { histogram },
-    })).toEqual([{
-      kind: 'preview',
-      execution: { connection: CONN, prompt: asPromptId('curve-job') },
-      timestamp: 23,
-      runtimeNodeId: 'curve',
-      channel: 'application/vnd.dinkster.curve-histogram+json',
-      payload: { histogram },
-      stream: 'curve-histogram',
-    }])
+    expect(
+      new DinksterNormalizer(CONN, () => 23).normalize({
+        type: 'node_event',
+        jobId: 'curve-job',
+        nodeId: 'curve',
+        event: 'dinkster.curve.histogram',
+        data: { histogram },
+      }),
+    ).toEqual([
+      {
+        kind: 'preview',
+        execution: { connection: CONN, prompt: asPromptId('curve-job') },
+        timestamp: 23,
+        runtimeNodeId: 'curve',
+        channel: 'application/vnd.dinkster.curve-histogram+json',
+        payload: { histogram },
+        stream: 'curve-histogram',
+      },
+    ])
   })
 
   it.each([
@@ -531,12 +763,23 @@ describe('curve histogram previews', () => {
     { histogram, extra: true },
   ])('rejects malformed histogram data', (data) => {
     const malformed: string[] = []
-    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => malformed.push(detail))
-    expect(normalizer.normalize({
-      type: 'node_event', jobId: 'curve-job', nodeId: 'curve',
-      event: 'dinkster.curve.histogram', data,
-    })).toEqual([])
-    expect(malformed).toEqual(['node_event dinkster.curve.histogram with malformed data'])
+    const normalizer = new DinksterNormalizer(
+      CONN,
+      () => 0,
+      (detail) => malformed.push(detail),
+    )
+    expect(
+      normalizer.normalize({
+        type: 'node_event',
+        jobId: 'curve-job',
+        nodeId: 'curve',
+        event: 'dinkster.curve.histogram',
+        data,
+      }),
+    ).toEqual([])
+    expect(malformed).toEqual([
+      'node_event dinkster.curve.histogram with malformed data',
+    ])
   })
 })
 
@@ -545,21 +788,66 @@ describe('compositor state previews', () => {
   const state = {
     version: 2,
     document: {
-      format: 'dinkster-image', formatVersion: 2, lineage: 'event-compositor',
-      canvas: { width: 64, height: 48, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha' },
-      allocation: { nextOrdinal: 2 }, rootLayerIds: ['l0'],
-      layers: { l0: {
-        id: 'l0', kind: 'raster', name: 'Layer 1', visible: true, opacity: 65_535,
-        transform: { a: 1_000_000, b: 0, c: 0, d: 1_000_000, tx: 0, ty: 0, components: {
-          x: 0, y: 0, width: 64, height: 48, rotation: 0, flipHorizontal: false, flipVertical: false,
-          sourceWidth: 64, sourceHeight: 48,
-        } }, blendMode: 'normal', clipping: 'none', maskIds: [], resourceId: 'r1',
-        sourceRect: { x: 0, y: 0, width: 64, height: 48 },
-      } },
-      masks: {}, resources: { r1: {
-        id: 'r1', kind: 'raster', digest, byteSize: 1, mediaType: 'image/png', width: 64, height: 48,
-        colorSpace: 'srgb', channelDepth: 8, alphaMode: 'straight',
-      } },
+      format: 'dinkster-image',
+      formatVersion: 2,
+      lineage: 'event-compositor',
+      canvas: {
+        width: 64,
+        height: 48,
+        colorSpace: 'srgb',
+        channelDepth: 8,
+        compositing: 'premultiplied-alpha',
+      },
+      allocation: { nextOrdinal: 2 },
+      rootLayerIds: ['l0'],
+      layers: {
+        l0: {
+          id: 'l0',
+          kind: 'raster',
+          name: 'Layer 1',
+          visible: true,
+          opacity: 65_535,
+          transform: {
+            a: 1_000_000,
+            b: 0,
+            c: 0,
+            d: 1_000_000,
+            tx: 0,
+            ty: 0,
+            components: {
+              x: 0,
+              y: 0,
+              width: 64,
+              height: 48,
+              rotation: 0,
+              flipHorizontal: false,
+              flipVertical: false,
+              sourceWidth: 64,
+              sourceHeight: 48,
+            },
+          },
+          blendMode: 'normal',
+          clipping: 'none',
+          maskIds: [],
+          resourceId: 'r1',
+          sourceRect: { x: 0, y: 0, width: 64, height: 48 },
+        },
+      },
+      masks: {},
+      resources: {
+        r1: {
+          id: 'r1',
+          kind: 'raster',
+          digest,
+          byteSize: 1,
+          mediaType: 'image/png',
+          width: 64,
+          height: 48,
+          colorSpace: 'srgb',
+          channelDepth: 8,
+          alphaMode: 'straight',
+        },
+      },
     },
     documentDigest: digest,
     stale: false,
@@ -567,18 +855,25 @@ describe('compositor state previews', () => {
   }
 
   it('normalizes exact state onto its own attributed preview stream', () => {
-    expect(new DinksterNormalizer(CONN, () => 29).normalize({
-      type: 'node_event', jobId: 'compositor-job', nodeId: 'compositor',
-      event: 'dinkster.compositor.state', data: state,
-    })).toEqual([{
-      kind: 'preview',
-      execution: { connection: CONN, prompt: asPromptId('compositor-job') },
-      timestamp: 29,
-      runtimeNodeId: 'compositor',
-      channel: 'application/vnd.dinkster.compositor-state+json',
-      payload: compositorStateOf(state),
-      stream: 'compositor-state',
-    }])
+    expect(
+      new DinksterNormalizer(CONN, () => 29).normalize({
+        type: 'node_event',
+        jobId: 'compositor-job',
+        nodeId: 'compositor',
+        event: 'dinkster.compositor.state',
+        data: state,
+      }),
+    ).toEqual([
+      {
+        kind: 'preview',
+        execution: { connection: CONN, prompt: asPromptId('compositor-job') },
+        timestamp: 29,
+        runtimeNodeId: 'compositor',
+        channel: 'application/vnd.dinkster.compositor-state+json',
+        payload: compositorStateOf(state),
+        stream: 'compositor-state',
+      },
+    ])
   })
 
   it.each([
@@ -587,20 +882,38 @@ describe('compositor state previews', () => {
     { ...state, layerStreams: ['compositor.layer.1'] },
   ])('rejects malformed state data', (data) => {
     const malformed: string[] = []
-    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => malformed.push(detail))
-    expect(normalizer.normalize({
-      type: 'node_event', jobId: 'compositor-job', nodeId: 'compositor',
-      event: 'dinkster.compositor.state', data,
-    })).toEqual([])
-    expect(malformed).toEqual(['node_event dinkster.compositor.state with malformed data'])
+    const normalizer = new DinksterNormalizer(
+      CONN,
+      () => 0,
+      (detail) => malformed.push(detail),
+    )
+    expect(
+      normalizer.normalize({
+        type: 'node_event',
+        jobId: 'compositor-job',
+        nodeId: 'compositor',
+        event: 'dinkster.compositor.state',
+        data,
+      }),
+    ).toEqual([])
+    expect(malformed).toEqual([
+      'node_event dinkster.compositor.state with malformed data',
+    ])
   })
 
   it('rejects compositor state carried by a binary frame', () => {
     const malformed: string[] = []
-    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => malformed.push(detail))
+    const normalizer = new DinksterNormalizer(
+      CONN,
+      () => 0,
+      (detail) => malformed.push(detail),
+    )
     const header = JSON.stringify({
-      type: 'node_event', jobId: 'compositor-job', nodeId: 'compositor',
-      event: 'dinkster.compositor.state', data: state,
+      type: 'node_event',
+      jobId: 'compositor-job',
+      nodeId: 'compositor',
+      event: 'dinkster.compositor.state',
+      data: state,
     })
     const head = new TextEncoder().encode(header)
     const wire = new Uint8Array(4 + head.length + 1)
@@ -608,7 +921,9 @@ describe('compositor state previews', () => {
     wire.set(head, 4)
     wire[wire.length - 1] = 1
     expect(normalizer.normalize(wire.buffer)).toEqual([])
-    expect(malformed).toEqual(['node_event dinkster.compositor.state with malformed data'])
+    expect(malformed).toEqual([
+      'node_event dinkster.compositor.state with malformed data',
+    ])
   })
 })
 
@@ -620,22 +935,31 @@ describe('GLSL state previews', () => {
     floats: { u_float0: 0.25 },
     ints: { u_int0: 2 },
     bools: { u_bool0: true },
-    curves: { u_curve0: Array.from({ length: 256 }, (_, index) => index / 255) },
+    curves: {
+      u_curve0: Array.from({ length: 256 }, (_, index) => index / 255),
+    },
   }
 
   it('normalizes exact state onto its own attributed preview stream', () => {
-    expect(new DinksterNormalizer(CONN, () => 31).normalize({
-      type: 'node_event', jobId: 'glsl-job', nodeId: 'glsl',
-      event: 'dinkster.glsl.state', data: state,
-    })).toEqual([{
-      kind: 'preview',
-      execution: { connection: CONN, prompt: asPromptId('glsl-job') },
-      timestamp: 31,
-      runtimeNodeId: 'glsl',
-      channel: 'application/vnd.dinkster.glsl-state+json',
-      payload: state,
-      stream: 'glsl-state',
-    }])
+    expect(
+      new DinksterNormalizer(CONN, () => 31).normalize({
+        type: 'node_event',
+        jobId: 'glsl-job',
+        nodeId: 'glsl',
+        event: 'dinkster.glsl.state',
+        data: state,
+      }),
+    ).toEqual([
+      {
+        kind: 'preview',
+        execution: { connection: CONN, prompt: asPromptId('glsl-job') },
+        timestamp: 31,
+        runtimeNodeId: 'glsl',
+        channel: 'application/vnd.dinkster.glsl-state+json',
+        payload: state,
+        stream: 'glsl-state',
+      },
+    ])
   })
 
   it.each([
@@ -644,20 +968,38 @@ describe('GLSL state previews', () => {
     { ...state, curves: { u_curve0: [0, 1] } },
   ])('rejects malformed state data', (data) => {
     const malformed: string[] = []
-    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => malformed.push(detail))
-    expect(normalizer.normalize({
-      type: 'node_event', jobId: 'glsl-job', nodeId: 'glsl',
-      event: 'dinkster.glsl.state', data,
-    })).toEqual([])
-    expect(malformed).toEqual(['node_event dinkster.glsl.state with malformed data'])
+    const normalizer = new DinksterNormalizer(
+      CONN,
+      () => 0,
+      (detail) => malformed.push(detail),
+    )
+    expect(
+      normalizer.normalize({
+        type: 'node_event',
+        jobId: 'glsl-job',
+        nodeId: 'glsl',
+        event: 'dinkster.glsl.state',
+        data,
+      }),
+    ).toEqual([])
+    expect(malformed).toEqual([
+      'node_event dinkster.glsl.state with malformed data',
+    ])
   })
 
   it('rejects GLSL state carried by a binary frame', () => {
     const malformed: string[] = []
-    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => malformed.push(detail))
+    const normalizer = new DinksterNormalizer(
+      CONN,
+      () => 0,
+      (detail) => malformed.push(detail),
+    )
     const header = JSON.stringify({
-      type: 'node_event', jobId: 'glsl-job', nodeId: 'glsl',
-      event: 'dinkster.glsl.state', data: state,
+      type: 'node_event',
+      jobId: 'glsl-job',
+      nodeId: 'glsl',
+      event: 'dinkster.glsl.state',
+      data: state,
     })
     const head = new TextEncoder().encode(header)
     const wire = new Uint8Array(4 + head.length + 1)
@@ -665,7 +1007,9 @@ describe('GLSL state previews', () => {
     wire.set(head, 4)
     wire[wire.length - 1] = 1
     expect(normalizer.normalize(wire.buffer)).toEqual([])
-    expect(malformed).toEqual(['node_event dinkster.glsl.state with malformed data'])
+    expect(malformed).toEqual([
+      'node_event dinkster.glsl.state with malformed data',
+    ])
   })
 })
 
@@ -674,35 +1018,39 @@ describe('non-semantic node activity', () => {
     new DinksterNormalizer(CONN, () => 17).normalize(message)
 
   it('normalizes lazy_demand detail without claiming branch or execution semantics', () => {
-    expect(normalize({
-      type: 'node_event',
-      jobId: 'job-lazy',
-      runId: 'run-lazy',
-      nodeId: 'switch',
-      event: 'lazy_demand',
-      data: {
-        round: 2,
-        status: 'waiting',
-        requestedInputs: ['on_true', 'on_false'],
-        newInputs: ['on_false'],
-        demandedInputs: ['on_true', 'on_false'],
-        producerNodes: ['producer-b'],
-      },
-    })).toEqual([{
-      kind: 'activity',
-      execution: { connection: CONN, prompt: asPromptId('job-lazy') },
-      timestamp: 17,
-      activity: {
-        kind: 'lazy_demand',
+    expect(
+      normalize({
+        type: 'node_event',
+        jobId: 'job-lazy',
+        runId: 'run-lazy',
         nodeId: 'switch',
-        round: 2,
-        status: 'waiting',
-        requestedInputs: ['on_true', 'on_false'],
-        newInputs: ['on_false'],
-        demandedInputs: ['on_true', 'on_false'],
-        producerNodes: ['producer-b'],
+        event: 'lazy_demand',
+        data: {
+          round: 2,
+          status: 'waiting',
+          requestedInputs: ['on_true', 'on_false'],
+          newInputs: ['on_false'],
+          demandedInputs: ['on_true', 'on_false'],
+          producerNodes: ['producer-b'],
+        },
+      }),
+    ).toEqual([
+      {
+        kind: 'activity',
+        execution: { connection: CONN, prompt: asPromptId('job-lazy') },
+        timestamp: 17,
+        activity: {
+          kind: 'lazy_demand',
+          nodeId: 'switch',
+          round: 2,
+          status: 'waiting',
+          requestedInputs: ['on_true', 'on_false'],
+          newInputs: ['on_false'],
+          demandedInputs: ['on_true', 'on_false'],
+          producerNodes: ['producer-b'],
+        },
       },
-    }])
+    ])
   })
 
   it('normalizes cache_miss detail while omitting its cache key', () => {
@@ -719,30 +1067,103 @@ describe('non-semantic node activity', () => {
         removed_inputs: ['legacy'],
       },
     })
-    expect(events).toEqual([{
-      kind: 'activity',
-      execution: { connection: CONN, prompt: asPromptId('job-cache') },
-      timestamp: 17,
-      activity: {
-        kind: 'cache_miss',
-        nodeId: 'sampler',
-        reason: 'inputs-changed',
-        changedInputs: ['seed'],
-        addedInputs: ['control'],
-        removedInputs: ['legacy'],
+    expect(events).toEqual([
+      {
+        kind: 'activity',
+        execution: { connection: CONN, prompt: asPromptId('job-cache') },
+        timestamp: 17,
+        activity: {
+          kind: 'cache_miss',
+          nodeId: 'sampler',
+          reason: 'inputs-changed',
+          changedInputs: ['seed'],
+          addedInputs: ['control'],
+          removedInputs: ['legacy'],
+        },
       },
-    }])
+    ])
     expect(JSON.stringify(events)).not.toContain('secret-opaque-key')
   })
 
   it.each([
-    ['lazy missing node', { type: 'node_event', jobId: 'j', event: 'lazy_demand', data: { round: 1, status: 'ready', requestedInputs: [], newInputs: [], demandedInputs: [], producerNodes: [] } }],
-    ['lazy malformed round', { type: 'node_event', jobId: 'j', nodeId: 'n', event: 'lazy_demand', data: { round: 1.5, status: 'ready', requestedInputs: [], newInputs: [], demandedInputs: [], producerNodes: [] } }],
-    ['lazy malformed list', { type: 'node_event', jobId: 'j', nodeId: 'n', event: 'lazy_demand', data: { round: 1, status: 'ready', requestedInputs: 'input', newInputs: [], demandedInputs: [], producerNodes: [] } }],
+    [
+      'lazy missing node',
+      {
+        type: 'node_event',
+        jobId: 'j',
+        event: 'lazy_demand',
+        data: {
+          round: 1,
+          status: 'ready',
+          requestedInputs: [],
+          newInputs: [],
+          demandedInputs: [],
+          producerNodes: [],
+        },
+      },
+    ],
+    [
+      'lazy malformed round',
+      {
+        type: 'node_event',
+        jobId: 'j',
+        nodeId: 'n',
+        event: 'lazy_demand',
+        data: {
+          round: 1.5,
+          status: 'ready',
+          requestedInputs: [],
+          newInputs: [],
+          demandedInputs: [],
+          producerNodes: [],
+        },
+      },
+    ],
+    [
+      'lazy malformed list',
+      {
+        type: 'node_event',
+        jobId: 'j',
+        nodeId: 'n',
+        event: 'lazy_demand',
+        data: {
+          round: 1,
+          status: 'ready',
+          requestedInputs: 'input',
+          newInputs: [],
+          demandedInputs: [],
+          producerNodes: [],
+        },
+      },
+    ],
     ['cache missing detail', { type: 'cache_miss', jobId: 'j', nodeId: 'n' }],
-    ['cache missing key', { type: 'cache_miss', jobId: 'j', nodeId: 'n', detail: { reason: 'first-seen' } }],
-    ['cache malformed key', { type: 'cache_miss', jobId: 'j', nodeId: 'n', detail: { cache_key: 7, reason: 'first-seen' } }],
-    ['cache malformed reason', { type: 'cache_miss', jobId: 'j', nodeId: 'n', detail: { cache_key: 'key', reason: 7 } }],
+    [
+      'cache missing key',
+      {
+        type: 'cache_miss',
+        jobId: 'j',
+        nodeId: 'n',
+        detail: { reason: 'first-seen' },
+      },
+    ],
+    [
+      'cache malformed key',
+      {
+        type: 'cache_miss',
+        jobId: 'j',
+        nodeId: 'n',
+        detail: { cache_key: 7, reason: 'first-seen' },
+      },
+    ],
+    [
+      'cache malformed reason',
+      {
+        type: 'cache_miss',
+        jobId: 'j',
+        nodeId: 'n',
+        detail: { cache_key: 'key', reason: 7 },
+      },
+    ],
   ])('drops malformed activity: %s', (_label, message) => {
     expect(normalize(message as DinksterRawJson)).toEqual([])
   })
@@ -765,22 +1186,37 @@ describe('non-semantic node activity', () => {
       },
     })
     expect(event?.kind).toBe('activity')
-    if (event?.kind !== 'activity' || event.activity.kind !== 'lazy_demand') return
+    if (event?.kind !== 'activity' || event.activity.kind !== 'lazy_demand')
+      return
     expect(event.activity.nodeId).toBe('bounded-node')
     expect(event.activity.requestedInputs).toHaveLength(16)
-    expect(event.activity.requestedInputs.every((name) => name.length <= 128)).toBe(true)
+    expect(
+      event.activity.requestedInputs.every((name) => name.length <= 128),
+    ).toBe(true)
   })
 
   it('keeps unknown event kinds silent and forwards unknown node event names opaquely', () => {
-    expect(normalize({ type: 'future_activity', jobId: 'j', nodeId: 'n' })).toEqual([])
-    expect(normalize({ type: 'node_event', jobId: 'j', nodeId: 'n', event: 'future.activity', data: { value: 7 } })).toEqual([{
-      kind: 'node.event',
-      execution: { connection: CONN, prompt: 'j' },
-      timestamp: 17,
-      name: 'future.activity',
-      payload: { value: 7 },
-      runtimeNodeId: 'n',
-    }])
+    expect(
+      normalize({ type: 'future_activity', jobId: 'j', nodeId: 'n' }),
+    ).toEqual([])
+    expect(
+      normalize({
+        type: 'node_event',
+        jobId: 'j',
+        nodeId: 'n',
+        event: 'future.activity',
+        data: { value: 7 },
+      }),
+    ).toEqual([
+      {
+        kind: 'node.event',
+        execution: { connection: CONN, prompt: 'j' },
+        timestamp: 17,
+        name: 'future.activity',
+        payload: { value: 7 },
+        runtimeNodeId: 'n',
+      },
+    ])
   })
 })
 
@@ -818,7 +1254,9 @@ describe('job failure error hints', () => {
       { code: 'cuda-oom', message: 'CUDA ran out of memory.' },
     ])
 
-    expect(detail.exceptionMessage).toBe('expected scalar type Half but found Float')
+    expect(detail.exceptionMessage).toBe(
+      'expected scalar type Half but found Float',
+    )
     expect(detail.traceback).toEqual(['raw line one', 'raw line two'])
     expect(detail.hints).toEqual([
       {
@@ -845,27 +1283,29 @@ describe('job failure error hints', () => {
   })
 
   it('drops malformed entries individually and ignores malformed optional suggestions', () => {
-    expect(failureDetail([
-      null,
-      { message: 'missing code' },
-      { code: 'device-mismatch' },
-      { code: 1, message: 'non-string code' },
-      { code: 'cuda-oom', message: 2 },
-      { code: 'dtype-mismatch', message: 'Valid hint.', suggestion: false },
-    ]).hints).toEqual([
-      { code: 'dtype-mismatch', message: 'Valid hint.' },
-    ])
+    expect(
+      failureDetail([
+        null,
+        { message: 'missing code' },
+        { code: 'device-mismatch' },
+        { code: 1, message: 'non-string code' },
+        { code: 'cuda-oom', message: 2 },
+        { code: 'dtype-mismatch', message: 'Valid hint.', suggestion: false },
+      ]).hints,
+    ).toEqual([{ code: 'dtype-mismatch', message: 'Valid hint.' }])
   })
 
   it('ignores unknown extra keys while preserving a valid hint', () => {
-    expect(failureDetail([
-      {
-        code: 'tensor-shape-mismatch',
-        message: 'Tensor dimensions do not match.',
-        suggestion: 'Try permuting the input layout.',
-        futureMetadata: { confidence: 0.9 },
-      },
-    ]).hints).toEqual([
+    expect(
+      failureDetail([
+        {
+          code: 'tensor-shape-mismatch',
+          message: 'Tensor dimensions do not match.',
+          suggestion: 'Try permuting the input layout.',
+          futureMetadata: { confidence: 0.9 },
+        },
+      ]).hints,
+    ).toEqual([
       {
         code: 'tensor-shape-mismatch',
         message: 'Tensor dimensions do not match.',
@@ -889,27 +1329,75 @@ describe('connection-level control events (schema epochs, composition)', () => {
   })
 
   it('maps composition_progress, phase omitted-when-absent', () => {
-    expect(n().normalize({ type: 'composition_progress', done: 2, total: 5, phase: 'packs' })).toEqual([
-      { kind: 'compositionProgress', connection: CONN, timestamp: 5, done: 2, total: 5, phase: 'packs' },
+    expect(
+      n().normalize({
+        type: 'composition_progress',
+        done: 2,
+        total: 5,
+        phase: 'packs',
+      }),
+    ).toEqual([
+      {
+        kind: 'compositionProgress',
+        connection: CONN,
+        timestamp: 5,
+        done: 2,
+        total: 5,
+        phase: 'packs',
+      },
     ])
-    expect(n().normalize({ type: 'composition_progress', done: 2, total: 5 })).toEqual([
-      { kind: 'compositionProgress', connection: CONN, timestamp: 5, done: 2, total: 5 },
+    expect(
+      n().normalize({ type: 'composition_progress', done: 2, total: 5 }),
+    ).toEqual([
+      {
+        kind: 'compositionProgress',
+        connection: CONN,
+        timestamp: 5,
+        done: 2,
+        total: 5,
+      },
     ])
     expect(n().normalize({ type: 'composition_progress', done: 2 })).toEqual([])
   })
 
   it('maps composition_complete, defaulting the failed list to empty', () => {
     expect(n().normalize({ type: 'composition_complete', epoch: 3 })).toEqual([
-      { kind: 'compositionComplete', connection: CONN, timestamp: 5, epoch: 3, failed: [] },
+      {
+        kind: 'compositionComplete',
+        connection: CONN,
+        timestamp: 5,
+        epoch: 3,
+        failed: [],
+      },
     ])
-    expect(n().normalize({ type: 'composition_complete', epoch: 3, failed: ['bad.pack'] })).toEqual([
-      { kind: 'compositionComplete', connection: CONN, timestamp: 5, epoch: 3, failed: ['bad.pack'] },
+    expect(
+      n().normalize({
+        type: 'composition_complete',
+        epoch: 3,
+        failed: ['bad.pack'],
+      }),
+    ).toEqual([
+      {
+        kind: 'compositionComplete',
+        connection: CONN,
+        timestamp: 5,
+        epoch: 3,
+        failed: ['bad.pack'],
+      },
     ])
   })
 
   it('maps pack_failed with its error line', () => {
-    expect(n().normalize({ type: 'pack_failed', pack: 'vhs.video', error: 'boom' })).toEqual([
-      { kind: 'packFailed', connection: CONN, timestamp: 5, pack: 'vhs.video', error: 'boom' },
+    expect(
+      n().normalize({ type: 'pack_failed', pack: 'vhs.video', error: 'boom' }),
+    ).toEqual([
+      {
+        kind: 'packFailed',
+        connection: CONN,
+        timestamp: 5,
+        pack: 'vhs.video',
+        error: 'boom',
+      },
     ])
     expect(n().normalize({ type: 'pack_failed', error: 'boom' })).toEqual([])
   })
@@ -928,7 +1416,9 @@ describe('connection-level control events (schema epochs, composition)', () => {
 
 describe('decodeDinksterBinaryFrame edge cases', () => {
   it('rejects frames shorter than the length prefix', () => {
-    expect(decodeDinksterBinaryFrame(new Uint8Array([0, 0]).buffer)).toBeUndefined()
+    expect(
+      decodeDinksterBinaryFrame(new Uint8Array([0, 0]).buffer),
+    ).toBeUndefined()
   })
 
   it('rejects a header length pointing past the frame end', () => {
@@ -963,7 +1453,10 @@ describe('completed-job hydration (nodeStatesFromDinksterJob)', () => {
       m: { state: 'done' },
       a: { state: 'done' },
       p: { state: 'done', outputs: { out: { typeId: 'core.int' } } },
-      r: { state: 'done', outputs: { items: { typeId: 'list<core.int>', length: 3 } } },
+      r: {
+        state: 'done',
+        outputs: { items: { typeId: 'list<core.int>', length: 3 } },
+      },
     })
   })
 
@@ -972,7 +1465,10 @@ describe('completed-job hydration (nodeStatesFromDinksterJob)', () => {
       m: { state: 'cached' },
       a: { state: 'cached' },
       p: { state: 'cached', outputs: { out: { typeId: 'core.int' } } },
-      r: { state: 'cached', outputs: { items: { typeId: 'list<core.int>', length: 3 } } },
+      r: {
+        state: 'cached',
+        outputs: { items: { typeId: 'list<core.int>', length: 3 } },
+      },
     })
     expect(nodeStatesFromDinksterJob(skipStream.job)).toEqual({
       m: { state: 'done' },
@@ -1010,7 +1506,11 @@ describe('completed-job hydration (nodeStatesFromDinksterJob)', () => {
       }),
     ).toEqual({ a: { state: 'done' } })
     expect(
-      nodeStatesFromDinksterJob({ state: 'completed', executed: ['a', 5], skipped: 'nope' }),
+      nodeStatesFromDinksterJob({
+        state: 'completed',
+        executed: ['a', 5],
+        skipped: 'nope',
+      }),
     ).toEqual({ a: { state: 'done' } })
   })
 })
@@ -1018,38 +1518,65 @@ describe('completed-job hydration (nodeStatesFromDinksterJob)', () => {
 describe('malformed known events report through onMalformed (R2-6)', () => {
   const collect = () => {
     const reports: string[] = []
-    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => reports.push(detail))
+    const normalizer = new DinksterNormalizer(
+      CONN,
+      () => 0,
+      (detail) => reports.push(detail),
+    )
     return { normalizer, reports }
   }
 
   it('reports connection-level control events with missing required fields', () => {
     const { normalizer, reports } = collect()
     expect(normalizer.normalize({ type: 'schema_changed' })).toEqual([])
-    expect(normalizer.normalize({ type: 'composition_progress', done: 2 })).toEqual([])
+    expect(
+      normalizer.normalize({ type: 'composition_progress', done: 2 }),
+    ).toEqual([])
     expect(normalizer.normalize({ type: 'composition_complete' })).toEqual([])
-    expect(normalizer.normalize({ type: 'pack_failed', error: 'boom' })).toEqual([])
+    expect(
+      normalizer.normalize({ type: 'pack_failed', error: 'boom' }),
+    ).toEqual([])
     expect(reports).toHaveLength(4)
     expect(reports[0]).toContain('schema_changed')
   })
 
   it('reports a known job event carrying no job identity at all', () => {
     const { normalizer, reports } = collect()
-    expect(normalizer.normalize({ type: 'node_started', nodeId: 'x' })).toEqual([])
+    expect(normalizer.normalize({ type: 'node_started', nodeId: 'x' })).toEqual(
+      [],
+    )
     expect(reports).toHaveLength(1)
     expect(reports[0]).toContain('node_started')
   })
 
   it('reports node events missing a nodeId and node_event without a name', () => {
     const { normalizer, reports } = collect()
-    expect(normalizer.normalize({ type: 'node_started', jobId: 'j1' })).toEqual([])
-    expect(normalizer.normalize({ type: 'node_event', jobId: 'j1', event: 'progress', data: { step: 1, total: 2 } })).toEqual([])
-    expect(normalizer.normalize({ type: 'node_event', jobId: 'j1', nodeId: 'x' })).toEqual([])
+    expect(normalizer.normalize({ type: 'node_started', jobId: 'j1' })).toEqual(
+      [],
+    )
+    expect(
+      normalizer.normalize({
+        type: 'node_event',
+        jobId: 'j1',
+        event: 'progress',
+        data: { step: 1, total: 2 },
+      }),
+    ).toEqual([])
+    expect(
+      normalizer.normalize({ type: 'node_event', jobId: 'j1', nodeId: 'x' }),
+    ).toEqual([])
     expect(reports).toHaveLength(3)
   })
 
   it('reports a job_state outside the state vocabulary', () => {
     const { normalizer, reports } = collect()
-    expect(normalizer.normalize({ type: 'job_state', jobId: 'j1', state: 'explodinated' })).toEqual([])
+    expect(
+      normalizer.normalize({
+        type: 'job_state',
+        jobId: 'j1',
+        state: 'explodinated',
+      }),
+    ).toEqual([])
     expect(normalizer.normalize({ type: 'job_state', jobId: 'j1' })).toEqual([])
     expect(reports).toHaveLength(2)
     expect(reports[0]).toContain("'explodinated'")
@@ -1066,17 +1593,46 @@ describe('malformed known events report through onMalformed (R2-6)', () => {
     const { normalizer, reports } = collect()
     // runId-only straggler with no prior correlation: legitimate after a
     // reload, silent by design.
-    expect(normalizer.normalize({ type: 'node_started', nodeId: 'x', runId: 'never-seen' })).toEqual([])
+    expect(
+      normalizer.normalize({
+        type: 'node_started',
+        nodeId: 'x',
+        runId: 'never-seen',
+      }),
+    ).toEqual([])
     // Unknown kinds are forward compatibility, with or without identity.
-    expect(normalizer.normalize({ type: 'totally_new_kind', jobId: 'j1' })).toEqual([])
+    expect(
+      normalizer.normalize({ type: 'totally_new_kind', jobId: 'j1' }),
+    ).toEqual([])
     expect(normalizer.normalize({ type: 'totally_new_kind' })).toEqual([])
     // queued/running job transitions carry no meaning here.
-    expect(normalizer.normalize({ type: 'job_state', jobId: 'j1', state: 'queued' })).toEqual([])
-    expect(normalizer.normalize({ type: 'job_state', jobId: 'j1', state: 'running' })).toEqual([])
+    expect(
+      normalizer.normalize({ type: 'job_state', jobId: 'j1', state: 'queued' }),
+    ).toEqual([])
+    expect(
+      normalizer.normalize({
+        type: 'job_state',
+        jobId: 'j1',
+        state: 'running',
+      }),
+    ).toEqual([])
     // Routed node events are forwarded, while an event without execution
     // identity remains unroutable and silent.
-    expect(normalizer.normalize({ type: 'node_event', jobId: 'j1', nodeId: 'x', event: 'my.pack.event' })).toHaveLength(1)
-    expect(normalizer.normalize({ type: 'node_event', event: 'my.pack.event', data: {} })).toEqual([])
+    expect(
+      normalizer.normalize({
+        type: 'node_event',
+        jobId: 'j1',
+        nodeId: 'x',
+        event: 'my.pack.event',
+      }),
+    ).toHaveLength(1)
+    expect(
+      normalizer.normalize({
+        type: 'node_event',
+        event: 'my.pack.event',
+        data: {},
+      }),
+    ).toEqual([])
     // queue_state without a queued count still emits a bare status event.
     expect(normalizer.normalize({ type: 'queue_state' })).toHaveLength(1)
     expect(reports).toEqual([])

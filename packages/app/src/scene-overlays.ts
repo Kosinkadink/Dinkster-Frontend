@@ -59,9 +59,21 @@ import {
   type WidgetRegistry,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { imageAssetRefsOf, type DinksterValuesClient, type ExecutionLogEntry, type ExecutionState } from '@dinkster/client'
-import { deriveCompanions, liveExactnessFor, recordedProducerDisplay } from './companion-display.js'
-import { projectExecutionNodeStates, projectRegionIterationLabels } from './execution-projection.js'
+import {
+  imageAssetRefsOf,
+  type DinksterValuesClient,
+  type ExecutionLogEntry,
+  type ExecutionState,
+} from '@dinkster/client'
+import {
+  deriveCompanions,
+  liveExactnessFor,
+  recordedProducerDisplay,
+} from './companion-display.js'
+import {
+  projectExecutionNodeStates,
+  projectRegionIterationLabels,
+} from './execution-projection.js'
 import {
   mirrorImageEstimateIdentity,
   type MirrorImageEstimate,
@@ -76,36 +88,54 @@ import {
   type SelectedPreviewAsset,
 } from './node-previews.js'
 import type { NodeProblemMap } from './problem-display.js'
-import type { ExecutedImage, ExecutedImageBatch } from './executed-image-inventory.js'
+import type {
+  ExecutedImage,
+  ExecutedImageBatch,
+} from './executed-image-inventory.js'
 
 const controllerSensitiveFor = (
   artifact: NonNullable<ExecutionState['artifact']>,
   resolveSchema: ((type: string) => NodeSchema | undefined) | undefined,
 ) => {
-  const valueSourceSensitive = Object.values(artifact.snapshot.graphs).some((graph) =>
-    Object.values(graph.valueSources ?? {}).some((source) => source.controller !== undefined && source.controller !== 'fixed'))
-  const controlled = new Set(Object.entries(artifact.provenance.toSource).flatMap(([runtimeId, key]) => {
-    try {
-      const source = parseOccurrenceKey(key)
-      let graphId: string = artifact.snapshot.root
-      if (!graphId || artifact.snapshot.graphs[graphId] === undefined) return [runtimeId]
-      for (const instanceId of source.instancePath) {
-        const instance = artifact.snapshot.graphs[graphId]?.nodes[instanceId]
-        const child = instance && subgraphDefIdOf(instance.type)
-        if (!child || artifact.snapshot.graphs[child] === undefined) return [runtimeId]
-        graphId = child
+  const valueSourceSensitive = Object.values(artifact.snapshot.graphs).some(
+    (graph) =>
+      Object.values(graph.valueSources ?? {}).some(
+        (source) =>
+          source.controller !== undefined && source.controller !== 'fixed',
+      ),
+  )
+  const controlled = new Set(
+    Object.entries(artifact.provenance.toSource).flatMap(([runtimeId, key]) => {
+      try {
+        const source = parseOccurrenceKey(key)
+        let graphId: string = artifact.snapshot.root
+        if (!graphId || artifact.snapshot.graphs[graphId] === undefined)
+          return [runtimeId]
+        for (const instanceId of source.instancePath) {
+          const instance = artifact.snapshot.graphs[graphId]?.nodes[instanceId]
+          const child = instance && subgraphDefIdOf(instance.type)
+          if (!child || artifact.snapshot.graphs[child] === undefined)
+            return [runtimeId]
+          graphId = child
+        }
+        const node = artifact.snapshot.graphs[graphId]?.nodes[source.node]
+        if (!node || !resolveSchema) return [runtimeId]
+        const schema = resolveSchema(node.type)
+        if (!schema) return [runtimeId]
+        const sensitive = schema.items.some(
+          (item) =>
+            item.kind === 'input' &&
+            item.widget?.controller === 'after_generate' &&
+            (node.controllers?.[item.id] ??
+              item.widget.controllerInitial ??
+              'randomize') !== 'fixed',
+        )
+        return sensitive ? [runtimeId] : []
+      } catch {
+        return [runtimeId]
       }
-      const node = artifact.snapshot.graphs[graphId]?.nodes[source.node]
-      if (!node || !resolveSchema) return [runtimeId]
-      const schema = resolveSchema(node.type)
-      if (!schema) return [runtimeId]
-      const sensitive = schema.items.some((item) => item.kind === 'input' && item.widget?.controller === 'after_generate' &&
-        (node.controllers?.[item.id] ?? item.widget.controllerInitial ?? 'randomize') !== 'fixed')
-      return sensitive ? [runtimeId] : []
-    } catch {
-      return [runtimeId]
-    }
-  }))
+    }),
+  )
   const provenRuntimeIds = new Set(Object.keys(artifact.provenance.toSource))
   return (runtimeId: string): boolean => {
     if (valueSourceSensitive) return true
@@ -115,11 +145,17 @@ const controllerSensitiveFor = (
       const id = pending.pop()!
       if (seen.has(id)) continue
       seen.add(id)
-      if (!provenRuntimeIds.has(id) || artifact.prompt[id] === undefined) return true
+      if (!provenRuntimeIds.has(id) || artifact.prompt[id] === undefined)
+        return true
       if (controlled.has(id)) return true
       for (const input of Object.values(artifact.prompt[id]?.inputs ?? {})) {
-        if (Array.isArray(input) && input.length === 2 && typeof input[0] === 'string' &&
-            typeof input[1] === 'number') pending.push(input[0])
+        if (
+          Array.isArray(input) &&
+          input.length === 2 &&
+          typeof input[0] === 'string' &&
+          typeof input[1] === 'number'
+        )
+          pending.push(input[0])
       }
     }
     return false
@@ -133,8 +169,11 @@ export interface RetainedExecutionView {
 }
 
 const digestOutputs = (outputs: ExecutionState['outputs'][string]) => {
-  const retained = Object.fromEntries(Object.entries(outputs)
-    .filter(([, descriptor]) => imageAssetRefsOf(descriptor).length > 0))
+  const retained = Object.fromEntries(
+    Object.entries(outputs).filter(
+      ([, descriptor]) => imageAssetRefsOf(descriptor).length > 0,
+    ),
+  )
   return Object.keys(retained).length > 0 ? retained : undefined
 }
 
@@ -158,10 +197,21 @@ export function retainProvenExecution(
   resolveSchema?: ((type: string) => NodeSchema | undefined) | undefined,
 ): RetainedExecutionView {
   const currentArtifact = current.artifact
-  const unchanged = (): RetainedExecutionView => ({ execution: current, retainedRuntimeIds: new Set() })
+  const unchanged = (): RetainedExecutionView => ({
+    execution: current,
+    retainedRuntimeIds: new Set(),
+  })
   if (!live || !currentArtifact || !instancePath) return unchanged()
-  if (live.connection !== current.ref.connection || currentArtifact.connection !== current.ref.connection) return unchanged()
-  if (live.snapshot.lineage !== currentArtifact.snapshot.lineage || live.schemaHash !== currentArtifact.schemaHash) return unchanged()
+  if (
+    live.connection !== current.ref.connection ||
+    currentArtifact.connection !== current.ref.connection
+  )
+    return unchanged()
+  if (
+    live.snapshot.lineage !== currentArtifact.snapshot.lineage ||
+    live.schemaHash !== currentArtifact.schemaHash
+  )
+    return unchanged()
 
   const nodes = { ...current.nodes }
   const outputs = { ...current.outputs }
@@ -172,16 +222,19 @@ export function retainProvenExecution(
       runtimeIds: Object.keys(artifact.prompt),
       toSource: artifact.provenance.toSource,
     })
-    return new Set([...occurrences.own.values(), ...occurrences.inner.values()].flat())
+    return new Set(
+      [...occurrences.own.values(), ...occurrences.inner.values()].flat(),
+    )
   }
   const liveIds = idsFor(live)
   const liveControllerSensitive = controllerSensitiveFor(live, resolveSchema)
   // Only a partial run's prompt blocks retention: those nodes were requested
   // to recompute. A whole run's prompt is every node, so blocking on it
   // would blank all prior proven previews at queue time.
-  const requestedIds = currentArtifact.scope.kind === 'partial'
-    ? new Set(Object.keys(currentArtifact.prompt))
-    : new Set<string>()
+  const requestedIds =
+    currentArtifact.scope.kind === 'partial'
+      ? new Set(Object.keys(currentArtifact.prompt))
+      : new Set<string>()
   const occupied = new Set([
     ...Object.keys(current.nodes),
     ...Object.keys(current.outputs),
@@ -189,13 +242,20 @@ export function retainProvenExecution(
   ])
   const selected = new Set<string>()
   const candidates = executions
-    .filter((candidate) => candidate.key !== current.key && candidate.queuedAt < current.queuedAt)
+    .filter(
+      (candidate) =>
+        candidate.key !== current.key && candidate.queuedAt < current.queuedAt,
+    )
     .sort((a, b) => b.queuedAt - a.queuedAt)
 
   for (const candidate of candidates) {
     const ran = candidate.artifact
     if (!ran || candidate.status !== 'completed') continue
-    if (candidate.ref.connection !== current.ref.connection || ran.connection !== current.ref.connection) continue
+    if (
+      candidate.ref.connection !== current.ref.connection ||
+      ran.connection !== current.ref.connection
+    )
+      continue
     if (ran.snapshot.lineage !== live.snapshot.lineage) continue
     const exact = liveExactnessFor(live, ran)
     if (!exact) continue
@@ -207,13 +267,25 @@ export function retainProvenExecution(
       ...Object.keys(candidate.previews),
     ])
     for (const runtimeId of runtimeIds) {
-      if (requestedIds.has(runtimeId) || occupied.has(runtimeId) || selected.has(runtimeId) ||
-          !liveIds.has(runtimeId) || !candidateIds.has(runtimeId) ||
-          live.provenance.toSource[runtimeId] === undefined ||
-          live.provenance.toSource[runtimeId] !== ran.provenance.toSource[runtimeId] ||
-          liveControllerSensitive(runtimeId) || ranControllerSensitive(runtimeId) || !exact(runtimeId)) continue
+      if (
+        requestedIds.has(runtimeId) ||
+        occupied.has(runtimeId) ||
+        selected.has(runtimeId) ||
+        !liveIds.has(runtimeId) ||
+        !candidateIds.has(runtimeId) ||
+        live.provenance.toSource[runtimeId] === undefined ||
+        live.provenance.toSource[runtimeId] !==
+          ran.provenance.toSource[runtimeId] ||
+        liveControllerSensitive(runtimeId) ||
+        ranControllerSensitive(runtimeId) ||
+        !exact(runtimeId)
+      )
+        continue
       const priorNode = candidate.nodes[runtimeId]
-      const resolvedNode = priorNode?.state === 'done' || priorNode?.state === 'cached' ? priorNode : undefined
+      const resolvedNode =
+        priorNode?.state === 'done' || priorNode?.state === 'cached'
+          ? priorNode
+          : undefined
       if (priorNode !== undefined && resolvedNode === undefined) continue
       if (resolvedNode !== undefined) {
         nodes[runtimeId] = { ...priorNode, state: 'cached' }
@@ -223,23 +295,36 @@ export function retainProvenExecution(
       // recorded outputs: V1 filename URLs can be recycled by the backend, so
       // retaining them could display different bytes under an old identity.
       // The loader will derive the cached preview from digest.
-      if (current.nodes[runtimeId] === undefined && current.previews[runtimeId] === undefined &&
-          outputs[runtimeId] === undefined && priorOutputs !== undefined) {
+      if (
+        current.nodes[runtimeId] === undefined &&
+        current.previews[runtimeId] === undefined &&
+        outputs[runtimeId] === undefined &&
+        priorOutputs !== undefined
+      ) {
         const safe = digestOutputs(priorOutputs)
         if (safe) outputs[runtimeId] = safe
       }
-      if (nodes[runtimeId] === undefined && outputs[runtimeId] !== undefined) nodes[runtimeId] = { state: 'cached' }
+      if (nodes[runtimeId] === undefined && outputs[runtimeId] !== undefined)
+        nodes[runtimeId] = { state: 'cached' }
       // Preview frames hold their payload bytes in memory, so a retained
       // frame always shows exactly the bytes received for this occurrence.
       const priorFrame = candidate.previews[runtimeId]
-      if (nodes[runtimeId] !== undefined && previews[runtimeId] === undefined && priorFrame !== undefined) {
+      if (
+        nodes[runtimeId] !== undefined &&
+        previews[runtimeId] === undefined &&
+        priorFrame !== undefined
+      ) {
         previews[runtimeId] = priorFrame
       }
-      if (nodes[runtimeId] !== undefined || outputs[runtimeId] !== undefined) selected.add(runtimeId)
+      if (nodes[runtimeId] !== undefined || outputs[runtimeId] !== undefined)
+        selected.add(runtimeId)
     }
   }
   if (selected.size === 0) return unchanged()
-  return { execution: { ...current, nodes, outputs, previews }, retainedRuntimeIds: selected }
+  return {
+    execution: { ...current, nodes, outputs, previews },
+    retainedRuntimeIds: selected,
+  }
 }
 
 /** One derivation pass, ready for the host to install on the renderer. */
@@ -297,43 +382,79 @@ const plainRecord = (value: unknown): value is Record<string, unknown> => {
   const prototype = Object.getPrototypeOf(value)
   if (prototype !== Object.prototype && prototype !== null) return false
   return Object.values(Object.getOwnPropertyDescriptors(value)).every(
-    (descriptor) => descriptor.get === undefined && descriptor.set === undefined,
+    (descriptor) =>
+      descriptor.get === undefined && descriptor.set === undefined,
   )
 }
 
 const decorationText = (value: unknown, field: string, max: number): string => {
-  if (typeof value !== 'string' || value.length === 0 || value.length > max ||
-      value.trim() !== value || /[\u0000-\u001f\u007f]/u.test(value)) {
-    throw new Error(`${field} must be a trimmed visible string of at most ${max} characters`)
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > max ||
+    value.trim() !== value ||
+    /[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    throw new Error(
+      `${field} must be a trimmed visible string of at most ${max} characters`,
+    )
   }
   return value
 }
 
 const decorationBadge = (value: unknown): NodeDecorationBadge => {
   if (!plainRecord(value)) throw new Error('badge must be a plain object')
-  const allowed = new Set(['id', 'glyph', 'fallbackGlyph', 'variant', 'appearance', 'placement', 'interactive', 'color'])
-  if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('badge contains an unsupported field')
+  const allowed = new Set([
+    'id',
+    'glyph',
+    'fallbackGlyph',
+    'variant',
+    'appearance',
+    'placement',
+    'interactive',
+    'color',
+  ])
+  if (Object.keys(value).some((key) => !allowed.has(key)))
+    throw new Error('badge contains an unsupported field')
   const id = decorationText(value['id'], 'badge id', 128)
-  if (!/^[a-z0-9][a-z0-9._-]*$/u.test(id)) throw new Error('badge id must be namespaced lowercase ASCII')
+  if (!/^[a-z0-9][a-z0-9._-]*$/u.test(id))
+    throw new Error('badge id must be namespaced lowercase ASCII')
   const glyph = decorationText(value['glyph'], 'badge glyph', 40)
   const color = decorationText(value['color'], 'badge color', 9)
-  if (!/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/u.test(color)) throw new Error('badge color must be #RRGGBB or #RRGGBBAA')
-  if (value['fallbackGlyph'] !== undefined) decorationText(value['fallbackGlyph'], 'badge fallback glyph', 40)
-  if (value['variant'] !== undefined && value['variant'] !== 'label') throw new Error("badge variant must be 'label'")
-  if (value['appearance'] !== undefined && value['appearance'] !== 'policy') throw new Error("badge appearance must be 'policy'")
-  if (value['placement'] !== undefined && value['placement'] !== 'above' && value['placement'] !== 'below') {
+  if (!/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/u.test(color))
+    throw new Error('badge color must be #RRGGBB or #RRGGBBAA')
+  if (value['fallbackGlyph'] !== undefined)
+    decorationText(value['fallbackGlyph'], 'badge fallback glyph', 40)
+  if (value['variant'] !== undefined && value['variant'] !== 'label')
+    throw new Error("badge variant must be 'label'")
+  if (value['appearance'] !== undefined && value['appearance'] !== 'policy')
+    throw new Error("badge appearance must be 'policy'")
+  if (
+    value['placement'] !== undefined &&
+    value['placement'] !== 'above' &&
+    value['placement'] !== 'below'
+  ) {
     throw new Error("badge placement must be 'above' or 'below'")
   }
-  if (value['interactive'] !== undefined && value['interactive'] !== false) throw new Error('extension badges cannot be interactive')
+  if (value['interactive'] !== undefined && value['interactive'] !== false)
+    throw new Error('extension badges cannot be interactive')
   return Object.freeze({
     id,
     glyph,
     color,
-    ...(value['fallbackGlyph'] === undefined ? {} : { fallbackGlyph: value['fallbackGlyph'] as string }),
+    ...(value['fallbackGlyph'] === undefined
+      ? {}
+      : { fallbackGlyph: value['fallbackGlyph'] as string }),
     ...(value['variant'] === undefined ? {} : { variant: 'label' as const }),
-    ...(value['appearance'] === undefined ? {} : { appearance: 'policy' as const }),
-    ...(value['placement'] === undefined ? {} : { placement: value['placement'] as 'above' | 'below' }),
-    ...(value['interactive'] === undefined ? {} : { interactive: false as const }),
+    ...(value['appearance'] === undefined
+      ? {}
+      : { appearance: 'policy' as const }),
+    ...(value['placement'] === undefined
+      ? {}
+      : { placement: value['placement'] as 'above' | 'below' }),
+    ...(value['interactive'] === undefined
+      ? {}
+      : { interactive: false as const }),
   })
 }
 
@@ -341,21 +462,36 @@ const normalizedDecoration = (value: unknown): NodeDecoration | undefined => {
   if (value === undefined) return undefined
   if (!plainRecord(value)) throw new Error('decoration must be a plain object')
   const allowed = new Set(['badges', 'color', 'titleSuffix', 'status'])
-  if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('decoration contains an unsupported field')
-  if (value['badges'] !== undefined && (!Array.isArray(value['badges']) || value['badges'].length > 16)) {
+  if (Object.keys(value).some((key) => !allowed.has(key)))
+    throw new Error('decoration contains an unsupported field')
+  if (
+    value['badges'] !== undefined &&
+    (!Array.isArray(value['badges']) || value['badges'].length > 16)
+  ) {
     throw new Error('decoration badges must be an array of at most 16 items')
   }
-  const color = value['color'] === undefined ? undefined : decorationText(value['color'], 'color', 9)
-  if (color !== undefined && !/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/u.test(color)) {
+  const color =
+    value['color'] === undefined
+      ? undefined
+      : decorationText(value['color'], 'color', 9)
+  if (
+    color !== undefined &&
+    !/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/u.test(color)
+  ) {
     throw new Error('color must be #RRGGBB or #RRGGBBAA')
   }
-  const titleSuffix = value['titleSuffix'] === undefined
-    ? undefined
-    : decorationText(value['titleSuffix'], 'title suffix', 64)
-  const status = value['status'] === undefined ? undefined : decorationText(value['status'], 'status', 64)
-  const badges = value['badges'] === undefined
-    ? undefined
-    : Object.freeze(value['badges'].map(decorationBadge))
+  const titleSuffix =
+    value['titleSuffix'] === undefined
+      ? undefined
+      : decorationText(value['titleSuffix'], 'title suffix', 64)
+  const status =
+    value['status'] === undefined
+      ? undefined
+      : decorationText(value['status'], 'status', 64)
+  const badges =
+    value['badges'] === undefined
+      ? undefined
+      : Object.freeze(value['badges'].map(decorationBadge))
   return Object.freeze({
     ...(badges === undefined ? {} : { badges }),
     ...(color === undefined ? {} : { color }),
@@ -375,23 +511,32 @@ export function applyNodeDecorations(args: {
 }): AppliedNodeDecorations {
   const badges: Record<string, readonly NodeBadge[]> = { ...args.badges }
   const presentation: Record<string, NodeDecoration> = {}
-  for (const contribution of [...args.contributions].sort((left, right) => left.id.localeCompare(right.id))) {
+  for (const contribution of [...args.contributions].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  )) {
     try {
       const staged = args.scene.nodes.flatMap((node) => {
-        const result = normalizedDecoration(contribution.decorate(Object.freeze({
-          documentId: args.documentId,
-          graphId: args.graphId,
-          id: node.id,
-          type: node.node.type,
-          title: node.layout?.title ?? node.node.title ?? node.id,
-          mode: node.node.mode ?? 'active',
-        })))
+        const result = normalizedDecoration(
+          contribution.decorate(
+            Object.freeze({
+              documentId: args.documentId,
+              graphId: args.graphId,
+              id: node.id,
+              type: node.node.type,
+              title: node.layout?.title ?? node.node.title ?? node.id,
+              mode: node.node.mode ?? 'active',
+            }),
+          ),
+        )
         return result === undefined ? [] : [{ nodeId: node.id, result }]
       })
       for (const { nodeId, result } of staged) {
-        if (result.badges !== undefined) badges[nodeId] = [...(badges[nodeId] ?? []), ...result.badges]
+        if (result.badges !== undefined)
+          badges[nodeId] = [...(badges[nodeId] ?? []), ...result.badges]
         const current = presentation[nodeId]
-        const titleSuffix = [current?.titleSuffix, result.titleSuffix].filter((value) => value !== undefined).join(' ')
+        const titleSuffix = [current?.titleSuffix, result.titleSuffix]
+          .filter((value) => value !== undefined)
+          .join(' ')
         const color = result.color ?? current?.color
         const status = result.status ?? current?.status
         presentation[nodeId] = {
@@ -432,9 +577,11 @@ export function selectedPreviewAssetForNode(
   if (node.layout === undefined) return undefined
   return selectedPreviewAssetForRows(
     node.node.values,
-    node.layout.rows.flatMap((row) => row.kind === 'widget'
-      ? [{ widgetType: row.spec.widgetType, valueKey: row.valueKey }]
-      : []),
+    node.layout.rows.flatMap((row) =>
+      row.kind === 'widget'
+        ? [{ widgetType: row.spec.widgetType, valueKey: row.valueKey }]
+        : [],
+    ),
     previewRendererFor,
   )
 }
@@ -449,31 +596,41 @@ export function representedPreviewAssetForNode(
   for (const output of outputsOf(schema)) {
     const represents = output.represents
     if (!supportsOutputRepresentation(represents)) continue
-    if (represents.applies !== undefined && !Object.entries(represents.applies).every(([comboId, values]) => {
-      const selected = node.node.dynamic?.[comboId]?.selected
-      return selected !== undefined && values.includes(selected)
-    })) continue
+    if (
+      represents.applies !== undefined &&
+      !Object.entries(represents.applies).every(([comboId, values]) => {
+        const selected = node.node.dynamic?.[comboId]?.selected
+        return selected !== undefined && values.includes(selected)
+      })
+    )
+      continue
     const selected = selectedPreviewAssetForRows(
       node.node.values,
       node.layout.rows.flatMap((row) =>
         row.kind === 'widget' && row.inputId === represents.input
           ? [{ widgetType: row.spec.widgetType, valueKey: row.valueKey }]
-          : []),
+          : [],
+      ),
       previewRendererFor,
     )
-    if (selected?.mediaKind === 'image') return { ...selected, outputId: output.id }
+    if (selected?.mediaKind === 'image')
+      return { ...selected, outputId: output.id }
   }
   return undefined
 }
 
 /** Mirrored nodes in dependency order; cyclic mirror components are omitted. */
-function orderedMirrorNodeIds(bindings: ReturnType<typeof deriveGlslMirrorBindings>): readonly string[] {
+function orderedMirrorNodeIds(
+  bindings: ReturnType<typeof deriveGlslMirrorBindings>,
+): readonly string[] {
   const indegree = new Map<string, number>()
   const downstream = new Map<string, string[]>()
   for (const nodeId of bindings.keys()) indegree.set(nodeId, 0)
   for (const [nodeId, binding] of bindings) {
     const dependencies = new Set(
-      binding.images.map((image) => image.driver.node).filter((driver) => bindings.has(driver)),
+      binding.images
+        .map((image) => image.driver.node)
+        .filter((driver) => bindings.has(driver)),
     )
     indegree.set(nodeId, dependencies.size)
     for (const driver of dependencies) {
@@ -482,7 +639,9 @@ function orderedMirrorNodeIds(bindings: ReturnType<typeof deriveGlslMirrorBindin
       downstream.set(driver, dependents)
     }
   }
-  const ordered = [...indegree].filter(([, degree]) => degree === 0).map(([nodeId]) => nodeId)
+  const ordered = [...indegree]
+    .filter(([, degree]) => degree === 0)
+    .map(([nodeId]) => nodeId)
   for (let index = 0; index < ordered.length; index++) {
     for (const dependent of downstream.get(ordered[index]!) ?? []) {
       const degree = indegree.get(dependent)! - 1
@@ -495,8 +654,12 @@ function orderedMirrorNodeIds(bindings: ReturnType<typeof deriveGlslMirrorBindin
 
 /** Exact output a node-level image mirror represents, when unambiguous. */
 function mirroredImageOutputId(schema: NodeSchema): string | undefined {
-  const imageOutputs = outputsOf(schema).filter((output) =>
-    output.type.kind === 'concrete' && output.type.name === 'dinkster.image' && output.isList !== true)
+  const imageOutputs = outputsOf(schema).filter(
+    (output) =>
+      output.type.kind === 'concrete' &&
+      output.type.name === 'dinkster.image' &&
+      output.isList !== true,
+  )
   return imageOutputs.length === 1 ? imageOutputs[0]!.id : undefined
 }
 
@@ -545,11 +708,25 @@ export function deriveSceneOverlays(args: {
 }): SceneOverlayModel {
   const { scene, exec, graphId: gid, instancePath } = args
   const executionToSource = { ...exec?.artifact?.provenance.toSource }
-  for (const [runtimeId, progress] of Object.entries(exec?.nodes ?? {})) {
-    if (progress.displayRuntimeNodeId === undefined) continue
+  const executionDisplayIds = [
+    ...Object.entries(exec?.nodes ?? {}).map(
+      ([runtimeId, progress]) =>
+        [runtimeId, progress.displayRuntimeNodeId] as const,
+    ),
+    ...Object.entries(exec?.blockedNodes ?? {}).map(
+      ([runtimeId, blocked]) =>
+        [runtimeId, blocked.displayRuntimeNodeId] as const,
+    ),
+    ...Object.entries(exec?.expandedNodes ?? {}).map(
+      ([runtimeId, expansion]) =>
+        [runtimeId, expansion.displayRuntimeNodeId] as const,
+    ),
+  ]
+  for (const [runtimeId, displayRuntimeNodeId] of executionDisplayIds) {
+    if (displayRuntimeNodeId === undefined) continue
     executionToSource[runtimeId] =
-      exec?.artifact?.provenance.toSource[progress.displayRuntimeNodeId] ??
-      progress.displayRuntimeNodeId
+      exec?.artifact?.provenance.toSource[displayRuntimeNodeId] ??
+      displayRuntimeNodeId
   }
 
   // Occurrence mapping for the CURRENT view: which runtime ids each scene
@@ -571,14 +748,20 @@ export function deriveSceneOverlays(args: {
             ...Object.keys(exec.expandedNodes ?? {}),
             ...exec.activities.map((activity) => activity.nodeId),
             ...exec.artifacts.map((artifact) => artifact.nodeId),
-            ...exec.logs.flatMap((entry) => entry.runtimeNodeId === undefined ? [] : [entry.runtimeNodeId]),
-            ...(exec.valueDiagnostics ?? []).map((diagnostic) => diagnostic.nodeId),
+            ...exec.logs.flatMap((entry) =>
+              entry.runtimeNodeId === undefined ? [] : [entry.runtimeNodeId],
+            ),
+            ...(exec.valueDiagnostics ?? []).map(
+              (diagnostic) => diagnostic.nodeId,
+            ),
           ]),
           toSource: executionToSource,
         })
       : undefined
   /** Runtime ids of a document node's OWN occurrence in this view. */
-  const ownRuntimeIds = occ ? (nodeId: string) => occ.own.get(nodeId) ?? [] : undefined
+  const ownRuntimeIds = occ
+    ? (nodeId: string) => occ.own.get(nodeId) ?? []
+    : undefined
 
   const states = exec
     ? projectExecutionNodeStates({
@@ -604,8 +787,10 @@ export function deriveSceneOverlays(args: {
   // bottom badges and their popovers read chronological (logs sort by seq).
   const sceneNodeOfRuntime = new Map<string, string>()
   if (occ !== undefined) {
-    for (const [sceneNodeId, ids] of occ.own) for (const id of ids) sceneNodeOfRuntime.set(id, sceneNodeId)
-    for (const [sceneNodeId, ids] of occ.inner) for (const id of ids) sceneNodeOfRuntime.set(id, sceneNodeId)
+    for (const [sceneNodeId, ids] of occ.own)
+      for (const id of ids) sceneNodeOfRuntime.set(id, sceneNodeId)
+    for (const [sceneNodeId, ids] of occ.inner)
+      for (const id of ids) sceneNodeOfRuntime.set(id, sceneNodeId)
   }
   const mediaDiagnosticsByNode = new Map<string, ValueDiagnostic[]>()
   for (const diagnostic of exec?.valueDiagnostics ?? []) {
@@ -627,14 +812,20 @@ export function deriveSceneOverlays(args: {
     }
   }
   const blockedByNode = new Map<string, string>()
-  for (const [runtimeNodeId, blocked] of Object.entries(exec?.blockedNodes ?? {})) {
+  for (const [runtimeNodeId, blocked] of Object.entries(
+    exec?.blockedNodes ?? {},
+  )) {
     const sceneNodeId = sceneNodeOfRuntime.get(runtimeNodeId)
-    if (sceneNodeId !== undefined) blockedByNode.set(sceneNodeId, blocked.message)
+    if (sceneNodeId !== undefined)
+      blockedByNode.set(sceneNodeId, blocked.message)
   }
   const expandedByNode = new Map<string, number>()
-  for (const [runtimeNodeId, expansion] of Object.entries(exec?.expandedNodes ?? {})) {
+  for (const [runtimeNodeId, expansion] of Object.entries(
+    exec?.expandedNodes ?? {},
+  )) {
     const sceneNodeId = sceneNodeOfRuntime.get(runtimeNodeId)
-    if (sceneNodeId !== undefined) expandedByNode.set(sceneNodeId, expansion.childCount)
+    if (sceneNodeId !== undefined)
+      expandedByNode.set(sceneNodeId, expansion.childCount)
   }
   // Error diagnostics anchored to each scene node of this view: the anchor
   // names a root occurrence, so the node visible HERE is the next
@@ -651,7 +842,10 @@ export function deriveSceneOverlays(args: {
       const path = anchor.instancePath
       if (path.length < instancePath.length) continue
       if (!instancePath.every((segment, i) => path[i] === segment)) continue
-      const visible = path.length > instancePath.length ? path[instancePath.length]! : anchor.node
+      const visible =
+        path.length > instancePath.length
+          ? path[instancePath.length]!
+          : anchor.node
       const list = runErrorsByNode.get(visible)
       if (list === undefined) runErrorsByNode.set(visible, [d])
       else list.push(d)
@@ -668,16 +862,23 @@ export function deriveSceneOverlays(args: {
     if (defaults === undefined) {
       const resolved = new Map<string, Json | undefined>()
       const node = args.def?.nodes[nodeId]
-      const schema = node === undefined ? undefined : args.resolveSchema?.(node.type)
+      const schema =
+        node === undefined ? undefined : args.resolveSchema?.(node.type)
       if (node !== undefined && schema !== undefined) {
-        const items = elabInputsOf(elaborateInterface(
-          schema,
-          node,
-          (connectivity ??= buildGraphConnectivity(args.def!))(node.id),
-          { promoteGhosts: false },
-        ))
+        const items = elabInputsOf(
+          elaborateInterface(
+            schema,
+            node,
+            (connectivity ??= buildGraphConnectivity(args.def!))(node.id),
+            { promoteGhosts: false },
+          ),
+        )
         for (const item of items) {
-          if (item.spec.widget !== undefined) resolved.set(valueKeyOf(item), effectiveWidgetDefault(item.spec.widget))
+          if (item.spec.widget !== undefined)
+            resolved.set(
+              valueKeyOf(item),
+              effectiveWidgetDefault(item.spec.widget),
+            )
         }
       }
       defaults = resolved
@@ -699,8 +900,10 @@ export function deriveSceneOverlays(args: {
   // each node's effective value gates its own estimate.
   const nodeMirrorsOn = (nodeId: string): boolean =>
     args.def?.nodes[nodeId]?.mirrorPreviews ?? args.mirrorPreviews === true
-  const anyMirrorsOn = args.mirrorPreviews === true ||
-    (args.def !== undefined && Object.values(args.def.nodes).some((n) => n.mirrorPreviews === true))
+  const anyMirrorsOn =
+    args.mirrorPreviews === true ||
+    (args.def !== undefined &&
+      Object.values(args.def.nodes).some((n) => n.mirrorPreviews === true))
   const recordedProducerArgs = {
     execNodes: exec?.nodes,
     frozen: args.frozen,
@@ -711,12 +914,23 @@ export function deriveSceneOverlays(args: {
       ? { outputAliases: exec.artifact.provenance.outputAliases }
       : {}),
   }
-  const currentProducerValue = (nodeId: string, outputId: string): Json | undefined => {
-    const display = recordedProducerDisplay(recordedProducerArgs, nodeId, outputId, true)
+  const currentProducerValue = (
+    nodeId: string,
+    outputId: string,
+  ): Json | undefined => {
+    const display = recordedProducerDisplay(
+      recordedProducerArgs,
+      nodeId,
+      outputId,
+      true,
+    )
     return display?.stale === true ? undefined : display?.value
   }
   const estimates =
-    anyMirrorsOn && !args.frozen && args.def !== undefined && args.resolveSchema !== undefined
+    anyMirrorsOn &&
+    !args.frozen &&
+    args.def !== undefined &&
+    args.resolveSchema !== undefined
       ? deriveMirrorEstimates(args.def, args.resolveSchema, {
           enabled: nodeMirrorsOn,
           producerValue: currentProducerValue,
@@ -761,7 +975,10 @@ export function deriveSceneOverlays(args: {
     // ONE visual for the job error report (rider on Dinkster #368: errors are
     // never a log level); dismissal hides it for this run only.
     const runErrors = runErrorsByNode.get(n.id)
-    if (runErrors !== undefined && args.dismissedErrorNodes?.has(n.id) !== true) {
+    if (
+      runErrors !== undefined &&
+      args.dismissedErrorNodes?.has(n.id) !== true
+    ) {
       list.push(executionErrorBadge(runErrors.length))
     }
     const blocked = blockedByNode.get(n.id)
@@ -770,12 +987,18 @@ export function deriveSceneOverlays(args: {
     if (expanded !== undefined) list.push(executionExpandedBadge(expanded))
     const nodeLogs = runLogsByNode.get(n.id)
     if (nodeLogs !== undefined) {
-      const warnings = nodeLogs.reduce((total, entry) => entry.level === 'warning' ? total + 1 : total, 0)
+      const warnings = nodeLogs.reduce(
+        (total, entry) => (entry.level === 'warning' ? total + 1 : total),
+        0,
+      )
       if (warnings > 0) list.push(logWarningBadge(warnings))
       if (nodeLogs.length > warnings) list.push(LOG_INFO_BADGE)
     }
     for (const diagnostic of mediaDiagnosticsByNode.get(n.id) ?? []) {
-      const port = diagnostic.code === 'alpha_dropped' ? diagnostic.outputId : diagnostic.inputId
+      const port =
+        diagnostic.code === 'alpha_dropped'
+          ? diagnostic.outputId
+          : diagnostic.inputId
       const id = `core.media.${diagnostic.code}.${diagnostic.nodeId}.${port}`
       if (list.some((badge) => badge.id === id)) continue
       list.push({
@@ -791,21 +1014,37 @@ export function deriveSceneOverlays(args: {
       // Execution errors already own the runtime error badge + its
       // runtime-details popover. Keep mixed error groups, but do not
       // duplicate a pure runtime group as a second document-error chip.
-      if (runErrorsByNode.has(n.id) && problem.kind === 'error' &&
-        problem.diagnostics.length > 0 && problem.diagnostics.every((d) => d.origin === 'runtime')) continue
-      list.push(problem.kind === 'error'
-        ? PROBLEM_ERROR_BADGE
-        : problem.kind === 'blocking-warning'
-          ? PROBLEM_BLOCKING_WARNING_BADGE
-          : PROBLEM_WARNING_BADGE)
+      if (
+        runErrorsByNode.has(n.id) &&
+        problem.kind === 'error' &&
+        problem.diagnostics.length > 0 &&
+        problem.diagnostics.every((d) => d.origin === 'runtime')
+      )
+        continue
+      list.push(
+        problem.kind === 'error'
+          ? PROBLEM_ERROR_BADGE
+          : problem.kind === 'blocking-warning'
+            ? PROBLEM_BLOCKING_WARNING_BADGE
+            : PROBLEM_WARNING_BADGE,
+      )
     }
     if (n.isSubgraph) {
       const defId = subgraphDefIdOf(n.node.type)
-      const occurrences = defId === undefined || args.doc === undefined ? 1 : Object.values(args.doc.graphs).reduce((count, graph) =>
-        count + Object.values(graph.nodes).filter((node) => subgraphDefIdOf(node.type) === defId).length, 0)
+      const occurrences =
+        defId === undefined || args.doc === undefined
+          ? 1
+          : Object.values(args.doc.graphs).reduce(
+              (count, graph) =>
+                count +
+                Object.values(graph.nodes).filter(
+                  (node) => subgraphDefIdOf(node.type) === defId,
+                ).length,
+              0,
+            )
       list.push(subgraphBadge(occurrences))
-    }
-    else if (replaceItems.has(n.id) || (s !== undefined && isDeprecated(s))) list.push(DEPRECATED_BADGE)
+    } else if (replaceItems.has(n.id) || (s !== undefined && isDeprecated(s)))
+      list.push(DEPRECATED_BADGE)
     const iterationLabel = regionIterationLabels[n.id]
     if (iterationLabel !== undefined) {
       list.push({
@@ -830,9 +1069,10 @@ export function deriveSceneOverlays(args: {
   for (const n of scene.nodes) {
     const runtimeIds = occ ? runtimeIdsFor(occ, n.id) : []
     const schema = n.isSubgraph ? undefined : args.resolveSchema?.(n.node.type)
-    const representedAsset = schema !== undefined && !args.frozen && nodeMirrorsOn(n.id)
-      ? representedPreviewAssetForNode(n, schema, args.previewRendererFor)
-      : undefined
+    const representedAsset =
+      schema !== undefined && !args.frozen && nodeMirrorsOn(n.id)
+        ? representedPreviewAssetForNode(n, schema, args.previewRendererFor)
+        : undefined
     const surface = deriveNodePreviewSurface({
       nodeId: n.id,
       isSubgraph: n.isSubgraph,
@@ -843,35 +1083,59 @@ export function deriveSceneOverlays(args: {
       running: states[n.id]?.state === 'running',
       frozen: args.frozen,
       exactProducer: args.exactProducer,
-      ...(args.retainedRuntimeIds === undefined ? {} : { retainedRuntimeIds: args.retainedRuntimeIds }),
+      ...(args.retainedRuntimeIds === undefined
+        ? {}
+        : { retainedRuntimeIds: args.retainedRuntimeIds }),
       companionSources: derived.sources,
       values: args.values,
-      selectedAsset: representedAsset ?? selectedPreviewAssetForNode(n, args.previewRendererFor),
+      selectedAsset:
+        representedAsset ??
+        selectedPreviewAssetForNode(n, args.previewRendererFor),
       loader: args.loader,
       outputKey: `${args.outputPreviewKeyPrefix ?? ''}\u0000${exec?.key ?? 'none'}\u0000${gid}\u0000${JSON.stringify(instancePath ?? [])}\u0000${n.id}`,
-      ...(args.outputPreviewIndex === undefined ? {} : { outputIndex: args.outputPreviewIndex }),
+      ...(args.outputPreviewIndex === undefined
+        ? {}
+        : { outputIndex: args.outputPreviewIndex }),
     })
     if (surface.preview !== undefined) previews[n.id] = surface.preview
     if (surface.source !== undefined) previewSources[n.id] = surface.source
-    if (surface.executedOutput !== undefined) executedImages[n.id] = surface.executedOutput
-    if (surface.selectedInput !== undefined) selectedInputPreviews[n.id] = surface.selectedInput
+    if (surface.executedOutput !== undefined)
+      executedImages[n.id] = surface.executedOutput
+    if (surface.selectedInput !== undefined)
+      selectedInputPreviews[n.id] = surface.selectedInput
     if (surface.text !== undefined) outputTexts[n.id] = surface.text
     const estimate = estimates?.get(n.id)
-    const hasCurrentOutput = estimate !== undefined && schema !== undefined && outputsOf(schema).some((output) =>
-      currentProducerValue(n.id, output.id) !== undefined)
+    const hasCurrentOutput =
+      estimate !== undefined &&
+      schema !== undefined &&
+      outputsOf(schema).some(
+        (output) => currentProducerValue(n.id, output.id) !== undefined,
+      )
     if (
-      surface.preview === undefined && surface.text === undefined &&
-      estimate !== undefined && !hasCurrentOutput
+      surface.preview === undefined &&
+      surface.text === undefined &&
+      estimate !== undefined &&
+      !hasCurrentOutput
     ) {
       if (estimate.error !== undefined) {
-        outputTexts[n.id] = { text: `Preview error\n${estimate.error}`, error: true }
+        outputTexts[n.id] = {
+          text: `Preview error\n${estimate.error}`,
+          error: true,
+        }
       } else {
-        const lines = (schema === undefined ? [] : outputsOf(schema)).flatMap((output) => {
-          const value = estimate.outputs[output.id]
-          return value === undefined ? [] : [`${output.id}: ${companionText(value)}`]
-        })
+        const lines = (schema === undefined ? [] : outputsOf(schema)).flatMap(
+          (output) => {
+            const value = estimate.outputs[output.id]
+            return value === undefined
+              ? []
+              : [`${output.id}: ${companionText(value)}`]
+          },
+        )
         if (lines.length > 0) {
-          outputTexts[n.id] = { text: ['Estimated locally', ...lines].join('\n'), estimate: true }
+          outputTexts[n.id] = {
+            text: ['Estimated locally', ...lines].join('\n'),
+            estimate: true,
+          }
         }
       }
     }
@@ -885,8 +1149,11 @@ export function deriveSceneOverlays(args: {
   // estimate applies only where no current-proof preview exists (absent or
   // retained-'cached' panels).
   if (
-    args.imageEstimator !== undefined && anyMirrorsOn && !args.frozen &&
-    args.def !== undefined && args.resolveSchema !== undefined
+    args.imageEstimator !== undefined &&
+    anyMirrorsOn &&
+    !args.frozen &&
+    args.def !== undefined &&
+    args.resolveSchema !== undefined
   ) {
     const bindings = deriveGlslMirrorBindings(args.def, args.resolveSchema)
     const sceneNodes = new Map(scene.nodes.map((node) => [node.id, node]))
@@ -903,11 +1170,14 @@ export function deriveSceneOverlays(args: {
       const upstream = previews[driverNode]
       const upstreamSource = previewSources[driverNode]
       if (
-        upstream === undefined || upstreamSource === undefined ||
+        upstream === undefined ||
+        upstreamSource === undefined ||
         (upstream.kind !== undefined && upstream.kind !== 'image') ||
-        upstream.image === undefined || upstream.animation !== undefined ||
+        upstream.image === undefined ||
+        upstream.animation !== undefined ||
         upstream.status !== undefined
-      ) continue
+      )
+        continue
       // The binding names the exact producer output, but the producer's
       // panel shows node-wide imagery. Only a source attributed to exactly
       // the driven output may feed the estimate; unattributed imagery
@@ -918,7 +1188,13 @@ export function deriveSceneOverlays(args: {
       if (upstreamSource.outputId !== binding.images[0]!.driver.output) continue
       const width = upstream.width ?? 0
       const height = upstream.height ?? 0
-      if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) continue
+      if (
+        !Number.isInteger(width) ||
+        !Number.isInteger(height) ||
+        width <= 0 ||
+        height <= 0
+      )
+        continue
       // Fail-soft boundary: a broken estimator loses one node's estimate,
       // never the whole overlay derivation.
       let estimate: MirrorImageEstimate | undefined
@@ -946,7 +1222,8 @@ export function deriveSceneOverlays(args: {
       }
       previews[n.id] = preview
       const schema = args.resolveSchema(n.node.type)
-      const outputId = schema === undefined ? undefined : mirroredImageOutputId(schema)
+      const outputId =
+        schema === undefined ? undefined : mirroredImageOutputId(schema)
       if (outputId !== undefined) {
         previewSources[n.id] = {
           key: `mirror:${mirrorImageEstimateIdentity(request)}`,

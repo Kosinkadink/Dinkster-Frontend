@@ -53,7 +53,13 @@ export interface NodeEvent {
  * provenance, so diagnostics point at the one ROOT origin producer
  * (skipOrigin), never at every skipped bystander.
  */
-export type NodeRunState = 'pending' | 'running' | 'cached' | 'done' | 'error' | 'skipped'
+export type NodeRunState =
+  | 'pending'
+  | 'running'
+  | 'cached'
+  | 'done'
+  | 'error'
+  | 'skipped'
 
 /**
  * Execution-scoped summary of one produced output value (Dinkster
@@ -117,12 +123,16 @@ export interface NodeBlockedReason {
   readonly origin: string
   /** Engine-provided explanation for the absence. */
   readonly message: string
+  /** Runtime occurrence that presents this blocked child to the user. */
+  readonly displayRuntimeNodeId?: string
 }
 
 /** Runtime children created while executing one parent node. */
 export interface NodeExpansion {
   readonly children: readonly string[]
   readonly childCount: number
+  /** Runtime occurrence that presents this expanded child to the user. */
+  readonly displayRuntimeNodeId?: string
 }
 
 export interface RegionProgress {
@@ -166,7 +176,10 @@ export type ValueDiagnostic =
       readonly code: 'alpha_dropped'
       readonly nodeId: string
       readonly outputId: string
-    } & ({ readonly inputId: string } | { readonly inputIds: readonly string[] }))
+    } & (
+      | { readonly inputId: string }
+      | { readonly inputIds: readonly string[] }
+    ))
   | {
       readonly code: 'mask_polarity_mismatch'
       readonly nodeId: string
@@ -176,25 +189,37 @@ export type ValueDiagnostic =
     }
 
 export function isValueDiagnostic(value: unknown): value is ValueDiagnostic {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    return false
   const row = value as Readonly<Record<string, unknown>>
-  const id = (value: unknown): value is string => typeof value === 'string' && value !== ''
+  const id = (value: unknown): value is string =>
+    typeof value === 'string' && value !== ''
   if (!id(row['nodeId'])) return false
   if (row['code'] === 'alpha_dropped') {
-    return id(row['outputId']) && (
-      (!('inputIds' in row) && id(row['inputId'])) ||
-      (!('inputId' in row) && Array.isArray(row['inputIds']) && row['inputIds'].every(id))
+    return (
+      id(row['outputId']) &&
+      ((!('inputIds' in row) && id(row['inputId'])) ||
+        (!('inputId' in row) &&
+          Array.isArray(row['inputIds']) &&
+          row['inputIds'].every(id)))
     )
   }
-  return row['code'] === 'mask_polarity_mismatch' && id(row['inputId']) &&
+  return (
+    row['code'] === 'mask_polarity_mismatch' &&
+    id(row['inputId']) &&
     (row['expected'] === 'coverage' || row['expected'] === 'transparency') &&
     (row['actual'] === 'coverage' || row['actual'] === 'transparency')
+  )
 }
 
 export type NormalizedEvent =
   | ExtensionEvent
   | NodeEvent
-  | { readonly kind: 'started'; readonly execution: ExecutionRef; readonly timestamp: number }
+  | {
+      readonly kind: 'started'
+      readonly execution: ExecutionRef
+      readonly timestamp: number
+    }
   | {
       readonly kind: 'regionExpanded'
       readonly execution: ExecutionRef
@@ -334,8 +359,16 @@ export type NormalizedEvent =
       readonly runtimeNodeId?: string
       readonly detail: RuntimeErrorDetail
     }
-  | { readonly kind: 'interrupted'; readonly execution: ExecutionRef; readonly timestamp: number }
-  | { readonly kind: 'completed'; readonly execution: ExecutionRef; readonly timestamp: number }
+  | {
+      readonly kind: 'interrupted'
+      readonly execution: ExecutionRef
+      readonly timestamp: number
+    }
+  | {
+      readonly kind: 'completed'
+      readonly execution: ExecutionRef
+      readonly timestamp: number
+    }
   | {
       /** Queue/history bookkeeping not tied to one node. */
       readonly kind: 'status'
@@ -395,7 +428,13 @@ export type NormalizedEvent =
  */
 export type ControlEvent = Extract<
   NormalizedEvent,
-  { kind: 'schemaChanged' | 'compositionProgress' | 'compositionComplete' | 'packFailed' }
+  {
+    kind:
+      | 'schemaChanged'
+      | 'compositionProgress'
+      | 'compositionComplete'
+      | 'packFailed'
+  }
 >
 
 export function isControlEvent(e: NormalizedEvent): e is ControlEvent {
@@ -408,7 +447,10 @@ export function isControlEvent(e: NormalizedEvent): e is ControlEvent {
 }
 
 /** Events routed by execution identity (everything except status + control). */
-export type ExecutionEvent = Extract<NormalizedEvent, { execution: ExecutionRef }>
+export type ExecutionEvent = Extract<
+  NormalizedEvent,
+  { execution: ExecutionRef }
+>
 
 export function isExecutionEvent(e: NormalizedEvent): e is ExecutionEvent {
   return e.kind !== 'status' && !isControlEvent(e)
