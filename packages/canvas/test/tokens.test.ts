@@ -65,7 +65,7 @@ describe('defaultTokens', () => {
       fontSize: defaultTokens.fontSize,
       titleFontSize: defaultTokens.titleFontSize,
       multilineText: defaultTokens.multilineText,
-    })).toBe('{"rowHeight":24,"headerHeight":28,"padX":10,"padBottom":8,"previewDefaultHeight":180,"previewMinHeight":40,"previewCaptionHeight":22,"previewGap":6,"mediaTransportHeight":64,"mediaControlMinScale":0.75,"nodeMinWidth":140,"nodeMaxAutoWidth":420,"pinRadius":5.5,"cornerRadius":6,"fontFamily":"system-ui, sans-serif","fontSize":12,"titleFontSize":13,"multilineText":{"fontSize":14,"lineHeight":20,"padding":6,"labelHeight":18,"scrollbarWidth":6,"scrollbarInset":2}}')
+    })).toBe('{"rowHeight":24,"headerHeight":28,"padX":10,"padBottom":8,"previewDefaultHeight":180,"previewMinHeight":40,"previewCaptionHeight":22,"previewGap":6,"mediaTransportHeight":64,"mediaControlMinScale":0.75,"nodeMinWidth":140,"nodeMaxAutoWidth":420,"pinRadius":5.5,"cornerRadius":6,"fontFamily":"\\"Noto Sans\\", sans-serif","fontSize":12,"titleFontSize":13,"multilineText":{"fontSize":14,"lineHeight":20,"padding":6,"labelHeight":18,"scrollbarWidth":6,"scrollbarInset":2}}')
   })
 
   it('owns the low-zoom detail boundaries', () => {

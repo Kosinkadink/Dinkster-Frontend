@@ -83,6 +83,18 @@ const openModal = async (page: Page, id: string): Promise<void> => {
 
 test('shell controls at desktop and compact widths', async ({ page }) => {
   await boot(page)
+  expect(await page.evaluate(() => {
+    const faces: string[] = []
+    document.fonts.forEach((face) => {
+      if (face.status === 'loaded') faces.push(`${face.family.replaceAll('"', '')}:${face.style}:${face.weight}`)
+    })
+    return faces.sort()
+  })).toEqual([
+    'Noto Sans Mono:normal:100 900',
+    'Noto Sans:italic:100 900',
+    'Noto Sans:normal:100 500',
+    'Noto Sans:normal:600 900',
+  ])
   await closeGallery(page)
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
@@ -314,9 +326,14 @@ test('canvas chrome at desktop and compact widths', async ({ page }) => {
 
 test('shell and canvas visual matrix', async ({ page }) => {
   await boot(page)
-  await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
-    readonly templateGalleryOpen: { set(value: boolean): void }
-  }).templateGalleryOpen.set(true))
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      readonly backends: { get(): readonly { readonly templatesEnabled: { set(value: boolean): void } }[] }
+      readonly templateGalleryOpen: { set(value: boolean): void }
+    }
+    app.backends.get()[0]!.templatesEnabled.set(true)
+    app.templateGalleryOpen.set(true)
+  })
   await expect(page.getByTestId('template-gallery')).toBeVisible()
   await screenshot(page, '01-starter-template-gallery')
   await closeGallery(page)
