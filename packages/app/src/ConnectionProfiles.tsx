@@ -258,7 +258,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
         <ProductButton size="compact" data-testid="profile-add" type="submit" disabled={url().trim() === '' || credentialBusy()}>
           {message('connectionProfiles.action.saveProfile')}
         </ProductButton>
-        <Show when={errorMessage()}>{(text) => <p class="backend-add-error" role="alert">{text()}</p>}</Show>
+        <Show when={errorMessage()}>{(text) => <ProductNotice tone="error">{text()}</ProductNotice>}</Show>
       </form>
 
       <ul class="connection-profile-list">

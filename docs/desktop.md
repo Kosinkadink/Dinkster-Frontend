@@ -363,6 +363,9 @@ Saved profiles use ProductListRow for identity and address, with a wrapping
 ProductActionFooter below the copy so credential actions do not squeeze long
 names. Profile forms use ProductTextInput and ProductButton; credential custody,
 pending-action disabling and token-editor placement remain unchanged.
+Invalid addresses and failed connection or credential actions use ProductNotice
+error feedback. Rejected addresses remain editable and a successful save clears
+the error without creating a profile for the rejected address.
 
 ![Saved connections in the Backends panel](assets/remote-connections/saved-connections.png)
 

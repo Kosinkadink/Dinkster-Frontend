@@ -1469,6 +1469,23 @@ test('Saved connection rows retain actions, credential editing and connection fa
   await expect(fixture.getByRole('alert')).toContainText('Studio render server')
   await expect(row.getByTestId('profile-connect')).toBeEnabled()
   await capture('failed')
+  await fixture.getByTestId('profile-url-input').fill('file:///invalid-server')
+  await fixture.getByTestId('profile-add').click()
+  await expect(fixture.getByRole('alert')).toHaveText('A profile needs an absolute http(s) address without embedded credentials.')
+  await expect(fixture.getByTestId('profile-row')).toHaveCount(1)
+  await expect(fixture.getByTestId('profile-url-input')).toHaveValue('file:///invalid-server')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await fixture.getByRole('alert').scrollIntoViewIfNeeded()
+    await page.mouse.move(0, 0)
+    await screenshot(page, `connection-profile-invalid-address-${width}`)
+  }
+  await fixture.getByTestId('profile-name-input').fill('Recovered source')
+  await fixture.getByTestId('profile-url-input').fill('https://recovered.example.test')
+  await fixture.getByTestId('profile-add').click()
+  await expect(fixture.getByRole('alert')).toHaveCount(0)
+  await expect(fixture.getByTestId('profile-row')).toHaveCount(2)
+  await expect(fixture.getByTestId('profile-row').filter({ hasText: 'Recovered source' })).toContainText('https://recovered.example.test')
   await page.evaluate(() => (window as unknown as { connectionVisual: { dispose(): void } }).connectionVisual.dispose())
 })
 
