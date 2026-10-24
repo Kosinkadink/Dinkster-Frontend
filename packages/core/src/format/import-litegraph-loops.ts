@@ -319,6 +319,25 @@ const rawPortName = (
   slot: number,
 ): string | undefined => node[side]?.[slot]?.name
 
+const startOutputName = (
+  port: string,
+  resolve: (type: string) => NodeSchema | undefined,
+): string => {
+  const schema = resolve('StartLoop')
+  const slot = schema
+    ? outputsOf(schema).findIndex((output) => output.id === port)
+    : -1
+  return (
+    [
+      'iteration_index',
+      'is_first',
+      'is_last',
+      'list_item',
+      'current_iteration_value',
+    ][slot] ?? port
+  )
+}
+
 const outputIsList = (
   node: RawNode,
   slot: number,
@@ -393,7 +412,7 @@ export function convertLitegraphLists(
     if (authored?.['type'] === 'GetItemFromList') return false
     if (
       authored?.['type'] === 'StartLoop' &&
-      source['port'] === 'current_iteration_value'
+      startOutputName(source['port'], resolve) === 'current_iteration_value'
     ) {
       const initial = links().find(
         (link) =>
@@ -801,7 +820,7 @@ export function convertLitegraphLoops(
           ? undefined
           : rawLinks.find((candidate) => candidate.id === rawId)
       return raw === undefined
-        ? link['from']?.['port']
+        ? startOutputName(link['from']['port'], resolve)
         : [
             'iteration_index',
             'is_first',

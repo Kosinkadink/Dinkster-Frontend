@@ -712,6 +712,37 @@ describe('ComfyUI Generic Loops structural import', () => {
     expect(workflowFiles).toHaveLength(23)
   })
 
+  it('binds a generated singleton to the actual StartLoop iteration output', () => {
+    const workflow = topologyWorkflow({
+      start: { type: 'StartLoop' },
+      selection: { type: 'Body', inputs: { list: 'start' } },
+      end: { type: 'EndLoop', inputs: { output_value: 'selection' } },
+      output: { type: 'Output', inputs: { value: 'end' } },
+    })
+    const resolve = topologyResolver(workflow)
+    const nodes = workflow['nodes'] as JsonObject[]
+    nodes[1] = { ...nodes[1]!, type: 'GetItemFromList', widgets_values: [0] }
+    const imported = importLitegraph(workflow, resolve)
+    expect(
+      imported.diagnostics.filter((item) => item.severity === 'error'),
+    ).toEqual([])
+    const document = imported.document!
+    const body = document.graphs['comfy-loop-1']!
+    const wrapper = Object.values(body.nodes).find(
+      (node) => node.type === 'std.list.make',
+    )!
+    expect(wrapper).toBeDefined()
+    const iteration = body.inputs.find(
+      (input) => input.id === 'iteration_index',
+    )!
+    expect([iteration.binds, ...(iteration.alsoBinds ?? [])]).toContainEqual({
+      kind: 'port',
+      node: wrapper.id,
+      port: 'items.items',
+      members: ['m0'],
+    })
+  })
+
   it('keeps scalar wrappers and index selection inside their authored loop', () => {
     const workflow = topologyWorkflow({
       source: { type: 'Source' },
@@ -986,7 +1017,7 @@ describe('ComfyUI Generic Loops structural import', () => {
   })
 
   it.each([
-    ['nested-carry.json', 1],
+    ['nested-carry.json', 2],
     ['heterogeneous-carry.json', 1],
     ['list-backed-carry.json', 1],
     ['cache-enabled.json', 0],
