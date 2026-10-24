@@ -7848,8 +7848,6 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .image-canvas-stack canvas:last-child { cursor: crosshair; }
 .image-editor-loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #aaa; }
 .image-editor-error { padding: 7px 12px; color: #ffb0b0; background: #3a1f22; border-top: 1px solid #7a333b; }
-.compositor-empty { display: grid; place-content: center; flex: 1; gap: 8px; padding: 32px; color: #bbb; text-align: center; }
-.compositor-empty p { max-width: 520px; margin: 0; color: #888; }
 .compositor-editor-body { display: grid; grid-template-columns: 220px minmax(280px, 1fr) 260px; flex: 1; min-height: 0; }
 .compositor-layer-panel, .compositor-properties { min-width: 0; overflow: auto; background: #202020; }
 .compositor-layer-panel { display: flex; flex-direction: column; border-right: 1px solid #383838; }

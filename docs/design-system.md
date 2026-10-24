@@ -119,6 +119,11 @@ props while using shared input styling; the compositor retains lowercase
 color storage. Recipe edits, preview geometry and apply/refusal rules remain
 owned by the editor, not by the controls.
 
+The compositor uses ProductEmptyState when no target is open or when the
+selected run has no compositor sources. The latter keeps the explanation that
+the layer stack stays in the graph; Cancel remains enabled and Apply stays
+disabled until runtime data supplies a configurable recipe.
+
 Runtime settings uses compact `ProductButton` actions and `ProductTextInput`
 fields for worker arguments, logger overrides and textual memory values.
 `ProductField`, `ProductNotice` and `ProductActionFooter` retain the form

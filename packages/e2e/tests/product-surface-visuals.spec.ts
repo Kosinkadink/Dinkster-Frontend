@@ -1038,6 +1038,59 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
   await page.evaluate(() => (window as unknown as { disposeQueueVisual(): void }).disposeQueueVisual())
 })
 
+test('Compositor missing runtime state keeps its explanation and Cancel action', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'CompositorEmptyVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
+      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'dinkster.compositor' },
+        widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
+    }])
+    const diagnostics = app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'compositor-empty-visual', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Compositor', nodes: { create: { id: 'create', type: 'CompositorEmptyVisual', values: { recipe: { version: 2, documentDigest: null, commands: [] } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { create: { position: { x: 120, y: 100 } } } } } },
+    }, 'Compositor')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    const editorApp = app as unknown as {
+      compositorTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
+      openCompositorEditor(target: unknown): boolean
+    }
+    const target = editorApp.compositorTargetForInput(app.activeTab()!, 'g0', 'create', 'recipe')
+    if (!editorApp.openCompositorEditor(target)) throw new Error('Empty compositor did not open')
+  })
+  const editor = page.getByTestId('compositor-editor')
+  await expect(editor.getByTestId('compositor-empty')).toContainText('Run Create Layered Image to load its sources.')
+  await expect(editor.getByTestId('compositor-empty')).toContainText('The layer stack stays in the graph.')
+  await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `compositor-no-runtime-${width}`)
+  }
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(editor).toBeHidden()
+  await page.evaluate(async () => {
+    const componentPath = '/src/CompositorEditor.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { CompositorEditor } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('div')
+    host.style.cssText = 'position:absolute;inset:48px 0 0;z-index:20'
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => CompositorEditor({ app: window.__dinksterTest!.app }), host)
+    ;(window as unknown as { disposeCompositorVisual: () => void }).disposeCompositorVisual = () => { dispose(); host.remove() }
+  })
+  await expect(page.getByText('No compositor target is active.', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await screenshot(page, `compositor-no-target-${width}`)
+  }
+  await page.evaluate(() => (window as unknown as { disposeCompositorVisual(): void }).disposeCompositorVisual())
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
