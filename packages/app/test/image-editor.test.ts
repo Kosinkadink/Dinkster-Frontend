@@ -147,7 +147,7 @@ describe('image editor entry admission', () => {
   const ref = { digest: `blake3:${'a'.repeat(64)}`, name: 'image.png', size: 10, mediaType: 'image/png', virtualPath: '' }
   const input = (id: string, kind = 'image') => ({
     kind: 'input' as const, id, displayName: id, optional: false,
-    type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: kind === 'image' ? 'IMAGE' : 'comfy.VIDEO' } },
+    type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: kind === 'image' ? 'IMAGE' : 'VIDEO' } },
     widget: { widgetType: 'ASSET', kind, options: { accept: [kind === 'image' ? 'image/png' : 'video/mp4'] } },
   })
   const schema = (items: NodeSchema['items']): NodeSchema => ({

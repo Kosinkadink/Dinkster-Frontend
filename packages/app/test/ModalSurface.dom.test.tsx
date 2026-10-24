@@ -1098,7 +1098,7 @@ describe('ASSET widget modal integration', () => {
       target: { kind: 'input', nodeId: 'video', valueKey: 'video' },
       label: 'Source video',
       spec: { widgetType: 'ASSET', kind: 'media/video', options: { accept: ['video/*'] } },
-      declaredType: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.VIDEO' } },
+      declaredType: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
       multiline: false,
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: { digest, name: 'clip.webm', size: 4043, mediaType: 'video/webm', virtualPath: 'clip.webm' },
@@ -1195,7 +1195,7 @@ describe('ASSET widget modal integration', () => {
       target: { kind: 'input', nodeId: 'video', valueKey: 'video' },
       label: 'Source video',
       spec: { widgetType: 'ASSET', kind: 'media/video', options: { accept: ['video/*'] } },
-      declaredType: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.VIDEO' } },
+      declaredType: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
       multiline: false,
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
@@ -1626,6 +1626,8 @@ describe('registered interactive widget expanded-editor integration', () => {
   it.each([
     ['INT', { min: 0, max: 4, step: 3 }, 2, '4', 4],
     ['FLOAT', { min: 0, max: 0.3, step: 0.1 }, 0.2, '0.27', 0.27],
+    ['FLOAT', { min: 0, max: 2, step: 0.1, round: false }, 0.2, '1.2346', 1.2346],
+    ['FLOAT', { min: 0, max: 2, step: 0.1, round: 0.001 }, 0.2, '1.2346', 1.235],
   ] as const)('keeps compact stepping out of the optional %s popover and commits exact text explicitly', (type, options, initial, draft, committedValue) => {
     const mounted = mountWidget(widgetState(type, options, initial))
     const field = mounted.root.querySelector<HTMLInputElement>('[data-testid="widget-editor"] input')!

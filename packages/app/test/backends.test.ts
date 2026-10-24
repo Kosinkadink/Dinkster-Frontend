@@ -414,7 +414,7 @@ describe('backend protocols', () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
     const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('saved-job') }
-    const outputs = { save: { video: { typeId: 'comfy.VIDEO', fingerprint: 'live-output' } } }
+    const outputs = { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } }
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
     app.store.hydrateOutputs(ref, outputs)
     const artifact = {
@@ -460,7 +460,7 @@ describe('backend protocols', () => {
       .mockResolvedValueOnce({ state: 'completed', artifacts: [artifact] })
 
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
-    app.store.hydrateOutputs(ref, { save: { video: { typeId: 'comfy.VIDEO', fingerprint: 'live-output' } } })
+    app.store.hydrateOutputs(ref, { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } })
     backend.connection.ingest({ type: 'run_finished', jobId: 'retry-job' })
     backend.connection.ingest({ type: 'job_state', jobId: 'retry-job', state: 'completed' })
     await vi.waitFor(() => expect(fetchJob).toHaveBeenCalledOnce())

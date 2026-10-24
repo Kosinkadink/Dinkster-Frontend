@@ -27,8 +27,8 @@ describe('video inspection contract', () => {
       })
       const list = url.searchParams.get('outputId') === 'clips' && !url.searchParams.has('element')
       return new Response(JSON.stringify({ available: true,
-        descriptor: list ? { typeId: 'list<comfy.VIDEO>', fingerprint: 'list', length: 2 }
-          : { typeId: 'comfy.VIDEO', fingerprint: 'video', meta: { effective: { fps: [24, 1], frame_count: 24 } } },
+        descriptor: list ? { typeId: 'list<VIDEO>', fingerprint: 'list', length: 2 }
+          : { typeId: 'VIDEO', fingerprint: 'video', meta: { effective: { fps: [24, 1], frame_count: 24 } } },
         renditions: list ? [] : [{ kind: 'original', mime: 'video/mp4', default: true }, { kind: 'preview', mime: 'video/mp4' }, frameInfo, ...(thumbsInfo === undefined ? [] : [thumbsInfo])],
       }), { headers: { 'Content-Type': 'application/json' } })
     } })
@@ -79,7 +79,7 @@ describe('video inspection contract', () => {
     })
     const initial = {
       bytes: new ArrayBuffer(1), mime: 'image/png', node: 'n', output: 'video',
-      video: { query: { jobId: 'job', nodeId: 'n', outputId: 'video' }, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'video' }, renditions: [] },
+      video: { query: { jobId: 'job', nodeId: 'n', outputId: 'video' }, descriptor: { typeId: 'VIDEO', fingerprint: 'video' }, renditions: [] },
     }
     await expect(videoInspectionFor(initial, values, [{ node: 'n', output: 'video' }], undefined, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
     expect(peek).toHaveBeenCalledOnce()

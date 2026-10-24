@@ -148,7 +148,7 @@ describe('VideoEditEditor', () => {
     const requests: { kind: string; resolve: (result: RenditionResult) => void; signal: AbortSignal }[] = []
     const values = {
       peek: vi.fn(async (): Promise<ValuePeekResult> => ({
-        available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'source', meta: {
+        available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'source', meta: {
           effective: { width: 1920, height: 1080, duration: [10, 1], fps: [24, 1], frame_count: 17, frame_count_kind: 'estimated' },
         } },
         renditions: [
@@ -192,7 +192,7 @@ describe('VideoEditEditor', () => {
     vi.useFakeTimers()
     const values = {
       peek: vi.fn(async (): Promise<ValuePeekResult> => ({
-        available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'legacy' },
+        available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'legacy' },
         renditions: ['frame', 'thumbs'].map((kind) => ({ kind, mime: 'image/png', ...(parameters === undefined ? {} : { parameters }) })),
       })),
       rendition: vi.fn(async (): Promise<RenditionResult> => ({ available: false, status: 406, reason: 'unavailable-rendition', error: 'No bounded decoder' })),
@@ -224,7 +224,7 @@ describe('VideoEditEditor', () => {
     old({ available: false, status: 404, reason: 'bad-element', error: 'Stale error' })
     await Promise.resolve()
     expect(root.textContent).not.toContain('Stale error')
-    resolveOld({ available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'new' }, renditions: [{ kind: 'poster', mime: 'image/png' }] })
+    resolveOld({ available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'new' }, renditions: [{ kind: 'poster', mime: 'image/png' }] })
     await vi.advanceTimersByTimeAsync(1)
     expect(root.textContent).toContain('406 unavailable-rendition: No bounded decoder')
     expect(values.rendition).toHaveBeenCalledTimes(1)

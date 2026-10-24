@@ -418,6 +418,10 @@ NUMBER constraint exactness follows the socket type. FLOAT accepts finite
 numeric bounds and positive steps, including whole-valued doubles beyond the
 safe integer range, but never decimal strings. INT requires safe numeric
 integers or canonical exact decimal strings for bounds and positive steps.
+FLOAT `round` is independent of step: a positive finite precision quantizes
+committed text, while explicit `false` preserves its parsed value unchanged.
+Absent `round` also leaves commits unquantized. INT rejects `round`; zero,
+negative or nonfinite precisions, `true`, strings and explicit null are invalid.
 
 This table inventories every family registered by `registerCoreWidgets`. The
 schema column names only metadata currently carried by `WidgetSpec`; absence is
@@ -435,10 +439,12 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | `ASSET` | `core.asset`: selected name, `N assets`, or `no asset` | Native product dialog with shared `CollectionPanel`, upload for non-model kinds, image/video preview, details, a right-side selection panel with a staged-selection Remove action, Cancel, and a primary Use-asset commit; modal warranted: yes, for a focus-contained browser | declared type determines single/list/merge selection; top-level semantic `kind`; MIME `accept`; `default`; display name; AssetRef digest/name/size/media type/virtual path; classified image uploads are limited to 256 MiB, audio/video and latent uploads to 1 GiB, and generic uploads to 16 MiB per file; model upload is disabled | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/asset-browser.test.ts`, `app/test/LogicalModelCollection.dom.test.tsx`, `e2e/asset-widget.spec.ts`, `e2e/asset-browser.spec.ts`, `e2e/logical-model-picker.spec.ts`, `e2e/w9-f8-media-upload.spec.ts` |
 | `SAVE_TARGET` | `core.saveTarget`: mount, prefix, and descriptor-only suffix | Anchored mount/prefix popover with canonical declared type, declared output format, ready writable-mount choice, and grammar-validated prefix entry | `default`, display-only `suffix`, declared socket type, display name; mount and relative-prefix grammar; backend mount readiness/mode | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `e2e/save-target.spec.ts` |
 
-Unknown widget types and registered views without `editorUi` use the generic
-shared text popover. A registered `editorUi` uses the host-decoded path above;
-it never executes provider DOM. Only schema-less value sources use the existing
-raw JSON fallback.
+Unavailable widget kinds use the raw JSON fallback; registered views without
+`editorUi` use the generic shared text popover. A registered `editorUi` uses
+the host-decoded path above; it never executes provider DOM. Schema-less
+value sources also use the raw JSON fallback. An unavailable-kind draft
+survives scene refreshes while its document and declared row contract remain
+unchanged; document, schema, target, or extension changes still invalidate it.
 
 ## COMBO editor
 
@@ -606,7 +612,7 @@ truncation workaround is part of this contract.
 
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest
-route. This includes native `asset<comfy.VIDEO>` inputs without a
+route. This includes native `asset<VIDEO>` inputs without a
 `sourceFilename` binding. `sourceFilename` declarations remain the
 legacy classifier. The editor posts the original File bytes to
 `/api/assets/media` with that media kind and a bounded display basename, then

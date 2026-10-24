@@ -4850,6 +4850,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(hit.row.selector !== undefined ? { selector: hit.row.selector } : {}),
         },
         spec: widgetKind === undefined ? undefined : spec,
+        ...(widgetKind === undefined ? { anchorSpec: spec } : {}),
         declaredType: hit.row.type,
         ...(hit.row.sourceFilename !== undefined ? { sourceFilename: hit.row.sourceFilename } : {}),
         // Captured at open time like declaredType: the merge arm gates on

@@ -111,7 +111,7 @@ export default defineConfig({
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
         '--host 127.0.0.1',
         `--port ${nativePort}`,
-        `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
+        '--development-pack',
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,
         `--library-root ${JSON.stringify(nativeLibrary)}`,

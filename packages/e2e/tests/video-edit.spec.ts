@@ -15,7 +15,7 @@ const catalog = {
   schemaVersion: 1, epoch: 1, dinkster: { version: 'video-edit-test', schemaWire }, nodes: {
     'test.video': node([
       input('source_version', 'INT', 0),
-      { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
+      { role: 'output', id: 'video', type: typed('VIDEO') },
       { role: 'output', id: 'images', type: typed('IMAGE') },
       { role: 'output', id: 'strict_duration', type: typed('BOOLEAN') },
       { role: 'output', id: 'start_time', type: typed('FLOAT') },
@@ -25,14 +25,14 @@ const catalog = {
     'dinkster.video.trim': { ...contract.nodes['dinkster.video.trim'], outputNode: true },
     'dinkster.video.crop': { ...contract.nodes['dinkster.video.crop'], outputNode: true },
     'test.video.edit': node([
-      input('video', 'comfy.VIDEO'),
-      { ...input('video_edit', 'comfy.VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
+      input('video', 'VIDEO'),
+      { ...input('video_edit', 'VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
       input('strict_duration', 'BOOLEAN', false),
-      { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
+      { role: 'output', id: 'video', type: typed('VIDEO') },
     ]),
   },
 }
-const descriptor = { typeId: 'comfy.VIDEO', fingerprint: 'retained-source', meta: {
+const descriptor = { typeId: 'VIDEO', fingerprint: 'retained-source', meta: {
   probe: { width: 1080, height: 1920, rotation: 90, color_space: 'HDR PQ' },
   effective: { width: 1920, height: 1080, duration: [10, 1], fps: [24, 1], frame_count: 240 },
 } }

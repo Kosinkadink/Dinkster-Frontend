@@ -535,8 +535,9 @@ describe('fast pull-request and full validation workflows', () => {
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
     )
-    expect(hostedConfig).toContain(
-      "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
+    expect(hostedConfig).toContain("'--development-pack'")
+    expect(hostedConfig).not.toContain(
+      'packages/dinkster-nodes-dev/dinkster-pack.toml',
     )
     expect(hostedConfig).not.toContain("'--dev'")
     expect(auditConfig).toContain(
@@ -544,8 +545,9 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
     expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
-    expect(auditConfig).toContain(
-      "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
+    expect(auditConfig).toContain("'--development-pack'")
+    expect(auditConfig).not.toContain(
+      'packages/dinkster-nodes-dev/dinkster-pack.toml',
     )
     expect(auditConfig).not.toContain("'--dev'")
   })
