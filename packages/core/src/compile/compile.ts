@@ -2763,6 +2763,60 @@ function compileImpl(
   const solvedTypes = new Map(Object.values(doc.graphs).map((graph) => [graph.id,
     solveGraphTypes(graph, resolve, { resolveNode: (node) => resolveNode(graph.id, node) }),
   ]))
+  const nativeTypes = new Map<string, TypeExpr>()
+  const resolvingNativeTypes = new Set<string>()
+  const nativeInputType = (fn: FlatNode, key: string): TypeExpr | undefined => {
+    const value = fn.inputs[key]
+    if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && typeof value[1] === 'number') {
+      return nativeOutputType(value[0], value[1])
+    }
+    const port = typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as { $link?: { node?: string; output?: string } }).$link
+      : undefined
+    if (port?.node === DINKSTER_REGION_PSEUDO_NODE && port.output !== undefined) {
+      if (port.output === 'index') return { kind: 'concrete', name: 'INT' }
+      const owner = ownerRegionOf(fn)
+      const parent = owner && flat.get(owner.runtimeId)
+      const type = parent && nativeInputType(parent, port.output)
+      return owner?.node.region?.elementPorts?.includes(port.output) && type?.kind === 'list' ? type.element : type
+    }
+    return fn.elab.inputs.find((input) => elabKeyOf(input.address) === key)?.spec.type
+  }
+  const nativeOutputType = (runtimeId: string, index: number): TypeExpr | undefined => {
+    const key = `${runtimeId}/${index}`
+    const cached = nativeTypes.get(key)
+    if (cached) return cached
+    if (resolvingNativeTypes.has(key)) return undefined
+    const fn = flat.get(runtimeId)
+    const output = fn?.elab.outputs.filter((item) => item.wireable !== false)[index]
+    if (!fn || !output) return undefined
+    resolvingNativeTypes.add(key)
+    let type: TypeExpr | undefined
+    const region = regions.get(runtimeId)
+    if (region) {
+      const source = sourceForBoundaryOutput(region, output.address.port)
+      const producer = source && [...flat.values()].find((candidate) => ownerRegionOf(candidate)?.runtimeId === runtimeId && localRuntimeId(candidate.runtimeId, region) === source.node)
+      const producerIndex = producer?.elab.outputs.filter((item) => item.wireable !== false).findIndex((item) => nativeOutputId(producer.runtimeId, item) === source?.output)
+      const inner = producer && producerIndex !== undefined && producerIndex >= 0 ? nativeOutputType(producer.runtimeId, producerIndex) : undefined
+      const role = region.node.region?.outputRoles?.[output.address.port]
+      type = inner === undefined ? undefined : role?.kind === 'flatten' || role?.kind === 'last' || role?.kind === 'state' ? inner : { kind: 'list', element: inner }
+    } else {
+      const items = [
+        ...fn.elab.inputs.map((input, i) => ({ kind: 'input' as const, id: `input_${i}`, type: input.spec.type, optional: input.spec.optional })),
+        ...fn.elab.outputs.map((item, i) => ({ kind: 'output' as const, id: `output_${i}`, type: item.spec.type })),
+      ]
+      const schema = { ...resolveNode(fn.graphId, fn.node)!, items }
+      const projectedInputs = fn.elab.inputs.flatMap((input, i) => {
+        const type = nativeInputType(fn, elabKeyOf(input.address))
+        return type ? [{ type, to: { node: fn.node.id, port: `input_${i}` as PortRef['port'] } }] : []
+      })
+      const graph = { ...doc.graphs[fn.graphId]!, nodes: { [fn.node.id]: fn.node }, links: {}, nets: {}, reroutes: {} }
+      type = solveGraphTypes(graph, () => schema, { projectedInputs }).portTypeOf(fn.node.id, 'output', `output_${fn.elab.outputs.indexOf(output)}`)
+    }
+    resolvingNativeTypes.delete(key)
+    if (type) nativeTypes.set(key, type)
+    return type
+  }
   const validationNode = (fn: FlatNode): DinksterGraphValidationNode => {
     const inputTypes: Record<string, TypeExpr> = {}
     const inputPorts: Record<string, PortRef> = {}
@@ -2798,9 +2852,10 @@ function compileImpl(
       if (output.wireable === false) continue
       const outputId = nativeOutputId(fn.runtimeId, output)
       const solved = solvedTypes.get(fn.graphId)?.portTypeOf(fn.node.id, 'output', elabKeyOf(output.address))
+      const native = nativeOutputType(fn.runtimeId, fn.elab.outputs.filter((item) => item.wireable !== false).indexOf(output))
       outputTypes[outputId] = output.spec.type.kind === 'variable' && selectorOutputType !== undefined
         ? selectorOutputType
-        : solved ?? output.spec.type
+        : native !== undefined && canonicalTypeIdOf(native) !== undefined ? native : solved ?? output.spec.type
       outputPorts[outputId] = {
         node: fn.occ.node,
         port: output.address.port as PortRef['port'],
@@ -2840,7 +2895,9 @@ function compileImpl(
       const ports: Record<string, Json> = {}
       for (const item of boundarySchema?.items ?? []) {
         if (item.kind !== 'input') continue
-        const encoded = typeExprToDinksterWire(item.type)
+        const incoming = nativeInputType(fn, item.id)
+        const bodyType = contract.elementPorts?.includes(item.id) && incoming?.kind === 'list' ? incoming.element : incoming
+        const encoded = typeExprToDinksterWire(canonicalTypeIdOf(item.type) === undefined && bodyType !== undefined && canonicalTypeIdOf(bodyType) !== undefined ? bodyType : item.type)
         if (encoded === undefined) {
           diags.push(diag('error', 'compile', 'compile.region.portTypeUnsupported', `region port '${item.id}' has a type expression that cannot be emitted`, { anchor: { occurrence: region.occ } }))
           continue

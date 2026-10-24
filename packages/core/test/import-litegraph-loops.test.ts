@@ -310,6 +310,129 @@ const workflowFiles = readdirSync(fixtureRoot)
   .sort()
 
 describe('explicit imported list utilities', () => {
+  it.each([false, true])(
+    'flattens declared list-backed native loop results only (list: %s)',
+    (listSource) => {
+      const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+      const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
+      const list: TypeExpr = { kind: 'list', element: variable }
+      const schema = (type: string, items: InterfaceItem[]): NodeSchema => ({
+        type,
+        displayName: type,
+        category: 'test',
+        source: 'v3',
+        isOutputNode: false,
+        items,
+      })
+      const schemas = new Map<string, NodeSchema>([
+        [
+          'Source',
+          schema('Source', [
+            {
+              kind: 'output',
+              id: 'value',
+              type: listSource ? { kind: 'list', element: integer } : integer,
+            },
+          ]),
+        ],
+        [
+          'StartLoop',
+          {
+            ...schema('StartLoop', [
+              { kind: 'output', id: 'iteration_index', type: integer },
+            ]),
+            mayExpandGraph: true,
+          },
+        ],
+        [
+          'EndLoop',
+          schema('EndLoop', [
+            {
+              kind: 'input',
+              id: 'output_value',
+              type: variable,
+              optional: false,
+            },
+            { kind: 'output', id: 'outputs', type: list },
+          ]),
+        ],
+        [
+          'std.list.concat',
+          schema('std.list.concat', [
+            {
+              kind: 'input',
+              id: 'lists',
+              type: { kind: 'wildcard' },
+              optional: false,
+              dynamic: {
+                kind: 'autogrow',
+                template: [
+                  { kind: 'input', id: 'lists', type: list, optional: false },
+                ],
+                naming: { kind: 'prefix', prefix: 'lists', min: 1 },
+              },
+            },
+            { kind: 'output', id: 'list', type: list },
+          ]),
+        ],
+      ])
+      const imported = importLitegraph(
+        {
+          nodes: [
+            { id: 1, type: 'Source', outputs: [{ name: 'value', links: [1] }] },
+            {
+              id: 2,
+              type: 'EndLoop',
+              inputs: [{ name: 'output_value', link: 1 }],
+              outputs: [{ name: 'outputs' }],
+            },
+          ],
+          links: [[1, 1, 0, 2, 0, '*']],
+        },
+        (type) => schemas.get(type),
+      )
+      expect(
+        imported.diagnostics.filter((item) => item.severity === 'error'),
+      ).toEqual([])
+      const document = imported.document!
+      const helper = document.graphs.g0!.nodes.loop_result_n2
+      expect(helper !== undefined).toBe(listSource)
+      if (listSource)
+        expect(helper!.region).toMatchObject({
+          kind: 'map',
+          outputRoles: { list: { kind: 'flatten' } },
+        })
+      const compiled = compile({
+        document,
+        revision: 1,
+        resolve: (type) => schemas.get(type),
+        scope: { kind: 'full' },
+        connection: asConnectionId('test'),
+        schemaHash: 'native-list-loop',
+        graphFeatures: ['regions', 'typedLiteral'],
+      })
+      expect(
+        compiled.ok,
+        compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
+      ).toBe(true)
+      if (compiled.ok && listSource) {
+        expect(
+          compiled.artifact.dinksterGraph!.nodes.loop_result_n2,
+        ).toMatchObject({
+          region: {
+            ports: {
+              item: {
+                kind: 'list',
+                element: { kind: 'concrete', types: ['INT'] },
+              },
+            },
+            outputs: { list: { mode: 'flatten' } },
+          },
+        })
+      }
+    },
+  )
+
   it('maps an output-only scalar consumer', () => {
     const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
     const schemas = new Map<string, NodeSchema>([

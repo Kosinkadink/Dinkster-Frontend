@@ -46,7 +46,9 @@ of serialized node order, including reroutes and named nets. Output-only
 consumers are mapped as well. Expanding controls retain their native paths.
 
 Native catalogs that register an expanding `StartLoop` retain the registered
-loop nodes for engine execution. Legacy schemas use structural region
+loop nodes for engine execution. List-backed `EndLoop` results use an explicit
+flatten map to preserve the source execution-list shape; scalar results keep
+their ordinary result list. Legacy schemas use structural region
 translation. Promoted widgets retain their authored instance values through
 generated loop definitions, including nested loops inside imported subgraphs.
 
