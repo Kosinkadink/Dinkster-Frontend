@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 192,
+    "rawControl": 182,
     "inlineStyle": 65,
     "cssLiteral": 362
   },
@@ -94,12 +94,6 @@
       "kind": "inlineStyle",
       "path": "packages/app/src/CompositorEditor.tsx",
       "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/ConnectionProfiles.tsx",
-      "count": 10,
       "issue": 382
     },
     {

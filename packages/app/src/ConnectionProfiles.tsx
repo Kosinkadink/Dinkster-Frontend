@@ -12,7 +12,9 @@ import {
 } from './connection-profiles.js'
 import { desktopBridge, type DesktopConnectionCredentials } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
-import { ProductNotice } from './ProductForm.js'
+import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductButton, ProductTextInput } from './ProductControls.js'
+import { ProductListRow } from './ProductSurfaces.js'
 import { scopedStorageKey } from './projects.js'
 
 interface ConnectionProfileError {
@@ -222,7 +224,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
         <div class="connection-profile-fields">
           <label>
             {message('connectionProfiles.label.name')}
-            <input
+            <ProductTextInput
               data-testid="profile-name-input"
               placeholder={message('connectionProfiles.placeholder.name')}
               value={name()}
@@ -231,7 +233,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
           </label>
           <label>
             {message('connectionProfiles.label.serverAddress')}
-            <input
+            <ProductTextInput
               data-testid="profile-url-input"
               inputmode="url"
               autocomplete="url"
@@ -243,7 +245,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
           <Show when={custody()}>
             <label>
               {message('connectionProfiles.label.accessTokenOptional')}
-              <input
+              <ProductTextInput
                 data-testid="profile-token-input"
                 type="password"
                 autocomplete="off"
@@ -253,67 +255,66 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
             </label>
           </Show>
         </div>
-        <button data-testid="profile-add" type="submit" disabled={url().trim() === '' || credentialBusy()}>
+        <ProductButton size="compact" data-testid="profile-add" type="submit" disabled={url().trim() === '' || credentialBusy()}>
           {message('connectionProfiles.action.saveProfile')}
-        </button>
+        </ProductButton>
         <Show when={errorMessage()}>{(text) => <p class="backend-add-error" role="alert">{text()}</p>}</Show>
       </form>
 
       <ul class="connection-profile-list">
         <For each={profiles()}>{(profile) => (
-          <li class="connection-profile-row" data-testid="profile-row" data-profile={profile.id}>
-            <div class="connection-profile-identity">
-              <div class="backend-title-line">
+          <li data-testid="profile-row" data-profile={profile.id}>
+            <ProductListRow primary={
+              <span class="backend-title-line">
                 <strong>{profile.name}</strong>
                 <Show when={hasCredential(profile.id)}>
                   <span class="backend-badge" data-testid="profile-credential-badge">{message('connectionProfiles.badge.tokenInKeychain')}</span>
                 </Show>
-              </div>
-              <code class="backend-address">{profile.url}</code>
-            </div>
-            <div class="connection-profile-actions">
-              <button
-                type="button"
-                data-testid="profile-connect"
-                disabled={busyProfile() !== undefined}
-                onClick={() => void connect(profile)}
-              >
-                {message(busyProfile() === profile.id ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')}
-              </button>
-              <Show when={custody()}>
-                <button
+              </span>
+            } secondary={<code>{profile.url}</code>}>
+              <ProductActionFooter>
+                <ProductButton size="compact"
                   type="button"
-                  data-testid="profile-token-edit"
-                  disabled={credentialBusy()}
-                  onClick={() => {
-                    setEditedToken('')
-                    setTokenEditor(tokenEditor() === profile.id ? undefined : profile.id)
-                  }}
+                  data-testid="profile-connect"
+                  disabled={busyProfile() !== undefined}
+                  onClick={() => void connect(profile)}
                 >
-                  {message(hasCredential(profile.id) ? 'connectionProfiles.action.replaceToken' : 'connectionProfiles.action.setToken')}
-                </button>
-              </Show>
-              <Show when={hasCredential(profile.id)}>
-                <button
+                  {message(busyProfile() === profile.id ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')}
+                </ProductButton>
+                <Show when={custody()}>
+                  <ProductButton size="compact"
+                    type="button"
+                    data-testid="profile-token-edit"
+                    disabled={credentialBusy()}
+                    onClick={() => {
+                      setEditedToken('')
+                      setTokenEditor(tokenEditor() === profile.id ? undefined : profile.id)
+                    }}
+                  >
+                    {message(hasCredential(profile.id) ? 'connectionProfiles.action.replaceToken' : 'connectionProfiles.action.setToken')}
+                  </ProductButton>
+                </Show>
+                <Show when={hasCredential(profile.id)}>
+                  <ProductButton size="compact"
+                    type="button"
+                    data-testid="profile-token-clear"
+                    disabled={credentialBusy()}
+                    onClick={() => void clearToken(profile)}
+                  >
+                    {message('connectionProfiles.action.clearToken')}
+                  </ProductButton>
+                </Show>
+                <ProductButton size="compact" variant="danger"
                   type="button"
-                  data-testid="profile-token-clear"
+                  data-testid="profile-remove"
+                  aria-label={message('connectionProfiles.action.removeAriaLabel', { name: profile.name })}
                   disabled={credentialBusy()}
-                  onClick={() => void clearToken(profile)}
+                  onClick={() => void remove(profile)}
                 >
-                  {message('connectionProfiles.action.clearToken')}
-                </button>
-              </Show>
-              <button
-                type="button"
-                class="danger"
-                data-testid="profile-remove"
-                aria-label={message('connectionProfiles.action.removeAriaLabel', { name: profile.name })}
-                disabled={credentialBusy()}
-                onClick={() => void remove(profile)}
-              >
-                {message('connectionProfiles.action.remove')}
-              </button>
-            </div>
+                  {message('connectionProfiles.action.remove')}
+                </ProductButton>
+              </ProductActionFooter>
+            </ProductListRow>
             <Show when={tokenEditor() === profile.id}>
               <form
                 class="connection-profile-token-editor"
@@ -321,7 +322,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
               >
                 <label>
                   {message('connectionProfiles.label.accessTokenFor', { name: profile.name })}
-                  <input
+                  <ProductTextInput
                     data-testid="profile-token-editor-input"
                     type="password"
                     autocomplete="off"
@@ -329,9 +330,9 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
                     onInput={(event) => setEditedToken(event.currentTarget.value)}
                   />
                 </label>
-                <button data-testid="profile-token-save" type="submit" disabled={editedToken().trim() === '' || credentialBusy()}>
+                <ProductButton size="compact" data-testid="profile-token-save" type="submit" disabled={editedToken().trim() === '' || credentialBusy()}>
                   {message('connectionProfiles.action.saveToken')}
-                </button>
+                </ProductButton>
               </form>
             </Show>
           </li>

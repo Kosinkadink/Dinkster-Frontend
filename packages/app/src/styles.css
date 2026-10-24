@@ -4063,12 +4063,7 @@ body,
 .runtime-settings-toolbar p { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); }
 .backend-add-surface form { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .backend-add-error { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-danger-foreground); font-weight: var(--dinkster-weight-medium); }
-.connection-profiles button { min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
-.connection-profiles button:hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-.connection-profiles button:focus-visible,
-.connection-profiles input:focus-visible,
 .runtime-setting-category > summary:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
-.connection-profiles button:disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
 .backend-list { display: grid; gap: var(--dinkster-space-12); min-width: 0; }
 .backend-card { display: grid; gap: var(--dinkster-space-12); }
 .backend-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; }
@@ -4102,8 +4097,7 @@ body,
 .backend-progress-copy { display: flex; justify-content: space-between; gap: var(--dinkster-space-8); font-size: var(--dinkster-type-metadata-size); }
 .backend-progress progress { width: 100%; height: var(--dinkster-space-8); accent-color: var(--dinkster-info-border); }
 .backend-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--dinkster-space-8); }
-.backend-actions .danger,
-.connection-profile-actions .danger { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); }
+.backend-actions .danger { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); }
 
 .connection-profiles { display: grid; gap: var(--dinkster-space-12); min-width: 0; padding: var(--dinkster-space-12); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
 .connection-profiles h2 { margin: 0; font-size: var(--dinkster-type-title-size); line-height: var(--dinkster-type-title-line); }
@@ -4112,11 +4106,7 @@ body,
 .connection-profile-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--dinkster-space-8); width: 100%; }
 .connection-profile-fields label,
 .connection-profile-token-editor label { display: grid; gap: var(--dinkster-space-4); min-width: 0; font-weight: var(--dinkster-weight-medium); }
-.connection-profiles input { min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; }
 .connection-profile-list { display: grid; gap: var(--dinkster-space-8); margin: 0; padding: 0; list-style: none; }
-.connection-profile-row { display: grid; gap: var(--dinkster-space-8); min-width: 0; padding: var(--dinkster-space-12); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
-.connection-profile-identity { min-width: 0; }
-.connection-profile-actions { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
 .connection-profile-token-editor { width: 100%; padding-top: var(--dinkster-space-8); border-top: 1px dashed var(--dinkster-border-subtle); }
 
 .runtime-settings { min-width: 0; border-top: 1px solid var(--dinkster-border-subtle); }

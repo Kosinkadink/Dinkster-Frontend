@@ -1270,6 +1270,77 @@ test('Asset selection instructions stay readable for the rail and single or mult
   }
 })
 
+test('Saved connection rows retain actions, credential editing and connection failure', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const componentPath = '/src/ConnectionProfiles.tsx'
+    const profilesPath = '/src/connection-profiles.ts'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { ConnectionProfilesSection } = await import(componentPath)
+    const { createConnectionProfile } = await import(profilesPath)
+    const { render } = await import(rendererPath)
+    const profile = createConnectionProfile('Studio render server with a long descriptive name', 'https://render-studio.example.test:8443/team/production')!
+    const desktopWindow = window as unknown as { dinksterDesktop: unknown }
+    const previousBridge = desktopWindow.dinksterDesktop
+    const host = document.createElement('section')
+    host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:720px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
+    host.setAttribute('aria-label', 'Saved connections fixture')
+    document.querySelector('.canvas-pane')!.append(host)
+    desktopWindow.dinksterDesktop = {
+      connectionCredentials: async () => ({ custody: true, profiles: [profile.id] }),
+      setConnectionCredential: async () => { host.dataset['savedToken'] = 'true' },
+    }
+    let finishConnect: (() => void) | undefined
+    const dispose = render(() => ConnectionProfilesSection({ app: {
+      addBackendByUrl: () => new Promise<boolean>((resolve) => { finishConnect = () => resolve(false) }),
+    } }), host)
+    ;(window as unknown as { connectionVisual: { fail(): void; dispose(): void } }).connectionVisual = {
+      fail: () => finishConnect!(),
+      dispose: () => { dispose(); host.remove(); desktopWindow.dinksterDesktop = previousBridge },
+    }
+  })
+  const fixture = page.getByRole('region', { name: 'Saved connections fixture' })
+  const row = fixture.getByTestId('profile-row')
+  await expect(row.getByTestId('profile-credential-badge')).toBeVisible()
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      const lastAction = state === 'token-editor' ? row.getByTestId('profile-token-save') : row.getByTestId('profile-remove')
+      await lastAction.scrollIntoViewIfNeeded()
+      await expect(lastAction).toBeInViewport()
+      const identity = await row.getByText('Studio render server with a long descriptive name', { exact: true }).boundingBox()
+      expect(identity!.width).toBeGreaterThan(200)
+      const area = await fixture.boundingBox()
+      for (const action of await row.getByRole('button').all()) {
+        const bounds = await action.boundingBox()
+        expect(bounds!.x).toBeGreaterThanOrEqual(area!.x)
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(area!.x + area!.width)
+      }
+      await page.mouse.move(0, 0)
+      await screenshot(page, `connection-profile-${state}-${width}`)
+    }
+  }
+  await capture('ready')
+  await row.getByTestId('profile-token-edit').click()
+  await expect(row.getByTestId('profile-token-editor-input')).toHaveAttribute('type', 'password')
+  await expect(row.getByTestId('profile-token-save')).toBeDisabled()
+  await capture('token-editor')
+  await row.getByTestId('profile-token-editor-input').fill('fixture-token')
+  await row.getByTestId('profile-token-save').click()
+  await expect(fixture).toHaveAttribute('data-saved-token', 'true')
+  await expect(row.getByTestId('profile-token-editor-input')).toBeHidden()
+  await row.getByTestId('profile-connect').click()
+  await expect(row.getByTestId('profile-connect')).toBeDisabled()
+  await expect(row.getByTestId('profile-connect')).toHaveText('Connecting...')
+  await capture('connecting')
+  await page.evaluate(() => (window as unknown as { connectionVisual: { fail(): void } }).connectionVisual.fail())
+  await expect(fixture.getByRole('alert')).toContainText('Studio render server')
+  await expect(row.getByTestId('profile-connect')).toBeEnabled()
+  await capture('failed')
+  await page.evaluate(() => (window as unknown as { connectionVisual: { dispose(): void } }).connectionVisual.dispose())
+})
+
 test('Search loading, empty and provider error states retain their explanations', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
