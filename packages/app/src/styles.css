@@ -213,7 +213,7 @@ body,
   align-items: center;
   justify-content: center;
   min-height: var(--dinkster-input-primary-height);
-  padding: var(--dinkster-space-4) var(--dinkster-space-12);
+  padding: var(--dinkster-space-32) var(--dinkster-space-12);
   border: 1px solid var(--dinkster-border-strong);
   border-radius: var(--dinkster-radius-control);
   color: var(--dinkster-text-primary);

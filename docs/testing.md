@@ -56,8 +56,13 @@ values select hosted images for main validation, schedules, and manual runs.
 Screenshots use the product's bundled fonts, including canvas text, without
 test-only font injection or host font configuration. Baseline paths are shared
 across projects and platforms; all validation lanes compare the same images.
-Run `pnpm test:visual --update-snapshots` to regenerate them after reviewing a
-deliberate appearance change. Screenshot thresholds stay unchanged.
+The shared Playwright configuration pins device scale to 1 and disables GPU
+rasterization/compositing and font hinting. Exact decoded-pixel comparisons
+use the lockfile-pinned Linux Chromium; native Windows/macOS validate bundled
+font loading and geometry rather than cross-platform raster identity.
+Visual fixtures use fixed timestamps and wait for catalogs before capture.
+Run `pnpm test:visual --update-snapshots=all` to regenerate every baseline after
+reviewing a deliberate appearance change. Screenshot thresholds stay unchanged.
 Failed hosted browser lanes retain their actual,
 expected and diff images in `browser-failure-*` artifacts for seven days.
 
