@@ -413,6 +413,47 @@ test('shell and canvas visual matrix', async ({ page }) => {
   await screenshot(page, '09-universal-search')
 })
 
+test('runtime panel headers and backend add error at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      addBackend(url: string, label: string, persist: boolean, protocol: string): void
+    }
+    app.addBackend('/panel-visual', 'Panel visual', false, 'dinkster')
+  })
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await openDock(page, 'backends-sidebar-toggle')
+    const backends = page.getByTestId('backends-panel')
+    await expect(backends.getByRole('heading', { name: 'Backend connections', exact: true })).toBeVisible()
+    await backends.getByTestId('backend-url-input').fill('http://127.0.0.1:1')
+    await backends.getByTestId('backend-add').click()
+    await expect(backends.getByRole('alert').filter({ hasText: /could not|failed|unreachable/i }).first()).toBeVisible()
+    const header = backends.locator('.product-panel-header').first()
+    const headerStyles = await header.evaluate((element) => {
+      const style = getComputedStyle(element)
+      const title = getComputedStyle(element.querySelector('h2')!)
+      return { padding: style.padding, divider: style.borderBottom, font: title.font }
+    })
+    const fonts = await backends.locator('input, button, select, textarea').evaluateAll((controls) =>
+      controls.map((control) => getComputedStyle(control).fontFamily),
+    )
+    expect(fonts.every((font) => !font.includes('Arial'))).toBe(true)
+    await expect(backends.getByTestId('backend-add')).toHaveAttribute('data-variant', 'primary')
+    await screenshot(page, `runtime-panel-backends-error-${width}`)
+    await openDock(page, 'memory-sidebar-toggle')
+    const memory = page.getByTestId('memory-panel').first()
+    await expect(memory).toBeVisible()
+    expect(await memory.locator('.product-panel-header').evaluate((element) => {
+      const style = getComputedStyle(element)
+      const title = getComputedStyle(element.querySelector('h2')!)
+      return { padding: style.padding, divider: style.borderBottom, font: title.font }
+    })).toEqual(headerStyles)
+    await screenshot(page, `runtime-panel-memory-${width}`)
+  }
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

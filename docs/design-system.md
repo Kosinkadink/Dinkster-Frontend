@@ -74,10 +74,18 @@ metadata, exact stored JSON and stale-link disconnection behavior.
 | `ProductFileInput`   | Hidden native file input; forwards ref, accept, multiple and change events to a separately labelled activation button                              | Image document import, layers and masks                                                                                        |
 | `ProductTextArea`    | Native textarea props and invalid state                                                                                                           | Desktop management                                                                                                             |
 | `ProductSelect`      | Labelled combobox/listbox with controlled selection, keyboard navigation and focus restoration                                                    | Settings, Execution log and Desktop management                                                                                 |
-| `ProductPanelHeader` | Level-two title, optional count and actions                                                                                                       | Problems                                                                                                                       |
-| `ProductEmptyState`  | Title, hint, icon and action slots; empty, polite loading and alert error states                                                                  | Learn, Node help, Activity, Execution log, Problems and Image document                                                         |
+| `ProductPanelHeader` | Level-two title, optional count and actions                                                                                                       | Problems, Backends and Memory                                                                                                  |
+| `ProductEmptyState`  | Title, hint, icon and action slots; empty, polite loading and alert error states                                                                  | Learn, Node help, Activity, Execution log, Problems, Image document and Memory                                                    |
 | `ProductListRow`     | Leading, primary, secondary and action slots with selected state                                                                                  | Activity and Execution log                                                                                                     |
 | `ProductTable`       | Native table semantics in a labelled keyboard-scrollable region, with optional caption and sticky header                                          | Data-heavy product surfaces                                                                                                    |
+
+Backends and Memory use the shared panel header without local title-size or
+padding overrides. The add-backend form uses `ProductField`, `ProductTextInput`
+and a primary `ProductButton` in `ProductActionFooter`; discovery errors are
+`ProductNotice` alerts associated with the address input. Memory uses
+`ProductEmptyState` for missing device, consumer, detail and lease facts. An
+initial telemetry failure replaces loading with an error, without claiming
+that any previous telemetry has been retained.
 
 The raw-control baseline after these adoptions is 441 controls, 70 inline-style
 attributes and 423 CSS color/radius literals. The largest remaining control
