@@ -10,6 +10,7 @@ import { desktopBridge, type DesktopLifecycleStatus } from './desktop-bridge.js'
 import { bindLocale, bindPersistedLocale } from './locale.js'
 import { initializeProjectScope, projectIdFromSearch } from './projects.js'
 import type { CanvasTestHandles } from './test-bridge.js'
+import './fonts.css'
 import './styles.css'
 
 // The project scope namespaces every per-project storage key and shared
@@ -54,6 +55,13 @@ declare global {
 }
 
 async function bootstrap(): Promise<void> {
+  // Canvas measurement must use the same loaded faces as DOM text.
+  await Promise.all([
+    document.fonts.load('400 13px "Noto Sans"'),
+    document.fonts.load('600 13px "Noto Sans"'),
+    document.fonts.load('italic 600 13px "Noto Sans"'),
+    document.fonts.load('400 13px "Noto Sans Mono"'),
+  ])
   const desktop = desktopBridge()
   const desktopLocale = await desktop?.locale()
   const desktopLogs: string[] = []

@@ -1,7 +1,6 @@
 import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 import type { TestInfo } from '@playwright/test'
 import { readFile, writeFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 
 const contract = JSON.parse(await readFile(new URL('../fixtures/video-edit-contract.json', import.meta.url), 'utf8')) as {
   provenance: Record<string, unknown>
@@ -180,24 +179,10 @@ async function retainRoundTrip(
 }
 
 test('video trim and crop controls at desktop and compact widths', async ({ page }) => {
-  for (const weight of ['Regular', 'Bold']) {
-    await page.route(`/visual-font-${weight}.ttf`, (route) => route.fulfill({
-      contentType: 'font/ttf',
-      path: fileURLToPath(new URL(`../fixtures/fonts/NotoSans-${weight}.ttf`, import.meta.url)),
-    }))
-  }
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
     for (const kind of ['trim', 'crop'] as const) {
       await openDocument(page, kind)
-      await page.addStyleTag({ content: `
-        @font-face { font-family: ProductVisual; src: url('/visual-font-Regular.ttf'); font-weight: 100 500; }
-        @font-face { font-family: ProductVisual; src: url('/visual-font-Bold.ttf'); font-weight: 600 900; }
-        :root { --dinkster-font-family: ProductVisual, sans-serif !important; }
-      ` })
-      await page.evaluate(async () => {
-        await Promise.all([document.fonts.load('400 13px ProductVisual'), document.fonts.load('700 13px ProductVisual')])
-      })
       await page.route('**/api/values?*', (route) => route.fulfill({ json: {
         available: true, descriptor, renditions: [{ kind: 'original', mime: 'video/mp4', default: true }],
       } }))

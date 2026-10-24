@@ -2,7 +2,9 @@
 
 ## Fast pull-request checks
 
-`.github/workflows/ci.yml` runs exactly one job with a ten-minute limit.
+`.github/workflows/ci.yml` runs product screenshots and fast checks, each
+with a ten-minute limit. The required fast check also fails if screenshots
+fail, so a visual regression cannot bypass the existing merge requirement.
 After `pnpm install --frozen-lockfile`, reproduce it with:
 
 ```bash
@@ -25,8 +27,11 @@ to `scripts/ci-fast.mjs` and
 on existing application files. There is no repository-wide formatter or
 linter configuration.
 
-The job does not fetch a backend, install or run a browser, execute
-performance budgets, or run E2E shards. PR labels do not enable heavy jobs.
+The fast job does not run a browser, performance budgets or E2E shards.
+The screenshot job installs Chromium and runs `pnpm test:visual` on the same
+Linux runner image as full validation, without a live backend. It discovers
+specs containing screenshot assertions so new screenshot specs join the check.
+PR labels do not enable heavy jobs.
 
 The subset uses synthetic inputs and checked-in fixtures:
 
@@ -48,12 +53,11 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
-Product surface screenshots load the checked-in Noto Sans regular/bold fixtures
-under `packages/e2e/fixtures/fonts` during their common boot rather than relying
-on the host's system-ui font. On Linux this spec launches Chromium with the
-adjacent fontconfig file so Canvas text also resolves system-ui from those
-fixtures. Other specs retain their normal browser environment. The fonts retain
-their upstream license alongside them. Screenshot thresholds stay unchanged.
+Screenshots use the product's bundled fonts, including canvas text, without
+test-only font injection or host font configuration. Baseline paths are shared
+across projects and platforms; all validation lanes compare the same images.
+Run `pnpm test:visual --update-snapshots` to regenerate them after reviewing a
+deliberate appearance change. Screenshot thresholds stay unchanged.
 Failed hosted browser lanes retain their actual,
 expected and diff images in `browser-failure-*` artifacts for seven days.
 

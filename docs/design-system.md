@@ -112,6 +112,17 @@ app TypeScript and every app stylesheet. Use a name from the shared projection
 or a local CSS declaration. Compact controls use `control-compact-height`,
 caption text uses the metadata type scale, and monospace labels use `font-mono`.
 
+The application bundles Noto Sans regular, bold and italic and Noto Sans Mono
+in `packages/app/public/fonts`, with the SIL Open Font License beside them.
+DOM and canvas text share these faces through the type tokens. Font faces use
+`font-display: block`; startup waits for them before canvas text measurement.
+Generic sans-serif and monospace families are fallback glyph sources only.
+To replace the fonts, replace the woff2 assets and license, update
+`packages/app/src/fonts.css`, the font loads in `main.tsx`, and the two family
+tokens in `packages/core/src/ui/tokens.ts`, then regenerate the visual baselines.
+These woff2 files are lossless conversions of Debian `fonts-noto-core` and
+`fonts-noto-mono` version `20201225-2`, made with FontTools 4.67.0 and Brotli 1.2.1.
+
 Selected surfaces use `text.onSelected` for foreground content. Token objects
 and their projections are recursively frozen at runtime.
 
