@@ -731,14 +731,12 @@
     "text:props.sections[0]?.section // Placement moves (float, new window) for one tab's panel, offered through // the shared styled context menu instead of always-visible chrome buttons. const [placementMenu, setPlacementMenu] = createSignal"
   ],
   "SubgraphDefinitionsDialog.tsx": [
+    "attribute:title:No editable workflow",
+    "attribute:title:No retained definitions",
+    "attribute:title:No unused definitions",
     "text:Body nodes",
-    "text:Every subgraph definition is reachable from the workflow root.",
-    "text:No editable workflow",
-    "text:No reusable subgraph definitions are reachable from the workflow root.",
-    "text:No unused definitions",
     "text:None",
     "text:Occurrences",
-    "text:Open an editable workflow to review its subgraph definitions.",
     "text:Related saved items",
     "text:These definitions cannot be reached from the workflow root. Removing them also removes their saved layout and core-owned bookmarks, app controls, net positions, and mode-panel bindings.",
     "text:Unused definitions",

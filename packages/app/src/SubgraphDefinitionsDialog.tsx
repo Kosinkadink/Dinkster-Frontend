@@ -2,6 +2,7 @@ import { createMemo, For, Show } from 'solid-js'
 import { planSubgraphDefinitionCleanup, type SubgraphDefinitionCleanupEntry } from '@dinkster/core'
 import type { AppState } from './app-state.js'
 import { ProductActionFooter } from './ProductForm.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 
 function DefinitionRow(props: {
@@ -63,9 +64,8 @@ export function SubgraphDefinitionsDialog(props: { readonly app: AppState }) {
   return (
     <div class="subgraph-definitions" data-testid="subgraph-definitions">
       <Show when={plan()} fallback={
-        <div class="subgraph-cleanup-state" data-state="unavailable">
-          <strong>No editable workflow</strong>
-          <span>Open an editable workflow to review its subgraph definitions.</span>
+        <div data-state="unavailable">
+          <ProductEmptyState title="No editable workflow" hint="Open an editable workflow to review its subgraph definitions." />
         </div>
       }>
         {(current) => {
@@ -75,9 +75,8 @@ export function SubgraphDefinitionsDialog(props: { readonly app: AppState }) {
           <section class="subgraph-cleanup-summary" aria-labelledby="subgraph-cleanup-heading">
             <h2 id="subgraph-cleanup-heading">Unused definitions</h2>
             <Show when={current().removable.length > 0} fallback={
-              <div class="subgraph-cleanup-state" data-state="empty">
-                <strong>No unused definitions</strong>
-                <span>Every subgraph definition is reachable from the workflow root.</span>
+              <div data-state="empty">
+                <ProductEmptyState title="No unused definitions" hint="Every subgraph definition is reachable from the workflow root." />
               </div>
             }>
               <p class="subgraph-cleanup-intro">
@@ -112,7 +111,7 @@ export function SubgraphDefinitionsDialog(props: { readonly app: AppState }) {
           <details class="subgraph-retained-definitions">
             <summary>Retained definitions ({current().retained.length})</summary>
             <Show when={current().retained.length > 0} fallback={
-              <p class="subgraph-retained-empty">No reusable subgraph definitions are reachable from the workflow root.</p>
+              <ProductEmptyState title="No retained definitions" hint="No reusable subgraph definitions are reachable from the workflow root." />
             }>
               <Show when={current().retained.length > 2}>
                 <p id="subgraph-retained-scroll-hint" class="subgraph-definition-list-hint">

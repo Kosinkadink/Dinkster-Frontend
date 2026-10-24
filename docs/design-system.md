@@ -34,6 +34,12 @@ settles; a retry re-reads the selected source without changing its selection.
 Output states preserve the distinction between an absent execution, waiting
 execution, retained-output loading, missing owner and failed execution.
 
+Settings search and subgraph cleanup use the same ProductEmptyState title and
+hint presentation. Cleanup distinguishes an unavailable workflow, no unused
+definitions and no retained definitions without private success-border styling.
+The Settings result-count announcement and Escape-to-clear behavior remain
+independent of the empty presentation.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.

@@ -621,6 +621,25 @@ test('Library Assets and Outputs use shared empty and loading states', async ({ 
   }
 })
 
+test('Settings and subgraph cleanup empty states remain usable', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await openModal(page, 'settings')
+    await page.getByRole('searchbox', { name: 'Search settings', exact: true }).fill('unmatched-setting-507')
+    await expect(page.getByText('No matching settings', { exact: true })).toBeVisible()
+    await page.mouse.move(0, 0)
+    await screenshot(page, `settings-no-results-${width}`)
+    await openModal(page, 'subgraph-definitions')
+    await expect(page.getByText('No unused definitions', { exact: true })).toBeVisible()
+    await page.getByText('Retained definitions (0)', { exact: true }).click()
+    await expect(page.getByText('No reusable subgraph definitions are reachable from the workflow root.', { exact: true })).toBeVisible()
+    await page.mouse.move(0, 0)
+    await screenshot(page, `subgraph-empty-${width}`)
+  }
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
