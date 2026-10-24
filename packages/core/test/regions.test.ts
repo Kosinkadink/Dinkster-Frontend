@@ -569,6 +569,36 @@ describe('region occurrence boundary projection', () => {
 })
 
 describe('region compile lowering', () => {
+  it.each(['active', 'muted', 'bypassed'] as const)('requires executable sinks when the only sink is %s', (mode) => {
+    for (const placement of ['direct', 'nested', 'disabled-ancestor'] as const) {
+      const nested = placement !== 'direct'
+      const document = structuredClone(documentWith({ kind: 'map', elementPorts: ['item'] })) as WorkflowDocument
+      const sinkBody: GraphDef = {
+        ...body(),
+        nodes: { save: { id: 'save' as never, type: 'Sink', mode: placement === 'disabled-ancestor' ? 'active' : mode, values: {} } },
+        boundary: {
+          inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'save' as never, port: 'in' as never } }],
+          outputs: [],
+        },
+      }
+      ;(document.graphs as Record<string, GraphDef>).body = nested ? {
+        ...sinkBody,
+        nodes: { inner: { id: 'inner' as never, type: '#inner', mode: placement === 'disabled-ancestor' ? mode : 'active', values: {} } },
+        boundary: { inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'inner' as never, port: 'item' as never } }], outputs: [] },
+      } : sinkBody
+      if (nested) (document.graphs as Record<string, GraphDef>).inner = { ...sinkBody, id: 'inner' as never }
+      ;(document.graphs.root!.nodes.n0 as { values: Record<string, Json> }).values = { item: [3, 11] }
+      const schema = (type: string) => type === 'Sink' ? sinkSchema : resolve(type)
+      const result = compile({ document, revision: 1, resolve: schema, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test', graphFeatures: ['regions'] })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(mode === 'active')
+      if (mode !== 'active') {
+        const resolveOccurrence = documentNodeResolver(document, schema)
+        const derived = deriveBoundarySchema(document.graphs.body!, schema, document.graphs.root!.nodes.n0!.region, (node) => resolveOccurrence('body', node))
+        expect(derived.diagnostics.map((d) => d.code)).toContain('doc.region.outputRequired')
+      }
+    }
+  })
+
   it('authors the implicit immediate iteration index without a boundary port', () => {
     const document = documentWith({ kind: 'map', elementPorts: ['item'] })
     ;(document.graphs.body!.nodes as Record<string, unknown>).indexSink = { id: 'indexSink', type: 'IndexSink', values: {} }
