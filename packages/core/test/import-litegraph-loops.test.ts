@@ -732,7 +732,7 @@ describe('ComfyUI Generic Loops structural import', () => {
       (node) => node.type === 'std.list.make',
     )!
     expect(wrapper).toBeDefined()
-    const iteration = body.inputs.find(
+    const iteration = body.boundary.inputs.find(
       (input) => input.id === 'iteration_index',
     )!
     expect([iteration.binds, ...(iteration.alsoBinds ?? [])]).toContainEqual({
