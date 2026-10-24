@@ -536,7 +536,7 @@ test('document and app-view visual matrix', async ({ page }) => {
                 {
                   role: 'input',
                   id: 'params',
-                  type: typed('core.string'),
+                  type: typed('STRING'),
                   required: false,
                   default: '{}',
                   widget: { type: 'STRING', multiline: true },
@@ -557,7 +557,7 @@ test('document and app-view visual matrix', async ({ page }) => {
                 {
                   role: 'input',
                   id: 'params',
-                  type: typed('core.string'),
+                  type: typed('STRING'),
                   required: true,
                   widget: { type: 'STRING', multiline: true },
                 },
