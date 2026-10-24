@@ -26,6 +26,7 @@ import {
   outputsOf,
   parseSelection,
   resolveBoundaryRoute,
+  subgraphDefIdOf,
   toggleSlotSelection,
   type BoundaryItem,
   type Diagnostic,
@@ -35,13 +36,15 @@ import {
   type RegionContract,
   type SelectionTree,
 } from '@dinkster/core'
-import { ProductCheckbox } from './ProductControls.js'
+import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { useAppMessage } from './locale.js'
 import { activateProblem } from './ProblemsPanel.js'
 import {
   currentGraphId,
   editedSubgraphDefinition,
   occurrenceReferencesDefinition,
+  pushGraph,
   viewInstancePath,
   type AppState,
   type Tab,
@@ -81,13 +84,25 @@ export function BoundaryPanel(props: { app: AppState }) {
     })
   })
 
-  /** The subgraph definition being edited, or undefined (panel hidden). */
+  /** The subgraph definition being edited, or undefined (show the prompt). */
   const editedDef = (): { tab: Tab; def: GraphDef } | undefined => {
     docTick()
     const tab = activeTab()
     if (!tab) return undefined
     const def = editedSubgraphDefinition(tab)
     return def ? { tab, def } : undefined
+  }
+
+  const availableDefinitions = () => {
+    docTick()
+    const tab = activeTab()
+    const graph = tab?.store.doc.graphs[currentGraphId(tab)]
+    if (!tab || !graph) return []
+    return Object.values(graph.nodes).flatMap((node) => {
+      const id = subgraphDefIdOf(node.type)
+      const def = id === undefined ? undefined : tab.store.doc.graphs[id]
+      return def?.boundary ? [{ tab, def, nodeId: node.id }] : []
+    })
   }
 
   const regionCtx = (): {
@@ -301,12 +316,26 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   return (
-    <Show when={editedDef()}>
+    <Show when={editedDef()} fallback={
+      <section class="rail-section boundary-panel" data-testid="boundary-panel" role="region" aria-label={message('boundaryPanel.aria.editor')}>
+        <h2>{message('shell.panel.boundary.title')}</h2>
+        <ProductEmptyState
+          testId="boundary-prompt"
+          title={message('boundaryPanel.empty.title')}
+          hint={message('boundaryPanel.empty.hint')}
+          action={availableDefinitions().length > 0 ? <For each={availableDefinitions()}>
+            {(entry) => <ProductButton type="button" onClick={() => pushGraph(entry.tab, entry.def.id, entry.nodeId)}>
+              {message('boundaryPanel.empty.open', { name: entry.def.name })}
+            </ProductButton>}
+          </For> : undefined}
+        />
+      </section>
+    }>
       <section
         class="rail-section boundary-panel"
         data-testid="boundary-panel"
         role="region"
-        aria-label="Boundary editor"
+        aria-label={message('boundaryPanel.aria.editor')}
         tabIndex={-1}
         onKeyDown={(event) => {
           if (event.key !== 'Escape') return
@@ -405,9 +434,9 @@ export function BoundaryPanel(props: { app: AppState }) {
               <Show
                 when={sideItems(side).length > 0}
                 fallback={
-                  <p class="boundary-empty" data-testid="boundary-empty" data-side={side} role="status">
-                    No workflow {side} are exposed.
-                  </p>
+                  <div data-testid="boundary-empty" data-side={side} role="status">
+                    <ProductEmptyState title={message(`boundaryPanel.empty.${side}`)} />
+                  </div>
                 }
               >
                 <div class="boundary-items">

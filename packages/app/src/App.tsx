@@ -3,7 +3,7 @@
  * It uses the real signal store and backend loop.
  */
 
-import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, sha256Hex, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
 import type { AssetDtoV1WireContract, ExecutionState } from '@dinkster/client'
 import Database from 'lucide-solid/icons/database'
@@ -17,7 +17,7 @@ import Server from 'lucide-solid/icons/server'
 import Terminal from 'lucide-solid/icons/terminal'
 import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
-import { currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
+import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { ActivityLog } from './ActivityLog.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
@@ -1162,7 +1162,7 @@ export function App(props: {
   // backendsTick is the one Solid-tracked signal that covers them all.
   const statusOf = (b: Backend) => {
     backendsTick()
-    return b.connection.status.get()
+    return backendConnectionStatus(b)
   }
   const schemaCountOf = (b: Backend): number | undefined => {
     backendsTick()
@@ -1228,7 +1228,29 @@ export function App(props: {
   // from the registry, so moving a surface is a descriptor change, not a
   // JSX rewrite. Bodies stay local components so they can close over App
   // state.
+  const BackendMetadataState = (props: { readonly children: JSX.Element }) => {
+    const [retrying, setRetrying] = createSolidSignal(false)
+    const error = () => { backendsTick(); return backendMetadataError(activeBackend()) }
+    const retry = async (): Promise<void> => {
+      if (retrying()) return
+      const backend = activeBackend()
+      setRetrying(true)
+      try {
+        await Promise.all([
+          backend.schemaState.get().status === 'error' ? app.refreshBackendSchemas(backend) : undefined,
+          backend.protocol === 'dinkster' && backend.connection.mountError.get() !== undefined
+            ? backend.connection.fetchMountSettings().catch(() => undefined) : undefined,
+        ])
+      } finally { setRetrying(false) }
+    }
+    return <Show when={error()} fallback={props.children}>
+      {(detail) => <ProductEmptyState tone="error" title={message('shell.backend.metadataUnavailable')} hint={detail()} action={
+        <ProductButton type="button" disabled={retrying()} onClick={() => void retry()}>{message('templateGallery.retry')}</ProductButton>
+      } />}
+    </Show>
+  }
   const LibraryBody = () => (
+    <BackendMetadataState>
     <LibraryPanel
       sources={librarySources()}
       backend={() => {
@@ -1243,17 +1265,18 @@ export function App(props: {
       ]}
       onSourceAction={librarySourceAction}
     />
+    </BackendMetadataState>
   )
   const AssetsPanelBody = () => {
     const backend = activeBackend()
     return backend.protocol === 'dinkster'
-      ? <AssetsBody
+      ? <BackendMetadataState><AssetsBody
           connection={backend.connection}
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
           {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
-        />
-      : <p class="empty">{message('shell.backend.assetsRequireNative')}</p>
+        /></BackendMetadataState>
+      : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
   }
   const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
   /**
@@ -1295,7 +1318,7 @@ export function App(props: {
   )
   const QueuePanel = () => (
     <div class="rail-panel-body" data-testid="queue-rail">
-      <Show when={workflowExecutions().length > 0} fallback={<p class="empty">Nothing queued for this workflow.</p>}>
+      <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title="Nothing queued for this workflow." />}>
         <For each={executionGroups()}>
           {(group) => (
             <div class="backend-group" role="list" aria-label={group.backend?.label ?? `${group.id} removed backend executions`}>
@@ -1319,10 +1342,10 @@ export function App(props: {
   )
   const OutputsPanel = () => (
     <div class="rail-panel-body" data-testid="outputs-panel">
+      <BackendMetadataState>
       <Show when={activeExecution()} fallback={
-        <div class="output-state" data-state="no-execution" role="status">
-          <strong>No execution selected</strong>
-          <span>Run this workflow or open a recorded execution to inspect its outputs.</span>
+        <div data-state="no-execution" role="status">
+          <ProductEmptyState title="No execution selected" hint="Run this workflow or open a recorded execution to inspect its outputs." />
         </div>
       }>
         {(exec) => <Outputs app={app} execution={exec()} onOpenLayers={(request) => {
@@ -1331,6 +1354,7 @@ export function App(props: {
           setImageDocumentsVisible(true)
         }} />}
       </Show>
+      </BackendMetadataState>
     </div>
   )
   // One composed problem list feeds every problem surface: the
@@ -2863,7 +2887,9 @@ export function App(props: {
               connectionStatus: statusOf(activeBackend()),
               schemaText: schemaCountOf(activeBackend()) !== undefined
                 ? message('shell.status.nodeSchemas', { count: schemaCountOf(activeBackend())! })
-                : message('shell.status.loadingSchemas'),
+                : backendMetadataError(activeBackend())
+                  ? message('backendsPanel.schema.unavailable')
+                  : message('shell.status.loadingSchemas'),
             }}
             commands={app.commands}
             replaceProblems={(owner, diagnostics) => app.replaceProblems(owner, diagnostics)}
@@ -3121,9 +3147,12 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
       )}</For>
       <div class="outputs" aria-label={`${images().length} execution images`}>
         <For each={imageGroups()} fallback={
-          <div class="output-state" data-state={emptyState().state} role={emptyState().state === 'error' ? 'alert' : 'status'}>
-            <strong>{emptyState().title}</strong>
-            <span>{emptyState().detail}</span>
+          <div data-state={emptyState().state} role={emptyState().state === 'empty' ? 'status' : undefined}>
+            <ProductEmptyState
+              tone={emptyState().state === 'error' || emptyState().state === 'owner-unavailable' ? 'error' : emptyState().state === 'waiting' || emptyState().state === 'loading' ? 'loading' : 'empty'}
+              title={emptyState().title}
+              hint={emptyState().detail}
+            />
           </div>
         }>
           {(group) => (

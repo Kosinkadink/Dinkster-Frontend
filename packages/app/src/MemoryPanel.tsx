@@ -3,6 +3,7 @@ import { formatDate } from '@dinkster/core'
 import type { ConnectionStatus, DinksterConnection, MemoryGovernorDevice, MemoryStatus } from '@dinkster/client'
 import { ProductButton } from './ProductControls.js'
 import { ProductNotice } from './ProductForm.js'
+import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import { useAppMessage } from './locale.js'
 import {
@@ -380,7 +381,9 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
     clockTimer = setInterval(() => setClock(props.now?.() ?? Date.now()), 1000)
   })
   onCleanup(() => { controller?.dispose(); statusDisposer?.(); if (clockTimer !== undefined) clearInterval(clockTimer) })
-  const presentationState = () => telemetryPresentationState(status(), connectionState(), receivedAt(), clock())
+  const presentationState = () => status() === undefined && baseError()
+    ? 'disconnected'
+    : telemetryPresentationState(status(), connectionState(), receivedAt(), clock())
   const retained = () => presentationState() === 'stale' || presentationState() === 'disconnected'
   const toggle = (device: string, consumer: string): void => {
     const key = consumerKey(device, consumer)
@@ -396,21 +399,20 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
   }
 
   return <section class="memory-panel" data-testid="memory-panel" data-backend={backendId()}>
-    <header class="memory-panel-header">
-      <div><span class="memory-eyebrow">Backend</span><h2>{props.label}</h2></div>
+    <ProductPanelHeader title={props.label} actions={
       <span class="memory-telemetry-state" data-state={presentationState()} role="status">
         <span aria-hidden="true" />{presentationState() === 'loading' ? 'Loading' : presentationState() === 'live' ? 'Live' : presentationState() === 'stale' ? 'Stale' : 'Disconnected'}
       </span>
-    </header>
+    } />
     <Show when={presentationState() === 'stale'}><ProductNotice tone="warning">Telemetry is stale. Retained values remain visible while polling retries.</ProductNotice></Show>
-    <Show when={presentationState() === 'disconnected'}><ProductNotice tone="error">Backend disconnected. All visible telemetry is retained from the last update.</ProductNotice></Show>
-    <Show when={baseError()}>{(message) => <ProductNotice tone="error"><span>Memory telemetry request failed: {message()}.</span><Show when={status() !== undefined}> Retained values remain visible.</Show></ProductNotice>}</Show>
+    <Show when={status() !== undefined && presentationState() === 'disconnected'}><ProductNotice tone="error">Backend disconnected. All visible telemetry is retained from the last update.</ProductNotice></Show>
+    <Show when={status() !== undefined && baseError()}>{(message) => <ProductNotice tone="error"><span>Memory telemetry request failed: {message()}.</span> Retained values remain visible.</ProductNotice>}</Show>
     <Show when={actionError()}><ProductNotice tone="error">{actionError()}</ProductNotice></Show>
     <Show when={actionResult()}><ProductNotice tone="status">{actionResult()}</ProductNotice></Show>
-    <Show when={status()} fallback={<div class="memory-loading-state" role="status"><strong>Waiting for memory telemetry</strong><span>Queue, device, lease, and consumer facts will appear when the backend responds.</span></div>}>{(data) => <>
+    <Show when={status()} fallback={<ProductEmptyState tone={baseError() ? 'error' : 'loading'} title={baseError() ? 'Memory telemetry unavailable' : 'Waiting for memory telemetry'} hint={baseError() || 'Queue, device, lease, and consumer facts will appear when the backend responds.'} />}>{(data) => <>
       <Show when={data().memoryGovernor === null}><ProductNotice tone="warning">Memory governor telemetry is unsupported on this backend. Execution occupancy remains available.</ProductNotice></Show>
       <div class="memory-devices">
-        <For each={projectDevices(data()).map((row) => row.device)} fallback={<div class="memory-empty-state"><strong>No devices reported</strong><span>The backend returned no execution or memory device facts.</span></div>}>{(device) => <article class="memory-device" data-device={device}>
+        <For each={projectDevices(data()).map((row) => row.device)} fallback={<ProductEmptyState title="No devices reported" hint="The backend returned no execution or memory device facts." />}>{(device) => <article class="memory-device" data-device={device}>
           <header><div><span class="memory-eyebrow">Device</span><h3>{device}</h3></div><span class="memory-execution-fact">{data().devices[device] ? `${data().devices[device]!.executionInUse}/${data().devices[device]!.executionCapacity} execution slots` : 'No execution lane'}</span></header>
           <Show when={data().memoryGovernor?.[device]}>{(governor) => <>
             <Show when={governor().budgetBytes === null}><ProductNotice tone={governor().measured === null ? 'warning' : 'info'}>{governor().measured === null ? 'Budget and device measurement are unavailable.' : 'No governor budget is reported. The visualization uses measured device memory only.'}</ProductNotice></Show>
@@ -437,7 +439,7 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
             </div>
             <section class="memory-consumers" aria-label={`${device} memory consumers`}>
               <header><div><span class="memory-eyebrow">Residency</span><h4>Consumers</h4></div><span>{Object.keys(governor().consumers).length} reported</span></header>
-              <For each={Object.keys(governor().consumers)} fallback={<div class="memory-empty-state"><strong>No consumers</strong><span>This device currently reports no resident memory consumers.</span></div>}>{(consumer) => {
+              <For each={Object.keys(governor().consumers)} fallback={<ProductEmptyState title="No consumers" hint="This device currently reports no resident memory consumers." />}>{(consumer) => {
                 const key = consumerKey(device, consumer)
                 const detailId = `${panelId}-memory-consumer-${identityKey(device, consumer)}`
                 return <section class="memory-consumer" data-consumer={consumer}>
@@ -447,7 +449,7 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
                     <Show when={detailError()}>{(message) => <ProductNotice tone="error">Item details failed to refresh: {message()}.{detailReady().has(key) ? ' Retained details remain visible.' : ''}</ProductNotice>}</Show>
                     <Show when={detailReady().has(key)}>
                       <Show when={details() !== undefined && Object.prototype.hasOwnProperty.call(details(), consumer)} fallback={<ProductNotice tone="info">Detail telemetry is unsupported for this consumer.</ProductNotice>}>
-                        <For each={(details()![consumer] ?? []).map((item) => item.itemId)} fallback={<div class="memory-empty-state"><strong>No item details</strong><span>The backend supports details but returned no items for this consumer.</span></div>}>{(itemId) => {
+                        <For each={(details()![consumer] ?? []).map((item) => item.itemId)} fallback={<ProductEmptyState title="No item details" hint="The backend supports details but returned no items for this consumer." />}>{(itemId) => {
                           const item = () => details()![consumer]!.find((entry) => entry.itemId === itemId)!
                           return <article class="memory-consumer-item">
                             <header><strong>{item().displayName}</strong><span>{formatBytes(Object.values(item().bytesByResidency).reduce((sum, value) => sum + value, 0))}</span></header>
@@ -488,7 +490,7 @@ export function MemoryPanel(props: { readonly connection: MemoryConnection; read
       <section class="memory-leases" aria-label="Active memory leases">
         <header><div><span class="memory-eyebrow">Reservations</span><h3>Active leases</h3></div><Show when={data().leases !== null}><span>{data().leases!.length} active</span></Show></header>
         <Show when={data().leases !== null} fallback={<ProductNotice tone="info">Lease telemetry is unsupported on this backend.</ProductNotice>}>
-          <div class="memory-lease-list"><For each={data().leases ?? []} fallback={<div class="memory-empty-state"><strong>No active leases</strong><span>No temporary memory reservations are reported.</span></div>}>{(lease) => <article class="memory-lease">
+          <div class="memory-lease-list"><For each={data().leases ?? []} fallback={<ProductEmptyState title="No active leases" hint="No temporary memory reservations are reported." />}>{(lease) => <article class="memory-lease">
             <div><strong>{lease.device}</strong><code>{lease.reservationId}</code></div><span>{formatBytes(lease.bytes)}</span><span>{leaseSeconds(lease.expiresInSeconds, receivedAt(), clock())}s remaining</span>
           </article>}</For></div>
         </Show>

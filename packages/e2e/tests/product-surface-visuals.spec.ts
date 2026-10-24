@@ -413,6 +413,841 @@ test('shell and canvas visual matrix', async ({ page }) => {
   await screenshot(page, '09-universal-search')
 })
 
+test('runtime panel headers and backend add error at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      addBackend(url: string, label: string, persist: boolean, protocol: string): void
+    }
+    app.addBackend('/panel-visual', 'Panel visual', false, 'dinkster')
+  })
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await openDock(page, 'backends-sidebar-toggle')
+    const backends = page.getByTestId('backends-panel')
+    await expect(backends.getByRole('heading', { name: 'Backend connections', exact: true })).toBeVisible()
+    await backends.getByTestId('backend-url-input').fill('http://127.0.0.1:1')
+    await backends.getByTestId('backend-add').click()
+    await expect(backends.getByRole('alert').filter({ hasText: /could not|failed|unreachable/i }).first()).toBeVisible()
+    const header = backends.locator('.product-panel-header').first()
+    const headerStyles = await header.evaluate((element) => {
+      const style = getComputedStyle(element)
+      const title = getComputedStyle(element.querySelector('h2')!)
+      return { padding: style.padding, divider: style.borderBottom, font: title.font }
+    })
+    const fonts = await backends.locator('input, button, select, textarea').evaluateAll((controls) =>
+      controls.map((control) => getComputedStyle(control).fontFamily),
+    )
+    expect(fonts.every((font) => !font.includes('Arial'))).toBe(true)
+    await expect(backends.getByTestId('backend-add')).toHaveAttribute('data-variant', 'primary')
+    await screenshot(page, `runtime-panel-backends-error-${width}`)
+    await openDock(page, 'memory-sidebar-toggle')
+    const memory = page.getByTestId('memory-panel').first()
+    await expect(memory).toBeVisible()
+    expect(await memory.locator('.product-panel-header').evaluate((element) => {
+      const style = getComputedStyle(element)
+      const title = getComputedStyle(element.querySelector('h2')!)
+      return { padding: style.padding, divider: style.borderBottom, font: title.font }
+    })).toEqual(headerStyles)
+    await screenshot(page, `runtime-panel-memory-${width}`)
+  }
+})
+
+test('Boundary prompt and definition empty states at desktop and compact widths', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await openRail(page, 'Boundary')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
+      createWorkflow(): void
+    }).createWorkflow())
+    await expect(page.getByTestId('boundary-prompt')).toContainText('Open a subgraph definition')
+    await expect(page.getByTestId('boundary-prompt').getByRole('button')).toHaveCount(0)
+    await screenshot(page, `boundary-prompt-${width}`)
+    await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'boundary-visual', root: 'root',
+      graphs: {
+        root: {
+          id: 'root', name: 'Root', nodes: { occurrence: { id: 'occurrence', type: '#sub', values: {} } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+        },
+        sub: {
+          id: 'sub', name: 'Nested workflow', nodes: {}, links: {}, nets: {}, reroutes: {},
+          boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
+        },
+      },
+      view: { graphs: {
+        root: { nodes: { occurrence: { position: { x: 200, y: 100 } } } },
+        sub: { nodes: {} },
+      } },
+    }, 'Boundary visual'))
+    const open = page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Nested workflow', exact: true })
+    await expect(open).toBeEnabled()
+    await screenshot(page, `boundary-open-definition-${width}`)
+    await open.click()
+    await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
+    await expect(page.getByTestId('boundary-empty')).toHaveCount(2)
+    await expect(page.getByTestId('boundary-empty').first()).toContainText('No workflow inputs are exposed.')
+    await expect(page.getByTestId('boundary-empty').last()).toContainText('No workflow outputs are exposed.')
+    await screenshot(page, `boundary-empty-sections-${width}`)
+  }
+})
+
+test('HTTP metadata errors expose shell status and panel retries', async ({ page }) => {
+  let recover = false
+  await page.route('**/offline-visual/api/**', async (route) => {
+    if (!recover) return route.fulfill({ status: 503, body: 'Metadata fixture unavailable' })
+    const response = await page.request.get(route.request().url().replace('/offline-visual', ''))
+    return route.fulfill({ response })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { id: string }
+      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string; connection: { status: { set(value: string): void } } }
+      setTabTarget(tab: string, backend: string): void
+      refreshBackendSchemas(backend: unknown): Promise<void>
+    }
+    const backend = app.addBackend('/offline-visual', 'Offline visual', false, 'dinkster')!
+    app.setTabTarget(app.activeTab()!.id, backend.id)
+    backend.connection.status.set('connected')
+    await app.refreshBackendSchemas(backend)
+  })
+  await expect(page.getByTestId('status-bar')).toContainText('disconnected')
+  await expect(page.getByTestId('status-bar')).not.toContainText('loading schemas...')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    for (const [toggle, name] of [['library-toggle', 'library'], ['assets-toggle', 'assets']] as const) {
+      await openDock(page, toggle)
+      const state = page.getByTestId('dock-zone-left').getByRole('alert').filter({ hasText: 'Backend data unavailable' })
+      await expect(state).toContainText('GET /api/nodes failed: 503')
+      await expect(state.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+      await page.mouse.move(width / 2, height / 2)
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('app-tooltip')).toBeHidden()
+      await screenshot(page, `metadata-error-${name}-${width}`)
+    }
+    await openDock(page, 'backends-sidebar-toggle')
+    const card = page.locator('[data-testid="backend-row"]').filter({ hasText: 'Offline visual' })
+    await expect(card.getByTestId('backend-schema-retry')).toBeEnabled()
+    await expect(card.getByTestId('output-mount-settings').getByRole('alert')).toContainText('GET /api/mounts failed: 503')
+    await expect(card.getByTestId('output-mount-retry')).toBeEnabled()
+    await card.getByTestId('output-mount-retry').scrollIntoViewIfNeeded()
+    await page.mouse.move(width / 2, height / 2)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('app-tooltip')).toBeHidden()
+    await screenshot(page, `metadata-error-backends-${width}`)
+    await openRail(page, 'Outputs')
+    const outputs = page.getByTestId('outputs-panel')
+    await expect(outputs.getByRole('alert')).toContainText('GET /api/nodes failed: 503')
+    await expect(outputs.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+    await screenshot(page, `metadata-error-outputs-${width}`)
+  }
+  recover = true
+  await page.getByTestId('outputs-panel').getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByTestId('outputs-panel').getByRole('alert')).toHaveCount(0)
+  await expect(page.getByTestId('status-bar')).not.toContainText('disconnected')
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+})
+
+test('Library Assets and Outputs use shared empty and loading states', async ({ page }) => {
+  let mode: 'empty' | 'loading' | 'error' = 'empty'
+  let release: (() => void) | undefined
+  await page.route('**/collection-visual/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [] } })
+    if (path.endsWith('/api/library')) {
+      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      return mode === 'error'
+        ? route.fulfill({ status: 503, body: 'Library fixture unavailable' })
+        : route.fulfill({ json: { records: [] } })
+    }
+    const response = await page.request.get(route.request().url().replace('/collection-visual', ''))
+    return route.fulfill({ response })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { id: string }
+      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string }
+      setTabTarget(tab: string, backend: string): void
+      refreshBackendSchemas(backend: unknown): Promise<void>
+    }
+    const backend = app.addBackend('/collection-visual', 'Collection visual', false, 'dinkster')
+    app.setTabTarget(app.activeTab().id, backend.id)
+    await app.refreshBackendSchemas(backend)
+  })
+  await openDock(page, 'library-toggle')
+  const library = page.getByTestId('library-overlay')
+  for (const state of ['empty', 'loading', 'error'] as const) {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await library.getByTestId('library-source-select').click()
+    await page.getByRole('option', { name: 'History', exact: true }).click()
+    mode = state
+    await library.getByTestId('library-source-select').click()
+    await page.getByRole('option', { name: 'Workflows', exact: true }).click()
+    const presentation = library.locator('[data-collection-state]')
+    await expect(presentation).toHaveAttribute('data-collection-state', state)
+    if (state === 'loading') await expect(presentation.getByRole('status')).toContainText('Loading workflows')
+    if (state === 'error') await expect(presentation.getByRole('alert')).toContainText('GET /api/library failed: 503')
+    if (state === 'empty') await expect(presentation).toContainText('No saved workflows')
+    if (state === 'error') await expect(library.getByTestId('collection-retry')).toBeEnabled()
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(width / 2, height / 2)
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('app-tooltip')).toBeHidden()
+      await screenshot(page, `library-${state}-${width}`)
+    }
+    if (state === 'loading') { release?.(); await expect(presentation).toHaveAttribute('data-collection-state', 'empty') }
+  }
+  mode = 'empty'
+  await library.getByTestId('collection-retry').click()
+  await expect(library.getByTestId('collection-retry')).toHaveCount(0)
+  await openDock(page, 'assets-toggle')
+  await expect(page.getByTestId('assets-overlay')).toContainText('No assets')
+  await openRail(page, 'Outputs')
+  await expect(page.getByTestId('outputs-panel')).toContainText('No execution selected')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(width / 2, height / 2)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('app-tooltip')).toBeHidden()
+    await screenshot(page, `assets-outputs-empty-${width}`)
+  }
+})
+
+test('Settings and subgraph cleanup empty states remain usable', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await openModal(page, 'settings')
+    await page.getByRole('searchbox', { name: 'Search settings', exact: true }).fill('unmatched-setting-507')
+    await expect(page.getByText('No matching settings', { exact: true })).toBeVisible()
+    await page.mouse.move(0, 0)
+    await screenshot(page, `settings-no-results-${width}`)
+    await openModal(page, 'subgraph-definitions')
+    await expect(page.getByText('No unused definitions', { exact: true })).toBeVisible()
+    await page.getByText('Retained definitions (0)', { exact: true }).click()
+    await expect(page.getByText('No reusable subgraph definitions are reachable from the workflow root.', { exact: true })).toBeVisible()
+    await page.mouse.move(0, 0)
+    await screenshot(page, `subgraph-empty-${width}`)
+  }
+})
+
+test('Collaboration discovery distinguishes unavailable loading empty and failed reads', async ({ page }) => {
+  let mode: 'loading' | 'empty' | 'error' = 'loading'
+  let release: (() => void) | undefined
+  await page.route('**/collab-visual/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/api/sessions')) {
+      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      return mode === 'error'
+        ? route.fulfill({ status: 503, body: 'Session fixture unavailable' })
+        : route.fulfill({ json: { sessions: [] } })
+    }
+    if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [] } })
+    const response = await page.request.get(route.request().url().replace('/collab-visual', ''))
+    return route.fulfill({ response })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      backends: { get(): { id: string }[] }
+      removeBackend(id: string, persist: boolean): void
+    }
+    for (const backend of app.backends.get()) app.removeBackend(backend.id, false)
+  })
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `collab-discovery-${state}-${width}`)
+    }
+  }
+  await openModal(page, 'collab')
+  await expect(page.getByTestId('collab-no-backend')).toContainText('No collaboration backend')
+  await expect(page.getByTestId('collab-refresh')).toBeDisabled()
+  await capture('unavailable')
+  await openModal(page, '')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      addBackend(url: string, label: string, persist: boolean, protocol: string): void
+    }
+    app.addBackend('/collab-visual', 'Collaboration visual', false, 'dinkster')
+  })
+  await openModal(page, 'collab')
+  await expect(page.getByTestId('collab-loading')).toContainText('Loading shared sessions')
+  const spinner = await page.getByTestId('collab-loading').locator('.collab-spinner').boundingBox()
+  expect(spinner!.width).toBeGreaterThan(8)
+  expect(spinner!.height).toBe(spinner!.width)
+  await capture('loading')
+  mode = 'empty'
+  await expect.poll(() => release !== undefined).toBe(true)
+  release?.()
+  await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
+  await capture('empty')
+  mode = 'error'
+  await page.getByTestId('collab-refresh').click()
+  await expect(page.getByTestId('collab-list-error')).toContainText('Sessions could not be loaded')
+  await expect(page.getByTestId('collab-refresh')).toHaveAttribute('aria-busy', 'false')
+  await capture('error')
+  mode = 'empty'
+  await page.getByTestId('collab-refresh').click()
+  await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
+  await expect(page.getByTestId('collab-list-error')).toHaveCount(0)
+})
+
+test('App view explains an empty flow and an empty arrangement group', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'empty-app-visual', root: 'root',
+      graphs: { root: { id: 'root', name: 'Empty app', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { root: { nodes: {} } } },
+    }, 'Empty app')
+  })
+  await page.getByTestId('views-switcher').click()
+  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await expect(page.getByTestId('app-view-empty')).toContainText('Nothing is exposed yet.')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `app-flow-empty-${width}`)
+  }
+  await page.getByTestId('app-view-arrange-toggle').click()
+  await page.getByTestId('app-layout-add-group').click()
+  await expect(page.getByText('Move a control, preview, or text block into this group.', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `app-group-empty-${width}`)
+  }
+})
+
+test('Template gallery presents loading error retry and empty search states', async ({ page }) => {
+  let mode: 'loading' | 'empty' | 'error' = 'loading'
+  let mountChangesAllowed = false
+  let release: (() => void) | undefined
+  await page.route('**/gallery-visual/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/api/templates')) {
+      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      return mode === 'error'
+        ? route.fulfill({ status: 503, body: 'Template fixture unavailable' })
+        : route.fulfill({ json: { templates: [] } })
+    }
+    if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [], mountChangesAllowed } })
+    if (path.endsWith('/api/settings')) return route.fulfill({ json: { features: { templates: { enabled: true } }, categories: { available: [], granted: [] }, settings: {} } })
+    const response = await page.request.get(route.request().url().replace('/gallery-visual', ''))
+    return route.fulfill({ response })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { id: string }
+      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string }
+      setTabTarget(tab: string, backend: string): void
+      refreshBackendSchemas(backend: unknown): Promise<void>
+      templateGalleryOpen: { set(value: boolean): void }
+    }
+    const backend = app.addBackend('/gallery-visual', 'Gallery visual', false, 'dinkster')
+    app.setTabTarget(app.activeTab().id, backend.id)
+    await app.refreshBackendSchemas(backend)
+    app.templateGalleryOpen.set(true)
+  })
+  const gallery = page.getByTestId('template-gallery')
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `gallery-${state}-${width}`)
+    }
+  }
+  await expect(gallery.getByRole('status')).toContainText('Loading starter templates...')
+  await capture('loading')
+  await expect.poll(() => release !== undefined).toBe(true)
+  mode = 'error'
+  release?.()
+  await expect(gallery.getByRole('alert')).toContainText('GET /api/templates failed: 503')
+  await expect(gallery.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+  await capture('error')
+  mode = 'empty'
+  await gallery.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(gallery.getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await expect(gallery.getByRole('alert')).toHaveCount(0)
+  await expect(gallery.getByText('Grant read-only access to an existing folder. Dinkster indexes models in place without copying them.', { exact: true })).toBeVisible()
+  await capture('empty')
+  await gallery.getByTestId('template-gallery-search').fill('unmatched-template-507')
+  await expect(gallery.getByText('No starter templates match this search.', { exact: true })).toBeVisible()
+  await capture('no-matches')
+  await gallery.getByTestId('template-gallery-search').press('Escape')
+  await expect(gallery.getByTestId('template-gallery-search')).toHaveValue('')
+  await expect(gallery.getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toHaveCount(0)
+  mountChangesAllowed = true
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as { templateGalleryOpen: { set(value: boolean): void } }
+    app.templateGalleryOpen.set(true)
+  })
+  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toBeVisible()
+  await gallery.getByLabel('Path', { exact: true }).fill('/models/shared')
+  await gallery.getByLabel('Mount name', { exact: true }).fill('shared-models')
+  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toBeEnabled()
+  await capture('folder-form')
+})
+
+test('Focused panel explains an empty context and absent document', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'focused-empty', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: {} },
+    }, 'Empty workflow')
+  })
+  await openRail(page, 'Focused')
+  const panel = page.getByTestId('context-panel')
+  await expect(panel.getByTestId('context-no-problems')).toHaveText('None in this context.')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await screenshot(page, `focused-empty-${width}`)
+  }
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as { tabs: { set(value: readonly unknown[]): void } }
+    app.tabs.set([])
+  })
+  await expect(panel.getByText('No document is open.', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await screenshot(page, `focused-no-document-${width}`)
+  }
+})
+
+test('Control surfaces explain empty bindings and invalid configuration and preserve row actions', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'features.controlSurfaces.enabled': true } })))
+  await boot(page)
+  await closeGallery(page)
+  const show = async (state: 'empty' | 'unbound' | 'invalid' | 'unknown' | 'bindings'): Promise<void> => {
+    await page.evaluate((state) => {
+      const app = window.__dinksterTest!.app
+      app.openDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: `surface-${state}`, root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'ProofNode', title: 'Source node', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+        view: { graphs: {} },
+        surfaces: state === 'empty' ? {} : { visual: {
+          id: 'visual', type: state === 'unknown' ? 'future.surface' : 'core.modePanel',
+          config: state === 'invalid' ? { title: 7 } : { title: 'Mode Panel', bindings: state === 'bindings' ? [
+            { kind: 'node', graphId: 'g0', nodeId: 'source' },
+            { kind: 'node', graphId: 'g0', nodeId: 'missing-node' },
+            { kind: 'future', label: 'Future binding' },
+          ] : [] },
+        } },
+      }, `Surface ${state}`)
+    }, state)
+    await openRail(page, 'Control surfaces')
+  }
+  const panel = page.getByTestId('surface-panel')
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `control-surfaces-${state}-${width}`)
+    }
+  }
+  await show('empty')
+  await expect(panel.getByText('None.', { exact: true })).toBeVisible()
+  await capture('empty')
+  await show('unbound')
+  await expect(panel.getByText('No bindings. Select nodes and bind them.', { exact: true })).toBeVisible()
+  await expect(panel.getByTestId('surface-apply-muted-visual')).toBeDisabled()
+  await capture('unbound')
+  await show('invalid')
+  await expect(panel.getByText('Config could not be decoded.', { exact: true })).toBeVisible()
+  await expect(panel.getByTestId('surface-remove-visual')).toBeEnabled()
+  await capture('invalid')
+  await show('unknown')
+  await expect(panel.getByText("Unknown surface type 'future.surface'.", { exact: true })).toBeVisible()
+  await expect(panel.getByTestId('surface-remove-visual')).toBeEnabled()
+  await capture('unknown')
+  await show('bindings')
+  await expect(panel.getByTestId('surface-binding-visual-0')).toHaveAttribute('data-status', 'ok')
+  await expect(panel.getByTestId('surface-binding-visual-1')).toHaveAttribute('data-status', 'missingNode')
+  await expect(panel.getByRole('listitem')).toHaveCount(3)
+  await capture('bindings')
+  await panel.getByTestId('surface-unbind-visual-1').click()
+  await expect(panel.getByRole('listitem')).toHaveCount(2)
+  await expect(panel.getByText('missing-node', { exact: true })).toHaveCount(0)
+  await panel.getByTestId('surface-apply-muted-visual').click()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['source']!.mode)).toBe('muted')
+})
+
+test('Badge popover empty and unavailable states preserve focus and actions', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const [name, badge, text] of [
+    ['error', 'core.error', 'No error details recorded.'],
+    ['info', 'core.log.info', 'No log records for this run.'],
+    ['warning', 'core.log.warning', 'No log records for this run.'],
+    ['problem', 'core.problem.error', 'No problem details recorded.'],
+    ['subgraph', 'core.subgraph', 'Definition missing.'],
+    ['replacement', 'core.deprecated', 'Node missing.'],
+  ] as const) {
+    await page.evaluate(async (badge) => {
+      const target = window as unknown as { disposeBadgeVisual?: () => void }
+      target.disposeBadgeVisual?.()
+      const componentPath = '/src/BadgePopover.tsx'
+      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+      const { BadgePopover } = await import(componentPath)
+      const { render } = await import(rendererPath)
+      const host = document.createElement('div')
+      document.querySelector('.canvas-pane')!.append(host)
+      const dispose = render(() => BadgePopover({
+        anchor: { x: 32, y: 96, nodeId: 'source', badge: { id: badge, glyph: '!', color: '#f00' } },
+        errors: () => [], nodeLogs: () => [], problems: () => [],
+        subgraphInfo: () => undefined, replacementInfo: () => undefined,
+        onOpenSubgraph: () => {}, onApplyReplacement: () => {}, onClose: () => {},
+        onDismissError: () => { host.dataset['action'] = 'dismiss' },
+        onOpenExecutionLog: () => { host.dataset['action'] = 'log' },
+      }), host)
+      target.disposeBadgeVisual = () => { dispose(); host.remove() }
+    }, badge)
+    const popover = page.getByTestId('badge-popover')
+    await expect(popover).toBeFocused()
+    await expect(popover.getByText(text, { exact: true })).toBeVisible()
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `badge-${name}-empty-${width}`)
+    }
+    if (badge === 'core.error') {
+      await popover.getByRole('button', { name: 'Dismiss', exact: true }).click()
+      await expect(popover.locator('..')).toHaveAttribute('data-action', 'dismiss')
+    }
+    if (badge === 'core.log.info' || badge === 'core.log.warning') {
+      await popover.getByRole('button', { name: 'Open in Execution log', exact: true }).click()
+      await expect(popover.locator('..')).toHaveAttribute('data-action', 'log')
+    }
+  }
+  await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
+})
+
+test('Region iteration states keep unavailable, loading and retained refusal explanations', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const [state, text] of [
+    ['empty', 'No retained iteration activity is available for this region.'],
+    ['no-outputs', 'This body node has no inspectable outputs.'],
+    ['unavailable', 'The execution owner is unavailable.'],
+    ['loading', 'Loading retained value...'],
+    ['refused', 'This intermediate is no longer retained.'],
+  ] as const) {
+    await page.evaluate(async (state) => {
+      const target = window as unknown as { disposeRegionVisual?: () => void }
+      target.disposeRegionVisual?.()
+      const componentPath = '/src/RegionIterationInspector.tsx'
+      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+      const { RegionIterationInspector } = await import(componentPath)
+      const { render } = await import(rendererPath)
+      const host = document.createElement('div')
+      host.style.cssText = 'position:absolute;top:48px;right:16px;width:300px;z-index:20'
+      document.querySelector('.canvas-pane')!.append(host)
+      const documentFixture = {
+        root: 'root', graphs: {
+          root: { nodes: { outer: { id: 'outer', type: '#body', values: {} } } },
+          body: { nodes: { source: { id: 'source', type: 'Source', title: 'Retained result', values: {} } } },
+        },
+      }
+      const execution = {
+        ref: { connection: 'backend', prompt: 'region-visual' },
+        artifact: {
+          prompt: { 'outer.source': { outputIds: state === 'no-outputs' ? [] : ['value'] } },
+          provenance: { fromSource: { outer: ['outer'] }, toSource: { 'outer.source': 'outer.source' } },
+        },
+        nodes: state === 'empty' ? {} : { 'outer[0]/source': { state: 'done' } },
+        regions: { outer: { kind: 'map', binding: 'zip', iterations: 1, finishedIterations: 1 } },
+      }
+      const dispose = render(() => RegionIterationInspector({
+        execution, document: documentFixture,
+        regionOccurrence: { instancePath: [], node: 'outer' }, resolveSchema: () => undefined,
+        values: state === 'unavailable' ? undefined : {
+          peek: () => state === 'loading' ? new Promise(() => {}) : Promise.resolve({
+            available: false, reason: 'not-retained', status: 410,
+            error: 'This intermediate is no longer retained.',
+          }),
+        },
+      }), host)
+      target.disposeRegionVisual = () => { dispose(); host.remove() }
+    }, state)
+    const inspector = page.getByTestId('region-iteration-inspector')
+    await expect(inspector.getByText(text, { exact: true })).toBeVisible()
+    if (state === 'loading' || state === 'refused')
+      await expect(inspector.getByRole('status')).toContainText(text)
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `region-${state}-${width}`)
+    }
+  }
+  await page.evaluate(() => (window as unknown as { disposeRegionVisual(): void }).disposeRegionVisual())
+})
+
+test('Workflow queue empty popover preserves disclosure and Escape focus', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const componentPath = '/src/WorkflowQueueControl.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { WorkflowQueueControl } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('div')
+    host.style.cssText = 'position:absolute;top:64px;right:16px;width:440px;z-index:20'
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => WorkflowQueueControl({
+      owner: { id: 'queue-visual', title: 'Empty workflow', lineage: 'queue-visual' },
+      executions: [], canQueue: true,
+      onQueue: () => { host.dataset['queued'] = 'true' }, onOpenExecution: () => {},
+    }), host)
+    ;(window as unknown as { disposeQueueVisual: () => void }).disposeQueueVisual = () => { dispose(); host.remove() }
+  })
+  const control = page.locator('[data-testid="workflow-queue-control"][data-owner="queue-visual"]')
+  const toggle = control.getByTestId('workflow-queue-toggle')
+  await toggle.click()
+  const popover = control.getByRole('region', { name: 'Queue for Empty workflow' })
+  await expect(popover.getByText('No jobs for this workflow.', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `workflow-queue-empty-${width}`)
+  }
+  await toggle.press('Escape')
+  await expect(popover).toBeHidden()
+  await expect(toggle).toBeFocused()
+  await control.getByTestId('queue-button').click()
+  await expect(control.locator('..')).toHaveAttribute('data-queued', 'true')
+  await page.evaluate(() => (window as unknown as { disposeQueueVisual(): void }).disposeQueueVisual())
+})
+
+test('Compositor missing runtime state keeps its explanation and Cancel action', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'CompositorEmptyVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
+      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'dinkster.compositor' },
+        widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
+    }])
+    const diagnostics = app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'compositor-empty-visual', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Compositor', nodes: { create: { id: 'create', type: 'CompositorEmptyVisual', values: { recipe: { version: 2, documentDigest: null, commands: [] } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { create: { position: { x: 120, y: 100 } } } } } },
+    }, 'Compositor')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    const editorApp = app as unknown as {
+      compositorTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
+      openCompositorEditor(target: unknown): boolean
+    }
+    const target = editorApp.compositorTargetForInput(app.activeTab()!, 'g0', 'create', 'recipe')
+    if (!editorApp.openCompositorEditor(target)) throw new Error('Empty compositor did not open')
+  })
+  const editor = page.getByTestId('compositor-editor')
+  await expect(editor.getByTestId('compositor-empty')).toContainText('Run Create Layered Image to load its sources.')
+  await expect(editor.getByTestId('compositor-empty')).toContainText('The layer stack stays in the graph.')
+  await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `compositor-no-runtime-${width}`)
+  }
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(editor).toBeHidden()
+  await page.evaluate(async () => {
+    const componentPath = '/src/CompositorEditor.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { CompositorEditor } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('div')
+    host.style.cssText = 'position:absolute;inset:48px 0 0;z-index:20'
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => CompositorEditor({ app: window.__dinksterTest!.app }), host)
+    ;(window as unknown as { disposeCompositorVisual: () => void }).disposeCompositorVisual = () => { dispose(); host.remove() }
+  })
+  await expect(page.getByText('No compositor target is active.', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await screenshot(page, `compositor-no-target-${width}`)
+  }
+  await page.evaluate(() => (window as unknown as { disposeCompositorVisual(): void }).disposeCompositorVisual())
+})
+
+test('Asset selection instructions stay readable for the rail and single or multiple picks', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const mode of ['rail', 'single', 'multiple'] as const) {
+    await page.evaluate(async (mode) => {
+      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+      const { render } = await import(rendererPath)
+      const host = document.createElement('div')
+      document.querySelector('.canvas-pane')!.append(host)
+      host.dataset['closed'] = 'false'
+      host.dataset['committed'] = 'false'
+      host.dataset['assetVisual'] = mode
+      let dispose: () => void
+      if (mode === 'rail') {
+        const componentPath = '/src/asset-browser/rail.tsx'
+        const { AssetEntrySelection } = await import(componentPath)
+        host.style.cssText = 'position:absolute;top:64px;left:32px;right:32px;z-index:20'
+        dispose = render(() => AssetEntrySelection({ entry: undefined, adapters: [], backendId: 'asset-visual' }), host)
+      } else {
+        const componentPath = '/src/editors/AssetWidgetEditor.tsx'
+        const { AssetWidgetEditor } = await import(componentPath)
+        const singleType = { kind: 'concrete', name: 'dinkster.asset' }
+        dispose = render(() => AssetWidgetEditor({
+          app: {
+            backendForTab: () => ({ id: 'asset-visual', protocol: 'dinkster', connection: { listMounts: async () => [] } }),
+            dispatchTo: () => { host.dataset['committed'] = 'true' },
+            widgetRegistry: { kind: () => undefined },
+          },
+          ed: {
+            tab: {}, graphId: 'g0', target: { kind: 'input', nodeId: 'asset', valueKey: 'file' },
+            label: 'Reference file', spec: { widgetType: 'ASSET', options: { accept: ['application/octet-stream'] } },
+            declaredType: mode === 'multiple' ? { kind: 'list', element: singleType } : singleType,
+            multiline: false, rect: { x: 20, y: 20, width: 180, height: 24 }, initial: mode === 'multiple' ? [] : null,
+          },
+          viewport: () => ({ x: 0, y: 0, scale: 1 }),
+          onClose: () => { host.dataset['closed'] = 'true' },
+        }), host)
+      }
+      ;(window as unknown as { disposeAssetVisual: () => void }).disposeAssetVisual = () => { dispose(); host.remove() }
+    }, mode)
+    const selection = page.getByTestId('asset-selection-summary')
+    await expect(selection).toContainText(mode === 'rail' ? 'Click an asset' : mode === 'single' ? 'Click an asset in the list' : 'No assets selected.')
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `asset-selection-${mode}-${width}`)
+    }
+    if (mode !== 'rail') {
+      await page.getByTestId('asset-editor').getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(page.locator(`[data-asset-visual="${mode}"]`)).toHaveAttribute('data-closed', 'true')
+      await expect(page.locator(`[data-asset-visual="${mode}"]`)).toHaveAttribute('data-committed', 'false')
+    }
+    await page.evaluate(() => (window as unknown as { disposeAssetVisual(): void }).disposeAssetVisual())
+  }
+})
+
+test('Search loading, empty and provider error states retain their explanations', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const componentPath = '/src/SearchSurface.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { SearchState } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('section')
+    host.style.cssText = 'position:absolute;top:64px;left:32px;right:32px;max-width:420px;display:grid;gap:16px;z-index:20'
+    host.setAttribute('aria-label', 'Search states')
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => [
+      SearchState({ kind: 'loading', title: 'Searching Assets', detail: 'Waiting for this source to return matching assets.' }),
+      SearchState({ kind: 'empty', title: 'No matches', detail: 'Try another query or choose a different source.' }),
+      SearchState({ kind: 'error', title: 'Provider unavailable', detail: 'Assets could not return results. Other providers remain available.' }),
+    ], host)
+    ;(window as unknown as { disposeSearchVisual: () => void }).disposeSearchVisual = () => { dispose(); host.remove() }
+  })
+  const states = page.getByRole('region', { name: 'Search states' })
+  await expect(states.getByText('Searching Assets', { exact: true })).toBeVisible()
+  await expect(states.getByText('No matches', { exact: true })).toBeVisible()
+  await expect(states.getByText('Provider unavailable', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `search-states-${width}`)
+  }
+  await page.evaluate(() => (window as unknown as { disposeSearchVisual(): void }).disposeSearchVisual())
+})
+
+test('GLSL editor missing-data and refused-preview states preserve editing and diagnostics', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'GlslEmptyVisual', displayName: 'GLSL Shader', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'glsl',
+      items: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
+        widget: { widgetType: 'STRING', options: { multiline: true }, default: '#version 300 es\ninvalid shader' } }],
+    }])
+    const diagnostics = app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'glsl-empty-visual', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'GLSL', nodes: { shader: { id: 'shader', type: 'GlslEmptyVisual', values: { fragment_shader: '#version 300 es\ninvalid shader' } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { shader: { position: { x: 120, y: 100 } } } } } },
+    }, 'GLSL')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    const editorApp = app as unknown as {
+      glslTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
+      openGlslEditor(target: unknown): boolean
+    }
+    if (!editorApp.openGlslEditor(editorApp.glslTargetForInput(app.activeTab()!, 'g0', 'shader', 'fragment_shader')))
+      throw new Error('GLSL fixture did not open')
+  })
+  const editor = page.getByTestId('glsl-editor')
+  await expect(editor.getByText('Run the node to load authoritative input previews.', { exact: true })).toBeVisible()
+  await expect(editor.getByText('No runtime state.', { exact: true })).toBeVisible()
+  await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled()
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `glsl-${state}-${width}`)
+    }
+  }
+  await capture('no-runtime')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const compiled = app.compileTab(tab)
+    if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+    const ref = { connection: compiled.artifact.connection, prompt: 'glsl-empty-run' }
+    ;(app as unknown as { registerRun(tab: unknown, ref: unknown, artifact: unknown, now: number): void }).registerRun(tab, ref, compiled.artifact, 0)
+    const runtimeNodeId = 'shader'
+    app.store.apply({ kind: 'preview', execution: ref, timestamp: 1, runtimeNodeId,
+      channel: 'application/vnd.dinkster.glsl-state+json', stream: 'glsl-state',
+      payload: { width: 8, height: 4, inputs: [{ name: 'u_image0', stream: 'glsl-input-u_image0' }], floats: { u_float0: 0.25 }, ints: {}, bools: {}, curves: {} },
+    } as never)
+  })
+  await expect(editor.getByText('Browser preview unavailable.', { exact: true })).toBeVisible()
+  await expect(editor.getByRole('alert')).toContainText('Preview image u_image0 is unavailable')
+  await expect(editor.getByText('u_float0', { exact: true })).toBeVisible()
+  await capture('preview-unavailable')
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(editor).toBeHidden()
+  await page.evaluate(async () => {
+    const componentPath = '/src/GlslEditor.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { GlslEditor } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('div')
+    host.style.cssText = 'position:absolute;inset:48px 0 0;z-index:20'
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => GlslEditor({ app: window.__dinksterTest!.app }), host)
+    ;(window as unknown as { disposeGlslVisual: () => void }).disposeGlslVisual = () => { dispose(); host.remove() }
+  })
+  await expect(page.getByText('No GLSL Shader target is active.', { exact: true })).toBeVisible()
+  await capture('no-target')
+  await page.evaluate(() => (window as unknown as { disposeGlslVisual(): void }).disposeGlslVisual())
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

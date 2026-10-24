@@ -3,6 +3,7 @@ import type { CollabSessionDescriptor, SharedSessionStatus } from '@dinkster/cor
 import type { AppState, CollabTabState, Tab } from './app-state.js'
 import { actorColor, actorLabel } from './collab-presence.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
 
@@ -281,13 +282,12 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
           when={activeCollab()}
           keyed
           fallback={
-            <article ref={unsharedState} class="collab-unshared" data-testid="collab-unshared" tabindex="-1">
-              <strong>Not shared</strong>
-              <p>{
+            <article ref={unsharedState} data-testid="collab-unshared" tabindex="-1">
+              <ProductEmptyState title="Not shared" hint={
                 activeTab() === undefined ? 'Open a workflow to share it from its tab menu.'
                 : activeTab()!.execution !== undefined ? 'Execution snapshots cannot be shared.'
                 : 'This workflow is local. Open its tab menu to start sharing.'
-              }</p>
+              } />
               <Show when={backend() === undefined}>
                 <ProductNotice tone="info" testId="collab-backend-unavailable">
                   Connect a Dinkster backend to host collaboration sessions.
@@ -524,27 +524,16 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
         </header>
 
         <Show when={listState() === 'loading'}>
-          <div class="collab-list-state" data-testid="collab-loading" data-state="loading">
-            <span class="collab-spinner" aria-hidden="true" />
-            <div><strong>Loading shared sessions</strong><span>Checking this backend for sessions you can join.</span></div>
-          </div>
+          <ProductEmptyState tone="loading" testId="collab-loading" title="Loading shared sessions" hint="Checking this backend for sessions you can join." icon={<span class="collab-spinner" />} />
         </Show>
         <Show when={listState() === 'unavailable'}>
-          <div class="collab-list-state" data-testid="collab-no-backend" data-state="unavailable">
-            <strong>No collaboration backend</strong>
-            <span>Connect a Dinkster backend to discover and host shared sessions.</span>
-          </div>
+          <ProductEmptyState testId="collab-no-backend" title="No collaboration backend" hint="Connect a Dinkster backend to discover and host shared sessions." />
         </Show>
         <Show when={listState() === 'error'}>
-          <ProductNotice tone="error" testId="collab-list-error">
-            Sessions could not be loaded: {failureFor('refresh')}
-          </ProductNotice>
+          <ProductEmptyState tone="error" testId="collab-list-error" title="Sessions could not be loaded" hint={failureFor('refresh')} />
         </Show>
         <Show when={listState() === 'ready' && sessions().length === 0}>
-          <div class="collab-list-state" data-testid="collab-empty" data-state="empty">
-            <strong>No shared sessions</strong>
-            <span>Refresh when someone else starts a session.</span>
-          </div>
+          <ProductEmptyState testId="collab-empty" title="No shared sessions" hint="Refresh when someone else starts a session." />
         </Show>
         <Show when={listState() === 'ready' && sessions().length > 0}>
           <ul class="collab-session-list" data-testid="collab-session-list">

@@ -258,6 +258,7 @@ describe('CollectionPanel folder navigation', () => {
     await vi.waitFor(() => expect(requests.at(-1)?.folder).toBe('photos'))
     expect(requests.at(-1)?.cursor).toBeUndefined()
 
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="folder:photos/trips"]')).not.toBeNull())
     root.querySelector<HTMLElement>('[data-entry="folder:photos/trips"]')!.click()
     await vi.waitFor(() => expect(requests.at(-1)?.folder).toBe('photos/trips'))
     expect(root.querySelector('[aria-current="page"]')?.textContent).toBe('trips')
@@ -270,6 +271,7 @@ describe('CollectionPanel folder navigation', () => {
     await vi.waitFor(() => expect(requests.at(-1)?.folder).toBeUndefined())
     expect(root.querySelector('[aria-current="page"]')?.textContent).toBe('root')
 
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="folder:photos"]')).not.toBeNull())
     root.querySelector<HTMLElement>('[data-entry="folder:photos"]')!.click()
     await vi.waitFor(() => expect(requests.at(-1)?.folder).toBe('photos'))
     const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!

@@ -14,6 +14,80 @@ Literal colors and dimensions are reserved for user data, media content,
 calculated geometry, and other values that are not product styling. A surface
 adopts the system when it replaces and deletes the old styling.
 
+Schema catalogs, extension snapshots, mount discovery and collection pages
+have a 30-second request deadline. A stalled read leaves loading for an error
+with Retry; cancellation also prevents a late catalog from being committed.
+The shell's connection display includes schema and mount HTTP failures rather
+than treating a live WebSocket as sufficient. Library, Assets and Outputs
+show ProductEmptyState alerts for those metadata failures and retry the failed
+reads. Backends retains its schema retry and provides an output-mount retry.
+Successful reads clear the corresponding error; a failed initial mount load
+does not continue to claim it is loading. Concurrent mount readers follow the
+newest request's snapshot or failure, so a late older response cannot restore
+removed mounts in another panel. These presentation changes do not close the
+WebSocket or change backend wire contracts.
+
+Library collection and selection states, asset discovery and collection states,
+and the output rail use ProductEmptyState for empty, loading and error content.
+Collection request errors retain an enabled Retry action after the request
+settles; a retry re-reads the selected source without changing its selection.
+The Assets selection rail and single/multiple asset pickers use the same
+ProductEmptyState instruction cards when nothing is selected. Picker staging,
+upload limits, selection order, Apply and Cancel remain editor-owned.
+Output states preserve the distinction between an absent execution, waiting
+execution, retained-output loading, missing owner and failed execution.
+
+Settings search and subgraph cleanup use the same ProductEmptyState title and
+hint presentation. Cleanup distinguishes an unavailable workflow, no unused
+definitions and no retained definitions without private success-border styling.
+The Settings result-count announcement and Escape-to-clear behavior remain
+independent of the empty presentation.
+
+Collaboration discovery uses ProductEmptyState for unavailable, loading, empty
+and error results, and for a workflow that is not shared. Loading announces
+politely and errors are alerts. Refresh remains available after a failed read;
+retrying clears the error when discovery succeeds. The unshared workflow keeps
+its focus target and explanation of how to share from the tab menu.
+
+App view uses ProductEmptyState when nothing is exposed and when an arrangement
+group has no children. The empty group retains its list-item semantics and
+instructions for moving content into the group.
+
+Template gallery uses ProductEmptyState for loading, failed reads, empty catalogs
+and searches without matches. Failed reads retain Retry, and the empty folder
+explanation preserves the permission-gated server-path form below it.
+
+The Focused panel uses ProductEmptyState for an absent document and a context
+without problems. Context selection, problem filtering and canvas navigation
+remain independent of the empty presentation.
+
+Control surfaces use ProductEmptyState for absent panels, empty bindings,
+unsupported surface types and malformed configurations. Malformed configuration
+is an alert; unsupported surfaces remain inert and removable. Bindings use
+ProductListRow inside list items, retaining removal actions and warning details
+for unresolved bindings without changing bulk mode commands.
+
+Badge popovers use ProductEmptyState when error, log or problem details are
+absent and when subgraph or replacement data is unavailable. These are missing
+detail messages, not new runtime alerts; popover focus and existing actions
+retain their behavior.
+
+The region iteration inspector uses ProductEmptyState for absent iteration
+activity, nodes without outputs, unavailable execution owners and loading.
+Retained-value refusals keep their reason and explanation in a neutral status
+card, not an execution error alert. Selection and stale-read cancellation
+remain owned by the inspector.
+
+The workflow queue popover uses ProductEmptyState when its owner has no jobs.
+Queue activation, disclosure, keyboard navigation and Escape focus restoration
+remain owned by the queue control.
+
+Search feedback in the asset picker, node palette and universal search uses
+ProductEmptyState for loading, no matches and provider failures. Loading is a
+polite status with a decorative spinner that respects reduced motion; provider
+failures are alerts. Result selection and provider isolation remain owned by
+the search surfaces.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.
@@ -54,6 +128,16 @@ props while using shared input styling; the compositor retains lowercase
 color storage. Recipe edits, preview geometry and apply/refusal rules remain
 owned by the editor, not by the controls.
 
+The compositor uses ProductEmptyState when no target is open or when the
+selected run has no compositor sources. The latter keeps the explanation that
+the layer stack stays in the graph; Cancel remains enabled and Apply stays
+disabled until runtime data supplies a configurable recipe.
+
+The GLSL editor uses ProductEmptyState for missing targets, absent runtime
+inputs and unavailable browser previews. Preview refusals stay neutral while
+their diagnostics remain alerts; shader editing and native execution remain
+independent of whether the browser can display a preview.
+
 Runtime settings uses compact `ProductButton` actions and `ProductTextInput`
 fields for worker arguments, logger overrides and textual memory values.
 `ProductField`, `ProductNotice` and `ProductActionFooter` retain the form
@@ -74,10 +158,18 @@ metadata, exact stored JSON and stale-link disconnection behavior.
 | `ProductFileInput`   | Hidden native file input; forwards ref, accept, multiple and change events to a separately labelled activation button                              | Image document import, layers and masks                                                                                        |
 | `ProductTextArea`    | Native textarea props and invalid state                                                                                                           | Desktop management                                                                                                             |
 | `ProductSelect`      | Labelled combobox/listbox with controlled selection, keyboard navigation and focus restoration                                                    | Settings, Execution log and Desktop management                                                                                 |
-| `ProductPanelHeader` | Level-two title, optional count and actions                                                                                                       | Problems                                                                                                                       |
-| `ProductEmptyState`  | Title, hint, icon and action slots; empty, polite loading and alert error states                                                                  | Learn, Node help, Activity, Execution log, Problems and Image document                                                         |
+| `ProductPanelHeader` | Level-two title, optional count and actions                                                                                                       | Problems, Backends and Memory                                                                                                  |
+| `ProductEmptyState`  | Title, hint, icon and action slots; empty, polite loading and alert error states                                                                  | Learn, Node help, Activity, Execution log, Problems, Image document and Memory                                                    |
 | `ProductListRow`     | Leading, primary, secondary and action slots with selected state                                                                                  | Activity and Execution log                                                                                                     |
 | `ProductTable`       | Native table semantics in a labelled keyboard-scrollable region, with optional caption and sticky header                                          | Data-heavy product surfaces                                                                                                    |
+
+Backends and Memory use the shared panel header without local title-size or
+padding overrides. The add-backend form uses `ProductField`, `ProductTextInput`
+and a primary `ProductButton` in `ProductActionFooter`; discovery errors are
+`ProductNotice` alerts associated with the address input. Memory uses
+`ProductEmptyState` for missing device, consumer, detail and lease facts. An
+initial telemetry failure replaces loading with an error, without claiming
+that any previous telemetry has been retained.
 
 The raw-control baseline after these adoptions is 441 controls, 70 inline-style
 attributes and 423 CSS color/radius literals. The largest remaining control

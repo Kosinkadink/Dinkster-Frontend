@@ -298,6 +298,69 @@ describe('mount listing decode', () => {
   const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
     new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })
 
+  it.each([200, 503])('answers an older mount read with the newer snapshot after a late HTTP %s response', async (status) => {
+    let finish!: (response: Response) => void
+    const current = { mounts: [{ id: 'current', mode: 'readwrite', state: 'ready' }], mountChangesAllowed: true, outputMount: 'current' }
+    const fetchFn = vi.fn<FetchLike>()
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      .mockResolvedValue(jsonResponse(200, current))
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn })
+    const older = connection.fetchMountSettings()
+    await expect(connection.fetchMountSettings()).resolves.toEqual(current)
+    finish(jsonResponse(status, { mounts: [{ id: 'removed', mode: 'read', state: 'ready' }], outputMount: 'removed' }))
+    await expect(older).resolves.toEqual(current)
+    expect(connection.mountError.get()).toBeUndefined()
+  })
+
+  it('does not clear a newer mount failure when an older snapshot arrives', async () => {
+    let finish!: (response: Response) => void
+    const fetchFn = vi.fn<FetchLike>()
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      .mockResolvedValue(jsonResponse(503, {}))
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn })
+    const older = connection.fetchMountSettings()
+    await expect(connection.fetchMountSettings()).rejects.toThrow('GET /api/mounts failed: 503')
+    finish(jsonResponse(200, { mounts: [], outputMount: 'removed' }))
+    await expect(older).rejects.toThrow('GET /api/mounts failed: 503')
+    expect(connection.mountError.get()).toBe('GET /api/mounts failed: 503')
+  })
+
+  it('times out a stalled mount read, ignores its late completion, and clears health on retry', async () => {
+    vi.useFakeTimers()
+    try {
+      let finish!: (response: Response) => void
+      const fetchFn = vi.fn<FetchLike>()
+        .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+        .mockResolvedValue(jsonResponse(200, { mounts: [], outputMount: 'renders' }))
+      const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn })
+      const first = expect(connection.fetchMountSettings()).rejects.toThrow('timed out after 30 seconds')
+      await vi.advanceTimersByTimeAsync(30_000)
+      await first
+      expect(connection.mountError.get()).toContain('timed out')
+      finish(jsonResponse(200, { mounts: [], outputMount: 'stale' }))
+      await Promise.resolve()
+      expect(connection.mountError.get()).toContain('timed out')
+      await expect(connection.fetchMountSettings()).resolves.toMatchObject({ outputMount: 'renders' })
+      expect(connection.mountError.get()).toBeUndefined()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('does not commit a schema catalog that arrives after its deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      let finish!: (response: Response) => void
+      const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike,
+        fetchFn: () => new Promise((resolve) => { finish = resolve }),
+      })
+      const first = expect(connection.fetchSchemas()).rejects.toThrow('timed out after 30 seconds')
+      await vi.advanceTimersByTimeAsync(30_000)
+      await first
+      finish(jsonResponse(200, nodesPayload))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(connection.currentRegistry).toBeUndefined()
+    } finally { vi.useRealTimers() }
+  })
+
   it('decodes mountChangesAllowed as an exact boolean', async () => {
     await expect(connectionWith([], undefined, true).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: true })
     await expect(connectionWith([], undefined, false).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: false })

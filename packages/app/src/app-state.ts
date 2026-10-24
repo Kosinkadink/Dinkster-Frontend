@@ -2296,6 +2296,19 @@ export type Backend =
   | (BackendBase & { readonly protocol: 'v1'; readonly connection: BackendConnection })
   | (BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection })
 
+/** A live socket alone does not make the backend's required HTTP metadata usable. */
+export function backendConnectionStatus(backend: Backend): ConnectionStatus {
+  const status = backend.connection.status.get()
+  if (status === 'connected' && backendMetadataError(backend) !== undefined) return 'disconnected'
+  return status
+}
+
+export function backendMetadataError(backend: Backend): string | undefined {
+  const schema = backend.schemaState.get()
+  if (schema.status === 'error') return schema.message
+  return backend.protocol === 'dinkster' ? backend.connection.mountError.get() : undefined
+}
+
 export interface AppLogEntry {
   readonly timestamp: number
   readonly severity: 'info' | 'warn' | 'error'
@@ -4281,6 +4294,7 @@ export class AppState {
         refreshForEpoch,
         handleStatusChange,
       )
+      const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
       const disposeCompletionHydration = connection.onLiveCompletion((ref) => {
         hydrateDinksterCompletedExecution(connection, this.store, ref).catch((error: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
@@ -4302,6 +4316,7 @@ export class AppState {
           compositionRequest += 1
           this.clearProblems(packProblemsOwner)
           disposeCompletionHydration()
+          disposeMountHealth()
           disposeConnection()
           scopedClient.dispose()
         },

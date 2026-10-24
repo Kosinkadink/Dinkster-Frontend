@@ -3,7 +3,7 @@
 import { registerCatalog, setLocale, type NodeSchema } from '@dinkster/core'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AppState, pushGraph } from '../src/app-state.js'
+import { AppState, pushGraph, truncateGraphStack } from '../src/app-state.js'
 import { BoundaryPanel } from '../src/BoundaryPanel.js'
 
 const schema: NodeSchema = {
@@ -101,6 +101,27 @@ beforeEach(() => setLocale('en'))
 afterEach(() => document.body.replaceChildren())
 
 describe('BoundaryPanel keyboard and accessibility', () => {
+  it('offers a definition prompt and opens through the real occurrence without editing the document', () => {
+    const { app, tab, root, unmount } = mountPanel()
+    truncateGraphStack(tab, 1)
+    const revision = tab.store.revision
+    expect(root.querySelector('[data-testid="boundary-prompt"]')?.textContent).toContain('Open a subgraph definition')
+    const open = root.querySelector<HTMLButtonElement>('[data-testid="boundary-prompt"] button')!
+    expect(open.textContent).toBe('Open sub')
+    expect(open.disabled).toBe(false)
+    open.click()
+    expect(tab.graphStack.get()).toEqual(['g0', 'sub'])
+    expect(tab.instancePath.get()).toEqual(['occ'])
+    expect(tab.store.revision).toBe(revision)
+    expect(root.querySelector('[data-testid="boundary-prompt"]')).toBeNull()
+    expect(root.querySelector('[data-testid="boundary-item"]')).not.toBeNull()
+
+    app.createWorkflow()
+    expect(root.querySelector('[data-testid="boundary-prompt"]')?.textContent).toContain('Open a subgraph on the canvas')
+    expect(root.querySelector('[data-testid="boundary-prompt"] button')).toBeNull()
+    unmount()
+  })
+
   it('exposes a named region, named item group, and labelled product controls in focus order', () => {
     const { root, unmount } = mountPanel()
     const panel = root.querySelector<HTMLElement>('[data-testid="boundary-panel"]')!

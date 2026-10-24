@@ -33,6 +33,7 @@ import { currentGraphId, type AppState, type Tab } from './app-state.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
+import { ProductEmptyState, ProductListRow } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 
 const MODES: readonly { mode: NodeMode; messageKey: string }[] = [
@@ -186,7 +187,7 @@ export function SurfacePanel(props: { app: AppState }) {
               {message('controlSurfaces.action.addModePanel')}
             </button>
           </Show>
-          <For each={surfaces()} fallback={<p class="empty">{message('controlSurfaces.empty')}</p>}>
+          <For each={surfaces()} fallback={<ProductEmptyState title={message('controlSurfaces.empty')} />}>
             {(surface) => {
               const decoded = () => {
                 docTick()
@@ -216,11 +217,12 @@ export function SurfacePanel(props: { app: AppState }) {
                   <Show
                     when={decoded()?.ok ? decoded() : undefined}
                     fallback={
-                      <p class="empty">
-                        {surface.type === MODE_PANEL_TYPE
+                      <ProductEmptyState
+                        tone={surface.type === MODE_PANEL_TYPE ? 'error' : 'empty'}
+                        title={surface.type === MODE_PANEL_TYPE
                           ? message('controlSurfaces.config.invalid')
                           : message('controlSurfaces.config.unknownType', { type: surface.type })}
-                      </p>
+                      />
                     }
                   >
                     {(d) => {
@@ -239,29 +241,29 @@ export function SurfacePanel(props: { app: AppState }) {
                           <ul class="surface-bindings">
                             <For
                               each={resolved()}
-                              fallback={<li class="empty">{message('controlSurfaces.binding.empty')}</li>}
+                              fallback={<li><ProductEmptyState title={message('controlSurfaces.binding.empty')} /></li>}
                             >
                               {(r, i) => (
-                                <li
-                                  class="surface-binding"
-                                  data-status={r.status}
-                                  data-testid={`surface-binding-${surface.id}-${i()}`}
-                                >
-                                  <span>{bindingLabel(r.binding, tab())}</span>
-                                  <Show when={brokenBindingMessage(r)}>
-                                    {(msg) => <span class="surface-binding-broken" tabindex="0" data-tooltip-label={msg()} aria-label={msg()}>!</span>}
-                                  </Show>
-                                  <Show when={!frozen()}>
-                                    <button
-                                      class="surface-remove"
-                                      data-testid={`surface-unbind-${surface.id}-${i()}`}
-                                      data-tooltip-label={message('controlSurfaces.action.removeBinding')}
-                                      aria-label={message('controlSurfaces.action.removeBinding')}
-                                      onClick={() => removeBinding(surface, config(), i())}
-                                    >
-                                      <Icon icon={X} />
-                                    </button>
-                                  </Show>
+                                <li>
+                                  <ProductListRow
+                                    testId={`surface-binding-${surface.id}-${i()}`}
+                                    dataAttributes={{ 'data-status': r.status }}
+                                    primary={<span classList={{ 'mode-binding-unresolved': r.status !== 'ok' }}>{bindingLabel(r.binding, tab())}</span>}
+                                    leading={<Show when={brokenBindingMessage(r)}>
+                                      {(msg) => <span class="mode-binding-warning" tabindex="0" data-tooltip-label={msg()} aria-label={msg()}>!</span>}
+                                    </Show>}
+                                    actions={<Show when={!frozen()}>
+                                      <button
+                                        class="surface-remove"
+                                        data-testid={`surface-unbind-${surface.id}-${i()}`}
+                                        data-tooltip-label={message('controlSurfaces.action.removeBinding')}
+                                        aria-label={message('controlSurfaces.action.removeBinding')}
+                                        onClick={() => removeBinding(surface, config(), i())}
+                                      >
+                                        <Icon icon={X} />
+                                      </button>
+                                    </Show>}
+                                  />
                                 </li>
                               )}
                             </For>

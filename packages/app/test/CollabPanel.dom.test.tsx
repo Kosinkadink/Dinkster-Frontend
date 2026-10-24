@@ -192,6 +192,8 @@ describe('CollabPanel', () => {
     const loadingList = deferred<readonly CollabSessionDescriptor[]>()
     const loading = mount({ list: () => loadingList.promise })
     expect(loading.root.querySelector('[data-testid="collab-loading"]')).not.toBeNull()
+    expect(loading.root.querySelector('[data-testid="collab-loading"]')?.getAttribute('role')).toBe('status')
+    expect(loading.root.querySelector('[data-testid="collab-loading"]')?.getAttribute('aria-live')).toBe('polite')
     expect(loading.root.querySelector('[data-testid="collab-refresh"]')?.getAttribute('aria-disabled')).toBe('true')
     loadingList.resolve([])
     await flush()
@@ -211,6 +213,7 @@ describe('CollabPanel', () => {
     const failed = mount({ list: async () => { throw new Error('backend unavailable') } })
     await flush()
     expect(failed.root.querySelector('[data-testid="collab-list-error"]')?.textContent).toContain('backend unavailable')
+    expect(failed.root.querySelector('[data-testid="collab-list-error"]')?.getAttribute('role')).toBe('alert')
     expect(failed.root.querySelector('[data-testid="collab-empty"]')).toBeNull()
   })
 
