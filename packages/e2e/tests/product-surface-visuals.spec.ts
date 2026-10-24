@@ -1236,6 +1236,41 @@ test('GLSL editor missing-data and refused-preview states preserve editing and d
   await page.evaluate(() => (window as unknown as { disposeGlslVisual(): void }).disposeGlslVisual())
 })
 
+test('Import resolution keeps the no-candidate explanation and unresolved decision', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  const openResolution = async (): Promise<void> => {
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      app.importAssetResolution.set({
+        matches: [{ query: 'models/checkpoints/missing-model.safetensors', candidates: [] }],
+        reasons: { 'models/checkpoints/missing-model.safetensors': 'no-match' },
+        accept: (selected) => {
+          if (selected.size !== 0) throw new Error('No candidate can be selected')
+          app.importAssetResolution.set(undefined)
+        },
+        cancel: () => app.importAssetResolution.set(undefined),
+      })
+    })
+  }
+  await openResolution()
+  const dialog = page.getByTestId('import-asset-resolution-dialog')
+  await expect(dialog.getByTestId('import-asset-empty')).toBeVisible()
+  await expect(dialog.getByRole('radio')).toHaveAttribute('aria-checked', 'true')
+  await expect(dialog.getByTestId('import-assets-selection-status')).toContainText('1 name remains unresolved')
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await expect(dialog.getByTestId('import-assets-cancel')).toBeVisible()
+    await expect(dialog.getByTestId('import-assets-accept')).toBeVisible()
+    await screenshot(page, `import-resolution-no-candidates-${width}`)
+  }
+  await dialog.getByTestId('import-assets-cancel').click()
+  await expect(dialog).toBeHidden()
+  await openResolution()
+  await dialog.getByTestId('import-assets-accept').click()
+  await expect(dialog).toBeHidden()
+})
+
 test('dock visual matrix', async ({ page }) => {
   await boot(page)
   await closeGallery(page)

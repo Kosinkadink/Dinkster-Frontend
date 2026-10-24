@@ -34,6 +34,9 @@ settles; a retry re-reads the selected source without changing its selection.
 The Assets selection rail and single/multiple asset pickers use the same
 ProductEmptyState instruction cards when nothing is selected. Picker staging,
 upload limits, selection order, Apply and Cancel remain editor-owned.
+Import resolution uses ProductEmptyState for absent replacement candidates.
+The original asset name, unresolved radio choice, reason and decision footer
+remain visible; accepting an unresolved name leaves its imported value intact.
 Output states preserve the distinction between an absent execution, waiting
 execution, retained-output loading, missing owner and failed execution.
 

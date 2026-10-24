@@ -2685,8 +2685,6 @@ body,
 .asset-decision-option-copy > small { color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); overflow-wrap: anywhere; }
 .asset-decision-option.product-radio:disabled .asset-decision-option-copy > strong,
 .asset-decision-option.product-radio:disabled .asset-decision-option-copy > small { color: var(--dinkster-text-disabled); }
-.import-asset-empty { display: grid; gap: 2px; padding: var(--dinkster-space-12); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); border: 1px dashed var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); }
-.import-asset-empty strong { color: var(--dinkster-text-primary); }
 @media (max-width: 520px) {
   .modal-surface[data-modal='asset-consent'],
   .modal-surface[data-modal='import-asset-resolution'] { width: calc(100vw - var(--dinkster-space-16)); max-width: calc(100vw - var(--dinkster-space-16)); height: calc(100vh - var(--dinkster-space-16)); max-height: calc(100vh - var(--dinkster-space-16)); }
