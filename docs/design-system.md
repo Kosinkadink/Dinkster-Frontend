@@ -22,8 +22,10 @@ than treating a live WebSocket as sufficient. Library, Assets and Outputs
 show ProductEmptyState alerts for those metadata failures and retry the failed
 reads. Backends retains its schema retry and provides an output-mount retry.
 Successful reads clear the corresponding error; a failed initial mount load
-does not continue to claim it is loading. These presentation changes do not
-close the WebSocket or change backend wire contracts.
+does not continue to claim it is loading. Concurrent mount readers follow the
+newest request's snapshot or failure, so a late older response cannot restore
+removed mounts in another panel. These presentation changes do not close the
+WebSocket or change backend wire contracts.
 
 Library collection and selection states, asset discovery and collection states,
 and the output rail use ProductEmptyState for empty, loading and error content.

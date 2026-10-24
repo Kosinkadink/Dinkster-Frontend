@@ -1621,6 +1621,7 @@ export class DinksterConnection {
   private readonly mountErrors = createSignal<string | undefined>(undefined)
   readonly mountError: ReadonlySignal<string | undefined> = this.mountErrors
   private mountRequestGeneration = 0
+  private newestMountFetch: { generation: number; promise: Promise<MountSettings> } | undefined
 
   constructor(config: DinksterConnectionConfig) {
     this.id = config.id
@@ -2612,13 +2613,27 @@ export class DinksterConnection {
 
   async fetchMountSettings(): Promise<MountSettings> {
     const generation = ++this.mountRequestGeneration
-    try {
-      const settings = await requestWithDeadline((signal) => this.readMountSettings(signal))
-      if (generation === this.mountRequestGeneration) this.mountErrors.set(undefined)
-      return settings
-    } catch (error) {
-      if (generation === this.mountRequestGeneration) this.mountErrors.set(error instanceof Error ? error.message : String(error))
-      throw error
+    const promise = requestWithDeadline((signal) => this.readMountSettings(signal))
+    this.newestMountFetch = { generation, promise }
+    // Every consumer must see the newest snapshot, including callers whose
+    // earlier response arrives after another consumer has refreshed mounts.
+    let current = { generation, promise }
+    for (;;) {
+      const newest = (): { generation: number; promise: Promise<MountSettings> } =>
+        this.newestMountFetch ?? current
+      try {
+        const settings = await current.promise
+        if (newest().generation === current.generation) {
+          this.mountErrors.set(undefined)
+          return settings
+        }
+      } catch (error) {
+        if (newest().generation === current.generation) {
+          this.mountErrors.set(error instanceof Error ? error.message : String(error))
+          throw error
+        }
+      }
+      current = newest()
     }
   }
 
