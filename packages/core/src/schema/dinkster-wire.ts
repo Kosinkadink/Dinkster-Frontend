@@ -511,10 +511,9 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       for (const key of ['min', 'max', 'step']) {
         const value = descriptor[key]
         const finiteNumber = typeof value === 'number' && Number.isFinite(value)
-        const exactNumber = finiteNumber && (!Number.isInteger(value) || Number.isSafeInteger(value))
         const decimalInteger = isCanonicalUnsafeInteger(value)
-        if (value !== undefined && !exactNumber && !decimalInteger) {
-          throw new Error(`${where}.${key} must be a finite exact number`)
+        if (value !== undefined && !finiteNumber && !decimalInteger) {
+          throw new Error(`${where}.${key} must be a finite number or exact decimal integer`)
         }
       }
       if (descriptor['min'] !== undefined && descriptor['max'] !== undefined) {
