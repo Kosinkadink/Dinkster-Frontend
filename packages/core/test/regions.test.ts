@@ -267,20 +267,27 @@ describe('region document format and invariants', () => {
     }))).toContain('doc.region.outputContinueOverlap')
   })
 
-  it('requires an exported output and diagnoses role-required ports on an empty boundary', () => {
+  it('requires an exported output or declared sink and diagnoses role-required ports', () => {
     const empty = structuredClone(documentWith({ kind: 'map', elementPorts: ['item'] })) as WorkflowDocument
     ;(empty.graphs.body as { boundary?: unknown }).boundary = { inputs: [], outputs: [] }
-    expect(codes(empty)).toEqual(expect.arrayContaining([
-      'doc.region.elementPortUndeclared',
-      'doc.region.outputRequired',
-    ]))
+    expect(codes(empty)).toContain('doc.region.elementPortUndeclared')
+    expect(deriveBoundarySchema(empty.graphs.body!, resolve, empty.graphs.root!.nodes.n0!.region).diagnostics.map((d) => d.code)).toContain('doc.region.outputRequired')
+
+    const sink = structuredClone(empty) as WorkflowDocument
+    ;(sink.graphs.body as { nodes: GraphDef['nodes'] }).nodes = { save: { id: 'save' as never, type: 'Sink', values: {} } }
+    const sinkResult = deriveBoundarySchema(sink.graphs.body!, (type) => type === 'Sink' ? sinkSchema : resolve(type), sink.graphs.root!.nodes.n0!.region)
+    expect(sinkResult.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(sinkResult.schema?.isOutputNode).toBe(true)
+
+    ;(sink.graphs.body as { nodes: GraphDef['nodes'] }).nodes = {}
+    expect(codes(sink)).toContain('doc.region.outputRequired')
 
     const continuationOnly = structuredClone(documentWith({
       kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } }, continueOutput: 'continue', maxIterations: 2,
     })) as WorkflowDocument
     const boundary = continuationOnly.graphs.body!.boundary!
     ;(boundary as { outputs: typeof boundary.outputs }).outputs = boundary.outputs.filter((item) => item.id === 'continue')
-    expect(codes(continuationOnly)).toContain('doc.region.outputRequired')
+    expect(deriveBoundarySchema(continuationOnly.graphs.body!, resolve, continuationOnly.graphs.root!.nodes.n0!.region).diagnostics.map((d) => d.code)).toContain('doc.region.outputRequired')
   })
 
   it('rejects promoted scalar widgets on element boundary inputs', () => {

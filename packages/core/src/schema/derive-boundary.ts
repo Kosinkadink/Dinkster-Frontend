@@ -1224,6 +1224,9 @@ export function deriveBoundarySchema(
 
   let derivedItems = items
   if (region !== undefined) {
+    if (!def.boundary.outputs.some((output) => output.id !== region.continueOutput) && !isOutputNode) {
+      fail('doc.region.outputRequired', 'region requires an exported boundary output or a declared output node')
+    }
     const elements = new Set(region.elementPorts ?? [])
     const state = new Set(region.statePorts ?? [])
     const outputRoles = region.outputRoles ?? {}
