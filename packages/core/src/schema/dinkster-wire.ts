@@ -535,6 +535,12 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where}.step must be positive`)
       }
       if (
+        descriptor['round'] !== undefined && descriptor['round'] !== false &&
+        (typeof descriptor['round'] !== 'number' || !Number.isFinite(descriptor['round']) || descriptor['round'] <= 0)
+      ) {
+        throw new Error(`${where}.round must be false or a finite positive number`)
+      }
+      if (
         descriptor['controlAfterGenerate'] !== undefined &&
         (typeof descriptor['controlAfterGenerate'] !== 'string' || !CONTROL_AFTER_GENERATE_MODES.has(descriptor['controlAfterGenerate']))
       ) {
@@ -622,6 +628,9 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
     case 'NUMBER':
       if (socket !== 'INT' && socket !== 'FLOAT') {
         throw new Error(`${where} requires a concrete INT or FLOAT input`)
+      }
+      if (descriptor['round'] !== undefined && socket !== 'FLOAT') {
+        throw new Error(`${where}.round requires FLOAT`)
       }
       if (socket === 'INT') {
         for (const key of ['min', 'max', 'step']) {
@@ -1019,18 +1028,7 @@ function widgetFor(
           }
         }
         if (descriptor.round !== undefined) {
-          if (numericKind === 'FLOAT' && typeof descriptor.round === 'number' && Number.isFinite(descriptor.round) && descriptor.round > 0) {
-            options['round'] = descriptor.round
-          } else {
-            diags.push(
-              diag(
-                'warning',
-                'schema',
-                'schema.dinkster.badNumberRound',
-                `${nodeType}.${id}: NUMBER round '${String(descriptor.round)}' is not a finite positive float precision; field dropped`,
-              ),
-            )
-          }
+          options['round'] = descriptor.round
         }
         let controllerInitial: WidgetSpec['controllerInitial']
         if (descriptor.controlAfterGenerate !== undefined) {
