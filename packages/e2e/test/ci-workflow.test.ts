@@ -505,10 +505,10 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(hostedConfig).toContain('if (argumentProject)')
     expect(hostedConfig).toContain(
-      "rmSync(nativeOutput, { recursive: true, force: true })",
+      'rmSync(nativeOutput, { recursive: true, force: true })',
     )
     expect(hostedConfig).not.toContain(
-      "rmSync(nativeLibrary, { recursive: true, force: true })",
+      'rmSync(nativeLibrary, { recursive: true, force: true })',
     )
     expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",

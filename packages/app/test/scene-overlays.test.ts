@@ -1239,6 +1239,30 @@ describe('deriveSceneOverlays', () => {
     expect(m.badges['parent']?.map((badge) => badge.glyph)).toEqual(['2 children'])
   })
 
+  it('projects blocked and expanded child facts through their display occurrence', () => {
+    const m = deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'source' }]),
+      exec: exec({
+        nodes: {
+          'parent.0.output': {
+            state: 'running',
+            parentRuntimeNodeId: 'parent',
+            displayRuntimeNodeId: 'source',
+          },
+        },
+        blockedNodes: {
+          'parent.0.output': { origin: 'source/value', message: 'source produced no value' },
+        },
+        expandedNodes: {
+          'parent.0.output': { children: ['parent.0.output/child'], childCount: 1 },
+        },
+      }),
+    })
+    expect(m.blockedByNode.get('source')).toBe('source produced no value')
+    expect(m.expandedByNode.get('source')).toBe(1)
+  })
+
   it('attributes media warning badges to exact nested occurrences without marking execution failed', () => {
     const execution = exec({
       valueDiagnostics: [

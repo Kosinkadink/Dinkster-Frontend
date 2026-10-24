@@ -544,6 +544,13 @@ export function deriveSceneOverlays(args: {
   readonly values: DinksterValuesClient | undefined
 }): SceneOverlayModel {
   const { scene, exec, graphId: gid, instancePath } = args
+  const executionToSource = { ...exec?.artifact?.provenance.toSource }
+  for (const [runtimeId, progress] of Object.entries(exec?.nodes ?? {})) {
+    if (progress.displayRuntimeNodeId === undefined) continue
+    executionToSource[runtimeId] =
+      exec?.artifact?.provenance.toSource[progress.displayRuntimeNodeId] ??
+      progress.displayRuntimeNodeId
+  }
 
   // Occurrence mapping for the CURRENT view: which runtime ids each scene
   // node owns given the instance path the user navigated. The artifact's
@@ -567,7 +574,7 @@ export function deriveSceneOverlays(args: {
             ...exec.logs.flatMap((entry) => entry.runtimeNodeId === undefined ? [] : [entry.runtimeNodeId]),
             ...(exec.valueDiagnostics ?? []).map((diagnostic) => diagnostic.nodeId),
           ]),
-          toSource: exec.artifact?.provenance.toSource,
+          toSource: executionToSource,
         })
       : undefined
   /** Runtime ids of a document node's OWN occurrence in this view. */
