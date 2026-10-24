@@ -859,7 +859,7 @@ export function convertLitegraphLoops(
             id: compareId,
             type: STRUCTURAL_IMPORT_HELPERS.compare,
             values: {
-              b: 0,
+              b: { $typed: { type: 'INT', value: 0 } },
               operation: 'eq',
               epsilon: 0,
             },
