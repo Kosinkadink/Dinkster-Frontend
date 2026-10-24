@@ -533,7 +533,9 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain(
       'packages/dinkster-nodes-dev/dinkster-pack.toml',
     )
-    expect(hostedConfig).toContain('`--pack ${JSON.stringify(resolve(dinksterRoot,')
+    expect(hostedConfig).toContain(
+      '`--pack ${JSON.stringify(resolve(dinksterRoot,',
+    )
     expect(hostedConfig).not.toContain("'--dev'")
     expect(auditConfig).toContain(
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
@@ -544,7 +546,9 @@ describe('fast pull-request and full validation workflows', () => {
     expect(auditConfig).toContain(
       'packages/dinkster-nodes-dev/dinkster-pack.toml',
     )
-    expect(auditConfig).toContain('`--pack ${JSON.stringify(resolve(dinksterRoot,')
+    expect(auditConfig).toContain(
+      '`--pack ${JSON.stringify(resolve(dinksterRoot,',
+    )
     expect(auditConfig).not.toContain("'--dev'")
   })
 })
