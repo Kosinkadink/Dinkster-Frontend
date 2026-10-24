@@ -63,10 +63,10 @@ const schemas: Record<string, NodeSchema> = {
     widget: { widgetType: 'FLOAT', options: {}, default: 1 },
   }]),
   SpecializedSlot: schemaOf('SpecializedSlot', [{
-    ...input('model', { kind: 'concrete', name: 'dinkster.model' }),
+    ...input('model', { kind: 'concrete', name: 'MODEL' }),
     dynamic: {
       kind: 'dynamicSlot',
-      slotType: { kind: 'concrete', name: 'dinkster.model' },
+      slotType: { kind: 'concrete', name: 'MODEL' },
       inputs: [],
       variants: [{ key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, inputs: [] }],
     },

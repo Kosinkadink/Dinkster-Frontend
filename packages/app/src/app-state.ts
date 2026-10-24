@@ -5275,7 +5275,7 @@ export class AppState {
         ? graph.nodes[envelopeSource.node]
         : undefined
       const envelopeCurve = envelope && resolve?.(envelope.type)?.items.find((item) =>
-        item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'dinkster.curve')
+        item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'CURVE')
       const audioSource = envelope && resolve?.(envelope.type)?.editorRole === 'audio-envelope'
         ? sources.get(envelope.id)?.get('audio')
         : undefined

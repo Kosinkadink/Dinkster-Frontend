@@ -434,7 +434,7 @@ describe('documentResolver', () => {
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
-const SAVE_TARGET: TypeExpr = { kind: 'concrete', name: 'dinkster.save_target' }
+const SAVE_TARGET: TypeExpr = { kind: 'concrete', name: 'SAVE_TARGET' }
 const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   kind: 'input',
   id,

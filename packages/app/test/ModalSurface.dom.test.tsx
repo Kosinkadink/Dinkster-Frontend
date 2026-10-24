@@ -272,7 +272,7 @@ describe('ASSET widget modal integration', () => {
 
   const catalogAssetEditor = (
     kind: string,
-    declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'dinkster.asset' },
+    declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
     initial: WidgetEditorState['initial'] = null,
     mountEditor = true,
   ) => {
@@ -715,7 +715,7 @@ describe('ASSET widget modal integration', () => {
   const unresolvedAssetEditor = (
     overrides: Partial<AppState> = {},
     initial = 'models/checkpoints/missing-model.safetensors',
-    declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'dinkster.asset' },
+    declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
   ) => {
     const root = document.createElement('div')
     document.body.append(root)
@@ -926,7 +926,7 @@ describe('ASSET widget modal integration', () => {
       target: { kind: 'input', nodeId: 'n0', valueKey: 'file' },
       label: 'Reference file',
       spec: { widgetType: 'ASSET', options: { accept: ['application/octet-stream'] } },
-      declaredType: { kind: 'concrete', name: 'dinkster.asset' },
+      declaredType: { kind: 'concrete', name: 'ASSET' },
       multiline: false,
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
@@ -1675,9 +1675,9 @@ describe('registered interactive widget expanded-editor integration', () => {
 
   it('retains SAVE_TARGET constraints and commits only a valid structured target', async () => {
     const state = widgetState('SAVE_TARGET', { suffix: '.png' }, { mount: 'output', prefix: 'images/test' })
-    const mounted = mountWidget({ ...state, declaredType: { kind: 'concrete', name: 'dinkster.save_target' } })
+    const mounted = mountWidget({ ...state, declaredType: { kind: 'concrete', name: 'SAVE_TARGET' } })
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(mounted.root.querySelector('[data-testid="widget-editor-type"]')?.textContent).toBe('dinkster.save_target')
+    expect(mounted.root.querySelector('[data-testid="widget-editor-type"]')?.textContent).toBe('SAVE_TARGET')
     expect(mounted.root.querySelector('[data-testid="save-target-output-format"]')?.textContent).toBe('.png')
     expect(mounted.root.querySelector('[data-testid="save-target-suffix"]')?.textContent).toBe('.png')
     const mount = mounted.root.querySelector<HTMLButtonElement>('[data-testid="save-target-mount"]')!

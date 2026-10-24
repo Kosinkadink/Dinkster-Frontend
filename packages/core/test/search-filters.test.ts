@@ -486,7 +486,7 @@ describe('v14 COMBO link-drop compatibility', () => {
 })
 
 describe('SAVE_TARGET link-drop compatibility', () => {
-  const saveTarget = concrete('dinkster.save_target')
+  const saveTarget = concrete('SAVE_TARGET')
   const consumer = schema([input('target', saveTarget, {
     widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
   })])

@@ -203,11 +203,11 @@ describe('peekCandidatesFor', () => {
     const schema = {
       type: 'test.model3d',
       items: [
-        { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'dinkster.model3d' }, preview: true },
+        { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'MODEL3D' }, preview: true },
         {
           kind: 'output',
           id: 'saved',
-          type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.model3d' } },
+          type: { kind: 'asset', element: { kind: 'concrete', name: 'MODEL3D' } },
           preview: true,
         },
       ],
@@ -221,7 +221,7 @@ describe('peekCandidatesFor', () => {
   it('carries splat intent through concrete outputs as model3d', () => {
     const schema = {
       type: 'test.splat',
-      items: [{ kind: 'output', id: 'splat', type: { kind: 'concrete', name: 'dinkster.splat' }, preview: true }],
+      items: [{ kind: 'output', id: 'splat', type: { kind: 'concrete', name: 'SPLAT' }, preview: true }],
     } as unknown as NodeSchema
     expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
       { node: 'runtime', output: 'splat', declaredIntent: true, mediaKind: 'model3d' },

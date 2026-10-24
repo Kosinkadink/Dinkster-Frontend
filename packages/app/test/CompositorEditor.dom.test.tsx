@@ -41,7 +41,7 @@ const payload = {
       interface: [
         {
           role: 'input', id: 'recipe', required: false,
-          type: { kind: 'concrete', types: ['dinkster.compositor'] },
+          type: { kind: 'concrete', types: ['COMPOSITOR'] },
           default: EMPTY_COMPOSITOR_RECIPE,
           widget: { type: 'COMPOSITOR' },
         },

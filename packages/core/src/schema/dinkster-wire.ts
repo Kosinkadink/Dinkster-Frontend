@@ -603,10 +603,10 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       if (socket !== 'STRING') throw new Error(`${where} requires a concrete STRING input`)
       return
     case 'CURVE':
-      if (socket !== 'dinkster.curve') throw new Error(`${where} requires a concrete dinkster.curve input`)
+      if (socket !== 'CURVE') throw new Error(`${where} requires a concrete CURVE input`)
       return
     case 'COMPOSITOR':
-      if (socket !== 'dinkster.compositor') throw new Error(`${where} requires a concrete dinkster.compositor input`)
+      if (socket !== 'COMPOSITOR') throw new Error(`${where} requires a concrete COMPOSITOR input`)
       return
     case 'BOOLEAN':
       if (socket !== 'BOOLEAN') throw new Error(`${where} requires a concrete BOOLEAN input`)
@@ -635,18 +635,18 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       }
       return
     case 'SAVE_TARGET':
-      if (socket !== 'dinkster.save_target') throw new Error(`${where} requires a concrete dinkster.save_target input`)
+      if (socket !== 'SAVE_TARGET') throw new Error(`${where} requires a concrete SAVE_TARGET input`)
       return
     case 'ASSET':
       if (type.kind === 'concrete') return
-      if (descriptor['allowUpload'] === true && type.kind === 'list' && type.element.kind === 'concrete' && type.element.name === 'dinkster.asset') return
+      if (descriptor['allowUpload'] === true && type.kind === 'list' && type.element.kind === 'concrete' && type.element.name === 'ASSET') return
       if (type.kind === 'asset') {
         const isClosed = (candidate: TypeExpr): boolean =>
           candidate.kind === 'concrete' ||
           ((candidate.kind === 'list' || candidate.kind === 'asset' || candidate.kind === 'stream') && isClosed(candidate.element))
         if (isClosed(type.element)) return
       }
-      throw new Error(`${where} requires a concrete scalar, dinkster.asset, or fully-concrete asset input`)
+      throw new Error(`${where} requires a concrete scalar, ASSET, or fully-concrete asset input`)
     default:
       return
   }
@@ -1197,11 +1197,11 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
     if (source['category'] !== 'input' && source['category'] !== 'output' && source['category'] !== 'temp') {
       throw new Error(`${nodeType}.${id}.sourceFilename.category is invalid`)
     }
-    const isAssetExpr = (t: TypeExpr): boolean => (t.kind === 'concrete' && t.name === 'dinkster.asset') || t.kind === 'asset'
+    const isAssetExpr = (t: TypeExpr): boolean => (t.kind === 'concrete' && t.name === 'ASSET') || t.kind === 'asset'
     const scalarAsset = isAssetExpr(type)
     const listedAsset = type.kind === 'list' && isAssetExpr(type.element)
     if (!scalarAsset && !listedAsset) {
-      throw new Error(`${nodeType}.${id}.sourceFilename requires an asset-typed input (dinkster.asset, asset<T>, or a list of either)`)
+      throw new Error(`${nodeType}.${id}.sourceFilename requires an asset-typed input (ASSET, asset<T>, or a list of either)`)
     }
     if (widget?.representations !== undefined || widget?.widgetType !== 'ASSET' || widget.allowUpload !== true || widget.kind !== source['kind']) {
       throw new Error(`${nodeType}.${id}.sourceFilename requires a matching upload-enabled ASSET widget`)
@@ -1935,8 +1935,8 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       }
       if (spec.probe) {
         const asset = decodedInputs.get(spec.probe.input)
-        if (!spec.fixedIds || !asset || asset.dynamic || asset.optional || asset.type.kind !== 'concrete' || asset.type.name !== 'dinkster.asset') {
-          throw new Error(`output descriptor probe requires fixedIds and an ordinary required dinkster.asset input`)
+        if (!spec.fixedIds || !asset || asset.dynamic || asset.optional || asset.type.kind !== 'concrete' || asset.type.name !== 'ASSET') {
+          throw new Error(`output descriptor probe requires fixedIds and an ordinary required ASSET input`)
         }
       }
     }

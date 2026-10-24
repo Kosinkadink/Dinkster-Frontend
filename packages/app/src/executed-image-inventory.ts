@@ -51,7 +51,7 @@ function imageAssetRefsInOrder(descriptor: unknown): readonly ImageAssetRef[] {
     const mediaType = typeof meta?.['mediaType'] === 'string' ? meta['mediaType'] : undefined
     if (
       typeof typeId === 'string' &&
-      (typeId === 'dinkster.asset' || parseAssetTypeId(typeId) !== undefined) &&
+      (typeId === 'ASSET' || parseAssetTypeId(typeId) !== undefined) &&
       digest !== undefined && CAS_DIGEST.test(digest) && mediaType?.startsWith('image/') === true
     ) {
       const name = typeof meta?.['name'] === 'string' ? meta['name'] : undefined
