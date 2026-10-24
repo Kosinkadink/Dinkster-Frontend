@@ -1,7 +1,7 @@
 # Dynamic output families
 
 The current Dinkster schema can declare top-level output families whose size comes
-from a required `core.int` input. The count must be a stored, nonnegative safe
+from a required `INT` input. The count must be a stored, nonnegative safe
 integer within every family bound that uses it. A linked count input is invalid.
 
 Members use canonical suffixes `0` through `count - 1`. Their document
@@ -51,7 +51,7 @@ member identities and terminal output indexes, as covered by
 ## Named, typed output descriptors
 
 The schema also supports `outputDescriptors`: a concrete type catalog plus the name of a
-required `core.string` source input. Its stored JSON is an object with an
+required `STRING` source input. Its stored JSON is an object with an
 ordered `entries` array. Each entry has a stable `id`, display `name`, and
 catalog choice `type`. Other document and entry fields belong to the node and
 are preserved, including expression text, values, and indices.
@@ -102,6 +102,6 @@ lists that stable ID under **Inactive linked outputs**. The link remains in the
 document and blocks execution until a matching profile restores it or the user
 disconnects it. Profile changes never move a link to another output by position.
 
-`dinkster.load_model_profile` declares a required concrete `dinkster.asset` input
+`dinkster.load_model_profile` declares a required concrete `ASSET` input
 named `checkpoint`, with descriptors stored in `entries`. Asset and query
 digests are canonical `blake3:<64 lowercase hex>`; `shapeDigest` is SHA256.

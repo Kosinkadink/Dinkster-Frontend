@@ -34,64 +34,64 @@ describe('typesCompatible', () => {
     expect(typesCompatible(imgVar, c('LATENT'))).toBe(false)
   })
 
-  it('treats dinkster.save_target as an ordinary exact atom, never as core.string', () => {
-    expect(typesCompatible(c('dinkster.save_target'), c('dinkster.save_target'))).toBe(true)
-    expect(typesCompatible(c('core.string'), c('dinkster.save_target'))).toBe(false)
-    expect(typesCompatible(c('dinkster.save_target'), c('core.string'))).toBe(false)
+  it('treats SAVE_TARGET as an ordinary exact atom, never as STRING', () => {
+    expect(typesCompatible(c('SAVE_TARGET'), c('SAVE_TARGET'))).toBe(true)
+    expect(typesCompatible(c('STRING'), c('SAVE_TARGET'))).toBe(false)
+    expect(typesCompatible(c('SAVE_TARGET'), c('STRING'))).toBe(false)
   })
 })
 
-describe('interchangeable comfy-compat atoms', () => {
-  it('dinkster.image and comfy.IMAGE match in both directions', () => {
-    expect(typesCompatible(c('dinkster.image'), c('comfy.IMAGE'))).toBe(true)
-    expect(typesCompatible(c('comfy.IMAGE'), c('dinkster.image'))).toBe(true)
-    expect(typesCompatible(c('dinkster.image'), c('dinkster.image'))).toBe(true)
+describe('comfy-compat atoms', () => {
+  it('comfy.IMAGE matches IMAGE in both directions', () => {
+    expect(typesCompatible(c('IMAGE'), c('comfy.IMAGE'))).toBe(true)
+    expect(typesCompatible(c('comfy.IMAGE'), c('IMAGE'))).toBe(true)
+    expect(typesCompatible(c('IMAGE'), c('IMAGE'))).toBe(true)
   })
 
   it('canonicalization lifts through structured types', () => {
-    expect(typesCompatible(list(c('dinkster.image')), list(c('comfy.IMAGE')))).toBe(true)
-    expect(typesCompatible(list(c('comfy.IMAGE')), list(c('dinkster.image')))).toBe(true)
+    expect(typesCompatible(list(c('IMAGE')), list(c('comfy.IMAGE')))).toBe(true)
+    expect(typesCompatible(list(c('comfy.IMAGE')), list(c('IMAGE')))).toBe(true)
     // The single asset decode step also bridges the pair.
-    expect(typesCompatible(asset(c('dinkster.image')), c('comfy.IMAGE'))).toBe(true)
-    expect(typesCompatible(asset(c('comfy.IMAGE')), c('dinkster.image'))).toBe(true)
+    expect(typesCompatible(asset(c('IMAGE')), c('comfy.IMAGE'))).toBe(true)
+    expect(typesCompatible(asset(c('comfy.IMAGE')), c('IMAGE'))).toBe(true)
   })
 
   it('canonicalization applies inside unions and variable domains', () => {
-    expect(typesCompatible(u('dinkster.image', 'LATENT'), c('comfy.IMAGE'))).toBe(true)
+    expect(typesCompatible(u('IMAGE', 'LATENT'), c('comfy.IMAGE'))).toBe(true)
     const imgVar: TypeExpr = { kind: 'variable', templateId: 'T', allowedTypes: [c('comfy.IMAGE')] }
-    expect(typesCompatible(c('dinkster.image'), imgVar)).toBe(true)
+    expect(typesCompatible(c('IMAGE'), imgVar)).toBe(true)
   })
 
-  it('dinkster.mask and comfy.MASK match in both directions', () => {
-    expect(typesCompatible(c('dinkster.mask'), c('comfy.MASK'))).toBe(true)
-    expect(typesCompatible(c('comfy.MASK'), c('dinkster.mask'))).toBe(true)
-    expect(typesCompatible(list(c('dinkster.mask')), list(c('comfy.MASK')))).toBe(true)
-    expect(typesCompatible(asset(c('dinkster.mask')), c('comfy.MASK'))).toBe(true)
+  it('comfy.MASK matches MASK in both directions', () => {
+    expect(typesCompatible(c('MASK'), c('comfy.MASK'))).toBe(true)
+    expect(typesCompatible(c('comfy.MASK'), c('MASK'))).toBe(true)
+    expect(typesCompatible(list(c('MASK')), list(c('comfy.MASK')))).toBe(true)
+    expect(typesCompatible(asset(c('MASK')), c('comfy.MASK'))).toBe(true)
   })
 
   it('does not widen either id to unrelated atoms', () => {
-    expect(typesCompatible(c('dinkster.image'), c('comfy.MASK'))).toBe(false)
-    expect(typesCompatible(c('comfy.MASK'), c('dinkster.image'))).toBe(false)
+    expect(typesCompatible(c('IMAGE'), c('comfy.MASK'))).toBe(false)
+    expect(typesCompatible(c('comfy.MASK'), c('IMAGE'))).toBe(false)
     // The pairs canonicalize independently: image never crosses to mask.
-    expect(typesCompatible(c('dinkster.mask'), c('comfy.IMAGE'))).toBe(false)
-    expect(typesCompatible(c('dinkster.mask'), c('dinkster.image'))).toBe(false)
+    expect(typesCompatible(c('MASK'), c('comfy.IMAGE'))).toBe(false)
+    expect(typesCompatible(c('MASK'), c('IMAGE'))).toBe(false)
   })
 
   it('canonicalCompatTypeId collapses spellings while keeping wrappers', () => {
-    expect(canonicalCompatTypeId('dinkster.image')).toBe('comfy.IMAGE')
-    expect(canonicalCompatTypeId('comfy.IMAGE')).toBe('comfy.IMAGE')
-    expect(canonicalCompatTypeId('dinkster.mask')).toBe('comfy.MASK')
-    expect(canonicalCompatTypeId('comfy.MASK')).toBe('comfy.MASK')
-    expect(canonicalCompatTypeId('list<dinkster.image>')).toBe('list<comfy.IMAGE>')
-    expect(canonicalCompatTypeId('asset<list<dinkster.image>>')).toBe('asset<list<comfy.IMAGE>>')
+    expect(canonicalCompatTypeId('IMAGE')).toBe('IMAGE')
+    expect(canonicalCompatTypeId('comfy.IMAGE')).toBe('IMAGE')
+    expect(canonicalCompatTypeId('MASK')).toBe('MASK')
+    expect(canonicalCompatTypeId('comfy.MASK')).toBe('MASK')
+    expect(canonicalCompatTypeId('list<IMAGE>')).toBe('list<IMAGE>')
+    expect(canonicalCompatTypeId('asset<list<IMAGE>>')).toBe('asset<list<IMAGE>>')
     // Non-interchangeable ids pass through untouched.
-    expect(canonicalCompatTypeId('dinkster.latent')).toBe('dinkster.latent')
+    expect(canonicalCompatTypeId('LATENT')).toBe('LATENT')
     expect(canonicalCompatTypeId('list<LATENT>')).toBe('list<LATENT>')
   })
 
   it('canonicalCompatTypeIdOf resolves closed exprs and rejects open ones', () => {
-    expect(canonicalCompatTypeIdOf(c('dinkster.image'))).toBe('comfy.IMAGE')
-    expect(canonicalCompatTypeIdOf(list(c('dinkster.image')))).toBe('list<comfy.IMAGE>')
+    expect(canonicalCompatTypeIdOf(c('IMAGE'))).toBe('IMAGE')
+    expect(canonicalCompatTypeIdOf(list(c('IMAGE')))).toBe('list<IMAGE>')
     expect(canonicalCompatTypeIdOf(c('LATENT'))).toBe('LATENT')
     expect(canonicalCompatTypeIdOf(wild)).toBeUndefined()
   })

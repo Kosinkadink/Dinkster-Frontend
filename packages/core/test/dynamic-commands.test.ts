@@ -1003,7 +1003,7 @@ describe('materializeFramesOf', () => {
           role: 'inputFamily', id: 'inner', memberPrefix: 'sub', minMembers: 1, maxMembers: 2,
           template: [{
             role: 'input', id: 'value',
-            type: { kind: 'concrete', types: ['core.int'] }, required: false,
+            type: { kind: 'concrete', types: ['INT'] }, required: false,
           }],
         }],
       }],

@@ -69,7 +69,7 @@ test.describe('plain widget editors', () => {
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
     await page.evaluate(() => {
       const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
-        kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'core.combo' : widgetType }, optional: false,
+        kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
         widget: { widgetType, options, default: defaultValue },
       })
       window.__dinksterTest!.app.registerSchemas([{

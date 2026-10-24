@@ -37,8 +37,8 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     window.__dinksterTest!.app.registerSchemas([{
       type: nodeType, displayName: profile ? 'Load Model Profile' : 'Named Expressions', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        ...(profile ? [{ kind: 'input' as const, id: 'checkpoint', type: { kind: 'concrete' as const, name: 'dinkster.asset' }, optional: false, widget: { widgetType: 'ASSET', options: {} } }] : []),
-        { kind: 'input', id: 'entries', displayName: 'Output schema', type: { kind: 'concrete', name: 'core.string' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: source } },
+        ...(profile ? [{ kind: 'input' as const, id: 'checkpoint', type: { kind: 'concrete' as const, name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', options: {} } }] : []),
+        { kind: 'input', id: 'entries', displayName: 'Output schema', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: source } },
         { kind: 'output', id: 'entries', type: choices[0]!.type, outputDescriptors: { input: 'entries', choices, minEntries: profile ? 1 : 0, maxEntries: profile ? 3 : 32, fixedIds, ...(profile ? { probe: { input: 'checkpoint', kind: 'model' as const, revision: '1' } } : {}) } },
       ],
     }])

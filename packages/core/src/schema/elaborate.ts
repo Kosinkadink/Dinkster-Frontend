@@ -1462,7 +1462,7 @@ export interface ElaborateOptions {
  * (namespacing), '@' (references), '$', '{', '}' (substitution), '/',
  * '\\' (alternate separators/escape), quotes and backtick (quoting in any
  * future DSL), '<', '>' (type-constructor syntax in canonical runtime type
- * ids, e.g. Dinkster's list<core.int> - schema wire v2), and whitespace
+ * ids, e.g. Dinkster's list<INT> - schema wire v2), and whitespace
  * (ambiguous everywhere). Ids matching [A-Za-z0-9_-]+ are guaranteed never
  * to collide with address syntax.
  */

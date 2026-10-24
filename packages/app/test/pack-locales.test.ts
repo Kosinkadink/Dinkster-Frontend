@@ -22,7 +22,7 @@ const schema: NodeSchema = {
       id: 'color',
       displayName: 'Color',
       tooltip: 'Base color help',
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       optional: false,
       widget: {
         widgetType: 'COMBO',
@@ -42,7 +42,7 @@ const schema: NodeSchema = {
           kind: 'input',
           id: 'caption',
           displayName: 'Caption',
-          type: { kind: 'concrete', name: 'core.string' },
+          type: { kind: 'concrete', name: 'STRING' },
           optional: true,
         }],
       },
@@ -51,7 +51,7 @@ const schema: NodeSchema = {
       kind: 'output',
       id: 'image',
       displayName: 'Image',
-      type: { kind: 'concrete', name: 'dinkster.image' },
+      type: { kind: 'concrete', name: 'IMAGE' },
     },
   ],
 }

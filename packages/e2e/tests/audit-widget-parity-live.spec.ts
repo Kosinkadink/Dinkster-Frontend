@@ -97,7 +97,7 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
   // Execution registers dinkster.image lazily without changing the node catalog.
   expect([
     ['comfy.IMAGE'],
-    ['comfy.IMAGE', 'dinkster.image'],
+    ['comfy.IMAGE', 'IMAGE'],
   ]).toContainEqual(catalog.dinkster.mergeableTypes)
   const stableDinkster = Object.fromEntries(
     Object.entries(catalog.dinkster).filter(([key]) => key !== 'mergeableTypes'),

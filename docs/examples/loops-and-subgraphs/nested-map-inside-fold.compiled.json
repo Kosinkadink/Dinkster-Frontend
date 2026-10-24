@@ -9,14 +9,14 @@
             "element": {
               "kind": "concrete",
               "types": [
-                "core.int"
+                "INT"
               ]
             }
           },
           "total": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -49,13 +49,13 @@
                   "left": {
                     "kind": "concrete",
                     "types": [
-                      "core.int"
+                      "INT"
                     ]
                   },
                   "right": {
                     "kind": "concrete",
                     "types": [
-                      "core.int"
+                      "INT"
                     ]
                   }
                 },

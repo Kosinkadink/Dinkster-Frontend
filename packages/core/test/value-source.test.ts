@@ -254,7 +254,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
             items: [{
               kind: 'input',
               id: 'mask',
-              type: { kind: 'concrete', name: type === 'NativeMaskSink' ? 'dinkster.mask' : 'comfy.MASK' },
+              type: { kind: 'concrete', name: type === 'NativeMaskSink' ? 'MASK' : 'comfy.MASK' },
               optional: false,
             }],
           } as never)

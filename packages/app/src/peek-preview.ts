@@ -47,10 +47,10 @@ const mediaKindOfType = (type: TypeExpr): 'image' | 'video' | 'audio' | 'model3d
     ? 'video'
     : name.endsWith('.audio')
       ? 'audio'
-      : name.endsWith('.image')
+      : name === 'image' || name.endsWith('.image')
         ? 'image'
-        // dinkster.splat renders through the model3d pipeline via its PLY rendition.
-        : name.endsWith('.model3d') || name.endsWith('.splat') ? 'model3d' : undefined
+        // SPLAT renders through the model3d pipeline via its PLY rendition.
+        : name === 'model3d' || name === 'splat' || name.endsWith('.model3d') || name.endsWith('.splat') ? 'model3d' : undefined
 }
 
 /** Explicit final-output preview intent, preserving declaration order. */

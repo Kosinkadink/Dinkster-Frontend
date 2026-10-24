@@ -15,7 +15,7 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    const scalar = { kind: 'concrete', name: 'core.float' }
+    const scalar = { kind: 'concrete', name: 'FLOAT' }
     app.registerSchemas([
       {
         type: 'OptionalOutputProof',

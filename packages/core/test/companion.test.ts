@@ -47,7 +47,7 @@ function graph(partial: Omit<Partial<GraphDef>, 'id'> & { id: string }): GraphDe
 const sourceOf = (def: GraphDef, nodeId: string, portId: string) =>
   companionSourcesOf(def).get(nodeId)?.get(portId)
 
-const primitiveSchema = (typeName = 'core.int'): NodeSchema => ({
+const primitiveSchema = (typeName = 'INT'): NodeSchema => ({
   type: 'Primitive',
   displayName: 'Primitive',
   category: '',
@@ -115,10 +115,10 @@ describe('companionSourcesOf', () => {
   })
 
   it.each([
-    ['core.int', 7],
-    ['core.float', 1.25],
-    ['core.string', 'hello'],
-    ['core.boolean', true],
+    ['INT', 7],
+    ['FLOAT', 1.25],
+    ['STRING', 'hello'],
+    ['BOOLEAN', true],
   ] as const)('resolves a declared %s identity output to its typed literal', (typeName, value) => {
     const def = graph({
       id: 'g0',
@@ -198,7 +198,7 @@ describe('companionSourcesOf', () => {
       },
       links: { l1: link('l1', port('primitive', 'result'), port('consumer', 'in')) },
     })
-    const schema = primitiveSchema('core.boolean')
+    const schema = primitiveSchema('BOOLEAN')
     expect(companionSourcesOf(def, undefined, () => false, () => schema).get('consumer')?.get('in'))
       .toEqual({ kind: 'literal', value: false })
   })

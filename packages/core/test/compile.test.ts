@@ -434,7 +434,7 @@ describe('documentResolver', () => {
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
-const SAVE_TARGET: TypeExpr = { kind: 'concrete', name: 'dinkster.save_target' }
+const SAVE_TARGET: TypeExpr = { kind: 'concrete', name: 'SAVE_TARGET' }
 const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   kind: 'input',
   id,
@@ -461,7 +461,7 @@ const wire15SchemaOf = (type: string, interfaceItems: readonly Record<string, un
 const dynSchemas: Record<string, NodeSchema> = {
   ImageSrc: dynSchemaOf('ImageSrc', [dynOutput('out')]),
   BooleanSrc: {
-    ...dynSchemaOf('BooleanSrc', [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'core.boolean' } }]),
+    ...dynSchemaOf('BooleanSrc', [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'BOOLEAN' } }]),
     isOutputNode: false,
   },
   SaveTargetSrc: dynSchemaOf('SaveTargetSrc', [{ kind: 'output', id: 'target', type: SAVE_TARGET }]),
@@ -518,7 +518,7 @@ const dynSchemas: Record<string, NodeSchema> = {
       },
     },
     dynInput('name', {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'COMBO', options: {}, optionSource: { inputFamily: 'values' } },
     }),
     dynOutput('out'),
@@ -548,7 +548,7 @@ const dynSchemas: Record<string, NodeSchema> = {
   ]),
   CountSplitter: dynSchemaOf('CountSplitter', [
     dynInput('count', {
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       widget: { widgetType: 'INT', options: {}, default: 0 },
     }),
     {
@@ -563,7 +563,7 @@ const dynSchemas: Record<string, NodeSchema> = {
   ]),
   CountMultiSplitter: dynSchemaOf('CountMultiSplitter', [
     dynInput('count', {
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       widget: { widgetType: 'INT', options: {}, default: 0 },
     }),
     dynOutput('before'),
@@ -613,13 +613,13 @@ const dynSchemas: Record<string, NodeSchema> = {
   ]),
   ExactInteger: dynSchemaOf('ExactInteger', [
     dynInput('seed', {
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       widget: { widgetType: 'INT', options: { min: 0, max: '18446744073709551615' }, default: 0 },
     }),
   ]),
   HiddenProvider: dynSchemaOf('HiddenProvider', [
     dynInput('provider', {
-      type: { kind: 'concrete', name: 'core.combo' },
+      type: { kind: 'concrete', name: 'COMBO' },
       optional: true,
       widget: {
         widgetType: 'COMBO',
@@ -633,7 +633,7 @@ const dynSchemas: Record<string, NodeSchema> = {
     dynInput('value', { type: { kind: 'wildcard' } }),
   ]),
   DecimalIntegerFloatSink: dynSchemaOf('DecimalIntegerFloatSink', [
-    dynInput('value', { type: { kind: 'concrete', name: 'core.float' } }),
+    dynInput('value', { type: { kind: 'concrete', name: 'FLOAT' } }),
   ]),
   // DynamicCombo: selector value is dynamic state; branch values branch-local.
   Modal: dynSchemaOf('Modal', [
@@ -761,7 +761,7 @@ const dynSchemas: Record<string, NodeSchema> = {
   }]),
   LazySelector: {
     ...dynSchemaOf('LazySelector', [
-      dynInput('switch', { type: { kind: 'concrete', name: 'core.boolean' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
+      dynInput('switch', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
       dynInput('on_false'),
       dynInput('on_true'),
       dynOutput('result'),
@@ -770,7 +770,7 @@ const dynSchemas: Record<string, NodeSchema> = {
   },
   LazySelectorOdd: {
     ...dynSchemaOf('LazySelectorOdd', [
-      dynInput('switch#id', { type: { kind: 'concrete', name: 'core.boolean' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
+      dynInput('switch#id', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
       dynInput('on_false'),
       dynInput('on_true'),
       dynOutput('result'),
@@ -936,7 +936,7 @@ describe('dynamic interfaces', () => {
     }
   })
 
-  it('preserves $int when a widget tap bakes an unsafe integer into core.int', () => {
+  it('preserves $int when a widget tap bakes an unsafe integer into INT', () => {
     const document = dynDoc({
       nodes: {
         source: { type: 'ExactInteger', values: { seed: '18446744073709551615' } },
@@ -981,7 +981,7 @@ describe('dynamic interfaces', () => {
     },
   )
 
-  it('compiles a concrete dinkster.save_target producer into a widget-backed input as an ordinary link', () => {
+  it('compiles a concrete SAVE_TARGET producer into a widget-backed input as an ordinary link', () => {
     const result = dynCompile(dynDoc({
       nodes: {
         producer: { type: 'SaveTargetSrc' },

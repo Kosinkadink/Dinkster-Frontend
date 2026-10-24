@@ -85,12 +85,12 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
           interface: [
             {
               role: 'input', id: 'color', displayName: 'RAW color', required: true,
-              type: { kind: 'concrete', types: ['core.combo'] },
+              type: { kind: 'concrete', types: ['COMBO'] },
               widget: { type: 'COMBO', options: ['red', 'blue'] },
             },
             {
               role: 'output', id: 'image', displayName: 'RAW image',
-              type: { kind: 'concrete', types: ['dinkster.image'] },
+              type: { kind: 'concrete', types: ['IMAGE'] },
             },
           ],
         },

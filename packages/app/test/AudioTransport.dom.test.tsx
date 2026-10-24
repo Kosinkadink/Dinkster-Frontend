@@ -202,13 +202,13 @@ describe('shared audio transport lifecycle', () => {
     const values = {
       peek: vi.fn(async () => ({
         available: true,
-        descriptor: { typeId: 'dinkster.curve', fingerprint: 'curve' },
+        descriptor: { typeId: 'CURVE', fingerprint: 'curve' },
         renditions: [{ kind: 'curve-points', mime: 'application/json', default: true, cacheKey: 'curve-points', limits: { points: 4096 } }],
       })),
       rendition: vi.fn(async () => ({
         available: true, bytes: new TextEncoder().encode(JSON.stringify(curve)).buffer,
         mime: 'application/json', kind: 'curve-points', reportedKind: 'curve-points',
-        typeId: 'dinkster.curve', fingerprint: 'curve',
+        typeId: 'CURVE', fingerprint: 'curve',
       })),
     }
     let relation = true
@@ -255,7 +255,7 @@ describe('shared audio transport lifecycle', () => {
     values.rendition.mockResolvedValueOnce({
       available: true, bytes: new TextEncoder().encode(JSON.stringify(curve)).buffer,
       mime: 'application/json', kind: 'curve-points', reportedKind: 'curve-points',
-      typeId: 'dinkster.curve', fingerprint: 'different-execution',
+      typeId: 'CURVE', fingerprint: 'different-execution',
     })
     executionState.set(new Map([['run', execution]]))
     await vi.waitFor(() => expect(host.textContent).toContain('does not match the executed curve'))

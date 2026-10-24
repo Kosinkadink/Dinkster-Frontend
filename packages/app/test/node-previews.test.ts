@@ -346,10 +346,10 @@ describe('sourceFor', () => {
       outputs: {
         n1: {
           assets: {
-            typeId: 'list<dinkster.asset>',
+            typeId: 'list<ASSET>',
             fingerprint: 'fp',
             elements: [
-              { typeId: 'dinkster.asset', fingerprint: digest, meta: { digest, mediaType: 'image/png', name: 'out.png' } },
+              { typeId: 'ASSET', fingerprint: digest, meta: { digest, mediaType: 'image/png', name: 'out.png' } },
             ],
           },
         },
@@ -365,7 +365,7 @@ describe('sourceFor', () => {
     const e = exec({
       outputs: {
         n1: {
-          assets: { typeId: 'dinkster.asset', fingerprint: digest, meta: { digest, mediaType: 'application/json' } },
+          assets: { typeId: 'ASSET', fingerprint: digest, meta: { digest, mediaType: 'application/json' } },
         },
       },
     })
@@ -642,7 +642,7 @@ describe('sourceFor', () => {
       outputs: {
         n1: {
           images: [{ filename: 'out.png' }],
-          assets: { typeId: 'dinkster.asset', fingerprint: digest, meta: { digest, mediaType: 'image/png' } },
+          assets: { typeId: 'ASSET', fingerprint: digest, meta: { digest, mediaType: 'image/png' } },
         },
       },
     })

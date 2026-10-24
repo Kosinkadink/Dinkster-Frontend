@@ -7,7 +7,7 @@ import type { InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 const countInput: InputSpec = {
   kind: 'input',
   id: 'count',
-  type: { kind: 'concrete', name: 'core.int' },
+  type: { kind: 'concrete', name: 'INT' },
   optional: false,
   widget: { widgetType: 'INT', options: {}, default: 3 },
 }
@@ -159,14 +159,14 @@ describe('node.setOutputCount', () => {
     const denseInput: InputSpec = {
       kind: 'input',
       id: 'dense',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       optional: false,
       dynamic: {
         kind: 'autogrow',
         template: Array.from({ length: 4 }, (_, index): InputSpec => ({
           kind: 'input',
           id: `item${index}`,
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         })),
         naming: { kind: 'prefix', prefix: 'item', min: 0, max: 512 },

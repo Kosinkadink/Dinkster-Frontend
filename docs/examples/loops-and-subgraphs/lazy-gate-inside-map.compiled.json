@@ -7,13 +7,13 @@
           "item": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "enabled": {
             "kind": "concrete",
             "types": [
-              "core.boolean"
+              "BOOLEAN"
             ]
           }
         },

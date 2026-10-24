@@ -89,8 +89,8 @@ export function parseSearchFilters(query: string): SearchFilters {
 
 /**
  * A concrete atom name matches a token by full id or by its last
- * dot-segment, case-insensitively: 'image' hits both V1 'IMAGE' and Dinkster
- * 'core.image'; a fully-qualified 'core.image' hits only that atom.
+ * dot-segment, case-insensitively: 'image' hits both 'IMAGE' and
+ * 'mypack.image'; a fully-qualified 'mypack.image' hits only that atom.
  */
 const nameMatchesToken = (name: string, token: string): boolean => {
   const n = name.toLowerCase()
@@ -251,7 +251,7 @@ export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
  * resolves the same fresh elaborated surface used by target selection,
  * including initial autogrow members and active dynamic forms. Explicitly
  * generic candidate ports remain valid fallbacks, after any compatible
- * closed-domain port. The core.combo participates as an ordinary concrete
+ * closed-domain port. The COMBO participates as an ordinary concrete
  * atom, so this function needs no widget-specific vocabulary or provenance
  * rules.
  */

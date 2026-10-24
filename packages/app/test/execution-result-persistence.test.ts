@@ -63,15 +63,15 @@ const completed = (promptId: string, endedAt = 10): ExecutionState => ({
       provider: 'vision.depth.v3',
       pack: 'dinkster-vision-depth-anything-v3',
       worker: 'gpu-box',
-      outputs: { value: { typeId: 'core.float', value: 7.5 } },
+      outputs: { value: { typeId: 'FLOAT', value: 7.5 } },
     },
   },
   regions: {},
   outputs: {
     producer: {
-      value: { typeId: 'core.float', fingerprint: 'scalar-fingerprint', value: 7.5 },
+      value: { typeId: 'FLOAT', fingerprint: 'scalar-fingerprint', value: 7.5 },
       image: {
-        typeId: 'dinkster.asset<media/image>', fingerprint: 'image-fingerprint',
+        typeId: 'asset<media/image>', fingerprint: 'image-fingerprint',
         meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', width: 64, secret: 'omit' },
       },
       model: { tensor: new Float32Array([1, 2]), weights: { hidden: true } },
@@ -104,7 +104,7 @@ describe('execution result persistence', () => {
     saveExecutionResult(completed('job-1'), identity)
     const [saved] = loadExecutionResults(identity)
     expect(saved?.proof.prompt.producer?.outputIds).toEqual(['value', 'image'])
-    expect(saved?.nodes.producer?.outputs?.value).toEqual({ typeId: 'core.float', value: 7.5 })
+    expect(saved?.nodes.producer?.outputs?.value).toEqual({ typeId: 'FLOAT', value: 7.5 })
     expect(saved?.nodes.producer).toMatchObject({
       executionArm: 'native',
       provider: 'vision.depth.v3',
@@ -112,7 +112,7 @@ describe('execution result persistence', () => {
       worker: 'gpu-box',
     })
     expect(saved?.outputs.producer?.image).toEqual({
-      typeId: 'dinkster.asset<media/image>', fingerprint: 'image-fingerprint',
+      typeId: 'asset<media/image>', fingerprint: 'image-fingerprint',
       meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', width: 64 },
     })
     expect(saved?.outputs.producer?.model).toBeUndefined()

@@ -138,47 +138,47 @@ const sdSchema = (
 
 const sd15Schemas = [
   sdSchema('dinkster.load_checkpoint', 'CheckpointLoaderSimple', [
-    sdInput('ckpt_name', 'core.string', 'STRING'),
+    sdInput('ckpt_name', 'STRING', 'STRING'),
     sdOutput('model', 'core.model'),
     sdOutput('clip', 'core.clip'),
     sdOutput('vae', 'core.vae'),
   ]),
   sdSchema('dinkster.clip_text_encode', 'CLIPTextEncode', [
     sdInput('clip', 'core.clip'),
-    sdInput('text', 'core.string', 'STRING'),
+    sdInput('text', 'STRING', 'STRING'),
     sdOutput('conditioning', 'core.conditioning'),
   ]),
   sdSchema('dinkster.empty_latent_image', 'EmptyLatentImage', [
     sdInput('width', 'core.integer', 'INT'),
     sdInput('height', 'core.integer', 'INT'),
     sdInput('batch_size', 'core.integer', 'INT'),
-    sdOutput('latent', 'core.latent'),
+    sdOutput('latent', 'LATENT'),
   ]),
   sdSchema('dinkster.ksampler', 'KSampler', [
     sdInput('model', 'core.model'),
     sdInput('positive', 'core.conditioning'),
     sdInput('negative', 'core.conditioning'),
-    sdInput('latent_image', 'core.latent'),
+    sdInput('latent_image', 'LATENT'),
     sdInput('seed', 'core.integer', 'INT'),
     sdInput('steps', 'core.integer', 'INT'),
-    sdInput('cfg', 'core.float', 'FLOAT'),
-    sdInput('sampler_name', 'core.combo', 'COMBO'),
-    sdInput('scheduler', 'core.combo', 'COMBO'),
-    sdInput('denoise', 'core.float', 'FLOAT'),
-    sdOutput('latent', 'core.latent'),
+    sdInput('cfg', 'FLOAT', 'FLOAT'),
+    sdInput('sampler_name', 'COMBO', 'COMBO'),
+    sdInput('scheduler', 'COMBO', 'COMBO'),
+    sdInput('denoise', 'FLOAT', 'FLOAT'),
+    sdOutput('latent', 'LATENT'),
   ]),
   sdSchema('dinkster.vae_decode', 'VAEDecode', [
-    sdInput('samples', 'core.latent'),
+    sdInput('samples', 'LATENT'),
     sdInput('vae', 'core.vae'),
-    sdOutput('image', 'core.image'),
+    sdOutput('image', 'IMAGE'),
   ]),
   sdSchema('dinkster.save_image', 'SaveImage', [
-    sdInput('images', 'core.image'),
-    sdInput('filename_prefix', 'core.string', 'STRING'),
+    sdInput('images', 'IMAGE'),
+    sdInput('filename_prefix', 'STRING', 'STRING'),
   ], true),
   sdSchema('comfy.PreviewImage', 'PreviewImage', [
-    sdInput('images', 'core.image'),
-    sdOutput('images', 'core.image'),
+    sdInput('images', 'IMAGE'),
+    sdOutput('images', 'IMAGE'),
   ], true),
 ] as const
 
@@ -413,12 +413,12 @@ describe('basic translation', () => {
       sdSchema('comfy.MiniMaxH3ImageToVideo', 'MiniMaxH3ImageToVideo', [
         sdInput('clip', 'core.clip'),
         sdInput('vae', 'core.vae'),
-        sdInput('prompt', 'core.string', 'STRING'),
+        sdInput('prompt', 'STRING', 'STRING'),
         sdInput('width', 'core.integer', 'INT'),
         sdInput('height', 'core.integer', 'INT'),
         sdInput('length', 'core.integer', 'INT'),
         sdOutput('conditioning', 'core.conditioning'),
-        sdOutput('latent', 'core.latent'),
+        sdOutput('latent', 'LATENT'),
       ]),
       sdSchema('comfy.CFGGuider', 'CFGGuider', [
         sdInput('model', 'core.model'),
@@ -525,14 +525,14 @@ describe('basic translation', () => {
       sdInput('model', 'core.model'),
       sdInput('seed', 'core.integer', 'INT'),
       sdInput('positive', 'core.conditioning'),
-      { ...sdInput('forced', 'core.float', 'FLOAT'), forceInput: true },
+      { ...sdInput('forced', 'FLOAT', 'FLOAT'), forceInput: true },
       sdInput('negative', 'core.conditioning'),
     ])
     const source = sdSchema('dinkster.sources', 'Sources', [
       sdOutput('model', 'core.model'),
       sdOutput('integer', 'core.integer'),
       sdOutput('conditioning', 'core.conditioning'),
-      sdOutput('float', 'core.float'),
+      sdOutput('float', 'FLOAT'),
     ])
     const localResolve = (type: string): NodeSchema | undefined =>
       [mixed, source].find((schema) => schema.type === type || schema.aliases?.includes(type))
@@ -591,7 +591,7 @@ describe('serialized output slot identity', () => {
       {
         kind: 'input',
         id: 'count',
-        type: { kind: 'concrete', name: 'core.int' },
+        type: { kind: 'concrete', name: 'INT' },
         optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0 },
       },
@@ -763,7 +763,7 @@ describe('serialized output slot identity', () => {
   it('rejects output-family slots when the count input is linked', () => {
     const countSource: NodeSchema = {
       type: 'CountSource', displayName: 'Count Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'count', type: { kind: 'concrete', name: 'core.int' } }],
+      items: [{ kind: 'output', id: 'count', type: { kind: 'concrete', name: 'INT' } }],
     }
     const imported = importLitegraph(workflow([
       lgNode(1, countSource.type, { outputs: [{ name: 'count', links: [1] }] }),
@@ -808,8 +808,8 @@ describe('positional widget mapping', () => {
 
   it('does not consume a positional widget value for a forceInput socket', () => {
     const schema = sdSchema('dinkster.force_then_label', 'ForceThenLabel', [
-      { ...sdInput('forced', 'core.float', 'FLOAT'), forceInput: true },
-      sdInput('label', 'core.string', 'STRING'),
+      { ...sdInput('forced', 'FLOAT', 'FLOAT'), forceInput: true },
+      sdInput('label', 'STRING', 'STRING'),
     ])
     const { document, diagnostics } = importLitegraph(
       workflow([
@@ -892,8 +892,8 @@ describe('positional widget mapping', () => {
 
   it('normalizes numeric strings according to legacy widget schemas', () => {
     const schema = sdSchema('dinkster.numeric', 'Numeric', [
-      sdInput('count', 'core.int', 'INT'),
-      sdInput('strength', 'core.float', 'FLOAT'),
+      sdInput('count', 'INT', 'INT'),
+      sdInput('strength', 'FLOAT', 'FLOAT'),
     ])
     const localResolve = (type: string) => type === schema.type ? schema : undefined
     const positional = importLitegraph(workflow([
@@ -908,7 +908,7 @@ describe('positional widget mapping', () => {
 
   it('migrates a valid legacy SAVE_TARGET prefix from the declared mount', () => {
     const target = {
-      ...sdInput('filename_prefix', 'dinkster.save_target', 'SAVE_TARGET'),
+      ...sdInput('filename_prefix', 'SAVE_TARGET', 'SAVE_TARGET'),
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
     } satisfies InputSpec
     const schema = sdSchema('dinkster.save', 'SaveImage', [target], true)
@@ -934,7 +934,7 @@ describe('positional widget mapping', () => {
 
   it('keeps invalid legacy SAVE_TARGET strings raw and warns specifically', () => {
     const target = {
-      ...sdInput('target', 'dinkster.save_target', 'SAVE_TARGET'),
+      ...sdInput('target', 'SAVE_TARGET', 'SAVE_TARGET'),
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
     } satisfies InputSpec
     const schema = sdSchema('dinkster.save', 'Save', [target])
@@ -956,7 +956,7 @@ describe('positional widget mapping', () => {
       ? { widgetType: 'SAVE_TARGET', options: {} }
       : { widgetType: 'SAVE_TARGET', options: {}, default: declaredDefault }
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false, widget,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false, widget,
     }
     const schema = sdSchema('dinkster.save', 'Save', [target])
     const imported = importLitegraph(workflow([
@@ -968,7 +968,7 @@ describe('positional widget mapping', () => {
 
   it('normalizes keyed SAVE_TARGET values inside the active DynamicCombo branch', () => {
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
     }
     const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
@@ -987,7 +987,7 @@ describe('positional widget mapping', () => {
 
   it('normalizes positional SAVE_TARGET values inside a wire-15 DynamicCombo branch', () => {
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
     }
     const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
@@ -1391,7 +1391,7 @@ describe('Autogrow endpoint reconstruction', () => {
     const scalar: InputSpec = {
       kind: 'input',
       id: 'value',
-      type: { kind: 'concrete', name: 'core.float' },
+      type: { kind: 'concrete', name: 'FLOAT' },
       optional: false,
       widget: { widgetType: 'FLOAT', options: {}, default: 0 },
     }

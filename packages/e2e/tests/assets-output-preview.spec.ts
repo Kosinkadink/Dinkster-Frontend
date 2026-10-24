@@ -251,7 +251,7 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
         app.store.apply({
           kind: 'nodeOutput', execution: ref, runtimeNodeId: 'save', timestamp: Date.now() + 102,
           output: { result: {
-            typeId: 'dinkster.asset', fingerprint: digest,
+            typeId: 'ASSET', fingerprint: digest,
             meta: { digest, mediaType: 'image/png', name: `asset-${'complete-identity-'.repeat(6)}.png` },
           } },
         })

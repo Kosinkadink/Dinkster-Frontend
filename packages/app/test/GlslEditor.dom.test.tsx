@@ -30,7 +30,7 @@ const payload = {
           default: INITIAL_SOURCE,
           widget: { type: 'STRING', multiline: true },
         },
-        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['dinkster.image'] } },
+        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
   },

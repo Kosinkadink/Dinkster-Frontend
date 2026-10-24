@@ -15,11 +15,11 @@ const node = (entries: unknown[]) => ({ schemaVersion: schemaWire, signature: 'v
 const catalog = {
   schemaVersion: 1, epoch: 1, dinkster: { version: 'video-edit-test', schemaWire }, nodes: {
     'test.video': node([
-      input('source_version', 'core.int', 0),
+      input('source_version', 'INT', 0),
       { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
-      { role: 'output', id: 'images', type: typed('dinkster.image') },
-      { role: 'output', id: 'strict_duration', type: typed('core.boolean') },
-      { role: 'output', id: 'start_time', type: typed('core.float') },
+      { role: 'output', id: 'images', type: typed('IMAGE') },
+      { role: 'output', id: 'strict_duration', type: typed('BOOLEAN') },
+      { role: 'output', id: 'start_time', type: typed('FLOAT') },
     ]),
     ...contract.nodes,
     // Isolated compile targets; computational ports come from the backend fixture.
@@ -28,7 +28,7 @@ const catalog = {
     'test.video.edit': node([
       input('video', 'comfy.VIDEO'),
       { ...input('video_edit', 'comfy.VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
-      input('strict_duration', 'core.boolean', false),
+      input('strict_duration', 'BOOLEAN', false),
       { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
     ]),
   },

@@ -201,7 +201,7 @@ test('a historical dynamic selection migrates into a current static combo', asyn
       {
         type: 'ComboMigrationFixture', displayName: 'Combo Migration', category: 'test', source: 'v3', isOutputNode: false,
         items: [{
-          kind: 'input', id: 'format', type: { kind: 'concrete', name: 'core.combo' }, optional: false,
+          kind: 'input', id: 'format', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
           widget: { widgetType: 'COMBO', options: { options: ['mp4_h264', 'webm_av1'] }, default: 'mp4_h264' },
         }],
       },

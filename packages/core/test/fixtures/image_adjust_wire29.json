@@ -13,7 +13,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "dinkster.image"
+          "IMAGE"
         ]
       },
       "required": true
@@ -101,7 +101,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "dinkster.image"
+          "IMAGE"
         ]
       },
       "preview": true

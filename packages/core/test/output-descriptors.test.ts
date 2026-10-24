@@ -77,7 +77,7 @@ describe('stored output descriptors', () => {
   it('coexists with storage and media declarations', () => {
     const media = {
       role: 'input', id: 'image', required: true, acceptsStorage: true,
-      type: { kind: 'concrete', types: ['dinkster.image'] }, alphaPolicy: 'require',
+      type: { kind: 'concrete', types: ['IMAGE'] }, alphaPolicy: 'require',
     }
     const catalog = (acceptsStorage: unknown) => ({ schemaVersion: 1, nodes: {
       [schema.type]: { ...wire, interface: [...wire.interface, { ...media, acceptsStorage }] },
@@ -222,7 +222,7 @@ describe('stored output descriptors', () => {
     const asset = { digest: `blake3:${'1'.repeat(64)}` }
     const profiled: NodeSchema = { ...schema, items: [
       schema.items[0]!,
-      { kind: 'input', id: 'checkpoint', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false, widget: { widgetType: 'ASSET', options: {} } },
+      { kind: 'input', id: 'checkpoint', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', options: {} } },
       { kind: 'output', id: 'entries', type: spec.choices[0]!.type, outputDescriptors: profile },
     ] }
     const doc = document(true)

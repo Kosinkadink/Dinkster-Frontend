@@ -91,8 +91,8 @@ export function resolveStaticWidgetTap(schema: NodeSchema, tap: string): StaticW
 }
 
 const mentionsCombo = (type: TypeExpr): boolean => {
-  if (type.kind === 'concrete') return type.name === 'core.combo'
-  if (type.kind === 'union') return type.names.includes('core.combo')
+  if (type.kind === 'concrete') return type.name === 'COMBO'
+  if (type.kind === 'union') return type.names.includes('COMBO')
   if (type.kind === 'variable') return type.allowedTypes?.some(mentionsCombo) ?? false
   if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return mentionsCombo(type.element)
   return false
@@ -1256,9 +1256,9 @@ export function deriveBoundarySchema(
       }
       const sourceType: TypeExpr = item.isList === true ? { kind: 'list', element: item.type } : item.type
       if (item.id === region.continueOutput) {
-        const severity = regionSourceMismatch(sourceType, { kind: 'concrete', name: 'core.boolean' })
+        const severity = regionSourceMismatch(sourceType, { kind: 'concrete', name: 'BOOLEAN' })
         if (severity !== undefined) {
-          diags.push(diag(severity, 'schema', 'doc.region.continueNotBoolean', `[${def.id}] region continue output '${item.id}' is not statically core.boolean`))
+          diags.push(diag(severity, 'schema', 'doc.region.continueNotBoolean', `[${def.id}] region continue output '${item.id}' is not statically BOOLEAN`))
         }
         continue
       }

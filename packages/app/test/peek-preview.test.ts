@@ -49,7 +49,7 @@ describe('peekCandidatesFor', () => {
 
   it('inline scalar outputs are excluded (they render as companions)', () => {
     const execNodes = {
-      n1: done({ sum: { typeId: 'core.int', value: 42 }, image: { typeId: 'std.image' } }),
+      n1: done({ sum: { typeId: 'INT', value: 42 }, image: { typeId: 'std.image' } }),
     }
     expect(peekCandidatesFor({ ...base, execNodes, nodeId: 'n1' })).toEqual([
       { node: 'n1', output: 'image' },
@@ -59,7 +59,7 @@ describe('peekCandidatesFor', () => {
   it('a ran node NEVER falls back to producers, even with none of its own', () => {
     const sources = sourcesOf({ n1: { in: producer('p1', 'image') } })
     const execNodes = {
-      n1: done({ sum: { typeId: 'core.int', value: 7 } }),
+      n1: done({ sum: { typeId: 'INT', value: 7 } }),
       p1: done({ image: { typeId: 'std.image' } }),
     }
     expect(peekCandidatesFor({ ...base, sources, execNodes, nodeId: 'n1' })).toEqual([])
@@ -103,7 +103,7 @@ describe('peekCandidatesFor', () => {
       },
     })
     const execNodes = {
-      scalar: done({ sum: { typeId: 'core.int', value: 3 } }),
+      scalar: done({ sum: { typeId: 'INT', value: 3 } }),
       imgsrc: done({ image: { typeId: 'std.image' } }),
     }
     expect(peekCandidatesFor({ ...base, sources, execNodes, nodeId: 'preview' })).toEqual([
@@ -189,15 +189,25 @@ describe('peekCandidatesFor', () => {
     ])
   })
 
+  it('carries bare IMAGE intent through preview outputs', () => {
+    const schema = {
+      type: 'test.image',
+      items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, preview: true }],
+    } as unknown as NodeSchema
+    expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
+      { node: 'runtime', output: 'image', declaredIntent: true, mediaKind: 'image' },
+    ])
+  })
+
   it('carries model3d intent through concrete and asset-typed outputs', () => {
     const schema = {
       type: 'test.model3d',
       items: [
-        { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'dinkster.model3d' }, preview: true },
+        { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'MODEL3D' }, preview: true },
         {
           kind: 'output',
           id: 'saved',
-          type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.model3d' } },
+          type: { kind: 'asset', element: { kind: 'concrete', name: 'MODEL3D' } },
           preview: true,
         },
       ],
@@ -211,7 +221,7 @@ describe('peekCandidatesFor', () => {
   it('carries splat intent through concrete outputs as model3d', () => {
     const schema = {
       type: 'test.splat',
-      items: [{ kind: 'output', id: 'splat', type: { kind: 'concrete', name: 'dinkster.splat' }, preview: true }],
+      items: [{ kind: 'output', id: 'splat', type: { kind: 'concrete', name: 'SPLAT' }, preview: true }],
     } as unknown as NodeSchema
     expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
       { node: 'runtime', output: 'splat', declaredIntent: true, mediaKind: 'model3d' },

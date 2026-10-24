@@ -453,7 +453,7 @@ function parseInput(
     }
     return {
       kind: 'input', id,
-      type: { kind: 'list', element: { kind: 'concrete', name: 'core.combo' } },
+      type: { kind: 'list', element: { kind: 'concrete', name: 'COMBO' } },
       optional,
       widget: {
         widgetType: 'MULTI_COMBO',

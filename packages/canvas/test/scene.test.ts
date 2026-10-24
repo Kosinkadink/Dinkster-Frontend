@@ -1729,7 +1729,7 @@ describe('boundary pseudo-nodes', () => {
     const index = drilled.boundaryNodes.find((node) => node.side === 'inputs')!.layout.pins.find((pin) => pin.regionIndex)
     expect(index).toMatchObject({
       portId: '@region:index', direction: 'out',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
     })
     expect(drilled.boundaryNodes.find((node) => node.side === 'inputs')!.layout.rows).toContainEqual(expect.objectContaining({
       output: expect.objectContaining({ portId: '@region:index', label: 'Index', regionIndex: true }),
@@ -1968,13 +1968,13 @@ describe('selector scene items', () => {
   })
 
   it('interchangeable comfy-compat spellings count as one agreed branch type', () => {
-    // dinkster.image and comfy.IMAGE denote the same backend value type, so a
+    // IMAGE and comfy.IMAGE denote the same backend value type, so a
     // selector fed by both must resolve to the canonical spelling instead of
     // degrading to a wildcard output.
     const extra: Record<string, NodeSchema> = {
       DinksterImageSrc: {
         type: 'DinksterImageSrc', displayName: 'DinksterImageSrc', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.image' } }],
+        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       ComfyImageSrc: {
         type: 'ComfyImageSrc', displayName: 'ComfyImageSrc', category: 'test', source: 'v3', isOutputNode: false,

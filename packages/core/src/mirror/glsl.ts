@@ -66,7 +66,7 @@ const uniformKindOf = (item: ElaboratedInput): 'image' | 'float' | 'int' | 'bool
   const type = item.spec.type
   if (type.kind !== 'concrete') return undefined
   switch (type.name) {
-    case 'dinkster.image': return 'image'
+    case 'IMAGE': return 'image'
     case 'FLOAT': return 'float'
     case 'INT': return 'int'
     case 'BOOLEAN': return 'bool'

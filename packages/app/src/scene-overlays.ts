@@ -490,7 +490,7 @@ function orderedMirrorNodeIds(bindings: ReturnType<typeof deriveGlslMirrorBindin
 /** Exact output a node-level image mirror represents, when unambiguous. */
 function mirroredImageOutputId(schema: NodeSchema): string | undefined {
   const imageOutputs = outputsOf(schema).filter((output) =>
-    output.type.kind === 'concrete' && output.type.name === 'dinkster.image' && output.isList !== true)
+    output.type.kind === 'concrete' && output.type.name === 'IMAGE' && output.isList !== true)
   return imageOutputs.length === 1 ? imageOutputs[0]!.id : undefined
 }
 

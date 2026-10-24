@@ -193,15 +193,15 @@ const synthetic = new Map<string, NodeSchema>([
   ['dinkster.string_to_combo', {
     type: 'dinkster.string_to_combo', displayName: 'Convert String to Combo', category: 'string', source: 'v3', isOutputNode: false,
     items: [
-      { kind: 'input', id: 'string', type: typed('core.string'), optional: false },
-      { kind: 'output', id: 'choice', type: typed('core.combo') },
+      { kind: 'input', id: 'string', type: typed('STRING'), optional: false },
+      { kind: 'output', id: 'choice', type: typed('COMBO') },
     ],
   }],
   ['dinkster.combo_to_string', {
     type: 'dinkster.combo_to_string', displayName: 'Convert Combo to String', category: 'string', source: 'v3', isOutputNode: false,
     items: [
-      { kind: 'input', id: 'choice', type: typed('core.combo'), optional: false },
-      { kind: 'output', id: 'text', type: typed('core.string') },
+      { kind: 'input', id: 'choice', type: typed('COMBO'), optional: false },
+      { kind: 'output', id: 'text', type: typed('STRING') },
     ],
   }],
   ['SinkLatent', {
@@ -1540,31 +1540,31 @@ describe('diagnostic paint on the live renderer', () => {
     expect(calls.some((c) => c.method === 'fill' && c.fillStyle === ERR)).toBe(true)
   })
 
-  it('a core.combo noodle uses the pinned COMBO presentation color', () => {
+  it('a COMBO noodle uses the pinned COMBO presentation color', () => {
     const base = fixtureScene('clean')
     const scene: Scene = {
       ...base,
-      links: base.links.map((link) => link.typeName === 'LATENT' ? { ...link, typeName: 'core.combo' } : link),
+      links: base.links.map((link) => link.typeName === 'LATENT' ? { ...link, typeName: 'COMBO' } : link),
     }
     const calls = paint(scene)
     expect(calls.some((call) =>
-      call.method === 'stroke' && call.strokeStyle === defaultTokens.typeColors['core.combo'] && call.lineWidth === 2.5,
+      call.method === 'stroke' && call.strokeStyle === defaultTokens.typeColors['COMBO'] && call.lineWidth === 2.5,
     )).toBe(true)
   })
 
-  it('a core.combo noodle keeps COMBO presentation through reroutes', () => {
+  it('a COMBO noodle keeps COMBO presentation through reroutes', () => {
     const scene = comboRerouteScene()
     const source = scene.nodes.find((node) => node.node.type === 'dinkster.string_to_combo')!
     const sink = scene.nodes.find((node) => node.node.type === 'dinkster.combo_to_string')!
-    expect(source.layout.pins.find((pin) => pin.portId === 'string')?.type).toEqual(typed('core.string'))
-    expect(source.layout.pins.find((pin) => pin.portId === 'choice')?.type).toEqual(typed('core.combo'))
-    expect(sink.layout.pins.find((pin) => pin.portId === 'choice')?.type).toEqual(typed('core.combo'))
-    expect(sink.layout.pins.find((pin) => pin.portId === 'text')?.type).toEqual(typed('core.string'))
-    expect(typeColor(defaultTokens, 'core.combo')).toBe('#5D4037')
-    expect(scene.links.find((link) => link.id === 'out')?.typeName).toBe('core.combo')
+    expect(source.layout.pins.find((pin) => pin.portId === 'string')?.type).toEqual(typed('STRING'))
+    expect(source.layout.pins.find((pin) => pin.portId === 'choice')?.type).toEqual(typed('COMBO'))
+    expect(sink.layout.pins.find((pin) => pin.portId === 'choice')?.type).toEqual(typed('COMBO'))
+    expect(sink.layout.pins.find((pin) => pin.portId === 'text')?.type).toEqual(typed('STRING'))
+    expect(typeColor(defaultTokens, 'COMBO')).toBe('#5D4037')
+    expect(scene.links.find((link) => link.id === 'out')?.typeName).toBe('COMBO')
     const calls = paint(scene)
     expect(calls.some((call) =>
-      call.method === 'stroke' && call.strokeStyle === defaultTokens.typeColors['core.combo'] && call.lineWidth === 2.5,
+      call.method === 'stroke' && call.strokeStyle === defaultTokens.typeColors['COMBO'] && call.lineWidth === 2.5,
     )).toBe(true)
   })
 

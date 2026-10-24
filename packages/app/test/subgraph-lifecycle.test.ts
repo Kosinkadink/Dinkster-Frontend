@@ -53,8 +53,8 @@ describe('subgraph lifecycle app plans', () => {
     const providerSchema: NodeSchema = {
       ...schema,
       items: [
-        { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'core.combo' }, optional: false, widget: { widgetType: 'COMBO', options: { options: ['Automatic'] } } },
-        { kind: 'input', id: 'provider', type: { kind: 'concrete', name: 'core.combo' }, optional: true, widget: { widgetType: 'COMBO', options: { options: ['vision.depth.v2'] } }, hidden: true },
+        { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: { options: ['Automatic'] } } },
+        { kind: 'input', id: 'provider', type: { kind: 'concrete', name: 'COMBO' }, optional: true, widget: { widgetType: 'COMBO', options: { options: ['vision.depth.v2'] } }, hidden: true },
       ],
     }
     const invocation = extractInvocation(

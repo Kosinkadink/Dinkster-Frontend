@@ -216,7 +216,7 @@ test('populated compositor controls at desktop and compact widths', async ({ pag
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'CompositorVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
-      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'dinkster.compositor' },
+      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'COMPOSITOR' },
         widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
     }])
     const diagnostics = app.openDocument({
@@ -574,7 +574,7 @@ test('document and app-view visual matrix', async ({ page }) => {
                 {
                   role: 'input',
                   id: 'params',
-                  type: typed('core.string'),
+                  type: typed('STRING'),
                   required: false,
                   default: '{}',
                   widget: { type: 'STRING', multiline: true },
@@ -582,27 +582,27 @@ test('document and app-view visual matrix', async ({ page }) => {
                 {
                   role: 'output',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                 },
               ]
             : [
                 {
                   role: 'input',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                   required: true,
                 },
                 {
                   role: 'input',
                   id: 'params',
-                  type: typed('core.string'),
+                  type: typed('STRING'),
                   required: true,
                   widget: { type: 'STRING', multiline: true },
                 },
                 {
                   role: 'output',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                 },
               ],
       },

@@ -150,7 +150,7 @@ async function openBoundaryWorkflow(page: Page): Promise<void> {
             kind: 'output' as const,
             id: `dense_output_${index}`,
             displayName: `Dense output ${index + 1}`,
-            type: { kind: 'concrete' as const, name: index === 1 ? 'core.boolean' : 'IMAGE' },
+            type: { kind: 'concrete' as const, name: index === 1 ? 'BOOLEAN' : 'IMAGE' },
           })),
         ],
       },

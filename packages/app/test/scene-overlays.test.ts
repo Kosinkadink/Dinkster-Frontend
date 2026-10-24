@@ -202,11 +202,11 @@ describe('represented output previews', () => {
     isOutputNode: false,
     items: [
       {
-        kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } },
+        kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
         optional: false, widget: { widgetType: 'ASSET', options: {}, default: null },
       },
       {
-        kind: 'output', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' },
+        kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' },
         represents: { input: 'image', rendition: 'decoded-image', ...over },
       },
     ],
@@ -486,7 +486,7 @@ describe('recorded text output overlay', () => {
     const model = deriveSceneOverlays({
       ...base,
       scene: scene([{ id: 'n1' }]),
-      exec: exec({ nodes: { n1: { state: 'done', outputs: { text: { typeId: 'core.string', value: 'hello' } } } } }),
+      exec: exec({ nodes: { n1: { state: 'done', outputs: { text: { typeId: 'STRING', value: 'hello' } } } } }),
       exactProducer: () => false,
     })
     expect(model.outputTexts).toEqual({ n1: { text: 'hello', stale: true } })
@@ -498,7 +498,7 @@ describe('recorded text output overlay', () => {
     const model = deriveSceneOverlays({
       ...base,
       scene: scene([{ id: 'n1' }]),
-      exec: exec({ nodes: { n1: { state: 'done', outputs: { text: { typeId: 'core.string', value: 'hidden' } } } } }),
+      exec: exec({ nodes: { n1: { state: 'done', outputs: { text: { typeId: 'STRING', value: 'hidden' } } } } }),
       frozen: true,
       loader: { ...noLoader, sourceFor: () => source, resolve: () => decoded },
     })
@@ -692,16 +692,16 @@ describe('retainProvenExecution', () => {
   it('retains unchanged branches from the newest valid prior run and marks them cached', () => {
     const live = artifact()
     const current = execution('n+1', 30, artifact({ scope: { kind: 'partial', targets: [] }, prompt: { b: artifact().prompt.b! } }), {
-      nodes: { b: { state: 'done', outputs: { out: { typeId: 'core.int', value: 22 } } } },
+      nodes: { b: { state: 'done', outputs: { out: { typeId: 'INT', value: 22 } } } },
       outputs: { b: { images: ['current'] } },
     })
     const old = execution('n', 10, artifact(), {
-      nodes: { a: { state: 'done', outputs: { out: { typeId: 'core.int', value: 11 } } } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
+      nodes: { a: { state: 'done', outputs: { out: { typeId: 'INT', value: 11 } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const newer = execution('n-newer', 20, artifact(), {
-      nodes: { a: { state: 'done', outputs: { out: { typeId: 'core.int', value: 12 } } } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } } },
+      nodes: { a: { state: 'done', outputs: { out: { typeId: 'INT', value: 12 } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const retained = retainProvenExecution(current, [old, newer, current], live, [], resolveSchema)
     expect(retained.execution.nodes.a).toMatchObject({ state: 'cached', outputs: { out: { value: 12 } } })
@@ -722,7 +722,7 @@ describe('retainProvenExecution', () => {
     const current = execution('n+1', 20, artifact({ scope: { kind: 'partial', targets: [] }, prompt: {} }))
     const priorArtifact = artifact(change as Partial<CompileArtifact>)
     const prior = execution('n', 10, priorArtifact, {
-      nodes: { a: { state: 'done', outputs: { out: { typeId: 'core.int', value: 1 } } } },
+      nodes: { a: { state: 'done', outputs: { out: { typeId: 'INT', value: 1 } } } },
       previews: { a: { channel: 'preview', payload: {}, timestamp: 1 } as never },
     })
     const retained = retainProvenExecution(current, [prior, current], live, [], resolveSchema)
@@ -759,8 +759,8 @@ describe('retainProvenExecution', () => {
     const current = execution('n+1', 20, artifact({ ...random, scope: { kind: 'partial', targets: [] }, prompt: {} }))
     const prior = execution('n', 10, artifact(random), {
       nodes: {
-        a: { state: 'done', outputs: { out: { typeId: 'core.int', value: 1 } } },
-        b: { state: 'done', outputs: { out: { typeId: 'core.int', value: 2 } } },
+        a: { state: 'done', outputs: { out: { typeId: 'INT', value: 1 } } },
+        b: { state: 'done', outputs: { out: { typeId: 'INT', value: 2 } } },
       },
     })
     const retained = retainProvenExecution(current, [prior, current], live, [], resolveSchema)
@@ -779,7 +779,7 @@ describe('retainProvenExecution', () => {
     })
     const digest = execution('digest', 10, artifact(), {
       nodes: { b: { state: 'done' } },
-      outputs: { b: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'c'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { b: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'c'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const retained = retainProvenExecution(current, [filename, digest, current], live, [], resolveSchema)
     expect(retained.execution.outputs.a).toBeUndefined()
@@ -795,7 +795,7 @@ describe('retainProvenExecution', () => {
     const frame = { '': { channel: 'preview', payload: new ArrayBuffer(1), timestamp: 10 } }
     const prior = execution('n', 10, artifact(), {
       nodes: { a: { state: 'done' } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
       previews: { a: frame },
     })
     for (const status of ['queued', 'running', 'error', 'interrupted'] as const) {
@@ -833,9 +833,9 @@ describe('retainProvenExecution', () => {
       outputs: {
         a: {
           images: [{ filename: 'recycled.png', type: 'temp' }],
-          image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'d'.repeat(64)}`, mediaType: 'image/png' } },
+          image: { typeId: 'ASSET', meta: { digest: `blake3:${'d'.repeat(64)}`, mediaType: 'image/png' } },
         },
-        b: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } },
+        b: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } },
       },
     })
     const retained = retainProvenExecution(current, [prior, current], live, [], resolveSchema)
@@ -855,7 +855,7 @@ describe('retainProvenExecution', () => {
     const newer = execution('newer', 20, artifact(), { nodes: { b: { state: 'done' } } })
     const older = execution('older', 10, artifact(), {
       nodes: { a: { state: 'done' }, b: { state: 'done' } },
-      outputs: { b: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'f'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { b: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'f'.repeat(64)}`, mediaType: 'image/png' } } } },
       previews: { a: priorFrame },
     })
     const retained = retainProvenExecution(current, [older, newer, current], live, [], resolveSchema)
@@ -871,11 +871,11 @@ describe('retainProvenExecution', () => {
     const current = execution('n+1', 30, artifact({ scope: { kind: 'partial', targets: [] }, prompt: {} }))
     const skipped = execution('skipped', 20, artifact(), {
       nodes: { a: { state: 'skipped' } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'1'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'1'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const done = execution('done', 10, artifact(), {
       nodes: { a: { state: 'done' } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'2'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'2'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const retained = retainProvenExecution(current, [done, skipped, current], live, [], resolveSchema)
     expect(retained.execution.outputs.a).toEqual(done.outputs.a)
@@ -887,7 +887,7 @@ describe('retainProvenExecution', () => {
     const frame = { '': { channel: 'preview', payload: new ArrayBuffer(1), timestamp: 10 } }
     const prior = execution('n', 10, artifact(), {
       nodes: { a: { state: 'done' }, b: { state: 'done' } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
       previews: { b: frame },
     })
     const current = execution('n+1', 20, artifact(), { status: 'queued' })
@@ -904,8 +904,8 @@ describe('retainProvenExecution', () => {
     const prior = execution('n', 10, artifact(), {
       nodes: { a: { state: 'done' }, b: { state: 'done' } },
       outputs: {
-        a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } },
-        b: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } },
+        a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } },
+        b: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } },
       },
     })
     const current = execution('n+1', 20, artifact(), {
@@ -1566,7 +1566,7 @@ describe('glsl image estimate overlay', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.image' } }],
+    items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
   } as unknown as NodeSchema
   const adjustSchema: NodeSchema = {
     type: 'test.adjust',
@@ -1576,7 +1576,7 @@ describe('glsl image estimate overlay', () => {
     isOutputNode: false,
     mirror: { kind: 'glsl', precision: 'bounded', tolerance: { perChannel: 1 / 255 }, source: GLSL_SOURCE },
     items: [
-      { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' }, optional: false },
+      { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
       {
         kind: 'input',
         id: 'factor',
@@ -1584,7 +1584,7 @@ describe('glsl image estimate overlay', () => {
         optional: false,
         widget: { widgetType: 'NUMBER', options: {}, default: 1.5 },
       },
-      { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' } },
+      { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
     ],
   } as unknown as NodeSchema
   const resolveMirrorSchemas = (type: string): NodeSchema | undefined =>
@@ -1690,7 +1690,7 @@ describe('glsl image estimate overlay', () => {
       type: 'test.ambiguous-adjust',
       items: [
         ...adjustSchema.items,
-        { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'dinkster.image' } },
+        { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
     } as NodeSchema
     const ambiguousDef = {
@@ -1811,8 +1811,8 @@ describe('glsl image estimate overlay', () => {
       ...imageProducerSchema,
       type: 'TwoOutputSource',
       items: [
-        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.image' } },
-        { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'dinkster.image' } },
+        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } },
+        { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
     } as unknown as NodeSchema
     /** src (two image outputs; mirror wired to `out`) -> a1 (mirrored adjust). */
@@ -1891,11 +1891,11 @@ describe('glsl image estimate overlay', () => {
         type: 'RepresentedSource',
         items: [
           {
-            kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } },
+            kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
             optional: false, widget: { widgetType: 'ASSET', options: {}, default: null },
           },
           {
-            kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.image' },
+            kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' },
             represents: { input: 'image', rendition: 'decoded-image' },
           },
         ],

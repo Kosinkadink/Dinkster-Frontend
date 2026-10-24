@@ -14,7 +14,7 @@ const done = (outputs?: NodeProgress['outputs']): NodeProgress => ({
   state: 'done',
   ...(outputs !== undefined ? { outputs } : {}),
 })
-const int = (v: number) => ({ typeId: 'core.int', value: v })
+const int = (v: number) => ({ typeId: 'INT', value: v })
 
 describe('deriveDataPanels: attribution honesty', () => {
   it('no occurrence resolver abstains per node (unknown instance path)', () => {
@@ -51,7 +51,7 @@ describe('deriveDataPanels: output rows', () => {
   it('inline scalars display as value rows; frozen tabs are exact', () => {
     const panels = deriveDataPanels({
       nodes: [node('a')],
-      execNodes: { a: done({ out: int(42), other: { typeId: 'core.string', value: 'hi' } }) },
+      execNodes: { a: done({ out: int(42), other: { typeId: 'STRING', value: 'hi' } }) },
       runtimeIdsOf: (id) => [id],
       frozen: true,
     })
@@ -99,7 +99,7 @@ describe('deriveDataPanels: output rows', () => {
 
   it('projects exactly one unambiguous string through the data-lens truth source', () => {
     const context = {
-      execNodes: { a: done({ text: { typeId: 'core.string', value: 'hello' }, count: int(2) }) },
+      execNodes: { a: done({ text: { typeId: 'STRING', value: 'hello' }, count: int(2) }) },
       runtimeIdsOf: (id: string) => [id],
       frozen: false,
       exactProducer: () => false,
@@ -111,7 +111,7 @@ describe('deriveDataPanels: output rows', () => {
   it('suppresses ambiguous multiple-string and disagreeing-occurrence outputs', () => {
     const context = {
       execNodes: {
-        a: done({ first: { typeId: 'core.string', value: 'one' }, second: { typeId: 'core.string', value: 'two' } }),
+        a: done({ first: { typeId: 'STRING', value: 'one' }, second: { typeId: 'STRING', value: 'two' } }),
       },
       runtimeIdsOf: (id: string) => [id],
       frozen: true,
@@ -120,16 +120,16 @@ describe('deriveDataPanels: output rows', () => {
     expect(recordedTextOutputForNode(node('a'), {
       ...context,
       execNodes: {
-        a: done({ text: { typeId: 'core.string', value: 'one' } }),
-        'a[1]': done({ text: { typeId: 'core.string', value: 'two' } }),
+        a: done({ text: { typeId: 'STRING', value: 'one' } }),
+        'a[1]': done({ text: { typeId: 'STRING', value: 'two' } }),
       },
       runtimeIdsOf: () => ['a', 'a[1]'],
     })).toBeNull()
     expect(recordedTextOutputForNode(node('a'), {
       ...context,
       execNodes: {
-        a: done({ first: { typeId: 'core.string', value: 'same' }, second: { typeId: 'core.string', value: 'one' } }),
-        'a[1]': done({ first: { typeId: 'core.string', value: 'same' }, second: { typeId: 'core.string', value: 'two' } }),
+        a: done({ first: { typeId: 'STRING', value: 'same' }, second: { typeId: 'STRING', value: 'one' } }),
+        'a[1]': done({ first: { typeId: 'STRING', value: 'same' }, second: { typeId: 'STRING', value: 'two' } }),
       },
       runtimeIdsOf: () => ['a', 'a[1]'],
     })).toBeNull()

@@ -159,7 +159,7 @@ const countOutputSchema: NodeSchema = {
     {
       kind: 'input',
       id: 'count',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       optional: false,
       widget: { widgetType: 'INT', options: {}, default: 1 },
     },
