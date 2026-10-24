@@ -41,7 +41,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "core.combo"
+          "COMBO"
         ]
       },
       "widget": {
@@ -65,7 +65,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "core.combo"
+          "COMBO"
         ]
       },
       "widget": {
@@ -86,7 +86,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "core.int"
+          "INT"
         ]
       },
       "widget": {
@@ -105,7 +105,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "core.string"
+          "STRING"
         ]
       },
       "widget": {
@@ -122,7 +122,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "core.combo"
+          "COMBO"
         ]
       },
       "widget": {
