@@ -39,6 +39,9 @@ cardinality. `GetItemFromList` becomes explicit element selection, with a
 list-valued index first selecting index zero. These translations do not add
 implicit broadcast behavior to the engine.
 
+Promoted widgets retain their authored instance values through generated loop
+definitions, including nested loops inside imported subgraphs.
+
 ComfyUI serializes widget values positionally. For a DynamicCombo it writes
 the selector first, then the selected branch's widget values in schema order,
 then resumes the containing branch or node. Dinkster's importer decodes that

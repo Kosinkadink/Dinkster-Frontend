@@ -2,6 +2,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import { STRUCTURAL_IMPORT_HELPERS } from '../extensions/import-helpers.js'
 import type { LinkEndpoint } from '../ids.js'
 import { traceEndpoint } from '../reroute.js'
+import { deriveBoundarySchema } from '../schema/derive-boundary.js'
 import {
   inputsOf,
   outputsOf,
@@ -559,6 +560,9 @@ export function convertLitegraphLoops(
   }
   doc['occurrenceTopologies'] ??= {}
   const convertedOutputIsList = new Map<string, boolean>()
+  const generatedSchemas = new Map<string, NodeSchema>()
+  const localResolve = (type: string): NodeSchema | undefined =>
+    generatedSchemas.get(type) ?? resolve(type)
 
   for (const pair of pairs) {
     const startRaw = byId.get(pair.start)!
@@ -1075,7 +1079,7 @@ export function convertLitegraphLoops(
         !statePorts.has(id) &&
         bindings.some((binding) => {
           const target = body['nodes'][binding['node']] as Mutable | undefined
-          const schema = target && resolve(target['type'])
+          const schema = target && localResolve(target['type'])
           return (
             schema &&
             inputsOf(schema).some(
@@ -1160,6 +1164,9 @@ export function convertLitegraphLoops(
     graph['nextOrdinal'] = Math.max(Number(graph['nextOrdinal']) || 1, ordinal)
     doc['graphs'][defId] = body
     doc['view']['graphs'][defId] = bodyView
+    const derived = deriveBoundarySchema(body as GraphDef, localResolve)
+    if (derived.schema)
+      generatedSchemas.set(derived.schema.type, derived.schema)
 
     for (const topology of Object.values(
       doc['occurrenceTopologies'],

@@ -897,6 +897,87 @@ describe('ComfyUI Generic Loops structural import', () => {
     )
   })
 
+  it.each([false, true])(
+    'preserves promoted widget values through generated loops (nested: %s)',
+    (nested) => {
+      const loop = topologyWorkflow(
+        nested
+          ? {
+              outer: { type: 'StartLoop' },
+              start: {
+                type: 'StartLoop',
+                inputs: { initial_iteration_value: 'outer' },
+              },
+              body: { type: 'Body', inputs: { dependency: 'start' } },
+              end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+              outerEnd: { type: 'EndLoop', inputs: { output_value: 'end' } },
+            }
+          : {
+              start: { type: 'StartLoop' },
+              body: { type: 'Body', inputs: { dependency: 'start' } },
+              end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+            },
+      )
+      const body = (loop['nodes'] as { [key: string]: Json }[])[nested ? 2 : 1]!
+      ;(body['inputs'] as Json[]).push({
+        name: 'x',
+        type: 'INT',
+        widget: { name: 'x' },
+        link: null,
+      })
+      body['widgets_values'] = { x: 7 }
+      const resolver = topologyResolver(loop)
+      const imported = importLitegraph(
+        {
+          version: 0.4,
+          nodes: [
+            {
+              id: 20,
+              type: 'loop-body',
+              inputs: [],
+              outputs: [],
+              properties: { proxyWidgets: [[String(body['id']), 'x']] },
+              widgets_values: [123],
+            },
+          ],
+          links: [],
+          definitions: {
+            subgraphs: [
+              {
+                id: 'loop-body',
+                name: 'loop-body',
+                version: 1,
+                nodes: loop['nodes']!,
+                links: loop['links']!,
+                inputs: [],
+                outputs: [],
+              },
+            ],
+          },
+        },
+        resolver,
+      )
+      expect(
+        imported.diagnostics.filter((item) => item.severity === 'error'),
+      ).toEqual([])
+      expect(imported.diagnostics.map((item) => item.code)).not.toContain(
+        'import.subgraphs.boundaryUnresolved',
+      )
+      expect(
+        Object.values(imported.document!.graphs.g0!.nodes.n20!.values),
+      ).toContain(123)
+      const generated = Object.values(imported.document!.graphs).filter(
+        (graph) => graph.id.startsWith('comfy-loop-'),
+      )
+      expect(generated).toHaveLength(nested ? 2 : 1)
+      for (const graph of generated) {
+        expect(
+          graph.boundary!.inputs.some((input) => input.promoted === true),
+        ).toBe(true)
+      }
+    },
+  )
+
   it('retains loop definitions generated inside imported subgraphs', () => {
     const loop = topologyWorkflow({
       count: { type: 'Source' },
