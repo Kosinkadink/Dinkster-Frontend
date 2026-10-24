@@ -418,6 +418,10 @@ NUMBER constraint exactness follows the socket type. FLOAT accepts finite
 numeric bounds and positive steps, including whole-valued doubles beyond the
 safe integer range, but never decimal strings. INT requires safe numeric
 integers or canonical exact decimal strings for bounds and positive steps.
+FLOAT `round` is independent of step: a positive finite precision quantizes
+committed text, while explicit `false` preserves its parsed value unchanged.
+Absent `round` also leaves commits unquantized. INT rejects `round`; zero,
+negative or nonfinite precisions, `true`, strings and explicit null are invalid.
 
 This table inventories every family registered by `registerCoreWidgets`. The
 schema column names only metadata currently carried by `WidgetSpec`; absence is
