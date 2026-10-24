@@ -26,7 +26,7 @@ const schema = (command: typeof commands[number]) => ({
   interface: command === 'make'
     ? [input('params', 'STRING', { optional: true, default: '{}', multiline: true }), output('document', 'VIDEO_DOCUMENT')]
     : command === 'render'
-      ? [input('document', 'VIDEO_DOCUMENT'), output('video', 'comfy.VIDEO')]
+      ? [input('document', 'VIDEO_DOCUMENT'), output('video', 'VIDEO')]
       : command === 'import_otio'
         ? [input('otio', 'STRING', { multiline: true }), output('document', 'VIDEO_DOCUMENT')]
         : command === 'export_otio'
@@ -34,7 +34,7 @@ const schema = (command: typeof commands[number]) => ({
           : [
               input('document', 'VIDEO_DOCUMENT'),
               input('params', 'STRING', { multiline: true }),
-              ...(command === 'bind_source' ? [input('video', 'comfy.VIDEO', { optional: true })] : []),
+              ...(command === 'bind_source' ? [input('video', 'VIDEO', { optional: true })] : []),
               output('document', 'VIDEO_DOCUMENT'),
             ],
 })
@@ -172,7 +172,7 @@ test('native execution matches editor-authored and literal values for every comm
     clips: [clip('first', 'First'), clip('second', 'Second')],
   }
   const videoReference = {
-    type: 'comfy.VIDEO',
+    type: 'VIDEO',
     asset: {
       digest: `blake3:${'a'.repeat(64)}`, name: 'source.mp4', size: 1,
       mediaType: 'video/mp4', virtualPath: 'source.mp4',

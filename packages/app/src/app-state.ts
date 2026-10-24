@@ -5282,7 +5282,7 @@ export class AppState {
       const audio = audioSource?.kind === 'producer' ? graph.nodes[audioSource.node] : undefined
       const audioOutput = audio && audioSource?.kind === 'producer'
         ? resolve?.(audio.type)?.items.find((item) =>
-            item.kind === 'output' && item.id === audioSource.output && item.type.kind === 'concrete' && item.type.name === 'comfy.AUDIO')
+            item.kind === 'output' && item.id === audioSource.output && item.type.kind === 'concrete' && item.type.name === 'AUDIO')
         : undefined
       if (envelopeCurve && audioSource?.kind === 'producer' && audioOutput) {
         return {

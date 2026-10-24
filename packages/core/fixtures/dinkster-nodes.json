@@ -126,7 +126,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO_EDIT"
+              "VIDEO_EDIT"
             ]
           },
           "widget": {

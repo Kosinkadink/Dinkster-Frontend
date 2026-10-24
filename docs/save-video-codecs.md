@@ -32,6 +32,10 @@ container/codec (default `auto`), optional integer CRF, metadata JSON text,
 and an optional static legacy-format combo. It returns unchanged
 `comfy.VIDEO` and a separate preview-marked `asset<comfy.VIDEO>` output.
 
+Current native schemas use `VIDEO`, `AUDIO`, and `VIDEO_EDIT`, including
+`asset<VIDEO>` outputs. The versioned export above records its original
+socket names; those historical names are not current runtime aliases.
+
 The fixture moves images, FPS, audio and bit depth to a `dinkster.video.assemble`
 helper with `color_space=sRGB`, connects its video to the saver, and retargets
 historical asset consumers from `video` to `asset`. Nested cases detect stored

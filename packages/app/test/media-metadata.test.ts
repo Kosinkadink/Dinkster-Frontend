@@ -26,7 +26,7 @@ describe('mediaMetadataOf', () => {
   })
 
   it('shows AUDIO metadata without loading a waveform', () => {
-    expect(mediaMetadataOf('comfy.AUDIO', { sample_rate: 48000, channels: 2, layout: 'stereo', duration: 0, dtype: 'float32' })?.fields.map((field) => field.value)).toEqual([
+    expect(mediaMetadataOf('AUDIO', { sample_rate: 48000, channels: 2, layout: 'stereo', duration: 0, dtype: 'float32' })?.fields.map((field) => field.value)).toEqual([
       undefined, '48000', '2', 'stereo', '0', 'float32',
     ])
   })
@@ -34,7 +34,7 @@ describe('mediaMetadataOf', () => {
   it('distinguishes VIDEO source probe from effective lazy duration and preserves rational facts', () => {
     const meta = { container: 'mkv', probe: { video_codec: 'hevc', pix_fmt: 'yuv420p10le', alpha: false, bit_depth: 10, color_space: 'HDR PQ', duration: [10, 1] }, effective: { duration: [7, 2], fps: [30000, 1001], frame_count: 105 } }
     const before = JSON.stringify(meta)
-    expect(mediaMetadataOf('comfy.VIDEO', meta)?.fields.map((field) => field.value)).toEqual([
+    expect(mediaMetadataOf('VIDEO', meta)?.fields.map((field) => field.value)).toEqual([
       undefined, 'mkv', 'hevc', 'yuv420p10le', false, '10', 'HDR PQ', '7/2', '30000/1001', '105',
     ])
     expect(JSON.stringify(meta)).toBe(before)
@@ -43,6 +43,9 @@ describe('mediaMetadataOf', () => {
   it('rejects non-media types and displays malformed optional facts as unavailable', () => {
     expect(mediaMetadataOf('comfy.LATENT', {})).toBeUndefined()
     expect(mediaMetadataOf('list<comfy.IMAGE>', {})).toBeUndefined()
-    expect(mediaMetadataOf('comfy.VIDEO', { probe: [], effective: { duration: [1, 0], fps: [NaN, 1] } })?.fields.every((field) => field.value === undefined)).toBe(true)
+    expect(mediaMetadataOf('extension.foo.VIDEO', {})).toBeUndefined()
+    expect(mediaMetadataOf('extension.foo.AUDIO', {})).toBeUndefined()
+    expect(mediaMetadataOf('asset<extension.foo.AUDIO>', {})).toBeUndefined()
+    expect(mediaMetadataOf('VIDEO', { probe: [], effective: { duration: [1, 0], fps: [NaN, 1] } })?.fields.every((field) => field.value === undefined)).toBe(true)
   })
 })

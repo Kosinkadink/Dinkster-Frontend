@@ -31,7 +31,7 @@ from dinkster_schema import (  # noqa: E402
     TypeExpr,
     schema_to_wire,
 )
-from dinkster_values import CustomWidgetDescriptor  # noqa: E402
+from dinkster_values import VIDEO_EDIT_TYPE, CustomWidgetDescriptor  # noqa: E402
 
 INT = TypeExpr.concrete("INT")
 FLOAT = TypeExpr.concrete("FLOAT")
@@ -70,7 +70,7 @@ schemas = [
         inputs=(
             InputSpec(
                 "edit",
-                TypeExpr.concrete("comfy.VIDEO_EDIT"),
+                TypeExpr.concrete(VIDEO_EDIT_TYPE),
                 required=False,
                 widget=CustomWidgetDescriptor("VIDEO_EDIT", {"features": ["trim", "crop"]}),
             ),
