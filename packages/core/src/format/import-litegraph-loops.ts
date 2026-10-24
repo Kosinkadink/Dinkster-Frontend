@@ -1,5 +1,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { STRUCTURAL_IMPORT_HELPERS } from '../extensions/import-helpers.js'
+import type { LinkEndpoint } from '../ids.js'
+import { traceEndpoint } from '../reroute.js'
 import {
   inputsOf,
   outputsOf,
@@ -7,7 +9,7 @@ import {
   type TypeExpr,
 } from '../schema/model.js'
 import { typesCompatible } from '../schema/type-compatibility.js'
-import type { Json, JsonObject } from './document.js'
+import type { GraphDef, Json, JsonObject } from './document.js'
 
 type Mutable = { [key: string]: any }
 
@@ -353,15 +355,36 @@ export function convertLitegraphLists(
   document: JsonObject,
   rawNodesValue: readonly unknown[],
   resolve: (type: string) => NodeSchema | undefined,
-): void {
+): ReadonlyMap<string, string> {
   const doc = document as Mutable
   const graph = doc['graphs']['g0'] as Mutable
   const view = doc['view']['graphs']['g0'] as Mutable
   const raw = new Map(
     rawNodesValue.filter(object).map((node) => [`n${node['id']}`, node]),
   )
+  const helperOwners = new Map<string, string>()
+  let ordinal = Number(graph['nextOrdinal']) || 1
+  const addLink = (from: Mutable, to: Mutable, ext?: Mutable): void => {
+    const id = `list_link_${ordinal++}`
+    graph['links'][id] = { id, from, to, ...(ext ? { ext } : {}) }
+  }
+  for (const [netId, net] of Object.entries(graph['nets']) as [
+    string,
+    Mutable,
+  ][]) {
+    net['sinks'] = net['sinks'].filter((sink: Mutable) => {
+      const type = raw.get(endpointNode(sink) ?? '')?.['type']
+      if (type !== 'CreateList' && type !== 'GetItemFromList') return true
+      addLink({ ...net['source'] }, sink, net['ext'])
+      return false
+    })
+    if (net['sinks'].length === 0) delete graph['nets'][netId]
+  }
   const links = (): Mutable[] => Object.values(graph['links'])
   const isList = (source: Mutable, seen = new Set<string>()): boolean => {
+    const trace = traceEndpoint(graph as GraphDef, source as LinkEndpoint)
+    if (trace.kind !== 'output') return false
+    source = trace.ref
     const id = endpointNode(source)
     if (!id || seen.has(id)) return false
     seen.add(id)
@@ -385,18 +408,17 @@ export function convertLitegraphLists(
       schema && outputsOf(schema).find((port) => port.id === source['port'])
     return output?.type.kind === 'list' || output?.isList === true
   }
-  let ordinal = Number(graph['nextOrdinal']) || 1
-  const addLink = (from: Mutable, to: Mutable): void => {
-    const id = `list_link_${ordinal++}`
-    graph['links'][id] = { id, from, to }
-  }
-  const singleton = (source: Mutable): Mutable => {
+  const singleton = (source: Mutable, owner: string): Mutable => {
     const id = `list_wrap_${ordinal++}`
+    helperOwners.set(id, owner)
     graph['nodes'][id] = {
       id,
       type: 'std.list.make',
       values: {},
       dynamic: { items: { members: ['m0'], seq: 1 } },
+      ...(graph['nodes'][owner]['mode']
+        ? { mode: graph['nodes'][owner]['mode'] }
+        : {}),
     }
     view['nodes'][id] = { position: { x: 0, y: 0 } }
     addLink(source, { node: id, port: 'items.items', members: ['m0'] })
@@ -426,7 +448,7 @@ export function convertLitegraphLists(
       }
       for (const [index, link] of ordered.entries()) {
         if (flatten && !isList(link['from']))
-          link['from'] = singleton(link['from'])
+          link['from'] = singleton(link['from'], id)
         link['to'] = {
           node: id,
           port: `${family}.${family}`,
@@ -437,15 +459,17 @@ export function convertLitegraphLists(
       node['type'] = 'std.list.element'
       for (const link of incoming) {
         if (link['to']['port'] === 'list' && !isList(link['from']))
-          link['from'] = singleton(link['from'])
+          link['from'] = singleton(link['from'], id)
         if (link['to']['port'] === 'index') {
           delete node['values']['index']
           if (isList(link['from'])) {
             const first = `list_index_${ordinal++}`
+            helperOwners.set(first, id)
             graph['nodes'][first] = {
               id: first,
               type: 'std.list.element',
               values: { index: 0 },
+              ...(node['mode'] ? { mode: node['mode'] } : {}),
             }
             view['nodes'][first] = { position: { x: 0, y: 0 } }
             addLink(link['from'], { node: first, port: 'list' })
@@ -455,9 +479,12 @@ export function convertLitegraphLists(
       }
       for (const link of links())
         if (endpointNode(link['from']) === id) link['from']['port'] = 'item'
+      for (const net of Object.values(graph['nets']) as Mutable[])
+        if (endpointNode(net['source']) === id) net['source']['port'] = 'item'
     }
   }
   graph['nextOrdinal'] = ordinal
+  return helperOwners
 }
 
 /** Convert maintained ComfyUI StartLoop/EndLoop topology into explicit regions. */
@@ -467,6 +494,7 @@ export function convertLitegraphLoops(
   rawLinksValue: readonly unknown[],
   resolve: (type: string) => NodeSchema | undefined,
   diagnostics: Diagnostic[],
+  helperOwners: ReadonlyMap<string, string> = new Map(),
 ): void {
   const rawNodes = rawNodesValue.filter(
     (value): value is RawNode =>
@@ -547,6 +575,9 @@ export function convertLitegraphLoops(
         .map((id) => `n${id}`)
         .filter((id) => graph['nodes'][id] !== undefined),
     )
+    for (const [helper, owner] of helperOwners)
+      if (bodyNodeIds.has(owner) && graph['nodes'][helper] !== undefined)
+        bodyNodeIds.add(helper)
     const expandingBodyNode = [...bodyNodeIds]
       .map((id) => graph['nodes'][id] as Mutable)
       .find((node) => resolve(node['type'])?.mayExpandGraph === true)

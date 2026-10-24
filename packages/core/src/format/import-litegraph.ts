@@ -1842,7 +1842,8 @@ function importLitegraphGraph(
     const id = `n${n.id}`
     if (n.type === 'CreateList' || n.type === 'GetItemFromList') {
       const index = Array.isArray(n.widgets_values) ? n.widgets_values[0] : (n.widgets_values as Readonly<Record<string, Json>> | undefined)?.['index']
-      nodes[id] = { id, type: n.type, values: n.type === 'GetItemFromList' ? { index: index ?? 0 } : {} }
+      const mode = n.mode === 2 ? 'muted' : n.mode === 4 ? 'bypassed' : undefined
+      nodes[id] = { id, type: n.type, values: n.type === 'GetItemFromList' ? { index: index ?? 0 } : {}, ...(mode ? { mode } : {}) }
       importedOutputEndpoints.set(n.id, new Map((n.outputs ?? []).map((output, slot) =>
         [slot, { node: id, port: output.name ?? '*' }])))
       viewNodes[id] = { position: posOf(n) }
@@ -2387,8 +2388,8 @@ function importLitegraphGraph(
     },
   } as unknown as JsonObject
 
-  convertLitegraphLists(document, rawNodes, resolve)
-  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags)
+  const listHelperOwners = convertLitegraphLists(document, rawNodes, resolve)
+  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags, listHelperOwners)
 
   // Error-level import diagnostics (e.g. untranslatable subgraph definitions)
   // block the import outright: a partially-translated workflow is corruption.

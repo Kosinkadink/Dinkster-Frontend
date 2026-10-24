@@ -310,9 +310,16 @@ const workflowFiles = readdirSync(fixtureRoot)
   .sort()
 
 describe('explicit imported list utilities', () => {
-  it.each([false, true])(
-    'preserves authored order and selects the first linked index (list source: %s)',
-    (listSource) => {
+  it.each([
+    [false, 'direct'],
+    [true, 'direct'],
+    [false, 'reroute'],
+    [true, 'reroute'],
+    [false, 'net'],
+    [true, 'net'],
+  ] as const)(
+    'preserves authored order and selects the first linked index (list source: %s, route: %s)',
+    (listSource, route) => {
       const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
       const list: TypeExpr = { kind: 'list', element: integer }
       const schema = (
@@ -412,6 +419,60 @@ describe('explicit imported list utilities', () => {
           [5, 4, 0, 6, 0, 'INT'],
         ],
       }
+      if (route !== 'direct') {
+        const nodes = workflow['nodes'] as JsonObject[]
+        const links = workflow['links'] as Json[][]
+        for (const [source, destination, slot, junction] of [
+          [2, 3, 1, 7],
+          [5, 4, 1, 9],
+        ] as const) {
+          const link = links.find((item) => item[1] === source)!
+          if (route === 'reroute') {
+            nodes.push({
+              id: junction,
+              type: 'Reroute',
+              inputs: [{ name: 'input' }],
+              outputs: [{ name: 'output' }],
+            })
+            link[3] = junction
+            link[4] = 0
+            links.push([
+              links.length + 1,
+              junction,
+              0,
+              destination,
+              slot,
+              'INT',
+            ])
+          } else {
+            nodes.push(
+              {
+                id: junction,
+                type: 'SetNode',
+                inputs: [{ name: '*', link: link[0]! }],
+                outputs: [{ name: 'INT', links: [] }],
+                widgets_values: [`shared${source}`],
+              },
+              {
+                id: junction + 1,
+                type: 'GetNode',
+                outputs: [{ name: 'INT', links: [links.length + 1] }],
+                widgets_values: [`shared${source}`],
+              },
+            )
+            link[3] = junction
+            link[4] = 0
+            links.push([
+              links.length + 1,
+              junction + 1,
+              0,
+              destination,
+              slot,
+              'INT',
+            ])
+          }
+        }
+      }
       const resolve = (type: string) => schemas.get(type)
       const imported = importLitegraph(workflow, resolve)
       expect(
@@ -455,6 +516,52 @@ describe('explicit imported list utilities', () => {
           { $link: { node: 'n1', output: 'value' } },
           { $link: { node: 'n2', output: 'value' } },
         ])
+    },
+  )
+  it.each([2, 4])(
+    'preserves authored disabled mode %s on list nodes and helpers',
+    (mode) => {
+      const workflow: JsonObject = {
+        nodes: [
+          {
+            id: 1,
+            type: 'PrimitiveInt',
+            outputs: [{ name: 'INT' }],
+            widgets_values: [7],
+          },
+          {
+            id: 2,
+            type: 'CreateList',
+            mode,
+            inputs: [{ name: 'inputs.input0' }],
+            outputs: [{ name: 'list' }],
+          },
+          {
+            id: 3,
+            type: 'GetItemFromList',
+            mode,
+            inputs: [{ name: 'list' }],
+            outputs: [{ name: '*' }],
+            widgets_values: [0],
+          },
+        ],
+        links: [
+          [1, 1, 0, 2, 0, 'INT'],
+          [2, 1, 0, 3, 0, 'INT'],
+        ],
+      }
+      const imported = importLitegraph(
+        workflow,
+        (type) => coreSchemas.get(type) ?? helperSchemas.get(type),
+      )
+      expect(
+        imported.diagnostics.filter((item) => item.severity === 'error'),
+      ).toEqual([])
+      const nodes = imported.document!.graphs[imported.document!.root]!.nodes
+      for (const node of Object.values(nodes).filter(
+        (node) => node.id !== 'n1',
+      ))
+        expect(node.mode).toBe(mode === 2 ? 'muted' : 'bypassed')
     },
   )
 })
@@ -603,6 +710,59 @@ const topologyResolver = (workflow: JsonObject) => {
 describe('ComfyUI Generic Loops structural import', () => {
   it('keeps the fixed-SHA acceptance corpus complete', () => {
     expect(workflowFiles).toHaveLength(23)
+  })
+
+  it('keeps scalar wrappers and index selection inside their authored loop', () => {
+    const workflow = topologyWorkflow({
+      source: { type: 'Source' },
+      start: { type: 'StartLoop' },
+      body: { type: 'Body', inputs: { value: 'start' } },
+      collection: {
+        type: 'Body',
+        inputs: { 'inputs.input9': 'body', 'inputs.input2': 'source' },
+      },
+      selection: {
+        type: 'Body',
+        inputs: { list: 'collection', index: 'source' },
+      },
+      end: { type: 'EndLoop', inputs: { output_value: 'selection' } },
+      output: { type: 'Output', inputs: { value: 'end' } },
+    })
+    const resolveTopology = topologyResolver(workflow)
+    const nodes = workflow['nodes'] as JsonObject[]
+    nodes[3] = { ...nodes[3]!, type: 'CreateList' }
+    nodes[4] = { ...nodes[4]!, type: 'GetItemFromList' }
+    const imported = importLitegraph(workflow, (type) => {
+      const schema = resolveTopology(type)
+      if (type !== 'Issue408TopologySource1' || !schema) return schema
+      return {
+        ...schema,
+        items: [
+          {
+            kind: 'output',
+            id: 'output_0',
+            type: { kind: 'list', element: { kind: 'concrete', name: 'INT' } },
+          },
+        ],
+      }
+    })
+    expect(
+      imported.diagnostics.filter((item) => item.severity === 'error'),
+    ).toEqual([])
+    const body = imported.document!.graphs['comfy-loop-2']!
+    expect(Object.values(body.nodes).map((node) => node.type)).toEqual(
+      expect.arrayContaining([
+        'std.list.make',
+        'std.list.concat',
+        'std.list.element',
+      ]),
+    )
+    const root = imported.document!.graphs[imported.document!.root]!
+    expect(
+      Object.values(root.nodes).some((node) =>
+        node.type.startsWith('std.list.'),
+      ),
+    ).toBe(false)
   })
 
   it.each(
