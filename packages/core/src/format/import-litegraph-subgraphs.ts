@@ -1,8 +1,9 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
+import { occurrenceKey, type NodeId } from '../ids.js'
 import { checkDocument } from '../invariants.js'
 import { deriveBoundarySchema } from '../schema/derive-boundary.js'
 import { inputsOf, type NodeSchema, type TypeExpr } from '../schema/model.js'
-import type { BoundaryBinding, BoundaryItem, GraphDef, Json, JsonObject, WorkflowDocument } from './document.js'
+import type { BoundaryBinding, BoundaryItem, GraphDef, Json, JsonObject, OccurrenceTopology, WorkflowDocument } from './document.js'
 import type { ImportLitegraphResult } from './import-litegraph.js'
 import { ownJson } from './json.js'
 import { validateDocumentShape } from './validate.js'
@@ -148,11 +149,12 @@ export function importLitegraphSubgraphs(
   const localResolve = (type: string): NodeSchema | undefined => schemas.get(type) ?? resolve(type)
   const visiting = new Set<string>()
   const done = new Set<string>()
+  const definitionTopologies = new Map<string, readonly OccurrenceTopology[]>()
   const instances = [root, ...[...definitions.values()].map((def) => def.raw)]
     .flatMap((graph) => Array.isArray(graph['nodes']) ? graph['nodes'] as Mutable[] : [])
 
   const retainGeneratedGraphs = (document: WorkflowDocument, owner: string): void => {
-    const generated = Object.entries(document.graphs).filter(([id]) => id !== 'g0')
+    const generated = Object.entries(document.graphs).filter(([id]) => id !== 'g0' && !Object.hasOwn(graphs, id))
     if (generated.length === 0) return
     const ids = new Map<string, string>()
     for (const [id] of generated) {
@@ -174,6 +176,10 @@ export function importLitegraphSubgraphs(
       const view = document.view.graphs[id]
       if (view !== undefined) views[target] = view
     }
+    definitionTopologies.set(owner, Object.values(document.occurrenceTopologies ?? {}).map((topology) => ({
+      ...topology,
+      bodyGraph: (ids.get(topology.bodyGraph) ?? topology.bodyGraph) as OccurrenceTopology['bodyGraph'],
+    })))
   }
 
   // Legacy proxy entries address widgets by node/name rather than by boundary slot.
@@ -502,7 +508,21 @@ export function importLitegraphSubgraphs(
   if (diagnostics.some((item) => item.severity === 'error')) return { diagnostics }
   const doc = translate(root)
   if (!doc) return { diagnostics }
+  const occurrenceTopologies = { ...doc.occurrenceTopologies }
+  const retainTopologies = (graph: GraphDef, path: readonly NodeId[]): void => {
+    for (const topology of definitionTopologies.get(graph.id) ?? []) {
+      const owner = { ...topology.owner, instancePath: [...path, ...topology.owner.instancePath] }
+      occurrenceTopologies[occurrenceKey(owner)] = { ...topology, owner }
+    }
+    for (const node of Object.values(graph.nodes)) {
+      if (!node.type.startsWith('#')) continue
+      const child = doc.graphs[node.type.slice(1)]
+      if (child) retainTopologies(child, [...path, node.id])
+    }
+  }
+  retainTopologies(doc.graphs[doc.root]!, [])
   const result = { ...doc, view: { ...doc.view, graphs: { ...views, ...doc.view.graphs } },
+    ...(Object.keys(occurrenceTopologies).length > 0 ? { occurrenceTopologies } : {}),
     ext: { ...doc.ext, 'importer.litegraphDefinitions': input['definitions']! } }
   diagnostics.push(...validateDocumentShape(result as unknown as JsonObject), ...checkDocument(result))
   if (diagnostics.some((item) => item.severity === 'error')) return { diagnostics }

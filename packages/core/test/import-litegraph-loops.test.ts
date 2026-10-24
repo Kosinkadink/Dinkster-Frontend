@@ -732,7 +732,7 @@ describe('ComfyUI Generic Loops structural import', () => {
       (node) => node.type === 'std.list.make',
     )!
     expect(wrapper).toBeDefined()
-    const iteration = body.boundary.inputs.find(
+    const iteration = body.boundary!.inputs.find(
       (input) => input.id === 'iteration_index',
     )!
     expect([iteration.binds, ...(iteration.alsoBinds ?? [])]).toContainEqual({
@@ -899,8 +899,9 @@ describe('ComfyUI Generic Loops structural import', () => {
 
   it('retains loop definitions generated inside imported subgraphs', () => {
     const loop = topologyWorkflow({
-      start: { type: 'StartLoop' },
-      body: { type: 'Body', inputs: { value: 'start' } },
+      count: { type: 'Source' },
+      start: { type: 'StartLoop', inputs: { 'mode.num_iterations': 'count' } },
+      body: { type: 'Body', inputs: { value: 'start', first: 'start:1' } },
       end: { type: 'EndLoop', inputs: { output_value: 'body' } },
     })
     const definition: JsonObject = {
@@ -914,9 +915,12 @@ describe('ComfyUI Generic Loops structural import', () => {
     }
     const workflow: JsonObject = {
       version: 0.4,
-      last_node_id: 1,
+      last_node_id: 2,
       last_link_id: 0,
-      nodes: [{ id: 1, type: 'loop-body', inputs: [], outputs: [] }],
+      nodes: [
+        { id: 1, type: 'loop-body', inputs: [], outputs: [] },
+        { id: 2, type: 'loop-body', inputs: [], outputs: [] },
+      ],
       links: [],
       groups: [],
       config: {},
@@ -930,10 +934,18 @@ describe('ComfyUI Generic Loops structural import', () => {
       imported.diagnostics.filter((item) => item.severity === 'error'),
     ).toEqual([])
     expect(imported.document).toBeDefined()
-    expect(imported.document!.graphs['comfy-loop-1']).toBeDefined()
-    expect(imported.document!.graphs['loop-body']!.nodes.n1!.type).toBe(
-      '#comfy-loop-1',
+    expect(imported.document!.graphs['comfy-loop-2']).toBeDefined()
+    expect(imported.document!.graphs['loop-body']!.nodes.n2!.type).toBe(
+      '#comfy-loop-2',
     )
+    expect(
+      Object.values(imported.document!.occurrenceTopologies ?? {}).map(
+        (topology) => topology.owner,
+      ),
+    ).toEqual([
+      { instancePath: ['n1'], node: 'n2' },
+      { instancePath: ['n2'], node: 'n2' },
+    ])
   })
 
   it('consumes flagged nested loop boundaries before scanning the outer body', () => {

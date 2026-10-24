@@ -1071,6 +1071,21 @@ export function convertLitegraphLoops(
         displayName: id,
         binds: bindings[0],
         ...(bindings.length > 1 ? { alsoBinds: bindings.slice(1) } : {}),
+        ...(!elementPorts.has(id) &&
+        !statePorts.has(id) &&
+        bindings.some((binding) => {
+          const target = body['nodes'][binding['node']] as Mutable | undefined
+          const schema = target && resolve(target['type'])
+          return (
+            schema &&
+            inputsOf(schema).some(
+              (input) =>
+                input.id === binding['port'] && input.widget !== undefined,
+            )
+          )
+        })
+          ? { promoted: true }
+          : {}),
       })
     }
     for (const node of Object.values(body['nodes']) as Mutable[]) {
