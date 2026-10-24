@@ -29,7 +29,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.combo"
+                  "COMBO"
                 ]
               },
               "required": false,

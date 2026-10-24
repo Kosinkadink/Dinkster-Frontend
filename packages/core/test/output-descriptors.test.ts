@@ -15,8 +15,8 @@ import { parseOutputDescriptors } from '../src/schema/output-descriptors.js'
 const spec: OutputDescriptorsSpec = {
   input: 'entries', minEntries: 0, maxEntries: 32, fixedIds: false,
   choices: [
-    { id: 'float', type: { kind: 'concrete', name: 'core.float' }, preview: true },
-    { id: 'string', type: { kind: 'concrete', name: 'core.string' }, optional: true },
+    { id: 'float', type: { kind: 'concrete', name: 'FLOAT' }, preview: true },
+    { id: 'string', type: { kind: 'concrete', name: 'STRING' }, optional: true },
   ],
 }
 const entries = [
@@ -27,7 +27,7 @@ const literal = JSON.stringify({ entries, extra: { preserved: true } })
 const schema: NodeSchema = {
   type: 'TestDescriptors', displayName: 'Descriptors', category: 'test', source: 'v3', isOutputNode: true,
   items: [
-    { kind: 'input', id: 'entries', type: { kind: 'concrete', name: 'core.string' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: literal } },
+    { kind: 'input', id: 'entries', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: literal } },
     { kind: 'output', id: 'entries', type: spec.choices[0]!.type, outputDescriptors: spec },
   ],
 }
@@ -37,7 +37,7 @@ const outputRows = (s: NodeSchema, values: Record<string, unknown>) => elabOutpu
 const wire = {
   schemaVersion: 1,
   interface: [
-    { role: 'input', id: 'entries', type: { kind: 'concrete', types: ['core.string'] }, required: true },
+    { role: 'input', id: 'entries', type: { kind: 'concrete', types: ['STRING'] }, required: true },
     { role: 'outputDescriptors', ...spec, choices: spec.choices.map((choice) => ({ ...choice, type: { kind: 'concrete', types: [choice.type.name] } })) },
   ],
 }
