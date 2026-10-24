@@ -67,10 +67,10 @@ const uniformKindOf = (item: ElaboratedInput): 'image' | 'float' | 'int' | 'bool
   if (type.kind !== 'concrete') return undefined
   switch (type.name) {
     case 'dinkster.image': return 'image'
-    case 'core.float': return 'float'
-    case 'core.int': return 'int'
-    case 'core.boolean': return 'bool'
-    case 'core.combo': return item.spec.widget?.widgetType === 'COMBO' ? 'combo' : undefined
+    case 'FLOAT': return 'float'
+    case 'INT': return 'int'
+    case 'BOOLEAN': return 'bool'
+    case 'COMBO': return item.spec.widget?.widgetType === 'COMBO' ? 'combo' : undefined
     default: return undefined
   }
 }

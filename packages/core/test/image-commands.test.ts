@@ -175,7 +175,7 @@ const maskPaintSchema: NodeSchema = {
   editorRole: 'mask-paint',
   items: [
     { kind: 'input', id: 'source', type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } }, optional: false, widget: { widgetType: 'ASSET', options: {} } },
-    { kind: 'input', id: 'operations', type: { kind: 'concrete', name: 'core.string' }, optional: false, widget: { widgetType: 'STRING', options: { multiline: true } } },
+    { kind: 'input', id: 'operations', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: { multiline: true } } },
     { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'dinkster.mask' } },
   ],
 }

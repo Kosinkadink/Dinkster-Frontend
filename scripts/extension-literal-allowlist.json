@@ -620,7 +620,7 @@
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/mirror/glsl.ts",
       "line": 73,
-      "column": 31,
+      "column": 26,
       "symbol": "widgetType:COMBO",
       "issue": 122
     },

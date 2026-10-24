@@ -90,11 +90,11 @@ const scalarExpressionRegistry = () => parseDinksterNodes({
       interface: [
         {
           role: 'input', id: 'source', required: false,
-          type: { kind: 'concrete', types: ['core.int'] }, default: 0,
+          type: { kind: 'concrete', types: ['INT'] }, default: 0,
         },
         {
           role: 'output', id: 'result',
-          type: { kind: 'concrete', types: ['core.int'] },
+          type: { kind: 'concrete', types: ['INT'] },
           knownValue: { input: 'source' },
         },
       ],
@@ -108,7 +108,7 @@ const scalarExpressionRegistry = () => parseDinksterNodes({
       interface: [
         {
           role: 'input', id: 'expression', required: true,
-          type: { kind: 'concrete', types: ['core.string'] },
+          type: { kind: 'concrete', types: ['STRING'] },
           default: 'a + b', widget: { type: 'STRING', multiline: true },
         },
         {
@@ -116,12 +116,12 @@ const scalarExpressionRegistry = () => parseDinksterNodes({
           memberNames: 'abcdefghijklmnopqrstuvwxyz'.split(''),
           template: [{
             role: 'input', id: 'value', required: true,
-            type: { kind: 'union', types: ['core.float', 'core.int', 'core.boolean'] },
+            type: { kind: 'union', types: ['FLOAT', 'INT', 'BOOLEAN'] },
           }],
         },
-        { role: 'output', id: 'float', type: { kind: 'concrete', types: ['core.float'] } },
-        { role: 'output', id: 'int', type: { kind: 'concrete', types: ['core.int'] } },
-        { role: 'output', id: 'boolean', type: { kind: 'concrete', types: ['core.boolean'] } },
+        { role: 'output', id: 'float', type: { kind: 'concrete', types: ['FLOAT'] } },
+        { role: 'output', id: 'int', type: { kind: 'concrete', types: ['INT'] } },
+        { role: 'output', id: 'boolean', type: { kind: 'concrete', types: ['BOOLEAN'] } },
       ],
       mirror: {
         kind: 'expression', precision: 'bounded',
@@ -633,9 +633,9 @@ describe('scalar mirror propagation overlays', () => {
 
   it('feeds exact and retained values but never stale values into new estimates', () => {
     const firstOutputs = {
-      float: { typeId: 'core.float', value: 9 },
-      int: { typeId: 'core.int', value: 9 },
-      boolean: { typeId: 'core.boolean', value: true },
+      float: { typeId: 'FLOAT', value: 9 },
+      int: { typeId: 'INT', value: 9 },
+      boolean: { typeId: 'BOOLEAN', value: true },
     }
     const exact = derive(chain(), {
       exec: exec({ nodes: { first: { state: 'done', outputs: firstOutputs } } }),
@@ -1580,7 +1580,7 @@ describe('glsl image estimate overlay', () => {
       {
         kind: 'input',
         id: 'factor',
-        type: { kind: 'concrete', name: 'core.float' },
+        type: { kind: 'concrete', name: 'FLOAT' },
         optional: false,
         widget: { widgetType: 'NUMBER', options: {}, default: 1.5 },
       },

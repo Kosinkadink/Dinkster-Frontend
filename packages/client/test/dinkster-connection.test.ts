@@ -68,7 +68,7 @@ it('includes output profile detector revision in registry identity', () => {
     schemaVersion: 1,
     nodes: { 'dinkster.load_model_profile': { schemaVersion: 1, interface: [
       { role: 'input', id: 'checkpoint', required: true, type: { kind: 'concrete', types: ['dinkster.asset'] } },
-      { role: 'input', id: 'entries', required: true, type: { kind: 'concrete', types: ['core.string'] } },
+      { role: 'input', id: 'entries', required: true, type: { kind: 'concrete', types: ['STRING'] } },
       { role: 'outputDescriptors', input: 'entries', choices: ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete', types: [`dinkster.${id}`] } })), minEntries: 1, maxEntries: 3, fixedIds: true, probe: { input: 'checkpoint', kind: 'model', revision } },
     ] } },
   })
@@ -193,7 +193,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'choice', required: true,
-          type: { kind: 'concrete', types: ['core.combo'] },
+          type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', remote: { route: '/api/choices/models', refreshButton: true } },
         }],
       } },
@@ -213,7 +213,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'choices', required: true,
-          type: { kind: 'list', element: { kind: 'concrete', types: ['core.combo'] } },
+          type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
           widget: { type: 'MULTI_COMBO', options: ['a'] },
         }],
       } },
@@ -241,7 +241,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'sampler', required: true,
-          type: { kind: 'concrete', types: ['core.combo'] },
+          type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', options: [{
             value: 'dinkster.euler', label: 'euler', info: 'Euler sampler', folder: 'Basic',
           }] },
@@ -265,7 +265,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'models', required: true,
-          type: { kind: 'list', element: { kind: 'concrete', types: ['core.combo'] } },
+          type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
           widget: { type: 'MULTI_COMBO', options: [{
             value: 'dinkster.first', label: 'First', info: 'First model', folder: 'Models',
           }] },
@@ -979,15 +979,15 @@ describe('promptToDinksterGraph', () => {
           nodeType: 'Splitter',
           interface: [
             ...(count === undefined ? [] : [{
-              role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['core.int'] },
+              role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] },
             }]),
-            { role: 'output', id: 'before', type: { kind: 'concrete', types: ['core.int'] } },
+            { role: 'output', id: 'before', type: { kind: 'concrete', types: ['INT'] } },
             {
               role: 'outputFamily', id: 'parts', minMembers: 1, maxMembers: 4,
-              type: { kind: 'concrete', types: ['core.int'] },
+              type: { kind: 'concrete', types: ['INT'] },
               ...(count === undefined ? {} : { count: { input: 'count', suffix: 'index' } }),
             },
-            { role: 'output', id: 'after', type: { kind: 'concrete', types: ['core.int'] } },
+            { role: 'output', id: 'after', type: { kind: 'concrete', types: ['INT'] } },
           ],
         },
       },

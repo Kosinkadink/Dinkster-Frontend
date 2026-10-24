@@ -23,7 +23,7 @@
       "out": {
        "fingerprint": "d3bd071f57261ad68a78f7f5573ef556a590b097",
        "meta": {},
-       "typeId": "core.int"
+       "typeId": "INT"
       }
      },
      "r": {
@@ -33,7 +33,7 @@
        "meta": {
         "length": 3
        },
-       "typeId": "list<core.int>"
+       "typeId": "list<INT>"
       }
      }
     },
@@ -84,7 +84,7 @@
       "executionArm": "native",
       "outputs": {
        "value": {
-        "typeId": "core.int",
+        "typeId": "INT",
         "value": 7
        }
       }
@@ -137,7 +137,7 @@
       "executionArm": "native",
       "outputs": {
        "out": {
-        "typeId": "core.int",
+        "typeId": "INT",
         "value": 8
        }
       }
@@ -180,7 +180,7 @@
       "executionArm": "native",
       "outputs": {
        "out": {
-        "typeId": "core.int",
+        "typeId": "INT",
         "value": 8
        }
       }
@@ -209,7 +209,7 @@
       "outputs": {
        "items": {
         "length": 3,
-        "typeId": "list<core.int>"
+        "typeId": "list<INT>"
        }
       }
      },
@@ -262,7 +262,7 @@
       "out": {
        "fingerprint": "d3bd071f57261ad68a78f7f5573ef556a590b097",
        "meta": {},
-       "typeId": "core.int"
+       "typeId": "INT"
       }
      },
      "r": {
@@ -272,7 +272,7 @@
        "meta": {
         "length": 3
        },
-       "typeId": "list<core.int>"
+       "typeId": "list<INT>"
       }
      }
     },
@@ -312,7 +312,7 @@
       "executionArm": "native",
       "outputs": {
        "value": {
-        "typeId": "core.int",
+        "typeId": "INT",
         "value": 7
        }
       }
@@ -329,7 +329,7 @@
       "executionArm": "native",
       "outputs": {
        "out": {
-        "typeId": "core.int",
+        "typeId": "INT",
         "value": 8
        }
       }
@@ -346,7 +346,7 @@
       "executionArm": "native",
       "outputs": {
        "out": {
-        "typeId": "core.int",
+        "typeId": "INT",
         "value": 8
        }
       }
@@ -364,7 +364,7 @@
       "outputs": {
        "items": {
         "length": 3,
-        "typeId": "list<core.int>"
+        "typeId": "list<INT>"
        }
       }
      },
@@ -415,7 +415,7 @@
        "meta": {
         "absent.origin": "m/value",
         "absent.reason": "",
-        "absent.standsFor": "core.int"
+        "absent.standsFor": "INT"
        },
        "typeId": "core.absent"
       }
