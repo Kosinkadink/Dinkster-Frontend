@@ -156,7 +156,7 @@ test('primitive list edits preserve arrays in canvas and exposed AppView control
     }, 'Text list')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
-  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'texts'))))
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'texts')))
   await openEditor(page, 'texts')
   const editor = page.getByTestId('widget-editor')
   const field = editor.locator('textarea')
