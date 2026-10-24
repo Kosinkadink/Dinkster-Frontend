@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 194,
+    "rawControl": 192,
     "inlineStyle": 65,
     "cssLiteral": 363
   },
@@ -75,7 +75,7 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/CollabPanel.tsx",
-      "count": 8,
+      "count": 6,
       "issue": 382
     },
     {

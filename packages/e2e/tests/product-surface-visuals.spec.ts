@@ -645,7 +645,7 @@ test('Settings and subgraph cleanup empty states remain usable', async ({ page }
 })
 
 test('Collaboration discovery distinguishes unavailable loading empty and failed reads', async ({ page }) => {
-  let mode: 'loading' | 'empty' | 'error' = 'loading'
+  let mode: 'loading' | 'empty' | 'error' | 'ready' = 'loading'
   let release: (() => void) | undefined
   await page.route('**/collab-visual/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -653,7 +653,10 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
       if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
       return mode === 'error'
         ? route.fulfill({ status: 503, body: 'Session fixture unavailable' })
-        : route.fulfill({ json: { sessions: [] } })
+        : route.fulfill({ json: { sessions: mode === 'ready' ? [{
+          protocolVersion: 1, sessionId: 'shared-workflow-session', scope: 'shared',
+          documentId: 'A workflow available for collaboration', revision: 17, snapshotRevision: 12,
+        }] : [] } })
     }
     if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [] } })
     await emptyVisualBackend(route)
@@ -671,6 +674,11 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
       await page.mouse.move(0, 0)
+      if (state === 'ready') {
+        const row = await page.getByTestId('collab-session').locator('.product-list-row').boundingBox()
+        const join = await page.getByTestId('collab-join').boundingBox()
+        expect(join!.x + join!.width).toBeGreaterThan(row!.x + row!.width - 20)
+      }
       await screenshot(page, `collab-discovery-${state}-${width}`)
     }
   }
@@ -705,6 +713,12 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
   await page.getByTestId('collab-refresh').click()
   await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
   await expect(page.getByTestId('collab-list-error')).toHaveCount(0)
+  mode = 'ready'
+  await page.getByTestId('collab-refresh').click()
+  await expect(page.getByTestId('collab-session')).toContainText('A workflow available for collaboration')
+  await expect(page.getByTestId('collab-session')).toContainText('Revision 17')
+  await expect(page.getByTestId('collab-join')).toBeEnabled()
+  await capture('ready')
 })
 
 test('App view explains an empty flow and an empty arrangement group', async ({ page }) => {
