@@ -996,7 +996,7 @@ describe('peekSource negative cache', () => {
       baseUrl: 'http://backend', clientId: 'client-1', fetchFn: async (url) =>
         new URL(url).searchParams.has('rendition')
           ? new Response(bytesOfMedia(mime).buffer as ArrayBuffer, { status: 200, headers: { 'Content-Type': mime, 'X-Dinkster-Fingerprint': 'fp', 'X-Dinkster-Rendition': renditionKind } })
-          : new Response(JSON.stringify({ available: true, descriptor: { typeId: `comfy.${kind.toUpperCase()}`, fingerprint: 'fp' }, renditions: [{ kind: renditionKind, mime, default: true }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+          : new Response(JSON.stringify({ available: true, descriptor: { typeId: kind.toUpperCase(), fingerprint: 'fp' }, renditions: [{ kind: renditionKind, mime, default: true }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
     })
     const decode = vi.fn()
     vi.stubGlobal('createImageBitmap', decode)
