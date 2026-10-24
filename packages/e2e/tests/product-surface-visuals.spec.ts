@@ -1091,6 +1091,76 @@ test('Compositor missing runtime state keeps its explanation and Cancel action',
   await page.evaluate(() => (window as unknown as { disposeCompositorVisual(): void }).disposeCompositorVisual())
 })
 
+test('GLSL editor missing-data and refused-preview states preserve editing and diagnostics', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'GlslEmptyVisual', displayName: 'GLSL Shader', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'glsl',
+      items: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
+        widget: { widgetType: 'STRING', options: { multiline: true }, default: '#version 300 es\ninvalid shader' } }],
+    }])
+    const diagnostics = app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'glsl-empty-visual', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'GLSL', nodes: { shader: { id: 'shader', type: 'GlslEmptyVisual', values: { fragment_shader: '#version 300 es\ninvalid shader' } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { shader: { position: { x: 120, y: 100 } } } } } },
+    }, 'GLSL')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    const editorApp = app as unknown as {
+      glslTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
+      openGlslEditor(target: unknown): boolean
+    }
+    if (!editorApp.openGlslEditor(editorApp.glslTargetForInput(app.activeTab()!, 'g0', 'shader', 'fragment_shader')))
+      throw new Error('GLSL fixture did not open')
+  })
+  const editor = page.getByTestId('glsl-editor')
+  await expect(editor.getByText('Run the node to load authoritative input previews.', { exact: true })).toBeVisible()
+  await expect(editor.getByText('No runtime state.', { exact: true })).toBeVisible()
+  await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled()
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `glsl-${state}-${width}`)
+    }
+  }
+  await capture('no-runtime')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const compiled = app.compileTab(tab)
+    if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+    const ref = { connection: compiled.artifact.connection, prompt: 'glsl-empty-run' }
+    ;(app as unknown as { registerRun(tab: unknown, ref: unknown, artifact: unknown, now: number): void }).registerRun(tab, ref, compiled.artifact, 0)
+    const runtimeNodeId = 'shader'
+    app.store.apply({ kind: 'preview', execution: ref, timestamp: 1, runtimeNodeId,
+      channel: 'application/vnd.dinkster.glsl-state+json', stream: 'glsl-state',
+      payload: { width: 8, height: 4, inputs: [{ name: 'u_image0', stream: 'glsl-input-u_image0' }], floats: { u_float0: 0.25 }, ints: {}, bools: {}, curves: {} },
+    } as never)
+  })
+  await expect(editor.getByText('Browser preview unavailable.', { exact: true })).toBeVisible()
+  await expect(editor.getByRole('alert')).toContainText('Preview image u_image0 is unavailable')
+  await expect(editor.getByText('u_float0', { exact: true })).toBeVisible()
+  await capture('preview-unavailable')
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(editor).toBeHidden()
+  await page.evaluate(async () => {
+    const componentPath = '/src/GlslEditor.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { GlslEditor } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('div')
+    host.style.cssText = 'position:absolute;inset:48px 0 0;z-index:20'
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => GlslEditor({ app: window.__dinksterTest!.app }), host)
+    ;(window as unknown as { disposeGlslVisual: () => void }).disposeGlslVisual = () => { dispose(); host.remove() }
+  })
+  await expect(page.getByText('No GLSL Shader target is active.', { exact: true })).toBeVisible()
+  await capture('no-target')
+  await page.evaluate(() => (window as unknown as { disposeGlslVisual(): void }).disposeGlslVisual())
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

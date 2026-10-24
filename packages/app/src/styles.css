@@ -7913,12 +7913,10 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .glsl-preview-toolbar > span { color: #aaa; font-variant-numeric: tabular-nums; }
 .glsl-preview-viewport { display: grid; place-items: center; flex: 1; min-height: 0; padding: 16px; overflow: hidden; background-color: var(--image-canvas-background); background-image: linear-gradient(45deg, var(--image-canvas-checker) 25%, transparent 25%), linear-gradient(-45deg, var(--image-canvas-checker) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--image-canvas-checker) 75%), linear-gradient(-45deg, transparent 75%, var(--image-canvas-checker) 75%); background-position: 0 0, 0 8px, 8px -8px, -8px 0; background-size: 16px 16px; }
 .glsl-preview-viewport canvas { display: block; max-width: 100%; max-height: 100%; border: 1px solid #555; box-shadow: 0 4px 24px #000a; object-fit: contain; }
-.glsl-preview-empty { max-width: 320px; padding: 18px; color: #aaa; text-align: center; border: 1px dashed #555; border-radius: 5px; background: #181818dd; }
 .glsl-preview-panel > p { margin: 0; padding: 7px 12px; font-size: 11px; text-align: center; }
 .glsl-diagnostics { max-height: 150px; margin: 0; padding: 9px 12px 9px 30px; overflow: auto; color: #ffb0b0; border-top: 1px solid #7a333b; background: #3a1f22; font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .glsl-uniform-panel { min-width: 0; padding: 12px; overflow: auto; border-left: 1px solid #383838; background: #202020; }
 .glsl-uniform-panel h3 { margin: 0 0 12px; font-size: 13px; }
-.glsl-uniform-panel p { color: #999; font-size: 12px; }
 .glsl-uniform-panel dl { display: grid; gap: 5px; margin: 0; }
 .glsl-uniform-panel dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
 .glsl-uniform-panel dt { overflow: hidden; color: #bbb; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; }

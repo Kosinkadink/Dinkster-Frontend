@@ -124,6 +124,11 @@ selected run has no compositor sources. The latter keeps the explanation that
 the layer stack stays in the graph; Cancel remains enabled and Apply stays
 disabled until runtime data supplies a configurable recipe.
 
+The GLSL editor uses ProductEmptyState for missing targets, absent runtime
+inputs and unavailable browser previews. Preview refusals stay neutral while
+their diagnostics remain alerts; shader editing and native execution remain
+independent of whether the browser can display a preview.
+
 Runtime settings uses compact `ProductButton` actions and `ProductTextInput`
 fields for worker arguments, logger overrides and textual memory values.
 `ProductField`, `ProductNotice` and `ProductActionFooter` retain the form

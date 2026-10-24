@@ -16,6 +16,7 @@ import {
   type GlslShaderResult,
 } from './glsl-shader-runner.js'
 import { useSignal } from './solid-adapter.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 interface RuntimeGlslState {
   readonly state: GlslShaderState
@@ -196,7 +197,7 @@ export function GlslEditor(props: {
   })
 
   return <section class="glsl-editor" data-testid="glsl-editor">
-    <Show when={activeTarget()} fallback={<div class="editor-missing">No GLSL Shader target is active.</div>}>
+    <Show when={activeTarget()} fallback={<ProductEmptyState title="No GLSL Shader target is active." />}>
       {(request) => <>
         <header class="glsl-editor-header">
           <div><strong>GLSL Shader</strong><small>{request().nodeId} / {request().inputId}</small></div>
@@ -237,9 +238,7 @@ export function GlslEditor(props: {
             </div>
             <div class="glsl-preview-viewport" data-testid="glsl-preview">
               <Show when={result()?.ok} fallback={
-                <div class="glsl-preview-empty">
-                  {state() ? 'Browser preview unavailable.' : 'Run the node to load authoritative input previews.'}
-                </div>
+                <ProductEmptyState title={state() ? 'Browser preview unavailable.' : 'Run the node to load authoritative input previews.'} />
               }>
                 <canvas ref={canvas} aria-label="GLSL browser preview" />
               </Show>
@@ -253,7 +252,7 @@ export function GlslEditor(props: {
           </main>
           <aside class="glsl-uniform-panel" aria-label="Shader inputs">
             <h3>Run inputs</h3>
-            <Show when={state()} fallback={<p>No runtime state.</p>}>
+            <Show when={state()} fallback={<ProductEmptyState title="No runtime state." />}>
               {(value) => <>
                 <dl>
                   <For each={value().inputs}>{(input) => <div><dt>{input.name}</dt><dd>image</dd></div>}</For>
