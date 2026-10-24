@@ -122,6 +122,17 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
   await page.getByTestId('graph-canvas').click({ position: await widgetPoint(page) })
   await expect(page.getByTestId('widget-editor')).toHaveAttribute('data-editor-mode', 'raw')
   await expect(page.getByTestId('widget-editor').locator('textarea')).toHaveValue('8')
+  await page.getByTestId('widget-editor').locator('textarea').fill('11')
+  await page.evaluate(() => {
+    // Republish unchanged navigation to rebuild the scene without a document edit.
+    const tab = window.__dinksterTest!.app.activeTab()!
+    tab.graphStack.set([...tab.graphStack.get()])
+  })
+  await expect(page.getByTestId('widget-editor')).toHaveAttribute('data-editor-mode', 'raw')
+  await expect(page.getByTestId('widget-editor').locator('textarea')).toHaveValue('11')
+  const rawScreenshot = test.info().outputPath('raw-widget-after-refresh.png')
+  await page.screenshot({ path: rawScreenshot, animations: 'disabled', fullPage: true })
+  await test.info().attach('raw-widget-after-refresh', { path: rawScreenshot, contentType: 'image/png' })
   await page.keyboard.press('Escape')
 
   expect(await page.evaluate(() => window.__dinksterTest!.app.extensions.register(
