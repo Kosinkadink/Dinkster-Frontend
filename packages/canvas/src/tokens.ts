@@ -222,8 +222,8 @@ export const defaultTokens: DesignTokens = {
 }
 
 /**
- * Display aliases mapping native dinkster boundary type ids to their ComfyUI
- * names. Consulted by BOTH the label and the color lookup so name and color
+ * Display aliases for the existing ComfyUI image and mask bridges.
+ * Consulted by BOTH the label and the color lookup so name and color
  * can never disagree. Presentation only - never use these for compatibility
  * decisions; type ids in documents, wire payloads, and persistence are
  * unchanged.
@@ -232,20 +232,8 @@ export const typeDisplayAliases: Readonly<Record<string, string>> = Object.freez
   // Null prototype so lookups by arbitrary type names (e.g. 'constructor')
   // can never resolve to inherited Object.prototype members.
   Object.assign(Object.create(null) as Record<string, string>, {
-    'dinkster.model': 'MODEL',
-    'dinkster.conditioning': 'CONDITIONING',
     'comfy.IMAGE': 'IMAGE',
     'comfy.MASK': 'MASK',
-    'dinkster.latent': 'LATENT',
-    'dinkster.control': 'CONTROL_NET',
-    'dinkster.clip': 'CLIP',
-    'dinkster.vae': 'VAE',
-    'dinkster.sampler': 'SAMPLER',
-    'dinkster.sigmas': 'SIGMAS',
-    'dinkster.guider': 'GUIDER',
-    'dinkster.noise': 'NOISE',
-    'dinkster.text_encoder': 'CLIP',
-    'dinkster.codec': 'VAE',
   }),
 )
 

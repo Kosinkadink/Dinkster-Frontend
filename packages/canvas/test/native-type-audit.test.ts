@@ -49,17 +49,12 @@ const INTENTIONALLY_DISTINCT = new Set<string>([
   'SIGMAS',
   'GUIDER',
   'NOISE',
-  'CLIP',
-  'VAE',
 ])
 
 describe('native type coverage audit', () => {
   it('keeps the decision tables and the native id list in sync', () => {
-    // Every dinkster.* id appearing in any decision table must be a known
-    // native id, so the walked universe above cannot silently lag behind.
-    for (const key of Object.keys(typeDisplayAliases)) {
-      if (!key.startsWith('dinkster.')) continue
-      expect(NATIVE_BOUNDARY_TYPE_IDS, `alias key ${key} is missing from NATIVE_BOUNDARY_TYPE_IDS`).toContain(key)
+    for (const target of Object.values(typeDisplayAliases)) {
+      expect(NATIVE_BOUNDARY_TYPE_IDS, `alias target ${target} is missing from NATIVE_BOUNDARY_TYPE_IDS`).toContain(target)
     }
     for (const id of INTENTIONALLY_DISTINCT) {
       expect(NATIVE_BOUNDARY_TYPE_IDS, `intentionally-distinct id ${id} is missing from NATIVE_BOUNDARY_TYPE_IDS`).toContain(id)
@@ -88,7 +83,6 @@ describe('native type coverage audit', () => {
       // The table maps native ids across the comfy-compat boundary; a
       // self-map or a native-to-native entry would make the decision
       // assertions above pass without deciding anything.
-      expect(canonicalId).not.toBe(nativeId)
       expect(canonicalId).not.toBe(nativeId)
       expect(canonicalCompatTypeId(nativeId)).toBe(canonicalId)
       const native = presentedType(defaultTokens, { kind: 'concrete', name: nativeId })

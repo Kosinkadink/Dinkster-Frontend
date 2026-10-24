@@ -105,17 +105,17 @@ describe('defaultTokens', () => {
   })
 
   it('presents canonical types and the ComfyUI image and mask bridges', () => {
-    const presented = presentedType(defaultTokens, { kind: 'concrete', name: 'dinkster.clip' })
+    const presented = presentedType(defaultTokens, { kind: 'concrete', name: 'CLIP' })
     expect(presented.label).toBe('CLIP')
     expect(presented.color).toBe('#FFD500')
     expect(presented.tooltip).toBe('CLIP')
     expect(presented.canonicalName).toBe('CLIP')
     expect(presentedType(defaultTokens, { kind: 'union', names: ['MODEL', 'VAE'] }).label).toBe('MODEL | VAE')
-    const sampler = presentedType(defaultTokens, { kind: 'concrete', name: 'dinkster.sampler' })
+    const sampler = presentedType(defaultTokens, { kind: 'concrete', name: 'SAMPLER' })
     expect(sampler.label).toBe('SAMPLER')
     expect(sampler.color).toBe('#ECB4B4')
     expect(sampler.tooltip).toBe('SAMPLER')
-    expect(presentedType(defaultTokens, { kind: 'concrete', name: 'dinkster.sigmas' }).label).toBe('SIGMAS')
+    expect(presentedType(defaultTokens, { kind: 'concrete', name: 'SIGMAS' }).label).toBe('SIGMAS')
     const image = presentedType(defaultTokens, { kind: 'concrete', name: 'IMAGE' })
     expect(image.label).toBe('IMAGE')
     expect(image.tooltip).toBe('IMAGE')
@@ -131,8 +131,8 @@ describe('defaultTokens', () => {
     expect(comfyMask.label).toBe('MASK')
     expect(comfyMask.color).toBe('#81C784')
     expect(comfyMask.tooltip).toBe('MASK (comfy.MASK)')
-    expect(presentedType(defaultTokens, { kind: 'concrete', name: 'dinkster.guider' }).label).toBe('GUIDER')
-    expect(presentedType(defaultTokens, { kind: 'concrete', name: 'dinkster.noise' }).label).toBe('NOISE')
+    expect(presentedType(defaultTokens, { kind: 'concrete', name: 'GUIDER' }).label).toBe('GUIDER')
+    expect(presentedType(defaultTokens, { kind: 'concrete', name: 'NOISE' }).label).toBe('NOISE')
     // Unaliased types keep their raw label and plain tooltip.
     const plain = presentedType(defaultTokens, { kind: 'concrete', name: 'dinkster.brand_new' })
     expect(plain.label).toBe('dinkster.brand_new')
@@ -159,7 +159,7 @@ describe('defaultTokens', () => {
   })
 
   it('renders canonical TypeExpr labels', () => {
-    expect(typeExprCanonicalLabel({ kind: 'concrete', name: 'dinkster.clip' })).toBe('CLIP')
+    expect(typeExprCanonicalLabel({ kind: 'concrete', name: 'CLIP' })).toBe('CLIP')
     expect(typeExprCanonicalLabel({ kind: 'union', names: ['MODEL', 'VAE'] })).toBe('MODEL | VAE')
     expect(typeExprCanonicalLabel({ kind: 'list', element: { kind: 'concrete', name: 'LATENT' } })).toBe('list<LATENT>')
   })
