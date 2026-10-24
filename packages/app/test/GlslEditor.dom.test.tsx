@@ -26,7 +26,7 @@ const payload = {
       interface: [
         {
           role: 'input', id: 'fragment_shader', required: false,
-          type: { kind: 'concrete', types: ['core.string'] },
+          type: { kind: 'concrete', types: ['STRING'] },
           default: INITIAL_SOURCE,
           widget: { type: 'STRING', multiline: true },
         },
