@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 212,
+    "rawControl": 200,
     "inlineStyle": 65,
-    "cssLiteral": 379
+    "cssLiteral": 376
   },
   "entries": [
     {
@@ -343,12 +343,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/VideoEditEditor.tsx",
-      "count": 12,
-      "issue": 382
-    },
-    {
       "kind": "inlineStyle",
       "path": "packages/app/src/VideoEditEditor.tsx",
       "count": 2,
@@ -459,7 +453,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 379,
+      "count": 376,
       "issue": 382
     },
     {

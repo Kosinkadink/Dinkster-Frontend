@@ -311,7 +311,10 @@ dimensions while it remains open. Its 18px label band, 14px content font, 20px
 line height, 6px padding, 8px reserved gutter, and corner radius scale with
 zoom and match the Canvas2D field. The editor stays inside the shared 2px
 top/bottom chrome inset, has no resize handle or browser outline, and uses a
-6px product-themed scrollbar with bounded vertical scrolling. The scrollbar
+6px product-themed scrollbar with bounded vertical scrolling. Generic widget
+field rules exclude Product fields without raising selector specificity, so
+the in-node borderless geometry overrides ordinary popover field chrome.
+The scrollbar
 starts at the content-box top, not below it. Overflowing painted content uses
 the same gutter while idle and hover; hover paints a proportional scrollbar
 indicator inside the rounded chrome. The painted indicator is deliberately
