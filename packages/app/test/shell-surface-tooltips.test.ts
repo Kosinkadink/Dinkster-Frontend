@@ -55,7 +55,7 @@ describe('shell and surface product tooltip markup', () => {
     const panel = source('SurfacePanel.tsx')
     expect(panel).toContain("data-tooltip-label={message('controlSurfaces.action.deleteSurface')}")
     expect(panel).toContain('data-tooltip-label={msg()}')
-    expect(panel).toContain('class="surface-binding-broken" tabindex="0"')
+    expect(panel).toContain('class="mode-binding-warning" tabindex="0"')
     expect(panel).toContain("data-tooltip-label={message('controlSurfaces.action.removeBinding')}")
     expect(panel).toContain("ariaLabel={message('controlSurfaces.action.bindGroup')}")
     expect(panel).toContain('selectedId=""')
