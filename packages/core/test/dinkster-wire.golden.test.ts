@@ -167,6 +167,28 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('preserves disabled FLOAT rounding and rejects invalid precisions or INT rounding', () => {
+    const parse = (socket: string, round: unknown) => parseDinksterSchema('Precision', {
+      schemaVersion: 1,
+      interface: [{ role: 'input', id: 'value', type: concrete(socket), required: true, widget: { type: 'NUMBER', round } }],
+    })
+    for (const round of [false, 0.001]) {
+      const result = parse('FLOAT', round)
+      expect(result.diagnostics).toEqual([])
+      expect(inputsOf(result.schema!)[0]?.widget).toMatchObject({ widgetType: 'FLOAT', options: { round } })
+    }
+    for (const [socket, round] of [
+      ['FLOAT', true], ['FLOAT', null], ['FLOAT', 0], ['FLOAT', -0.001],
+      ['FLOAT', 'false'], ['FLOAT', '0.001'], ['FLOAT', Number.NaN],
+      ['FLOAT', Number.POSITIVE_INFINITY], ['FLOAT', Number.NEGATIVE_INFINITY],
+      ['INT', false], ['INT', 0.001],
+    ] as const) {
+      const result = parse(socket, round)
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
+    }
+  })
+
   it('rejects nested and mixed-domain widget representations', () => {
     const parse = (representations: readonly unknown[]) => parseDinksterSchema('Representations', {
       schemaVersion: 1,

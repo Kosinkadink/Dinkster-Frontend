@@ -70,6 +70,17 @@ describe('widgetEditorAnchorAlive', () => {
     expect(widgetEditorAnchorAlive(editorState(), [node([widgetRow()])], 't0', 'g0', undefined)).toBe(true)
   })
 
+  it('retains a raw fallback only with an unchanged document and declared row contract', () => {
+    const spec: WidgetSpec = { widgetType: 'pack.size', options: { min: 1, max: 12 } }
+    const ed = editorState({ spec: undefined, anchorSpec: spec, multiline: true })
+    const nodes = [node([widgetRow({ spec })])]
+    expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, true)).toBe(true)
+    expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, false)).toBe(false)
+    const changed = [node([widgetRow({ spec: { ...spec, options: { min: 1, max: 9 } } })])]
+    expect(widgetEditorAnchorAlive(ed, changed, 't0', 'g0', undefined, true)).toBe(false)
+    expect(widgetEditorAnchorAlive(ed, [node([])], 't0', 'g0', undefined, true)).toBe(false)
+  })
+
   it('matches dynamic rows on valueKey, whose elaborated id differs from inputId', () => {
     const ed = editorState({ target: { kind: 'input', nodeId: 'n0', valueKey: 'files.item[2]' } })
     const rebuilt = node([widgetRow({ inputId: 'files', valueKey: 'files.item[2]' })])

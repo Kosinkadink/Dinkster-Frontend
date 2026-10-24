@@ -82,6 +82,7 @@ describe('widgetCommitError', () => {
     expect(parseNumericCommit('1.23456789e-20', 'FLOAT', 1e-22)).toEqual({ ok: true, value: 1.23e-20 })
     expect(parseNumericCommit(String(Number.MAX_VALUE), 'FLOAT', Number.MIN_VALUE)).toEqual({ ok: true, value: Number.MAX_VALUE })
     expect(parseNumericCommit('1.2346', 'FLOAT')).toEqual({ ok: true, value: 1.2346 })
+    expect(parseNumericCommit('1.2346', 'FLOAT', false)).toEqual({ ok: true, value: 1.2346 })
   })
 
   it('blocks shape-invalid values instead of letting them fall through to node.setValue', () => {
