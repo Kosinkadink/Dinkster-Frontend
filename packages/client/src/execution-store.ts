@@ -158,7 +158,8 @@ const preserveExecutionDetails = (
 ): NodeProgress =>
   previous === undefined ||
   (progress.executionArm !== undefined && progress.provider !== undefined &&
-    progress.pack !== undefined && progress.worker !== undefined)
+    progress.pack !== undefined && progress.worker !== undefined &&
+    progress.parentRuntimeNodeId !== undefined && progress.displayRuntimeNodeId !== undefined)
     ? progress
     : {
         ...progress,
@@ -173,6 +174,12 @@ const preserveExecutionDetails = (
           : {}),
         ...(progress.pack === undefined && previous.pack !== undefined
           ? { pack: previous.pack }
+          : {}),
+        ...(progress.parentRuntimeNodeId === undefined && previous.parentRuntimeNodeId !== undefined
+          ? { parentRuntimeNodeId: previous.parentRuntimeNodeId }
+          : {}),
+        ...(progress.displayRuntimeNodeId === undefined && previous.displayRuntimeNodeId !== undefined
+          ? { displayRuntimeNodeId: previous.displayRuntimeNodeId }
           : {}),
       }
 

@@ -167,8 +167,8 @@ describe('ExecutionActivityCard', () => {
   it('shows blocked messages and expanded child completion as activity facts', () => {
     const current = entry({
       nodes: {
-        'parent/left': { state: 'done' },
-        'parent/right': { state: 'running' },
+        'parent/left': { state: 'done', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+        'parent/right': { state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
       },
       blockedNodes: { consumer: { origin: 'source/value', message: 'source produced no value' } },
       expandedNodes: { parent: { children: ['parent/left', 'parent/right'], childCount: 2 } },

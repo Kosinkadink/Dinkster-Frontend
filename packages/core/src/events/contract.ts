@@ -80,6 +80,10 @@ export interface NodeOutputSummary {
 
 export interface NodeProgress {
   readonly state: NodeRunState
+  /** Runtime parent that created this child during expansion. */
+  readonly parentRuntimeNodeId?: string
+  /** Runtime occurrence that presents this child's progress to the user. */
+  readonly displayRuntimeNodeId?: string
   /** Selected implementation for this attempt, when reported by Dinkster. */
   readonly executionArm?: ExecutionArm
   /** Concrete provider selected for this attempt, when reported by Dinkster. */

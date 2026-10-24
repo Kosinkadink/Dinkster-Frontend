@@ -293,7 +293,10 @@ describe('execution semantics display facts', () => {
     })
     store.apply({
       kind: 'nodeStates', execution, timestamp: 4,
-      nodes: { 'parent/left': { state: 'done' }, 'parent/right': { state: 'running' } },
+      nodes: {
+        'parent/left': { state: 'done', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+        'parent/right': { state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+      },
     })
     const state = store.get(execution)!
     expect(state.blockedNodes).toEqual({
@@ -304,6 +307,9 @@ describe('execution semantics display facts', () => {
     })
     expect(state.nodes['parent/left']?.state).toBe('done')
     expect(state.nodes['parent/right']?.state).toBe('running')
+    expect(state.nodes['parent/right']).toMatchObject({
+      parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent',
+    })
   })
 })
 

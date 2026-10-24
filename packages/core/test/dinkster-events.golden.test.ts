@@ -168,6 +168,10 @@ describe('dinkster execution semantics events', () => {
         type: 'node_expanded', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent',
         detail: { children: ['parent/left', 'parent/right'], childCount: 2 },
       },
+      {
+        type: 'node_started', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent.0.0.output',
+        detail: { parentId: 'parent', displayNodeId: 'source' },
+      },
     ])
     expect(events).toEqual([
       {
@@ -177,6 +181,14 @@ describe('dinkster execution semantics events', () => {
       {
         kind: 'nodeExpanded', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
         runtimeNodeId: 'parent', expansion: { children: ['parent/left', 'parent/right'], childCount: 2 },
+      },
+      {
+        kind: 'nodeStates', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
+        nodes: {
+          'parent.0.0.output': {
+            state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'source',
+          },
+        },
       },
     ])
   })

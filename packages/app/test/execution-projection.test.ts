@@ -65,6 +65,21 @@ describe('execution occurrence projection', () => {
     })
   })
 
+  it('projects expanded child progress through its backend display occurrence', () => {
+    const child = {
+      state: 'running' as const,
+      parentRuntimeNodeId: 'parent',
+      displayRuntimeNodeId: 'source',
+    }
+    const projected = projectExecutionNodeStates({
+      states: states(['parent.0.0.output', child]),
+      scene: scene({ id: 'source', isSubgraph: false }, { id: 'parent', isSubgraph: false }),
+      instancePath: [],
+      toSource: { parent: 'parent', source: 'source' },
+    })
+    expect(projected).toEqual({ source: child })
+  })
+
   it('degrades an unmapped runtime id to historical node-id projection', () => {
     const projected = projectExecutionNodeStates({
       states: states(['legacy-node', { state: 'skipped' }]),

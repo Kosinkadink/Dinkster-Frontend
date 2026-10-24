@@ -294,11 +294,15 @@ export class DinksterNormalizer implements EventNormalizer {
     const provider = str(detail?.['provider'])
     const pack = str(detail?.['pack'])
     const worker = str(detail?.['worker'])
-    const executionLocation: Pick<NodeProgress, 'executionArm' | 'provider' | 'pack' | 'worker'> = {
+    const parentRuntimeNodeId = str(detail?.['parentId'])
+    const displayRuntimeNodeId = str(detail?.['displayNodeId'])
+    const executionLocation: Pick<NodeProgress, 'executionArm' | 'provider' | 'pack' | 'worker' | 'parentRuntimeNodeId' | 'displayRuntimeNodeId'> = {
       ...(executionArm !== undefined ? { executionArm } : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(pack !== undefined ? { pack } : {}),
       ...(worker !== undefined ? { worker } : {}),
+      ...(parentRuntimeNodeId !== undefined ? { parentRuntimeNodeId } : {}),
+      ...(displayRuntimeNodeId !== undefined ? { displayRuntimeNodeId } : {}),
     }
 
     const nodeState = (state: NodeProgress): NormalizedEvent[] =>
