@@ -16,6 +16,18 @@ const spec = (widgetType: string, over: Partial<WidgetSpec> = {}): WidgetSpec =>
 })
 
 describe('effectiveWidgetDefault', () => {
+  it('keeps primitive list defaults as arrays and never invents scalar values', () => {
+    for (const [widgetType, value] of [
+      ['STRING', ['red', 'blue']], ['INT', [-7, '18446744073709551615']], ['FLOAT', [0.125, -3.75]],
+    ] as const) {
+      const widget: WidgetSpec = { widgetType: 'LIST', options: {}, element: { widgetType, options: {} } }
+      expect(effectiveWidgetDefault(widget)).toEqual([])
+      expect(effectiveWidgetDefault({ ...widget, default: value })).toEqual(value)
+      expect(effectiveWidgetDefault({ ...widget, default: [[value[0]]] })).toEqual([])
+      expect(effectiveWidgetDefault({ ...widget, default: value[0] })).toEqual([])
+    }
+  })
+
   it('prefers the explicit schema default for every kind', () => {
     expect(effectiveWidgetDefault(spec('INT', { default: 17 }))).toBe(17)
     expect(effectiveWidgetDefault(spec('STRING', { default: 'x' }))).toBe('x')

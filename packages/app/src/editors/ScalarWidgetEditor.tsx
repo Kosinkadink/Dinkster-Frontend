@@ -36,7 +36,7 @@ import {
   type SuggestionSurfaceState,
 } from '../SuggestionSurface.js'
 import { editorScreenAnchor } from '../widget-editor-position.js'
-import { parseNumericCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
+import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
 
 export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
   if (ed.outputDescriptors !== undefined || ed.target.kind !== 'input' ||
@@ -77,6 +77,8 @@ const scalarStrategies = {
 const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const host = props.editor
   const ed = host.ed
+  const list = ed.spec?.widgetType === 'LIST'
+  const initialText = list ? JSON.stringify(ed.initial ?? []) : String(ed.initial ?? '')
   const fieldIds = productFieldIds('widget-editor-value')
   const [error, setError] = createSignal<string>()
   let live = true
@@ -108,6 +110,10 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
         setError(reason instanceof Error ? reason.message : 'Invalid JSON')
         return undefined
       }
+    } else if (list) {
+      const parsed = parsePrimitiveListCommit(raw, ed.spec)
+      if (!parsed.ok) { setError(parsed.error); return undefined }
+      value = parsed.value
     } else if (ed.spec.widgetType === 'INT') {
       const parsed = scalarStrategies.INT(raw)
       if (!parsed.ok) { setError(parsed.error); return undefined }
@@ -245,12 +251,12 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   const completionKeyDown = (event: KeyboardEvent & { currentTarget: TextControl }): boolean => interaction.onKeyDown(event, entries(), event.currentTarget, (entry) => accept(event.currentTarget, entry), closeCompletions)
 
   const clickAway = (): void => {
-    if (ed.spec !== undefined && ed.multiline) {
+    if (ed.spec !== undefined && ed.multiline && !list) {
       props.close()
       return
     }
     const field = popover?.querySelector<TextControl>('input, textarea')
-    if (field == null || field.value === String(ed.initial ?? '')) props.close()
+    if (field == null || field.value === initialText) props.close()
     else commit(field.value, true, true)
   }
   host.bindClickAway?.(clickAway)
@@ -272,8 +278,8 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   return <div ref={(el) => { popover = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover" data-testid="widget-editor" data-editor-target={ed.target.kind} data-editor-mode={ed.spec?.widgetType ?? 'raw'} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${ed.spec?.widgetType ?? 'JSON'}`} style={props.popoverStyle}>
     <props.header type={ed.spec?.widgetType ?? 'JSON'} />
     <ProductField controlId="widget-editor-value" label="Value" layout="compact" message={error()} messageTestId="widget-editor-error" invalid={error() !== undefined}>
-      <Show when={ed.multiline} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completionAnchor = el; queueMicrotask(() => { el.focus(); if (numeric) el.select() }) }} value={String(ed.initial ?? '')} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />}>
-        <textarea id="widget-editor-value" aria-labelledby={fieldIds.label} aria-describedby={error() === undefined ? undefined : fieldIds.message} aria-invalid={error() === undefined ? undefined : 'true'} ref={(el) => queueMicrotask(() => el.focus())} value={String(ed.initial ?? '')} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={() => setError(undefined)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />
+      <Show when={ed.multiline || list} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completionAnchor = el; queueMicrotask(() => { el.focus(); if (numeric) el.select() }) }} value={initialText} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />}>
+        <textarea id="widget-editor-value" aria-labelledby={fieldIds.label} aria-describedby={error() === undefined ? undefined : fieldIds.message} aria-invalid={error() === undefined ? undefined : 'true'} ref={(el) => queueMicrotask(() => el.focus())} value={initialText} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={() => setError(undefined)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />
       </Show>
     </ProductField>
     <Suggestions />

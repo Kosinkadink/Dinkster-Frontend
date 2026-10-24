@@ -776,6 +776,18 @@ function widgetFor(
       }
     }
     validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`)
+    if (type.kind === 'list' && (descriptor.type === 'STRING' || descriptor.type === 'NUMBER')) {
+      // Decode the element through the same scalar binding and precision rules.
+      validateStrictWidgetBinding(wire as Record<string, unknown>, type.element, `${nodeType}.${id} widget element`)
+      const element = widgetFor(nodeType, id, type.element, undefined, wire, diags, false)
+      if (element === undefined) throw new Error(`${nodeType}.${id}: list widget requires a scalar element descriptor`)
+      return {
+        widgetType: 'LIST',
+        options: {},
+        element,
+        ...(dflt !== undefined ? { default: dflt } : {}),
+      }
+    }
     validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`)
     if (descriptor.type === 'ASSET' && Array.isArray(descriptor.accept) && descriptor.accept.every((v) => typeof v === 'string')) {
       let kind: string | undefined

@@ -5,7 +5,7 @@
  * directly (same discipline as menu-target.ts / app-view-rows.ts).
  */
 
-import { integerWidgetValue, isCanonicalUnsafeInteger, spliceDiff, transformSplice, type IntegerWidgetValue, type Json, type TextSplice, type WidgetKind, type WidgetSpec } from '@dinkster/core'
+import { integerWidgetValue, isCanonicalUnsafeInteger, isPrimitiveListWidgetValue, spliceDiff, transformSplice, type IntegerWidgetValue, type Json, type TextSplice, type WidgetKind, type WidgetSpec } from '@dinkster/core'
 
 export type NumericCommitResult = { readonly ok: true; readonly value: IntegerWidgetValue } | { readonly ok: false; readonly error: string }
 type FloatNumericCommitResult = { readonly ok: true; readonly value: number } | { readonly ok: false; readonly error: string }
@@ -59,6 +59,22 @@ export function parseNumericCommit(raw: string, widgetType: 'INT' | 'FLOAT', rou
   if (!Number.isFinite(quantized)) return { ok: true, value: parsed }
   const places = decimalPlaces(round)
   return { ok: true, value: places <= 100 ? Number(quantized.toFixed(places)) : quantized }
+}
+
+export function parsePrimitiveListCommit(raw: string, spec: WidgetSpec):
+  { readonly ok: true; readonly value: Json[] } | { readonly ok: false; readonly error: string } {
+  let value: unknown
+  try { value = JSON.parse(raw) } catch { return { ok: false, error: 'Enter a valid JSON array.' } }
+  if (!isPrimitiveListWidgetValue(value, spec)) {
+    return { ok: false, error: `Enter a JSON array of ${spec.element?.widgetType ?? 'primitive'} values. Quote integers outside the safe numeric range.` }
+  }
+  if (spec.element?.widgetType === 'FLOAT') {
+    value = value.map((item) => {
+      const parsed = parseNumericCommit(String(item), 'FLOAT', spec.element!.options['round'])
+      return parsed.ok ? parsed.value : item
+    })
+  }
+  return { ok: true, value: value as Json[] }
 }
 
 /**

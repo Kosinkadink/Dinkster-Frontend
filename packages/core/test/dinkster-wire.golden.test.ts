@@ -4,11 +4,46 @@ import {
   parseDinksterNodes,
   parseDinksterSchema,
 } from '../src/schema/dinkster-wire.js'
-import { inputsOf } from '../src/schema/model.js'
+import { inputsOf, outputsOf } from '../src/schema/model.js'
 
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('binds primitive list widgets without changing their socket or scalar output', () => {
+    for (const [name, widget] of [
+      ['STRING', { type: 'STRING', multiline: false }],
+      ['INT', { type: 'NUMBER', min: -7, max: 19 }],
+      ['FLOAT', { type: 'NUMBER', round: false }],
+    ] as const) {
+      const result = parseDinksterSchema('ListConsumer', {
+        schemaVersion: 1,
+        interface: [
+          { role: 'input', id: 'values', type: { kind: 'list', element: concrete(name) }, required: true, widget },
+          { role: 'output', id: 'result', type: concrete(name) },
+        ],
+      })
+      expect(result.diagnostics).toEqual([])
+      const input = inputsOf(result.schema!)[0]!
+      expect(input.type).toEqual({ kind: 'list', element: { kind: 'concrete', name } })
+      expect(input.widget).toEqual({
+        widgetType: 'LIST', options: {},
+        element: { widgetType: name, options: name === 'STRING' ? { multiline: false } : name === 'INT' ? { min: -7, max: 19 } : { round: false } },
+      })
+      expect(outputsOf(result.schema!)[0]!.type).toEqual({ kind: 'concrete', name })
+    }
+  })
+
+  it('rejects mismatched and nested primitive-list widget bindings', () => {
+    for (const element of [concrete('INT'), { kind: 'list', element: concrete('STRING') }]) {
+      const result = parseDinksterSchema('BadList', {
+        schemaVersion: 1,
+        interface: [{ role: 'input', id: 'values', type: { kind: 'list', element }, required: true, widget: { type: 'STRING', multiline: false } }],
+      })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
+    }
+  })
+
   it('accepts only wire version 1 at the envelope and entry boundaries', () => {
     expect(DINKSTER_SCHEMA_WIRE_VERSION).toBe(1)
 
