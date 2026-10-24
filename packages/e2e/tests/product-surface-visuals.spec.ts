@@ -1,4 +1,5 @@
 import { expect, appViewTest as test, type Page } from './fixtures.js'
+import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-01-01T00:00:00Z'))
@@ -80,6 +81,23 @@ const openModal = async (page: Page, id: string): Promise<void> => {
     }).modalPanel.set(panel),
     id,
   )
+}
+
+const emptyVisualBackend = async (route: Route): Promise<void> => {
+  const path = new URL(route.request().url()).pathname
+  if (path.endsWith('/api/nodes')) {
+    await route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1,
+      dinkster: { version: 'visual-fixture', schemaWire: 1 },
+      nodes: {},
+    } })
+  } else if (path.endsWith('/api/mounts')) {
+    await route.fulfill({ json: { mounts: [] } })
+  } else if (path.endsWith('/api/history/runs')) {
+    await route.fulfill({ json: { records: [] } })
+  } else {
+    await route.fulfill({ status: 502, body: 'visual fixture unavailable' })
+  }
 }
 
 test('shell controls at desktop and compact widths', async ({ page }) => {
@@ -487,8 +505,7 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
   let recover = false
   await page.route('**/offline-visual/api/**', async (route) => {
     if (!recover) return route.fulfill({ status: 503, body: 'Metadata fixture unavailable' })
-    const response = await page.request.get(route.request().url().replace('/offline-visual', ''))
-    return route.fulfill({ response })
+    await emptyVisualBackend(route)
   })
   await boot(page)
   await closeGallery(page)
@@ -553,8 +570,7 @@ test('Library Assets and Outputs use shared empty and loading states', async ({ 
         ? route.fulfill({ status: 503, body: 'Library fixture unavailable' })
         : route.fulfill({ json: { records: [] } })
     }
-    const response = await page.request.get(route.request().url().replace('/collection-visual', ''))
-    return route.fulfill({ response })
+    await emptyVisualBackend(route)
   })
   await boot(page)
   await closeGallery(page)
@@ -640,8 +656,7 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
         : route.fulfill({ json: { sessions: [] } })
     }
     if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [] } })
-    const response = await page.request.get(route.request().url().replace('/collab-visual', ''))
-    return route.fulfill({ response })
+    await emptyVisualBackend(route)
   })
   await boot(page)
   await closeGallery(page)
@@ -734,8 +749,7 @@ test('Template gallery presents loading error retry and empty search states', as
     }
     if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [], mountChangesAllowed } })
     if (path.endsWith('/api/settings')) return route.fulfill({ json: { features: { templates: { enabled: true } }, categories: { available: [], granted: [] }, settings: {} } })
-    const response = await page.request.get(route.request().url().replace('/gallery-visual', ''))
-    return route.fulfill({ response })
+    await emptyVisualBackend(route)
   })
   await boot(page)
   await closeGallery(page)
@@ -1100,7 +1114,7 @@ test('Asset selection instructions stay readable for the rail and single or mult
       } else {
         const componentPath = '/src/editors/AssetWidgetEditor.tsx'
         const { AssetWidgetEditor } = await import(componentPath)
-        const singleType = { kind: 'concrete', name: 'dinkster.asset' }
+        const singleType = { kind: 'concrete', name: 'ASSET' }
         dispose = render(() => AssetWidgetEditor({
           app: {
             backendForTab: () => ({ id: 'asset-visual', protocol: 'dinkster', connection: { listMounts: async () => [] } }),
