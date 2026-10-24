@@ -3133,8 +3133,8 @@ body,
   .palette-preview { display: none; }
 }
 
-.widget-editor input:not(.product-text-input),
-.widget-editor textarea:not(.product-text-area),
+.widget-editor input:where(:not(.product-text-input)),
+.widget-editor textarea:where(:not(.product-text-area)),
 .widget-editor select {
   box-sizing: border-box;
   width: 100%;
@@ -3147,8 +3147,8 @@ body,
   outline: none;
   resize: none;
 }
-.widget-editor input:not(.product-text-input):focus-visible,
-.widget-editor textarea:not(.product-text-area):focus-visible,
+.widget-editor input:where(:not(.product-text-input)):focus-visible,
+.widget-editor textarea:where(:not(.product-text-area)):focus-visible,
 .widget-editor select:focus-visible { border-color: var(--dinkster-border-focus); box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected); }
 
 .empty {
