@@ -39,6 +39,12 @@ cardinality. `GetItemFromList` becomes explicit element selection, with a
 list-valued index first selecting index zero. These translations do not add
 implicit broadcast behavior to the engine.
 
+Declared list outputs feeding ordinary scalar inputs are persisted as explicit
+map regions. Linked scalar inputs consume elements while other widget values
+broadcast unchanged. Mapping propagates through connected consumers regardless
+of serialized node order, including reroutes and named nets. Expanding controls
+and outputless nodes retain their native execution paths.
+
 Native catalogs that register an expanding `StartLoop` retain the registered
 loop nodes for engine execution. Legacy schemas use structural region
 translation. Promoted widgets retain their authored instance values through

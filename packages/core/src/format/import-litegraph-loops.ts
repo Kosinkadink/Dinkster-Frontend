@@ -4,13 +4,27 @@ import type { LinkEndpoint } from '../ids.js'
 import { traceEndpoint } from '../reroute.js'
 import { deriveBoundarySchema } from '../schema/derive-boundary.js'
 import {
+  elaborateInterface,
+  elabInputsOf,
+  elabOutputsOf,
+  elabKeyOf,
+} from '../schema/elaborate.js'
+import { solveGraphTypes } from '../schema/solve.js'
+import {
+  cardinalityOf,
   inputsOf,
   outputsOf,
   type NodeSchema,
   type TypeExpr,
 } from '../schema/model.js'
 import { typesCompatible } from '../schema/type-compatibility.js'
-import type { GraphDef, Json, JsonObject } from './document.js'
+import type {
+  GraphDef,
+  Json,
+  JsonObject,
+  NodeData,
+  RegionContract,
+} from './document.js'
 
 type Mutable = { [key: string]: any }
 
@@ -509,6 +523,188 @@ export function convertLitegraphLists(
   return helperOwners
 }
 
+/** Persist source execution-list boundaries as ordinary, explicitly typed maps. */
+export function convertLitegraphListConsumers(
+  document: JsonObject,
+  resolve: (type: string) => NodeSchema | undefined,
+): void {
+  const doc = document as Mutable
+  const graph = doc['graphs']['g0'] as Mutable
+  const generated = new Map<string, NodeSchema>()
+  const localResolve = (type: string): NodeSchema | undefined =>
+    generated.get(type) ?? resolve(type)
+  const controls = new Set([
+    'StartLoop',
+    'EndLoop',
+    'LoopIteration',
+    'LoopProgress',
+    'LoopResult',
+  ])
+  const converted = new Map<
+    string,
+    { original: Mutable; defId: string; elements: ReadonlySet<string> }
+  >()
+  let solved = solveGraphTypes(graph as GraphDef, localResolve)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const [id, node] of Object.entries(graph['nodes']) as [
+      string,
+      Mutable,
+    ][]) {
+      const previous = converted.get(id)
+      const original = previous?.original ?? node
+      if (
+        (!previous && node['region']) ||
+        original['virtual'] ||
+        controls.has(original['type']) ||
+        original['type'].startsWith('std.list.')
+      )
+        continue
+      const schema = localResolve(original['type'])
+      if (!schema || schema.mayExpandGraph) continue
+      const elaborated = elaborateInterface(schema, original as NodeData)
+      const inputs = elabInputsOf(elaborated).filter(
+        (input) => input.apiName !== undefined,
+      )
+      const sourceIsList = (endpoint: Mutable): boolean => {
+        const traced = traceEndpoint(
+          graph as GraphDef,
+          endpoint as LinkEndpoint,
+        )
+        if (traced.kind !== 'output') return false
+        const source = graph['nodes'][traced.ref.node] as Mutable | undefined
+        const sourceSchema = source && localResolve(source['type'])
+        if (!sourceSchema) return false
+        return (
+          solved.portTypeOf(traced.ref.node, 'output', elabKeyOf(traced.ref))
+            ?.kind === 'list'
+        )
+      }
+      const incoming = [
+        ...(Object.values(graph['links']) as Mutable[]).filter(
+          (link) => endpointNode(link['to']) === id,
+        ),
+        ...(Object.values(graph['nets']) as Mutable[]).flatMap((net) =>
+          net['sinks']
+            .filter((sink: Mutable) => endpointNode(sink) === id)
+            .map((sink: Mutable) => ({ from: net['source'], to: sink })),
+        ),
+      ]
+      const elementInputs = new Set(
+        incoming
+          .filter((link) => {
+            const key = previous ? link['to']['port'] : elabKeyOf(link['to'])
+            const input = inputs.find(
+              (input) => elabKeyOf(input.address) === key,
+            )
+            return (
+              input !== undefined &&
+              cardinalityOf(input.spec.type) === 'scalar' &&
+              sourceIsList(link['from'])
+            )
+          })
+          .map((link) =>
+            previous ? (link['to']['port'] as string) : elabKeyOf(link['to']),
+          ),
+      )
+      if (elementInputs.size === 0) continue
+      if (
+        previous &&
+        [...elementInputs].every((key) => previous.elements.has(key))
+      )
+        continue
+      for (const key of previous?.elements ?? []) elementInputs.add(key)
+      let defId = previous?.defId ?? `list-map-${id}`
+      if (!previous)
+        for (let suffix = 2; doc['graphs'][defId]; suffix++)
+          defId = `list-map-${id}-${suffix}`
+      const outputs = elabOutputsOf(elaborated).filter(
+        (output) => output.wireable !== false,
+      )
+      if (outputs.length === 0) continue
+      const body = {
+        id: defId,
+        name: schema.displayName,
+        nodes: { body: { ...original, id: 'body' } },
+        links: {},
+        nets: {},
+        reroutes: {},
+        nextOrdinal: 1,
+        boundary: {
+          inputs: inputs.map((input) => ({
+            id: elabKeyOf(input.address),
+            binds: { kind: 'port', node: 'body', ...input.address },
+            ...(input.spec.widget &&
+            !elementInputs.has(elabKeyOf(input.address))
+              ? { promoted: true }
+              : {}),
+          })),
+          outputs: outputs.map((output) => ({
+            id: elabKeyOf(output.address),
+            binds: { kind: 'port', node: 'body', ...output.address },
+          })),
+        },
+      } as unknown as GraphDef
+      const region: RegionContract = {
+        kind: 'map',
+        elementPorts: [...elementInputs],
+        binding: 'broadcast',
+        outputRoles: Object.fromEntries(
+          outputs.map((output) => [
+            elabKeyOf(output.address),
+            { kind: output.spec.type.kind === 'list' ? 'flatten' : 'gather' },
+          ]),
+        ),
+      }
+      const derived = deriveBoundarySchema(body, localResolve, region)
+      if (!derived.schema) continue
+      generated.set(derived.schema.type, derived.schema)
+      doc['graphs'][defId] = body
+      doc['view']['graphs'][defId] = {
+        nodes: { body: { position: { x: 0, y: 0 } } },
+      }
+      graph['nodes'][id] = {
+        id,
+        type: `#${defId}`,
+        values: Object.fromEntries(
+          Object.entries(original['values']).filter(
+            ([key]) => !elementInputs.has(key),
+          ),
+        ),
+        region,
+        ...(node['mode'] ? { mode: node['mode'] } : {}),
+        ...(node['title'] ? { title: node['title'] } : {}),
+      }
+      if (!previous) {
+        for (const link of Object.values(graph['links']) as Mutable[]) {
+          for (const side of ['from', 'to'])
+            if (endpointNode(link[side]) === id)
+              link[side] = { node: id, port: elabKeyOf(link[side]) }
+        }
+        for (const net of Object.values(graph['nets']) as Mutable[]) {
+          if (endpointNode(net['source']) === id)
+            net['source'] = { node: id, port: elabKeyOf(net['source']) }
+          net['sinks'] = net['sinks'].map((sink: Mutable) =>
+            endpointNode(sink) === id
+              ? {
+                  node: id,
+                  port: elabKeyOf({
+                    port: sink['port'],
+                    members: sink['members'],
+                  }),
+                }
+              : sink,
+          )
+        }
+      }
+      converted.set(id, { original, defId, elements: elementInputs })
+      solved = solveGraphTypes(graph as GraphDef, localResolve)
+      changed = true
+    }
+  }
+}
+
 /** Convert maintained ComfyUI StartLoop/EndLoop topology into explicit regions. */
 export function convertLitegraphLoops(
   document: JsonObject,
@@ -519,7 +715,8 @@ export function convertLitegraphLoops(
   helperOwners: ReadonlyMap<string, string> = new Map(),
 ): void {
   const startSchema = resolve('StartLoop')
-  if (startSchema?.source === 'v3' && startSchema.mayExpandGraph === true) return
+  if (startSchema?.source === 'v3' && startSchema.mayExpandGraph === true)
+    return
   const rawNodes = rawNodesValue.filter(
     (value): value is RawNode =>
       object(value) &&

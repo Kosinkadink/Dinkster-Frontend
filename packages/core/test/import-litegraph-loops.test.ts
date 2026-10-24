@@ -310,6 +310,220 @@ const workflowFiles = readdirSync(fixtureRoot)
   .sort()
 
 describe('explicit imported list utilities', () => {
+  it.each([false, true])(
+    'maps every list-backed scalar input independent of serialized order (consumer first: %s)',
+    (consumerFirst) => {
+      const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+      const source: NodeSchema = {
+        type: 'ListSource',
+        displayName: 'List Source',
+        source: 'v3',
+        category: 'test',
+        isOutputNode: false,
+        items: [
+          {
+            kind: 'output',
+            id: 'values',
+            type: { kind: 'list', element: integer },
+          },
+        ],
+      }
+      const schemas = new Map([['ListSource', source], ...helperSchemas])
+      const add = schemas.get('std.math.add_ints')!
+      schemas.set(add.type, {
+        ...add,
+        items: add.items.map((item) =>
+          item.kind === 'input'
+            ? { ...item, widget: { widgetType: 'INT', options: {} } }
+            : item,
+        ),
+      })
+      const unary = {
+        id: 3,
+        type: add.type,
+        inputs: [{ name: 'a', link: 2 }, { name: 'b' }],
+        outputs: [{ name: 'sum', links: [3] }],
+        widgets_values: { b: 7 },
+      }
+      const binary = {
+        id: 4,
+        type: add.type,
+        inputs: [
+          { name: 'a', link: 1 },
+          { name: 'b', link: 3 },
+        ],
+        outputs: [{ name: 'sum' }],
+      }
+      const imported = importLitegraph(
+        {
+          nodes: [
+            {
+              id: 1,
+              type: 'ListSource',
+              outputs: [{ name: 'values', links: [1] }],
+            },
+            {
+              id: 2,
+              type: 'ListSource',
+              outputs: [{ name: 'values', links: [2] }],
+            },
+            ...(consumerFirst ? [binary, unary] : [unary, binary]),
+          ],
+          links: [
+            [1, 1, 0, 4, 0, 'INT'],
+            [2, 2, 0, 3, 0, 'INT'],
+            [3, 3, 0, 4, 1, 'INT'],
+          ],
+        },
+        (type) => schemas.get(type),
+      )
+      expect(
+        imported.diagnostics.filter((item) => item.severity === 'error'),
+      ).toEqual([])
+      const document = imported.document!
+      expect(document.graphs.g0!.nodes.n4!.region).toMatchObject({
+        elementPorts: ['a', 'b'],
+      })
+      expect(
+        document.graphs['list-map-n4']!.boundary!.inputs.every(
+          (input) => !input.promoted,
+        ),
+      ).toBe(true)
+      expect(
+        document.graphs['list-map-n3']!.boundary!.inputs.find(
+          (input) => input.id === 'b',
+        )?.promoted,
+      ).toBe(true)
+      const compiled = compile({
+        document,
+        revision: 1,
+        resolve: (type) => schemas.get(type),
+        scope: { kind: 'full' },
+        connection: asConnectionId('test'),
+        schemaHash: 'list-fixed-point',
+        graphFeatures: ['regions', 'typedLiteral'],
+      })
+      expect(
+        compiled.ok,
+        compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
+      ).toBe(true)
+    },
+  )
+
+  it.each(['direct', 'reroute', 'net'])(
+    'persists an explicit map for a declared list-to-scalar boundary through %s',
+    (route) => {
+      const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+      const source: NodeSchema = {
+        type: 'ListSource',
+        displayName: 'List Source',
+        source: 'v3',
+        category: 'test',
+        isOutputNode: false,
+        items: [
+          {
+            kind: 'output',
+            id: 'values',
+            type: { kind: 'list', element: integer },
+          },
+        ],
+      }
+      const schemas = new Map([['ListSource', source], ...helperSchemas])
+      const add = schemas.get('std.math.add_ints')!
+      schemas.set(add.type, {
+        ...add,
+        items: add.items.map((item) =>
+          item.kind === 'input' && item.id === 'b'
+            ? { ...item, widget: { widgetType: 'INT', options: {} } }
+            : item,
+        ),
+      })
+      const input = route === 'direct' ? 1 : 4
+      const imported = importLitegraph(
+        {
+          nodes: [
+            {
+              id: 1,
+              type: 'ListSource',
+              outputs: [{ name: 'values', links: [1] }],
+            },
+            {
+              id: 2,
+              type: 'std.math.add_ints',
+              inputs: [{ name: 'a', link: input }, { name: 'b' }],
+              outputs: [{ name: 'sum' }],
+              widgets_values: { b: 5 },
+            },
+            ...(route === 'reroute'
+              ? [
+                  {
+                    id: 3,
+                    type: 'Reroute',
+                    inputs: [{ name: '', link: 1 }],
+                    outputs: [{ name: '' }],
+                  },
+                ]
+              : []),
+            ...(route === 'net'
+              ? [
+                  {
+                    id: 3,
+                    type: 'SetNode',
+                    inputs: [{ name: 'value', link: 1 }],
+                    outputs: [{ name: '*', links: [] }],
+                    widgets_values: ['numbers'],
+                  },
+                  {
+                    id: 4,
+                    type: 'GetNode',
+                    outputs: [{ name: '*', links: [4] }],
+                    widgets_values: ['numbers'],
+                  },
+                ]
+              : []),
+          ],
+          links:
+            route === 'direct'
+              ? [[1, 1, 0, 2, 0, 'INT']]
+              : [
+                  [1, 1, 0, 3, 0, 'INT'],
+                  [4, route === 'net' ? 4 : 3, 0, 2, 0, 'INT'],
+                ],
+        },
+        (type) => schemas.get(type),
+      )
+      expect(
+        imported.diagnostics.filter((item) => item.severity === 'error'),
+      ).toEqual([])
+      const document = imported.document!
+      expect(document.graphs.g0!.nodes.n2!.region).toMatchObject({
+        kind: 'map',
+        elementPorts: ['a'],
+        binding: 'broadcast',
+      })
+      expect(document.graphs['list-map-n2']!.nodes.body!.values).toEqual({
+        b: 5,
+      })
+      const compiled = compile({
+        document,
+        revision: 1,
+        resolve: (type) => schemas.get(type),
+        scope: { kind: 'full' },
+        connection: asConnectionId('test'),
+        schemaHash: 'list-boundary',
+        graphFeatures: ['regions', 'typedLiteral'],
+      })
+      expect(
+        compiled.ok,
+        compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
+      ).toBe(true)
+      if (compiled.ok)
+        expect(compiled.artifact.dinksterGraph!.nodes.n2).toMatchObject({
+          region: { elementPorts: ['a'] },
+        })
+    },
+  )
+
   it.each([
     [false, 'direct'],
     [true, 'direct'],
