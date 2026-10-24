@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile/compile.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
@@ -13,6 +14,13 @@ const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
+    const production = parseDinksterSchema('test.numeric_union', fixture.nodes['test.numeric_union'])
+    expect(production.diagnostics).toEqual([])
+    expect(inputsOf(production.schema!)[0]).toMatchObject({
+      type: { kind: 'union', names: ['FLOAT', 'INT'] },
+      widget: { widgetType: 'FLOAT', default: 25, options: { min: 1, max: 1000, step: 0.01, display: 'number' } },
+    })
     const widget = { type: 'NUMBER', min: 1, max: 1000, step: 0.01, round: false, display: 'number' }
     for (const types of [['FLOAT', 'INT'], ['INT', 'FLOAT']]) {
       const decoded = parseDinksterSchema('NumericUnion', {

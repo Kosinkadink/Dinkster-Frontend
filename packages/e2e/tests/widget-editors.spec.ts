@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -138,14 +139,11 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('numeric union uses FLOAT editing in canvas and exposed AppView without changing its socket', async ({ page }, testInfo) => {
+  const fixture = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
     dinkster: { version: 'numeric-union-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
-    nodes: { NumericUnion: { schemaVersion: 1, nodeType: 'NumericUnion', displayName: 'Frame rate', category: 'test', interface: [{
-      role: 'input', id: 'frame_rate', required: true, default: 25,
-      type: { kind: 'union', types: ['FLOAT', 'INT'] },
-      widget: { type: 'NUMBER', min: 1, max: 1000, step: 0.01, round: false, display: 'number' },
-    }] } },
+    nodes: { 'test.numeric_union': fixture.nodes['test.numeric_union'] },
   } }))
   await page.reload()
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
@@ -154,7 +152,7 @@ test('numeric union uses FLOAT editing in canvas and exposed AppView without cha
     app.settings.set('features.appView.enabled', true)
     app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-union-editors', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'Frame rate', nodes: { widgets: { id: 'widgets', type: 'NumericUnion', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      graphs: { g0: { id: 'g0', name: 'Frame rate', nodes: { widgets: { id: 'widgets', type: 'test.numeric_union', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
     }, 'Frame rate')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })

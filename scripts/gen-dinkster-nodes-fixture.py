@@ -26,6 +26,7 @@ from dinkster_schema import (  # noqa: E402
     InputFamilySpec,
     InputSpec,
     NodeSchema,
+    NumberWidget,
     OutputFamilySpec,
     OutputSpec,
     TypeExpr,
@@ -90,6 +91,20 @@ schemas = [
             OutputSpec("image", IMAGE),
             OutputSpec("mask", IMAGE, optional=True, doc="present when detected"),
         ),
+    ),
+    NodeSchema(
+        node_type="test.numeric_union",
+        display_name="Frame rate",
+        category="test",
+        inputs=(
+            InputSpec(
+                "frame_rate",
+                TypeExpr.union("FLOAT", "INT"),
+                default=25.0,
+                widget=NumberWidget(min=1.0, max=1000.0, step=0.01, display="number"),
+            ),
+        ),
+        output_node=True,
     ),
     # Type expressions: union, wildcard, variables, lists (nested + polymorphic).
     NodeSchema(
