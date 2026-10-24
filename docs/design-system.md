@@ -50,6 +50,10 @@ App view uses ProductEmptyState when nothing is exposed and when an arrangement
 group has no children. The empty group retains its list-item semantics and
 instructions for moving content into the group.
 
+Template gallery uses ProductEmptyState for loading, failed reads, empty catalogs
+and searches without matches. Failed reads retain Retry, and the empty folder
+explanation preserves the permission-gated server-path form below it.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.

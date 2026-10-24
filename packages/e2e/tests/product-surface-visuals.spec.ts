@@ -732,6 +732,80 @@ test('App view explains an empty flow and an empty arrangement group', async ({ 
   }
 })
 
+test('Template gallery presents loading error retry and empty search states', async ({ page }) => {
+  let mode: 'loading' | 'empty' | 'error' = 'loading'
+  let mountChangesAllowed = false
+  let release: (() => void) | undefined
+  await page.route('**/gallery-visual/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/api/templates')) {
+      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      return mode === 'error'
+        ? route.fulfill({ status: 503, body: 'Template fixture unavailable' })
+        : route.fulfill({ json: { templates: [] } })
+    }
+    if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [], mountChangesAllowed } })
+    if (path.endsWith('/api/settings')) return route.fulfill({ json: { features: { templates: { enabled: true } }, categories: { available: [], granted: [] }, settings: {} } })
+    const response = await page.request.get(route.request().url().replace('/gallery-visual', ''))
+    return route.fulfill({ response })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { id: string }
+      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string }
+      setTabTarget(tab: string, backend: string): void
+      refreshBackendSchemas(backend: unknown): Promise<void>
+      templateGalleryOpen: { set(value: boolean): void }
+    }
+    const backend = app.addBackend('/gallery-visual', 'Gallery visual', false, 'dinkster')
+    app.setTabTarget(app.activeTab().id, backend.id)
+    await app.refreshBackendSchemas(backend)
+    app.templateGalleryOpen.set(true)
+  })
+  const gallery = page.getByTestId('template-gallery')
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `gallery-${state}-${width}`)
+    }
+  }
+  await expect(gallery.getByRole('status')).toContainText('Loading starter templates...')
+  await capture('loading')
+  await expect.poll(() => release !== undefined).toBe(true)
+  mode = 'error'
+  release?.()
+  await expect(gallery.getByRole('alert')).toContainText('GET /api/templates failed: 503')
+  await expect(gallery.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+  await capture('error')
+  mode = 'empty'
+  await gallery.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(gallery.getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await expect(gallery.getByRole('alert')).toHaveCount(0)
+  await expect(gallery.getByText('Grant read-only access to an existing folder. Dinkster indexes models in place without copying them.', { exact: true })).toBeVisible()
+  await capture('empty')
+  await gallery.getByTestId('template-gallery-search').fill('unmatched-template-507')
+  await expect(gallery.getByText('No starter templates match this search.', { exact: true })).toBeVisible()
+  await capture('no-matches')
+  await gallery.getByTestId('template-gallery-search').press('Escape')
+  await expect(gallery.getByTestId('template-gallery-search')).toHaveValue('')
+  await expect(gallery.getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toHaveCount(0)
+  mountChangesAllowed = true
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as { templateGalleryOpen: { set(value: boolean): void } }
+    app.templateGalleryOpen.set(true)
+  })
+  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toBeVisible()
+  await gallery.getByLabel('Path', { exact: true }).fill('/models/shared')
+  await gallery.getByLabel('Mount name', { exact: true }).fill('shared-models')
+  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toBeEnabled()
+  await capture('folder-form')
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
