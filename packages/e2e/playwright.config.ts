@@ -180,6 +180,15 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${devPort}`,
     viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    launchOptions: {
+      args: [
+        '--disable-gpu',
+        '--disable-gpu-compositing',
+        '--force-device-scale-factor=1',
+        '--font-render-hinting=none',
+      ],
+    },
   },
   webServer: [
     {
