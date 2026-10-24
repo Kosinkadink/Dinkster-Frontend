@@ -151,6 +151,31 @@ export function importLitegraphSubgraphs(
   const instances = [root, ...[...definitions.values()].map((def) => def.raw)]
     .flatMap((graph) => Array.isArray(graph['nodes']) ? graph['nodes'] as Mutable[] : [])
 
+  const retainGeneratedGraphs = (document: WorkflowDocument, owner: string): void => {
+    const generated = Object.entries(document.graphs).filter(([id]) => id !== 'g0')
+    if (generated.length === 0) return
+    const ids = new Map<string, string>()
+    for (const [id] of generated) {
+      let target = id
+      for (let suffix = 2; graphs[target] !== undefined || ids.has(target); suffix++)
+        target = `${owner}-${id}-${suffix}`
+      ids.set(id, target)
+    }
+    for (const graph of Object.values(document.graphs)) {
+      for (const node of Object.values(graph.nodes) as Mutable[]) {
+        if (typeof node.type !== 'string' || !node.type.startsWith('#')) continue
+        const target = ids.get(node.type.slice(1))
+        if (target !== undefined) node.type = `#${target}`
+      }
+    }
+    for (const [id, graph] of generated) {
+      const target = ids.get(id)!
+      graphs[target] = { ...graph, id: target as GraphDef['id'] }
+      const view = document.view.graphs[id]
+      if (view !== undefined) views[target] = view
+    }
+  }
+
   // Legacy proxy entries address widgets by node/name rather than by boundary slot.
   const proxySlots = new WeakMap<object, (string | undefined)[]>()
   const proxyControllers = new WeakMap<object, Map<number, string>>()
@@ -362,6 +387,7 @@ export function importLitegraphSubgraphs(
     )
     const doc = translate(def.raw)
     if (!doc) return
+    retainGeneratedGraphs(doc, id)
     const body = JSON.parse(JSON.stringify(doc.graphs['g0'])) as Mutable
     for (const [netId, net] of Object.entries(body['nets']) as [string, Mutable][]) {
       if (!nodeEnd(net['source'], `n${def.inputNode}`) && !net['sinks'].some((sink: Mutable) => nodeEnd(sink, `n${def.outputNode}`))) continue
