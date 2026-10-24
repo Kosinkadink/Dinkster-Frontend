@@ -29,7 +29,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.string"
+            "STRING"
           ]
         },
         "required": false,
@@ -97,7 +97,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.combo"
+            "COMBO"
           ]
         },
         "required": false,
@@ -121,7 +121,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.combo"
+            "COMBO"
           ]
         },
         "required": false,
@@ -142,7 +142,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.int"
+            "INT"
           ]
         },
         "required": false,
@@ -160,7 +160,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.string"
+            "STRING"
           ]
         },
         "required": false,
@@ -177,7 +177,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.combo"
+            "COMBO"
           ]
         },
         "required": false,
@@ -380,10 +380,10 @@
         "type": {
           "kind": "union",
           "types": [
-            "core.int",
-            "core.float",
-            "core.string",
-            "core.boolean"
+            "INT",
+            "FLOAT",
+            "STRING",
+            "BOOLEAN"
           ]
         },
         "required": true,
@@ -395,7 +395,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.combo"
+            "COMBO"
           ]
         },
         "required": true,
@@ -417,7 +417,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.boolean"
+            "BOOLEAN"
           ]
         },
         "required": true,
@@ -430,7 +430,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.int"
+            "INT"
           ]
         },
         "optional": true
@@ -441,7 +441,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.float"
+            "FLOAT"
           ]
         },
         "optional": true
@@ -452,7 +452,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.string"
+            "STRING"
           ]
         },
         "optional": true
@@ -463,7 +463,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.boolean"
+            "BOOLEAN"
           ]
         },
         "optional": true
@@ -485,7 +485,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.float"
+            "FLOAT"
           ]
         },
         "required": false,
@@ -502,7 +502,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "core.float"
+            "FLOAT"
           ]
         },
         "knownValue": {
