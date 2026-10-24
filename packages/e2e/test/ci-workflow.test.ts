@@ -113,6 +113,7 @@ describe('fast pull-request and full validation workflows', () => {
   it('requires product screenshots and bounded fast checks without a PR label path', () => {
     expect(fast.on).toEqual({
       pull_request: null,
+      merge_group: null,
       workflow_dispatch: {
         inputs: {
           'simulate-fork': {
