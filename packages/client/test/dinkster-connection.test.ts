@@ -67,9 +67,9 @@ it('includes output profile detector revision in registry identity', () => {
   const payload = (revision: string): DinksterNodesPayload => ({
     schemaVersion: 1,
     nodes: { 'dinkster.load_model_profile': { schemaVersion: 1, interface: [
-      { role: 'input', id: 'checkpoint', required: true, type: { kind: 'concrete', types: ['dinkster.asset'] } },
-      { role: 'input', id: 'entries', required: true, type: { kind: 'concrete', types: ['core.string'] } },
-      { role: 'outputDescriptors', input: 'entries', choices: ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete', types: [`dinkster.${id}`] } })), minEntries: 1, maxEntries: 3, fixedIds: true, probe: { input: 'checkpoint', kind: 'model', revision } },
+      { role: 'input', id: 'checkpoint', required: true, type: { kind: 'concrete', types: ['ASSET'] } },
+      { role: 'input', id: 'entries', required: true, type: { kind: 'concrete', types: ['STRING'] } },
+      { role: 'outputDescriptors', input: 'entries', choices: ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete', types: [id.toUpperCase()] } })), minEntries: 1, maxEntries: 3, fixedIds: true, probe: { input: 'checkpoint', kind: 'model', revision } },
     ] } },
   })
   const first = buildDinksterRegistry(C0, payload('1'))
@@ -99,7 +99,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'value', required: true,
-          type: { kind: 'concrete', types: ['dinkster.image'] },
+          type: { kind: 'concrete', types: ['IMAGE'] },
         }],
       } },
     } as unknown as DinksterNodesPayload
@@ -121,10 +121,10 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'image', required: true,
-          type: { kind: 'concrete', types: ['dinkster.image'] },
+          type: { kind: 'concrete', types: ['IMAGE'] },
         }, {
           role: 'output', id: 'image',
-          type: { kind: 'concrete', types: ['dinkster.image'] },
+          type: { kind: 'concrete', types: ['IMAGE'] },
         }],
       } },
     } as unknown as DinksterNodesPayload
@@ -175,7 +175,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'image', required: true,
-          type: { kind: 'concrete', types: ['dinkster.image'] },
+          type: { kind: 'concrete', types: ['IMAGE'] },
         }],
       } },
     } as unknown as DinksterNodesPayload
@@ -193,7 +193,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'choice', required: true,
-          type: { kind: 'concrete', types: ['core.combo'] },
+          type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', remote: { route: '/api/choices/models', refreshButton: true } },
         }],
       } },
@@ -213,7 +213,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'choices', required: true,
-          type: { kind: 'list', element: { kind: 'concrete', types: ['core.combo'] } },
+          type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
           widget: { type: 'MULTI_COMBO', options: ['a'] },
         }],
       } },
@@ -241,7 +241,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'sampler', required: true,
-          type: { kind: 'concrete', types: ['core.combo'] },
+          type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', options: [{
             value: 'dinkster.euler', label: 'euler', info: 'Euler sampler', folder: 'Basic',
           }] },
@@ -265,7 +265,7 @@ describe('schema registry identity', () => {
         signature: 'backend-signature',
         interface: [{
           role: 'input', id: 'models', required: true,
-          type: { kind: 'list', element: { kind: 'concrete', types: ['core.combo'] } },
+          type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
           widget: { type: 'MULTI_COMBO', options: [{
             value: 'dinkster.first', label: 'First', info: 'First model', folder: 'Models',
           }] },
@@ -932,10 +932,10 @@ describe('promptToDinksterGraph', () => {
     const effective = buildDinksterRegistry(C0, {
       schemaVersion: 1,
       nodes: {
-        Source: { schemaVersion: 1, nodeType: 'Source', interface: [output('caption', 'core.str'), output('total', 'core.int')] },
+        Source: { schemaVersion: 1, nodeType: 'Source', interface: [output('caption', 'core.str'), output('total', 'INT')] },
         Sink: { schemaVersion: 1, nodeType: 'Sink', interface: [
           { role: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['core.str'] } },
-          { role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['core.int'] } },
+          { role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] } },
         ] },
       },
     })
@@ -966,8 +966,8 @@ describe('promptToDinksterGraph', () => {
     expect(compiled.artifact.prompt.source?.outputIds).toEqual(['caption', 'total'])
     expect(compiled.artifact.prompt.sink?.inputs).toEqual({ text: ['source', 0], count: ['source', 1] })
     for (const declared of [
-      [output('placeholder', 'core.int')],
-      [output('total', 'core.int'), output('caption', 'core.str')],
+      [output('placeholder', 'INT')],
+      [output('total', 'INT'), output('caption', 'core.str')],
     ]) {
       const catalog = buildDinksterRegistry(C0, {
         schemaVersion: 1,
@@ -1042,15 +1042,15 @@ describe('promptToDinksterGraph', () => {
           nodeType: 'Splitter',
           interface: [
             ...(count === undefined ? [] : [{
-              role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['core.int'] },
+              role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] },
             }]),
-            { role: 'output', id: 'before', type: { kind: 'concrete', types: ['core.int'] } },
+            { role: 'output', id: 'before', type: { kind: 'concrete', types: ['INT'] } },
             {
               role: 'outputFamily', id: 'parts', minMembers: 1, maxMembers: 4,
-              type: { kind: 'concrete', types: ['core.int'] },
+              type: { kind: 'concrete', types: ['INT'] },
               ...(count === undefined ? {} : { count: { input: 'count', suffix: 'index' } }),
             },
-            { role: 'output', id: 'after', type: { kind: 'concrete', types: ['core.int'] } },
+            { role: 'output', id: 'after', type: { kind: 'concrete', types: ['INT'] } },
           ],
         },
       },
@@ -1120,14 +1120,14 @@ describe('promptToDinksterGraph', () => {
     // literal; the graph wire converter must never sniff or rewrite it -
     // only link tuples convert.
     const prompt: Prompt = {
-      n0: { class_type: 'std.math.add_ints', inputs: { a: { $typed: { type: 'core.int', value: 7 } }, b: 4 } },
+      n0: { class_type: 'std.math.add_ints', inputs: { a: { $typed: { type: 'INT', value: 7 } }, b: 4 } },
     }
     const result = promptToDinksterGraph(prompt, registry.resolve)
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('unreachable')
     expect(result.graph.nodes['n0']).toEqual({
       nodeType: 'std.math.add_ints',
-      inputs: { a: { $typed: { type: 'core.int', value: 7 } }, b: 4 },
+      inputs: { a: { $typed: { type: 'INT', value: 7 } }, b: 4 },
     })
   })
 
@@ -1162,12 +1162,12 @@ describe('promptToDinksterGraph', () => {
                 role: 'dynamicCombo', id: 'quality', required: true,
                 options: [{ key: 'full', inputs: [{
                   role: 'input', id: 'steps', required: false,
-                  type: { kind: 'concrete', types: ['core.int'] },
+                  type: { kind: 'concrete', types: ['INT'] },
                 }] }],
               }] }, {
                 key: 'plain', inputs: [{
                   role: 'input', id: 'quality', required: false,
-                  type: { kind: 'concrete', types: ['core.string'] },
+                  type: { kind: 'concrete', types: ['STRING'] },
                 }],
               }],
             },
@@ -1177,7 +1177,7 @@ describe('promptToDinksterGraph', () => {
                 role: 'dynamicCombo', id: 'mode', required: true,
                 options: [{ key: 'a', inputs: [{
                   role: 'input', id: 'x', required: false,
-                  type: { kind: 'concrete', types: ['core.int'] },
+                  type: { kind: 'concrete', types: ['INT'] },
                 }] }],
               }],
             },
@@ -1185,14 +1185,14 @@ describe('promptToDinksterGraph', () => {
               role: 'dynamicSlot', id: 'source', required: false,
               variants: [
                 {
-                  key: 'text', type: { kind: 'concrete', types: ['core.string'] },
+                  key: 'text', type: { kind: 'concrete', types: ['STRING'] },
                   inputs: [{
                     role: 'input', id: 'mode', required: false,
-                    type: { kind: 'concrete', types: ['core.string'] },
+                    type: { kind: 'concrete', types: ['STRING'] },
                   }],
                 },
                 {
-                  key: 'advanced', type: { kind: 'concrete', types: ['core.string'] },
+                  key: 'advanced', type: { kind: 'concrete', types: ['STRING'] },
                   inputs: [{
                     role: 'dynamicCombo', id: 'mode', required: true,
                     options: [{ key: 'one', inputs: [] }],
@@ -1290,7 +1290,7 @@ describe('promptToDinksterGraph', () => {
             role: 'input',
             id: 'image',
             required: true,
-            type: { kind: 'concrete', types: ['dinkster.asset'] },
+            type: { kind: 'concrete', types: ['ASSET'] },
             widget: { type: 'ASSET', accept: ['image/webp'] },
           }],
         },
@@ -1453,7 +1453,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
     const installed = await conn.fetchSchemas()
     expect(installed.schemas.size).toBe(4)
     expect(installed.resolve('test.stream_source')?.items[0]).toMatchObject({
-      kind: 'output', type: { kind: 'stream', element: { kind: 'concrete', name: 'dinkster.image' } },
+      kind: 'output', type: { kind: 'stream', element: { kind: 'concrete', name: 'IMAGE' } },
     })
     expect(installed.resolve('test.stream_sink')?.items[0]).toMatchObject({ acceptsStream: true })
     expect(installed.resolve('test.chunk_map')?.chunkSafe).toEqual({ inputs: ['image'], outputs: ['image'] })
@@ -2033,7 +2033,7 @@ describe('submit', () => {
         r: {
           region: {
             kind: 'map' as const,
-            ports: { item: { kind: 'concrete', types: ['core.int'] } },
+            ports: { item: { kind: 'concrete', types: ['INT'] } },
             elementPorts: ['item'],
             inputs: { item: [1, 2] },
             body: {
@@ -2252,7 +2252,7 @@ describe('submit', () => {
           r: {
             region: {
               kind: 'map',
-              ports: { item: { kind: 'concrete', types: ['core.int'] } },
+              ports: { item: { kind: 'concrete', types: ['INT'] } },
               elementPorts: ['item'],
               inputs: { item: [1] },
               body: { nodes: { body: { nodeType: 'Body', inputs: {} } } },
@@ -2315,7 +2315,7 @@ describe('submit', () => {
           outer: {
             region: {
               kind: 'map',
-              ports: { item: { kind: 'concrete', types: ['core.int'] } },
+              ports: { item: { kind: 'concrete', types: ['INT'] } },
               elementPorts: ['item'],
               inputs: { item: [1] },
               body: {
@@ -2323,7 +2323,7 @@ describe('submit', () => {
                   inner: {
                     region: {
                       kind: 'map',
-                      ports: { item: { kind: 'concrete', types: ['core.int'] } },
+                      ports: { item: { kind: 'concrete', types: ['INT'] } },
                       elementPorts: ['item'],
                       inputs: { item: [1] },
                       body: { nodes: { body: { nodeType: 'Body', inputs: {} } } },
@@ -2534,7 +2534,7 @@ describe('job hydration and replay', () => {
     executed: ['n0', 'n1'],
     cached: [],
     skipped: [],
-    outputs: { n1: { sum: { typeId: 'core.int', fingerprint: 'abc', meta: {} } } },
+    outputs: { n1: { sum: { typeId: 'INT', fingerprint: 'abc', meta: {} } } },
   }
 
   function replayHarness(routes: Record<string, unknown>) {
@@ -2648,7 +2648,7 @@ describe('job hydration and replay', () => {
     // The target's result descriptor hydrates into a per-output summary.
     expect(state.nodes['n1']).toEqual({
       state: 'done',
-      outputs: { sum: { typeId: 'core.int' } },
+      outputs: { sum: { typeId: 'INT' } },
     })
   })
 
@@ -2724,7 +2724,7 @@ describe('reconcileDinksterExecutions', () => {
   }
 
   it('completes a run whose terminal event was missed, hydrating output descriptors', async () => {
-    const outputs = { n1: { sum: { typeId: 'core.int', fingerprint: 'abc', meta: {}, length: 4 } } }
+    const outputs = { n1: { sum: { typeId: 'INT', fingerprint: 'abc', meta: {}, length: 4 } } }
     const artifacts = [{
       nodeId: 'n1',
       digest: `blake3:${'e'.repeat(64)}`,

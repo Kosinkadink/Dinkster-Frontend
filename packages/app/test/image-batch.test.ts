@@ -13,7 +13,7 @@ describe('native IMAGE batch axis', () => {
     expect(imageBatchCount({ ...descriptor, meta: { shape: [9, 32, 48, 2], channels: { layout: 'gray_alpha', alpha: 'straight' } } })).toBe(9)
     for (const invalid of [
       { ...descriptor, typeId: 'list<comfy.IMAGE>', length: 99 },
-      { ...descriptor, typeId: 'comfy.VIDEO' },
+      { ...descriptor, typeId: 'VIDEO' },
       { ...descriptor, meta: { shape: [7, 3, 32, 48], layout: 'BCHW' } },
       { ...descriptor, meta: { shape: [0, 32, 48, 3], layout: 'BHWC' } },
       { ...descriptor, meta: { shape: [Infinity, 32, 48, 3], layout: 'BHWC' } },

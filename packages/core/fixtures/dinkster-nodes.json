@@ -13,7 +13,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -25,7 +25,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -35,7 +35,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         }
@@ -126,7 +126,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO_EDIT"
+              "VIDEO_EDIT"
             ]
           },
           "widget": {
@@ -156,7 +156,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -175,7 +175,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               }
             }
@@ -206,7 +206,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -218,7 +218,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.string"
+              "STRING"
             ]
           }
         }
@@ -277,7 +277,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -289,7 +289,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.float"
+              "FLOAT"
             ]
           }
         },
@@ -301,7 +301,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.string"
+              "STRING"
             ]
           }
         },
@@ -313,7 +313,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.boolean"
+              "BOOLEAN"
             ]
           }
         },
@@ -334,7 +334,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.string"
+              "STRING"
             ]
           }
         }
@@ -356,8 +356,8 @@
           "type": {
             "kind": "union",
             "types": [
-              "core.int",
-              "core.float"
+              "INT",
+              "FLOAT"
             ]
           }
         },
@@ -384,8 +384,8 @@
           "role": "input",
           "type": {
             "allowed": [
-              "core.int",
-              "core.float"
+              "INT",
+              "FLOAT"
             ],
             "kind": "variable",
             "templateId": "C"
@@ -399,7 +399,7 @@
             "element": {
               "kind": "concrete",
               "types": [
-                "core.int"
+                "INT"
               ]
             },
             "kind": "list"
@@ -414,7 +414,7 @@
               "element": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "kind": "list"

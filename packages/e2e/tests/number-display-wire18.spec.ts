@@ -7,7 +7,7 @@ const advertisedWires: string[] = []
 
 const numberInput = (id: string, display?: string, displayName?: string) => ({
   role: 'input', id, required: true,
-  type: { kind: 'concrete', types: ['core.float'] },
+  type: { kind: 'concrete', types: ['FLOAT'] },
   ...(displayName === undefined ? {} : { displayName }),
   widget: {
     type: 'NUMBER', min: 0, max: 100, step: 1,

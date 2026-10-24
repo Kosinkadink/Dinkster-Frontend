@@ -294,7 +294,7 @@ describe('solver: asset coercion on edges', () => {
     })
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('sw' as never, 'T')).toEqual({ kind: 'resolved', name: 'asset<comfy.IMAGE>' })
+    expect(s.resolutionOf('sw' as never, 'T')).toEqual({ kind: 'resolved', name: 'asset<IMAGE>' })
   })
 
   it('an asset edge next to a plain edge into one bare variable IS a conflict', () => {
@@ -322,7 +322,7 @@ describe('solver: asset coercion on edges', () => {
     })
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('sw' as never, 'T')).toEqual({ kind: 'resolved', name: IMG })
+    expect(s.resolutionOf('sw' as never, 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
     expect(s.diagnostics.filter((x) => x.code === 'solve.varConflict')).toEqual([])
   })
 })
@@ -336,8 +336,8 @@ describe('solver: open generic coercions and the single-step limit', () => {
         to: { node: asNodeId('get'), port: asPortId('in') },
       }],
     })
-    expect(decoded.resolutionOf(asNodeId('get'), 'T')).toEqual({ kind: 'resolved', name: IMG })
-    expect(decoded.portTypeOf(asNodeId('get'), 'output', 'out')).toEqual(concrete(IMG))
+    expect(decoded.resolutionOf(asNodeId('get'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
+    expect(decoded.portTypeOf(asNodeId('get'), 'output', 'out')).toEqual(concrete('IMAGE'))
     expect(decoded.diagnostics).toEqual([])
 
     const concreteSink = defOf({ nodes: { sink: { type: 'ImageSink' } } })
@@ -358,7 +358,7 @@ describe('solver: open generic coercions and the single-step limit', () => {
     })
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: IMG })
+    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
   })
 
   it('asset<list<T>> decodes into a list destination, binding T', () => {
@@ -368,7 +368,7 @@ describe('solver: open generic coercions and the single-step limit', () => {
     })
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: IMG })
+    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
     expect(s.diagnostics).toEqual([])
   })
 
@@ -383,7 +383,7 @@ describe('solver: open generic coercions and the single-step limit', () => {
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
     expect(s.linkVerdicts.get('l1' as never)).toBe('ok') // provider registry is server-side
-    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: IMG })
+    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
   })
 
   it('nested assets never chain, open or closed: one step only', () => {
@@ -439,7 +439,7 @@ describe('assetMultiSelect gating', () => {
   it('permits multi-select only on list-of-asset declarations', () => {
     // N selections lower to N descriptors in a list literal.
     expect(assetMultiSelect(list(asset(concrete(IMG))))).toBe(true)
-    expect(assetMultiSelect(list(concrete('dinkster.asset')))).toBe(true)
+    expect(assetMultiSelect(list(concrete('ASSET')))).toBe(true)
     // Outer structure decides; an open element does not change how many
     // descriptors a selection produces.
     expect(assetMultiSelect(list(asset(T('T'))))).toBe(true)
@@ -451,7 +451,7 @@ describe('assetMultiSelect gating', () => {
 
   it('rejects every non-list-of-asset shape', () => {
     expect(assetMultiSelect(asset(concrete(IMG)))).toBe(false)
-    expect(assetMultiSelect(concrete('dinkster.asset'))).toBe(false)
+    expect(assetMultiSelect(concrete('ASSET'))).toBe(false)
     expect(assetMultiSelect(list(concrete(IMG)))).toBe(false)
     expect(assetMultiSelect(concrete(IMG))).toBe(false)
     expect(assetMultiSelect({ kind: 'wildcard' })).toBe(false)
@@ -478,9 +478,9 @@ describe('assetMultiSelect gating', () => {
       // changes nothing.
       expect(assetMultiSelect(asset(concrete(IMG)), [IMG])).toBe(false)
       expect(assetMultiSelect(asset(list(concrete(IMG))), [IMG])).toBe(false)
-      // bare dinkster.asset is the untyped atom: no decode target to merge
+      // bare ASSET is the untyped atom: no decode target to merge
       // through, even if a bogus list claimed it.
-      expect(assetMultiSelect(concrete('dinkster.asset'), ['dinkster.asset'])).toBe(false)
+      expect(assetMultiSelect(concrete('ASSET'), ['ASSET'])).toBe(false)
       // parametric ids smuggled into concrete never take the arm.
       expect(assetMultiSelect(concrete(`list<${IMG}>`), [`list<${IMG}>`])).toBe(false)
       expect(assetMultiSelect(concrete(`asset<${IMG}>`), [`asset<${IMG}>`])).toBe(false)
@@ -493,7 +493,7 @@ describe('assetMultiSelect gating', () => {
 
     it('the list-outer arms are unaffected by the provider list', () => {
       expect(assetMultiSelect(list(asset(concrete(IMG))), [])).toBe(true)
-      expect(assetMultiSelect(list(concrete('dinkster.asset')), [])).toBe(true)
+      expect(assetMultiSelect(list(concrete('ASSET')), [])).toBe(true)
     })
   })
 })
@@ -603,15 +603,15 @@ describe('asset-source stamping on concrete destinations (2026-07-26 amendment)'
       { kind: 'input', id: 'in', type: concrete(IMG), optional: false, widget: { widgetType: 'ASSET', options: {}, default: ref } } as InputSpec,
     ]),
     IntValue: schemaOf('IntValue', [
-      { kind: 'input', id: 'in', type: concrete('core.int'), optional: false, widget: { widgetType: 'INT', options: {} } } as InputSpec,
+      { kind: 'input', id: 'in', type: concrete('INT'), optional: false, widget: { widgetType: 'INT', options: {} } } as InputSpec,
     ]),
     ImageSink: schemaOf('ImageSink', [input('in', concrete(IMG))]),
     ImageListSink: schemaOf('ImageListSink', [input('in', list(concrete(IMG)))]),
-    IntSink: schemaOf('IntSink', [input('in', concrete('core.int'))]),
+    IntSink: schemaOf('IntSink', [input('in', concrete('INT'))]),
     WildSink: schemaOf('WildSink', [input('source', { kind: 'wildcard' })]),
     // Asset-REFERENCE destinations: refs deliver AS-IS, never stamped -
     // incl. a DIFFERING asset form (no asset-to-asset coercion exists).
-    BareAssetSink: schemaOf('BareAssetSink', [input('in', concrete('dinkster.asset'))]),
+    BareAssetSink: schemaOf('BareAssetSink', [input('in', concrete('ASSET'))]),
     AssetListImgSink: schemaOf('AssetListImgSink', [input('in', asset(list(concrete(IMG))))]),
   }
   const compileWith = (
@@ -648,27 +648,27 @@ describe('asset-source stamping on concrete destinations (2026-07-26 amendment)'
       expect(isAssetSourceTypeId('asset<list<comfy.IMAGE>>')).toBe(true)
       expect(isAssetSourceTypeId('list<asset<comfy.IMAGE>>')).toBe(true)
     })
-    it('rejects bare atoms, plain lists, and the untyped dinkster.asset forms', () => {
+    it('rejects bare atoms, plain lists, and the untyped ASSET forms', () => {
       expect(isAssetSourceTypeId('comfy.IMAGE')).toBe(false)
       expect(isAssetSourceTypeId('list<comfy.IMAGE>')).toBe(false)
-      expect(isAssetSourceTypeId('dinkster.asset')).toBe(false)
-      expect(isAssetSourceTypeId('list<dinkster.asset>')).toBe(false)
+      expect(isAssetSourceTypeId('ASSET')).toBe(false)
+      expect(isAssetSourceTypeId('list<ASSET>')).toBe(false)
       expect(isAssetSourceTypeId('list<list<asset<comfy.IMAGE>>>')).toBe(false)
     })
   })
 
   describe('isAssetRefDestinationTypeId', () => {
     it('accepts every declared asset-reference destination form', () => {
-      expect(isAssetRefDestinationTypeId('dinkster.asset')).toBe(true)
+      expect(isAssetRefDestinationTypeId('ASSET')).toBe(true)
       expect(isAssetRefDestinationTypeId('asset<comfy.IMAGE>')).toBe(true)
       expect(isAssetRefDestinationTypeId('asset<list<comfy.IMAGE>>')).toBe(true)
-      expect(isAssetRefDestinationTypeId('list<dinkster.asset>')).toBe(true)
+      expect(isAssetRefDestinationTypeId('list<ASSET>')).toBe(true)
       expect(isAssetRefDestinationTypeId('list<asset<comfy.IMAGE>>')).toBe(true)
     })
     it('rejects plain atoms and plain lists (those are coercion DESTINATIONS)', () => {
       expect(isAssetRefDestinationTypeId('comfy.IMAGE')).toBe(false)
       expect(isAssetRefDestinationTypeId('list<comfy.IMAGE>')).toBe(false)
-      expect(isAssetRefDestinationTypeId('list<list<dinkster.asset>>')).toBe(false)
+      expect(isAssetRefDestinationTypeId('list<list<ASSET>>')).toBe(false)
     })
   })
 
@@ -713,7 +713,7 @@ describe('asset-source stamping on concrete destinations (2026-07-26 amendment)'
       if (result.ok) expect(result.artifact.prompt['s']!.inputs['in']).toBeUndefined()
     })
 
-    it('asset-REFERENCE destinations are exempt: an asset<T> tap into bare dinkster.asset stays a plain ref', () => {
+    it('asset-REFERENCE destinations are exempt: an asset<T> tap into bare ASSET stays a plain ref', () => {
       const result = tapInto('AssetValue', ref, 'BareAssetSink', 'in')
       expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
       if (result.ok) expect(result.artifact.prompt['s']!.inputs['in']).toEqual(ref)

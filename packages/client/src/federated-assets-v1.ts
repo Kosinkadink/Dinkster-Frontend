@@ -1,4 +1,4 @@
-import type { AssetRef, AssetRefRepairSuggestion } from '@dinkster/core'
+import type { AssetRef } from '@dinkster/core'
 
 export const ASSET_DTO_CONTRACT_VERSION = 1 as const
 export type SourceIdentityV1 = { readonly providerId: string; readonly sourceId: string }
@@ -22,8 +22,6 @@ export type CandidatesRequestV1 = { readonly context: AssetResolveContextV1; rea
 export type SelectedReasonV1 = 'reference-mapping' | 'explicit-selection' | 'trusted-source' | 'expected-digest' | 'compatible-only'
 export type SelectedCandidateV1 = CandidateSelectionV1 & { readonly reason: SelectedReasonV1 }
 export type CandidatesResponseV1 = { readonly contractVersion: 1; readonly status: 'resolved' | 'missing' | 'ambiguous' | 'incompatible'; readonly items: readonly CandidateV1[]; readonly selectedCandidate?: SelectedCandidateV1; readonly nextCursor?: string }
-export type AssetResolveRequestV1 = { readonly mode: 'existing' | 'acquire-managed'; readonly context: AssetResolveContextV1; readonly scope?: string; readonly expected?: ExpectedV1; readonly hints?: HintsV1; readonly selection?: CandidateSelectionV1; readonly consents?: { readonly license?: readonly string[]; readonly cost?: readonly string[]; readonly policyOverride?: readonly string[] }; readonly document?: { readonly digest: string; readonly occurrences: readonly { readonly pointer: string; readonly current: AssetRef }[] } }
-export type AssetResolveResponseV1 = { readonly contractVersion: 1; readonly status: 'resolved-existing' | 'resolved-remapped' | 'acquired'; readonly selected: AssetRef; readonly selectedCandidate: SelectedCandidateV1; readonly repair?: AssetRefRepairSuggestion }
 export type ErrorCodeV1 = 'invalid-request' | 'cursor-invalid' | 'authentication-required' | 'forbidden' | 'not-found' | 'selection-required' | 'not-available' | 'incompatible' | 'credential-required' | 'license-required' | 'cost-required' | 'policy-override-required' | 'source-unavailable' | 'no-compatible-destination' | 'mapping-conflict' | 'wrong-kind' | 'integrity-mismatch' | 'acquisition-failed' | 'service-unavailable'
 export type ErrorResponseV1 = { readonly contractVersion: 1; readonly error: { readonly code: ErrorCodeV1; readonly reason?: string; readonly field?: string; readonly candidates?: readonly CandidateV1[]; readonly truncated?: boolean; readonly requirementId?: string; readonly selection?: CandidateSelectionV1; readonly expectedKind?: string; readonly actualKind?: string; readonly expectedDigest?: string; readonly observedDigest?: string; readonly expectedSize?: number; readonly observedSize?: number } }
 
@@ -49,8 +47,6 @@ const digest = (v: unknown): v is string => str(v) && /^blake3:[0-9a-f]{64}$/.te
 const integer = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
 const strings = (v: unknown): v is string[] => Array.isArray(v) && [...v].every(str)
 const boundedString = (v: unknown, maximum: number): v is string => str(v) && codePointLength(v) <= maximum
-const documentToken = (v: unknown): v is string => boundedString(v, 4096)
-  && !/[\u0000-\u001f\u007f]/.test(v)
 const printableId = (v: unknown): v is string => str(v)
   && codePointLength(v) > 0
   && codePointLength(v) <= 256
@@ -106,23 +102,6 @@ const candidates = (v: unknown): CandidateV1[] => {
   if (keys.some((key, index) => index > 0 && compareTuple(key, keys[index - 1]!) <= 0)) fail('candidates must be strictly ordered and unique')
   return decoded
 }
-const pointer = (value: unknown): value is string => str(value) && /^(?:\/(?:[^~/]|~[01])*)*$/.test(value)
-const decodeRepair = (value: unknown): AssetRefRepairSuggestion => {
-  const body = obj(value, ['type','version','atomic','documentDigest','preconditions','replacements'])
-  if (body.type !== 'asset-ref-repair' || body.version !== 1 || body.atomic !== true || !documentToken(body.documentDigest)) fail('invalid repair')
-  if (!Array.isArray(body.preconditions) || !Array.isArray(body.replacements) || body.preconditions.length === 0 || body.replacements.length === 0) fail('invalid repair')
-  const rawPreconditions = [...(body.preconditions as unknown[])]
-  const rawReplacements = [...(body.replacements as unknown[])]
-  const preconditions = rawPreconditions.map((raw) => { const row = obj(raw, ['pointer','equals']); if (!pointer(row.pointer)) fail('invalid repair pointer'); return { pointer: row.pointer as string, equals: assetRef(row.equals) } })
-  const replacements = rawReplacements.map((raw) => { const row = obj(raw, ['pointer','value']); if (!pointer(row.pointer)) fail('invalid repair pointer'); return { pointer: row.pointer as string, value: assetRef(row.value) } })
-  const left = preconditions.map((row) => row.pointer)
-  const right = replacements.map((row) => row.pointer)
-  const leftSet = new Set(left)
-  const rightSet = new Set(right)
-  if (leftSet.size !== left.length || rightSet.size !== right.length || leftSet.size !== rightSet.size || [...leftSet].some((target) => !rightSet.has(target))) fail('repair targets must match and be unique')
-  for (const [index, first] of left.entries()) for (const second of left.slice(index + 1)) if (first === '' || second.startsWith(`${first}/`) || second === '' || first.startsWith(`${second}/`)) fail('repair targets must not overlap')
-  return { type: 'asset-ref-repair', version: 1, atomic: true, documentDigest: body.documentDigest as string, preconditions, replacements }
-}
 const responseBase = (v: unknown, required: string[], optional: string[] = []): Record<string, unknown> => { const b = obj(v, ['contractVersion', ...required], optional); if (b.contractVersion !== 1) fail('contract version mismatch'); return b }
 const encode = <T extends object>(request: T): Readonly<Record<string, unknown>> => { const b = obj(request, [], Object.keys(request)); return { contractVersion: 1, ...b } }
 const validatePageRequest = (request: CatalogRequestV1 | CandidatesRequestV1): void => {
@@ -143,7 +122,7 @@ const hints = (value: unknown): HintsV1 => {
   if (Object.values(body).some((item) => !boundedString(item, 1024))) fail('invalid hints')
   return body as HintsV1
 }
-const validateResolutionInputs = (request: CandidatesRequestV1 | AssetResolveRequestV1): void => {
+const validateCandidatesInputs = (request: CandidatesRequestV1): void => {
   const checkedExpected = request.expected === undefined ? undefined : expected(request.expected)
   if (request.hints !== undefined) hints(request.hints)
   const checkedSelection = request.selection === undefined ? undefined : selection(request.selection)
@@ -169,39 +148,11 @@ export const encodeCandidatesRequestV1 = (request: CandidatesRequestV1) => {
   obj(request, ['context'], ['scope','expected','hints','selection','cursor','limit'])
   context(request.context)
   validatePageRequest(request)
-  validateResolutionInputs(request)
-  return encode(request)
-}
-export const encodeAssetResolveRequestV1 = (request: AssetResolveRequestV1) => {
-  obj(request, ['mode','context'], ['scope','expected','hints','selection','consents','document'])
-  if (!['existing', 'acquire-managed'].includes(request.mode)) fail('invalid resolve mode')
-  context(request.context)
-  if (request.scope !== undefined && !scope(request.scope)) fail('invalid scope')
-  validateResolutionInputs(request)
-  if (request.consents !== undefined) {
-    const consents = obj(request.consents, [], ['license','cost','policyOverride'])
-    let total = 0
-    for (const value of Object.values(consents)) {
-      if (!Array.isArray(value)) fail('invalid consents')
-      const ids = [...(value as unknown[])]
-      if (ids.length > 16 || ids.some((item) => !printableId(item))) fail('invalid consents')
-      total += ids.length
-    }
-    if (total > 32) fail('invalid consents')
-  }
-  if (request.document !== undefined) {
-    const document = obj(request.document, ['digest','occurrences'])
-    if (!documentToken(document.digest)) fail('invalid document digest')
-    if (!Array.isArray(document.occurrences)) fail('invalid document occurrences')
-    const occurrences = document.occurrences as unknown[]
-    if (occurrences.length > 256) fail('invalid document occurrences')
-    for (const occurrence of occurrences) { const row = obj(occurrence, ['pointer','current']); if (!pointer(row.pointer)) fail('invalid document pointer'); assetRef(row.current) }
-  }
+  validateCandidatesInputs(request)
   return encode(request)
 }
 export const decodeCatalogResponseV1 = (v: unknown): CatalogResponseV1 => { const b = responseBase(v, ['items'], ['nextCursor']); candidates(b.items); if (b.nextCursor !== undefined && !boundedString(b.nextCursor, 4096)) fail('invalid cursor'); return b as CatalogResponseV1 }
 export const decodeCandidatesResponseV1 = (v: unknown): CandidatesResponseV1 => { const b = responseBase(v, ['status','items'], ['selectedCandidate','nextCursor']); const items = candidates(b.items); if (!literal(b.status, ['resolved','missing','ambiguous','incompatible'])) fail('invalid status'); if (b.nextCursor !== undefined && !boundedString(b.nextCursor, 4096)) fail('invalid cursor'); const selected = b.selectedCandidate === undefined ? undefined : selection(b.selectedCandidate, true); if (b.status === 'resolved' && !selected) fail('resolved requires selection'); if (b.status === 'ambiguous' && selected) fail('ambiguous forbids selection'); if (selected && b.status === 'resolved') { const match = items.find((item) => item.logicalId === selected.logicalId && item.variantId === selected.variantId && item.digest === selected.digest); if (match && (match.availability.status !== 'local' || match.compatibility.status !== 'compatible')) fail('resolved selection must be local and compatible') } return b as CandidatesResponseV1 }
-export const decodeAssetResolveResponseV1 = (v: unknown): AssetResolveResponseV1 => { const b = responseBase(v, ['status','selected','selectedCandidate'], ['repair']); if (!literal(b.status, ['resolved-existing','resolved-remapped','acquired'])) fail('invalid resolve status'); const ref = assetRef(b.selected); const selected = selection(b.selectedCandidate, true); if (ref.digest !== selected.digest) fail('selected digests must agree'); if (b.repair !== undefined) decodeRepair(b.repair); return b as AssetResolveResponseV1 }
 const ERROR_CODES: readonly ErrorCodeV1[] = ['invalid-request','cursor-invalid','authentication-required','forbidden','not-found','selection-required','not-available','incompatible','credential-required','license-required','cost-required','policy-override-required','source-unavailable','no-compatible-destination','mapping-conflict','wrong-kind','integrity-mismatch','acquisition-failed','service-unavailable']
 const ERROR_STATUS: Readonly<Record<ErrorCodeV1, number>> = { 'invalid-request':400, 'cursor-invalid':400, 'authentication-required':401, forbidden:403, 'not-found':404, 'selection-required':409, 'not-available':409, incompatible:409, 'credential-required':409, 'license-required':409, 'cost-required':409, 'policy-override-required':409, 'source-unavailable':409, 'no-compatible-destination':409, 'mapping-conflict':409, 'wrong-kind':422, 'integrity-mismatch':422, 'acquisition-failed':502, 'service-unavailable':503 }
 export const decodeErrorResponseV1 = (v: unknown, status: number): ErrorResponseV1 => {
@@ -239,10 +190,10 @@ export const decodeErrorResponseV1 = (v: unknown, status: number): ErrorResponse
   return b as ErrorResponseV1
 }
 export interface AssetDtoV1OperationCodec<Q, S> { readonly encodeRequest: (request: Q) => Readonly<Record<string, unknown>>; readonly decodeResponse: (response: unknown) => S }
-export interface AssetDtoV1WireContract { readonly paths: { readonly catalog: string; readonly candidates: string; readonly resolve?: string }; readonly catalog: AssetDtoV1OperationCodec<CatalogRequestV1, CatalogResponseV1>; readonly candidates: AssetDtoV1OperationCodec<CandidatesRequestV1, CandidatesResponseV1>; readonly decodeError: (response: unknown, status: number) => ErrorResponseV1 }
+export interface AssetDtoV1WireContract { readonly paths: { readonly catalog: string; readonly candidates: string }; readonly catalog: AssetDtoV1OperationCodec<CatalogRequestV1, CatalogResponseV1>; readonly candidates: AssetDtoV1OperationCodec<CandidatesRequestV1, CandidatesResponseV1>; readonly decodeError: (response: unknown, status: number) => ErrorResponseV1 }
 export const assetDtoV1Contract = (paths: AssetDtoV1WireContract['paths']): AssetDtoV1WireContract => {
-  for (const path of [paths.catalog, paths.candidates, paths.resolve]) {
-    if (path !== undefined && (!path.startsWith('/') || path.startsWith('//') || path.includes('?') || path.includes('#'))) fail('paths must be fixed absolute paths')
+  for (const path of [paths.catalog, paths.candidates]) {
+    if (!path.startsWith('/') || path.startsWith('//') || path.includes('?') || path.includes('#')) fail('paths must be fixed absolute paths')
   }
   if (paths.catalog === paths.candidates) fail('catalog and candidates paths must differ')
   return { paths, catalog: { encodeRequest: encodeCatalogRequestV1, decodeResponse: decodeCatalogResponseV1 }, candidates: { encodeRequest: encodeCandidatesRequestV1, decodeResponse: decodeCandidatesResponseV1 }, decodeError: decodeErrorResponseV1 }
@@ -281,5 +232,4 @@ export class AssetDtoV1Client {
   }
   catalog(request: CatalogRequestV1, signal?: AbortSignal) { return this.post(this.contract.paths.catalog, stampRequest(this.contract.catalog.encodeRequest(request)), this.contract.catalog.decodeResponse, signal) }
   candidates(request: CandidatesRequestV1, signal?: AbortSignal) { return this.post(this.contract.paths.candidates, stampRequest(this.contract.candidates.encodeRequest(request)), this.contract.candidates.decodeResponse, signal) }
-  resolve(request: AssetResolveRequestV1, signal?: AbortSignal) { if (!this.contract.paths.resolve) throw new Error('asset DTO v1 resolve path is not configured'); return this.post(this.contract.paths.resolve, encodeAssetResolveRequestV1(request), decodeAssetResolveResponseV1, signal) }
 }

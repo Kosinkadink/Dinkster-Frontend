@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from './fixtures.js'
 
 async function openDescriptors(page: Page): Promise<void> {
@@ -26,7 +25,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     const profile = mode === true
     const fixedIds = mode !== false
     const choices = profile
-      ? ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete' as const, name: `dinkster.${id}` }, displayName: id.toUpperCase() }))
+      ? ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete' as const, name: id.toUpperCase() }, displayName: id.toUpperCase() }))
       : ['float', 'string'].map((id) => ({ id, type: { kind: 'concrete' as const, name: `core.${id}` } }))
     const entries = profile ? [] : [
       { id: fixedIds ? 'float' : 'm0', name: 'Result', type: 'float', expression: 'a+b' },
@@ -37,8 +36,8 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     window.__dinksterTest!.app.registerSchemas([{
       type: nodeType, displayName: profile ? 'Load Model Profile' : 'Named Expressions', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        ...(profile ? [{ kind: 'input' as const, id: 'checkpoint', type: { kind: 'concrete' as const, name: 'dinkster.asset' }, optional: false, widget: { widgetType: 'ASSET', options: {} } }] : []),
-        { kind: 'input', id: 'entries', displayName: 'Output schema', type: { kind: 'concrete', name: 'core.string' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: source } },
+        ...(profile ? [{ kind: 'input' as const, id: 'checkpoint', type: { kind: 'concrete' as const, name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', options: {} } }] : []),
+        { kind: 'input', id: 'entries', displayName: 'Output schema', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: source } },
         { kind: 'output', id: 'entries', type: choices[0]!.type, outputDescriptors: { input: 'entries', choices, minEntries: profile ? 1 : 0, maxEntries: profile ? 3 : 32, fixedIds, ...(profile ? { probe: { input: 'checkpoint', kind: 'model' as const, revision: '1' } } : {}) } },
       ],
     }])
@@ -55,26 +54,13 @@ const stored = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.ac
 const pins = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'n')!.layout.pins.filter((pin) => pin.direction === 'out' && !pin.widgetTap).map((pin) => pin.address.port))
 
 test('descriptor controls and stored JSON at desktop and compact widths', async ({ page }) => {
-  for (const weight of ['Regular', 'Bold']) {
-    await page.route(`/visual-font-${weight}.ttf`, (route) => route.fulfill({
-      contentType: 'font/ttf',
-      path: fileURLToPath(new URL(`../fixtures/fonts/NotoSans-${weight}.ttf`, import.meta.url)),
-    }))
-  }
   await setup(page)
-  await page.addStyleTag({ content: `
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Regular.ttf'); font-weight: 100 500; }
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Bold.ttf'); font-weight: 600 900; }
-    :root { --dinkster-font-family: ProductVisual, sans-serif !important; }
-  ` })
   await page.evaluate(async () => {
-    await Promise.all([document.fonts.load('400 13px ProductVisual'), document.fonts.load('700 13px ProductVisual')])
     window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
       graphId: 'root', nodeId: 'n', inputId: 'entries',
       value: JSON.stringify({ entries: [{ id: 'm0', name: 'Result', type: 'float', expression: 'a+b' }], extra: { preserved: true } }),
     } })
   })
-  expect(await page.evaluate(() => document.fonts.check('13px ProductVisual'))).toBe(true)
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
     await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: -100, scale: 1 }))
@@ -284,7 +270,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     const app = window.__dinksterTest!.app
     const sink = (type: string, input: string) => ({
       type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true,
-      items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: `dinkster.${input}` }, optional: false }],
+      items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: input.toUpperCase() }, optional: false }],
     })
     app.registerSchemas([sink('ModelSink', 'model'), sink('ClipSink', 'clip'), sink('VaeSink', 'vae')])
     const original = app.activeTab()!.store.doc

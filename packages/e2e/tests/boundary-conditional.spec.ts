@@ -282,7 +282,7 @@ test('region occurrences author independent conditional and promoted widget stat
       },
       {
         type: 'RegionIndexSinkTest', displayName: 'Region Index Sink', category: 'test', source: 'v3', isOutputNode: true,
-        items: [{ kind: 'input', id: 'index', type: { kind: 'concrete', name: 'core.int' }, optional: false }],
+        items: [{ kind: 'input', id: 'index', type: { kind: 'concrete', name: 'INT' }, optional: false }],
       },
     ])
     const document = JSON.parse(JSON.stringify(app.activeTab()!.store.doc))

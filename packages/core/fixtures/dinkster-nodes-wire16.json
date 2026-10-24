@@ -16,7 +16,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "required": true,
@@ -30,7 +30,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "required": false,
@@ -43,7 +43,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "required": false,
@@ -68,7 +68,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.string"
+                  "STRING"
                 ]
               },
               "required": false,
@@ -90,7 +90,7 @@
                   "type": {
                     "kind": "concrete",
                     "types": [
-                      "core.float"
+                      "FLOAT"
                     ]
                   },
                   "required": false,
@@ -111,7 +111,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.float"
+                  "FLOAT"
                 ]
               },
               "required": false,
@@ -134,7 +134,7 @@
                   "type": {
                     "kind": "concrete",
                     "types": [
-                      "core.boolean"
+                      "BOOLEAN"
                     ]
                   },
                   "required": false,
@@ -161,7 +161,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.float"
+                  "FLOAT"
                 ]
               },
               "required": false,
@@ -175,7 +175,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -185,7 +185,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "preview": false
@@ -196,7 +196,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "preview": true
@@ -207,7 +207,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "memberPrefix": "member",

@@ -1,7 +1,7 @@
 /**
  * Legacy boolean migration (wire v10): documents saved before the flip store
  * the two-option combo STRING ("enable"/"disable", "on"/"off", ...) on inputs
- * the backend now types core.boolean. The once-per-tab open pass rewrites
+ * the backend now types BOOLEAN. The once-per-tab open pass rewrites
  * exactly the recognized tokens to real booleans; anything else is left for
  * the badValue advisory (value-never-hostage).
  */

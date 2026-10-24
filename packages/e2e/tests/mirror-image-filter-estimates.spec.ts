@@ -32,10 +32,10 @@ const imageSourceNode = {
       role: 'input',
       id: 'image',
       required: true,
-      type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } },
+      type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } },
       widget: { type: 'ASSET', accept: ['image/png'] },
     },
-    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['dinkster.image'] } },
+    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
   ],
 }
 
@@ -140,7 +140,7 @@ test('applies-scoped filter mirrors estimate covered operations and abstain outs
     store.apply({
       kind: 'nodeOutput', execution: ref, runtimeNodeId: 'src', timestamp: Date.now(),
       output: { image: {
-        typeId: 'dinkster.asset',
+        typeId: 'ASSET',
         meta: { digest: `blake3:${'ab'.repeat(32)}`, mediaType: 'image/png', name: 'image.png' },
       } },
     })

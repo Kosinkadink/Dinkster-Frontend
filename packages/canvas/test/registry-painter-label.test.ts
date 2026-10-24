@@ -418,8 +418,8 @@ describe('registry painter label/value split', () => {
     const two = painted.textCalls.find((call) => call.text === 'two')!
 
     expect(label).toMatchObject({ x: 6, y: 11, font: '12px system-ui' })
-    expect(one).toMatchObject({ x: 6, y: 36, font: '14px system-ui, sans-serif' })
-    expect(two).toMatchObject({ x: 6, y: 56, font: '14px system-ui, sans-serif' })
+    expect(one).toMatchObject({ x: 6, y: 36, font: '14px "Noto Sans", sans-serif' })
+    expect(two).toMatchObject({ x: 6, y: 56, font: '14px "Noto Sans", sans-serif' })
     expect(painted.clips.filter((clip) => clip.x === 0).map((clip) => clip.width)).toContain(152)
   })
 
@@ -441,7 +441,7 @@ describe('registry painter label/value split', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
     expect(placeholder).toMatchObject({ x: 6, y: 36, fill: defaultTokens.colors.label })
-    expect(placeholder.font).toBe('italic 14px system-ui, sans-serif')
+    expect(placeholder.font).toBe('italic 14px "Noto Sans", sans-serif')
   })
 
   it('paints the COLOR compact view swatch as a filled square', () => {

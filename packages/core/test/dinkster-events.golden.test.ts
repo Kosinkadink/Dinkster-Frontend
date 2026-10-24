@@ -192,8 +192,8 @@ describe('dinkster stream replay: success', () => {
     // detail.outputs (backend commit ea9ab93): {outputId: {typeId, length?}}
     // for INTERMEDIATE nodes mid-run, not just job-result targets.
     const done = new Map(nodeEntries(events).filter(([, p]) => p.state === 'done'))
-    expect(done.get('r')!.outputs).toEqual({ items: { typeId: 'list<core.int>', length: 3 } })
-    expect(done.get('a')!.outputs).toEqual({ out: { typeId: 'core.int', value: 8 } })
+    expect(done.get('r')!.outputs).toEqual({ items: { typeId: 'list<INT>', length: 3 } })
+    expect(done.get('a')!.outputs).toEqual({ out: { typeId: 'INT', value: 8 } })
     expect(done.get('a')!.outputs!['out']).not.toHaveProperty('length')
   })
 
@@ -327,8 +327,8 @@ describe('dinkster stream replay: cached', () => {
 
   it('cache hits carry the same per-output summaries as fresh finishes', () => {
     const cached = new Map(nodeEntries(events).filter(([, p]) => p.state === 'cached'))
-    expect(cached.get('r')!.outputs).toEqual({ items: { typeId: 'list<core.int>', length: 3 } })
-    expect(cached.get('a')!.outputs).toEqual({ out: { typeId: 'core.int', value: 8 } })
+    expect(cached.get('r')!.outputs).toEqual({ items: { typeId: 'list<INT>', length: 3 } })
+    expect(cached.get('a')!.outputs).toEqual({ out: { typeId: 'INT', value: 8 } })
   })
 })
 
@@ -911,8 +911,8 @@ describe('completed-job hydration (nodeStatesFromDinksterJob)', () => {
     expect(nodeStatesFromDinksterJob(successStream.job)).toEqual({
       m: { state: 'done' },
       a: { state: 'done' },
-      p: { state: 'done', outputs: { out: { typeId: 'core.int' } } },
-      r: { state: 'done', outputs: { items: { typeId: 'list<core.int>', length: 3 } } },
+      p: { state: 'done', outputs: { out: { typeId: 'INT' } } },
+      r: { state: 'done', outputs: { items: { typeId: 'list<INT>', length: 3 } } },
     })
   })
 
@@ -920,8 +920,8 @@ describe('completed-job hydration (nodeStatesFromDinksterJob)', () => {
     expect(nodeStatesFromDinksterJob(cachedStream.job)).toEqual({
       m: { state: 'cached' },
       a: { state: 'cached' },
-      p: { state: 'cached', outputs: { out: { typeId: 'core.int' } } },
-      r: { state: 'cached', outputs: { items: { typeId: 'list<core.int>', length: 3 } } },
+      p: { state: 'cached', outputs: { out: { typeId: 'INT' } } },
+      r: { state: 'cached', outputs: { items: { typeId: 'list<INT>', length: 3 } } },
     })
     expect(nodeStatesFromDinksterJob(skipStream.job)).toEqual({
       m: { state: 'done' },

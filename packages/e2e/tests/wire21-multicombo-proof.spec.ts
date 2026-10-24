@@ -41,7 +41,7 @@ const multiInterface = [
   { id: 'remote', widget: { type: 'MULTI_COMBO', options: [], remote: { route: '/api/choices/providers', refreshButton: true } } },
 ].map(({ id, widget }) => ({
   role: 'input', id, required: true,
-  type: { kind: 'list', element: { kind: 'concrete', types: ['core.combo'] } }, widget,
+  type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } }, widget,
 }))
 
 test('proves wire21 MULTI_COMBO editing, presentation, OOV, and remote choices', async ({ page }) => {
@@ -149,7 +149,7 @@ test('current catalog retains ordinary schema and ignores obsolete skip metadata
     nodes: { OrdinaryWire21: {
       schemaVersion: 1, nodeType: 'OrdinaryWire21', displayName: 'Ordinary Wire 21', category: 'test',
       outputNode: false, signature: 'ordinary-wire21', interface: [{
-        role: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['core.string'] },
+        role: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['STRING'] },
         widget: { type: 'STRING', multiline: false },
       }],
     } },

@@ -22,7 +22,7 @@ needed.
 Live-verified 2026-07-28 against the shared :8765 server (restarted at
 backend `6fd8d1e`, which includes the fix): `/api/nodes` shows
 `comfy.ComfyNumberConvert` (Convert Number) input `value` as
-`{"kind":"union","types":["core.int","core.float","core.string","core.boolean"]}`
+`{"kind":"union","types":["INT","FLOAT","STRING","BOOLEAN"]}`
 and the bogus comma atom no longer appears anywhere in the payload
 (13 union occurrences total). Remaining optional follow-up: visually
 spot-check union pin color/tooltip presentation on canvas during the

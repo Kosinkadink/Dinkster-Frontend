@@ -175,7 +175,7 @@ describe('combo golden: widget adjuncts and socket identity', () => {
     const input = schema.items.find((item) => item.kind === 'input')
     const output = schema.items.find((item) => item.kind === 'output')
     expect(input).toMatchObject({
-      type: { kind: 'concrete', name: 'core.combo' },
+      type: { kind: 'concrete', name: 'COMBO' },
       widget: {
         widgetType: 'COMBO',
         options: {
@@ -189,14 +189,14 @@ describe('combo golden: widget adjuncts and socket identity', () => {
         controllerInitial: 'randomize',
       },
     })
-    expect(output).toMatchObject({ type: { kind: 'concrete', name: 'core.combo' } })
+    expect(output).toMatchObject({ type: { kind: 'concrete', name: 'COMBO' } })
     expect(input).toMatchObject({ widget: { default: 'alpha' } })
     expect(typeof (input?.kind === 'input' ? input.widget?.default : undefined)).toBe('string')
     const prompt = schema.items.find((item) => item.kind === 'input' && item.id === 'prompt')
     const scale = schema.items.find((item) => item.kind === 'input' && item.id === 'scale')
     const color = schema.items.find((item) => item.kind === 'input' && item.id === 'color')
     expect(prompt).toMatchObject({
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: {
         widgetType: 'STRING',
         options: { multiline: true, placeholder: 'Describe an image', dynamicPrompts: true },
@@ -212,12 +212,12 @@ describe('combo golden: widget adjuncts and socket identity', () => {
     })
     expect(scale).toMatchObject({ widget: { widgetType: 'FLOAT', options: { round: 0.001 } } })
     expect(color).toMatchObject({
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'COLOR', options: {} },
     })
     const providers = schema.items.find((item) => item.kind === 'input' && item.id === 'providers')
     expect(providers).toEqual(expect.objectContaining({
-      type: { kind: 'list', element: { kind: 'concrete', name: 'core.combo' } },
+      type: { kind: 'list', element: { kind: 'concrete', name: 'COMBO' } },
       widget: {
         widgetType: 'MULTI_COMBO',
         options: {
@@ -243,7 +243,7 @@ describe('combo golden: widget adjuncts and socket identity', () => {
     expect(providers?.kind === 'input' ? providers.widget?.default : undefined).toEqual(['beta', 'alpha', 'beta'])
     const providersOutput = schema.items.find((item) => item.kind === 'output' && item.id === 'providers')
     expect(providersOutput).toMatchObject({
-      type: { kind: 'list', element: { kind: 'concrete', name: 'core.combo' } },
+      type: { kind: 'list', element: { kind: 'concrete', name: 'COMBO' } },
     })
     expect(JSON.stringify(combo.raw)).not.toContain('comboSource')
   })

@@ -1,9 +1,11 @@
 # Video trim and crop widget
 
-`comfy.VIDEO_EDIT` inputs open a one-track, one-clip editor from the canvas or
+`VIDEO_EDIT` inputs open a one-track, one-clip editor from the canvas or
 an exposed App view parameter. Each schema declares a `VIDEO_EDIT` widget
 descriptor whose presentation-only `features` list selects the visible trim
 and crop sections. The frontend does not infer features from node type IDs.
+Native video producers and consumers use the canonical `VIDEO` identity;
+audio producers use `AUDIO`. Prefixed lookalikes are not native media aliases.
 An open App view editor remains
 open while shared-workspace tab metadata synchronizes.
 

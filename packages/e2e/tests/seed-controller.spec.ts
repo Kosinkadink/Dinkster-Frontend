@@ -130,7 +130,7 @@ test('20 rapid INT increments commit exact declared steps and undo individually'
     test.app.registerSchemas([{
       type: 'RapidSeedE2E', displayName: 'Rapid Seed', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: {
           widgetType: 'INT', options: { min: 0, max: Number.MAX_SAFE_INTEGER, step: 3 }, default: 100,
           controller: 'after_generate', controllerInitial: 'increment',
@@ -483,7 +483,7 @@ test('remote COMBO reuses the controller chip with refresh-specific copy', async
     test.app.registerSchemas([{
       type: 'RefreshComboE2E', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'core.combo' }, optional: false,
+        kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
           widgetType: 'COMBO', options: {}, default: 'alpha', controller: 'after_refresh',
           remote: { route: '/api/choices/seed-controller-options', refreshButton: true },

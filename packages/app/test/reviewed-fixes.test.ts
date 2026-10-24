@@ -589,26 +589,26 @@ describe('reviewed fixes', () => {
     expect(result).toHaveLength(200)
   })
 
-  it('uses shared core.combo presentation for palette labels without changing plain strings', () => {
-    const stringType = { kind: 'concrete' as const, name: 'core.string' }
-    expect(typeLabelOf({ kind: 'concrete', name: 'core.combo' })).toBe('COMBO')
-    expect(typeLabelOf(stringType)).toBe('core.string')
+  it('uses shared COMBO presentation for palette labels without changing plain strings', () => {
+    const stringType = { kind: 'concrete' as const, name: 'STRING' }
+    expect(typeLabelOf({ kind: 'concrete', name: 'COMBO' })).toBe('COMBO')
+    expect(typeLabelOf(stringType)).toBe('STRING')
   })
 
   it('keeps COMBO presentation on the dangling link-drop palette ghost', () => {
     const ghost = linkDropPaletteGhost({
       seeking: 'in',
-      anchorType: { kind: 'concrete', name: 'core.combo' },
-      anchorTypeName: 'core.combo',
+      anchorType: { kind: 'concrete', name: 'COMBO' },
+      anchorTypeName: 'COMBO',
       anchorX: 10,
       anchorY: 20,
       fixedFrom: { node: 'n1' as any, port: 'out' as any },
     }, 100, 120)
     expect(ghost).toMatchObject({
       x1: 10, y1: 20, x2: 100, y2: 120,
-      typeName: 'core.combo',
+      typeName: 'COMBO',
     })
-    expect(paintedGhostStrokes(ghost)).toContain(defaultTokens.typeColors['core.combo'])
+    expect(paintedGhostStrokes(ghost)).toContain(defaultTokens.typeColors['COMBO'])
   })
 
   it('builds slash categories as a counted, sorted folder tree with an uncategorized fallback', () => {
@@ -707,7 +707,7 @@ describe('reviewed fixes', () => {
       { command: 'link.connect', params: { graphId: 'g0', from: { node: 'batch', port: 'value' }, to: { node: 'sink', port: 'latent' } } },
     ])
     expect(linkDropInvocations({
-      seeking: 'in', anchorType: { kind: 'concrete', name: 'comfy.AUDIO' }, anchorX: 0, anchorY: 0,
+      seeking: 'in', anchorType: { kind: 'concrete', name: 'AUDIO' }, anchorX: 0, anchorY: 0,
       fixedFrom: { node: 'source', port: 'audio' },
     }, 'g0', 'batch', batch)).toEqual([])
   })
@@ -716,7 +716,7 @@ describe('reviewed fixes', () => {
     const schema: NodeSchema = {
       type: 'test.branches', displayName: 'Branches', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'core.combo' }, optional: false,
+        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         dynamic: {
           kind: 'dynamicCombo',
           options: [

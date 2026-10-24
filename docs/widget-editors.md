@@ -1,5 +1,20 @@
 # Widget compact controls and expanded editors
 
+## Primitive list inputs
+
+One-level list<STRING>, list<INT>, and list<FLOAT> inputs retain their array
+value and present the schema's scalar widget constraints per element. The
+canvas popover and exposed AppView field edit an exact JSON array. Use
+Ctrl+Enter or Commit in the canvas popover; AppView commits on blur. Empty
+lists are valid. Scalars, nested lists, and mismatched element types are
+rejected without changing the document. INT values outside JavaScript's safe
+numeric range use quoted canonical decimal integers. FLOAT precision applies
+per element; `round: false` preserves the entered numbers.
+
+List inputs do not turn scalars into singleton lists or flatten nested output
+payloads. Without an explicit list default, the displayed and submitted
+default is an empty list. Existing scalar inputs keep their scalar controls.
+
 ## Floating interaction surfaces
 
 Product listboxes, cascading context menus, suggestion lists,
@@ -261,7 +276,7 @@ The type pill uses the same `typeColor` resolver and design tokens as canvas
 pins and noodles, including namespaced ids such as `comfy.IMAGE`. Its text is
 black or white according to the resolved color's relative luminance. The
 SAVE_TARGET editor labels the pill with the input's canonical declared type
-(for example `dinkster.save_target`) rather than the widget renderer family.
+(for example `SAVE_TARGET`) rather than the widget renderer family.
 Its output-format row and inline filename context come only from the widget
 descriptor's declared suffix. A `.png` suffix is displayed as `.png`; it is
 not expanded through a guessed extension registry. An absent or empty suffix
@@ -414,6 +429,15 @@ The current schema includes NUMBER display, MULTI_COMBO, structured combo
 choices, and exact decimal integer bounds without losing options or rounding
 seed bounds. Invalid descriptors keep their diagnostics.
 
+NUMBER constraint exactness follows the socket type. FLOAT accepts finite
+numeric bounds and positive steps, including whole-valued doubles beyond the
+safe integer range, but never decimal strings. INT requires safe numeric
+integers or canonical exact decimal strings for bounds and positive steps.
+FLOAT `round` is independent of step: a positive finite precision quantizes
+committed text, while explicit `false` preserves its parsed value unchanged.
+Absent `round` also leaves commits unquantized. INT rejects `round`; zero,
+negative or nonfinite precisions, `true`, strings and explicit null are invalid.
+
 This table inventories every family registered by `registerCoreWidgets`. The
 schema column names only metadata currently carried by `WidgetSpec`; absence is
 intentional and the UI must not infer backend behavior or synthetic limits.
@@ -425,15 +449,17 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | `STRING` | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Value-source text and raw JSON remain popovers | `default`, `multiline`, display name; optional stable representation ids/default/userSwitchable; optional completion items and dynamic input-family sources; no schema max-length constraint exists | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
 | `BOOLEAN` | `core.toggle` with a state-bearing track/thumb and optional true/false labels | Undoable inline toggle; explicit **no-modal** disposition because there is no additional complete control to present | `default`, `labelOn`, `labelOff`, display name | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts` |
 | `COLOR` | `core.color`: filled square swatch and exact hex value | Anchored HSV/hex popover for visual picking and validated exact entry | `default`, display name; accepted value grammar is `#rgb`, `#rrggbb`, or `#rrggbbaa`; no backend color-space or alpha-slider semantics exist | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts` |
-| `COMPOSITOR` | `core.compositor`: saved command count, or a run-first prompt | Existing full-center Image editor in Compositor mode; selected-run ImageDocument and bounded layer previews plus layer order, visibility, opacity, all declared blends, transform, flips, canvas, background, and atomic Apply | Exact fieldless descriptor on concrete `dinkster.compositor`; version 2 commands bound to the runtime document digest and at most 50 layers | `core/test/compositor.test.ts`, `core/test/dinkster-wire41.golden.test.ts`, `widgets/test/widgets.test.ts`, `app/test/CompositorEditor.dom.test.tsx`, `e2e/compositor-editor.spec.ts` |
+| `COMPOSITOR` | `core.compositor`: saved command count, or a run-first prompt | Existing full-center Image editor in Compositor mode; selected-run ImageDocument and bounded layer previews plus layer order, visibility, opacity, all declared blends, transform, flips, canvas, background, and atomic Apply | Exact fieldless descriptor on concrete `COMPOSITOR`; version 2 commands bound to the runtime document digest and at most 50 layers | `core/test/compositor.test.ts`, `core/test/dinkster-wire41.golden.test.ts`, `widgets/test/widgets.test.ts`, `app/test/CompositorEditor.dom.test.tsx`, `e2e/compositor-editor.spec.ts` |
 | `COMBO` | `core.select`: selected static or remote label, shared-edge-centered down chevron with a separate 12px text reserve, and optional refresh-controller chip/menu | Anchored searchable option popover for filtering, keyboard and folder navigation, per-option info, refresh, and errors; no duplicate controller control | typed static `options` with exact value plus optional label/info/folder presentation; optional remote route, refresh button, refresh controller metadata, retry/timeout/refresh hints; display name | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `core/test/dinkster-wire23.golden.test.ts`, `canvas/test/registry-painter-label.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/dynamic-combo.spec.ts`, `e2e/seed-controller.spec.ts`, `e2e/widget-trailing-actions.spec.ts` |
 | `ASSET` | `core.asset`: selected name, `N assets`, or `no asset` | Native product dialog with shared `CollectionPanel`, upload for non-model kinds, image/video preview, details, a right-side selection panel with a staged-selection Remove action, Cancel, and a primary Use-asset commit; modal warranted: yes, for a focus-contained browser | declared type determines single/list/merge selection; top-level semantic `kind`; MIME `accept`; `default`; display name; AssetRef digest/name/size/media type/virtual path; classified image uploads are limited to 256 MiB, audio/video and latent uploads to 1 GiB, and generic uploads to 16 MiB per file; model upload is disabled | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/asset-browser.test.ts`, `app/test/LogicalModelCollection.dom.test.tsx`, `e2e/asset-widget.spec.ts`, `e2e/asset-browser.spec.ts`, `e2e/logical-model-picker.spec.ts`, `e2e/w9-f8-media-upload.spec.ts` |
 | `SAVE_TARGET` | `core.saveTarget`: mount, prefix, and descriptor-only suffix | Anchored mount/prefix popover with canonical declared type, declared output format, ready writable-mount choice, and grammar-validated prefix entry | `default`, display-only `suffix`, declared socket type, display name; mount and relative-prefix grammar; backend mount readiness/mode | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `e2e/save-target.spec.ts` |
 
-Unknown widget types and registered views without `editorUi` use the generic
-shared text popover. A registered `editorUi` uses the host-decoded path above;
-it never executes provider DOM. Only schema-less value sources use the existing
-raw JSON fallback.
+Unavailable widget kinds use the raw JSON fallback; registered views without
+`editorUi` use the generic shared text popover. A registered `editorUi` uses
+the host-decoded path above; it never executes provider DOM. Schema-less
+value sources also use the raw JSON fallback. An unavailable-kind draft
+survives scene refreshes while its document and declared row contract remain
+unchanged; document, schema, target, or extension changes still invalidate it.
 
 ## COMBO editor
 
@@ -601,7 +627,7 @@ truncation workaround is part of this contract.
 
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest
-route. This includes native `asset<comfy.VIDEO>` inputs without a
+route. This includes native `asset<VIDEO>` inputs without a
 `sourceFilename` binding. `sourceFilename` declarations remain the
 legacy classifier. The editor posts the original File bytes to
 `/api/assets/media` with that media kind and a bounded display basename, then
@@ -614,7 +640,7 @@ files may be up to 1 GiB. `DinksterConnection`
 passes the browser File directly to `fetch` as the request body, without base64
 conversion or a JavaScript byte copy; the browser owns request streaming. The
 frontend does not add a resumable or chunk protocol. Legacy source-filename
-`list<dinkster.asset>` inputs upload sequentially and preserve selection order and
+`list<ASSET>` inputs upload sequentially and preserve selection order and
 duplicate server refs. Cancel and mere dialog navigation do not commit.
 `e2e/tests/w9-f8-media-upload.spec.ts` proves these rules with an isolated
 route-mocked server.
@@ -659,7 +685,7 @@ tall asset tile from extending beneath the collection footer.
 Selection arity follows the input's DECLARED type (typed-assets joint pin,
 mirrored in `docs/promises.md`):
 
-- `list<asset<T>>` or `list<dinkster.asset>`: the editor multi-selects. Picks and
+- `list<asset<T>>` or `list<ASSET>`: the editor multi-selects. Picks and
   uploads stage into a chip list (each chip has a labeled remove control);
   nothing commits until the footer commit button commits the staged selection
   as ONE array of AssetRef descriptors - N selections are N descriptors in a

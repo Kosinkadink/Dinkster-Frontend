@@ -1115,7 +1115,7 @@ export function controllerAdvancementPlan(
 
 /**
  * Legacy boolean tokens (wire v10): the exact two-option combo vocabularies
- * the backend now translates to core.boolean. Old documents stored the
+ * the backend now translates to BOOLEAN. Old documents stored the
  * option string; these are the ONLY strings normalizeLegacyBooleans rewrites.
  */
 const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
@@ -4906,7 +4906,7 @@ export class AppState {
   }
 
   /**
-   * Wire v10 moved boolean-like two-option combos to real core.boolean
+   * Wire v10 moved boolean-like two-option combos to real BOOLEAN
    * inputs; documents saved before the flip stored the option STRING. On the
    * open boundary (and again on explicit retarget - see legacyBooleanPending),
    * rewrite exactly the recognized
@@ -5115,14 +5115,14 @@ export class AppState {
     const hasOccurrenceTopology = Object.values(tab.store.doc.occurrenceTopologies ?? {})
       .some((topology) => topology.bodyGraph === graphId)
     if (loaderSchema?.editorRole !== 'image-source' || candidate.inputId !== 'image' || hasOccurrenceTopology ||
-        schemaPortType(loaderSchema, 'input', 'image') !== 'asset<dinkster.image>' ||
-        schemaPortType(loaderSchema, 'output', 'image') !== 'dinkster.image' ||
-        schemaPortType(loaderSchema, 'output', 'mask') !== 'dinkster.mask' ||
-        schemaPortType(paintSchema, 'input', 'source') !== 'asset<dinkster.image>' ||
-        schemaPortType(paintSchema, 'input', 'operations') !== 'core.string' ||
+        schemaPortType(loaderSchema, 'input', 'image') !== 'asset<IMAGE>' ||
+        schemaPortType(loaderSchema, 'output', 'image') !== 'IMAGE' ||
+        schemaPortType(loaderSchema, 'output', 'mask') !== 'MASK' ||
+        schemaPortType(paintSchema, 'input', 'source') !== 'asset<IMAGE>' ||
+        schemaPortType(paintSchema, 'input', 'operations') !== 'STRING' ||
         inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.widgetType !== 'STRING' ||
         inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.options.multiline !== true ||
-        schemaPortType(paintSchema, 'output', 'mask') !== 'dinkster.mask') return paint ? undefined : base
+        schemaPortType(paintSchema, 'output', 'mask') !== 'MASK') return paint ? undefined : base
     const source = { node: candidate.nodeId, port: 'mask' }
     const expectedMaskLinkIds = Object.values(graph.links).filter((link) =>
       'node' in link.from && 'port' in link.from && link.from.node === source.node && link.from.port === source.port).map((link) => link.id).sort()
@@ -5290,14 +5290,14 @@ export class AppState {
         ? graph.nodes[envelopeSource.node]
         : undefined
       const envelopeCurve = envelope && resolve?.(envelope.type)?.items.find((item) =>
-        item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'dinkster.curve')
+        item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'CURVE')
       const audioSource = envelope && resolve?.(envelope.type)?.editorRole === 'audio-envelope'
         ? sources.get(envelope.id)?.get('audio')
         : undefined
       const audio = audioSource?.kind === 'producer' ? graph.nodes[audioSource.node] : undefined
       const audioOutput = audio && audioSource?.kind === 'producer'
         ? resolve?.(audio.type)?.items.find((item) =>
-            item.kind === 'output' && item.id === audioSource.output && item.type.kind === 'concrete' && item.type.name === 'comfy.AUDIO')
+            item.kind === 'output' && item.id === audioSource.output && item.type.kind === 'concrete' && item.type.name === 'AUDIO')
         : undefined
       if (envelopeCurve && audioSource?.kind === 'producer' && audioOutput) {
         return {

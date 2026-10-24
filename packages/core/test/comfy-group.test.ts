@@ -3,7 +3,7 @@ import { comfyGroupCatalogFromDinksterWire } from '../src/schema/comfy-group.js'
 import type { DinksterNodesPayload } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
-const float = { kind: 'concrete', name: 'core.float' } as const
+const float = { kind: 'concrete', name: 'FLOAT' } as const
 
 const nativeSchema = (type: string, pack = 'core'): NodeSchema => ({
   type,
@@ -39,7 +39,7 @@ const wireSchema = (
         id,
         type: {
           kind: 'concrete',
-          types: [id === 'sam_model' && kind !== 'optional-widget' ? 'comfy.SAM_MODEL' : 'core.float'],
+          types: [id === 'sam_model' && kind !== 'optional-widget' ? 'comfy.SAM_MODEL' : 'FLOAT'],
         },
         required: kind === undefined || kind === 'required-socket',
         ...(kind === 'optional-socket' || kind === 'required-socket'
@@ -50,7 +50,7 @@ const wireSchema = (
     ...outputs.map((id) => ({
       role: 'output',
       id,
-      type: { kind: 'concrete', types: ['core.float'] },
+      type: { kind: 'concrete', types: ['FLOAT'] },
     })),
   ],
 })

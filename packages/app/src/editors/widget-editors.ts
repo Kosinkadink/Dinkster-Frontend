@@ -11,6 +11,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['INT', ScalarWidgetEditor],
   ['FLOAT', ScalarWidgetEditor],
   ['STRING', ScalarWidgetEditor],
+  ['LIST', ScalarWidgetEditor],
   ['COLOR', ColorWidgetEditor],
   ['COMBO', ComboWidgetEditor],
   ['MULTI_COMBO', MultiComboWidgetEditor],

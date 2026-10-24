@@ -217,8 +217,8 @@ describe('DocumentStore.dispatch', () => {
         role: 'dynamicCombo',
         id: 'resize_type',
         options: [
-          { key: 'scale dimensions', inputs: [{ role: 'input', id: 'width', type: { kind: 'concrete', types: ['core.int'] }, required: false }] },
-          { key: 'scale by multiplier', inputs: [{ role: 'input', id: 'multiplier', type: { kind: 'concrete', types: ['core.float'] }, required: false }] },
+          { key: 'scale dimensions', inputs: [{ role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: false }] },
+          { key: 'scale by multiplier', inputs: [{ role: 'input', id: 'multiplier', type: { kind: 'concrete', types: ['FLOAT'] }, required: false }] },
         ],
       }],
     })

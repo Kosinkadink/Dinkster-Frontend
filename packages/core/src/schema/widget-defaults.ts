@@ -31,9 +31,20 @@
 import type { Json } from '../format/document.js'
 import { EMPTY_COMPOSITOR_RECIPE, isCompositorRecipe } from '../compositor.js'
 import { normalizeComboOption } from './combo-options.js'
+import { isIntegerWidgetValue } from './numeric-step.js'
 import type { WidgetSpec } from './model.js'
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+export function isPrimitiveListWidgetValue(value: unknown, widget: WidgetSpec): value is Json[] {
+  if (!Array.isArray(value)) return false
+  switch (widget.element?.widgetType) {
+    case 'STRING': return value.every((item) => typeof item === 'string')
+    case 'INT': return value.every((item) => isIntegerWidgetValue(item) && (typeof item === 'string' || Number.isInteger(item)))
+    case 'FLOAT': return value.every(finite)
+    default: return false
+  }
+}
 
 /** A value a COMBO can hold: a JSON-representable option scalar. */
 const comboValue = (v: unknown): v is string | number => typeof v === 'string' || finite(v)
@@ -102,6 +113,8 @@ function validDefault(widget: WidgetSpec): boolean {
       return comboValue(d)
     case 'MULTI_COMBO':
       return Array.isArray(d) && d.every((value) => typeof value === 'string')
+    case 'LIST':
+      return isPrimitiveListWidgetValue(d, widget)
     case 'CURVE':
       return curveValue(d)
     case 'COMPOSITOR':
@@ -148,6 +161,7 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
       return undefined
     }
     case 'MULTI_COMBO':
+    case 'LIST':
       return []
     case 'COLOR':
       return '#ffffff'

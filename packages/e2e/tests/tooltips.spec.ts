@@ -85,8 +85,8 @@ test('node palette port product tooltip preserves hover and keyboard wording', a
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'UaTooltipProof', displayName: 'UA tooltip proof', category: 'test', source: 'v3', isOutputNode: false,
     items: [
-      { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.string' }, optional: false, tooltip: 'Exact input tooltip wording.' },
-      { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'core.string' }, tooltip: 'Exact output tooltip wording.' },
+      { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: false, tooltip: 'Exact input tooltip wording.' },
+      { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'STRING' }, tooltip: 'Exact output tooltip wording.' },
     ],
   }]))
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
@@ -94,7 +94,7 @@ test('node palette port product tooltip preserves hover and keyboard wording', a
   await page.getByTestId('palette-search').fill('UA tooltip proof')
   const type = page.getByTestId('preview-input').locator('.preview-port-type')
   const wording = await type.getAttribute('data-tooltip-label')
-  expect(wording).toBe('core.string')
+  expect(wording).toBe('STRING')
   await expect(type).not.toHaveAttribute('title')
   await type.hover()
   await expect(page.getByTestId('app-tooltip')).toHaveText(wording!, { timeout: 1_500 })

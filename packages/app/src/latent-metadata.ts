@@ -181,7 +181,7 @@ const validNativeProfile = (raw: string, tensors: ReadonlyMap<string, TensorDesc
   try {
     const schema = new StrictJsonParser(raw).parse()
     if (!object(schema) || !sameKeys(schema, ['format', 'version', 'structure', 'streams']) ||
-        schema['format'] !== 'dinkster.latent' || schema['version'] !== 1 || !Array.isArray(schema['streams']) ||
+        schema['format'] !== 'LATENT' || schema['version'] !== 1 || !Array.isArray(schema['streams']) ||
         schema['streams'].length < 1 || schema['streams'].length > 64) return false
     const structure = schema['structure']
     if (structure !== 'single' && structure !== 'multi') return false

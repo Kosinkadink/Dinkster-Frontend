@@ -164,7 +164,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       ? MODEL_ASSET_VOCABULARY
       : assetBrowseKind() === 'data/latent' ? LATENT_ASSET_VOCABULARY : GENERIC_ASSET_VOCABULARY
   // Multi-select (typed-assets pin (5)): the declared outer type gates it -
-  // list<asset<T>> / list<dinkster.asset> pick N descriptors committed as ONE
+  // list<asset<T>> / list<ASSET> pick N descriptors committed as ONE
   // array value, and a scalar concrete T with a registered batch-merge
   // provider (mergeableTypes membership) picks N descriptors the engine
   // decodes-each-then-merges into ONE batched T. Every other declaration

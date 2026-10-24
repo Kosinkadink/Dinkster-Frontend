@@ -21,7 +21,7 @@ import type {
   TypeExpr,
   IntegerWidgetValue,
 } from '@dinkster/core'
-import { canonicalTypeIdOf, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isCompositorRecipe, isIntegerWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision } from '@dinkster/core'
+import { canonicalTypeIdOf, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -248,11 +248,26 @@ export const multiComboKind: WidgetKind<string[]> = {
   defaultView: () => 'core.multiSelect',
 }
 
+export const listKind: WidgetKind<Json[]> = {
+  type: 'LIST',
+  valueSchema: { version: 1, validate: (value: unknown): value is Json[] => Array.isArray(value) },
+  defaultValue: (spec) => isPrimitiveListWidgetValue(spec.default, spec) ? [...spec.default] : [],
+  validate: (value, spec) => {
+    if (!isPrimitiveListWidgetValue(value, spec)) {
+      return [diag('error', 'schema', 'widget.LIST.invalidElement', `Enter a JSON array of ${spec.element?.widgetType ?? 'primitive'} values.`)]
+    }
+    const element = spec.element!
+    const kind = ({ INT: intKind, FLOAT: floatKind, STRING: stringKind } as Readonly<Record<string, WidgetKind>>)[element.widgetType]!
+    return value.flatMap((item) => kind.validate(item, element))
+  },
+  defaultView: () => 'core.list',
+}
+
 export const colorKind: WidgetKind<string> = {
   type: 'COLOR',
   valueSchema: stringSchema,
   defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '#ffffff',
-  // COLOR is a presentation hint over canonical core.string. Preserve every
+  // COLOR is a presentation hint over canonical STRING. Preserve every
   // string exactly; color parsing and normalization are view-only concerns.
   validate: () => [],
   defaultView: () => 'core.color',
@@ -486,7 +501,7 @@ export const compositorKind: WidgetKind<Json> = {
 
 /**
  * Multi-select values (typed-assets pin (5)): a list-declared asset input
- * (`list<asset<T>>` / `list<dinkster.asset>`) stores an ARRAY of AssetRefs -
+ * (`list<asset<T>>` / `list<ASSET>`) stores an ARRAY of AssetRefs -
  * N selections are N descriptors in a list literal, no new server surface.
  * The value schema accepts arrays regardless of the declared type so a
  * document always LOADS; a shape/cardinality mismatch is the backend's
@@ -703,6 +718,13 @@ export const multiSelectView: WidgetView<string[]> = {
     compactRow(ctx, label, `${value.length} selected`, state, 'widget.edit')
   },
 }
+export const listView: WidgetView<Json[]> = {
+  ...makeCompactView<Json[]>('core.list', 'LIST'),
+  drawCompact(ctx, value, spec, state) {
+    const label = (spec.options['display_name'] as string | undefined) ?? ''
+    compactRow(ctx, label, JSON.stringify(value), state, 'widget.edit')
+  },
+}
 export const colorView: WidgetView<string> = {
   ...makeCompactView<string>('core.color', 'COLOR'),
   drawCompact(ctx, value, spec, state) {
@@ -837,11 +859,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, lineView, textView, toggleView, selectView,
-    multiSelectView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

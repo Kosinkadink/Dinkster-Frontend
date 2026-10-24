@@ -15,11 +15,11 @@ const nativeSchema = (type: string, pack = 'core'): NodeSchema => ({
     {
       kind: 'input',
       id: 'value',
-      type: { kind: 'concrete', name: 'core.float' },
+      type: { kind: 'concrete', name: 'FLOAT' },
       optional: false,
       widget: { widgetType: 'FLOAT', options: {}, default: 0 },
     },
-    { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'core.float' } },
+    { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } },
   ],
 })
 
@@ -34,11 +34,11 @@ const sourceSchema = (nodeType: string) => ({
     {
       role: 'input',
       id: 'value',
-      type: { kind: 'concrete', types: ['core.float'] },
+      type: { kind: 'concrete', types: ['FLOAT'] },
       required: true,
       default: 0,
     },
-    { role: 'output', id: 'value', type: { kind: 'concrete', types: ['core.float'] } },
+    { role: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } },
   ],
 })
 

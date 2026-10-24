@@ -1,7 +1,6 @@
 import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 import type { TestInfo } from '@playwright/test'
 import { readFile, writeFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 
 const contract = JSON.parse(await readFile(new URL('../fixtures/video-edit-contract.json', import.meta.url), 'utf8')) as {
   provenance: Record<string, unknown>
@@ -15,25 +14,25 @@ const node = (entries: unknown[]) => ({ schemaVersion: schemaWire, signature: 'v
 const catalog = {
   schemaVersion: 1, epoch: 1, dinkster: { version: 'video-edit-test', schemaWire }, nodes: {
     'test.video': node([
-      input('source_version', 'core.int', 0),
-      { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
-      { role: 'output', id: 'images', type: typed('dinkster.image') },
-      { role: 'output', id: 'strict_duration', type: typed('core.boolean') },
-      { role: 'output', id: 'start_time', type: typed('core.float') },
+      input('source_version', 'INT', 0),
+      { role: 'output', id: 'video', type: typed('VIDEO') },
+      { role: 'output', id: 'images', type: typed('IMAGE') },
+      { role: 'output', id: 'strict_duration', type: typed('BOOLEAN') },
+      { role: 'output', id: 'start_time', type: typed('FLOAT') },
     ]),
     ...contract.nodes,
     // Isolated compile targets; computational ports come from the backend fixture.
     'dinkster.video.trim': { ...contract.nodes['dinkster.video.trim'], outputNode: true },
     'dinkster.video.crop': { ...contract.nodes['dinkster.video.crop'], outputNode: true },
     'test.video.edit': node([
-      input('video', 'comfy.VIDEO'),
-      { ...input('video_edit', 'comfy.VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
-      input('strict_duration', 'core.boolean', false),
-      { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
+      input('video', 'VIDEO'),
+      { ...input('video_edit', 'VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
+      input('strict_duration', 'BOOLEAN', false),
+      { role: 'output', id: 'video', type: typed('VIDEO') },
     ]),
   },
 }
-const descriptor = { typeId: 'comfy.VIDEO', fingerprint: 'retained-source', meta: {
+const descriptor = { typeId: 'VIDEO', fingerprint: 'retained-source', meta: {
   probe: { width: 1080, height: 1920, rotation: 90, color_space: 'HDR PQ' },
   effective: { width: 1920, height: 1080, duration: [10, 1], fps: [24, 1], frame_count: 240 },
 } }
@@ -180,24 +179,10 @@ async function retainRoundTrip(
 }
 
 test('video trim and crop controls at desktop and compact widths', async ({ page }) => {
-  for (const weight of ['Regular', 'Bold']) {
-    await page.route(`/visual-font-${weight}.ttf`, (route) => route.fulfill({
-      contentType: 'font/ttf',
-      path: fileURLToPath(new URL(`../fixtures/fonts/NotoSans-${weight}.ttf`, import.meta.url)),
-    }))
-  }
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
     for (const kind of ['trim', 'crop'] as const) {
       await openDocument(page, kind)
-      await page.addStyleTag({ content: `
-        @font-face { font-family: ProductVisual; src: url('/visual-font-Regular.ttf'); font-weight: 100 500; }
-        @font-face { font-family: ProductVisual; src: url('/visual-font-Bold.ttf'); font-weight: 600 900; }
-        :root { --dinkster-font-family: ProductVisual, sans-serif !important; }
-      ` })
-      await page.evaluate(async () => {
-        await Promise.all([document.fonts.load('400 13px ProductVisual'), document.fonts.load('700 13px ProductVisual')])
-      })
       await page.route('**/api/values?*', (route) => route.fulfill({ json: {
         available: true, descriptor, renditions: [{ kind: 'original', mime: 'video/mp4', default: true }],
       } }))

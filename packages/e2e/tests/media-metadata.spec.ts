@@ -4,9 +4,9 @@ import { evidencePath } from './evidence-output.js'
 const descriptors = {
   image: { typeId: 'comfy.IMAGE', fingerprint: 'image-source', meta: { channels: { layout: 'rgba', alpha: 'straight' }, dtype: 'float32', color: { primaries: 1, transfer: 13, range: 2 }, storage_dtype: 'fp32' } },
   mask: { typeId: 'comfy.MASK', fingerprint: 'mask-source', meta: { polarity: 'coverage', semantic: 'selection', dtype: 'float32', storage_dtype: 'fp32' } },
-  audio: { typeId: 'comfy.AUDIO', fingerprint: 'audio-source', meta: { sample_rate: 48000, channels: 2, layout: 'stereo', duration: 3.5, dtype: 'float32', storage_dtype: 'fp32' } },
-  video: { typeId: 'comfy.VIDEO', fingerprint: 'video-source', meta: { container: 'mkv', probe: { video_codec: 'hevc', pix_fmt: 'yuv420p10le', alpha: false, bit_depth: 10, color_space: 'HDR PQ' }, effective: { duration: [7, 2], fps: [30000, 1001], frame_count: 105 } } },
-  scalar: { typeId: 'core.float', fingerprint: 'scalar-source' },
+  audio: { typeId: 'AUDIO', fingerprint: 'audio-source', meta: { sample_rate: 48000, channels: 2, layout: 'stereo', duration: 3.5, dtype: 'float32', storage_dtype: 'fp32' } },
+  video: { typeId: 'VIDEO', fingerprint: 'video-source', meta: { container: 'mkv', probe: { video_codec: 'hevc', pix_fmt: 'yuv420p10le', alpha: false, bit_depth: 10, color_space: 'HDR PQ' }, effective: { duration: [7, 2], fps: [30000, 1001], frame_count: 105 } } },
+  scalar: { typeId: 'FLOAT', fingerprint: 'scalar-source' },
   list: { typeId: 'list<comfy.IMAGE>', fingerprint: 'list-source' },
 }
 
@@ -156,7 +156,7 @@ test('inspects every media kind through the owning value API without mutating th
   await expect(mountedInspector).toContainText('[Speichertyp]')
   await expect(mountedInspector).toContainText('[Nein]')
   await expect(mountedInspector).toContainText('Type')
-  await expect(mountedInspector).toContainText('comfy.VIDEO')
+  await expect(mountedInspector).toContainText('VIDEO')
   await expect(mountedInspector).toContainText('video-source')
   await expect(mountedInspector).toContainText('HDR PQ')
   await expect(mountedDiagnostics).toContainText('[Mediendialog]')

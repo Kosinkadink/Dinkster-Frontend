@@ -60,7 +60,7 @@ slot exposure, read-only, unavailable, and diagnostic states.
 ## Use the iteration index
 
 The drilled region body's Inputs node includes a derived, read-only **Index**
-source. Connect it to a `core.int` input like any other canvas output. The
+source. Connect it to a `INT` input like any other canvas output. The
 connection is local to that region occurrence and compiles to the immediate
 map, fold, or while iteration's zero-based `$region.index`; it does not add a
 workflow input or alter the shared definition boundary. Nested region bodies

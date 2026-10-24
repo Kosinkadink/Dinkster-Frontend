@@ -671,7 +671,7 @@ describe('subgraph.extract L3 command', () => {
     const widgetSchema: any = {
       type: 'Int', displayName: 'Int', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {} },
       }],
     }
@@ -721,7 +721,7 @@ describe('subgraph.extract L3 command', () => {
       params: { ...planned.params, widgetTapSources: [{ node: 'inside', tap: 'value' }] },
     }
     const input = (overrides: Record<string, unknown> = {}) => ({
-      kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+      kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: {} },
       ...overrides,
     })
@@ -2885,18 +2885,18 @@ describe('subgraph.flatten L5-L6 core command', () => {
 
   it('fans out enclosing descendant family inputs in primary-additional order and preserves the compiled prompt', () => {
     const leaf = (id: string): any => ({
-      kind: 'input', id, type: { kind: 'concrete', name: 'core.int' }, optional: true,
+      kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: true,
       widget: { widgetType: 'INT', options: {} },
     })
     const nested: any = {
-      kind: 'input', id: 'nested', type: { kind: 'concrete', name: 'core.int' }, optional: true,
+      kind: 'input', id: 'nested', type: { kind: 'concrete', name: 'INT' }, optional: true,
       dynamic: {
         kind: 'autogrow', naming: { kind: 'prefix', prefix: 'nested', min: 0, max: 8 },
         template: [leaf('keep'), leaf('drop')],
       },
     }
     const family: any = {
-      kind: 'input', id: 'items', type: { kind: 'concrete', name: 'core.int' }, optional: true,
+      kind: 'input', id: 'items', type: { kind: 'concrete', name: 'INT' }, optional: true,
       dynamic: {
         kind: 'autogrow', naming: { kind: 'prefix', prefix: 'item', min: 0, max: 8 },
         template: [leaf('first'), leaf('second'), nested],
@@ -3191,11 +3191,11 @@ describe('subgraph.flatten L5-L6 core command', () => {
 
   it('materializes recursive family scopes independently and preserves the compiled prompt', () => {
     const leaf: any = {
-      kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+      kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: {} },
     }
     const family = (id: string, template: readonly any[]) => ({
-      kind: 'input', id, type: { kind: 'concrete', name: 'core.int' }, optional: true,
+      kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: true,
       dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: id, min: 0, max: 8 }, template },
     })
     const schema: any = {
@@ -3268,11 +3268,11 @@ describe('subgraph.flatten L5-L6 core command', () => {
 
   it('flattens a realistic nested-subgraph workflow with three family scopes and exact compile equivalence', () => {
     const leaf: any = {
-      kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+      kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: {}, controller: 'after_generate' },
     }
     const family = (id: string, template: readonly any[]): any => ({
-      kind: 'input', id, type: { kind: 'concrete', name: 'core.int' }, optional: true,
+      kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: true,
       dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: id, min: 0, max: 8 }, template },
     })
     const leafSchema: any = {
@@ -3649,7 +3649,7 @@ describe('subgraph.flatten L5-L6 core command', () => {
     const widgetSchema: any = {
       type: 'WidgetNode', displayName: 'WidgetNode', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {} },
       }],
     }
@@ -3712,7 +3712,7 @@ describe('subgraph.flatten L5-L6 core command', () => {
     const widgetSchema: any = {
       type: 'WidgetNode', displayName: 'WidgetNode', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0, controller: 'after_generate' },
       }],
     }

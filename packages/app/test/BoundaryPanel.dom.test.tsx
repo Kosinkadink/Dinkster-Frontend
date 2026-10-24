@@ -19,7 +19,7 @@ const schema: NodeSchema = {
       displayName: 'Amount',
       type: { kind: 'concrete', name: 'FLOAT' },
       optional: false,
-      widget: { widgetType: 'core.float', options: {}, default: 1 },
+      widget: { widgetType: 'FLOAT', options: {}, default: 1 },
     },
     {
       kind: 'input',
@@ -274,13 +274,13 @@ const regionSchema: NodeSchema = {
   source: 'v3',
   isOutputNode: false,
   items: [
-    { kind: 'input', id: 'item_in', type: { kind: 'concrete', name: 'core.int' }, optional: false },
-    { kind: 'input', id: 'state_in', type: { kind: 'concrete', name: 'core.int' }, optional: false },
-    { kind: 'input', id: 'capture_in', type: { kind: 'concrete', name: 'core.int' }, optional: false },
-    { kind: 'output', id: 'gather_out', type: { kind: 'concrete', name: 'core.int' } },
-    { kind: 'output', id: 'state_out', type: { kind: 'concrete', name: 'core.int' } },
-    { kind: 'output', id: 'flat_out', type: { kind: 'concrete', name: 'core.int' }, isList: true },
-    { kind: 'output', id: 'continue_out', type: { kind: 'concrete', name: 'core.boolean' } },
+    { kind: 'input', id: 'item_in', type: { kind: 'concrete', name: 'INT' }, optional: false },
+    { kind: 'input', id: 'state_in', type: { kind: 'concrete', name: 'INT' }, optional: false },
+    { kind: 'input', id: 'capture_in', type: { kind: 'concrete', name: 'INT' }, optional: false },
+    { kind: 'output', id: 'gather_out', type: { kind: 'concrete', name: 'INT' } },
+    { kind: 'output', id: 'state_out', type: { kind: 'concrete', name: 'INT' } },
+    { kind: 'output', id: 'flat_out', type: { kind: 'concrete', name: 'INT' }, isList: true },
+    { kind: 'output', id: 'continue_out', type: { kind: 'concrete', name: 'BOOLEAN' } },
   ],
 }
 

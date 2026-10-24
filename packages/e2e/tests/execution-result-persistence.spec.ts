@@ -14,26 +14,26 @@ const catalog = {
     RuntimeScalar: {
       schemaVersion: 1, nodeType: 'RuntimeScalar', displayName: 'Runtime Scalar',
       category: 'test', signature: 'runtime-scalar-v1',
-      interface: [{ role: 'output', id: 'value', type: { kind: 'concrete', types: ['core.float'] } }],
+      interface: [{ role: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } }],
     },
     MathExpression: {
       schemaVersion: 1, nodeType: 'MathExpression', displayName: 'Math Expression',
       category: 'test', outputNode: true, signature: 'math-expression-v1',
       interface: [
-        { role: 'input', id: 'x', required: true, type: { kind: 'concrete', types: ['core.float'] },
+        { role: 'input', id: 'x', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
           default: 0, widget: { type: 'NUMBER', min: -1_000_000, max: 1_000_000 } },
-        { role: 'input', id: 'expression', required: true, type: { kind: 'concrete', types: ['core.string'] },
+        { role: 'input', id: 'expression', required: true, type: { kind: 'concrete', types: ['STRING'] },
           default: 'x * 2', widget: { type: 'STRING', multiline: false } },
-        { role: 'output', id: 'value', type: { kind: 'concrete', types: ['core.float'] } },
+        { role: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } },
       ],
     },
     OtherBranch: {
       schemaVersion: 1, nodeType: 'OtherBranch', displayName: 'Other Branch',
       category: 'test', outputNode: true, signature: 'other-branch-v1',
       interface: [
-        { role: 'input', id: 'value', required: true, type: { kind: 'concrete', types: ['core.int'] },
+        { role: 'input', id: 'value', required: true, type: { kind: 'concrete', types: ['INT'] },
           default: 3, widget: { type: 'NUMBER', min: -1_000_000, max: 1_000_000 } },
-        { role: 'output', id: 'value', type: { kind: 'concrete', types: ['core.int'] } },
+        { role: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } },
       ],
     },
   },
@@ -97,8 +97,8 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
       ? { producer: 'completed', math: 'completed', other: 'completed' }
       : { other: 'completed' }
     const outputs = jobId === 'job-a'
-      ? { producer: { value: { typeId: 'core.float', fingerprint: 'scalar-7-5', value: 7.5 } } }
-      : { other: { value: { typeId: 'core.int', fingerprint: 'scalar-3', value: 3 } } }
+      ? { producer: { value: { typeId: 'FLOAT', fingerprint: 'scalar-7-5', value: 7.5 } } }
+      : { other: { value: { typeId: 'INT', fingerprint: 'scalar-3', value: 3 } } }
     return route.fulfill({ json: {
       clientId: decodeURIComponent(parts.at(-2)!), jobId, jobRef: runId, runId, scope: 'local',
       state: 'completed', nodeStates, outputs, artifacts: [],
@@ -116,10 +116,10 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
     const url = new URL(route.request().url())
     const nodeId = url.searchParams.get('nodeId')
     const descriptor = nodeId === 'producer'
-      ? { typeId: 'core.float', fingerprint: 'scalar-7-5', value: 7.5 }
+      ? { typeId: 'FLOAT', fingerprint: 'scalar-7-5', value: 7.5 }
       : nodeId === 'math'
-        ? { typeId: 'core.float', fingerprint: 'scalar-15', value: 15 }
-      : { typeId: 'core.int', fingerprint: 'scalar-3', value: 3 }
+        ? { typeId: 'FLOAT', fingerprint: 'scalar-15', value: 15 }
+      : { typeId: 'INT', fingerprint: 'scalar-3', value: 3 }
     return route.fulfill({ json: { available: true, descriptor, renditions: [] } })
   })
   await page.route(`/api/assets/${encodeURIComponent(SOURCE_DIGEST)}`, (route) => assetAvailable
@@ -147,9 +147,9 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
     const runA = { connection: full.artifact.connection, prompt: 'job-a' }
     store.register(runA, full.artifact, 100, { jobRef: 'run-a', sourceDocument: sourceDigest })
     store.apply({ kind: 'nodeStates', execution: runA, timestamp: 105, nodes: {
-      producer: { state: 'done', outputs: { value: { typeId: 'core.float', value: 7.5 } } },
-      math: { state: 'done', outputs: { value: { typeId: 'core.float', value: 15 } } },
-      other: { state: 'done', outputs: { value: { typeId: 'core.int', value: 3 } } },
+      producer: { state: 'done', outputs: { value: { typeId: 'FLOAT', value: 7.5 } } },
+      math: { state: 'done', outputs: { value: { typeId: 'FLOAT', value: 15 } } },
+      other: { state: 'done', outputs: { value: { typeId: 'INT', value: 3 } } },
     } })
     store.apply({ kind: 'completed', execution: runA, timestamp: 110 })
     store.hydrateSubmittedBy(runA, principal)
@@ -162,7 +162,7 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
     const runB = { connection: partial.artifact.connection, prompt: 'job-b' }
     store.register(runB, partial.artifact, 200, { jobRef: 'run-b', sourceDocument: sourceDigest })
     store.apply({ kind: 'nodeStates', execution: runB, timestamp: 205, nodes: {
-      other: { state: 'done', outputs: { value: { typeId: 'core.int', value: 3 } } },
+      other: { state: 'done', outputs: { value: { typeId: 'INT', value: 3 } } },
     } })
     store.apply({ kind: 'completed', execution: runB, timestamp: 210 })
     store.hydrateSubmittedBy(runB, principal)

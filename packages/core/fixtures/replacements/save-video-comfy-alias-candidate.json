@@ -16,7 +16,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "required": true,
@@ -28,7 +28,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.string"
+              "STRING"
             ]
           },
           "required": false,
@@ -45,7 +45,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.combo"
+              "COMBO"
             ]
           },
           "required": false,
@@ -64,7 +64,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.float"
+              "FLOAT"
             ]
           },
           "required": false,
@@ -76,7 +76,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.float"
+              "FLOAT"
             ]
           },
           "required": false,
@@ -88,7 +88,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.string"
+              "STRING"
             ]
           },
           "required": false,
@@ -129,7 +129,7 @@
                                   "type": {
                                     "kind": "concrete",
                                     "types": [
-                                      "core.float"
+                                      "FLOAT"
                                     ]
                                   },
                                   "required": false,
@@ -171,7 +171,7 @@
                                   "type": {
                                     "kind": "concrete",
                                     "types": [
-                                      "core.float"
+                                      "FLOAT"
                                     ]
                                   },
                                   "required": false,
@@ -230,7 +230,7 @@
                                   "type": {
                                     "kind": "concrete",
                                     "types": [
-                                      "core.float"
+                                      "FLOAT"
                                     ]
                                   },
                                   "required": false,
@@ -272,7 +272,7 @@
                                   "type": {
                                     "kind": "concrete",
                                     "types": [
-                                      "core.float"
+                                      "FLOAT"
                                     ]
                                   },
                                   "required": false,
@@ -331,7 +331,7 @@
                                   "type": {
                                     "kind": "concrete",
                                     "types": [
-                                      "core.float"
+                                      "FLOAT"
                                     ]
                                   },
                                   "required": false,
@@ -373,7 +373,7 @@
                                   "type": {
                                     "kind": "concrete",
                                     "types": [
-                                      "core.float"
+                                      "FLOAT"
                                     ]
                                   },
                                   "required": false,
@@ -432,7 +432,7 @@
                                   "type": {
                                     "kind": "concrete",
                                     "types": [
-                                      "core.float"
+                                      "FLOAT"
                                     ]
                                   },
                                   "required": false,
@@ -492,7 +492,7 @@
                           "type": {
                             "kind": "concrete",
                             "types": [
-                              "core.float"
+                              "FLOAT"
                             ]
                           },
                           "required": false,
@@ -534,7 +534,7 @@
                           "type": {
                             "kind": "concrete",
                             "types": [
-                              "core.float"
+                              "FLOAT"
                             ]
                           },
                           "required": false,
@@ -566,7 +566,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "doc": "The input video, unchanged."

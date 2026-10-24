@@ -27,7 +27,7 @@ test('inspects simple and nested region iterations by exact retained runtime ide
     }
     return route.fulfill({ json: {
       available: true,
-      descriptor: { typeId: 'core.int', fingerprint: `${nodeId}:${outputId}`, value: nodeId.includes('[1]') ? 8 : 3 },
+      descriptor: { typeId: 'INT', fingerprint: `${nodeId}:${outputId}`, value: nodeId.includes('[1]') ? 8 : 3 },
       renditions: [],
     } })
   })
@@ -73,8 +73,8 @@ test('inspects simple and nested region iterations by exact retained runtime ide
     app.registerSchemas([
       { type: 'ProofSource', displayName: 'Proof Source', category: 'proof', source: 'v3', isOutputNode: false,
         items: [
-          { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'core.int' }, optional: false },
-          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'core.int' } },
+          { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' } },
         ] },
       { type: 'ProofSink', displayName: 'No-output step', category: 'proof', source: 'v3', isOutputNode: false, items: [] },
     ] as never)
@@ -107,10 +107,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
     app.store.apply({ kind: 'regionExpanded', execution, timestamp: Date.now() + 1,
       runtimeNodeId: 'outer', regionKind: 'map', binding: 'zip', iterations: 2 } as never)
     app.store.apply({ kind: 'nodeStates', execution, timestamp: Date.now() + 2, snapshot: false, nodes: {
-      'outer[0]/source': { state: 'running', value: 0.375, outputs: { value: { typeId: 'core.int', value: 3 } } },
+      'outer[0]/source': { state: 'running', value: 0.375, outputs: { value: { typeId: 'INT', value: 3 } } },
       'outer[0]/sink': { state: 'done' },
-      'outer[1]/source': { state: 'cached', outputs: { value: { typeId: 'core.int', value: 8 } } },
-      'outer[1]/inner[2]/leaf': { state: 'done', outputs: { value: { typeId: 'core.int' } } },
+      'outer[1]/source': { state: 'cached', outputs: { value: { typeId: 'INT', value: 8 } } },
+      'outer[1]/inner[2]/leaf': { state: 'done', outputs: { value: { typeId: 'INT' } } },
     } } as never)
     app.store.apply({ kind: 'regionFinished', execution, timestamp: Date.now() + 3,
       runtimeNodeId: 'outer', iterations: 2 } as never)

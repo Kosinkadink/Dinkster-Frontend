@@ -48,7 +48,7 @@ const compositorPayload = (): DinksterNodesPayload => ({
       interface: [
         {
           role: 'input', id: 'recipe', required: false,
-          type: { kind: 'concrete', types: ['dinkster.compositor'] },
+          type: { kind: 'concrete', types: ['COMPOSITOR'] },
           default: EMPTY_COMPOSITOR_RECIPE,
           widget: { type: 'COMPOSITOR' },
         },
@@ -61,7 +61,7 @@ const compositorPayload = (): DinksterNodesPayload => ({
       category: 'test',
       idempotent: true,
       interface: [
-        { role: 'output', id: 'out', type: { kind: 'concrete', types: ['dinkster.compositor'] } },
+        { role: 'output', id: 'out', type: { kind: 'concrete', types: ['COMPOSITOR'] } },
       ],
     },
   },
@@ -72,13 +72,13 @@ const curveFollowPayload = (): DinksterNodesPayload => ({
   nodes: {
     AudioSource: {
       schemaVersion: 1, displayName: 'Audio source', category: 'test', idempotent: true,
-      interface: [{ role: 'output', id: 'audio', type: { kind: 'concrete', types: ['comfy.AUDIO'] } }],
+      interface: [{ role: 'output', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] } }],
     },
     'dinkster.audio.envelope': {
       schemaVersion: 1, displayName: 'Audio envelope', category: 'audio', idempotent: true, editorRole: 'audio-envelope',
       interface: [
-        { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['comfy.AUDIO'] } },
-        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } },
+        { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['AUDIO'] } },
+        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
       ],
     },
     'dinkster.curve.editor': {
@@ -86,15 +86,15 @@ const curveFollowPayload = (): DinksterNodesPayload => ({
       interface: [
         {
           role: 'input', id: 'curve', required: false,
-          type: { kind: 'concrete', types: ['dinkster.curve'] }, widget: { type: 'CURVE' },
+          type: { kind: 'concrete', types: ['CURVE'] }, widget: { type: 'CURVE' },
           default: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] },
         },
-        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } },
+        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
       ],
     },
     OtherCurve: {
       schemaVersion: 1, displayName: 'Other curve', category: 'test', idempotent: true,
-      interface: [{ role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } }],
+      interface: [{ role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } }],
     },
   },
 }) as unknown as DinksterNodesPayload
@@ -111,11 +111,11 @@ const glslPayload = (): DinksterNodesPayload => ({
       interface: [
         {
           role: 'input', id: 'fragment_shader', required: false,
-          type: { kind: 'concrete', types: ['core.string'] },
+          type: { kind: 'concrete', types: ['STRING'] },
           default: '#version 300 es\nvoid main() {}',
           widget: { type: 'STRING', multiline: true },
         },
-        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['dinkster.image'] } },
+        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
   },
@@ -127,17 +127,17 @@ const maskPaintPayload = (): DinksterNodesPayload => ({
     'dinkster.load_image': {
       schemaVersion: 1, displayName: 'Load Image', category: 'image', idempotent: true, editorRole: 'image-source',
       interface: [
-        { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
-        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['dinkster.image'] } },
-        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['dinkster.mask'] } },
+        { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
+        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['MASK'] } },
       ],
     },
     'dinkster.mask.paint': {
       schemaVersion: 1, displayName: 'Paint Mask', category: 'image', idempotent: true, editorRole: 'mask-paint',
       interface: [
-        { role: 'input', id: 'source', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['dinkster.image'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
-        { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['core.string'] }, widget: { type: 'STRING', multiline: true } },
-        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['dinkster.mask'] } },
+        { role: 'input', id: 'source', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
+        { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: true } },
+        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['MASK'] } },
       ],
     },
   },

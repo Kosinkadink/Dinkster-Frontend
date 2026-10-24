@@ -31,12 +31,12 @@ from dinkster_schema import (  # noqa: E402
     TypeExpr,
     schema_to_wire,
 )
-from dinkster_values import CustomWidgetDescriptor  # noqa: E402
+from dinkster_values import VIDEO_EDIT_TYPE, CustomWidgetDescriptor  # noqa: E402
 
-INT = TypeExpr.concrete("core.int")
-FLOAT = TypeExpr.concrete("core.float")
-STRING = TypeExpr.concrete("core.string")
-BOOLEAN = TypeExpr.concrete("core.boolean")
+INT = TypeExpr.concrete("INT")
+FLOAT = TypeExpr.concrete("FLOAT")
+STRING = TypeExpr.concrete("STRING")
+BOOLEAN = TypeExpr.concrete("BOOLEAN")
 IMAGE = TypeExpr.concrete("std.image")
 
 schemas = [
@@ -70,7 +70,7 @@ schemas = [
         inputs=(
             InputSpec(
                 "edit",
-                TypeExpr.concrete("comfy.VIDEO_EDIT"),
+                TypeExpr.concrete(VIDEO_EDIT_TYPE),
                 required=False,
                 widget=CustomWidgetDescriptor("VIDEO_EDIT", {"features": ["trim", "crop"]}),
             ),
@@ -97,10 +97,10 @@ schemas = [
         display_name="Types",
         category="test",
         inputs=(
-            InputSpec("either", TypeExpr.union("core.int", "core.float")),
+            InputSpec("either", TypeExpr.union("INT", "FLOAT")),
             InputSpec("anything", TypeExpr.wildcard()),
             InputSpec("t_in", TypeExpr.variable("T")),
-            InputSpec("c_in", TypeExpr.variable("C", allowed=("core.int", "core.float"))),
+            InputSpec("c_in", TypeExpr.variable("C", allowed=("INT", "FLOAT"))),
             InputSpec("ints", TypeExpr.list_of(INT)),
             InputSpec("matrix", TypeExpr.list_of(TypeExpr.list_of(INT))),
             InputSpec("items", TypeExpr.list_of(TypeExpr.variable("T"))),

@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  merge_group:
   workflow_dispatch:
     inputs:
       simulate-fork:
@@ -18,14 +19,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: 1a681440c71e3eee7231471c3fead748c4c60d64
+  DINKSTER_REF: f13ce2a72db4083f8c9eb1b6c4874bd512f0b723
 
 jobs:
   fast:
     name: format, lint, types and unit subset
+    needs: visual
+    if: always()
     runs-on: ${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}
     timeout-minutes: 10
     steps:
+      - name: Require product screenshots
+        run: test '${{ needs.visual.result }}' = success
       - uses: actions/checkout@v4
         with:
           clean: true
@@ -54,3 +59,35 @@ jobs:
       - run: pnpm ci:fast
         env:
           DINKSTER_SOURCE_ROOT: .ci/Dinkster
+
+  visual:
+    name: product screenshots
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.8
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dinkster/e2e exec playwright install --with-deps chromium
+      - run: pnpm test:visual
+        env:
+          DINKSTER_E2E_PORT: "15376"
+      - name: Retain browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-failure
+          path: packages/e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

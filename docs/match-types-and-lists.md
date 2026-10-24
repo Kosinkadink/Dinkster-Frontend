@@ -1,5 +1,25 @@
 # Match types and lists
 
+## Built-in type vocabulary
+
+Primitive socket ids are `INT`, `FLOAT`, `STRING`, `BOOLEAN`, and `COMBO`.
+They are exact, case-sensitive identities, not aliases for `core.*` names.
+NUMBER widgets bind to `INT` or `FLOAT`; STRING and COLOR widgets bind to
+`STRING`; BOOLEAN and COMBO widgets bind to their respective socket ids.
+MULTI_COMBO binds to `list<COMBO>`. Widget descriptors configure presentation
+without changing the socket identity. Integer sockets preserve exact decimal
+constraints outside JavaScript's safe-integer range; float constraints remain
+JSON numbers. A widget on the wrong socket type is refused during registry
+decoding rather than silently dropping the node's editor.
+
+Other built-in socket ids also use bare uppercase names, including `ASSET`,
+`SAVE_TARGET`, `REGION`, `CURVE`, `DETECTION`, `RESOURCE`, `VIDEO_DOCUMENT`,
+`LAYERS`, `COMPOSITOR`, `MODEL3D`, and `SPLAT`. The backend's canonical
+`builtin_types.py` module defines their spelling. Old `dinkster.*` type ids
+are not aliases. Node ids retain their existing pack namespaces.
+
+## Pin shapes
+
 Dinkster distinguishes fixed types, match types, and `Any` directly on canvas:
 
 | Pin | Meaning |

@@ -195,7 +195,7 @@ export function SearchableTypeFilter(props: {
   const optionsId = `${panelId}-options`
   const labelOf = (option: string): string => props.labelOf?.(option) ?? option
   // Search matches the displayed label or the canonical value, so 'clip'
-  // finds an aliased 'dinkster.clip' option and 'dinkster' still works.
+  // finds an aliased 'CLIP' option and 'dinkster' still works.
   const filtered = () => props.options.filter((option) => {
     const q = query().toLowerCase()
     return option.toLowerCase().includes(q) || labelOf(option).toLowerCase().includes(q)

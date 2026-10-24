@@ -40,7 +40,7 @@ describe('transient palette preview node', () => {
       type: 'PolicyNode', displayName: 'Policy Node', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
         kind: 'input', id: 'choice', optional: false,
-        type: { kind: 'concrete', name: 'core.combo' },
+        type: { kind: 'concrete', name: 'COMBO' },
         widget: { widgetType: 'COMBO', options: {}, remote: { route: '/api/choices/models', refreshButton: true } },
       }],
     }
@@ -75,7 +75,7 @@ describe('palette row identity', () => {
   it('shows pack display name, category, and canonical id only for duplicate display names', () => {
     const native = paletteEntry('dinkster.preview_any', 'Preview as Text', 'utilities', 'Dinkster Core')
     const comfy = paletteEntry('comfy.PreviewAny', 'Preview as Text', 'comfy/utilities', 'ComfyUI')
-    const unique = paletteEntry('dinkster.save_target', 'Save Target', 'utilities', 'Dinkster Core')
+    const unique = paletteEntry('SAVE_TARGET', 'Save Target', 'utilities', 'Dinkster Core')
     const entries = [native, comfy, unique]
     const duplicates = duplicatePaletteNames(entries)
 

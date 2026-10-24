@@ -1,24 +1,7 @@
-import { fileURLToPath } from 'node:url'
 import { expect, appViewTest as test, type Page } from './fixtures.js'
 
-test.use({
-  launchOptions: {
-    env: {
-      ...process.env,
-      ...(process.platform === 'linux' ? {
-        FONTCONFIG_FILE: fileURLToPath(new URL('../fixtures/fonts/fonts.conf', import.meta.url)),
-      } : {}),
-    },
-  },
-})
-
 test.beforeEach(async ({ page }) => {
-  for (const weight of ['Regular', 'Bold']) {
-    await page.route(`/visual-font-${weight}.ttf`, (route) => route.fulfill({
-      contentType: 'font/ttf',
-      path: fileURLToPath(new URL(`../fixtures/fonts/NotoSans-${weight}.ttf`, import.meta.url)),
-    }))
-  }
+  await page.clock.setFixedTime(new Date('2026-01-01T00:00:00Z'))
   await page.route('/api/**', (route) =>
     route.fulfill({ status: 502, body: 'visual fixture unavailable' }),
   )
@@ -53,16 +36,6 @@ const boot = async (page: Page): Promise<void> => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
-  await page.addStyleTag({ content: `
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Regular.ttf'); font-weight: 100 500; }
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Bold.ttf'); font-weight: 600 900; }
-    :root { --dinkster-font-family: ProductVisual, sans-serif !important; }
-  ` })
-  await page.evaluate(() => Promise.all([
-    document.fonts.load('400 13px ProductVisual'),
-    document.fonts.load('700 13px ProductVisual'),
-  ]))
-  expect(await page.evaluate(() => document.fonts.check('13px ProductVisual'))).toBe(true)
 }
 
 const closeGallery = async (page: Page): Promise<void> => {
@@ -111,6 +84,18 @@ const openModal = async (page: Page, id: string): Promise<void> => {
 
 test('shell controls at desktop and compact widths', async ({ page }) => {
   await boot(page)
+  expect(await page.evaluate(() => {
+    const faces: string[] = []
+    document.fonts.forEach((face) => {
+      if (face.status === 'loaded') faces.push(`${face.family.replaceAll('"', '')}:${face.style}:${face.weight}`)
+    })
+    return faces.sort()
+  })).toEqual([
+    'Noto Sans Mono:normal:100 900',
+    'Noto Sans:italic:100 900',
+    'Noto Sans:normal:100 500',
+    'Noto Sans:normal:600 900',
+  ])
   await closeGallery(page)
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
@@ -216,7 +201,7 @@ test('populated compositor controls at desktop and compact widths', async ({ pag
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'CompositorVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
-      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'dinkster.compositor' },
+      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'COMPOSITOR' },
         widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
     }])
     const diagnostics = app.openDocument({
@@ -341,12 +326,15 @@ test('canvas chrome at desktop and compact widths', async ({ page }) => {
 })
 
 test('shell and canvas visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await boot(page)
-  await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
-    readonly templateGalleryOpen: { set(value: boolean): void }
-  }).templateGalleryOpen.set(true))
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      readonly backends: { get(): readonly { readonly templatesEnabled: { set(value: boolean): void } }[] }
+      readonly templateGalleryOpen: { set(value: boolean): void }
+    }
+    app.backends.get()[0]!.templatesEnabled.set(true)
+    app.templateGalleryOpen.set(true)
+  })
   await expect(page.getByTestId('template-gallery')).toBeVisible()
   await screenshot(page, '01-starter-template-gallery')
   await closeGallery(page)
@@ -1249,8 +1237,6 @@ test('GLSL editor missing-data and refused-preview states preserve editing and d
 })
 
 test('dock visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await boot(page)
   await closeGallery(page)
   const panels = [
@@ -1294,8 +1280,6 @@ test('dock visual matrix', async ({ page }) => {
 })
 
 test('rail visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await boot(page)
   await closeGallery(page)
   for (const [title, name] of [
@@ -1313,8 +1297,6 @@ test('rail visual matrix', async ({ page }) => {
 })
 
 test('modal visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await boot(page)
   await closeGallery(page)
   for (const [id, name] of [
@@ -1388,8 +1370,6 @@ test('populated app-view controls and arrange visuals', async ({ page }) => {
 })
 
 test('document and app-view visual matrix', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const typed = (name: string) => ({ kind: 'concrete', types: [name] })
   const nodes = Object.fromEntries(
     ['make', 'retime'].map((command) => [
@@ -1409,7 +1389,7 @@ test('document and app-view visual matrix', async ({ page }) => {
                 {
                   role: 'input',
                   id: 'params',
-                  type: typed('core.string'),
+                  type: typed('STRING'),
                   required: false,
                   default: '{}',
                   widget: { type: 'STRING', multiline: true },
@@ -1417,27 +1397,27 @@ test('document and app-view visual matrix', async ({ page }) => {
                 {
                   role: 'output',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                 },
               ]
             : [
                 {
                   role: 'input',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                   required: true,
                 },
                 {
                   role: 'input',
                   id: 'params',
-                  type: typed('core.string'),
+                  type: typed('STRING'),
                   required: true,
                   widget: { type: 'STRING', multiline: true },
                 },
                 {
                   role: 'output',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                 },
               ],
       },
@@ -1454,6 +1434,9 @@ test('document and app-view visual matrix', async ({ page }) => {
     }),
   )
   await boot(page)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.backends.get()[0]?.registry.get()?.schemas.size,
+  )).toBe(Object.keys(nodes).length)
   await closeGallery(page)
   await page.getByTestId('views-switcher').click()
   const appView = page.getByRole('menuitemradio', { name: 'App view' })

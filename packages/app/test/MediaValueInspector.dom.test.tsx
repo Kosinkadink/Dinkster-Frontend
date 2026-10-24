@@ -93,7 +93,7 @@ describe('MediaValueInspector', () => {
     })
     const query = { jobId: 'raw-run', nodeId: 'region[2]/video', outputId: 'frames' }
     const descriptor: ValuePeekResult = { available: true, descriptor: {
-      typeId: 'comfy.VIDEO', fingerprint: 'raw-fingerprint', meta: {
+      typeId: 'VIDEO', fingerprint: 'raw-fingerprint', meta: {
         container: 'mkv', probe: { video_codec: 'hevc', pix_fmt: 'yuv420p10le', alpha: false, bit_depth: 10, color_space: 'HDR PQ' },
         effective: { duration: [7, 2], fps: [30000, 1001], frame_count: 105 },
       },
@@ -124,7 +124,7 @@ describe('MediaValueInspector', () => {
     expect(root.textContent).toContain('[Nicht gemeldet]')
     expect(root.textContent).toContain('[Nein]')
     expect(root.textContent).toContain('Type')
-    expect(root.textContent).toContain('comfy.VIDEO')
+    expect(root.textContent).toContain('VIDEO')
     expect(root.textContent).toContain('raw-fingerprint')
     expect(root.textContent).toContain('mask_polarity_mismatch')
     expect(root.textContent).toContain('mask-source')

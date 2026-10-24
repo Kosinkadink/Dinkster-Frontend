@@ -84,7 +84,7 @@ const schemas: Record<string, NodeSchema> = {
   TapDynamic: schemaOf('TapDynamic', [widgetInput('amount', 1, {
     dynamic: { kind: 'dynamicCombo', options: [{ key: 'one', inputs: [widgetInput('amount', 1)] }] },
   })]),
-  TapMaskOld: schemaOf('TapMaskOld', [widgetInput('amount', 0.5, { type: { kind: 'concrete', name: 'dinkster.mask' } })]),
+  TapMaskOld: schemaOf('TapMaskOld', [widgetInput('amount', 0.5, { type: { kind: 'concrete', name: 'MASK' } })]),
   TapMaskComfy: schemaOf('TapMaskComfy', [widgetInput('amount', 1, { type: { kind: 'concrete', name: 'comfy.MASK' } })]),
   NewNode: schemaOf('NewNode', [
     input('image'),
@@ -1503,7 +1503,7 @@ describe('input family replacement', () => {
 
 describe('output family replacement', () => {
   const countInput = (id: string): InputSpec => input(id, {
-    type: { kind: 'concrete', name: 'core.int' },
+    type: { kind: 'concrete', name: 'INT' },
   })
   const outputFamily = (id: string, count: string, max = 512): OutputSpec => ({
     kind: 'output',

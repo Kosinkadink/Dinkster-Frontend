@@ -47,11 +47,11 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
     if (url.searchParams.has('rendition')) phases.push('document')
     return url.searchParams.has('rendition')
       ? route.fulfill({ contentType: mime, body: fixture.canonical, headers: {
-        'X-Dinkster-Type-Id': 'dinkster.layers',
+        'X-Dinkster-Type-Id': 'LAYERS',
         'X-Dinkster-Fingerprint': 'graph-document', 'X-Dinkster-Rendition': 'document',
       } })
       : route.fulfill({ json: { available: true,
-        descriptor: { typeId: 'dinkster.layers', fingerprint: 'graph-document' },
+        descriptor: { typeId: 'LAYERS', fingerprint: 'graph-document' },
         renditions: [{ kind: 'document', mime }],
       } })
   })
@@ -115,28 +115,28 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
     const app = window.__dinksterTest!.app
     app.registerSchemas([
       { type: 'LayerDocumentTest', displayName: 'Layer document', category: 'test', source: 'v3', isOutputNode: true,
-        items: [{ kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } }] },
+        items: [{ kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
       { type: 'dinkster.layers.load', displayName: 'Load Layers', category: 'image', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'document', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
+        items: [{ kind: 'input', id: 'document', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: {} } },
-        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } }] },
+        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
       { type: 'dinkster.layers.flatten', displayName: 'Flatten Layers', category: 'image', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
-        { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'core.string' }, optional: true,
+        items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+        { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
           widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
-        { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' } }] },
+        { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }] },
       { type: 'dinkster.layers.edit', displayName: 'Edit Layers', category: 'image', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
-        { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'core.string' }, optional: false,
+        items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+        { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', options: { multiline: true } } },
-        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } }] },
+        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
       { type: 'dinkster.save_image', displayName: 'Save Image', category: 'image', source: 'v3', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'dinkster.image' }, optional: false },
-        { kind: 'input', id: 'format', type: { kind: 'concrete', name: 'core.combo' }, optional: true,
+        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+        { kind: 'input', id: 'format', type: { kind: 'concrete', name: 'COMBO' }, optional: true,
           widget: { widgetType: 'COMBO', options: { options: ['png', 'jpeg', 'webp'] }, default: 'png' } },
-        { kind: 'input', id: 'quality', type: { kind: 'concrete', name: 'core.int' }, optional: true,
+        { kind: 'input', id: 'quality', type: { kind: 'concrete', name: 'INT' }, optional: true,
           widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 1 }, default: 90 } },
-        { kind: 'output', id: 'assets', type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } } } }] },
+        { kind: 'output', id: 'assets', type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } } }] },
     ])
     app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'graph-layer-workflow', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Layers', nodes: { source: { id: 'source', type: 'LayerDocumentTest', values: {} } },
@@ -149,7 +149,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
     store.register(ref, compiled.artifact, Date.now())
     store.apply({ kind: 'started', execution: ref, timestamp: Date.now() })
     store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'source', timestamp: Date.now(), output: {
-      layers: { typeId: 'dinkster.layers', fingerprint: 'graph-document' },
+      layers: { typeId: 'LAYERS', fingerprint: 'graph-document' },
     } })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
   })
@@ -343,7 +343,7 @@ test('mask editing offers explicit bake and cancel without silently modifying th
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'MaskAssetTest', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } }, optional: false,
+      items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false,
         widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } }],
     }])
     app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'explicit-mask-bake', root: 'g0',

@@ -44,13 +44,13 @@ test('proves product select semantics across the five replacement sites', async 
     app.registerSchemas([{
       type: 'SelectProof', displayName: 'Select Proof', category: 'proof', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'choice', displayName: 'Choice', type: { kind: 'concrete', name: 'core.combo' }, optional: false,
+        kind: 'input', id: 'choice', displayName: 'Choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', options: { options: [[1, 'One'], [7, 'Seven'], [12, 'Twelve']] }, default: 1 },
       }],
     }, {
       type: 'SaveProof', displayName: 'Save Proof', category: 'proof', source: 'v3', isOutputNode: true,
       items: [{
-        kind: 'input', id: 'target', displayName: 'Target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: true,
+        kind: 'input', id: 'target', displayName: 'Target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
         widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, default: { mount: 'output', prefix: 'proof' } },
       }],
     }])

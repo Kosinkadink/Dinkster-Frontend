@@ -19,7 +19,7 @@ const regionProblems = (app: AppState) =>
     problem.code.startsWith('doc.region.') || problem.origin === 'invariant',
   )
 
-const sameIdPrimitive = (type: string, name: 'core.float' | 'core.boolean'): NodeSchema => ({
+const sameIdPrimitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
@@ -31,7 +31,7 @@ const sameIdPrimitive = (type: string, name: 'core.float' | 'core.boolean'): Nod
       id: 'value',
       type: { kind: 'concrete', name },
       optional: false,
-      ...(name === 'core.float' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
+      ...(name === 'FLOAT' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
     },
     { kind: 'output', id: 'value', type: { kind: 'concrete', name } },
   ],
@@ -96,8 +96,8 @@ describe('region creation actions', () => {
   it.each(['map', 'while'] as const)('derives and lowers a real %s region with same-id primitive ports', (kind) => {
     const app = new AppState()
     const schemas = new Map([
-      ['dinkster.float', sameIdPrimitive('dinkster.float', 'core.float')],
-      ['dinkster.boolean', sameIdPrimitive('dinkster.boolean', 'core.boolean')],
+      ['dinkster.float', sameIdPrimitive('dinkster.float', 'FLOAT')],
+      ['dinkster.boolean', sameIdPrimitive('dinkster.boolean', 'BOOLEAN')],
     ])
     app.registry.set({
       connection: app.connection.id,
