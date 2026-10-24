@@ -128,7 +128,7 @@ describe('canvas tooltip provider', () => {
   })
 
   it('adds the input doc string to detailed pin content', () => {
-    const target = { kind: 'pin', hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'dinkster.model' } } }
+    const target = { kind: 'pin', hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'MODEL' } } }
     expect(resolveCanvasTooltip(target, { detailed: true }, context)?.detail).toEqual(['Model used for sampling.'])
   })
 
@@ -201,7 +201,7 @@ describe('canvas tooltip provider', () => {
   it('warned pin shows its diagnostic messages one per line', () => {
     const target = {
       kind: 'pin',
-      hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'dinkster.model' } },
+      hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'MODEL' } },
       diagnostics: [
         { severity: 'warning', message: 'specialization is stale' },
         { severity: 'error', message: 'types do not match' },
@@ -228,7 +228,7 @@ describe('canvas tooltip provider', () => {
     expect(resolveCanvasTooltip(comboOutput, { detailed: false }, context)?.lines).toEqual(['COMBO (string with choices)'])
   })
 
-  it('shows the ComfyUI display alias for reroutes on native dinkster types', () => {
+  it('shows bare built-in identities for reroutes', () => {
     const aliased = { kind: 'reroute', hit: { reroute: { typeName: 'LATENT' } } }
     const unaliased = { kind: 'reroute', hit: { reroute: { typeName: 'custom.thing' } } }
     const untyped = { kind: 'reroute', hit: { reroute: {} } }
@@ -237,12 +237,12 @@ describe('canvas tooltip provider', () => {
     expect(resolveCanvasTooltip(untyped, { detailed: false })?.lines).toEqual(['Any'])
   })
 
-  it('pin tooltips on native dinkster types show the alias with the canonical id', () => {
+  it('pin tooltips show the canonical bare type id', () => {
     const target = {
       kind: 'pin',
-      hit: { node, direction: 'in', portId: 'clip', pin: {}, type: { kind: 'concrete', name: 'dinkster.clip' } },
+      hit: { node, direction: 'in', portId: 'clip', pin: {}, type: { kind: 'concrete', name: 'CLIP' } },
     }
-    expect(resolveCanvasTooltip(target, { detailed: false }, context)?.lines).toEqual(['CLIP (dinkster.clip)'])
+    expect(resolveCanvasTooltip(target, { detailed: false }, context)?.lines).toEqual(['CLIP'])
   })
 
   it('keeps an unmarked string pin tooltip plain', () => {
