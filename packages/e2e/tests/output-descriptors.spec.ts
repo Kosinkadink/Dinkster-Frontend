@@ -25,7 +25,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     const profile = mode === true
     const fixedIds = mode !== false
     const choices = profile
-      ? ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete' as const, name: `dinkster.${id}` }, displayName: id.toUpperCase() }))
+      ? ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete' as const, name: id.toUpperCase() }, displayName: id.toUpperCase() }))
       : ['float', 'string'].map((id) => ({ id, type: { kind: 'concrete' as const, name: `core.${id}` } }))
     const entries = profile ? [] : [
       { id: fixedIds ? 'float' : 'm0', name: 'Result', type: 'float', expression: 'a+b' },
@@ -36,7 +36,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     window.__dinksterTest!.app.registerSchemas([{
       type: nodeType, displayName: profile ? 'Load Model Profile' : 'Named Expressions', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        ...(profile ? [{ kind: 'input' as const, id: 'checkpoint', type: { kind: 'concrete' as const, name: 'dinkster.asset' }, optional: false, widget: { widgetType: 'ASSET', options: {} } }] : []),
+        ...(profile ? [{ kind: 'input' as const, id: 'checkpoint', type: { kind: 'concrete' as const, name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', options: {} } }] : []),
         { kind: 'input', id: 'entries', displayName: 'Output schema', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: source } },
         { kind: 'output', id: 'entries', type: choices[0]!.type, outputDescriptors: { input: 'entries', choices, minEntries: profile ? 1 : 0, maxEntries: profile ? 3 : 32, fixedIds, ...(profile ? { probe: { input: 'checkpoint', kind: 'model' as const, revision: '1' } } : {}) } },
       ],
@@ -117,7 +117,7 @@ test('profile probe uses asset identity, rejects connection races, and inactivat
     requested = true
     await new Promise<void>((resolve) => { release = resolve })
     await route.fulfill({ json: {
-      entries: [{ id: 'model', name: 'Model', type: 'model' }, { id: 'vae', name: 'dinkster.vae', type: 'vae' }],
+      entries: [{ id: 'model', name: 'Model', type: 'model' }, { id: 'vae', name: 'VAE', type: 'vae' }],
       assetDigest: url.searchParams.get('digest'), detectorRevision: '1', shapeDigest: `sha256:${'a'.repeat(64)}`, components: {}, diagnostics: ['Metadata diagnostic does not block this profile.'],
     } })
   })
@@ -192,7 +192,7 @@ test('matching saved metadata profiles restore exact ordered stable outputs', as
   await setup(page, true)
   const source = JSON.stringify({
     entries: [
-      { id: 'vae', name: 'dinkster.vae', type: 'vae' },
+      { id: 'vae', name: 'VAE', type: 'vae' },
       { id: 'model', name: 'Model', type: 'model' },
     ],
     assetDigest: `blake3:${'1'.repeat(64)}`,
@@ -261,7 +261,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
   const profile = JSON.stringify({
     entries: [
       { id: 'model', name: 'Model', type: 'model' },
-      { id: 'vae', name: 'dinkster.vae', type: 'vae' },
+      { id: 'vae', name: 'VAE', type: 'vae' },
     ],
     assetDigest: digest,
     detectorRevision: '1',
@@ -270,7 +270,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     const app = window.__dinksterTest!.app
     const sink = (type: string, input: string) => ({
       type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true,
-      items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: `dinkster.${input}` }, optional: false }],
+      items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: input.toUpperCase() }, optional: false }],
     })
     app.registerSchemas([sink('ModelSink', 'model'), sink('ClipSink', 'clip'), sink('VaeSink', 'vae')])
     const original = app.activeTab()!.store.doc

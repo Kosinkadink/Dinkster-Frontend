@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  merge_group:
   workflow_dispatch:
     inputs:
       simulate-fork:
@@ -18,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: 2cd80b6db914f6dc116cf856ba5e6da01c286ca4
+  DINKSTER_REF: 6c640c28ecb006b88ee9731fc216c9ae3899c21a
 
 jobs:
   fast:

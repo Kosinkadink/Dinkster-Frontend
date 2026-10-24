@@ -1026,9 +1026,9 @@ describe('advancement plans survive workspace-authority promotion', () => {
       type: 'SyntheticLayersLoad',
       editorRole: 'layers-load',
       items: [
-        { kind: 'input', id: 'document', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
+        { kind: 'input', id: 'document', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: {} } },
-        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } },
+        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } },
       ],
     }
     const flattenSchema: NodeSchema = {
@@ -1036,7 +1036,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       type: 'SyntheticLayersFlatten',
       editorRole: 'layers-flatten',
       items: [
-        { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
+        { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
         { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
           widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
       ],

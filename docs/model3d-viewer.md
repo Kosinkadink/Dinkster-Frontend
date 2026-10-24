@@ -3,7 +3,7 @@
 GLB assets (`model/gltf-binary`) and gaussian-splat PLY assets (`model/ply`),
 both under the `media/model3d` catalog kind, preview everywhere other media
 kinds do: in-node output previews, selected ASSET widget inputs, the peek
-pipeline for `dinkster.model3d` and `dinkster.splat` outputs, the asset browser,
+pipeline for `MODEL3D` and `SPLAT` outputs, the asset browser,
 and the widget editor selection pane. `packages/app/src/model3d-mime.ts` is
 the shared gate for which MIME types route through this pipeline.
 

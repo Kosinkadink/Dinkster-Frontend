@@ -166,9 +166,9 @@ test.describe('asset and save-target editors (mock dinkster backend)', () => {
       window.__dinksterTest!.app.registerSchemas([{
         type: 'UiAuditAsset', displayName: 'UI Audit Asset', category: 'test', source: 'v3', isOutputNode: false,
         items: [
-          { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
+          { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
             widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
-          { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+          { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
             widget: { widgetType: 'SAVE_TARGET', options: {}, default: null } },
         ],
       }])
@@ -186,9 +186,9 @@ test.describe('asset and save-target editors (mock dinkster backend)', () => {
     await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
       type: 'UiAuditAsset', displayName: 'UI Audit Asset', category: 'test', source: 'v3', isOutputNode: false,
       items: [
-        { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
+        { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
-        { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+        { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
           widget: { widgetType: 'SAVE_TARGET', options: {}, default: null } },
       ],
     }]))

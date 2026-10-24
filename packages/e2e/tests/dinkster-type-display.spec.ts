@@ -13,7 +13,7 @@ const schema = {
   items: [
     { kind: 'input', id: 'te', displayName: 'text encoder', type: { kind: 'concrete', name: 'CLIP' }, optional: false },
     { kind: 'input', id: 'codec', displayName: 'codec', type: { kind: 'concrete', name: 'VAE' }, optional: false },
-    { kind: 'input', id: 'control', displayName: 'control', type: { kind: 'concrete', name: 'comfy.CONTROL_NET' }, optional: false },
+    { kind: 'input', id: 'control', displayName: 'control', type: { kind: 'concrete', name: 'CONTROL_NET' }, optional: false },
     { kind: 'input', id: 'guider', displayName: 'guider', type: { kind: 'concrete', name: 'GUIDER' }, optional: false },
     { kind: 'input', id: 'noise', displayName: 'noise', type: { kind: 'concrete', name: 'NOISE' }, optional: false },
     { kind: 'output', id: 'model', displayName: 'model', type: { kind: 'concrete', name: 'MODEL' } },
@@ -36,7 +36,7 @@ const document_ = {
 const expectations: Record<string, { canonical: string; hex: string }> = {
   te: { canonical: 'CLIP', hex: '#FFD500' },
   codec: { canonical: 'VAE', hex: '#FF6E6E' },
-  control: { canonical: 'comfy.CONTROL_NET', hex: '#6EE7B7' },
+  control: { canonical: 'CONTROL_NET', hex: '#6EE7B7' },
   guider: { canonical: 'GUIDER', hex: '#66FFFF' },
   noise: { canonical: 'NOISE', hex: '#B0B0B0' },
   model: { canonical: 'MODEL', hex: '#B39DDB' },

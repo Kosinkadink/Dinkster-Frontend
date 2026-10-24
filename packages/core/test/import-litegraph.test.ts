@@ -956,7 +956,7 @@ describe('positional widget mapping', () => {
       ? { widgetType: 'SAVE_TARGET', options: {} }
       : { widgetType: 'SAVE_TARGET', options: {}, default: declaredDefault }
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false, widget,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false, widget,
     }
     const schema = sdSchema('dinkster.save', 'Save', [target])
     const imported = importLitegraph(workflow([
@@ -968,7 +968,7 @@ describe('positional widget mapping', () => {
 
   it('normalizes keyed SAVE_TARGET values inside the active DynamicCombo branch', () => {
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
     }
     const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
@@ -987,7 +987,7 @@ describe('positional widget mapping', () => {
 
   it('normalizes positional SAVE_TARGET values inside a wire-15 DynamicCombo branch', () => {
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
     }
     const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{

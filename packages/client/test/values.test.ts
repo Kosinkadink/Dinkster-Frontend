@@ -946,7 +946,7 @@ describe('DinksterConnection.values()', () => {
 describe('imageAssetRefsOf', () => {
   const digest = `blake3:${'d'.repeat(64)}`
   const asset = (over?: Record<string, unknown>) => ({
-    typeId: 'dinkster.asset',
+    typeId: 'ASSET',
     fingerprint: digest,
     meta: { digest, mediaType: 'image/png', name: 'out.png', ...over },
   })
@@ -974,7 +974,7 @@ describe('imageAssetRefsOf', () => {
 
   it('recurses into list elements and dedupes by digest', () => {
     const list = {
-      typeId: 'list<dinkster.asset>',
+      typeId: 'list<ASSET>',
       fingerprint: 'fp-list',
       length: 3,
       elements: [asset(), asset(), asset({ digest: `blake3:${'e'.repeat(64)}` })],
@@ -984,7 +984,7 @@ describe('imageAssetRefsOf', () => {
 
   it('skips non-image media types, missing digests, and non-asset types', () => {
     expect(imageAssetRefsOf(asset({ mediaType: 'application/json' }))).toEqual([])
-    expect(imageAssetRefsOf({ typeId: 'dinkster.asset', fingerprint: 'x', meta: { mediaType: 'image/png' } })).toEqual([])
+    expect(imageAssetRefsOf({ typeId: 'ASSET', fingerprint: 'x', meta: { mediaType: 'image/png' } })).toEqual([])
     expect(imageAssetRefsOf({ typeId: 'comfy.IMAGE', fingerprint: 'x', meta: { digest, mediaType: 'image/png' } })).toEqual([])
   })
 
@@ -1003,14 +1003,14 @@ describe('imageAssetRefsOf', () => {
   })
 
   it('terminates on cyclic in-memory descriptors', () => {
-    const cyclic: Record<string, unknown> = { typeId: 'list<dinkster.asset>', elements: [asset()] }
+    const cyclic: Record<string, unknown> = { typeId: 'list<ASSET>', elements: [asset()] }
     ;(cyclic['elements'] as unknown[]).push(cyclic)
     expect(imageAssetRefsOf(cyclic).map((r) => r.digest)).toEqual([digest])
   })
 
   it('handles absurdly deep nesting without overflowing', () => {
     let node: unknown = asset()
-    for (let i = 0; i < 100_000; i++) node = { typeId: 'list<dinkster.asset>', elements: [node] }
+    for (let i = 0; i < 100_000; i++) node = { typeId: 'list<ASSET>', elements: [node] }
     expect(imageAssetRefsOf(node).map((r) => r.digest)).toEqual([digest])
   })
 })

@@ -12,6 +12,12 @@ constraints outside JavaScript's safe-integer range; float constraints remain
 JSON numbers. A widget on the wrong socket type is refused during registry
 decoding rather than silently dropping the node's editor.
 
+Other built-in socket ids also use bare uppercase names, including `ASSET`,
+`SAVE_TARGET`, `REGION`, `CURVE`, `DETECTION`, `RESOURCE`, `VIDEO_DOCUMENT`,
+`LAYERS`, `COMPOSITOR`, `MODEL3D`, and `SPLAT`. The backend's canonical
+`builtin_types.py` module defines their spelling. Old `dinkster.*` type ids
+are not aliases. Node ids retain their existing pack namespaces.
+
 ## Pin shapes
 
 Dinkster distinguishes fixed types, match types, and `Any` directly on canvas:

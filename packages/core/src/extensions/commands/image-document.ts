@@ -167,11 +167,11 @@ function imageDocumentExportOf(resolve?: (type: string) => NodeSchema | undefine
         !flatten ||
         input?.kind !== 'input' ||
         input.widget?.widgetType !== 'ASSET' ||
-        canonicalTypeIdOf(input.type) !== 'dinkster.asset' ||
+        canonicalTypeIdOf(input.type) !== 'ASSET' ||
         output?.kind !== 'output' ||
-        canonicalTypeIdOf(output.type) !== 'dinkster.layers' ||
+        canonicalTypeIdOf(output.type) !== 'LAYERS' ||
         layers?.kind !== 'input' ||
-        canonicalTypeIdOf(layers.type) !== 'dinkster.layers' ||
+        canonicalTypeIdOf(layers.type) !== 'LAYERS' ||
         selector?.kind !== 'input' ||
         canonicalTypeIdOf(selector.type) !== 'STRING'
       ) {
@@ -263,15 +263,15 @@ function imageDocumentRecipeExportOf(resolve?: (type: string) => NodeSchema | un
         !flatten ||
         !save ||
         source?.kind !== 'output' ||
-        canonicalTypeIdOf(source.type) !== 'dinkster.layers' ||
+        canonicalTypeIdOf(source.type) !== 'LAYERS' ||
         editLayers?.kind !== 'input' ||
-        canonicalTypeIdOf(editLayers.type) !== 'dinkster.layers' ||
+        canonicalTypeIdOf(editLayers.type) !== 'LAYERS' ||
         editCommands?.kind !== 'input' ||
         canonicalTypeIdOf(editCommands.type) !== 'STRING' ||
         editOutput?.kind !== 'output' ||
-        canonicalTypeIdOf(editOutput.type) !== 'dinkster.layers' ||
+        canonicalTypeIdOf(editOutput.type) !== 'LAYERS' ||
         flattenLayers?.kind !== 'input' ||
-        canonicalTypeIdOf(flattenLayers.type) !== 'dinkster.layers' ||
+        canonicalTypeIdOf(flattenLayers.type) !== 'LAYERS' ||
         flattenSelector?.kind !== 'input' ||
         canonicalTypeIdOf(flattenSelector.type) !== 'STRING' ||
         flattenImage?.kind !== 'output' ||

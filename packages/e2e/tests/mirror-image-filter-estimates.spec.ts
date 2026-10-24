@@ -140,7 +140,7 @@ test('applies-scoped filter mirrors estimate covered operations and abstain outs
     store.apply({
       kind: 'nodeOutput', execution: ref, runtimeNodeId: 'src', timestamp: Date.now(),
       output: { image: {
-        typeId: 'dinkster.asset',
+        typeId: 'ASSET',
         meta: { digest: `blake3:${'ab'.repeat(32)}`, mediaType: 'image/png', name: 'image.png' },
       } },
     })

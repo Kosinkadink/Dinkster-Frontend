@@ -46,16 +46,16 @@ describe('Dinkster schema wire', () => {
       editorRole: 'custom-editor',
       mayExpandGraph: true,
       interface: [
-        { role: 'input', id: 'asset', type: concrete('dinkster.asset'), required: true, widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' } },
-        { role: 'input', id: 'save', type: concrete('dinkster.save_target'), required: true, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
+        { role: 'input', id: 'asset', type: concrete('ASSET'), required: true, widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' } },
+        { role: 'input', id: 'save', type: concrete('SAVE_TARGET'), required: true, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
         { role: 'input', id: 'combo', type: concrete('COMBO'), required: true, default: 'a', widget: { type: 'COMBO', options: ['a'] } },
         { role: 'input', id: 'multi', type: { kind: 'list', element: concrete('COMBO') }, required: true, default: ['a'], widget: { type: 'MULTI_COMBO', options: ['a'] } },
         { role: 'input', id: 'boolean', type: concrete('BOOLEAN'), required: true, default: true, widget: { type: 'BOOLEAN', labelOn: 'On' } },
         { role: 'input', id: 'number', type: concrete('FLOAT'), required: true, default: 0.5, widget: { type: 'NUMBER', min: 0, max: 1 } },
         { role: 'input', id: 'string', type: concrete('STRING'), required: true, default: '', widget: { type: 'STRING', multiline: true } },
         { role: 'input', id: 'color', type: concrete('STRING'), required: true, default: '#000000', widget: { type: 'COLOR' } },
-        { role: 'input', id: 'curve', type: concrete('dinkster.curve'), required: true, widget: { type: 'CURVE' } },
-        { role: 'input', id: 'compositor', type: concrete('dinkster.compositor'), required: true, widget: { type: 'COMPOSITOR' } },
+        { role: 'input', id: 'curve', type: concrete('CURVE'), required: true, widget: { type: 'CURVE' } },
+        { role: 'input', id: 'compositor', type: concrete('COMPOSITOR'), required: true, widget: { type: 'COMPOSITOR' } },
         {
           role: 'input',
           id: 'representations',
@@ -131,6 +131,37 @@ describe('Dinkster schema wire', () => {
       ['INT', { type: 'NUMBER' }],
     ] as const) {
       const rejected = parse(socket, widget)
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
+    }
+  })
+
+  it('preserves finite FLOAT constraints beyond the safe integer range without relaxing INT', () => {
+    const parse = (socket: string, constraints: object) => parseDinksterSchema('PrimitiveFloat', {
+      schemaVersion: 1,
+      interface: [{ role: 'input', id: 'value', type: concrete(socket), required: true, widget: { type: 'NUMBER', ...constraints } }],
+    })
+    const constraints = { min: -9223372036854776000, max: 1e20, step: 1e16 }
+    const result = parse('FLOAT', constraints)
+    expect(result.diagnostics).toEqual([])
+    expect(inputsOf(result.schema!)[0]?.widget).toMatchObject({ widgetType: 'FLOAT', options: constraints })
+
+    for (const [socket, invalid] of [
+      ['INT', constraints],
+      ['INT', { max: 1e20 }],
+      ['INT', { step: 1e16 }],
+      ['INT', { min: 0.5 }],
+      ['FLOAT', { min: '-9223372036854775808' }],
+      ['FLOAT', { max: '18446744073709551615' }],
+      ['FLOAT', { step: '9007199254740992' }],
+      ['FLOAT', { min: Number.NEGATIVE_INFINITY }],
+      ['FLOAT', { max: Number.POSITIVE_INFINITY }],
+      ['FLOAT', { step: Number.NaN }],
+      ['FLOAT', { min: 1e20, max: 1e19 }],
+      ['FLOAT', { step: 0 }],
+      ['FLOAT', { step: -1e16 }],
+    ] as const) {
+      const rejected = parse(socket, invalid)
       expect(rejected.schema).toBeUndefined()
       expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
     }

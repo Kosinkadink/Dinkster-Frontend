@@ -697,11 +697,11 @@ describe('retainProvenExecution', () => {
     })
     const old = execution('n', 10, artifact(), {
       nodes: { a: { state: 'done', outputs: { out: { typeId: 'INT', value: 11 } } } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const newer = execution('n-newer', 20, artifact(), {
       nodes: { a: { state: 'done', outputs: { out: { typeId: 'INT', value: 12 } } } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const retained = retainProvenExecution(current, [old, newer, current], live, [], resolveSchema)
     expect(retained.execution.nodes.a).toMatchObject({ state: 'cached', outputs: { out: { value: 12 } } })
@@ -779,7 +779,7 @@ describe('retainProvenExecution', () => {
     })
     const digest = execution('digest', 10, artifact(), {
       nodes: { b: { state: 'done' } },
-      outputs: { b: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'c'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { b: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'c'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const retained = retainProvenExecution(current, [filename, digest, current], live, [], resolveSchema)
     expect(retained.execution.outputs.a).toBeUndefined()
@@ -795,7 +795,7 @@ describe('retainProvenExecution', () => {
     const frame = { '': { channel: 'preview', payload: new ArrayBuffer(1), timestamp: 10 } }
     const prior = execution('n', 10, artifact(), {
       nodes: { a: { state: 'done' } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
       previews: { a: frame },
     })
     for (const status of ['queued', 'running', 'error', 'interrupted'] as const) {
@@ -833,9 +833,9 @@ describe('retainProvenExecution', () => {
       outputs: {
         a: {
           images: [{ filename: 'recycled.png', type: 'temp' }],
-          image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'d'.repeat(64)}`, mediaType: 'image/png' } },
+          image: { typeId: 'ASSET', meta: { digest: `blake3:${'d'.repeat(64)}`, mediaType: 'image/png' } },
         },
-        b: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } },
+        b: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } },
       },
     })
     const retained = retainProvenExecution(current, [prior, current], live, [], resolveSchema)
@@ -855,7 +855,7 @@ describe('retainProvenExecution', () => {
     const newer = execution('newer', 20, artifact(), { nodes: { b: { state: 'done' } } })
     const older = execution('older', 10, artifact(), {
       nodes: { a: { state: 'done' }, b: { state: 'done' } },
-      outputs: { b: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'f'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { b: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'f'.repeat(64)}`, mediaType: 'image/png' } } } },
       previews: { a: priorFrame },
     })
     const retained = retainProvenExecution(current, [older, newer, current], live, [], resolveSchema)
@@ -871,11 +871,11 @@ describe('retainProvenExecution', () => {
     const current = execution('n+1', 30, artifact({ scope: { kind: 'partial', targets: [] }, prompt: {} }))
     const skipped = execution('skipped', 20, artifact(), {
       nodes: { a: { state: 'skipped' } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'1'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'1'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const done = execution('done', 10, artifact(), {
       nodes: { a: { state: 'done' } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'2'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'2'.repeat(64)}`, mediaType: 'image/png' } } } },
     })
     const retained = retainProvenExecution(current, [done, skipped, current], live, [], resolveSchema)
     expect(retained.execution.outputs.a).toEqual(done.outputs.a)
@@ -887,7 +887,7 @@ describe('retainProvenExecution', () => {
     const frame = { '': { channel: 'preview', payload: new ArrayBuffer(1), timestamp: 10 } }
     const prior = execution('n', 10, artifact(), {
       nodes: { a: { state: 'done' }, b: { state: 'done' } },
-      outputs: { a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
+      outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } } },
       previews: { b: frame },
     })
     const current = execution('n+1', 20, artifact(), { status: 'queued' })
@@ -904,8 +904,8 @@ describe('retainProvenExecution', () => {
     const prior = execution('n', 10, artifact(), {
       nodes: { a: { state: 'done' }, b: { state: 'done' } },
       outputs: {
-        a: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } },
-        b: { image: { typeId: 'dinkster.asset', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } },
+        a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png' } } },
+        b: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } },
       },
     })
     const current = execution('n+1', 20, artifact(), {

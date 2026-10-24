@@ -33,7 +33,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "dinkster.save_target"
+              "SAVE_TARGET"
             ]
           },
           "required": false,
