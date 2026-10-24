@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 195,
+    "rawControl": 194,
     "inlineStyle": 65,
     "cssLiteral": 376
   },
@@ -225,12 +225,6 @@
     {
       "kind": "inlineStyle",
       "path": "packages/app/src/NodePalette.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/OutputMountSettings.tsx",
       "count": 1,
       "issue": 382
     },

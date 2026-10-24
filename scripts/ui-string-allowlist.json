@@ -101,7 +101,7 @@
   ],
   "AssetsBody.tsx": [
     "text:() const [mounts, setMounts] = createSignal",
-    "text:() const [sourceFailures, setSourceFailures] = createSignal",
+    "text:() const [retryTick, setRetryTick] = createSignal(0) const [sourceFailures, setSourceFailures] = createSignal",
     "text:([]) const [discoveryError, setDiscoveryError] = createSignal",
     "text:= 1024 && unit",
     "text:if (state.kind === 'error') return",
@@ -655,7 +655,6 @@
     "text:() const [busy, setBusy] = createSignal(false) const [raw, setRaw] = createSignal(false) const [probeCurrent, setProbeCurrent] = createSignal"
   ],
   "OutputMountSettings.tsx": [
-    "text:(); const [selected, setSelected] = createSignal(\"\"); const [saving, setSaving] = createSignal(false); const [error, setError] = createSignal(\"\"); const load = async (): Promise",
     "text:mount.mode === \"readwrite\") ?? []; const save = async (): Promise"
   ],
   "ProductControls.tsx": [

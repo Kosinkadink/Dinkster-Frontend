@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from 'solid-js'
 import type { AppState, Backend } from './app-state.js'
-import { canonicalBackendUrl } from './app-state.js'
+import { backendConnectionStatus, canonicalBackendUrl } from './app-state.js'
 import { ConnectionProfilesSection } from './ConnectionProfiles.js'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { useAppMessage } from './locale.js'
@@ -20,7 +20,7 @@ function BackendCard(props: {
   const message = useAppMessage()
   const [restarting, setRestarting] = createSignal(false)
   const [retryingSchemas, setRetryingSchemas] = createSignal(false)
-  const status = () => { props.tick(); return props.backend.connection.status.get() }
+  const status = () => { props.tick(); return backendConnectionStatus(props.backend) }
   const registry = () => { props.tick(); return props.backend.registry.get() }
   const schemaState = () => { props.tick(); return props.backend.schemaState.get() }
   const supervisor = () => { props.tick(); return props.backend.supervisor.get() }

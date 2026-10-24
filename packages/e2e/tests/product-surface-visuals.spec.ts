@@ -495,6 +495,64 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
   }
 })
 
+test('HTTP metadata errors expose shell status and panel retries', async ({ page }) => {
+  let recover = false
+  await page.route('**/offline-visual/api/**', async (route) => {
+    if (!recover) return route.fulfill({ status: 503, body: 'Metadata fixture unavailable' })
+    const response = await page.request.get(route.request().url().replace('/offline-visual', ''))
+    return route.fulfill({ response })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { id: string }
+      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string; connection: { status: { set(value: string): void } } }
+      setTabTarget(tab: string, backend: string): void
+      refreshBackendSchemas(backend: unknown): Promise<void>
+    }
+    const backend = app.addBackend('/offline-visual', 'Offline visual', false, 'dinkster')!
+    app.setTabTarget(app.activeTab()!.id, backend.id)
+    backend.connection.status.set('connected')
+    await app.refreshBackendSchemas(backend)
+  })
+  await expect(page.getByTestId('status-bar')).toContainText('disconnected')
+  await expect(page.getByTestId('status-bar')).not.toContainText('loading schemas...')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    for (const [toggle, name] of [['library-toggle', 'library'], ['assets-toggle', 'assets']] as const) {
+      await openDock(page, toggle)
+      const state = page.getByTestId('dock-zone-left').getByRole('alert').filter({ hasText: 'Backend data unavailable' })
+      await expect(state).toContainText('GET /api/nodes failed: 503')
+      await expect(state.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+      await page.mouse.move(width / 2, height / 2)
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('app-tooltip')).toBeHidden()
+      await screenshot(page, `metadata-error-${name}-${width}`)
+    }
+    await openDock(page, 'backends-sidebar-toggle')
+    const card = page.locator('[data-testid="backend-row"]').filter({ hasText: 'Offline visual' })
+    await expect(card.getByTestId('backend-schema-retry')).toBeEnabled()
+    await expect(card.getByTestId('output-mount-settings').getByRole('alert')).toContainText('GET /api/mounts failed: 503')
+    await expect(card.getByTestId('output-mount-retry')).toBeEnabled()
+    await card.getByTestId('output-mount-retry').scrollIntoViewIfNeeded()
+    await page.mouse.move(width / 2, height / 2)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('app-tooltip')).toBeHidden()
+    await screenshot(page, `metadata-error-backends-${width}`)
+    await openRail(page, 'Outputs')
+    const outputs = page.getByTestId('outputs-panel')
+    await expect(outputs.getByRole('alert')).toContainText('GET /api/nodes failed: 503')
+    await expect(outputs.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+    await screenshot(page, `metadata-error-outputs-${width}`)
+  }
+  recover = true
+  await page.getByTestId('outputs-panel').getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByTestId('outputs-panel').getByRole('alert')).toHaveCount(0)
+  await expect(page.getByTestId('status-bar')).not.toContainText('disconnected')
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

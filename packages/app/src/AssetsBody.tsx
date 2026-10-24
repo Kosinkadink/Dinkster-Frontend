@@ -12,6 +12,7 @@ import type { AssetSourceAdapter } from './asset-browser/types.js'
 import { federatedCollectionSource } from './asset-browser/federated-collection-source.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
+import { ProductButton } from './ProductControls.js'
 import { SearchState } from './SearchSurface.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
@@ -187,11 +188,13 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [discoveryError, setDiscoveryError] = createSignal<string>()
+  const [retryTick, setRetryTick] = createSignal(0)
   const [sourceFailures, setSourceFailures] = createSignal<Readonly<Record<string, AssetSourceFailurePresentation>>>({})
   let live = true
   let discoveryGeneration = 0
   onCleanup(() => { live = false })
   createEffect(() => {
+    retryTick()
     const connection = props.connection
     const generation = ++discoveryGeneration
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -280,7 +283,10 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
           </Show>
         }
       >
-        {(error) => <div class="assets-bootstrap-state" data-testid="assets-error"><SearchState kind="error" title={message('assets.discovery.error.title')} detail={error()} /></div>}
+        {(error) => <div class="assets-bootstrap-state" data-testid="assets-error">
+          <SearchState kind="error" title={message('assets.discovery.error.title')} detail={error()} />
+          <ProductButton type="button" data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
+        </div>}
       </Show>
     </div>
   )

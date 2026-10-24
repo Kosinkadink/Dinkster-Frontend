@@ -14,6 +14,17 @@ Literal colors and dimensions are reserved for user data, media content,
 calculated geometry, and other values that are not product styling. A surface
 adopts the system when it replaces and deletes the old styling.
 
+Schema catalogs, extension snapshots, mount discovery and collection pages
+have a 30-second request deadline. A stalled read leaves loading for an error
+with Retry; cancellation also prevents a late catalog from being committed.
+The shell's connection display includes schema and mount HTTP failures rather
+than treating a live WebSocket as sufficient. Library, Assets and Outputs
+show ProductEmptyState alerts for those metadata failures and retry the failed
+reads. Backends retains its schema retry and provides an output-mount retry.
+Successful reads clear the corresponding error; a failed initial mount load
+does not continue to claim it is loading. These presentation changes do not
+close the WebSocket or change backend wire contracts.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.
