@@ -273,6 +273,40 @@ describe('bounded execution activity', () => {
   })
 })
 
+describe('execution semantics display facts', () => {
+  const C0 = asConnectionId('c0')
+  const execution = { connection: C0, prompt: asPromptId('semantics') }
+
+  it('keeps one blocked reason per node and child progress under its parent', () => {
+    const store = new ExecutionStore()
+    store.apply({
+      kind: 'nodeBlocked', execution, timestamp: 1, runtimeNodeId: 'consumer',
+      blocked: { origin: 'source/value', message: 'source produced no value' },
+    })
+    store.apply({
+      kind: 'nodeBlocked', execution, timestamp: 2, runtimeNodeId: 'consumer',
+      blocked: { origin: 'alternate/value', message: 'latest root absence' },
+    })
+    store.apply({
+      kind: 'nodeExpanded', execution, timestamp: 3, runtimeNodeId: 'parent',
+      expansion: { children: ['parent/left', 'parent/right'], childCount: 2 },
+    })
+    store.apply({
+      kind: 'nodeStates', execution, timestamp: 4,
+      nodes: { 'parent/left': { state: 'done' }, 'parent/right': { state: 'running' } },
+    })
+    const state = store.get(execution)!
+    expect(state.blockedNodes).toEqual({
+      consumer: { origin: 'alternate/value', message: 'latest root absence' },
+    })
+    expect(state.expandedNodes['parent']).toEqual({
+      children: ['parent/left', 'parent/right'], childCount: 2,
+    })
+    expect(state.nodes['parent/left']?.state).toBe('done')
+    expect(state.nodes['parent/right']?.state).toBe('running')
+  })
+})
+
 describe('bounded execution value diagnostics', () => {
   const C0 = asConnectionId('c0')
   const execution = { connection: C0, prompt: asPromptId('diagnostics') }

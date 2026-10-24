@@ -13,6 +13,8 @@
 import {
   companionText,
   DEPRECATED_BADGE,
+  executionBlockedBadge,
+  executionExpandedBadge,
   executionErrorBadge,
   LOG_INFO_BADGE,
   logWarningBadge,
@@ -270,6 +272,10 @@ export interface SceneOverlayModel {
    * tooltip.
    */
   readonly runErrorsByNode: ReadonlyMap<string, readonly Diagnostic[]>
+  /** Root-absence messages projected from runtime nodes onto this canvas view. */
+  readonly blockedByNode: ReadonlyMap<string, string>
+  /** Runtime expansion child counts projected onto their visible parent nodes. */
+  readonly expandedByNode: ReadonlyMap<string, number>
   readonly portProblems: PortProblemMap
   readonly previews: Readonly<Record<string, NodePreview>>
   /** Scene node -> source authority for host-owned media element failures. */
@@ -554,6 +560,8 @@ export function deriveSceneOverlays(args: {
             ...Object.keys(exec.nodes),
             ...Object.keys(exec.outputs),
             ...Object.keys(exec.previews),
+            ...Object.keys(exec.blockedNodes ?? {}),
+            ...Object.keys(exec.expandedNodes ?? {}),
             ...exec.activities.map((activity) => activity.nodeId),
             ...exec.artifacts.map((artifact) => artifact.nodeId),
             ...exec.logs.flatMap((entry) => entry.runtimeNodeId === undefined ? [] : [entry.runtimeNodeId]),
@@ -610,6 +618,16 @@ export function deriveSceneOverlays(args: {
       if (list === undefined) runLogsByNode.set(sceneNodeId, [entry])
       else list.push(entry)
     }
+  }
+  const blockedByNode = new Map<string, string>()
+  for (const [runtimeNodeId, blocked] of Object.entries(exec?.blockedNodes ?? {})) {
+    const sceneNodeId = sceneNodeOfRuntime.get(runtimeNodeId)
+    if (sceneNodeId !== undefined) blockedByNode.set(sceneNodeId, blocked.message)
+  }
+  const expandedByNode = new Map<string, number>()
+  for (const [runtimeNodeId, expansion] of Object.entries(exec?.expandedNodes ?? {})) {
+    const sceneNodeId = sceneNodeOfRuntime.get(runtimeNodeId)
+    if (sceneNodeId !== undefined) expandedByNode.set(sceneNodeId, expansion.childCount)
   }
   // Error diagnostics anchored to each scene node of this view: the anchor
   // names a root occurrence, so the node visible HERE is the next
@@ -739,6 +757,10 @@ export function deriveSceneOverlays(args: {
     if (runErrors !== undefined && args.dismissedErrorNodes?.has(n.id) !== true) {
       list.push(executionErrorBadge(runErrors.length))
     }
+    const blocked = blockedByNode.get(n.id)
+    if (blocked !== undefined) list.push(executionBlockedBadge(blocked))
+    const expanded = expandedByNode.get(n.id)
+    if (expanded !== undefined) list.push(executionExpandedBadge(expanded))
     const nodeLogs = runLogsByNode.get(n.id)
     if (nodeLogs !== undefined) {
       const warnings = nodeLogs.reduce((total, entry) => entry.level === 'warning' ? total + 1 : total, 0)
@@ -939,6 +961,8 @@ export function deriveSceneOverlays(args: {
     badges,
     runLogsByNode,
     runErrorsByNode,
+    blockedByNode,
+    expandedByNode,
     portProblems: args.portProblems ?? {},
     previews,
     previewSources,

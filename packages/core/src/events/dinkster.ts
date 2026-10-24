@@ -31,7 +31,7 @@
 
 import { asPromptId, type ConnectionId, type ExecutionRef } from '../ids.js'
 import type { RuntimeErrorDetail, RuntimeErrorHint } from '../diagnostics.js'
-import { isValueDiagnostic, type EventNormalizer, type NodeActivity, type NodeOutputSummary, type NodeProgress, type NormalizedEvent, type OnMalformedEvent, type ValueDiagnostic } from './contract.js'
+import { isValueDiagnostic, type EventNormalizer, type NodeActivity, type NodeExpansion, type NodeOutputSummary, type NodeProgress, type NormalizedEvent, type OnMalformedEvent, type ValueDiagnostic } from './contract.js'
 import { COMPOSITOR_STATE_PREVIEW_CHANNEL, COMPOSITOR_STATE_PREVIEW_STREAM, compositorStateOf } from '../compositor.js'
 import { GLSL_STATE_PREVIEW_CHANNEL, GLSL_STATE_PREVIEW_STREAM, glslShaderStateOf } from '../glsl-shader.js'
 import { isPackJsonObject, type EffectiveExtensionSnapshot } from '../extensions/manifest.js'
@@ -144,6 +144,8 @@ const KNOWN_JOB_EVENTS: ReadonlySet<string> = new Set([
   'node_finished',
   'node_failed',
   'node_skipped',
+  'node_blocked',
+  'node_expanded',
   'value_diagnostics',
   'node_event',
   'run_finished',
@@ -371,6 +373,26 @@ export class DinksterNormalizer implements EventNormalizer {
           ...(origin !== undefined ? { skipOrigin: origin } : {}),
           ...(reason !== undefined ? { skipReason: reason } : {}),
         })
+      }
+      case 'node_blocked': {
+        const origin = str(detail?.['origin'])
+        const message = str(detail?.['message'])
+        if (nodeId === undefined || origin === undefined || message === undefined) {
+          return this.malformed('node_blocked with malformed detail')
+        }
+        return [{ kind: 'nodeBlocked', execution, timestamp, runtimeNodeId: nodeId, blocked: { origin, message } }]
+      }
+      case 'node_expanded': {
+        const children = detail?.['children']
+        const childCount = num(detail?.['childCount'])
+        if (
+          nodeId === undefined || !Array.isArray(children) ||
+          children.some((child) => str(child) === undefined) ||
+          childCount === undefined || !Number.isSafeInteger(childCount) || childCount < 0 ||
+          childCount !== children.length
+        ) return this.malformed('node_expanded with malformed detail')
+        const expansion: NodeExpansion = { children: [...children] as string[], childCount }
+        return [{ kind: 'nodeExpanded', execution, timestamp, runtimeNodeId: nodeId, expansion }]
       }
       case 'value_diagnostics':
         return this.normalizeValueDiagnostics(execution, timestamp, nodeId, detail)

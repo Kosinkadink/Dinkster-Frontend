@@ -21,6 +21,8 @@ import {
   type ExecutionEvent,
   type ExecutionRef,
   type NodeActivity,
+  type NodeBlockedReason,
+  type NodeExpansion,
   type NodeProgress,
   type NormalizedEvent,
   type RegionProgress,
@@ -100,6 +102,10 @@ export interface ExecutionState {
   readonly status: ExecutionStatus
   /** runtime node id -> latest progress. */
   readonly nodes: Readonly<Record<string, NodeProgress>>
+  /** runtime node id -> one root-absence explanation. */
+  readonly blockedNodes: Readonly<Record<string, NodeBlockedReason>>
+  /** runtime parent id -> children created by that parent. */
+  readonly expandedNodes: Readonly<Record<string, NodeExpansion>>
   /** runtime region id -> lifecycle progress. */
   readonly regions: Readonly<Record<string, RegionProgress>>
   /** runtime node id -> accumulated UI outputs (images, text, ...). */
@@ -389,6 +395,8 @@ export class ExecutionStore {
       artifact,
       status: 'queued',
       nodes: {},
+      blockedNodes: {},
+      expandedNodes: {},
       regions: {},
       outputs: {},
       artifacts: [],
@@ -428,6 +436,8 @@ export class ExecutionStore {
       artifact: state.artifact,
       status: 'completed',
       nodes: state.nodes,
+      blockedNodes: {},
+      expandedNodes: {},
       regions: {},
       outputs: state.outputs,
       artifacts: state.artifacts,
@@ -573,6 +583,18 @@ export class ExecutionStore {
         this.put({ ...state, status: state.status === 'queued' ? 'running' : state.status, nodes })
         return
       }
+      case 'nodeBlocked':
+        this.put({
+          ...state,
+          blockedNodes: { ...state.blockedNodes, [event.runtimeNodeId]: event.blocked },
+        })
+        return
+      case 'nodeExpanded':
+        this.put({
+          ...state,
+          expandedNodes: { ...state.expandedNodes, [event.runtimeNodeId]: event.expansion },
+        })
+        return
       case 'nodeOutput': {
         const merged = { ...state.outputs[event.runtimeNodeId], ...event.output }
         this.put({ ...state, outputs: { ...state.outputs, [event.runtimeNodeId]: merged } })
@@ -930,6 +952,8 @@ export class ExecutionStore {
       key,
       status: 'queued',
       nodes: {},
+      blockedNodes: {},
+      expandedNodes: {},
       regions: {},
       outputs: {},
       artifacts: [],

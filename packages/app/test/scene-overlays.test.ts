@@ -1224,6 +1224,21 @@ describe('deriveSceneOverlays', () => {
     expect(m.runLogsByNode.has('n3')).toBe(false)
   })
 
+  it('projects blocked and expanded runtime facts onto their canvas nodes', () => {
+    const m = deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'consumer' }, { id: 'parent' }]),
+      exec: exec({
+        blockedNodes: { consumer: { origin: 'source/value', message: 'source produced no value' } },
+        expandedNodes: { parent: { children: ['parent/left', 'parent/right'], childCount: 2 } },
+      }),
+    })
+    expect(m.blockedByNode.get('consumer')).toBe('source produced no value')
+    expect(m.expandedByNode.get('parent')).toBe(2)
+    expect(m.badges['consumer']?.map((badge) => badge.glyph)).toEqual(['Blocked: source produced no value'])
+    expect(m.badges['parent']?.map((badge) => badge.glyph)).toEqual(['2 children'])
+  })
+
   it('attributes media warning badges to exact nested occurrences without marking execution failed', () => {
     const execution = exec({
       valueDiagnostics: [

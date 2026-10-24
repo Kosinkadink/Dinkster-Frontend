@@ -32,6 +32,8 @@ const execution = (
     } as unknown as CompileArtifact,
     status,
     nodes: {},
+    blockedNodes: {},
+    expandedNodes: {},
     regions: {},
     outputs: {},
     artifacts: [],
