@@ -684,6 +684,9 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
   })
   await openModal(page, 'collab')
   await expect(page.getByTestId('collab-loading')).toContainText('Loading shared sessions')
+  const spinner = await page.getByTestId('collab-loading').locator('.collab-spinner').boundingBox()
+  expect(spinner!.width).toBeGreaterThan(8)
+  expect(spinner!.height).toBe(spinner!.width)
   await capture('loading')
   mode = 'empty'
   await expect.poll(() => release !== undefined).toBe(true)
@@ -699,6 +702,34 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
   await page.getByTestId('collab-refresh').click()
   await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
   await expect(page.getByTestId('collab-list-error')).toHaveCount(0)
+})
+
+test('App view explains an empty flow and an empty arrangement group', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'empty-app-visual', root: 'root',
+      graphs: { root: { id: 'root', name: 'Empty app', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { root: { nodes: {} } } },
+    }, 'Empty app')
+  })
+  await page.getByTestId('views-switcher').click()
+  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await expect(page.getByTestId('app-view-empty')).toContainText('Nothing is exposed yet.')
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `app-flow-empty-${width}`)
+  }
+  await page.getByTestId('app-view-arrange-toggle').click()
+  await page.getByTestId('app-layout-add-group').click()
+  await expect(page.getByText('Move a control, preview, or text block into this group.', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `app-group-empty-${width}`)
+  }
 })
 
 test('dock visual matrix', async ({ page }) => {

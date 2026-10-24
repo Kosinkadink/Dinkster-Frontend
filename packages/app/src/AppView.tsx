@@ -67,6 +67,7 @@ import { Icon } from './Icon.js'
 import { ProductButton, ProductCheckbox, ProductTextArea, ProductTextInput } from './ProductControls.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { AppWidgetPreview } from './AppWidgetPreview.js'
 import { AppPreviewSurface } from './AppPreviewSurface.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
@@ -1945,7 +1946,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             }}
           </For>
           <Show when={arrange() && groupProps.flow.children.length === 0}>
-            <p class="app-layout-group-empty" role="listitem">{message('appView.group.empty')}</p>
+            <div role="listitem"><ProductEmptyState title={message('appView.group.empty')} /></div>
           </Show>
         </div>
       </section>
@@ -2287,9 +2288,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       <Show
         when={flowItems().length > 0}
         fallback={
-          <p class="app-view-empty" data-testid="app-view-empty">
-            {message('appView.empty')}
-          </p>
+          <ProductEmptyState testId="app-view-empty" title={message('appView.empty')} />
         }
       >
         <div class="app-view-rows">

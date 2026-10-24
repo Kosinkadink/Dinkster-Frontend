@@ -7107,7 +7107,6 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .app-layout-queue-targets legend { padding: 0 var(--dinkster-space-4); color: var(--dinkster-text-secondary); }
 .app-layout-queue-targets label { display: grid; grid-template-columns: auto 1fr; column-gap: var(--dinkster-space-8); align-items: center; }
 .app-layout-queue-targets small { grid-column: 2; color: var(--dinkster-text-muted); }
-.app-view-empty { color: #999; }
 .app-view-rows,
 .app-layout-flow { display: flex; flex-direction: column; gap: 12px; }
 .app-view-row {
@@ -7200,7 +7199,6 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .app-layout-group-children { display: flex; flex-direction: column; gap: var(--dinkster-space-8); }
 .app-layout-group-child { min-width: 0; }
 .app-layout-group-child > .app-view-row { background: var(--dinkster-surface-raised); border-color: var(--dinkster-border-subtle); }
-.app-layout-group-empty { margin: 0; padding: var(--dinkster-space-16); color: var(--dinkster-text-muted); text-align: center; border: 1px dashed var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
 .app-layout-missing { flex-direction: row; align-items: center; justify-content: space-between; }
 .app-layout-missing .app-layout-item-toolbar { margin-left: auto; }
 .app-layout-grid {
@@ -7555,7 +7553,7 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .collab-session-list .collab-session-card > button { justify-self: end; }
 .collab-session-list .product-notice { margin: 0; }
 .collab-revision { flex: none; padding: 2px var(--dinkster-space-8); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); border-radius: var(--dinkster-radius-capsule); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.collab-spinner { width: var(--dinkster-space-12); height: var(--dinkster-space-12); flex: none; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: collab-spin var(--dinkster-motion-standard) linear infinite; }
+.collab-spinner { display: inline-block; width: var(--dinkster-space-12); height: var(--dinkster-space-12); flex: none; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: collab-spin var(--dinkster-motion-standard) linear infinite; }
 @keyframes collab-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1400px) {

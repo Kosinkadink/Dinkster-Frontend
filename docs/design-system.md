@@ -46,6 +46,10 @@ politely and errors are alerts. Refresh remains available after a failed read;
 retrying clears the error when discovery succeeds. The unshared workflow keeps
 its focus target and explanation of how to share from the tab menu.
 
+App view uses ProductEmptyState when nothing is exposed and when an arrangement
+group has no children. The empty group retains its list-item semantics and
+instructions for moving content into the group.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.
