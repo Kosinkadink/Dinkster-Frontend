@@ -1091,6 +1091,37 @@ test('Compositor missing runtime state keeps its explanation and Cancel action',
   await page.evaluate(() => (window as unknown as { disposeCompositorVisual(): void }).disposeCompositorVisual())
 })
 
+test('Search loading, empty and provider error states retain their explanations', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const componentPath = '/src/SearchSurface.tsx'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { SearchState } = await import(componentPath)
+    const { render } = await import(rendererPath)
+    const host = document.createElement('section')
+    host.style.cssText = 'position:absolute;top:64px;left:32px;right:32px;max-width:420px;display:grid;gap:16px;z-index:20'
+    host.setAttribute('aria-label', 'Search states')
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => [
+      SearchState({ kind: 'loading', title: 'Searching Assets', detail: 'Waiting for this source to return matching assets.' }),
+      SearchState({ kind: 'empty', title: 'No matches', detail: 'Try another query or choose a different source.' }),
+      SearchState({ kind: 'error', title: 'Provider unavailable', detail: 'Assets could not return results. Other providers remain available.' }),
+    ], host)
+    ;(window as unknown as { disposeSearchVisual: () => void }).disposeSearchVisual = () => { dispose(); host.remove() }
+  })
+  const states = page.getByRole('region', { name: 'Search states' })
+  await expect(states.getByText('Searching Assets', { exact: true })).toBeVisible()
+  await expect(states.getByText('No matches', { exact: true })).toBeVisible()
+  await expect(states.getByText('Provider unavailable', { exact: true })).toBeVisible()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `search-states-${width}`)
+  }
+  await page.evaluate(() => (window as unknown as { disposeSearchVisual(): void }).disposeSearchVisual())
+})
+
 test('GLSL editor missing-data and refused-preview states preserve editing and diagnostics', async ({ page }) => {
   await boot(page)
   await closeGallery(page)

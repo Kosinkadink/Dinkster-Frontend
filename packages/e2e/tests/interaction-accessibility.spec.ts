@@ -271,9 +271,9 @@ test('reduced-motion preference removes loading and switch motion', async ({ pag
   })
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('? pending')
-  const loading = page.locator('[data-provider="proof.reduced-motion"] .search-state-loading')
+  const loading = page.locator('[data-provider="proof.reduced-motion"] [data-search-state="loading"]')
   await expect(loading).toBeVisible()
-  expect(await loading.locator('.search-state-icon').evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0s')
+  expect(await loading.locator('.search-progress').evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0s')
   await captureSurface(page.locator('.search-dialog'), testInfo, 'reduced-motion-search-loading')
   await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
     readonly searchOpen: { set(value: boolean): void }

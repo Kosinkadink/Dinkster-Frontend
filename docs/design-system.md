@@ -79,6 +79,12 @@ The workflow queue popover uses ProductEmptyState when its owner has no jobs.
 Queue activation, disclosure, keyboard navigation and Escape focus restoration
 remain owned by the queue control.
 
+Search feedback in the asset picker, node palette and universal search uses
+ProductEmptyState for loading, no matches and provider failures. Loading is a
+polite status with a decorative spinner that respects reduced motion; provider
+failures are alerts. Result selection and provider isolation remain owned by
+the search surfaces.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.
