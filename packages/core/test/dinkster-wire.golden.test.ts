@@ -136,6 +136,37 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('preserves finite FLOAT constraints beyond the safe integer range without relaxing INT', () => {
+    const parse = (socket: string, constraints: object) => parseDinksterSchema('PrimitiveFloat', {
+      schemaVersion: 1,
+      interface: [{ role: 'input', id: 'value', type: concrete(socket), required: true, widget: { type: 'NUMBER', ...constraints } }],
+    })
+    const constraints = { min: -9223372036854776000, max: 1e20, step: 1e16 }
+    const result = parse('FLOAT', constraints)
+    expect(result.diagnostics).toEqual([])
+    expect(inputsOf(result.schema!)[0]?.widget).toMatchObject({ widgetType: 'FLOAT', options: constraints })
+
+    for (const [socket, invalid] of [
+      ['INT', constraints],
+      ['INT', { max: 1e20 }],
+      ['INT', { step: 1e16 }],
+      ['INT', { min: 0.5 }],
+      ['FLOAT', { min: '-9223372036854775808' }],
+      ['FLOAT', { max: '18446744073709551615' }],
+      ['FLOAT', { step: '9007199254740992' }],
+      ['FLOAT', { min: Number.NEGATIVE_INFINITY }],
+      ['FLOAT', { max: Number.POSITIVE_INFINITY }],
+      ['FLOAT', { step: Number.NaN }],
+      ['FLOAT', { min: 1e20, max: 1e19 }],
+      ['FLOAT', { step: 0 }],
+      ['FLOAT', { step: -1e16 }],
+    ] as const) {
+      const rejected = parse(socket, invalid)
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
+    }
+  })
+
   it('rejects nested and mixed-domain widget representations', () => {
     const parse = (representations: readonly unknown[]) => parseDinksterSchema('Representations', {
       schemaVersion: 1,

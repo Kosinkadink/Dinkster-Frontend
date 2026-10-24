@@ -414,6 +414,11 @@ The current schema includes NUMBER display, MULTI_COMBO, structured combo
 choices, and exact decimal integer bounds without losing options or rounding
 seed bounds. Invalid descriptors keep their diagnostics.
 
+NUMBER constraint exactness follows the socket type. FLOAT accepts finite
+numeric bounds and positive steps, including whole-valued doubles beyond the
+safe integer range, but never decimal strings. INT requires safe numeric
+integers or canonical exact decimal strings for bounds and positive steps.
+
 This table inventories every family registered by `registerCoreWidgets`. The
 schema column names only metadata currently carried by `WidgetSpec`; absence is
 intentional and the UI must not infer backend behavior or synthetic limits.
