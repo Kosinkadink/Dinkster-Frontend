@@ -601,6 +601,12 @@ function cloneJsonValue(value: unknown, where: string): unknown {
   throw new Error(`${where} must be JSON-safe`)
 }
 
+function numericWidgetType(type: TypeExpr): 'INT' | 'FLOAT' | undefined {
+  if (type.kind === 'concrete' && (type.name === 'INT' || type.name === 'FLOAT')) return type.name
+  if (type.kind === 'union' && type.names.length === 2 && type.names.includes('INT') && type.names.includes('FLOAT')) return 'FLOAT'
+  return undefined
+}
+
 function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string): void {
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
@@ -625,14 +631,15 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
         throw new Error(`${where} requires list<COMBO>`)
       }
       return
-    case 'NUMBER':
-      if (socket !== 'INT' && socket !== 'FLOAT') {
-        throw new Error(`${where} requires a concrete INT or FLOAT input`)
+    case 'NUMBER': {
+      const numericKind = numericWidgetType(type)
+      if (numericKind === undefined) {
+        throw new Error(`${where} requires INT, FLOAT, or their numeric-only union`)
       }
-      if (descriptor['round'] !== undefined && socket !== 'FLOAT') {
+      if (descriptor['round'] !== undefined && numericKind !== 'FLOAT') {
         throw new Error(`${where}.round requires FLOAT`)
       }
-      if (socket === 'INT') {
+      if (numericKind === 'INT') {
         for (const key of ['min', 'max', 'step']) {
           const value = descriptor[key]
           if (value !== undefined && !Number.isSafeInteger(value) && !isCanonicalUnsafeInteger(value)) {
@@ -643,6 +650,7 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
         throw new Error(`${where} decimal integer constraints require INT`)
       }
       return
+    }
     case 'SAVE_TARGET':
       if (socket !== 'SAVE_TARGET') throw new Error(`${where} requires a concrete SAVE_TARGET input`)
       return
@@ -777,6 +785,7 @@ function widgetFor(
     }
     validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`)
     if (type.kind === 'list' && (descriptor.type === 'STRING' || descriptor.type === 'NUMBER')) {
+      if (type.element.kind !== 'concrete') throw new Error(`${nodeType}.${id}: list widget requires a concrete primitive element`)
       // Decode the element through the same scalar binding and precision rules.
       validateStrictWidgetBinding(wire as Record<string, unknown>, type.element, `${nodeType}.${id} widget element`)
       const element = widgetFor(nodeType, id, type.element, undefined, wire, diags, false)
@@ -981,7 +990,7 @@ function widgetFor(
     // metadata never hides an editor. Integer sockets retain unsafe
     // constraints as canonical decimal strings; float sockets remain numbers.
     if (descriptor.type === 'NUMBER') {
-      const numericKind = type.kind === 'concrete' ? PRIMITIVE_WIDGETS[type.name] : undefined
+      const numericKind = numericWidgetType(type)
       if (numericKind !== 'INT' && numericKind !== 'FLOAT') {
         diags.push(
           diag('warning', 'schema', 'schema.dinkster.badNumberSocket', `${nodeType}.${id}: NUMBER descriptor on a non-numeric input; descriptor dropped`),

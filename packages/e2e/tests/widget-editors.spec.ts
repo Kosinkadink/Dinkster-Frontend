@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -135,6 +136,46 @@ test.beforeEach(async ({ page }) => {
     }, 'Widget Editors')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+})
+
+test('numeric union uses FLOAT editing in canvas and exposed AppView without changing its socket', async ({ page }, testInfo) => {
+  const fixture = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1,
+    dinkster: { version: 'numeric-union-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
+    nodes: { 'test.numeric_union': fixture.nodes['test.numeric_union'] },
+  } }))
+  await page.reload()
+  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.settings.set('features.appView.enabled', true)
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-union-editors', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Frame rate', nodes: { widgets: { id: 'widgets', type: 'test.numeric_union', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Frame rate')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'frame_rate')))
+  await openEditor(page, 'frame_rate')
+  const editor = page.getByTestId('widget-editor')
+  const field = editor.locator('input')
+  await expect(editor).toHaveAttribute('data-editor-mode', 'FLOAT')
+  await expect(field).toHaveValue('25')
+  await field.fill('23.976')
+  await page.screenshot({ path: testInfo.outputPath('numeric-union-canvas.png'), animations: 'disabled' })
+  await field.press('Enter')
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.frame_rate).toBe(23.976)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'frame_rate' } }))
+  await page.getByTestId('views-switcher').click()
+  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  const exposed = page.getByTestId('app-view-number')
+  await expect(exposed).toHaveValue('23.976')
+  await exposed.fill('24')
+  await exposed.blur()
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.frame_rate).toBe(24)
+  await page.screenshot({ path: testInfo.outputPath('numeric-union-app-view.png'), animations: 'disabled' })
 })
 
 test('primitive list edits preserve arrays in canvas and exposed AppView controls', async ({ page }, testInfo) => {

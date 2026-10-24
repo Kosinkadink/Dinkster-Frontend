@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile/compile.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
@@ -12,6 +13,66 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
+    const production = parseDinksterSchema('test.numeric_union', fixture.nodes['test.numeric_union'])
+    expect(production.diagnostics).toEqual([])
+    expect(inputsOf(production.schema!)[0]).toMatchObject({
+      type: { kind: 'union', names: ['FLOAT', 'INT'] },
+      widget: { widgetType: 'FLOAT', default: 25, options: { min: 1, max: 1000, step: 0.01, display: 'number' } },
+    })
+    const widget = { type: 'NUMBER', min: 1, max: 1000, step: 0.01, round: false, display: 'number' }
+    for (const types of [['FLOAT', 'INT'], ['INT', 'FLOAT']]) {
+      const decoded = parseDinksterSchema('NumericUnion', {
+        schemaVersion: 1,
+        outputNode: true,
+        interface: [{ role: 'input', id: 'frame_rate', type: { kind: 'union', types }, required: true, default: 25, widget }],
+      })
+      expect(decoded.diagnostics).toEqual([])
+      expect(inputsOf(decoded.schema!)[0]).toMatchObject({
+        type: { kind: 'union', names: types },
+        widget: { widgetType: 'FLOAT', default: 25, options: { min: 1, max: 1000, step: 0.01, round: false, display: 'number' } },
+      })
+      const resolve = (type: string) => type === 'NumericUnion' ? decoded.schema : undefined
+      for (const value of [24, 23.976]) {
+        for (const widgets_values of [[value], { frame_rate: value }]) {
+          const imported = importLitegraph({ version: 0.4, nodes: [{ id: 1, type: 'NumericUnion', widgets_values }], links: [] }, resolve)
+          expect(imported.diagnostics).toEqual([])
+          const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('numeric-union'), schemaHash: 'numeric-union' })
+          expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+          if (!compiled.ok) throw new Error('numeric union compilation failed')
+          expect(compiled.artifact.prompt.n1!.inputs).toEqual({ frame_rate: value })
+        }
+      }
+      const represented = parseDinksterSchema('NumericUnion', {
+        schemaVersion: 1,
+        interface: [{ role: 'input', id: 'frame_rate', type: { kind: 'union', types }, required: true, widget: {
+          type: 'REPRESENTATIONS', default: 'number', userSwitchable: false,
+          representations: [{ id: 'number', widget: { ...widget, round: 0.01 } }],
+        } }],
+      })
+      expect(represented.diagnostics).toEqual([])
+      expect(inputsOf(represented.schema!)[0]!.widget).toMatchObject({ widgetType: 'FLOAT', options: { round: 0.01 } })
+    }
+  })
+
+  it('keeps numeric union widget support closed to the INT/FLOAT scalar domain', () => {
+    for (const type of [
+      { kind: 'union', types: ['FLOAT', 'STRING'] },
+      { kind: 'union', types: ['FLOAT', 'INT', 'BOOLEAN'] },
+      { kind: 'union', types: ['INT', 'BOOLEAN'] },
+      { kind: 'list', element: { kind: 'union', types: ['INT', 'FLOAT'] } },
+      { kind: 'wildcard' },
+    ]) {
+      const decoded = parseDinksterSchema('BadNumericUnion', {
+        schemaVersion: 1,
+        interface: [{ role: 'input', id: 'value', type, required: true, widget: { type: 'NUMBER', min: 1, step: 0.01 } }],
+      })
+      expect(decoded.schema).toBeUndefined()
+      expect(decoded.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+    }
+  })
+
   it('binds primitive list widgets without changing their socket or scalar output', () => {
     for (const [name, widget] of [
       ['STRING', { type: 'STRING', multiline: false }],
