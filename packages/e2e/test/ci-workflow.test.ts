@@ -110,7 +110,7 @@ describe('fast pull-request and full validation workflows', () => {
     }
   })
 
-  it('runs exactly one bounded job without a PR label path', () => {
+  it('requires product screenshots and bounded fast checks without a PR label path', () => {
     expect(fast.on).toEqual({
       pull_request: null,
       workflow_dispatch: {
@@ -129,13 +129,16 @@ describe('fast pull-request and full validation workflows', () => {
       group: 'ci-${{ github.workflow }}-${{ github.ref }}',
       'cancel-in-progress': true,
     })
-    expect(Object.keys(fast.jobs)).toEqual(['fast'])
+    expect(Object.keys(fast.jobs)).toEqual(['fast', 'visual'])
     const job = fast.jobs['fast']!
+    expect(job.needs).toBe('visual')
+    expect(job.if).toBe('always()')
     expect(job['timeout-minutes']).toBe(10)
     expect(job['runs-on']).toBe(
       "${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}",
     )
     expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
+      "test '${{ needs.visual.result }}' = success",
       'pnpm install --frozen-lockfile',
       'pnpm ci:fast',
     ])

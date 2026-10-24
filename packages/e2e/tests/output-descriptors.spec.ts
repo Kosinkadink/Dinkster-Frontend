@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from './fixtures.js'
 
 async function openDescriptors(page: Page): Promise<void> {
@@ -55,26 +54,13 @@ const stored = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.ac
 const pins = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'n')!.layout.pins.filter((pin) => pin.direction === 'out' && !pin.widgetTap).map((pin) => pin.address.port))
 
 test('descriptor controls and stored JSON at desktop and compact widths', async ({ page }) => {
-  for (const weight of ['Regular', 'Bold']) {
-    await page.route(`/visual-font-${weight}.ttf`, (route) => route.fulfill({
-      contentType: 'font/ttf',
-      path: fileURLToPath(new URL(`../fixtures/fonts/NotoSans-${weight}.ttf`, import.meta.url)),
-    }))
-  }
   await setup(page)
-  await page.addStyleTag({ content: `
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Regular.ttf'); font-weight: 100 500; }
-    @font-face { font-family: ProductVisual; src: url('/visual-font-Bold.ttf'); font-weight: 600 900; }
-    :root { --dinkster-font-family: ProductVisual, sans-serif !important; }
-  ` })
   await page.evaluate(async () => {
-    await Promise.all([document.fonts.load('400 13px ProductVisual'), document.fonts.load('700 13px ProductVisual')])
     window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
       graphId: 'root', nodeId: 'n', inputId: 'entries',
       value: JSON.stringify({ entries: [{ id: 'm0', name: 'Result', type: 'float', expression: 'a+b' }], extra: { preserved: true } }),
     } })
   })
-  expect(await page.evaluate(() => document.fonts.check('13px ProductVisual'))).toBe(true)
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
     await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: -100, scale: 1 }))
