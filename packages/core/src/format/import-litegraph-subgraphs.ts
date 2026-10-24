@@ -176,6 +176,11 @@ export function importLitegraphSubgraphs(
       const view = document.view.graphs[id]
       if (view !== undefined) views[target] = view
     }
+    for (const [id] of generated) {
+      const graph = graphs[ids.get(id)!]!
+      const derived = deriveBoundarySchema(graph, localResolve)
+      if (derived.schema) schemas.set(derived.schema.type, derived.schema)
+    }
     definitionTopologies.set(owner, Object.values(document.occurrenceTopologies ?? {}).map((topology) => ({
       ...topology,
       bodyGraph: (ids.get(topology.bodyGraph) ?? topology.bodyGraph) as OccurrenceTopology['bodyGraph'],
