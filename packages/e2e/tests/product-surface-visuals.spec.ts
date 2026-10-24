@@ -201,7 +201,7 @@ test('populated compositor controls at desktop and compact widths', async ({ pag
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'CompositorVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
-      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'dinkster.compositor' },
+      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'COMPOSITOR' },
         widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
     }])
     const diagnostics = app.openDocument({

@@ -45,7 +45,7 @@ test.beforeEach(async ({ page }) => {
             role: 'input',
             id: 'curve',
             required: true,
-            type: { kind: 'concrete', types: ['dinkster.curve'] },
+            type: { kind: 'concrete', types: ['CURVE'] },
             widget: { type: 'CURVE' },
             default: {
               interpolation: 'linear',

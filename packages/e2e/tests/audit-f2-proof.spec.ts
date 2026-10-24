@@ -50,7 +50,7 @@ test('proves product select semantics across the five replacement sites', async 
     }, {
       type: 'SaveProof', displayName: 'Save Proof', category: 'proof', source: 'v3', isOutputNode: true,
       items: [{
-        kind: 'input', id: 'target', displayName: 'Target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: true,
+        kind: 'input', id: 'target', displayName: 'Target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
         widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, default: { mount: 'output', prefix: 'proof' } },
       }],
     }])

@@ -48,7 +48,7 @@ const compositorPayload = (): DinksterNodesPayload => ({
       interface: [
         {
           role: 'input', id: 'recipe', required: false,
-          type: { kind: 'concrete', types: ['dinkster.compositor'] },
+          type: { kind: 'concrete', types: ['COMPOSITOR'] },
           default: EMPTY_COMPOSITOR_RECIPE,
           widget: { type: 'COMPOSITOR' },
         },
@@ -61,7 +61,7 @@ const compositorPayload = (): DinksterNodesPayload => ({
       category: 'test',
       idempotent: true,
       interface: [
-        { role: 'output', id: 'out', type: { kind: 'concrete', types: ['dinkster.compositor'] } },
+        { role: 'output', id: 'out', type: { kind: 'concrete', types: ['COMPOSITOR'] } },
       ],
     },
   },
@@ -78,7 +78,7 @@ const curveFollowPayload = (): DinksterNodesPayload => ({
       schemaVersion: 1, displayName: 'Audio envelope', category: 'audio', idempotent: true, editorRole: 'audio-envelope',
       interface: [
         { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['comfy.AUDIO'] } },
-        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } },
+        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
       ],
     },
     'dinkster.curve.editor': {
@@ -86,15 +86,15 @@ const curveFollowPayload = (): DinksterNodesPayload => ({
       interface: [
         {
           role: 'input', id: 'curve', required: false,
-          type: { kind: 'concrete', types: ['dinkster.curve'] }, widget: { type: 'CURVE' },
+          type: { kind: 'concrete', types: ['CURVE'] }, widget: { type: 'CURVE' },
           default: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] },
         },
-        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } },
+        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
       ],
     },
     OtherCurve: {
       schemaVersion: 1, displayName: 'Other curve', category: 'test', idempotent: true,
-      interface: [{ role: 'output', id: 'curve', type: { kind: 'concrete', types: ['dinkster.curve'] } }],
+      interface: [{ role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } }],
     },
   },
 }) as unknown as DinksterNodesPayload

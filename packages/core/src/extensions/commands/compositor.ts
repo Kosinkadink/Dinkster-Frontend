@@ -78,7 +78,7 @@ function imageCompositorApplyOf(resolve?: (type: string) => NodeSchema | undefin
         return [commandError('image.compositorInputInvalid', 'image.compositorApply: target node does not own the compositor role')]
       }
       const input = schema.items.find((item) => item.kind === 'input' && item.id === params.inputId)
-      if (input?.kind !== 'input' || input.widget?.widgetType !== 'COMPOSITOR' || canonicalTypeIdOf(input.type) !== 'dinkster.compositor') {
+      if (input?.kind !== 'input' || input.widget?.widgetType !== 'COMPOSITOR' || canonicalTypeIdOf(input.type) !== 'COMPOSITOR') {
         return [
           commandError(
             'image.compositorInputInvalid',
