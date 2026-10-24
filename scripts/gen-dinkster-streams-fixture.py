@@ -54,7 +54,7 @@ from dinkster_schema import (  # noqa: E402
     report_preview,
     report_progress,
 )
-from dinkster_values import TypeRegistry, register_core_types  # noqa: E402
+from dinkster_values import CORE_BOOLEAN, CORE_INT, TypeRegistry, register_core_types  # noqa: E402
 
 server_dir = f"{P}/dinkster-server/src/dinkster_server"
 server_package = types.ModuleType("dinkster_server")
@@ -77,7 +77,7 @@ NODE_STATE_FOR_KIND = {
     "node_skipped": "skipped",
 }
 
-INT = TypeExpr.concrete("core.int")
+INT = TypeExpr.concrete(CORE_INT)
 
 
 class MaybeProduce(Node):
@@ -85,7 +85,7 @@ class MaybeProduce(Node):
     def define_schema(cls) -> NodeSchema:
         return NodeSchema(
             node_type="test.maybe_produce",
-            inputs=(InputSpec("produce", TypeExpr.concrete("core.boolean")),),
+            inputs=(InputSpec("produce", TypeExpr.concrete(CORE_BOOLEAN)),),
             outputs=(OutputSpec("value", INT, optional=True),),
         )
 
@@ -126,7 +126,7 @@ class Previewer(Node):
 
 
 class Repeat(Node):
-    """Produces a list<core.int> so recorded streams carry a real per-output
+    """Produces a list<INT> so recorded streams carry a real per-output
     summary WITH a length field (node_finished/node_cached detail.outputs)."""
 
     @classmethod
