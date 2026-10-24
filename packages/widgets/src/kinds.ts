@@ -257,9 +257,8 @@ export const listKind: WidgetKind<Json[]> = {
       return [diag('error', 'schema', 'widget.LIST.invalidElement', `Enter a JSON array of ${spec.element?.widgetType ?? 'primitive'} values.`)]
     }
     const element = spec.element!
-    return value.flatMap((item) => element.widgetType === 'INT'
-      ? integerRangeDiags(item as IntegerWidgetValue, element)
-      : element.widgetType === 'FLOAT' ? rangeDiags(item as number, element, 'FLOAT') : [])
+    const kind = ({ INT: intKind, FLOAT: floatKind, STRING: stringKind } as Readonly<Record<string, WidgetKind>>)[element.widgetType]!
+    return value.flatMap((item) => kind.validate(item, element))
   },
   defaultView: () => 'core.list',
 }

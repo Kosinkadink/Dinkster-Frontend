@@ -78,6 +78,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   const host = props.editor
   const ed = host.ed
   const list = ed.spec?.widgetType === 'LIST'
+  const text = ed.spec?.widgetType === 'STRING'
   const initialText = list ? JSON.stringify(ed.initial ?? []) : String(ed.initial ?? '')
   const fieldIds = productFieldIds('widget-editor-value')
   const [error, setError] = createSignal<string>()
@@ -87,7 +88,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
 
   const commitTarget = (value: Json): void => {
     if (!live) return
-    if (ed.spec?.widgetType === 'STRING' && typeof value === 'string' && ed.target.kind === 'input') {
+    if (text && typeof value === 'string' && ed.target.kind === 'input') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
       const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
@@ -166,7 +167,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   let completionAnchor: TextControl | undefined
 
   const completionContext = (): TextWidgetEditorContext | undefined => {
-    if (ed.spec?.widgetType !== 'STRING' || ed.target.kind !== 'input') return undefined
+    if (!text || ed.spec === undefined || ed.target.kind !== 'input') return undefined
     const nodeType = ed.tab.store.doc.graphs[ed.graphId]?.nodes[ed.target.nodeId]?.type
     return nodeType === undefined ? undefined : {
       graphId: ed.graphId, nodeId: ed.target.nodeId, inputId: ed.target.valueKey, nodeType, spec: ed.spec,
@@ -273,8 +274,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     </div>
   }
 
-  const numeric = ed.spec?.widgetType === 'INT' || ed.spec?.widgetType === 'FLOAT'
-  const text = ed.spec?.widgetType === 'STRING'
+  const numeric = ed.spec !== undefined && Object.hasOwn(scalarStrategies, ed.spec.widgetType)
   return <div ref={(el) => { popover = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover" data-testid="widget-editor" data-editor-target={ed.target.kind} data-editor-mode={ed.spec?.widgetType ?? 'raw'} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${ed.spec?.widgetType ?? 'JSON'}`} style={props.popoverStyle}>
     <props.header type={ed.spec?.widgetType ?? 'JSON'} />
     <ProductField controlId="widget-editor-value" label="Value" layout="compact" message={error()} messageTestId="widget-editor-error" invalid={error() !== undefined}>
