@@ -220,10 +220,10 @@ test('opens exact graph document bytes and matches the live flatten image and tr
       readonly meta: UploadedAsset
     }]
   }
-  expect(assetOutput.typeId).toBe('list<asset<dinkster.image>>')
+  expect(assetOutput.typeId).toBe('list<asset<IMAGE>>')
   expect(assetOutput.elements).toHaveLength(1)
   const savedAsset = assetOutput.elements[0]!
-  expect(savedAsset.typeId).toBe('asset<dinkster.image>')
+  expect(savedAsset.typeId).toBe('asset<IMAGE>')
   expect(savedAsset.meta).toEqual({
     digest: expect.stringMatching(/^blake3:[0-9a-f]{64}$/),
     name: expect.stringMatching(/^[^/]+\.webp$/),

@@ -16,7 +16,7 @@ const mathExpressionNode = {
     {
       role: 'input',
       id: 'expression',
-      type: concrete('core.string'),
+      type: concrete('STRING'),
       required: true,
       default: 'a + b',
       widget: { type: 'STRING', multiline: true },
@@ -27,16 +27,16 @@ const mathExpressionNode = {
       template: [{
         role: 'input',
         id: 'value',
-        type: { kind: 'union', types: ['core.float', 'core.int', 'core.boolean'] },
+        type: { kind: 'union', types: ['FLOAT', 'INT', 'BOOLEAN'] },
         required: true,
       }],
       minMembers: 1,
       required: true,
       memberNames: 'abcdefghijklmnopqrstuvwxyz'.split(''),
     },
-    { role: 'output', id: 'float', type: concrete('core.float') },
-    { role: 'output', id: 'int', type: concrete('core.int') },
-    { role: 'output', id: 'boolean', type: concrete('core.boolean') },
+    { role: 'output', id: 'float', type: concrete('FLOAT') },
+    { role: 'output', id: 'int', type: concrete('INT') },
+    { role: 'output', id: 'boolean', type: concrete('BOOLEAN') },
   ],
   searchTerms: ['formula', 'calculate', 'calculator', 'eval'],
   mirror: {
@@ -59,8 +59,8 @@ const scalarChainNode = (nodeType: string, inputType: string) => ({
     : item),
 })
 
-const scalarChainIntNode = scalarChainNode('e2e.math.expression.scalar-chain-int', 'core.int')
-const scalarChainFloatNode = scalarChainNode('e2e.math.expression.scalar-chain-float', 'core.float')
+const scalarChainIntNode = scalarChainNode('e2e.math.expression.scalar-chain-int', 'INT')
+const scalarChainFloatNode = scalarChainNode('e2e.math.expression.scalar-chain-float', 'FLOAT')
 
 const knownIntNode = {
   schemaVersion: 1,
@@ -71,10 +71,10 @@ const knownIntNode = {
   interface: [
     {
       role: 'input', id: 'source', required: false,
-      type: concrete('core.int'), default: 0,
+      type: concrete('INT'), default: 0,
     },
     {
-      role: 'output', id: 'result', type: concrete('core.int'),
+      role: 'output', id: 'result', type: concrete('INT'),
       knownValue: { input: 'source' },
     },
   ],
@@ -92,7 +92,7 @@ const sinkNode = {
       role: 'input',
       id: 'value',
       required: false,
-      type: concrete('core.float'),
+      type: concrete('FLOAT'),
       default: 0,
       widget: { type: 'NUMBER', min: 0 },
     },
@@ -113,7 +113,7 @@ const socketSinkNode = {
     id: 'value',
     required: true,
     forceInput: true,
-    type: concrete('core.boolean'),
+    type: concrete('BOOLEAN'),
   }],
 }
 
@@ -230,15 +230,15 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
     }
   })).toEqual({
     inputs: [
-      { kind: 'union', names: ['core.float', 'core.int', 'core.boolean'] },
-      { kind: 'union', names: ['core.float', 'core.int', 'core.boolean'] },
-      { kind: 'union', names: ['core.float', 'core.int', 'core.boolean'] },
-      { kind: 'union', names: ['core.float', 'core.int', 'core.boolean'] },
+      { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] },
+      { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] },
+      { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] },
+      { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] },
     ],
     outputs: [
-      { port: 'float', type: { kind: 'concrete', name: 'core.float' }, maybeAbsent: false },
-      { port: 'int', type: { kind: 'concrete', name: 'core.int' }, maybeAbsent: false },
-      { port: 'boolean', type: { kind: 'concrete', name: 'core.boolean' }, maybeAbsent: false },
+      { port: 'float', type: { kind: 'concrete', name: 'FLOAT' }, maybeAbsent: false },
+      { port: 'int', type: { kind: 'concrete', name: 'INT' }, maybeAbsent: false },
+      { port: 'boolean', type: { kind: 'concrete', name: 'BOOLEAN' }, maybeAbsent: false },
     ],
     socketWidgetBacked: false,
   })
@@ -485,9 +485,9 @@ test('scalar estimates propagate through calculated outputs with truthful proven
     store.apply({
       kind: 'nodeStates', execution: ref, timestamp: now,
       nodes: { first: { state: 'done', outputs: {
-        float: { typeId: 'core.float', value: 9 },
-        int: { typeId: 'core.int', value: 9 },
-        boolean: { typeId: 'core.boolean', value: true },
+        float: { typeId: 'FLOAT', value: 9 },
+        int: { typeId: 'INT', value: 9 },
+        boolean: { typeId: 'BOOLEAN', value: true },
       } } },
     })
     store.apply({ kind: 'completed', execution: ref, timestamp: now })

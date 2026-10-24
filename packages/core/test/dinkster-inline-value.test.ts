@@ -31,44 +31,44 @@ function finish(detailOutputs: Record<string, unknown>, type = 'node_finished'):
 describe('inline scalar values on output summaries', () => {
   it('passes through int/float/bool/string scalars on node_finished', () => {
     const p = finish({
-      i: { typeId: 'core.int', value: 42 },
-      f: { typeId: 'core.float', value: 0.5 },
-      b: { typeId: 'core.boolean', value: false },
-      s: { typeId: 'core.string', value: 'hello' },
+      i: { typeId: 'INT', value: 42 },
+      f: { typeId: 'FLOAT', value: 0.5 },
+      b: { typeId: 'BOOLEAN', value: false },
+      s: { typeId: 'STRING', value: 'hello' },
     })
     expect(p.state).toBe('done')
     expect(p.outputs).toEqual({
-      i: { typeId: 'core.int', value: 42 },
-      f: { typeId: 'core.float', value: 0.5 },
-      b: { typeId: 'core.boolean', value: false },
-      s: { typeId: 'core.string', value: 'hello' },
+      i: { typeId: 'INT', value: 42 },
+      f: { typeId: 'FLOAT', value: 0.5 },
+      b: { typeId: 'BOOLEAN', value: false },
+      s: { typeId: 'STRING', value: 'hello' },
     })
   })
 
   it('passes through on node_cached identically', () => {
-    const p = finish({ i: { typeId: 'core.int', value: 7 } }, 'node_cached')
+    const p = finish({ i: { typeId: 'INT', value: 7 } }, 'node_cached')
     expect(p.state).toBe('cached')
-    expect(p.outputs).toEqual({ i: { typeId: 'core.int', value: 7 } })
+    expect(p.outputs).toEqual({ i: { typeId: 'INT', value: 7 } })
   })
 
   it('drops non-scalar values but keeps the summary (typeId/length untouched)', () => {
     const p = finish({
-      nul: { typeId: 'core.int', value: null },
-      arr: { typeId: 'list<core.int>', length: 2, value: [1, 2] },
-      obj: { typeId: 'core.int', value: { a: 1 } },
-      nan: { typeId: 'core.float', value: Number.NaN },
+      nul: { typeId: 'INT', value: null },
+      arr: { typeId: 'list<INT>', length: 2, value: [1, 2] },
+      obj: { typeId: 'INT', value: { a: 1 } },
+      nan: { typeId: 'FLOAT', value: Number.NaN },
     })
     expect(p.outputs).toEqual({
-      nul: { typeId: 'core.int' },
-      arr: { typeId: 'list<core.int>', length: 2 },
-      obj: { typeId: 'core.int' },
-      nan: { typeId: 'core.float' },
+      nul: { typeId: 'INT' },
+      arr: { typeId: 'list<INT>', length: 2 },
+      obj: { typeId: 'INT' },
+      nan: { typeId: 'FLOAT' },
     })
   })
 
   it('omission means not-inline: no value key materializes', () => {
-    const p = finish({ out: { typeId: 'core.image' } })
-    expect(p.outputs).toEqual({ out: { typeId: 'core.image' } })
+    const p = finish({ out: { typeId: 'IMAGE' } })
+    expect(p.outputs).toEqual({ out: { typeId: 'IMAGE' } })
     expect(p.outputs!['out']).not.toHaveProperty('value')
   })
 })

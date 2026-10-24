@@ -93,22 +93,22 @@ function imageApplyMaskPaintOf(resolve?: (type: string) => NodeSchema | undefine
       if (
         !paintSchema ||
         !loaderImage ||
-        canonicalTypeIdOf(loaderImage.type) !== 'asset<dinkster.image>' ||
+        canonicalTypeIdOf(loaderImage.type) !== 'asset<IMAGE>' ||
         canonicalTypeIdOf(
           loaderOutputs.find((output) => output.id === 'image')?.type ?? {
             kind: 'wildcard',
           },
-        ) !== 'dinkster.image' ||
+        ) !== 'IMAGE' ||
         canonicalTypeIdOf(
           loaderOutputs.find((output) => output.id === 'mask')?.type ?? {
             kind: 'wildcard',
           },
-        ) !== 'dinkster.mask' ||
+        ) !== 'MASK' ||
         canonicalTypeIdOf(
           paintInputs.find((input) => input.id === 'source')?.type ?? {
             kind: 'wildcard',
           },
-        ) !== 'asset<dinkster.image>' ||
+        ) !== 'asset<IMAGE>' ||
         canonicalTypeIdOf(
           paintInputs.find((input) => input.id === 'operations')?.type ?? {
             kind: 'wildcard',
@@ -120,7 +120,7 @@ function imageApplyMaskPaintOf(resolve?: (type: string) => NodeSchema | undefine
           paintOutputs.find((output) => output.id === 'mask')?.type ?? {
             kind: 'wildcard',
           },
-        ) !== 'dinkster.mask'
+        ) !== 'MASK'
       ) {
         return [commandError('image.maskSchemaMissing', 'The backend does not expose the required mask paint schemas')]
       }

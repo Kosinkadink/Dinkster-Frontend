@@ -614,7 +614,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "dinkster.image"
+              "IMAGE"
             ]
           },
           "required": true

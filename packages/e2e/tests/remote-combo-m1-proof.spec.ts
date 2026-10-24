@@ -38,7 +38,7 @@ test('proves remote COMBO editing implementation consumer states and OOV authori
       interface: [
         {
           role: 'input', id: 'ready', required: true,
-          type: { kind: 'concrete', types: ['core.combo'] },
+          type: { kind: 'concrete', types: ['COMBO'] },
           widget: {
             type: 'COMBO', options: ['static-fallback'],
             remote: { route: '/api/choices/proof-ready', refreshButton: true },
@@ -46,7 +46,7 @@ test('proves remote COMBO editing implementation consumer states and OOV authori
         },
         {
           role: 'input', id: 'unavailable', required: true,
-          type: { kind: 'concrete', types: ['core.combo'] },
+          type: { kind: 'concrete', types: ['COMBO'] },
           widget: {
             type: 'COMBO', options: ['static-fallback'],
             remote: { route: '/api/choices/proof-unavailable', refreshButton: true },

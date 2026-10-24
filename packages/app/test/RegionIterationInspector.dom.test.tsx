@@ -49,9 +49,9 @@ const execution: ExecutionState = {
     },
   } as unknown as CompileArtifact,
   nodes: {
-    'outer[0]/source': { state: 'running', value: 0.375, outputs: { value: { typeId: 'core.int', value: 4 } } },
+    'outer[0]/source': { state: 'running', value: 0.375, outputs: { value: { typeId: 'INT', value: 4 } } },
     'outer[0]/sink': { state: 'done' },
-    'outer[1]/source': { state: 'cached', outputs: { value: { typeId: 'core.int', value: 4 } } },
+    'outer[1]/source': { state: 'cached', outputs: { value: { typeId: 'INT', value: 4 } } },
   },
   regions: { outer: { kind: 'map', binding: 'zip', iterations: 2, finishedIterations: 2 } },
   outputs: {}, artifacts: [], artifactsHydrated: true, previews: {}, activities: [], logs: [], logsDropped: 0,
@@ -72,7 +72,7 @@ describe('RegionIterationInspector', () => {
   it('queries exact iteration output identity and exposes cached and absent-output states', async () => {
     const peek = vi.fn(async (query: ValueQuery): Promise<ValuePeekResult> => ({
       available: true,
-      descriptor: { typeId: 'core.int', fingerprint: `${query.nodeId}:value`, value: 4 },
+      descriptor: { typeId: 'INT', fingerprint: `${query.nodeId}:value`, value: 4 },
       renditions: [],
     }))
     mount(peek)
@@ -114,7 +114,7 @@ describe('RegionIterationInspector', () => {
     iterationSelect.dispatchEvent(new Event('change', { bubbles: true }))
     expect(firstSignal?.aborted).toBe(true)
     await vi.waitFor(() => expect(root.textContent).toContain('Value is no longer retained'))
-    resolveOld({ available: true, descriptor: { typeId: 'core.int', fingerprint: 'stale', value: 99 }, renditions: [] })
+    resolveOld({ available: true, descriptor: { typeId: 'INT', fingerprint: 'stale', value: 99 }, renditions: [] })
     await Promise.resolve()
     expect(root.textContent).not.toContain('stale')
   })

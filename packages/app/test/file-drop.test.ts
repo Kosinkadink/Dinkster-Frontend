@@ -116,7 +116,7 @@ describe('safe file-drop classification', () => {
 
   it('accepts exact native single/multi and ComfyUI flat profiles', async () => {
     const singleSchema = JSON.stringify({
-      format: 'dinkster.latent', version: 1, structure: 'single',
+      format: 'LATENT', version: 1, structure: 'single',
       streams: [{ tensor: 'dinkster_samples', dtype: 'F16', shape: [1, 2] }],
     })
     await expect(readLatentMetadata(file(safetensors({ dinkster_samples: tensor('F16', [1, 2], 0, 4) }, {
@@ -124,7 +124,7 @@ describe('safe file-drop classification', () => {
     }), 'single.latent'))).resolves.toMatchObject({ ok: true })
 
     const multiSchema = JSON.stringify({
-      format: 'dinkster.latent', version: 1, structure: 'multi', streams: [
+      format: 'LATENT', version: 1, structure: 'multi', streams: [
         { order: 0, role: 'video', tensor: 'dinkster_stream_0000', dtype: 'F16', shape: [1] },
         { order: 1, role: 'audio', tensor: 'dinkster_stream_0001', dtype: 'F16', shape: [1] },
       ],
@@ -167,7 +167,7 @@ describe('safe file-drop classification', () => {
     }, {}, new Uint8Array(6)), 'marker-extra.latent'))).resolves.toMatchObject({ ok: false, message: expect.stringContaining('profile') })
 
     const schema = (version: number, extra = false) => JSON.stringify({
-      format: 'dinkster.latent', version, structure: 'single',
+      format: 'LATENT', version, structure: 'single',
       streams: [{ tensor: 'dinkster_samples', dtype: 'F32', shape: [1] }], ...(extra ? { extra: true } : {}),
     })
     for (const dinkster_latent_schema of [schema(2), schema(1, true), '{']) {
@@ -180,7 +180,7 @@ describe('safe file-drop classification', () => {
     }, { dinkster_latent_schema: schema(1) }, new Uint8Array(8)), 'extra.latent')))
       .resolves.toMatchObject({ ok: false, message: expect.stringContaining('profile') })
     const controlledRole = JSON.stringify({
-      format: 'dinkster.latent', version: 1, structure: 'multi',
+      format: 'LATENT', version: 1, structure: 'multi',
       streams: [{ order: 0, role: 'video\nunsafe', tensor: 'dinkster_stream_0000', dtype: 'F32', shape: [1] }],
     })
     await expect(readLatentMetadata(file(safetensors({ dinkster_stream_0000: tensor('F32', [1], 0, 4) }, {

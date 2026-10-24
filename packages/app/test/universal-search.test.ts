@@ -22,7 +22,7 @@ describe('universal search model', () => {
     const schemas = [
       { type: 'dinkster.preview_any', displayName: 'Preview as Text', category: 'utilities', pack: 'core' },
       { type: 'comfy.PreviewAny', displayName: 'Preview as Text', category: 'comfy/utilities', pack: 'comfy' },
-      { type: 'dinkster.save_target', displayName: 'Save Target', category: 'utilities', pack: 'core' },
+      { type: 'SAVE_TARGET', displayName: 'Save Target', category: 'utilities', pack: 'core' },
     ] as const
     const packs = new Map([
       ['core', { displayName: 'Dinkster Core' }],
@@ -33,7 +33,7 @@ describe('universal search model', () => {
     expect(nodeSearchDetail(schemas[0], duplicates, packs)).toBe('Dinkster Core - utilities - dinkster.preview_any')
     expect(nodeSearchDetail(schemas[1], duplicates, packs)).toBe('ComfyUI - comfy/utilities - comfy.PreviewAny')
     expect(nodeSearchDetail(schemas[2], duplicates, packs)).toBe('utilities')
-    expect(schemas.map((schema) => schema.type)).toEqual(['dinkster.preview_any', 'comfy.PreviewAny', 'dinkster.save_target'])
+    expect(schemas.map((schema) => schema.type)).toEqual(['dinkster.preview_any', 'comfy.PreviewAny', 'SAVE_TARGET'])
   })
 
   it('persists unique, capped frecency activations', () => {

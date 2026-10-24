@@ -22,13 +22,13 @@ import type { TypeExpr } from '../src/schema/model.js'
 describe('typeExprToDinksterWire', () => {
   it('round-trips every wire-expressible kind through the schema-wire decoder', () => {
     const exprs: TypeExpr[] = [
-      { kind: 'concrete', name: 'core.int' },
-      { kind: 'union', names: ['core.int', 'core.float'] },
+      { kind: 'concrete', name: 'INT' },
+      { kind: 'union', names: ['INT', 'FLOAT'] },
       { kind: 'wildcard' },
       { kind: 'variable', templateId: 'T' },
-      { kind: 'variable', templateId: 'T', allowedTypes: [{ kind: 'concrete', name: 'core.int' }] },
-      { kind: 'list', element: { kind: 'concrete', name: 'core.int' } },
-      { kind: 'list', element: { kind: 'list', element: { kind: 'concrete', name: 'core.string' } } },
+      { kind: 'variable', templateId: 'T', allowedTypes: [{ kind: 'concrete', name: 'INT' }] },
+      { kind: 'list', element: { kind: 'concrete', name: 'INT' } },
+      { kind: 'list', element: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } } },
       { kind: 'list', element: { kind: 'variable', templateId: 'T' } },
       { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } },
       { kind: 'asset', element: { kind: 'list', element: { kind: 'concrete', name: 'comfy.IMAGE' } } },
@@ -43,9 +43,9 @@ describe('typeExprToDinksterWire', () => {
   })
 
   it('emits exactly one entry in types for concrete (kind is authoritative)', () => {
-    expect(typeExprToDinksterWire({ kind: 'concrete', name: 'core.int' })).toEqual({
+    expect(typeExprToDinksterWire({ kind: 'concrete', name: 'INT' })).toEqual({
       kind: 'concrete',
-      types: ['core.int'],
+      types: ['INT'],
     })
   })
 
@@ -58,22 +58,22 @@ describe('typeExprToDinksterWire', () => {
 
   it('refuses shapes the backend bans (constructor smuggling)', () => {
     // A concrete named 'list<...>' violates the one-representation invariant.
-    expect(typeExprToDinksterWire({ kind: 'concrete', name: 'list<core.int>' })).toBeUndefined()
+    expect(typeExprToDinksterWire({ kind: 'concrete', name: 'list<INT>' })).toBeUndefined()
     // Union members must be atoms, never list type ids.
-    expect(typeExprToDinksterWire({ kind: 'union', names: ['core.int', 'list<core.int>'] })).toBeUndefined()
+    expect(typeExprToDinksterWire({ kind: 'union', names: ['INT', 'list<INT>'] })).toBeUndefined()
     // A degenerate one-member union is not wire-expressible either.
-    expect(typeExprToDinksterWire({ kind: 'union', names: ['core.int'] })).toBeUndefined()
+    expect(typeExprToDinksterWire({ kind: 'union', names: ['INT'] })).toBeUndefined()
     // Variable allowlists are atoms only.
     expect(
       typeExprToDinksterWire({
         kind: 'variable',
         templateId: 'T',
-        allowedTypes: [{ kind: 'list', element: { kind: 'concrete', name: 'core.int' } }],
+        allowedTypes: [{ kind: 'list', element: { kind: 'concrete', name: 'INT' } }],
       }),
     ).toBeUndefined()
     // Inexpressibility bubbles out of list elements.
     expect(
-      typeExprToDinksterWire({ kind: 'list', element: { kind: 'union', names: ['core.int'] } }),
+      typeExprToDinksterWire({ kind: 'list', element: { kind: 'union', names: ['INT'] } }),
     ).toBeUndefined()
     // Asset smuggling refuses identically (one representation: {kind:'asset'}).
     expect(typeExprToDinksterWire({ kind: 'concrete', name: 'asset<comfy.IMAGE>' })).toBeUndefined()
@@ -89,7 +89,7 @@ describe('typeExprToDinksterWire', () => {
     ).toBeUndefined()
     // Inexpressibility bubbles out of asset elements too.
     expect(
-      typeExprToDinksterWire({ kind: 'asset', element: { kind: 'union', names: ['core.int'] } }),
+      typeExprToDinksterWire({ kind: 'asset', element: { kind: 'union', names: ['INT'] } }),
     ).toBeUndefined()
   })
 })
@@ -98,7 +98,7 @@ describe('typeExprToDinksterWire', () => {
 // Structural validator
 // ---------------------------------------------------------------------------
 
-const INT = { kind: 'concrete', types: ['core.int'] }
+const INT = { kind: 'concrete', types: ['INT'] }
 const BOOL = { kind: 'concrete', types: ['core.bool'] }
 const LIST_INT = { kind: 'list', element: INT }
 const VARIABLE: TypeExpr = { kind: 'variable', templateId: 'T' }
@@ -242,18 +242,18 @@ describe('validateDinksterGraph', () => {
       data: { nodeId: 'r', inputId: 'results' },
       anchor: { occurrence: { instancePath: [], node: 'r' }, port: { node: 'r', port: 'results' } },
     }))
-    expect(validateDinksterGraph(regionWithOutput(), contextFor({ kind: 'concrete', name: 'core.int' }))).toEqual([])
+    expect(validateDinksterGraph(regionWithOutput(), contextFor({ kind: 'concrete', name: 'INT' }))).toEqual([])
     expect(validateDinksterGraph(regionWithOutput('compact'), contextFor(VARIABLE))).toContainEqual(expect.objectContaining({
       code: 'dinksterGraph.gatherNonConcrete',
       data: { nodeId: 'r', inputId: 'results' },
     }))
-    expect(validateDinksterGraph(regionWithOutput('compact'), contextFor({ kind: 'concrete', name: 'core.int' }))).toEqual([])
+    expect(validateDinksterGraph(regionWithOutput('compact'), contextFor({ kind: 'concrete', name: 'INT' }))).toEqual([])
 
-    expect(validateDinksterGraph(regionWithOutput('flatten'), contextFor({ kind: 'concrete', name: 'core.int' })))
+    expect(validateDinksterGraph(regionWithOutput('flatten'), contextFor({ kind: 'concrete', name: 'INT' })))
       .toContainEqual(expect.objectContaining({ code: 'dinksterGraph.flattenNonList' }))
     expect(validateDinksterGraph(regionWithOutput('flatten'), contextFor(LIST_VARIABLE)))
       .toContainEqual(expect.objectContaining({ code: 'dinksterGraph.flattenNonConcrete' }))
-    expect(validateDinksterGraph(regionWithOutput('flatten'), contextFor({ kind: 'list', element: { kind: 'concrete', name: 'core.int' } })))
+    expect(validateDinksterGraph(regionWithOutput('flatten'), contextFor({ kind: 'list', element: { kind: 'concrete', name: 'INT' } })))
       .toEqual([])
   })
 
@@ -263,8 +263,8 @@ describe('validateDinksterGraph', () => {
       outputs: { results: { source: { node: 'add', output: 'out' } } },
     }))
     const context = validationContext({
-      r: { outputs: { results: { kind: 'concrete', name: 'core.int' } } },
-      'r/add': { inputs: { value: VARIABLE }, outputs: { out: { kind: 'concrete', name: 'core.int' } } },
+      r: { outputs: { results: { kind: 'concrete', name: 'INT' } } },
+      'r/add': { inputs: { value: VARIABLE }, outputs: { out: { kind: 'concrete', name: 'INT' } } },
     })
     expect(validateDinksterGraph(region, context)).toContainEqual(expect.objectContaining({
       code: 'dinksterGraph.literalOnNonConcrete',
@@ -277,21 +277,21 @@ describe('validateDinksterGraph', () => {
 
     const typed = structuredClone(region) as DinksterGraphWire
     const body = (typed.nodes.r as { region: DinksterRegionWire }).region.body
-    ;(body.nodes.add as { inputs: Record<string, unknown> }).inputs.value = { $typed: { type: 'core.int', value: 7 } }
+    ;(body.nodes.add as { inputs: Record<string, unknown> }).inputs.value = { $typed: { type: 'INT', value: 7 } }
     expect(validateDinksterGraph(typed, context)).toEqual([])
   })
 
   it('accepts schema selectors in nested region bodies', () => {
     const graph = graphWith(mapRegion())
     const ordinary = validationContext({
-      r: { outputs: { results: { kind: 'concrete', name: 'core.int' } } },
-      'r/add': { outputs: { out: { kind: 'concrete', name: 'core.int' } } },
+      r: { outputs: { results: { kind: 'concrete', name: 'INT' } } },
+      'r/add': { outputs: { out: { kind: 'concrete', name: 'INT' } } },
     })
     expect(validateDinksterGraph(graph, ordinary)).toEqual([])
 
     const selector = validationContext({
-      r: { outputs: { results: { kind: 'concrete', name: 'core.int' } } },
-      'r/add': { outputs: { out: { kind: 'concrete', name: 'core.int' } }, selector: true },
+      r: { outputs: { results: { kind: 'concrete', name: 'INT' } } },
+      'r/add': { outputs: { out: { kind: 'concrete', name: 'INT' } }, selector: true },
     })
     expect(validateDinksterGraph(graph, selector)).toEqual([])
   })
@@ -505,8 +505,8 @@ describe('validateDinksterGraph', () => {
       inputs: { ...mapRegion().inputs, acc: 0 },
     })
     const context = validationContext({
-      r: { inputs: { acc: { kind: 'concrete', name: 'core.int' } }, outputs: { results: { kind: 'concrete', name: 'core.int' } } },
-      'r/add': { outputs: { out: { kind: 'concrete', name: 'core.int' } } },
+      r: { inputs: { acc: { kind: 'concrete', name: 'INT' } }, outputs: { results: { kind: 'concrete', name: 'INT' } } },
+      'r/add': { outputs: { out: { kind: 'concrete', name: 'INT' } } },
     })
     expect(validateDinksterGraph(graphWith(noOutput), context)).toContainEqual(expect.objectContaining({
       code: 'dinksterGraph.stateChain',

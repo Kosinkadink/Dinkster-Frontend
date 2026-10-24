@@ -92,7 +92,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await page.evaluate(() => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
-      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'core.combo' : widgetType }, optional: false,
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
     })
     window.__dinksterTest!.app.registerSchemas([{
@@ -112,7 +112,7 @@ test.beforeEach(async ({ page }) => {
         widget('empty', 'COMBO', '', { options: [] }),
         widget('asset', 'ASSET', null, { accept: ['image/png'] }),
         widget('video_edit', 'VIDEO_EDIT', {}, { features: ['trim', 'crop'] }),
-        { ...widget('strict_duration', 'BOOLEAN', false), type: { kind: 'concrete', name: 'core.boolean' } },
+        { ...widget('strict_duration', 'BOOLEAN', false), type: { kind: 'concrete', name: 'BOOLEAN' } },
       ],
     }])
     window.__dinksterTest!.app.openDocument({
@@ -219,7 +219,7 @@ test('uint64 INT values edit, step, reload, and compile without precision loss',
     test.app.registerSchemas([{
       type: 'ExactSeedE2E', displayName: 'Exact Seed', category: 'test', source: 'v3', isOutputNode: true,
       items: [{
-        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: {
           widgetType: 'INT',
           options: { min: 0, max: '18446744073709551615', step: 1 },
@@ -280,7 +280,7 @@ test('unbounded INT stepping crosses the JavaScript safe-integer boundary exactl
     test.app.registerSchemas([{
       type: 'UnboundedIntE2E', displayName: 'Unbounded Integer', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0 },
       }],
     }])
@@ -967,7 +967,7 @@ test('a changed producer exposes stale/unproven companion wording while styling 
     store.apply({ kind: 'started', execution: ref, timestamp: Date.now() })
     store.apply({
       kind: 'nodeStates', execution: ref, timestamp: Date.now(),
-      nodes: { source: { state: 'done', outputs: { out: { typeId: 'core.int', value: 512 } } } },
+      nodes: { source: { state: 'done', outputs: { out: { typeId: 'INT', value: 512 } } } },
     })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
   })
@@ -1192,7 +1192,7 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
     window.__dinksterTest!.app.registerSchemas([{
       type: 'HugeComboTest', displayName: 'Huge Combo', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'core.combo' }, optional: false,
+        kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
           widgetType: 'COMBO',
           options: { options: Array.from({ length: 1200 }, (_, index) => `option-${index}`) },

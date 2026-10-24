@@ -83,7 +83,7 @@ test.beforeEach(async ({ page }) => {
       items: [{
         kind: 'input',
         id: 'choice',
-        type: { kind: 'concrete', name: 'core.combo' },
+        type: { kind: 'concrete', name: 'COMBO' },
         optional: false,
         widget: { widgetType: 'COMBO', options: { options: longOptions }, default: longOptions[0] },
       }],

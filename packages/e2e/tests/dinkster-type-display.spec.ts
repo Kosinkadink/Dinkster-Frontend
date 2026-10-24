@@ -22,7 +22,7 @@ const schema = {
     { kind: 'output', id: 'sampler', displayName: 'sampler', type: { kind: 'concrete', name: 'dinkster.sampler' } },
     { kind: 'output', id: 'sigmas', displayName: 'sigmas', type: { kind: 'concrete', name: 'dinkster.sigmas' } },
     { kind: 'output', id: 'cond', displayName: 'conditioning', type: { kind: 'concrete', name: 'dinkster.conditioning' } },
-    { kind: 'output', id: 'latent', displayName: 'latent', type: { kind: 'concrete', name: 'dinkster.latent' } },
+    { kind: 'output', id: 'latent', displayName: 'latent', type: { kind: 'concrete', name: 'LATENT' } },
   ],
 }
 
@@ -36,16 +36,16 @@ const document_ = {
 
 /** Expected ComfyUI palette entries for each aliased pin, keyed by port id. */
 const expectations: Record<string, { alias: string; canonical: string; hex: string }> = {
-  te: { alias: 'CLIP', canonical: 'dinkster.clip', hex: '#FFD500' },
-  codec: { alias: 'VAE', canonical: 'dinkster.vae', hex: '#FF6E6E' },
-  control: { alias: 'CONTROL_NET', canonical: 'dinkster.control', hex: '#6EE7B7' },
-  guider: { alias: 'GUIDER', canonical: 'dinkster.guider', hex: '#66FFFF' },
-  noise: { alias: 'NOISE', canonical: 'dinkster.noise', hex: '#B0B0B0' },
-  model: { alias: 'MODEL', canonical: 'dinkster.model', hex: '#B39DDB' },
-  sampler: { alias: 'SAMPLER', canonical: 'dinkster.sampler', hex: '#ECB4B4' },
-  sigmas: { alias: 'SIGMAS', canonical: 'dinkster.sigmas', hex: '#CDFFCD' },
-  cond: { alias: 'CONDITIONING', canonical: 'dinkster.conditioning', hex: '#FFA931' },
-  latent: { alias: 'LATENT', canonical: 'dinkster.latent', hex: '#FF9CF9' },
+  te: { alias: 'CLIP', canonical: 'CLIP', hex: '#FFD500' },
+  codec: { alias: 'VAE', canonical: 'VAE', hex: '#FF6E6E' },
+  control: { alias: 'CONTROL_NET', canonical: 'comfy.CONTROL_NET', hex: '#6EE7B7' },
+  guider: { alias: 'GUIDER', canonical: 'GUIDER', hex: '#66FFFF' },
+  noise: { alias: 'NOISE', canonical: 'NOISE', hex: '#B0B0B0' },
+  model: { alias: 'MODEL', canonical: 'MODEL', hex: '#B39DDB' },
+  sampler: { alias: 'SAMPLER', canonical: 'SAMPLER', hex: '#ECB4B4' },
+  sigmas: { alias: 'SIGMAS', canonical: 'SIGMAS', hex: '#CDFFCD' },
+  cond: { alias: 'CONDITIONING', canonical: 'CONDITIONING', hex: '#FFA931' },
+  latent: { alias: 'LATENT', canonical: 'LATENT', hex: '#FF9CF9' },
 }
 
 test.beforeEach(async ({ page }) => {
@@ -153,7 +153,7 @@ const imageSchemas = [
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'dinkster.image' } }],
+    items: [{ kind: 'output', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
   },
   {
     type: 'ComfyImageConsumer',
@@ -274,7 +274,7 @@ const maskSchemas = [
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'dinkster.mask' } }],
+    items: [{ kind: 'output', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'MASK' } }],
   },
   {
     type: 'ComfyMaskConsumer',

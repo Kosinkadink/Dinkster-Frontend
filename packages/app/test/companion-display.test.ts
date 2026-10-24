@@ -117,13 +117,13 @@ describe('deriveCompanions: literals', () => {
       type: 'T', displayName: 'Primitive', category: '', source: 'v3',
       isOutputNode: false,
       items: [
-        { kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'core.int' }, optional: true },
-        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'core.int' }, knownValue: { input: 'steps' } },
+        { kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: true },
+        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' }, knownValue: { input: 'steps' } },
       ],
     }
     const { companions } = deriveCompanions({
       def: producerGraph,
-      execNodes: { producer: done({ out: { typeId: 'core.int', value: 42 } }) },
+      execNodes: { producer: done({ out: { typeId: 'INT', value: 42 } }) },
       frozen: false,
       runtimeIdsOf: (id) => [id],
       exactProducer: () => false,
@@ -135,7 +135,7 @@ describe('deriveCompanions: literals', () => {
 })
 
 describe('deriveCompanions: producers', () => {
-  const inline = { out: { typeId: 'core.int', value: 42 } }
+  const inline = { out: { typeId: 'INT', value: 42 } }
 
   it('an inline scalar from the bound execution displays; frozen tabs are exact', () => {
     const { companions } = deriveCompanions({
@@ -150,7 +150,7 @@ describe('deriveCompanions: producers', () => {
   it('reads a region state value through its compiled output alias', () => {
     const { companions } = deriveCompanions({
       def: producerGraph,
-      execNodes: { producer: done({ state: { typeId: 'core.int', value: 42 } }) },
+      execNodes: { producer: done({ state: { typeId: 'INT', value: 42 } }) },
       frozen: true,
       runtimeIdsOf: (id) => [id],
       outputAliases: { producer: { out: 'state' } },
@@ -187,7 +187,7 @@ describe('deriveCompanions: producers', () => {
   it('a summary without an inline value yields no companion (omission = not inline)', () => {
     const { companions } = deriveCompanions({
       def: producerGraph,
-      execNodes: { producer: done({ out: { typeId: 'list<core.int>', length: 3 } }) },
+      execNodes: { producer: done({ out: { typeId: 'list<INT>', length: 3 } }) },
       frozen: true,
       runtimeIdsOf: (id) => [id],
     })
@@ -218,8 +218,8 @@ describe('deriveCompanions: producers', () => {
       def: producerGraph,
       frozen: true,
       execNodes: {
-        producer: done({ out: { typeId: 'core.int', value: 42 } }),
-        'producer[1]': done({ out: { typeId: 'core.int', value: 42 } }),
+        producer: done({ out: { typeId: 'INT', value: 42 } }),
+        'producer[1]': done({ out: { typeId: 'INT', value: 42 } }),
       },
       runtimeIdsOf: (id) => (id === 'producer' ? ['producer', 'producer[1]'] : [id]),
     })
@@ -231,8 +231,8 @@ describe('deriveCompanions: producers', () => {
       def: producerGraph,
       frozen: true,
       execNodes: {
-        producer: done({ out: { typeId: 'core.int', value: 42 } }),
-        'producer[1]': done({ out: { typeId: 'core.int', value: 43 } }),
+        producer: done({ out: { typeId: 'INT', value: 42 } }),
+        'producer[1]': done({ out: { typeId: 'INT', value: 43 } }),
       },
       runtimeIdsOf: (id) => (id === 'producer' ? ['producer', 'producer[1]'] : [id]),
     })
@@ -241,7 +241,7 @@ describe('deriveCompanions: producers', () => {
 })
 
 describe('deriveCompanions: live exactness (exactProducer)', () => {
-  const inline = { out: { typeId: 'core.int', value: 42 } }
+  const inline = { out: { typeId: 'INT', value: 42 } }
 
   it('a passing oracle sheds the stale mark on a live tab', () => {
     const { companions } = deriveCompanions({
@@ -355,7 +355,7 @@ describe('deriveCompanions: live exactness (exactProducer)', () => {
     const incomplete = {
       frozen: false,
       execNodes: {
-        producer: done({ state: { typeId: 'core.int', value: 42 } }),
+        producer: done({ state: { typeId: 'INT', value: 42 } }),
         'producer[1]': done(),
       },
       runtimeIdsOf: (id: string) => id === 'producer' ? ['producer', 'producer[1]'] : [id],
@@ -369,7 +369,7 @@ describe('deriveCompanions: live exactness (exactProducer)', () => {
       ...incomplete,
       execNodes: {
         ...incomplete.execNodes,
-        'producer[1]': done({ state: { typeId: 'core.int', value: 42 } }),
+        'producer[1]': done({ state: { typeId: 'INT', value: 42 } }),
       },
     }
     expect(recordedProducerDisplay(complete, 'producer', 'out', true)).toEqual({ value: 42 })
@@ -441,7 +441,7 @@ describe('liveExactnessFor: comparability gates', () => {
 })
 
 describe('deriveCompanions: mirror estimates', () => {
-  const inline = { out: { typeId: 'core.int', value: 42 } }
+  const inline = { out: { typeId: 'INT', value: 42 } }
   const estimates = new Map([['producer', { outputs: { out: 55 } }]])
 
   it('shows the estimate when no execution recorded a value', () => {
@@ -525,7 +525,7 @@ describe('deriveCompanions: dormant values are untouched', () => {
     const before = JSON.stringify(producerGraph)
     deriveCompanions({
       def: producerGraph,
-      execNodes: { producer: done({ out: { typeId: 'core.int', value: 42 } }) },
+      execNodes: { producer: done({ out: { typeId: 'INT', value: 42 } }) },
       frozen: false,
       runtimeIdsOf: (id) => [id],
     })

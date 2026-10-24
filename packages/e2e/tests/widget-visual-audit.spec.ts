@@ -70,7 +70,7 @@ test.beforeEach(async ({ page }) => {
       options: Record<string, unknown> = {},
       controller?: 'after_generate',
     ) => ({
-      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'core.combo' : widgetType }, optional: false,
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue, ...(controller ? { controller } : {}) },
     })
     window.__dinksterTest!.app.registerSchemas([{
@@ -138,8 +138,8 @@ test.describe('single-line STRING device-pixel layout', () => {
           kind: 'input', id: 'text', type: string, optional: false,
           widget: { widgetType: 'STRING', options: {}, default: '' },
         },
-        { kind: 'input', id: 'clip', type: { kind: 'concrete', name: 'CLIP' }, optional: true },
-        { kind: 'output', id: 'conditioning', type: { kind: 'concrete', name: 'CONDITIONING' } },
+        { kind: 'input', id: 'clip', type: { kind: 'concrete', name: 'dinkster.clip' }, optional: true },
+        { kind: 'output', id: 'conditioning', type: { kind: 'concrete', name: 'dinkster.conditioning' } },
       ],
     }])
     window.__dinksterTest!.app.openDocument({

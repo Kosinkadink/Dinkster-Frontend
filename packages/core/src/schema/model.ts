@@ -1029,7 +1029,7 @@ export const outputSchemaInputsOf = (s: NodeSchema): readonly string[] =>
     ]
   })])]
 
-/** An input whose concrete core.combo value is edited by a combo dropdown. */
+/** An input whose concrete COMBO value is edited by a combo dropdown. */
 export const isComboWidgetInput = (spec: InputSpec): boolean =>
   spec.widget?.widgetType === 'COMBO'
 
@@ -1039,7 +1039,7 @@ export const isAssetWidgetInput = (spec: InputSpec): boolean =>
 export const isImageAssetInput = (spec: InputSpec): boolean => {
   const type = canonicalTypeIdOf(spec.type)
   return spec.hidden !== true && isAssetWidgetInput(spec) &&
-    (type === 'asset<comfy.IMAGE>' || type === 'asset<dinkster.image>')
+    (type === 'asset<IMAGE>' || type === 'asset<comfy.IMAGE>')
 }
 
 /**

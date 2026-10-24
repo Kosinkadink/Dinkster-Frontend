@@ -118,7 +118,7 @@ const imageSourceSchema: NodeSchema = {
       optional: false,
       widget: { widgetType: 'NUMBER', options: {}, default: 0.75 },
     },
-    output('out', 'dinkster.image'),
+    output('out', 'IMAGE'),
     output('scalar', 'FLOAT'),
   ],
 }
@@ -139,7 +139,7 @@ const gateSchema = (mirror: MirrorSpec | null = GLSL_MIRROR): NodeSchema => ({
   isOutputNode: false,
   ...(mirror ? { mirror } : {}),
   items: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' }, optional: false } as InputSpec,
+    { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false } as InputSpec,
     {
       kind: 'input',
       id: 'steps',
@@ -165,7 +165,7 @@ const gateSchema = (mirror: MirrorSpec | null = GLSL_MIRROR): NodeSchema => ({
         default: 'soft',
       },
     },
-    output('image', 'dinkster.image'),
+    output('image', 'IMAGE'),
   ],
 })
 

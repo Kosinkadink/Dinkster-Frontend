@@ -59,7 +59,7 @@ test.beforeEach(async ({ page }) => {
             role: 'input',
             id: 'enabled',
             required: true,
-            type: { kind: 'concrete', types: ['core.boolean'] },
+            type: { kind: 'concrete', types: ['BOOLEAN'] },
             widget: { type: 'BOOLEAN', labelOn: 'On', labelOff: 'Off' },
             default: false,
           },

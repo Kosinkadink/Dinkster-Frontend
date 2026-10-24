@@ -77,7 +77,7 @@ describe('stored output descriptors', () => {
   it('coexists with storage and media declarations', () => {
     const media = {
       role: 'input', id: 'image', required: true, acceptsStorage: true,
-      type: { kind: 'concrete', types: ['dinkster.image'] }, alphaPolicy: 'require',
+      type: { kind: 'concrete', types: ['IMAGE'] }, alphaPolicy: 'require',
     }
     const catalog = (acceptsStorage: unknown) => ({ schemaVersion: 1, nodes: {
       [schema.type]: { ...wire, interface: [...wire.interface, { ...media, acceptsStorage }] },

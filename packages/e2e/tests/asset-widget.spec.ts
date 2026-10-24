@@ -70,7 +70,7 @@ async function targetNativeBackend(page: Page): Promise<void> {
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+      items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
     }])
   })
@@ -83,7 +83,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+      items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
     }])
     window.__dinksterTest!.app.openDocument({
@@ -214,7 +214,7 @@ test.describe('native asset uploads', () => {
     await page.evaluate(() => {
       window.__dinksterTest!.app.registerSchemas([{
         type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+        items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null, kind: 'media/image' } }],
       }])
     })
@@ -491,7 +491,7 @@ test.describe('native asset uploads', () => {
 })
 
 // Multi-select (typed-assets joint pin (5)): a list-of-asset declaration
-// (list<asset<T>> / list<dinkster.asset>) stages N picks and commits ONE array;
+// (list<asset<T>> / list<ASSET>) stages N picks and commits ONE array;
 // every other declaration keeps the single-pick commit-and-close flow (the
 // scalar-merge arm stays deferred until the wire exposes merge providers).
 test.describe('multi-select on list-of-asset declarations', () => {
@@ -637,7 +637,7 @@ test.describe('multi-select on list-of-asset declarations', () => {
     await page.evaluate(() => {
       window.__dinksterTest!.app.registerSchemas([{
         type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+        items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
       }])
       const tab = window.__dinksterTest!.app.activeTab()!

@@ -1839,7 +1839,7 @@ function compileImpl(
    * arm, incl. asset<list<T>> onto a list<T> input) or list<asset<T>> (N
    * refs: merge arm onto scalar T, lift arm onto list<T>), never the
    * declared type. Undefined everywhere else: asset-REFERENCE destinations
-   * (bare dinkster.asset, asset<...>, lists of either) receive refs AS-IS per
+   * (bare ASSET, asset<...>, lists of either) receive refs AS-IS per
    * the joint pins - stamping there would route a valid plain delivery into
    * the coercion planner, which has no asset-to-asset vocabulary; non-ASSET
    * widgets and non-ref-shaped values pass through untouched. No scalar-T
@@ -1884,7 +1884,7 @@ function compileImpl(
     value: Json,
     sink: Diagnostic[] = diags,
   ): Json | undefined => {
-    if (canonicalTypeIdOf(input.spec.type) === 'core.int' && isCanonicalUnsafeInteger(value)) {
+    if (canonicalTypeIdOf(input.spec.type) === 'INT' && isCanonicalUnsafeInteger(value)) {
       if (emitDecimalInts) return decimalIntegerWire(value)
       sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `'${fn.node.type}' input '${input.spec.id}' holds an integer outside JavaScript's safe range, but this backend does not support lossless decimal integers; omitted`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
       return undefined
@@ -1998,7 +1998,7 @@ function compileImpl(
       ?? overrides.get(input.runtimeId)?.get(input.elabKey)
     if (staged !== undefined) {
       const decimalInteger = parseDecimalIntegerWire(staged)
-      if (decimalInteger !== undefined) return { value: decimalInteger, typeId: 'core.int' }
+      if (decimalInteger !== undefined) return { value: decimalInteger, typeId: 'INT' }
       const stamped = parseTypedLiteralWire(staged)
       if (stamped !== undefined) return { value: stamped.value, typeId: stamped.type }
       return { value: staged, typeId: assetSourceTypeOf(input.input, staged) ?? typeId }
@@ -2208,7 +2208,7 @@ function compileImpl(
           // refuse loudly instead of failing at the server.
           const dstTypeId = canonicalTypeIdOf(dst.input.spec.type)
           if (isCanonicalUnsafeInteger(baked.value)) {
-            if (baked.typeId === 'core.int' && dstTypeId === 'core.int') {
+            if (baked.typeId === 'INT' && dstTypeId === 'INT') {
               const lowered = lowerWidgetLiteral(consumer, dst.input, baked.value)
               if (lowered !== undefined) {
                 consumer.inputs[dst.elabKey] = lowered
@@ -2216,7 +2216,7 @@ function compileImpl(
                 recordSuccessfulDelivery(dst)
               }
             } else {
-              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${c.what} in graph '${defId}' bakes an integer outside JavaScript's safe range into '${consumer.node.type}' input '${dst.input.spec.id}', but the lossless integer marker requires a concrete core.int destination; omitted`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
+              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${c.what} in graph '${defId}' bakes an integer outside JavaScript's safe range into '${consumer.node.type}' input '${dst.input.spec.id}', but the lossless integer marker requires a concrete INT destination; omitted`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
             }
             continue
           }

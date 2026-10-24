@@ -63,8 +63,8 @@ export interface DinksterLinkWire {
 /**
  * A typed-literal input value: {$typed: {type, value}} - the second reserved
  * input marker beside $link (Dinkster ea6eca7). The stamp names the concrete
- * runtime type id (same vocabulary workers wrap with: 'core.int',
- * 'list<core.int>', ...) the engine wraps "value" with, so a literal can
+ * runtime type id (same vocabulary workers wrap with: 'INT',
+ * 'list<INT>', ...) the engine wraps "value" with, so a literal can
  * feed a destination whose declared type does not resolve to a runtime id.
  * EMISSION RULE (joint contract, pinned 6382cf1; AMENDED 2026-07-26 for
  * typed assets): emit into non-concrete destinations, AND into concrete
@@ -104,7 +104,7 @@ export const parseTypedLiteralWire = (v: Json): { readonly type: string; readonl
  */
 export const DINKSTER_GRAPH_FEATURE_TYPED_LITERAL = 'typedLiteral'
 
-/** The /api/nodes graph feature advertising lossless unsafe core.int literals. */
+/** The /api/nodes graph feature advertising lossless unsafe INT literals. */
 export const DINKSTER_GRAPH_FEATURE_DECIMAL_INT = 'decimalInt'
 
 /** The /api/nodes graph feature advertising first-class region execution. */
@@ -114,7 +114,7 @@ export const DINKSTER_GRAPH_FEATURE_REGIONS = 'regions'
 export const typedLiteralWire = (type: string, value: Json): DinksterTypedLiteralWire =>
   ({ $typed: { type, value } })
 
-/** Lossless graph form for a core.int literal outside JavaScript's safe range. */
+/** Lossless graph form for a INT literal outside JavaScript's safe range. */
 export type DinksterDecimalIntegerWire = {
   readonly $int: string
 }

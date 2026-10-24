@@ -22,7 +22,7 @@ const schema: NodeSchema = {
   items: [{
     kind: 'input',
     id: 'image',
-    type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } },
+    type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
     optional: false,
     widget: { widgetType: 'ASSET', options: {} },
   }],
@@ -70,11 +70,11 @@ function store(graphDef = graph(), resolvedSchema = schema): DocumentStore {
 }
 
 describe('image.applyAsset', () => {
-  it('admits native image assets through the same guard and refuses hidden inputs', () => {
+  it('admits typed image assets and refuses hidden inputs', () => {
     for (const hidden of [false, true]) {
       const native: NodeSchema = { ...schema, items: [{
         kind: 'input', id: 'image', optional: false, ...(hidden ? { hidden: true } : {}),
-        type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } },
+        type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
         widget: { widgetType: 'ASSET', options: {} },
       }] }
       const target = new DocumentStore(document(graph()), coreCommandRegistry([], () => native))
@@ -95,10 +95,10 @@ describe('image.applyAsset', () => {
     expect(target.doc.graphs.g0!.nodes.image!.values.image).toEqual(sourceRef)
   })
 
-  it('accepts the interchangeable native image asset type', () => {
+  it('accepts the canonical image asset type', () => {
     const nativeSchema = {
       ...schema,
-      items: [{ ...schema.items[0]!, type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } } }],
+      items: [{ ...schema.items[0]!, type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }],
     } as NodeSchema
     expect(store(graph(), nativeSchema).dispatch(invocation).ok).toBe(true)
   })
@@ -161,11 +161,11 @@ const maskLoaderSchema: NodeSchema = {
   items: [
     {
       kind: 'input', id: 'image', optional: false,
-      type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } },
+      type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
       widget: { widgetType: 'ASSET', options: {} },
     },
-    { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' } },
-    { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'dinkster.mask' } },
+    { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
+    { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'MASK' } },
   ],
 }
 
@@ -174,9 +174,9 @@ const maskPaintSchema: NodeSchema = {
   type: 'dinkster.mask.paint',
   editorRole: 'mask-paint',
   items: [
-    { kind: 'input', id: 'source', type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } }, optional: false, widget: { widgetType: 'ASSET', options: {} } },
+    { kind: 'input', id: 'source', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false, widget: { widgetType: 'ASSET', options: {} } },
     { kind: 'input', id: 'operations', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: { multiline: true } } },
-    { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'dinkster.mask' } },
+    { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'MASK' } },
   ],
 }
 
@@ -400,7 +400,7 @@ describe('image.compositorApply', () => {
 
     const wrongType = {
       ...compositorSchema,
-      items: [{ ...compositorSchema.items[0]!, type: { kind: 'concrete', name: 'core.string' } }],
+      items: [{ ...compositorSchema.items[0]!, type: { kind: 'concrete', name: 'STRING' } }],
     } as NodeSchema
     expect(new DocumentStore(document(compositorGraph()), compositorRegistry(wrongType))
       .dispatch(compositorInvocation).ok).toBe(false)
@@ -458,7 +458,7 @@ describe('image.documentExport', () => {
   ] }
   const flattenSchema: NodeSchema = { ...schema, type: 'dinkster.layers.flatten', editorRole: 'layers-flatten', items: [
     { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
-    { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'core.string' }, optional: true,
+    { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
       widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
   ] }
   const resolve = Object.assign((type: string): NodeSchema | undefined =>
@@ -506,10 +506,10 @@ describe('image.documentExport', () => {
   it('refuses incompatible document and selector ports before allocating nodes', () => {
     const incompatible: NodeSchema[] = [
       { ...loadSchema, items: loadSchema.items.map((item) => item.kind === 'input'
-        ? { ...item, type: { kind: 'concrete', name: 'core.string' } } : item) },
+        ? { ...item, type: { kind: 'concrete', name: 'STRING' } } : item) },
       { ...flattenSchema, items: flattenSchema.items.filter((item) => item.kind !== 'input' || item.id !== 'selector') },
       { ...flattenSchema, items: flattenSchema.items.map((item) => item.kind === 'input' && item.id === 'selector'
-        ? { ...item, type: { kind: 'concrete', name: 'core.int' } } : item) },
+        ? { ...item, type: { kind: 'concrete', name: 'INT' } } : item) },
     ]
     for (const candidate of incompatible) {
       const before = document(graph())
@@ -529,22 +529,22 @@ describe('image.documentRecipeExport', () => {
     ] },
     { ...schema, type: 'dinkster.layers.edit', editorRole: 'layers-edit', items: [
       { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
-      { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'core.string' }, optional: false,
+      { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: { multiline: true } } },
       { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } },
     ] },
     { ...schema, type: 'dinkster.layers.flatten', editorRole: 'layers-flatten', items: [
       { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
-      { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'core.string' }, optional: true },
-      { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' } },
+      { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true },
+      { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
     ] },
     { ...schema, type: 'dinkster.save_image', editorRole: 'image-save', isOutputNode: true, items: [
-      { kind: 'input', id: 'images', type: { kind: 'concrete', name: 'dinkster.image' }, optional: false },
-      { kind: 'input', id: 'format', type: { kind: 'concrete', name: 'core.combo' }, optional: true,
+      { kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+      { kind: 'input', id: 'format', type: { kind: 'concrete', name: 'COMBO' }, optional: true,
         widget: { widgetType: 'COMBO', options: { options: ['png', 'jpeg', 'webp'] }, default: 'png' } },
-      { kind: 'input', id: 'quality', type: { kind: 'concrete', name: 'core.int' }, optional: true,
+      { kind: 'input', id: 'quality', type: { kind: 'concrete', name: 'INT' }, optional: true,
         widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 1 }, default: 90 } },
-      { kind: 'output', id: 'assets', type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } } } },
+      { kind: 'output', id: 'assets', type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } } },
     ] },
   ]
   const resolve = Object.assign((type: string): NodeSchema | undefined => schemas.find((candidate) => candidate.type === type), {

@@ -24,18 +24,18 @@ const schema = (command: typeof commands[number]) => ({
   idempotent: true,
   outputNode: true,
   interface: command === 'make'
-    ? [input('params', 'core.string', { optional: true, default: '{}', multiline: true }), output('document', 'dinkster.video_document')]
+    ? [input('params', 'STRING', { optional: true, default: '{}', multiline: true }), output('document', 'VIDEO_DOCUMENT')]
     : command === 'render'
-      ? [input('document', 'dinkster.video_document'), output('video', 'comfy.VIDEO')]
+      ? [input('document', 'VIDEO_DOCUMENT'), output('video', 'comfy.VIDEO')]
       : command === 'import_otio'
-        ? [input('otio', 'core.string', { multiline: true }), output('document', 'dinkster.video_document')]
+        ? [input('otio', 'STRING', { multiline: true }), output('document', 'VIDEO_DOCUMENT')]
         : command === 'export_otio'
-          ? [input('document', 'dinkster.video_document'), output('otio', 'core.string')]
+          ? [input('document', 'VIDEO_DOCUMENT'), output('otio', 'STRING')]
           : [
-              input('document', 'dinkster.video_document'),
-              input('params', 'core.string', { multiline: true }),
+              input('document', 'VIDEO_DOCUMENT'),
+              input('params', 'STRING', { multiline: true }),
               ...(command === 'bind_source' ? [input('video', 'comfy.VIDEO', { optional: true })] : []),
-              output('document', 'dinkster.video_document'),
+              output('document', 'VIDEO_DOCUMENT'),
             ],
 })
 const catalog = {

@@ -115,7 +115,7 @@ The live acceptance executes paint, layer, and flatten nodes and checks every
 decoded transparency-mask sample against the identically edited explicit bake.
 For other eligible inputs, **Bake to asset** explicitly replaces the input
 asset; **Cancel** leaves the workflow unchanged. Typed PNG inputs use the same
-editor and command guard for `asset<dinkster.image>` and `asset<comfy.IMAGE>`;
+editor and command guard for `asset<IMAGE>`;
 hidden and driven inputs are not writable.
 
 ## Authoritative render

@@ -104,17 +104,17 @@ const n = asNodeId
 
 describe('canonical list type ids', () => {
   it('round-trips through the single parser, nesting included', () => {
-    expect(listTypeId('core.int')).toBe('list<core.int>')
-    expect(parseListTypeId('list<core.int>')).toBe('core.int')
-    expect(parseListTypeId(listTypeId(listTypeId('core.int')))).toBe('list<core.int>')
-    expect(parseListTypeId('core.int')).toBeUndefined()
+    expect(listTypeId('INT')).toBe('list<INT>')
+    expect(parseListTypeId('list<INT>')).toBe('INT')
+    expect(parseListTypeId(listTypeId(listTypeId('INT')))).toBe('list<INT>')
+    expect(parseListTypeId('INT')).toBeUndefined()
     expect(parseListTypeId('list<>')).toBeUndefined()
   })
 
   it('canonicalTypeIdOf and typeExprFromTypeId are inverses on closed types', () => {
-    const nested = list(list(concrete('core.int')))
-    expect(canonicalTypeIdOf(nested)).toBe('list<list<core.int>>')
-    expect(typeExprFromTypeId('list<list<core.int>>')).toEqual(nested)
+    const nested = list(list(concrete('INT')))
+    expect(canonicalTypeIdOf(nested)).toBe('list<list<INT>>')
+    expect(typeExprFromTypeId('list<list<INT>>')).toEqual(nested)
     expect(typeExprFromTypeId('IMAGE')).toEqual(concrete('IMAGE'))
     // Open expressions have no canonical id.
     expect(canonicalTypeIdOf(list(T('T')))).toBeUndefined()

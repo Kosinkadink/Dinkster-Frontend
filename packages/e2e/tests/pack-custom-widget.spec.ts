@@ -92,7 +92,7 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
         category: 'test',
         pack: 'isopack',
         interface: [{
-          role: 'input', id: 'size', type: { kind: 'concrete', types: ['core.int'] },
+          role: 'input', id: 'size', type: { kind: 'concrete', types: ['INT'] },
           required: false, default: 8,
           widget: { type: 'isopack.size', min: 1, max: 12, unit: 'bytes' },
         }],

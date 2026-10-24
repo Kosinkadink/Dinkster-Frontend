@@ -562,14 +562,14 @@ test('document and app-view visual matrix', async ({ page }) => {
                 {
                   role: 'output',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                 },
               ]
             : [
                 {
                   role: 'input',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                   required: true,
                 },
                 {
@@ -582,7 +582,7 @@ test('document and app-view visual matrix', async ({ page }) => {
                 {
                   role: 'output',
                   id: 'document',
-                  type: typed('dinkster.video_document'),
+                  type: typed('VIDEO_DOCUMENT'),
                 },
               ],
       },

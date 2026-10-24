@@ -16,7 +16,7 @@ const catalog = {
     'test.video': node([
       input('source_version', 'INT', 0),
       { role: 'output', id: 'video', type: typed('comfy.VIDEO') },
-      { role: 'output', id: 'images', type: typed('dinkster.image') },
+      { role: 'output', id: 'images', type: typed('IMAGE') },
       { role: 'output', id: 'strict_duration', type: typed('BOOLEAN') },
       { role: 'output', id: 'start_time', type: typed('FLOAT') },
     ]),

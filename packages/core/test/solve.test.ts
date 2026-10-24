@@ -48,10 +48,10 @@ const schemas: Record<string, NodeSchema> = {
   LatentSrc: schemaOf('LatentSrc', [output('out', { kind: 'concrete', name: 'LATENT' })]),
   ImageSink: schemaOf('ImageSink', [input('in', { kind: 'concrete', name: 'IMAGE' })]),
   LatentSink: schemaOf('LatentSink', [input('in', { kind: 'concrete', name: 'LATENT' })]),
-  // Interchangeable comfy-compat pairs (canonicalized inside atomNamesOf)
-  DinksterImageSrc: schemaOf('DinksterImageSrc', [output('out', { kind: 'concrete', name: 'dinkster.image' })]),
+  // Comfy spellings canonicalize to wire identities inside atomNamesOf.
+  DinksterImageSrc: schemaOf('DinksterImageSrc', [output('out', { kind: 'concrete', name: 'IMAGE' })]),
   ComfyImageSink: schemaOf('ComfyImageSink', [input('in', { kind: 'concrete', name: 'comfy.IMAGE' })]),
-  DinksterMaskSrc: schemaOf('DinksterMaskSrc', [output('out', { kind: 'concrete', name: 'dinkster.mask' })]),
+  DinksterMaskSrc: schemaOf('DinksterMaskSrc', [output('out', { kind: 'concrete', name: 'MASK' })]),
   ComfyMaskSink: schemaOf('ComfyMaskSink', [input('in', { kind: 'concrete', name: 'comfy.MASK' })]),
   ComfyImageSwitch: schemaOf('ComfyImageSwitch', [input('in', T('T', ['comfy.IMAGE'])), output('out', T('T', ['comfy.IMAGE']))]),
   // Union producer (MultiType) and wildcard endpoints
@@ -63,10 +63,10 @@ const schemas: Record<string, NodeSchema> = {
     widget: { widgetType: 'FLOAT', options: {}, default: 1 },
   }]),
   SpecializedSlot: schemaOf('SpecializedSlot', [{
-    ...input('model', { kind: 'concrete', name: 'MODEL' }),
+    ...input('model', { kind: 'concrete', name: 'dinkster.model' }),
     dynamic: {
       kind: 'dynamicSlot',
-      slotType: { kind: 'concrete', name: 'MODEL' },
+      slotType: { kind: 'concrete', name: 'dinkster.model' },
       inputs: [],
       variants: [{ key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, inputs: [] }],
     },
@@ -91,7 +91,7 @@ const schemas: Record<string, NodeSchema> = {
     output('asset', { kind: 'asset', element: T('T', ['IMAGE', 'MASK']) }),
   ]),
   MatchedSlotEmptyFamily: schemaOf('MatchedSlotEmptyFamily', [
-    input('count', { kind: 'concrete', name: 'core.int' }),
+    input('count', { kind: 'concrete', name: 'INT' }),
     {
       ...input('source', { kind: 'union', names: ['IMAGE', 'MASK'] }),
       dynamic: {
@@ -228,7 +228,7 @@ describe('concrete and union edges', () => {
     expect(mismatch?.anchor?.link).toBe('l1')
   })
 
-  it('a dinkster.image output feeds a comfy.IMAGE input with no mismatch', () => {
+  it('an IMAGE output feeds a comfy.IMAGE input with no mismatch', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterImageSrc' }, sink: { type: 'ComfyImageSink' } },
       links: { l0: { from: ['src', 'out'], to: ['sink', 'in'] } },
@@ -238,7 +238,7 @@ describe('concrete and union edges', () => {
     expect(s.diagnostics.filter((d) => d.code === 'solve.linkMismatch')).toEqual([])
   })
 
-  it('a dinkster.mask output feeds a comfy.MASK input but never a comfy.IMAGE one', () => {
+  it('a MASK output feeds a comfy.MASK input but never a comfy.IMAGE one', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterMaskSrc' }, maskSink: { type: 'ComfyMaskSink' }, imageSink: { type: 'ComfyImageSink' } },
       links: {
@@ -251,7 +251,7 @@ describe('concrete and union edges', () => {
     expect(s.linkVerdicts.get('l1' as never)).toBe('mismatch')
   })
 
-  it('a variable constrained to comfy.IMAGE resolves through a dinkster.image edge', () => {
+  it('a variable constrained to comfy.IMAGE resolves through an IMAGE edge', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterImageSrc' }, sw: { type: 'ComfyImageSwitch' }, sink: { type: 'ComfyImageSink' } },
       links: {
@@ -260,7 +260,7 @@ describe('concrete and union edges', () => {
       },
     })
     const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
+    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
     expect(s.diagnostics).toEqual([])
   })
 
@@ -1022,8 +1022,8 @@ describe('dynamicSlot MatchType binding', () => {
     })
   })
 
-  it('binds an interchangeable Dinkster type in the canonical solver domain', () => {
-    const image = { kind: 'concrete', name: 'dinkster.image' } as const
+  it('binds IMAGE in the canonical solver domain', () => {
+    const image = { kind: 'concrete', name: 'IMAGE' } as const
     const matchedImage = schemaOf('DinksterMatchedSlot', [
       {
         ...input('source', image),
@@ -1036,14 +1036,14 @@ describe('dynamicSlot MatchType binding', () => {
           typeTemplateId: 'T',
         },
       },
-      output('out', T('T', ['dinkster.image'])),
+      output('out', T('T', ['IMAGE'])),
     ])
     const solved = solveGraphTypes(defOf({
       nodes: { matched: { type: matchedImage.type, dynamic: { source: { selected: 'image' } } } },
     }), (type) => type === matchedImage.type ? matchedImage : resolve(type))
 
     expect(solved.diagnostics).toEqual([])
-    expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
+    expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
     expect(solved.portTypeOf(n('matched'), 'output', 'out')).toEqual(image)
   })
 
