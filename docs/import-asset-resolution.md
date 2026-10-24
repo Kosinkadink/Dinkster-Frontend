@@ -42,8 +42,8 @@ implicit broadcast behavior to the engine.
 Declared list outputs feeding ordinary scalar inputs are persisted as explicit
 map regions. Linked scalar inputs consume elements while other widget values
 broadcast unchanged. Mapping propagates through connected consumers regardless
-of serialized node order, including reroutes and named nets. Expanding controls
-and outputless nodes retain their native execution paths.
+of serialized node order, including reroutes and named nets. Output-only
+consumers are mapped as well. Expanding controls retain their native paths.
 
 Native catalogs that register an expanding `StartLoop` retain the registered
 loop nodes for engine execution. Legacy schemas use structural region

@@ -622,7 +622,6 @@ export function convertLitegraphListConsumers(
       const outputs = elabOutputsOf(elaborated).filter(
         (output) => output.wireable !== false,
       )
-      if (outputs.length === 0) continue
       const body = {
         id: defId,
         name: schema.displayName,

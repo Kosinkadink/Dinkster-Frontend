@@ -310,6 +310,83 @@ const workflowFiles = readdirSync(fixtureRoot)
   .sort()
 
 describe('explicit imported list utilities', () => {
+  it('maps an output-only scalar consumer', () => {
+    const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+    const schemas = new Map<string, NodeSchema>([
+      [
+        'ListSource',
+        {
+          type: 'ListSource',
+          displayName: 'Source',
+          source: 'v3',
+          category: 'test',
+          isOutputNode: false,
+          items: [
+            {
+              kind: 'output',
+              id: 'values',
+              type: { kind: 'list', element: integer },
+            },
+          ],
+        },
+      ],
+      [
+        'SaveValue',
+        {
+          type: 'SaveValue',
+          displayName: 'Save',
+          source: 'v3',
+          category: 'test',
+          isOutputNode: true,
+          items: [
+            { kind: 'input', id: 'value', type: integer, optional: false },
+          ],
+        },
+      ],
+    ])
+    const imported = importLitegraph(
+      {
+        nodes: [
+          {
+            id: 1,
+            type: 'ListSource',
+            outputs: [{ name: 'values', links: [1] }],
+          },
+          {
+            id: 2,
+            type: 'SaveValue',
+            inputs: [{ name: 'value', link: 1 }],
+            outputs: [],
+          },
+        ],
+        links: [[1, 1, 0, 2, 0, 'INT']],
+      },
+      (type) => schemas.get(type),
+    )
+    expect(
+      imported.diagnostics.filter((item) => item.severity === 'error'),
+    ).toEqual([])
+    const document = imported.document!
+    expect(document.graphs.g0!.nodes.n2!.region).toMatchObject({
+      kind: 'map',
+      elementPorts: ['value'],
+    })
+    expect(document.graphs['list-map-n2']!.nodes.body!.type).toBe('SaveValue')
+    const compiled = compile({
+      document,
+      revision: 1,
+      resolve: (type) => schemas.get(type),
+      scope: { kind: 'full' },
+      connection: asConnectionId('test'),
+      schemaHash: 'output-only-list',
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
+    expect(
+      compiled.ok,
+      compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
+    ).toBe(true)
+  })
+
   it.each([false, true])(
     'maps every list-backed scalar input independent of serialized order (consumer first: %s)',
     (consumerFirst) => {
