@@ -7,10 +7,13 @@ import { evidencePath } from './evidence-output.js'
 test('desktop Automatic locale reaches setup and the full app without host side effects', async ({ page }) => {
   await page.addInitScript(() => {
     const calls = { locale: 0, status: 0, retry: 0 }
-    let statusListener: ((status: { phase: string; detail: string; variant: string }) => void) | undefined
+    let statusListener: ((status: { phase: string; detail: string; variant: string; error?: string }) => void) | undefined
     ;(window as typeof window & { __desktopSetupCalls: typeof calls }).__desktopSetupCalls = calls
     ;(window as typeof window & { __completeDesktopSetup: () => void }).__completeDesktopSetup = () => {
       statusListener?.({ phase: 'running', detail: 'Dinkster is running locally', variant: 'cuda' })
+    }
+    ;(window as typeof window & { __failDesktopSetup: () => void }).__failDesktopSetup = () => {
+      statusListener?.({ phase: 'failed', detail: 'Installation failed', variant: 'cuda', error: 'Cannot install locked environment' })
     }
     ;(window as typeof window & { dinksterDesktop: unknown }).dinksterDesktop = {
       locale: async () => { calls.locale += 1; return 'zh-CN' },
@@ -104,6 +107,16 @@ test('desktop Automatic locale reaches setup and the full app without host side 
   })
   await expect(setup).toContainText('\u6b63\u5728\u51c6\u5907\u60a8\u7684\u672c\u5730\u5de5\u4f5c\u5ba4')
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+
+  await page.evaluate(() => (window as typeof window & { __failDesktopSetup: () => void }).__failDesktopSetup())
+  const setupError = page.locator('.desktop-setup-error')
+  await expect(setupError).toHaveText('Cannot install locked environment')
+  await expect(setupError).toHaveCSS('font-family', '"Noto Sans Mono", monospace')
+  expect(await setupError.evaluate(async (element) => {
+    await document.fonts.ready
+    return document.fonts.check(getComputedStyle(element).font)
+  })).toBe(true)
+  await page.screenshot({ path: evidencePath('issue-523', 'desktop-setup-error.png'), fullPage: true })
 
   await page.evaluate(() => (window as typeof window & { __completeDesktopSetup: () => void }).__completeDesktopSetup())
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
