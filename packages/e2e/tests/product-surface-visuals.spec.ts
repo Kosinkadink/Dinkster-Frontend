@@ -1241,11 +1241,13 @@ test('Import resolution keeps the no-candidate explanation and unresolved decisi
   await closeGallery(page)
   const openResolution = async (): Promise<void> => {
     await page.evaluate(() => {
-      const app = window.__dinksterTest!.app
+      const app = window.__dinksterTest!.app as unknown as {
+        importAssetResolution: { set(value: unknown): void }
+      }
       app.importAssetResolution.set({
         matches: [{ query: 'models/checkpoints/missing-model.safetensors', candidates: [] }],
         reasons: { 'models/checkpoints/missing-model.safetensors': 'no-match' },
-        accept: (selected) => {
+        accept: (selected: ReadonlyMap<string, unknown>) => {
           if (selected.size !== 0) throw new Error('No candidate can be selected')
           app.importAssetResolution.set(undefined)
         },
