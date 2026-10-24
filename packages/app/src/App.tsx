@@ -2438,8 +2438,9 @@ export function App(props: {
             when={paneDescriptor()}
             keyed
             fallback={
-              <div class="editor-missing" data-testid="editor-missing">
-                {message('shell.editor.missing', { kind: paneEditorKind() })}
+              <div class="editor-unavailable">
+                <ProductEmptyState tone="error" testId="editor-missing"
+                  title={message('shell.editor.missing', { kind: paneEditorKind() })} />
               </div>
             }
           >

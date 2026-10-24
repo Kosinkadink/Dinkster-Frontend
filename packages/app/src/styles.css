@@ -3118,11 +3118,6 @@ body,
 .widget-editor textarea:where(:not(.product-text-area)):focus-visible,
 .widget-editor select:focus-visible { border-color: var(--dinkster-border-focus); box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected); }
 
-.empty {
-  color: var(--dinkster-text-muted);
-  margin: var(--dinkster-space-4) 0;
-}
-
 .extensions-panel {
   container-type: inline-size;
   min-width: 0;
@@ -4886,13 +4881,6 @@ body,
   overflow: hidden;
 }
 
-.collection-content > .empty {
-  flex: 1;
-  margin: 0;
-  align-self: center;
-  text-align: center;
-}
-
 .collection-state-list {
   display: grid;
   flex: 1;
@@ -6006,6 +5994,15 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   overflow: hidden;
 }
 
+.editor-unavailable {
+  box-sizing: border-box;
+  display: grid;
+  place-content: center;
+  height: 100%;
+  padding: calc(2 * var(--dinkster-space-24)) var(--dinkster-space-16);
+  overflow: auto;
+}
+
 /* Center editor region: editor groups and split dividers are absolutely
    positioned inside it from the split layout tree, so every group is real
    laid-out DOM at its true size. */
@@ -6048,17 +6045,6 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
   pointer-events: none;
   background: color-mix(in srgb, var(--dinkster-border-focus) 18%, transparent);
   box-shadow: inset 0 0 0 2px var(--dinkster-border-focus);
-}
-
-/* Center-region fallback when a tab's editorKind has no registered editor
-   (an unregistered extension kind): loud, never a blank stage. */
-.editor-missing {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #e08585;
-  font-size: 13px;
 }
 
 .activity-log {

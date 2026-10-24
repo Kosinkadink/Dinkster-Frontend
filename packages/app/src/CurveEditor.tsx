@@ -7,6 +7,7 @@ import { useSignal } from './solid-adapter.js'
 import { audioPlayhead } from './AudioTransport.js'
 import { liveExactnessFor } from './companion-display.js'
 import { useAppMessage } from './locale.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 const clamp = (value: number): number => Math.max(0, Math.min(1, value))
 const CURVE_WIDTH = 1000
@@ -326,7 +327,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
   }
 
   return <section class="curve-editor" data-testid="curve-editor">
-    <Show when={target()} fallback={<div class="editor-missing">No curve target is active.</div>}>
+    <Show when={target()} fallback={<div class="editor-unavailable"><ProductEmptyState title="No curve target is active." /></div>}>
       {(request) => <>
         <header class="curve-editor-header">
           <div><strong>Curve editor</strong><small>{request().nodeId} / {request().inputId}</small></div>

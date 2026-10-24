@@ -958,6 +958,113 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
   await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
 })
 
+test('Canvas badge popovers explain removed sources and selectors', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const diagnostics = app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'missing-badge-visual', root: 'root',
+      graphs: { root: { id: 'root', name: 'Badge targets', nodes: {}, links: {}, nets: {}, reroutes: {},
+        valueSources: { source: { id: 'source', value: 12, spec: { widgetType: 'INT', options: {} } } },
+        selectors: { selector: { id: 'selector', title: 'Choice', candidates: [{ id: 'first' }, { id: 'second' }], policy: { kind: 'fixed', candidate: 'first' } } },
+        nextOrdinal: 4 } },
+      view: { graphs: { root: { nodes: {}, valueSources: { source: { position: { x: 48, y: 80 } } }, selectors: { selector: { position: { x: 48, y: 180 } } } } } },
+    }, 'Badge targets')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const clickBadge = async (kind: 'valueSources' | 'selectors'): Promise<void> => {
+    await page.waitForFunction((kind) => window.__dinksterTest!.renderer!.getScene()[kind].length > 0, kind)
+    const point = await page.evaluate((kind) => {
+      const renderer = window.__dinksterTest!.renderer!
+      const scene = renderer.getScene()
+      const item = scene[kind][0]!
+      const viewport = renderer.getViewport()
+      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      const height = kind === 'selectors' ? scene.selectors[0]!.headerHeight : item.height
+      return { x: canvas.left + viewport.x + (item.x + item.width - 13) * viewport.scale,
+        y: canvas.top + viewport.y + (item.y + height / 2) * viewport.scale }
+    }, kind)
+    await page.mouse.click(point.x, point.y)
+  }
+  await clickBadge('valueSources')
+  const source = page.getByTestId('value-source-popover')
+  await expect(source).toContainText('Value Source:')
+  await expect(source).toBeFocused()
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+    command: 'graph.deleteItems', params: { graphId: 'root', valueSourceIds: ['source'] },
+  }))
+  await expect(source).toHaveText('Value source missing.')
+  await expect(source).toBeFocused()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `canvas-source-missing-${width}`)
+  }
+  await page.getByTestId('rail-toggle').focus()
+  await expect(source).toBeHidden()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { id: string }
+      tabs: { get(): { id: string }[]; set(tabs: unknown[]): void }
+    }
+    const id = app.activeTab().id
+    app.tabs.set(app.tabs.get().map((tab) => tab.id === id ? { ...tab, execution: { connection: 'visual', prompt: 'visual' } } : tab))
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await clickBadge('selectors')
+  const selector = page.getByTestId('selector-exec-popover')
+  await expect(selector).toContainText('Selector: Choice')
+  await expect(selector).toBeFocused()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): { store: { dispatch(command: unknown): unknown } }
+      tabs: { get(): object[]; set(tabs: unknown[]): void }
+    }
+    app.activeTab().store.dispatch({ command: 'graph.deleteItems', params: { graphId: 'root', selectorIds: ['selector'] } })
+    app.tabs.set(app.tabs.get().map((tab) => ({ ...tab })))
+  })
+  await expect(selector).toHaveText('Selector missing.')
+  await expect(selector).toBeFocused()
+  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.mouse.move(0, 0)
+    await screenshot(page, `canvas-selector-missing-${width}`)
+  }
+  await page.getByTestId('rail-toggle').focus()
+  await expect(selector).toBeHidden()
+})
+
+test('Editor host and target fallbacks explain unavailable editors', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const [kind, text] of [
+    ['curve', 'No curve target is active.'],
+    ['image', 'No image target is active.'],
+    ['unregistered-editor', "No editor registered for kind 'unregistered-editor'"],
+  ] as const) {
+    await page.evaluate((kind) => {
+      const app = window.__dinksterTest!.app
+      const tab = app.activeTab() as unknown as { editorKind: string }
+      tab.editorKind = kind
+      const tabs = app.tabs as unknown as { set(tabs: readonly unknown[]): void }
+      tabs.set([...app.tabs.get()])
+    }, kind)
+    await expect(page.getByText(text, { exact: true })).toBeVisible()
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      const card = page.locator('.canvas-stage .product-empty-state').filter({ hasText: text })
+      await expect(card).toBeVisible()
+      const bounds = await card.boundingBox()
+      const toolbar = await page.locator('.canvas-stage-toolbar').boundingBox()
+      expect(bounds!.y).toBeGreaterThan(toolbar!.y + toolbar!.height)
+      await page.mouse.move(0, 0)
+      await screenshot(page, `editor-missing-${kind}-${width}`)
+    }
+  }
+})
+
 test('Region iteration states keep unavailable, loading and retained refusal explanations', async ({ page }) => {
   await boot(page)
   await closeGallery(page)

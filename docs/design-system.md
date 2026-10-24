@@ -46,6 +46,10 @@ definitions and no retained definitions without private success-border styling.
 The Settings result-count announcement and Escape-to-clear behavior remain
 independent of the empty presentation.
 
+Canvas value-source and execution-selector popovers use ProductEmptyState when
+their target is unavailable. The popover keeps its focus and anchor until focus
+leaves it. Problems uses the shared empty card without a private color override.
+
 Collaboration discovery uses ProductEmptyState for unavailable, loading, empty
 and error results, and for a workflow that is not shared. Loading announces
 politely and errors are alerts. Refresh remains available after a failed read;
