@@ -157,6 +157,59 @@ describe('dinkster region lifecycle events', () => {
   })
 })
 
+describe('dinkster execution semantics events', () => {
+  it('normalizes one blocked reason and the expanded children under their parent', () => {
+    const events = replay([
+      {
+        type: 'node_blocked', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent.0.0.child',
+        detail: { origin: 'source/value', message: 'source produced no value', displayNodeId: 'parent' },
+      },
+      {
+        type: 'node_expanded', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent.0.0.child',
+        detail: { children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayNodeId: 'parent' },
+      },
+      {
+        type: 'node_started', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent.0.0.output',
+        detail: { parentId: 'parent', displayNodeId: 'source' },
+      },
+    ])
+    expect(events).toEqual([
+      {
+        kind: 'nodeBlocked', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
+        runtimeNodeId: 'parent.0.0.child',
+        blocked: { origin: 'source/value', message: 'source produced no value', displayRuntimeNodeId: 'parent' },
+      },
+      {
+        kind: 'nodeExpanded', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
+        runtimeNodeId: 'parent.0.0.child',
+        expansion: { children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayRuntimeNodeId: 'parent' },
+      },
+      {
+        kind: 'nodeStates', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
+        nodes: {
+          'parent.0.0.output': {
+            state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'source',
+          },
+        },
+      },
+    ])
+  })
+
+  it('drops malformed blocked and expansion detail without guessing', () => {
+    const malformed: string[] = []
+    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => malformed.push(detail))
+    expect(normalizer.normalize({
+      type: 'node_blocked', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'consumer',
+      detail: { origin: 'source/value' },
+    })).toEqual([])
+    expect(normalizer.normalize({
+      type: 'node_expanded', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent',
+      detail: { children: ['child'], childCount: 2 },
+    })).toEqual([])
+    expect(malformed).toEqual(['node_blocked with malformed detail', 'node_expanded with malformed detail'])
+  })
+})
+
 describe('dinkster stream replay: success', () => {
   const events = replay(successStream.messages)
 

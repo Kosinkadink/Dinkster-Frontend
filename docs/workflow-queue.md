@@ -15,6 +15,10 @@ flight. A row appears only after the backend accepts the job and the
 execution store registers its real execution reference. Queued, running, and
 terminal labels, progress, node facts, errors, and partial-run scope are read
 directly from `ExecutionStore`; the control has no parallel status state.
+When the engine reports an absent root value, the execution card and its
+matching canvas node show the one blocked message for that node. Runtime graph
+expansion remains attached to its parent: both surfaces show the child count,
+and the card reports how many of those children have completed or used cache.
 Rehydrated jobs show the authenticated principal that queued the run, with a
 compact `agent` badge for agent principals. The local human principal and jobs
 from older backends without attribution retain the existing presentation.
@@ -78,7 +82,8 @@ bottom-right minimap.
   disclosure's keyboard, focus, and ARIA contract.
 - `app/test/ExecutionActivityCard.dom.test.tsx` proves complete identities,
   text status, cached/skipped/region/out-of-order progress, error facts,
-  incomplete provenance, and exact open and pin/follow command routing.
+  blocked and expanded-runtime facts, incomplete provenance, and exact open
+  and pin/follow command routing.
 - `canvas/test/renderer-paint.test.ts` and
   `e2e/tests/execution-progress.spec.ts` prove normalized step progress paints
   on the running node, reacts alongside the shell aggregate, animates only

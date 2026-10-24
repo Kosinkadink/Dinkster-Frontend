@@ -45,7 +45,19 @@ const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
 const nativeOutput = resolve(nativeLibrary, 'output')
 if (argumentProject) {
-  rmSync(nativeLibrary, { recursive: true, force: true })
+  // Catalog preparation creates pack environments and schema data here before
+  // Playwright loads this config. Reset only mutable test state so the native
+  // server can still compose those prepared default packs.
+  rmSync(nativeOutput, { recursive: true, force: true })
+  rmSync(resolve(nativeLibrary, 'vault'), { recursive: true, force: true })
+  rmSync(resolve(nativeLibrary, 'value-store'), {
+    recursive: true,
+    force: true,
+  })
+  rmSync(resolve(nativeLibrary, 'worker-state'), {
+    recursive: true,
+    force: true,
+  })
   mkdirSync(nativeOutput, { recursive: true })
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
   writeFileSync(

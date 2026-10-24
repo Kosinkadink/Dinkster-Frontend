@@ -273,6 +273,46 @@ describe('bounded execution activity', () => {
   })
 })
 
+describe('execution semantics display facts', () => {
+  const C0 = asConnectionId('c0')
+  const execution = { connection: C0, prompt: asPromptId('semantics') }
+
+  it('keeps one blocked reason per node and child progress under its parent', () => {
+    const store = new ExecutionStore()
+    store.apply({
+      kind: 'nodeBlocked', execution, timestamp: 1, runtimeNodeId: 'parent.0.0.child',
+      blocked: { origin: 'source/value', message: 'source produced no value', displayRuntimeNodeId: 'parent' },
+    })
+    store.apply({
+      kind: 'nodeBlocked', execution, timestamp: 2, runtimeNodeId: 'parent.0.0.child',
+      blocked: { origin: 'alternate/value', message: 'latest root absence', displayRuntimeNodeId: 'parent' },
+    })
+    store.apply({
+      kind: 'nodeExpanded', execution, timestamp: 3, runtimeNodeId: 'parent.0.0.child',
+      expansion: { children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayRuntimeNodeId: 'parent' },
+    })
+    store.apply({
+      kind: 'nodeStates', execution, timestamp: 4,
+      nodes: {
+        'parent/left': { state: 'done', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+        'parent/right': { state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+      },
+    })
+    const state = store.get(execution)!
+    expect(state.blockedNodes).toEqual({
+      'parent.0.0.child': { origin: 'alternate/value', message: 'latest root absence', displayRuntimeNodeId: 'parent' },
+    })
+    expect(state.expandedNodes['parent.0.0.child']).toEqual({
+      children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayRuntimeNodeId: 'parent',
+    })
+    expect(state.nodes['parent/left']?.state).toBe('done')
+    expect(state.nodes['parent/right']?.state).toBe('running')
+    expect(state.nodes['parent/right']).toMatchObject({
+      parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent',
+    })
+  })
+})
+
 describe('bounded execution value diagnostics', () => {
   const C0 = asConnectionId('c0')
   const execution = { connection: C0, prompt: asPromptId('diagnostics') }

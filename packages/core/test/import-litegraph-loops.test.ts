@@ -529,6 +529,41 @@ describe('ComfyUI Generic Loops structural import', () => {
     )
   })
 
+  it('retains loop definitions generated inside imported subgraphs', () => {
+    const loop = topologyWorkflow({
+      start: { type: 'StartLoop' },
+      body: { type: 'Body', inputs: { value: 'start' } },
+      end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+    })
+    const definition: JsonObject = {
+      id: 'loop-body',
+      name: 'loop-body',
+      version: 1,
+      nodes: loop['nodes'] ?? [],
+      links: loop['links'] ?? [],
+      inputs: [],
+      outputs: [],
+    }
+    const workflow: JsonObject = {
+      version: 0.4,
+      last_node_id: 1,
+      last_link_id: 0,
+      nodes: [{ id: 1, type: 'loop-body', inputs: [], outputs: [] }],
+      links: [],
+      groups: [],
+      config: {},
+      extra: {},
+      definitions: {
+        subgraphs: [definition],
+      },
+    }
+    const imported = importLitegraph(workflow, topologyResolver(loop))
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(imported.document).toBeDefined()
+    expect(imported.document!.graphs['comfy-loop-1']).toBeDefined()
+    expect(imported.document!.graphs['loop-body']!.nodes.n1!.type).toBe('#comfy-loop-1')
+  })
+
   it('consumes flagged nested loop boundaries before scanning the outer body', () => {
     const { imported } = importCorpusWorkflow('nested-carry.json')
     expect(imported.diagnostics.map((item) => item.code)).not.toContain(

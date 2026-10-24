@@ -1101,6 +1101,30 @@ describe('region compile lowering', () => {
     })
     expect(result.artifact.dinksterGraph).toBeUndefined()
   })
+
+  it('emits a native graph for an ordinary graph when the backend supports regions', () => {
+    const doc = documentWith({ kind: 'map', elementPorts: ['item'] })
+    delete (doc.graphs.root!.nodes.n0 as { region?: RegionContract }).region
+    const result = compile({
+      document: doc,
+      revision: 1,
+      resolve,
+      scope: { kind: 'full' },
+      connection: asConnectionId('test'),
+      schemaHash: 'test',
+      graphFeatures: ['regions'],
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    expect(result.artifact.dinksterGraph).toEqual({
+      nodes: {
+        'n0.n0': {
+          nodeType: 'Body',
+          inputs: { in_item: [], in_other: 0, in_state: 0 },
+        },
+      },
+    })
+  })
 })
 
 describe('region commands and atomic composition', () => {
