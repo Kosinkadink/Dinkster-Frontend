@@ -529,20 +529,22 @@ describe('fast pull-request and full validation workflows', () => {
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
     )
-    expect(hostedConfig).toContain("'--development-pack'")
-    expect(hostedConfig).not.toContain(
+    expect(hostedConfig).not.toContain("'--development-pack'")
+    expect(hostedConfig).toContain(
       'packages/dinkster-nodes-dev/dinkster-pack.toml',
     )
+    expect(hostedConfig).toContain('`--pack ${JSON.stringify(resolve(dinksterRoot,')
     expect(hostedConfig).not.toContain("'--dev'")
     expect(auditConfig).toContain(
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
     expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
-    expect(auditConfig).toContain("'--development-pack'")
-    expect(auditConfig).not.toContain(
+    expect(auditConfig).not.toContain("'--development-pack'")
+    expect(auditConfig).toContain(
       'packages/dinkster-nodes-dev/dinkster-pack.toml',
     )
+    expect(auditConfig).toContain('`--pack ${JSON.stringify(resolve(dinksterRoot,')
     expect(auditConfig).not.toContain("'--dev'")
   })
 })
