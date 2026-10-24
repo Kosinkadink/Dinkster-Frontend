@@ -518,6 +518,8 @@ export function convertLitegraphLoops(
   diagnostics: Diagnostic[],
   helperOwners: ReadonlyMap<string, string> = new Map(),
 ): void {
+  const startSchema = resolve('StartLoop')
+  if (startSchema?.source === 'v3' && startSchema.mayExpandGraph === true) return
   const rawNodes = rawNodesValue.filter(
     (value): value is RawNode =>
       object(value) &&

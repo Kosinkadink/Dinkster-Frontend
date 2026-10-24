@@ -712,6 +712,52 @@ describe('ComfyUI Generic Loops structural import', () => {
     expect(workflowFiles).toHaveLength(23)
   })
 
+  it('preserves registered native expanding loops instead of synthesizing region state', () => {
+    const workflow = topologyWorkflow({
+      start: { type: 'StartLoop' },
+      body: { type: 'Body', inputs: { value: 'start' } },
+      end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+      output: { type: 'Output', inputs: { value: 'end' } },
+    })
+    const legacyResolve = topologyResolver(workflow)
+    const resolve = (type: string): NodeSchema | undefined => {
+      const schema = legacyResolve(type)
+      return type === 'StartLoop' && schema
+        ? { ...schema, source: 'v3', mayExpandGraph: true }
+        : schema
+    }
+    const imported = importLitegraph(workflow, resolve)
+    expect(
+      imported.diagnostics.filter((item) => item.severity === 'error'),
+    ).toEqual([])
+    expect(Object.keys(imported.document!.graphs)).toEqual(['g0'])
+    const graph = imported.document!.graphs.g0!
+    expect(graph.nodes.n1!.type).toBe('StartLoop')
+    expect(graph.nodes.n3!.type).toBe('EndLoop')
+    expect(graph.nodes.n1!.values).not.toHaveProperty('carry')
+    const compiled = compile({
+      document: imported.document!,
+      revision: 1,
+      resolve,
+      scope: { kind: 'full' },
+      connection: asConnectionId('test'),
+      schemaHash: 'native-controls',
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
+    expect(
+      compiled.ok,
+      compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
+    ).toBe(true)
+    if (compiled.ok) {
+      expect(compiled.artifact.dinksterGraph!.nodes['n1']).toMatchObject({
+        nodeType: 'StartLoop',
+      })
+      expect(compiled.artifact.dinksterGraph!.nodes['n3']).toMatchObject({
+        nodeType: 'EndLoop',
+      })
+    }
+  })
+
   it('binds a generated singleton to the actual StartLoop iteration output', () => {
     const workflow = topologyWorkflow({
       start: { type: 'StartLoop' },
