@@ -69,6 +69,12 @@ absent and when subgraph or replacement data is unavailable. These are missing
 detail messages, not new runtime alerts; popover focus and existing actions
 retain their behavior.
 
+The region iteration inspector uses ProductEmptyState for absent iteration
+activity, nodes without outputs, unavailable execution owners and loading.
+Retained-value refusals keep their reason and explanation in a neutral status
+card, not an execution error alert. Selection and stale-read cancellation
+remain owned by the inspector.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.

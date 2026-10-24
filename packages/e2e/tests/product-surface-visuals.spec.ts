@@ -942,6 +942,66 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
   await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
 })
 
+test('Region iteration states keep unavailable, loading and retained refusal explanations', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const [state, text] of [
+    ['empty', 'No retained iteration activity is available for this region.'],
+    ['no-outputs', 'This body node has no inspectable outputs.'],
+    ['unavailable', 'The execution owner is unavailable.'],
+    ['loading', 'Loading retained value...'],
+    ['refused', 'This intermediate is no longer retained.'],
+  ] as const) {
+    await page.evaluate(async (state) => {
+      const target = window as unknown as { disposeRegionVisual?: () => void }
+      target.disposeRegionVisual?.()
+      const componentPath = '/src/RegionIterationInspector.tsx'
+      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+      const { RegionIterationInspector } = await import(componentPath)
+      const { render } = await import(rendererPath)
+      const host = document.createElement('div')
+      host.style.cssText = 'position:absolute;top:48px;right:16px;width:300px;z-index:20'
+      document.querySelector('.canvas-pane')!.append(host)
+      const documentFixture = {
+        root: 'root', graphs: {
+          root: { nodes: { outer: { id: 'outer', type: '#body', values: {} } } },
+          body: { nodes: { source: { id: 'source', type: 'Source', title: 'Retained result', values: {} } } },
+        },
+      }
+      const execution = {
+        ref: { connection: 'backend', prompt: 'region-visual' },
+        artifact: {
+          prompt: { 'outer.source': { outputIds: state === 'no-outputs' ? [] : ['value'] } },
+          provenance: { fromSource: { outer: ['outer'] }, toSource: { 'outer.source': 'outer.source' } },
+        },
+        nodes: state === 'empty' ? {} : { 'outer[0]/source': { state: 'done' } },
+        regions: { outer: { kind: 'map', binding: 'zip', iterations: 1, finishedIterations: 1 } },
+      }
+      const dispose = render(() => RegionIterationInspector({
+        execution, document: documentFixture,
+        regionOccurrence: { instancePath: [], node: 'outer' }, resolveSchema: () => undefined,
+        values: state === 'unavailable' ? undefined : {
+          peek: () => state === 'loading' ? new Promise(() => {}) : Promise.resolve({
+            available: false, reason: 'not-retained', status: 410,
+            error: 'This intermediate is no longer retained.',
+          }),
+        },
+      }), host)
+      target.disposeRegionVisual = () => { dispose(); host.remove() }
+    }, state)
+    const inspector = page.getByTestId('region-iteration-inspector')
+    await expect(inspector.getByText(text, { exact: true })).toBeVisible()
+    if (state === 'loading' || state === 'refused')
+      await expect(inspector.getByRole('status')).toContainText(text)
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `region-${state}-${width}`)
+    }
+  }
+  await page.evaluate(() => (window as unknown as { disposeRegionVisual(): void }).disposeRegionVisual())
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

@@ -3573,14 +3573,12 @@ body,
 }
 
 .region-iteration-summary,
-.region-iteration-identity,
-.region-iteration-refusal {
+.region-iteration-identity {
   color: var(--dinkster-text-secondary);
   font-size: 11px;
 }
 
-.region-iteration-identity,
-.region-iteration-refusal {
+.region-iteration-identity {
   display: grid;
   gap: 4px;
 }
@@ -3634,14 +3632,6 @@ body,
 .region-iteration-value dd {
   min-width: 0;
   margin: 0;
-}
-
-.region-iteration-refusal {
-  padding: 8px;
-  border: 1px solid var(--dinkster-warning-border);
-  border-radius: 4px;
-  color: var(--dinkster-warning-foreground);
-  background: var(--dinkster-warning-background);
 }
 
 .context-panel .context-problems-title {
