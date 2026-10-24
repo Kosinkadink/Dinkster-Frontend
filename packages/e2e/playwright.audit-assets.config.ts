@@ -43,7 +43,7 @@ export default defineConfig({
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
         '--host 127.0.0.1',
         `--port ${nativePort}`,
-        '--development-pack',
+        `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/native-library'))}`,
       ].join(' '),
       cwd: dinksterRoot,
