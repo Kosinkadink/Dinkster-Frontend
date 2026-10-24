@@ -27,7 +27,7 @@ const Q = { jobId: 'job-1', nodeId: 'n0', outputId: 'image' }
 
 const OK_SCALAR = {
   available: true,
-  descriptor: { typeId: 'core.int', fingerprint: 'fp-int', meta: {}, value: 42 },
+  descriptor: { typeId: 'INT', fingerprint: 'fp-int', meta: {}, value: 42 },
   renditions: [],
 }
 
@@ -76,7 +76,7 @@ describe('peek: descriptor decode', () => {
     const res = await client.peek(Q)
     expect(res.available).toBe(true)
     if (res.available) {
-      expect(res.descriptor).toEqual({ typeId: 'core.int', fingerprint: 'fp-int', meta: {}, value: 42 })
+      expect(res.descriptor).toEqual({ typeId: 'INT', fingerprint: 'fp-int', meta: {}, value: 42 })
       expect(res.renditions).toEqual([])
     }
   })
@@ -85,20 +85,20 @@ describe('peek: descriptor decode', () => {
     const body = {
       available: true,
       descriptor: {
-        typeId: 'list<list<core.int>>',
+        typeId: 'list<list<INT>>',
         fingerprint: 'fp-outer',
         meta: {},
         length: 100,
         elementsTruncated: true,
         elements: [
           {
-            typeId: 'list<core.int>',
+            typeId: 'list<INT>',
             fingerprint: 'fp-inner',
             meta: {},
             length: 2,
             elements: [
-              { typeId: 'core.int', fingerprint: 'fp-a', meta: {}, value: 1 },
-              { typeId: 'core.int', fingerprint: 'fp-b', meta: {}, value: 2 },
+              { typeId: 'INT', fingerprint: 'fp-a', meta: {}, value: 1 },
+              { typeId: 'INT', fingerprint: 'fp-b', meta: {}, value: 2 },
             ],
           },
         ],
@@ -183,13 +183,13 @@ describe('peek: descriptor decode', () => {
     const body = {
       available: true,
       descriptor: {
-        typeId: 'list<core.int>',
+        typeId: 'list<INT>',
         fingerprint: 'fp-list',
         meta: {},
         length: 2,
         elements: [
           { nope: 1 }, // malformed: missing typeId/fingerprint
-          { typeId: 'core.int', fingerprint: 'fp-b', meta: {}, value: 2 },
+          { typeId: 'INT', fingerprint: 'fp-b', meta: {}, value: 2 },
         ],
       },
       renditions: [],
@@ -205,10 +205,10 @@ describe('peek: descriptor decode', () => {
   it('CL9 rejects semantically impossible list counts', async () => {
     const descriptorWith = (extra: Record<string, unknown>): unknown => ({
       available: true,
-      descriptor: { typeId: 'list<core.int>', fingerprint: 'fp', meta: {}, ...extra },
+      descriptor: { typeId: 'list<INT>', fingerprint: 'fp', meta: {}, ...extra },
       renditions: [],
     })
-    const element = { typeId: 'core.int', fingerprint: 'fp-a', meta: {}, value: 1 }
+    const element = { typeId: 'INT', fingerprint: 'fp-a', meta: {}, value: 1 }
     for (const extra of [
       { length: -1 }, // negative count
       { length: 1.5 }, // fractional count

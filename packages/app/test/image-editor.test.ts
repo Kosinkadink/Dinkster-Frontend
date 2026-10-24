@@ -147,7 +147,7 @@ describe('image editor entry admission', () => {
   const ref = { digest: `blake3:${'a'.repeat(64)}`, name: 'image.png', size: 10, mediaType: 'image/png', virtualPath: '' }
   const input = (id: string, kind = 'image') => ({
     kind: 'input' as const, id, displayName: id, optional: false,
-    type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: kind === 'image' ? 'comfy.IMAGE' : 'comfy.VIDEO' } },
+    type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: kind === 'image' ? 'IMAGE' : 'comfy.VIDEO' } },
     widget: { widgetType: 'ASSET', kind, options: { accept: [kind === 'image' ? 'image/png' : 'video/mp4'] } },
   })
   const schema = (items: NodeSchema['items']): NodeSchema => ({
@@ -156,7 +156,7 @@ describe('image editor entry admission', () => {
 
   it('accepts one writable image AssetRef and rejects missing, video, driven, and ambiguous inputs', () => {
     expect(imageInputCandidates({ schema: schema([input('image')]), nodeId: asNodeId('n0'), values: { image: ref } })).toHaveLength(1)
-    expect(imageInputCandidates({ schema: schema([{ ...input('image'), type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.image' } } }]), nodeId: asNodeId('n0'), values: { image: ref } })).toHaveLength(1)
+    expect(imageInputCandidates({ schema: schema([{ ...input('image'), type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }]), nodeId: asNodeId('n0'), values: { image: ref } })).toHaveLength(1)
     expect(imageInputCandidates({ schema: schema([input('image')]), nodeId: asNodeId('n0'), values: {} })).toEqual([])
     expect(imageInputCandidates({ schema: schema([input('video', 'video')]), nodeId: asNodeId('n0'), values: { video: { ...ref, mediaType: 'video/mp4' } } })).toEqual([])
     expect(imageInputCandidates({ schema: schema([input('image')]), nodeId: asNodeId('n0'), values: { image: ref }, drivenInputIds: new Set(['image']) })).toEqual([])

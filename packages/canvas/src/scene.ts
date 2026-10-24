@@ -1919,7 +1919,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const regionIndexSlots: BoundarySlotInfo[] = ownerNode?.region === undefined ? [] : [{
       id: REGION_INDEX_SLOT,
       label: 'Index',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       regionIndex: true,
     }]
     const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(def.boundary.inputs, 'inputs'), ...regionIndexSlots], input.tokens, measure)
@@ -1978,7 +1978,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           y2: to.y,
           fromType: regionIndexPin.type,
           ...(to.type !== undefined ? { toType: to.type } : {}),
-          typeName: 'core.int',
+          typeName: 'INT',
           ...(c.effectiveIdentity !== undefined ? { effectiveIdentity: c.effectiveIdentity } : {}),
         })
       }

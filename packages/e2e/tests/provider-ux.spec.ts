@@ -35,12 +35,12 @@ const catalog = {
       interface: [
         {
           role: 'input', id: 'prompt', displayName: 'Prompt', required: false,
-          type: { kind: 'concrete', types: ['core.string'] }, default: '',
+          type: { kind: 'concrete', types: ['STRING'] }, default: '',
           widget: { type: 'STRING', multiline: true },
         },
         {
           role: 'input', id: 'policy', displayName: 'Policy', required: false,
-          type: { kind: 'concrete', types: ['core.combo'] }, default: 'auto', advanced: true,
+          type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', advanced: true,
           widget: { type: 'COMBO', options: ['auto', 'quality'] },
         },
         {
@@ -59,7 +59,7 @@ const catalog = {
       interface: [
         {
           role: 'input', id: 'model', displayName: 'Model', required: false,
-          type: { kind: 'concrete', types: ['core.combo'] }, default: 'auto',
+          type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto',
           widget: {
             type: 'COMBO',
             options: [
@@ -71,7 +71,7 @@ const catalog = {
         },
         {
           role: 'input', id: 'provider', displayName: 'Provider', required: false,
-          type: { kind: 'concrete', types: ['core.combo'] },
+          type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', remote: { route: '/api/choices/dinkster.preprocess.model_depth.providers' } },
           hidden: true,
         },
@@ -90,7 +90,7 @@ const catalog = {
         },
         {
           role: 'input', id: 'provider', displayName: 'Provider', required: false,
-          type: { kind: 'concrete', types: ['core.combo'] },
+          type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', remote: { route: '/api/choices/dinkster.preprocess.lineart_realistic.providers' } },
           hidden: true,
         },
@@ -109,12 +109,12 @@ const catalog = {
       interface: [
         {
           role: 'input', id: 'prompt', displayName: 'Prompt', required: false,
-          type: { kind: 'concrete', types: ['core.string'] }, default: '',
+          type: { kind: 'concrete', types: ['STRING'] }, default: '',
           widget: { type: 'STRING', multiline: true },
         },
         {
           role: 'input', id: 'provider', displayName: 'Service', required: false,
-          type: { kind: 'concrete', types: ['core.combo'] }, hidden: true,
+          type: { kind: 'concrete', types: ['COMBO'] }, hidden: true,
           widget: {
             type: 'COMBO',
             options: [

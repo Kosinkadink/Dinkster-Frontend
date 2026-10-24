@@ -128,7 +128,7 @@ describe('Dinkster schema wire', () => {
       ['STRING', { type: 'COMBO', options: ['a'] }],
       ['COMBO', { type: 'STRING' }],
       ['INT', { type: 'BOOLEAN', labelOn: 'On' }],
-      ['core.int', { type: 'NUMBER' }],
+      ['INT', { type: 'NUMBER' }],
     ] as const) {
       const rejected = parse(socket, widget)
       expect(rejected.schema).toBeUndefined()
@@ -181,13 +181,13 @@ describe('Dinkster schema wire', () => {
       schemaVersion: 1,
       interface: [
         { role: 'inputFamily', id: 'values', memberPrefix: 'value', minMembers: 1, template: [
-          { role: 'input', id: 'value', type: concrete('core.float'), required: false },
+          { role: 'input', id: 'value', type: concrete('FLOAT'), required: false },
         ] },
         { role: 'dynamicCombo', id: 'mode', default: 'on', options: [
-          { key: 'on', inputs: [{ role: 'input', id: 'strength', type: concrete('core.float'), required: false }] },
+          { key: 'on', inputs: [{ role: 'input', id: 'strength', type: concrete('FLOAT'), required: false }] },
         ] },
-        { role: 'dynamicSlot', id: 'source', required: false, slotType: concrete('dinkster.image'), inputs: [] },
-        { role: 'outputFamily', id: 'outputs', type: concrete('dinkster.image'), minMembers: 0 },
+        { role: 'dynamicSlot', id: 'source', required: false, slotType: concrete('IMAGE'), inputs: [] },
+        { role: 'outputFamily', id: 'outputs', type: concrete('IMAGE'), minMembers: 0 },
       ],
     })
     expect(result.diagnostics).toEqual([])

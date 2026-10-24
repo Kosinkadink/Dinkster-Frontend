@@ -4,9 +4,9 @@ import { importLitegraph } from '../src/format/import-litegraph.js'
 import type { ComfyGroupCatalog, ComfyGroupRecord } from '../src/schema/comfy-group.js'
 import type { InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 
-const scalar = { kind: 'concrete', name: 'core.float' } as const
-const integer = { kind: 'concrete', name: 'core.int' } as const
-const text = { kind: 'concrete', name: 'core.string' } as const
+const scalar = { kind: 'concrete', name: 'FLOAT' } as const
+const integer = { kind: 'concrete', name: 'INT' } as const
+const text = { kind: 'concrete', name: 'STRING' } as const
 const image = { kind: 'concrete', name: 'comfy.IMAGE' } as const
 const socket = (id: string, type: InputSpec['type'] = scalar, optional = false): InputSpec => ({
   kind: 'input', id, type, optional,

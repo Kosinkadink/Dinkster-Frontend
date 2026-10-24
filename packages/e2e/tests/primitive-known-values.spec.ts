@@ -39,11 +39,11 @@ const sinkSchema = {
   category: 'test',
   outputNode: true,
   interface: [
-    { role: 'input', id: 'integer', type: concrete('core.int'), required: false, default: 0 },
+    { role: 'input', id: 'integer', type: concrete('INT'), required: false, default: 0 },
     {
       role: 'input',
       id: 'integer_as_float',
-      type: concrete('core.float'),
+      type: concrete('FLOAT'),
       required: false,
       default: 0,
       widget: { type: 'NUMBER', step: 0.1 },
@@ -51,13 +51,13 @@ const sinkSchema = {
     {
       role: 'input',
       id: 'decimal',
-      type: concrete('core.float'),
+      type: concrete('FLOAT'),
       required: false,
       default: 0,
       widget: { type: 'NUMBER', step: 0.1 },
     },
-    { role: 'input', id: 'text', type: concrete('core.string'), required: false, default: '' },
-    { role: 'input', id: 'flag', type: concrete('core.boolean'), required: false, default: false },
+    { role: 'input', id: 'text', type: concrete('STRING'), required: false, default: '' },
+    { role: 'input', id: 'flag', type: concrete('BOOLEAN'), required: false, default: false },
   ],
 }
 
@@ -77,13 +77,13 @@ test('wire-34 primitive identity declarations show typed values before execution
     dinkster: { version: 'primitive-known-values-proof', schemaWire: 1 },
     nodes: {
       'e2e.identity.integer': primitiveSchema(
-        'e2e.identity.integer', 'Integer identity', 'core.int', 0,
+        'e2e.identity.integer', 'Integer identity', 'INT', 0,
       ),
       'e2e.identity.decimal': primitiveSchema(
-        'e2e.identity.decimal', 'Decimal identity', 'core.float', 0, { type: 'NUMBER', step: 0.1 },
+        'e2e.identity.decimal', 'Decimal identity', 'FLOAT', 0, { type: 'NUMBER', step: 0.1 },
       ),
-      'e2e.identity.text': primitiveSchema('e2e.identity.text', 'Text identity', 'core.string', ''),
-      'e2e.identity.flag': primitiveSchema('e2e.identity.flag', 'Boolean identity', 'core.boolean', false),
+      'e2e.identity.text': primitiveSchema('e2e.identity.text', 'Text identity', 'STRING', ''),
+      'e2e.identity.flag': primitiveSchema('e2e.identity.flag', 'Boolean identity', 'BOOLEAN', false),
       'e2e.known-value-sink': sinkSchema,
     },
   } }))

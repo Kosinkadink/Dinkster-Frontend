@@ -44,7 +44,7 @@ test('proves product select semantics across the five replacement sites', async 
     app.registerSchemas([{
       type: 'SelectProof', displayName: 'Select Proof', category: 'proof', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'choice', displayName: 'Choice', type: { kind: 'concrete', name: 'core.combo' }, optional: false,
+        kind: 'input', id: 'choice', displayName: 'Choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', options: { options: [[1, 'One'], [7, 'Seven'], [12, 'Twelve']] }, default: 1 },
       }],
     }, {

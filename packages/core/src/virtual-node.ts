@@ -32,7 +32,7 @@ const noteSchema = (
     {
       kind: 'input',
       id: 'text',
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       optional: true,
       widget: {
         widgetType: 'STRING',

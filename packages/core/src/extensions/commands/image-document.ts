@@ -173,7 +173,7 @@ function imageDocumentExportOf(resolve?: (type: string) => NodeSchema | undefine
         layers?.kind !== 'input' ||
         canonicalTypeIdOf(layers.type) !== 'dinkster.layers' ||
         selector?.kind !== 'input' ||
-        canonicalTypeIdOf(selector.type) !== 'core.string'
+        canonicalTypeIdOf(selector.type) !== 'STRING'
       ) {
         return [commandError('image.exportUnavailable', 'The backend does not advertise compatible layer load and flatten nodes')]
       }
@@ -267,23 +267,23 @@ function imageDocumentRecipeExportOf(resolve?: (type: string) => NodeSchema | un
         editLayers?.kind !== 'input' ||
         canonicalTypeIdOf(editLayers.type) !== 'dinkster.layers' ||
         editCommands?.kind !== 'input' ||
-        canonicalTypeIdOf(editCommands.type) !== 'core.string' ||
+        canonicalTypeIdOf(editCommands.type) !== 'STRING' ||
         editOutput?.kind !== 'output' ||
         canonicalTypeIdOf(editOutput.type) !== 'dinkster.layers' ||
         flattenLayers?.kind !== 'input' ||
         canonicalTypeIdOf(flattenLayers.type) !== 'dinkster.layers' ||
         flattenSelector?.kind !== 'input' ||
-        canonicalTypeIdOf(flattenSelector.type) !== 'core.string' ||
+        canonicalTypeIdOf(flattenSelector.type) !== 'STRING' ||
         flattenImage?.kind !== 'output' ||
-        canonicalTypeIdOf(flattenImage.type) !== 'dinkster.image' ||
+        canonicalTypeIdOf(flattenImage.type) !== 'IMAGE' ||
         saveImages?.kind !== 'input' ||
-        canonicalTypeIdOf(saveImages.type) !== 'dinkster.image' ||
+        canonicalTypeIdOf(saveImages.type) !== 'IMAGE' ||
         saveFormat?.kind !== 'input' ||
-        canonicalTypeIdOf(saveFormat.type) !== 'core.combo' ||
+        canonicalTypeIdOf(saveFormat.type) !== 'COMBO' ||
         saveFormat.widget?.widgetType !== 'COMBO' ||
         !normalizedComboOptions(saveFormat.widget).some((option) => option.value === params.format) ||
         saveQuality?.kind !== 'input' ||
-        canonicalTypeIdOf(saveQuality.type) !== 'core.int' ||
+        canonicalTypeIdOf(saveQuality.type) !== 'INT' ||
         saveQuality.widget?.widgetType !== 'INT'
       ) {
         return [

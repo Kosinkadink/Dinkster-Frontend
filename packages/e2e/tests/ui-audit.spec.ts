@@ -69,7 +69,7 @@ test.describe('plain widget editors', () => {
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
     await page.evaluate(() => {
       const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
-        kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'core.combo' : widgetType }, optional: false,
+        kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
         widget: { widgetType, options, default: defaultValue },
       })
       window.__dinksterTest!.app.registerSchemas([{
@@ -166,9 +166,9 @@ test.describe('asset and save-target editors (mock dinkster backend)', () => {
       window.__dinksterTest!.app.registerSchemas([{
         type: 'UiAuditAsset', displayName: 'UI Audit Asset', category: 'test', source: 'v3', isOutputNode: false,
         items: [
-          { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+          { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
             widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
-          { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
+          { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
             widget: { widgetType: 'SAVE_TARGET', options: {}, default: null } },
         ],
       }])
@@ -186,9 +186,9 @@ test.describe('asset and save-target editors (mock dinkster backend)', () => {
     await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
       type: 'UiAuditAsset', displayName: 'UI Audit Asset', category: 'test', source: 'v3', isOutputNode: false,
       items: [
-        { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+        { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
-        { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
+        { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
           widget: { widgetType: 'SAVE_TARGET', options: {}, default: null } },
       ],
     }]))

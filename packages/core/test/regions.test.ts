@@ -12,10 +12,10 @@ import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { inputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
 
-const TYPE = { kind: 'concrete', name: 'core.float' } as const
-const BOOLEAN = { kind: 'concrete', name: 'core.boolean' } as const
-const INTEGER = { kind: 'concrete', name: 'core.int' } as const
-const COMBO = { kind: 'concrete', name: 'core.combo' } as const
+const TYPE = { kind: 'concrete', name: 'FLOAT' } as const
+const BOOLEAN = { kind: 'concrete', name: 'BOOLEAN' } as const
+const INTEGER = { kind: 'concrete', name: 'INT' } as const
+const COMBO = { kind: 'concrete', name: 'COMBO' } as const
 
 const bodySchema: NodeSchema = {
   type: 'Body',
@@ -42,7 +42,7 @@ const producerSchema: NodeSchema = {
 const countMultiSplitterSchema: NodeSchema = {
   type: 'CountMultiSplitter', displayName: 'Count multi splitter', category: 'test', source: 'v3', isOutputNode: true,
   items: [
-    { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'core.int' }, optional: false },
+    { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false },
     { kind: 'output', id: 'before', type: TYPE },
     {
       kind: 'output', id: 'images', type: TYPE,
@@ -802,9 +802,9 @@ describe('region compile lowering', () => {
           region: {
             kind: 'map',
             ports: {
-              item: { kind: 'concrete', types: ['core.float'] },
-              state: { kind: 'concrete', types: ['core.float'] },
-              other: { kind: 'concrete', types: ['core.float'] },
+              item: { kind: 'concrete', types: ['FLOAT'] },
+              state: { kind: 'concrete', types: ['FLOAT'] },
+              other: { kind: 'concrete', types: ['FLOAT'] },
             },
             elementPorts: ['item'],
             inputs: { item: [], state: 0, other: 0 },
@@ -892,7 +892,7 @@ describe('region compile lowering', () => {
     }))
 
     const typedDocument = structuredClone(documentWith({ kind: 'map', elementPorts: ['item'] }))
-    ;(typedDocument.graphs.root!.nodes.n0!.values as Record<string, Json>).other = { $typed: { type: 'core.float', value: 0 } }
+    ;(typedDocument.graphs.root!.nodes.n0!.values as Record<string, Json>).other = { $typed: { type: 'FLOAT', value: 0 } }
     expect(compileWithBodySchema(nonConcreteInput, typedDocument).ok).toBe(true)
 
     const lazyInputSchema: NodeSchema = {

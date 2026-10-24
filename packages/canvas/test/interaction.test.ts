@@ -1016,7 +1016,7 @@ describe('occurrence-owned family pins', () => {
       scene.occurrence = { owner: { instancePath: [], node: 'region' }, bodyGraph: 'g0' }
       scene.nodes[0].layout.pins = [{
         portId: 'count', address: { port: 'count' }, direction: 'in', y: 22,
-        type: { kind: 'concrete', name: 'core.int' },
+        type: { kind: 'concrete', name: 'INT' },
       }]
       scene.nodes.slice(1).forEach((node: any) => { node.layout.pins = [] })
       scene.reroutes = []
@@ -1030,12 +1030,12 @@ describe('occurrence-owned family pins', () => {
             kind: 'ports', y: 20, height: 24,
             output: {
               portId: '@region:index', label: 'Index', address: { port: '@region:index' }, index: 0,
-              type: { kind: 'concrete', name: 'core.int' }, regionIndex: true,
+              type: { kind: 'concrete', name: 'INT' }, regionIndex: true,
             },
           }],
           pins: [{
             portId: '@region:index', address: { port: '@region:index' }, direction: 'out', y: 32,
-            type: { kind: 'concrete', name: 'core.int' }, regionIndex: true,
+            type: { kind: 'concrete', name: 'INT' }, regionIndex: true,
           }],
         },
       }]
@@ -1349,9 +1349,9 @@ describe('node-body link drops', () => {
   })
 })
 
-describe('core.combo link gesture regressions', () => {
-  const STRING = { kind: 'concrete', name: 'core.string' }
-  const COMBO = { kind: 'concrete', name: 'core.combo' }
+describe('COMBO link gesture regressions', () => {
+  const STRING = { kind: 'concrete', name: 'STRING' }
+  const COMBO = { kind: 'concrete', name: 'COMBO' }
   const comboScene = (): Scene => {
     const scene = interactionScene() as any
     scene.reroutes = []

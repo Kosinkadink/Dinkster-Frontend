@@ -123,7 +123,7 @@ test('a mid-graph image rendition decodes real pixels into the producer node pre
     }
     return latest.nodes?.['li']?.outputs?.['image']?.typeId
   })
-  expect(outputType).toBe('dinkster.image')
+  expect(outputType).toBe('IMAGE')
 
   await expect
     .poll(

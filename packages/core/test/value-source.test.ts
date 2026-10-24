@@ -241,7 +241,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
   })
 
   it('intersects interchangeable comfy-compat spellings to one canonical atom', () => {
-    // A source driving dinkster.mask and comfy.MASK inputs drives ONE value
+    // A source driving MASK and comfy.MASK inputs drives ONE value
     // type; the advisory type must canonicalize, not collapse to wildcard.
     const maskResolve = (type: string) =>
       type === 'NativeMaskSink' || type === 'ComfyMaskSink'
@@ -254,7 +254,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
             items: [{
               kind: 'input',
               id: 'mask',
-              type: { kind: 'concrete', name: type === 'NativeMaskSink' ? 'dinkster.mask' : 'comfy.MASK' },
+              type: { kind: 'concrete', name: type === 'NativeMaskSink' ? 'MASK' : 'comfy.MASK' },
               optional: false,
             }],
           } as never)
@@ -271,7 +271,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
       }),
     }).graphs['g0']!
     const eff = effectiveValueSourceSpec(def, def.valueSources!['v1']!, maskResolve)
-    expect(eff.type).toEqual({ kind: 'concrete', name: 'comfy.MASK' })
+    expect(eff.type).toEqual({ kind: 'concrete', name: 'MASK' })
   })
 
   it('pinnedSpecOf produces a JSON-safe declared spec from the effective one', () => {

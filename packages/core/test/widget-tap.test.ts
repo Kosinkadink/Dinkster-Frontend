@@ -378,7 +378,7 @@ describe('widget tap compile', () => {
 describe('$typed lowering (graphFeatures typedLiteral)', () => {
   const TYPED = ['typedLiteral']
 
-  it('stamps a MULTI_COMBO tap as list<core.combo> only for a non-concrete destination', () => {
+  it('stamps a MULTI_COMBO tap as list<COMBO> only for a non-concrete destination', () => {
     const values = ['beta', 'alpha', 'beta']
     const result = compileDoc(compileGraph({
       nodes: { a: typedNode('a', 'MultiValueNode', { value: values }), w: typedNode('w', 'WildcardSink') },
@@ -386,7 +386,7 @@ describe('$typed lowering (graphFeatures typedLiteral)', () => {
     }), TYPED)
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (result.ok) expect(result.artifact.prompt['w']!.inputs['source']).toEqual({
-      $typed: { type: 'list<core.combo>', value: values },
+      $typed: { type: 'list<COMBO>', value: values },
     })
 
     const unsupported = compileDoc(compileGraph({

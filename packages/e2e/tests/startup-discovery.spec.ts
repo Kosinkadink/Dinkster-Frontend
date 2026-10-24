@@ -52,7 +52,7 @@ const lazyNode = (id: string, lazy?: boolean) => ({
   displayName: 'Lazy Socket',
   category: 'test',
   interface: [{
-    role: 'input', id, type: { kind: 'concrete', types: ['core.int'] }, required: true,
+    role: 'input', id, type: { kind: 'concrete', types: ['INT'] }, required: true,
     forceInput: true,
     ...(lazy !== undefined ? { lazy } : {}),
   }],
@@ -74,7 +74,7 @@ const previewNode = (preview?: boolean) => ({
   displayName: 'Preview Output',
   category: 'test',
   interface: [{
-    role: 'output', id: 'result', type: { kind: 'concrete', types: ['core.int'] },
+    role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] },
     ...(preview !== undefined ? { preview } : {}),
   }],
 })

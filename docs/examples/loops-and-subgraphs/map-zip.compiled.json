@@ -7,13 +7,13 @@
           "left": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           },
           "right": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },

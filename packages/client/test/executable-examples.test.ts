@@ -53,8 +53,8 @@ const schema = (nodeType: string, interfaceItems: Record<string, unknown>[]): Re
   interface: interfaceItems,
 })
 
-const int = concrete('core.int')
-const boolean = concrete('core.boolean')
+const int = concrete('INT')
+const boolean = concrete('BOOLEAN')
 const exampleNodes = {
   schemaVersion: 1,
   dinkster: { version: 'test', schemaWire: 1, graphFeatures: ['regions'] },
@@ -66,8 +66,8 @@ const exampleNodes = {
       input('list', list(int)), output('length', int),
     ]),
     'dinkster.value.compare': schema('dinkster.value.compare', [
-      input('a', int), input('b', int), input('operation', concrete('core.string')),
-      input('epsilon', concrete('core.float')), output('result', boolean),
+      input('a', int), input('b', int), input('operation', concrete('STRING')),
+      input('epsilon', concrete('FLOAT')), output('result', boolean),
     ]),
     'dinkster.int': schema('dinkster.int', [input('value', int), output('value', int)]),
     'dinkster.route.gate': schema('dinkster.route.gate', [

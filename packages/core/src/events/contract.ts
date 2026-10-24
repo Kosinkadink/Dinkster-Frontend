@@ -61,7 +61,7 @@ export type NodeRunState = 'pending' | 'running' | 'cached' | 'done' | 'error' |
  * from value envelopes, never payloads.
  */
 export interface NodeOutputSummary {
-  /** Canonical runtime type id, e.g. 'core.int', 'list<core.int>'. */
+  /** Canonical runtime type id, e.g. 'INT', 'list<INT>'. */
   readonly typeId: string
   /**
    * Element count, present exactly when the value is a list. Top-level

@@ -252,7 +252,7 @@ export const colorKind: WidgetKind<string> = {
   type: 'COLOR',
   valueSchema: stringSchema,
   defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '#ffffff',
-  // COLOR is a presentation hint over canonical core.string. Preserve every
+  // COLOR is a presentation hint over canonical STRING. Preserve every
   // string exactly; color parsing and normalization are view-only concerns.
   validate: () => [],
   defaultView: () => 'core.color',
@@ -486,7 +486,7 @@ export const compositorKind: WidgetKind<Json> = {
 
 /**
  * Multi-select values (typed-assets pin (5)): a list-declared asset input
- * (`list<asset<T>>` / `list<dinkster.asset>`) stores an ARRAY of AssetRefs -
+ * (`list<asset<T>>` / `list<ASSET>`) stores an ARRAY of AssetRefs -
  * N selections are N descriptors in a list literal, no new server surface.
  * The value schema accepts arrays regardless of the declared type so a
  * document always LOADS; a shape/cardinality mismatch is the backend's

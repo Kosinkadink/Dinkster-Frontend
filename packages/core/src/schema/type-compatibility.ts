@@ -9,23 +9,17 @@
 import { assetTypeId, canonicalTypeIdOf, cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, streamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
 
 /**
- * Type ids that denote the SAME values on both sides of the comfy-compat
- * boundary: the backend registers both ids of a pair with the identical
- * image-array codec (dinkster_compat_comfy/native.py and comfy_compose.py
- * register comfy.IMAGE and comfy.MASK with the codec dinkster.image and
- * dinkster.mask use), so a value of one IS a value of the other. Compatibility
- * arithmetic treats each pair as one atom by canonicalizing here, the single
- * entry into atom-set math (compat, the solver's domains, bypass, and search
- * anchors all flow through atomNamesOf). Document and wire type ids are
- * never rewritten, and display naming stays in canvas typeDisplayAliases.
+ * Type ids that denote the same values on both sides of the comfy-compat
+ * boundary. Compatibility arithmetic collapses legacy Comfy spellings to
+ * the wire vocabulary at the entry into atom-set math.
  *
  * Exported read-only so the native-type coverage audit can walk the decided
- * pairs; runtime compatibility logic must go through canonicalCompatTypeId.
+ * aliases; runtime compatibility logic must go through canonicalCompatTypeId.
  */
 export const INTERCHANGEABLE_TYPE_IDS: Readonly<Record<string, string>> = Object.freeze(
   Object.assign(Object.create(null) as Record<string, string>, {
-    'dinkster.image': 'comfy.IMAGE',
-    'dinkster.mask': 'comfy.MASK',
+    'comfy.IMAGE': 'IMAGE',
+    'comfy.MASK': 'MASK',
   }),
 )
 

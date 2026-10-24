@@ -82,7 +82,7 @@ function imageCompositorApplyOf(resolve?: (type: string) => NodeSchema | undefin
         return [
           commandError(
             'image.compositorInputInvalid',
-            `image.compositorApply: '${params.inputId}' is not a writable dinkster.compositor input`,
+            `image.compositorApply: '${params.inputId}' is not a writable COMPOSITOR input`,
           ),
         ]
       }

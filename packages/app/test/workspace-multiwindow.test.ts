@@ -106,7 +106,7 @@ const workflow = (): WorkflowDocument => ({
   view: { graphs: {} },
 })
 
-const sameIdPrimitive = (type: string, name: 'core.float' | 'core.boolean'): NodeSchema => ({
+const sameIdPrimitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
@@ -115,7 +115,7 @@ const sameIdPrimitive = (type: string, name: 'core.float' | 'core.boolean'): Nod
   items: [
     {
       kind: 'input', id: 'value', type: { kind: 'concrete', name }, optional: false,
-      ...(name === 'core.float' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
+      ...(name === 'FLOAT' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
     },
     { kind: 'output', id: 'value', type: { kind: 'concrete', name } },
   ],
@@ -254,7 +254,7 @@ describe('AppState multi-window workspace', () => {
       nodes: {
         X: {
           schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['core.int'] } }],
+          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     }))
@@ -294,7 +294,7 @@ describe('AppState multi-window workspace', () => {
       nodes: {
         X: {
           schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['core.int'] } }],
+          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     }))
@@ -433,7 +433,7 @@ describe('AppState multi-window workspace', () => {
       nodes: {
         X: {
           schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['core.int'] } }],
+          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     })
@@ -471,8 +471,8 @@ describe('AppState multi-window workspace', () => {
     const app = new AppState({ workspaceEvents: right })
     const connection = asConnectionId('local')
     const schemas = new Map([
-      ['dinkster.float', sameIdPrimitive('dinkster.float', 'core.float')],
-      ['dinkster.boolean', sameIdPrimitive('dinkster.boolean', 'core.boolean')],
+      ['dinkster.float', sameIdPrimitive('dinkster.float', 'FLOAT')],
+      ['dinkster.boolean', sameIdPrimitive('dinkster.boolean', 'BOOLEAN')],
     ])
     const registry = {
       connection,
@@ -1037,7 +1037,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       editorRole: 'layers-flatten',
       items: [
         { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
-        { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'core.string' }, optional: true,
+        { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
           widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
       ],
     }
@@ -1107,7 +1107,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
   const comboInput = (id: string) => ({
     kind: 'input' as const,
     id,
-    type: { kind: 'concrete' as const, name: 'core.combo' },
+    type: { kind: 'concrete' as const, name: 'COMBO' },
     optional: false,
     widget: {
       widgetType: 'COMBO', options: {}, default: 'a', controller: 'after_refresh' as const,

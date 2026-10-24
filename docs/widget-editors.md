@@ -261,7 +261,7 @@ The type pill uses the same `typeColor` resolver and design tokens as canvas
 pins and noodles, including namespaced ids such as `comfy.IMAGE`. Its text is
 black or white according to the resolved color's relative luminance. The
 SAVE_TARGET editor labels the pill with the input's canonical declared type
-(for example `dinkster.save_target`) rather than the widget renderer family.
+(for example `SAVE_TARGET`) rather than the widget renderer family.
 Its output-format row and inline filename context come only from the widget
 descriptor's declared suffix. A `.png` suffix is displayed as `.png`; it is
 not expanded through a guessed extension registry. An absent or empty suffix

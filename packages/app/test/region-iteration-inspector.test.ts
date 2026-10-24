@@ -26,8 +26,8 @@ const execution = (over: Partial<ExecutionState> = {}): ExecutionState => ({
     },
   } as unknown as CompileArtifact,
   nodes: {
-    'outer[1]/source': { state: 'cached', outputs: { value: { typeId: 'core.int', value: 8 }, bonus: { typeId: 'core.int' } } },
-    'outer[0]/source': { state: 'running', value: 0.375, outputs: { value: { typeId: 'core.int', value: 3 } } },
+    'outer[1]/source': { state: 'cached', outputs: { value: { typeId: 'INT', value: 8 }, bonus: { typeId: 'INT' } } },
+    'outer[0]/source': { state: 'running', value: 0.375, outputs: { value: { typeId: 'INT', value: 3 } } },
     'outer[0]/inner[2]/leaf': { state: 'done', outputs: { image: { typeId: 'comfy.IMAGE' } } },
     'outer[0]/sink': { state: 'done' },
     'other[0]/source': { state: 'done' },

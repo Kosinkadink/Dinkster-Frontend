@@ -1925,7 +1925,7 @@ export function planReplacement(
   }
   // Tap links survive when the source and target tap types denote the same
   // values: closed types compare by canonical-compatible id (so the
-  // interchangeable comfy-compat spellings, e.g. dinkster.mask/comfy.MASK,
+  // interchangeable comfy-compat spellings, e.g. MASK/comfy.MASK,
   // match); open types keep the exact structural comparison. Deliberately
   // NOT typesCompatible - wildcards and coercions must not keep a tap alive.
   const sameTapType = (a: TypeExpr, b: TypeExpr): boolean => {
