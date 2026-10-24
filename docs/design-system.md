@@ -31,6 +31,9 @@ Library collection and selection states, asset discovery and collection states,
 and the output rail use ProductEmptyState for empty, loading and error content.
 Collection request errors retain an enabled Retry action after the request
 settles; a retry re-reads the selected source without changing its selection.
+The Assets selection rail and single/multiple asset pickers use the same
+ProductEmptyState instruction cards when nothing is selected. Picker staging,
+upload limits, selection order, Apply and Cancel remain editor-owned.
 Output states preserve the distinction between an absent execution, waiting
 execution, retained-output loading, missing owner and failed execution.
 

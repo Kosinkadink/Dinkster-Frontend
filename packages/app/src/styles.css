@@ -6792,7 +6792,6 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .asset-preview-fallback a { color: var(--dinkster-accent-foreground); }
 .asset-preview-caption { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); text-align: center; }
 .asset-multi-selection { display: flex; min-width: 0; flex-wrap: wrap; gap: var(--dinkster-space-4); }
-.asset-selection-empty { margin: 0; color: var(--dinkster-text-secondary); }
 .asset-chip {
   display: inline-flex;
   min-width: 0;

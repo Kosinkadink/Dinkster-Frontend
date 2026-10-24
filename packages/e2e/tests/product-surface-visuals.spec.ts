@@ -1091,6 +1091,62 @@ test('Compositor missing runtime state keeps its explanation and Cancel action',
   await page.evaluate(() => (window as unknown as { disposeCompositorVisual(): void }).disposeCompositorVisual())
 })
 
+test('Asset selection instructions stay readable for the rail and single or multiple picks', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  for (const mode of ['rail', 'single', 'multiple'] as const) {
+    await page.evaluate(async (mode) => {
+      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+      const { render } = await import(rendererPath)
+      const host = document.createElement('div')
+      document.querySelector('.canvas-pane')!.append(host)
+      host.dataset['closed'] = 'false'
+      host.dataset['committed'] = 'false'
+      host.dataset['assetVisual'] = mode
+      let dispose: () => void
+      if (mode === 'rail') {
+        const componentPath = '/src/asset-browser/rail.tsx'
+        const { AssetEntrySelection } = await import(componentPath)
+        host.style.cssText = 'position:absolute;top:64px;left:32px;right:32px;z-index:20'
+        dispose = render(() => AssetEntrySelection({ entry: undefined, adapters: [], backendId: 'asset-visual' }), host)
+      } else {
+        const componentPath = '/src/editors/AssetWidgetEditor.tsx'
+        const { AssetWidgetEditor } = await import(componentPath)
+        const singleType = { kind: 'concrete', name: 'dinkster.asset' }
+        dispose = render(() => AssetWidgetEditor({
+          app: {
+            backendForTab: () => ({ id: 'asset-visual', protocol: 'dinkster', connection: { listMounts: async () => [] } }),
+            dispatchTo: () => { host.dataset['committed'] = 'true' },
+            widgetRegistry: { kind: () => undefined },
+          },
+          ed: {
+            tab: {}, graphId: 'g0', target: { kind: 'input', nodeId: 'asset', valueKey: 'file' },
+            label: 'Reference file', spec: { widgetType: 'ASSET', options: { accept: ['application/octet-stream'] } },
+            declaredType: mode === 'multiple' ? { kind: 'list', element: singleType } : singleType,
+            multiline: false, rect: { x: 20, y: 20, width: 180, height: 24 }, initial: mode === 'multiple' ? [] : null,
+          },
+          viewport: () => ({ x: 0, y: 0, scale: 1 }),
+          onClose: () => { host.dataset['closed'] = 'true' },
+        }), host)
+      }
+      ;(window as unknown as { disposeAssetVisual: () => void }).disposeAssetVisual = () => { dispose(); host.remove() }
+    }, mode)
+    const selection = page.getByTestId('asset-selection-summary')
+    await expect(selection).toContainText(mode === 'rail' ? 'Click an asset' : mode === 'single' ? 'Click an asset in the list' : 'No assets selected.')
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `asset-selection-${mode}-${width}`)
+    }
+    if (mode !== 'rail') {
+      await page.getByTestId('asset-editor').getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(page.locator(`[data-asset-visual="${mode}"]`)).toHaveAttribute('data-closed', 'true')
+      await expect(page.locator(`[data-asset-visual="${mode}"]`)).toHaveAttribute('data-committed', 'false')
+    }
+    await page.evaluate(() => (window as unknown as { disposeAssetVisual(): void }).disposeAssetVisual())
+  }
+})
+
 test('Search loading, empty and provider error states retain their explanations', async ({ page }) => {
   await boot(page)
   await closeGallery(page)

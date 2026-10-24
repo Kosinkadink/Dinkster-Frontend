@@ -211,7 +211,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 172,
+      "line": 173,
       "column": 22,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -219,7 +219,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 174,
+      "line": 175,
       "column": 24,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -227,7 +227,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 177,
+      "line": 178,
       "column": 31,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -235,7 +235,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 181,
+      "line": 182,
       "column": 28,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -243,7 +243,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 361,
+      "line": 362,
       "column": 7,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -251,7 +251,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 384,
+      "line": 385,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -259,7 +259,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 460,
+      "line": 461,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
