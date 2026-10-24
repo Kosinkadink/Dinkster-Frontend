@@ -659,16 +659,16 @@ describe('asset-source stamping on concrete destinations (2026-07-26 amendment)'
 
   describe('isAssetRefDestinationTypeId', () => {
     it('accepts every declared asset-reference destination form', () => {
-      expect(isAssetRefDestinationTypeId('ASSET')).toBe(true)
+      expect(isAssetRefDestinationTypeId('dinkster.asset')).toBe(true)
       expect(isAssetRefDestinationTypeId('asset<comfy.IMAGE>')).toBe(true)
       expect(isAssetRefDestinationTypeId('asset<list<comfy.IMAGE>>')).toBe(true)
-      expect(isAssetRefDestinationTypeId('list<ASSET>')).toBe(true)
+      expect(isAssetRefDestinationTypeId('list<dinkster.asset>')).toBe(true)
       expect(isAssetRefDestinationTypeId('list<asset<comfy.IMAGE>>')).toBe(true)
     })
     it('rejects plain atoms and plain lists (those are coercion DESTINATIONS)', () => {
       expect(isAssetRefDestinationTypeId('comfy.IMAGE')).toBe(false)
       expect(isAssetRefDestinationTypeId('list<comfy.IMAGE>')).toBe(false)
-      expect(isAssetRefDestinationTypeId('list<list<ASSET>>')).toBe(false)
+      expect(isAssetRefDestinationTypeId('list<list<dinkster.asset>>')).toBe(false)
     })
   })
 

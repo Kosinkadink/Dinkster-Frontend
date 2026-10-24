@@ -26,7 +26,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "SAVE_TARGET"
+          "dinkster.save_target"
         ]
       },
       "widget": {

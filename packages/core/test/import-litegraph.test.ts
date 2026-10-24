@@ -2449,7 +2449,7 @@ describe('Use Everywhere to named nets', () => {
       widgets_values: ['x'],
       properties: {
         ue_convert: true,
-        ue_properties: { output_not_broadcasting: { CLIP: false } },
+        ue_properties: { output_not_broadcasting: { 'dinkster.clip': false } },
       },
     })
     const result = importLitegraph(workflow(
@@ -2550,7 +2550,7 @@ describe('Use Everywhere to named nets', () => {
         { extra: { ue_links: [ue({ upstream: 9, controller: 1 })] } },
       ), 'import.ue.controllerSourceMismatch'],
       [workflow(
-        [converted({ output_not_broadcasting: { CLIP: true } }), consumer(null)],
+        [converted({ output_not_broadcasting: { 'dinkster.clip': true } }), consumer(null)],
         [],
         { extra: { ue_links: [ue({ controller: 1 })] } },
       ), 'import.ue.controllerOutputDisabled'],

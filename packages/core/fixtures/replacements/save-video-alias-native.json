@@ -14,7 +14,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "SAVE_TARGET"
+            "dinkster.save_target"
           ]
         },
         "required": true,
@@ -41,7 +41,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "SAVE_TARGET"
+            "dinkster.save_target"
           ]
         }
       }
@@ -79,7 +79,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "SAVE_TARGET"
+            "dinkster.save_target"
           ]
         },
         "required": false,
