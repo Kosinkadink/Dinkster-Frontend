@@ -1,320 +1,320 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { compile } from "../src/compile/compile.js";
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+import { compile } from '../src/compile/compile.js'
 import type {
   Json,
   JsonObject,
   NodeData,
   WorkflowDocument,
-} from "../src/format/document.js";
-import { importLitegraph } from "../src/format/import-litegraph.js";
-import { asConnectionId } from "../src/ids.js";
+} from '../src/format/document.js'
+import { importLitegraph } from '../src/format/import-litegraph.js'
+import { asConnectionId } from '../src/ids.js'
 import type {
   InputSpec,
   InterfaceItem,
   NodeSchema,
   TypeExpr,
-} from "../src/schema/model.js";
+} from '../src/schema/model.js'
 import {
   parseObjectInfo,
   type ObjectInfoEntry,
-} from "../src/schema/object-info.js";
+} from '../src/schema/object-info.js'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const fixtureRoot = join(root, "test/fixtures/comfyui-generic-loops");
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const fixtureRoot = join(root, 'test/fixtures/comfyui-generic-loops')
 const objectInfo = JSON.parse(
-  readFileSync(join(root, "fixtures/object_info.json"), "utf8"),
-) as Record<string, ObjectInfoEntry>;
-const coreSchemas = parseObjectInfo(objectInfo).schemas;
+  readFileSync(join(root, 'fixtures/object_info.json'), 'utf8'),
+) as Record<string, ObjectInfoEntry>
+const coreSchemas = parseObjectInfo(objectInfo).schemas
 const helperSchemas = new Map<string, NodeSchema>([
   [
-    "std.list.range",
+    'std.list.range',
     {
-      type: "std.list.range",
-      displayName: "Integer Range",
-      category: "test",
-      source: "v3",
+      type: 'std.list.range',
+      displayName: 'Integer Range',
+      category: 'test',
+      source: 'v3',
       isOutputNode: false,
       items: [
         {
-          kind: "input",
-          id: "start",
-          type: { kind: "concrete", name: "INT" },
+          kind: 'input',
+          id: 'start',
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
-          widget: { widgetType: "INT", options: {}, default: 0 },
+          widget: { widgetType: 'INT', options: {}, default: 0 },
         },
         {
-          kind: "input",
-          id: "stop",
-          type: { kind: "concrete", name: "INT" },
+          kind: 'input',
+          id: 'stop',
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         },
         {
-          kind: "input",
-          id: "step",
-          type: { kind: "concrete", name: "INT" },
+          kind: 'input',
+          id: 'step',
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
-          widget: { widgetType: "INT", options: {}, default: 1 },
+          widget: { widgetType: 'INT', options: {}, default: 1 },
         },
         {
-          kind: "output",
-          id: "list",
+          kind: 'output',
+          id: 'list',
           type: {
-            kind: "list",
-            element: { kind: "concrete", name: "INT" },
+            kind: 'list',
+            element: { kind: 'concrete', name: 'INT' },
           },
         },
       ],
     },
   ],
   [
-    "std.math.add_ints",
+    'std.math.add_ints',
     {
-      type: "std.math.add_ints",
-      displayName: "Add Ints",
-      category: "test",
-      source: "v3",
+      type: 'std.math.add_ints',
+      displayName: 'Add Ints',
+      category: 'test',
+      source: 'v3',
       isOutputNode: false,
       items: [
         {
-          kind: "input",
-          id: "a",
-          type: { kind: "concrete", name: "INT" },
+          kind: 'input',
+          id: 'a',
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         },
         {
-          kind: "input",
-          id: "b",
-          type: { kind: "concrete", name: "INT" },
+          kind: 'input',
+          id: 'b',
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         },
         {
-          kind: "output",
-          id: "sum",
-          type: { kind: "concrete", name: "INT" },
+          kind: 'output',
+          id: 'sum',
+          type: { kind: 'concrete', name: 'INT' },
         },
       ],
     },
   ],
   [
-    "std.list.length",
+    'std.list.length',
     {
-      type: "std.list.length",
-      displayName: "List Length",
-      category: "test",
-      source: "v3",
+      type: 'std.list.length',
+      displayName: 'List Length',
+      category: 'test',
+      source: 'v3',
       isOutputNode: false,
       items: [
         {
-          kind: "input",
-          id: "list",
-          type: { kind: "wildcard" },
+          kind: 'input',
+          id: 'list',
+          type: { kind: 'wildcard' },
           optional: false,
         },
         {
-          kind: "output",
-          id: "length",
-          type: { kind: "concrete", name: "INT" },
+          kind: 'output',
+          id: 'length',
+          type: { kind: 'concrete', name: 'INT' },
         },
       ],
     },
   ],
   [
-    "dinkster.value.compare",
+    'dinkster.value.compare',
     {
-      type: "dinkster.value.compare",
-      displayName: "Compare",
-      category: "test",
-      source: "v3",
+      type: 'dinkster.value.compare',
+      displayName: 'Compare',
+      category: 'test',
+      source: 'v3',
       isOutputNode: false,
       items: [
         {
-          kind: "input",
-          id: "a",
-          type: { kind: "concrete", name: "core.value" },
+          kind: 'input',
+          id: 'a',
+          type: { kind: 'concrete', name: 'core.value' },
           optional: false,
         },
         {
-          kind: "input",
-          id: "b",
-          type: { kind: "concrete", name: "core.value" },
+          kind: 'input',
+          id: 'b',
+          type: { kind: 'concrete', name: 'core.value' },
           optional: false,
         },
         {
-          kind: "input",
-          id: "operation",
-          type: { kind: "concrete", name: "STRING" },
+          kind: 'input',
+          id: 'operation',
+          type: { kind: 'concrete', name: 'STRING' },
           optional: false,
         },
         {
-          kind: "input",
-          id: "epsilon",
-          type: { kind: "concrete", name: "FLOAT" },
+          kind: 'input',
+          id: 'epsilon',
+          type: { kind: 'concrete', name: 'FLOAT' },
           optional: false,
         },
         {
-          kind: "output",
-          id: "result",
-          type: { kind: "concrete", name: "BOOLEAN" },
+          kind: 'output',
+          id: 'result',
+          type: { kind: 'concrete', name: 'BOOLEAN' },
         },
       ],
     },
   ],
   [
-    "dinkster.value.select",
+    'dinkster.value.select',
     {
-      type: "dinkster.value.select",
-      displayName: "Select Value",
-      category: "test",
-      source: "v3",
+      type: 'dinkster.value.select',
+      displayName: 'Select Value',
+      category: 'test',
+      source: 'v3',
       isOutputNode: false,
       items: [
         {
-          kind: "input",
-          id: "condition",
-          type: { kind: "concrete", name: "BOOLEAN" },
+          kind: 'input',
+          id: 'condition',
+          type: { kind: 'concrete', name: 'BOOLEAN' },
           optional: false,
         },
         {
-          kind: "input",
-          id: "on_false",
-          type: { kind: "variable", templateId: "T" },
+          kind: 'input',
+          id: 'on_false',
+          type: { kind: 'variable', templateId: 'T' },
           optional: false,
         },
         {
-          kind: "input",
-          id: "on_true",
-          type: { kind: "variable", templateId: "T" },
+          kind: 'input',
+          id: 'on_true',
+          type: { kind: 'variable', templateId: 'T' },
           optional: false,
         },
         {
-          kind: "output",
-          id: "value",
-          type: { kind: "variable", templateId: "T" },
+          kind: 'output',
+          id: 'value',
+          type: { kind: 'variable', templateId: 'T' },
         },
       ],
       selector: {
-        input: "condition",
-        branches: { false: "on_false", true: "on_true" },
+        input: 'condition',
+        branches: { false: 'on_false', true: 'on_true' },
       },
     },
   ],
-]);
+])
 const listOutputs = new Set([
-  "Issue408EmptyList",
-  "Issue408IntegerList",
-  "Issue408Pair",
-  "Issue408RecordCarried",
-]);
+  'Issue408EmptyList',
+  'Issue408IntegerList',
+  'Issue408Pair',
+  'Issue408RecordCarried',
+])
 const valueOutputs = new Set([
-  "Issue408ListBackedScalar",
-  "Issue408Pair",
-  "Issue408RecordCarried",
-]);
+  'Issue408ListBackedScalar',
+  'Issue408Pair',
+  'Issue408RecordCarried',
+])
 
 const typeExpr = (value: unknown): TypeExpr =>
-  value === "*" || typeof value !== "string"
-    ? { kind: "wildcard" }
-    : { kind: "concrete", name: value };
+  value === '*' || typeof value !== 'string'
+    ? { kind: 'wildcard' }
+    : { kind: 'concrete', name: value }
 
 const fixtureSchema = (node: JsonObject): NodeSchema => {
-  const items: InterfaceItem[] = [];
-  for (const input of Array.isArray(node["inputs"]) ? node["inputs"] : []) {
-    if (input === null || typeof input !== "object" || Array.isArray(input))
-      continue;
-    const value = input as JsonObject;
-    if (typeof value["name"] !== "string") continue;
-    const nodeType = node["type"] as string;
+  const items: InterfaceItem[] = []
+  for (const input of Array.isArray(node['inputs']) ? node['inputs'] : []) {
+    if (input === null || typeof input !== 'object' || Array.isArray(input))
+      continue
+    const value = input as JsonObject
+    if (typeof value['name'] !== 'string') continue
+    const nodeType = node['type'] as string
     const inputType =
-      nodeType === "Issue408RecordCarried" ||
-      (nodeType === "Issue408AppendIndex" && value["name"] === "value")
-        ? { kind: "concrete" as const, name: "core.value" }
-        : value["name"] === "is_first" ||
-            value["name"] === "is_last" ||
-            value["name"] === "last" ||
-            value["name"] === "switch"
-          ? { kind: "concrete" as const, name: "BOOLEAN" }
-          : value["name"] === "item"
-            ? { kind: "concrete" as const, name: "core.value" }
-            : value["name"] === "value" ||
-                value["name"] === "dependency" ||
-                value["name"] === "index"
-              ? { kind: "concrete" as const, name: "INT" }
-              : typeExpr(value["type"]);
-    const widgets = node["widgets_values"];
+      nodeType === 'Issue408RecordCarried' ||
+      (nodeType === 'Issue408AppendIndex' && value['name'] === 'value')
+        ? { kind: 'concrete' as const, name: 'core.value' }
+        : value['name'] === 'is_first' ||
+            value['name'] === 'is_last' ||
+            value['name'] === 'last' ||
+            value['name'] === 'switch'
+          ? { kind: 'concrete' as const, name: 'BOOLEAN' }
+          : value['name'] === 'item'
+            ? { kind: 'concrete' as const, name: 'core.value' }
+            : value['name'] === 'value' ||
+                value['name'] === 'dependency' ||
+                value['name'] === 'index'
+              ? { kind: 'concrete' as const, name: 'INT' }
+              : typeExpr(value['type'])
+    const widgets = node['widgets_values']
     const hasWidget =
       widgets !== null &&
-      typeof widgets === "object" &&
+      typeof widgets === 'object' &&
       !Array.isArray(widgets) &&
-      value["name"] in widgets;
+      value['name'] in widgets
     items.push({
-      kind: "input",
-      id: value["name"],
+      kind: 'input',
+      id: value['name'],
       type: inputType,
       optional: false,
       ...(hasWidget
         ? {
             widget: {
               widgetType:
-                inputType.kind === "concrete" ? inputType.name : "JSON",
+                inputType.kind === 'concrete' ? inputType.name : 'JSON',
               options: {},
             },
           }
         : {}),
-    });
+    })
   }
-  for (const output of Array.isArray(node["outputs"]) ? node["outputs"] : []) {
-    if (output === null || typeof output !== "object" || Array.isArray(output))
-      continue;
-    const value = output as JsonObject;
-    if (typeof value["name"] !== "string") continue;
+  for (const output of Array.isArray(node['outputs']) ? node['outputs'] : []) {
+    if (output === null || typeof output !== 'object' || Array.isArray(output))
+      continue
+    const value = output as JsonObject
+    if (typeof value['name'] !== 'string') continue
     items.push({
-      kind: "output",
-      id: value["name"],
-      type: listOutputs.has(node["type"] as string)
+      kind: 'output',
+      id: value['name'],
+      type: listOutputs.has(node['type'] as string)
         ? {
-            kind: "list",
+            kind: 'list',
             element: {
-              kind: "concrete",
-              name: valueOutputs.has(node["type"] as string)
-                ? "core.value"
-                : "INT",
+              kind: 'concrete',
+              name: valueOutputs.has(node['type'] as string)
+                ? 'core.value'
+                : 'INT',
             },
           }
         : {
-            kind: "concrete",
-            name: valueOutputs.has(node["type"] as string)
-              ? "core.value"
-              : "INT",
+            kind: 'concrete',
+            name: valueOutputs.has(node['type'] as string)
+              ? 'core.value'
+              : 'INT',
           },
-      ...(listOutputs.has(node["type"] as string) ? { isList: true } : {}),
-    });
+      ...(listOutputs.has(node['type'] as string) ? { isList: true } : {}),
+    })
   }
   return {
-    type: node["type"] as string,
-    displayName: node["type"] as string,
-    category: "test",
-    source: "v1",
-    isOutputNode: (node["type"] as string).startsWith("Issue408Capture"),
-    ...((node["type"] as string) === "Issue408ExpandIncrement"
+    type: node['type'] as string,
+    displayName: node['type'] as string,
+    category: 'test',
+    source: 'v1',
+    isOutputNode: (node['type'] as string).startsWith('Issue408Capture'),
+    ...((node['type'] as string) === 'Issue408ExpandIncrement'
       ? { mayExpandGraph: true }
       : {}),
     items,
-  };
-};
+  }
+}
 
 const workflowFiles = readdirSync(fixtureRoot)
-  .filter((name) => name.endsWith(".json"))
-  .sort();
+  .filter((name) => name.endsWith('.json'))
+  .sort()
 
-describe("explicit imported list utilities", () => {
+describe('explicit imported list utilities', () => {
   it.each([false, true])(
-    "preserves authored order and selects the first linked index (list source: %s)",
+    'preserves authored order and selects the first linked index (list source: %s)',
     (listSource) => {
-      const integer: TypeExpr = { kind: "concrete", name: "INT" };
-      const list: TypeExpr = { kind: "list", element: integer };
+      const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+      const list: TypeExpr = { kind: 'list', element: integer }
       const schema = (
         type: string,
         items: InterfaceItem[],
@@ -322,254 +322,251 @@ describe("explicit imported list utilities", () => {
       ): NodeSchema => ({
         type,
         items,
-        source: "v3",
+        source: 'v3',
         displayName: type,
-        category: "test",
+        category: 'test',
         isOutputNode: output,
-      });
+      })
       const input = (id: string, type: TypeExpr): InputSpec => ({
-        kind: "input",
+        kind: 'input',
         id,
         type,
         optional: false,
-      });
+      })
       const output = (id: string, type: TypeExpr): InterfaceItem => ({
-        kind: "output",
+        kind: 'output',
         id,
         type,
-      });
+      })
       const family = (id: string, type: TypeExpr): InterfaceItem => ({
-        kind: "input",
+        kind: 'input',
         id,
-        type: { kind: "wildcard" },
+        type: { kind: 'wildcard' },
         optional: false,
         dynamic: {
-          kind: "autogrow",
+          kind: 'autogrow',
           template: [input(id, type)],
-          naming: { kind: "prefix", prefix: id, min: 1 },
+          naming: { kind: 'prefix', prefix: id, min: 1 },
         },
-      });
+      })
       const schemas = new Map([
-        ["Scalar", schema("Scalar", [output("value", integer)])],
-        ["Sequence", schema("Sequence", [output("value", list)])],
-        ["Sink", schema("Sink", [input("value", integer)], true)],
+        ['Scalar', schema('Scalar', [output('value', integer)])],
+        ['Sequence', schema('Sequence', [output('value', list)])],
+        ['Sink', schema('Sink', [input('value', integer)], true)],
         [
-          "std.list.make",
-          schema("std.list.make", [
-            family("items", integer),
-            output("list", list),
+          'std.list.make',
+          schema('std.list.make', [
+            family('items', integer),
+            output('list', list),
           ]),
         ],
         [
-          "std.list.concat",
-          schema("std.list.concat", [
-            family("lists", list),
-            output("list", list),
+          'std.list.concat',
+          schema('std.list.concat', [
+            family('lists', list),
+            output('list', list),
           ]),
         ],
         [
-          "std.list.element",
-          schema("std.list.element", [
-            input("list", list),
-            input("index", integer),
-            output("item", integer),
+          'std.list.element',
+          schema('std.list.element', [
+            input('list', list),
+            input('index', integer),
+            output('item', integer),
           ]),
         ],
-      ]);
+      ])
       const workflow: JsonObject = {
         nodes: [
-          { id: 1, type: "Scalar", outputs: [{ name: "value", type: "INT" }] },
+          { id: 1, type: 'Scalar', outputs: [{ name: 'value', type: 'INT' }] },
           {
             id: 2,
-            type: listSource ? "Sequence" : "Scalar",
-            outputs: [{ name: "value", type: "INT" }],
+            type: listSource ? 'Sequence' : 'Scalar',
+            outputs: [{ name: 'value', type: 'INT' }],
           },
           {
             id: 3,
-            type: "CreateList",
-            inputs: [{ name: "inputs.input9" }, { name: "inputs.input2" }],
-            outputs: [{ name: "list" }],
+            type: 'CreateList',
+            inputs: [{ name: 'inputs.input9' }, { name: 'inputs.input2' }],
+            outputs: [{ name: 'list' }],
           },
           {
             id: 4,
-            type: "GetItemFromList",
-            inputs: [{ name: "list" }, { name: "index" }],
-            outputs: [{ name: "*" }],
+            type: 'GetItemFromList',
+            inputs: [{ name: 'list' }, { name: 'index' }],
+            outputs: [{ name: '*' }],
             widgets_values: [9],
           },
           {
             id: 5,
-            type: "Sequence",
-            outputs: [{ name: "value", type: "INT" }],
+            type: 'Sequence',
+            outputs: [{ name: 'value', type: 'INT' }],
           },
-          { id: 6, type: "Sink", inputs: [{ name: "value" }] },
+          { id: 6, type: 'Sink', inputs: [{ name: 'value' }] },
         ],
         links: [
-          [1, 2, 0, 3, 1, "INT"],
-          [2, 1, 0, 3, 0, "INT"],
-          [3, 3, 0, 4, 0, "*"],
-          [4, 5, 0, 4, 1, "INT"],
-          [5, 4, 0, 6, 0, "INT"],
+          [1, 2, 0, 3, 1, 'INT'],
+          [2, 1, 0, 3, 0, 'INT'],
+          [3, 3, 0, 4, 0, '*'],
+          [4, 5, 0, 4, 1, 'INT'],
+          [5, 4, 0, 6, 0, 'INT'],
         ],
-      };
-      const resolve = (type: string) => schemas.get(type);
-      const imported = importLitegraph(workflow, resolve);
+      }
+      const resolve = (type: string) => schemas.get(type)
+      const imported = importLitegraph(workflow, resolve)
       expect(
-        imported.diagnostics.filter((item) => item.severity === "error"),
-      ).toEqual([]);
-      expect(imported.document).toBeDefined();
+        imported.diagnostics.filter((item) => item.severity === 'error'),
+      ).toEqual([])
+      expect(imported.document).toBeDefined()
       const compiled = compile({
         document: imported.document!,
         revision: 1,
         resolve,
-        scope: { kind: "full" },
-        connection: asConnectionId("test"),
-        schemaHash: "test",
-        graphFeatures: ["regions"],
-      });
-      if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics));
-      const nodes = compiled.artifact.dinksterGraph!.nodes;
-      expect(nodes["n3"]).toMatchObject({
-        nodeType: listSource ? "std.list.concat" : "std.list.make",
-      });
-      expect(nodes["n4"]).toMatchObject({
-        nodeType: "std.list.element",
-        inputs: { list: { $link: { node: "n3", output: "list" } } },
-      });
-      const selection = nodes["n4"] as { inputs: Record<string, Json> };
-      const firstIndex = (selection.inputs["index"] as JsonObject)[
-        "$link"
-      ] as JsonObject;
-      expect(nodes[firstIndex["node"] as string]).toMatchObject({
-        nodeType: "std.list.element",
-        inputs: { index: 0, list: { $link: { node: "n5", output: "value" } } },
-      });
-      const collection = nodes["n3"] as { inputs: Record<string, Json> };
+        scope: { kind: 'full' },
+        connection: asConnectionId('test'),
+        schemaHash: 'test',
+        graphFeatures: ['regions'],
+      })
+      if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics))
+      const nodes = compiled.artifact.dinksterGraph!.nodes
+      expect(nodes['n3']).toMatchObject({
+        nodeType: listSource ? 'std.list.concat' : 'std.list.make',
+      })
+      expect(nodes['n4']).toMatchObject({
+        nodeType: 'std.list.element',
+        inputs: { list: { $link: { node: 'n3', output: 'list' } } },
+      })
+      const selection = nodes['n4'] as { inputs: Record<string, Json> }
+      const firstIndex = (selection.inputs['index'] as JsonObject)[
+        '$link'
+      ] as JsonObject
+      expect(nodes[firstIndex['node'] as string]).toMatchObject({
+        nodeType: 'std.list.element',
+        inputs: { index: 0, list: { $link: { node: 'n5', output: 'value' } } },
+      })
+      const collection = nodes['n3'] as { inputs: Record<string, Json> }
       const values = Object.values(collection.inputs).filter(
         (value) =>
-          typeof value === "object" && value !== null && "$link" in value,
-      );
-      expect(values).toHaveLength(2);
+          typeof value === 'object' && value !== null && '$link' in value,
+      )
+      expect(values).toHaveLength(2)
       if (!listSource)
         expect(values).toEqual([
-          { $link: { node: "n1", output: "value" } },
-          { $link: { node: "n2", output: "value" } },
-        ]);
+          { $link: { node: 'n1', output: 'value' } },
+          { $link: { node: 'n2', output: 'value' } },
+        ])
     },
-  );
-});
+  )
+})
 
 const regionsOf = (document: WorkflowDocument): NodeData[] =>
   Object.values(document.graphs)
     .flatMap((graph) => Object.values(graph.nodes))
-    .filter((node) => node.region !== undefined);
+    .filter((node) => node.region !== undefined)
 
 const importCorpusWorkflow = (name: string) => {
   const workflow = JSON.parse(
-    readFileSync(join(fixtureRoot, name), "utf8"),
-  ) as JsonObject;
-  const fixtureSchemas = new Map<string, NodeSchema>();
-  for (const node of workflow["nodes"] as readonly JsonObject[]) {
-    if (typeof node["type"] === "string" && !coreSchemas.has(node["type"]))
-      fixtureSchemas.set(node["type"], fixtureSchema(node));
+    readFileSync(join(fixtureRoot, name), 'utf8'),
+  ) as JsonObject
+  const fixtureSchemas = new Map<string, NodeSchema>()
+  for (const node of workflow['nodes'] as readonly JsonObject[]) {
+    if (typeof node['type'] === 'string' && !coreSchemas.has(node['type']))
+      fixtureSchemas.set(node['type'], fixtureSchema(node))
   }
   const resolve = (type: string): NodeSchema | undefined =>
-    type === "StartLoop"
+    type === 'StartLoop'
       ? { ...coreSchemas.get(type)!, mayExpandGraph: true }
-      : type === "Issue408LazySwitch"
-        ? helperSchemas.get("dinkster.value.select")
+      : type === 'Issue408LazySwitch'
+        ? helperSchemas.get('dinkster.value.select')
         : (coreSchemas.get(type) ??
           helperSchemas.get(type) ??
-          fixtureSchemas.get(type));
-  return { workflow, resolve, imported: importLitegraph(workflow, resolve) };
-};
+          fixtureSchemas.get(type))
+  return { workflow, resolve, imported: importLitegraph(workflow, resolve) }
+}
 
 type TopologyNode = {
   readonly type:
-    | "StartLoop"
-    | "EndLoop"
-    | "Body"
-    | "Source"
-    | "Output"
-    | "Termination";
-  readonly inputs?: Readonly<Record<string, string>>;
-};
+    | 'StartLoop'
+    | 'EndLoop'
+    | 'Body'
+    | 'Source'
+    | 'Output'
+    | 'Termination'
+  readonly inputs?: Readonly<Record<string, string>>
+}
 
 const topologyWorkflow = (
   spec: Readonly<Record<string, TopologyNode>>,
 ): JsonObject => {
-  const entries = Object.entries(spec);
-  const ids = new Map(entries.map(([name], index) => [name, index + 1]));
-  const links: Json[] = [];
+  const entries = Object.entries(spec)
+  const ids = new Map(entries.map(([name], index) => [name, index + 1]))
+  const links: Json[] = []
   const rawNodes = entries.map(([name, node], index) => {
-    const id = index + 1;
+    const id = index + 1
     const inputNames =
-      node.type === "StartLoop"
+      node.type === 'StartLoop'
         ? [
             ...new Set([
-              "mode",
-              "mode.num_iterations",
-              "cache_iterations",
+              'mode',
+              'mode.num_iterations',
+              'cache_iterations',
               ...Object.keys(node.inputs ?? {}),
             ]),
           ]
-        : node.type === "EndLoop"
+        : node.type === 'EndLoop'
           ? [
               ...Object.keys(node.inputs ?? {}).filter(
-                (input) => input !== "accumulate",
+                (input) => input !== 'accumulate',
               ),
-              "accumulate",
+              'accumulate',
             ]
-          : Object.keys(node.inputs ?? {});
+          : Object.keys(node.inputs ?? {})
     const inputs = inputNames.map((inputName, slot) => {
-      const sourceName = node.inputs?.[inputName];
-      if (!sourceName) return { name: inputName, type: "*", link: null };
-      const [source, sourceSlotText] = sourceName.split(":");
-      const sourceId = ids.get(source!)!;
-      const linkId = links.length + 1;
-      links.push([
-        linkId,
-        sourceId,
-        Number(sourceSlotText ?? 0),
-        id,
-        slot,
-        "*",
-      ]);
-      return { name: inputName, type: "*", link: linkId };
-    });
+      const sourceName = node.inputs?.[inputName]
+      if (!sourceName) return { name: inputName, type: '*', link: null }
+      const [source, sourceSlotText] = sourceName.split(':')
+      const sourceId = ids.get(source!)!
+      const linkId = links.length + 1
+      links.push([linkId, sourceId, Number(sourceSlotText ?? 0), id, slot, '*'])
+      return { name: inputName, type: '*', link: linkId }
+    })
     return {
       id,
       type:
-        node.type === "Body"
+        node.type === 'Body'
           ? `Issue408TopologyBody${id}`
-          : node.type === "Source"
+          : node.type === 'Source'
             ? `Issue408TopologySource${id}`
-            : node.type === "Output"
+            : node.type === 'Output'
               ? `Issue408CaptureTopology${id}`
-              : node.type === "Termination"
+              : node.type === 'Termination'
                 ? `Issue408CapturePassthrough${id}`
                 : node.type,
       pos: [id * 100, 0],
       inputs,
       outputs:
-        node.type === "Output"
+        node.type === 'Output'
           ? []
           : Array.from(
-              { length: node.type === "StartLoop" ? 5 : 1 },
-              (_, slot) => ({ name: `output_${slot}`, type: "*", links: [] }),
+              { length: node.type === 'StartLoop' ? 5 : 1 },
+              (_, slot) => ({
+                name: `output_${slot}`,
+                type: '*',
+                links: [],
+              }),
             ),
       widgets_values:
-        node.type === "StartLoop"
+        node.type === 'StartLoop'
           ? {
-              mode: "simple",
-              "mode.num_iterations": 2,
+              mode: 'simple',
+              'mode.num_iterations': 2,
               cache_iterations: false,
             }
-          : node.type === "EndLoop"
+          : node.type === 'EndLoop'
             ? { accumulate: false }
             : {},
-    };
-  });
+    }
+  })
   for (const link of links as unknown as readonly [
     number,
     number,
@@ -578,8 +575,8 @@ const topologyWorkflow = (
     number,
     string,
   ][]) {
-    const source = rawNodes[link[1] - 1]!;
-    (source.outputs[link[2]]!.links as number[]).push(link[0]);
+    const source = rawNodes[link[1] - 1]!
+    ;(source.outputs[link[2]]!.links as number[]).push(link[0])
   }
   return {
     version: 0.4,
@@ -590,91 +587,91 @@ const topologyWorkflow = (
     groups: [],
     config: {},
     extra: {},
-  };
-};
+  }
+}
 
 const topologyResolver = (workflow: JsonObject) => {
-  const schemas = new Map<string, NodeSchema>();
-  for (const node of workflow["nodes"] as readonly JsonObject[]) {
-    if (typeof node["type"] === "string" && !coreSchemas.has(node["type"]))
-      schemas.set(node["type"], fixtureSchema(node));
+  const schemas = new Map<string, NodeSchema>()
+  for (const node of workflow['nodes'] as readonly JsonObject[]) {
+    if (typeof node['type'] === 'string' && !coreSchemas.has(node['type']))
+      schemas.set(node['type'], fixtureSchema(node))
   }
   return (type: string): NodeSchema | undefined =>
-    coreSchemas.get(type) ?? helperSchemas.get(type) ?? schemas.get(type);
-};
+    coreSchemas.get(type) ?? helperSchemas.get(type) ?? schemas.get(type)
+}
 
-describe("ComfyUI Generic Loops structural import", () => {
-  it("keeps the fixed-SHA acceptance corpus complete", () => {
-    expect(workflowFiles).toHaveLength(23);
-  });
+describe('ComfyUI Generic Loops structural import', () => {
+  it('keeps the fixed-SHA acceptance corpus complete', () => {
+    expect(workflowFiles).toHaveLength(23)
+  })
 
   it.each(
-    workflowFiles.filter((name) => name !== "runtime-expanded-descendant.json"),
-  )("converts %s into explicit region definitions", (name) => {
-    const { resolve, imported } = importCorpusWorkflow(name);
+    workflowFiles.filter((name) => name !== 'runtime-expanded-descendant.json'),
+  )('converts %s into explicit region definitions', (name) => {
+    const { resolve, imported } = importCorpusWorkflow(name)
     expect(
-      imported.diagnostics.filter((item) => item.severity === "error"),
-    ).toEqual([]);
-    expect(imported.document).toBeDefined();
-    const document = imported.document!;
+      imported.diagnostics.filter((item) => item.severity === 'error'),
+    ).toEqual([])
+    expect(imported.document).toBeDefined()
+    const document = imported.document!
     const nodes = Object.values(document.graphs).flatMap((graph) =>
       Object.values(graph.nodes),
-    );
+    )
     expect(
       nodes.some(
-        (node) => node.type === "StartLoop" || node.type === "EndLoop",
+        (node) => node.type === 'StartLoop' || node.type === 'EndLoop',
       ),
-    ).toBe(false);
-    expect(nodes.some((node) => node.region !== undefined)).toBe(true);
+    ).toBe(false)
+    expect(nodes.some((node) => node.region !== undefined)).toBe(true)
     const compiled = compile({
       document,
       revision: 1,
       resolve,
-      scope: { kind: "full" },
-      connection: asConnectionId("test"),
-      schemaHash: "fixed-comfyui-b5cc8830",
-      graphFeatures: ["regions", "typedLiteral"],
-    });
+      scope: { kind: 'full' },
+      connection: asConnectionId('test'),
+      schemaHash: 'fixed-comfyui-b5cc8830',
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
     expect(
       compiled.ok,
       compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
-    ).toBe(true);
-  });
+    ).toBe(true)
+  })
 
-  it("refuses a flagged runtime-expanding loop body node", () => {
+  it('refuses a flagged runtime-expanding loop body node', () => {
     const { imported } = importCorpusWorkflow(
-      "runtime-expanded-descendant.json",
-    );
-    expect(imported.document).toBeUndefined();
+      'runtime-expanded-descendant.json',
+    )
+    expect(imported.document).toBeUndefined()
     expect(imported.diagnostics.map((item) => item.code)).toContain(
-      "import.loop.runtimeExpansionUnsupported",
-    );
-  });
+      'import.loop.runtimeExpansionUnsupported',
+    )
+  })
 
-  it("refuses a runtime-expanding node inside a loop body subgraph", () => {
-    const { workflow, resolve } = importCorpusWorkflow("cache-enabled.json");
-    const nodes = [...(workflow["nodes"] as readonly JsonObject[])];
+  it('refuses a runtime-expanding node inside a loop body subgraph', () => {
+    const { workflow, resolve } = importCorpusWorkflow('cache-enabled.json')
+    const nodes = [...(workflow['nodes'] as readonly JsonObject[])]
     const expanding = {
       ...nodes[1]!,
       id: 1,
-      type: "Issue408ExpandIncrement",
-      inputs: [{ name: "value", type: "*", link: 101 }],
-      outputs: [{ name: "output_0", type: "*", links: [102] }],
-    } satisfies JsonObject;
-    nodes[1] = { ...nodes[1]!, type: "expanding-subgraph" };
+      type: 'Issue408ExpandIncrement',
+      inputs: [{ name: 'value', type: '*', link: 101 }],
+      outputs: [{ name: 'output_0', type: '*', links: [102] }],
+    } satisfies JsonObject
+    nodes[1] = { ...nodes[1]!, type: 'expanding-subgraph' }
     const withDefinition = {
       ...workflow,
       nodes,
       definitions: {
         subgraphs: [
           {
-            id: "expanding-subgraph",
-            name: "expanding-subgraph",
+            id: 'expanding-subgraph',
+            name: 'expanding-subgraph',
             version: 1,
             nodes: [expanding],
-            inputs: [{ id: "in", name: "value", type: "*", linkIds: [101] }],
+            inputs: [{ id: 'in', name: 'value', type: '*', linkIds: [101] }],
             outputs: [
-              { id: "out", name: "output_0", type: "*", linkIds: [102] },
+              { id: 'out', name: 'output_0', type: '*', linkIds: [102] },
             ],
             links: [
               {
@@ -683,7 +680,7 @@ describe("ComfyUI Generic Loops structural import", () => {
                 origin_slot: 0,
                 target_id: 1,
                 target_slot: 0,
-                type: "*",
+                type: '*',
               },
               {
                 id: 102,
@@ -691,44 +688,44 @@ describe("ComfyUI Generic Loops structural import", () => {
                 origin_slot: 0,
                 target_id: -20,
                 target_slot: 0,
-                type: "*",
+                type: '*',
               },
             ],
           },
         ],
       },
-    } satisfies JsonObject;
+    } satisfies JsonObject
     const imported = importLitegraph(withDefinition, (type) =>
-      type === "Issue408ExpandIncrement"
+      type === 'Issue408ExpandIncrement'
         ? fixtureSchema(expanding)
         : resolve(type),
-    );
-    expect(imported.document).toBeUndefined();
+    )
+    expect(imported.document).toBeUndefined()
     expect(imported.diagnostics.map((item) => item.code)).toContain(
-      "import.loop.runtimeExpansionUnsupported",
-    );
-  });
+      'import.loop.runtimeExpansionUnsupported',
+    )
+  })
 
-  it("retains loop definitions generated inside imported subgraphs", () => {
+  it('retains loop definitions generated inside imported subgraphs', () => {
     const loop = topologyWorkflow({
-      start: { type: "StartLoop" },
-      body: { type: "Body", inputs: { value: "start" } },
-      end: { type: "EndLoop", inputs: { output_value: "body" } },
-    });
+      start: { type: 'StartLoop' },
+      body: { type: 'Body', inputs: { value: 'start' } },
+      end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+    })
     const definition: JsonObject = {
-      id: "loop-body",
-      name: "loop-body",
+      id: 'loop-body',
+      name: 'loop-body',
       version: 1,
-      nodes: loop["nodes"] ?? [],
-      links: loop["links"] ?? [],
+      nodes: loop['nodes'] ?? [],
+      links: loop['links'] ?? [],
       inputs: [],
       outputs: [],
-    };
+    }
     const workflow: JsonObject = {
       version: 0.4,
       last_node_id: 1,
       last_link_id: 0,
-      nodes: [{ id: 1, type: "loop-body", inputs: [], outputs: [] }],
+      nodes: [{ id: 1, type: 'loop-body', inputs: [], outputs: [] }],
       links: [],
       groups: [],
       config: {},
@@ -736,487 +733,485 @@ describe("ComfyUI Generic Loops structural import", () => {
       definitions: {
         subgraphs: [definition],
       },
-    };
-    const imported = importLitegraph(workflow, topologyResolver(loop));
+    }
+    const imported = importLitegraph(workflow, topologyResolver(loop))
     expect(
-      imported.diagnostics.filter((item) => item.severity === "error"),
-    ).toEqual([]);
-    expect(imported.document).toBeDefined();
-    expect(imported.document!.graphs["comfy-loop-1"]).toBeDefined();
-    expect(imported.document!.graphs["loop-body"]!.nodes.n1!.type).toBe(
-      "#comfy-loop-1",
-    );
-  });
+      imported.diagnostics.filter((item) => item.severity === 'error'),
+    ).toEqual([])
+    expect(imported.document).toBeDefined()
+    expect(imported.document!.graphs['comfy-loop-1']).toBeDefined()
+    expect(imported.document!.graphs['loop-body']!.nodes.n1!.type).toBe(
+      '#comfy-loop-1',
+    )
+  })
 
-  it("consumes flagged nested loop boundaries before scanning the outer body", () => {
-    const { imported } = importCorpusWorkflow("nested-carry.json");
+  it('consumes flagged nested loop boundaries before scanning the outer body', () => {
+    const { imported } = importCorpusWorkflow('nested-carry.json')
     expect(imported.diagnostics.map((item) => item.code)).not.toContain(
-      "import.loop.runtimeExpansionUnsupported",
-    );
-    expect(imported.document).toBeDefined();
-    expect(regionsOf(imported.document!)).toHaveLength(2);
-  });
+      'import.loop.runtimeExpansionUnsupported',
+    )
+    expect(imported.document).toBeDefined()
+    expect(regionsOf(imported.document!)).toHaveLength(2)
+  })
 
-  it("lowers the fixed-SHA lazy branch helper to the native selector", () => {
-    const { resolve, imported } = importCorpusWorkflow("lazy-branch.json");
+  it('lowers the fixed-SHA lazy branch helper to the native selector', () => {
+    const { resolve, imported } = importCorpusWorkflow('lazy-branch.json')
     expect(
-      imported.diagnostics.filter((item) => item.severity === "error"),
-    ).toEqual([]);
-    expect(imported.document).toBeDefined();
+      imported.diagnostics.filter((item) => item.severity === 'error'),
+    ).toEqual([])
+    expect(imported.document).toBeDefined()
     const selector = Object.values(imported.document!.graphs)
       .flatMap((graph) => Object.values(graph.nodes))
-      .find((node) => node.type === "dinkster.value.select");
-    expect(selector).toBeDefined();
+      .find((node) => node.type === 'dinkster.value.select')
+    expect(selector).toBeDefined()
 
     const compiled = compile({
       document: imported.document!,
       revision: 1,
       resolve,
-      scope: { kind: "full" },
-      connection: asConnectionId("test"),
-      schemaHash: "fixed-comfyui-b5cc8830",
-      graphFeatures: ["regions", "typedLiteral"],
-    });
+      scope: { kind: 'full' },
+      connection: asConnectionId('test'),
+      schemaHash: 'fixed-comfyui-b5cc8830',
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
     expect(
       compiled.ok,
       compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
-    ).toBe(true);
-    if (!compiled.ok) return;
+    ).toBe(true)
+    if (!compiled.ok) return
     const region = Object.values(compiled.artifact.dinksterGraph!.nodes).find(
-      (node) => "region" in node,
-    );
-    expect(region).toBeDefined();
-    if (region === undefined || !("region" in region)) return;
+      (node) => 'region' in node,
+    )
+    expect(region).toBeDefined()
+    if (region === undefined || !('region' in region)) return
     expect(region.region.body.nodes).toEqual(
       expect.objectContaining({
         n4: expect.objectContaining({
-          nodeType: "dinkster.value.select",
+          nodeType: 'dinkster.value.select',
           inputs: {
-            condition: { $link: { node: "$region", output: "is_first" } },
-            on_false: { $link: { node: "n2", output: "output_0" } },
-            on_true: { $link: { node: "n3", output: "output_0" } },
+            condition: { $link: { node: '$region', output: 'is_first' } },
+            on_false: { $link: { node: 'n2', output: 'output_0' } },
+            on_true: { $link: { node: 'n3', output: 'output_0' } },
           },
         }),
       }),
-    );
-  });
+    )
+  })
 
   it.each([
-    ["cache-disabled.json", ["rerun"]],
-    ["cache-enabled.json", ["reuse"]],
-    ["nested-mixed-cache.json", ["rerun", "reuse"]],
-    ["nested-cache-enabled.json", ["reuse", "reuse"]],
-  ] as const)("preserves cache policy for %s", (name, expected) => {
-    const { imported } = importCorpusWorkflow(name);
-    expect(imported.document).toBeDefined();
+    ['cache-disabled.json', ['rerun']],
+    ['cache-enabled.json', ['reuse']],
+    ['nested-mixed-cache.json', ['rerun', 'reuse']],
+    ['nested-cache-enabled.json', ['reuse', 'reuse']],
+  ] as const)('preserves cache policy for %s', (name, expected) => {
+    const { imported } = importCorpusWorkflow(name)
+    expect(imported.document).toBeDefined()
     expect(
       regionsOf(imported.document!)
         .map((node) => node.region!.cachePolicy)
         .sort(),
-    ).toEqual([...expected].sort());
-  });
+    ).toEqual([...expected].sort())
+  })
 
   it.each([
-    ["accumulate-list-output.json", "flatten"],
-    ["final-list-output.json", "last"],
-    ["cache-disabled.json", undefined],
-  ] as const)("preserves the result role for %s", (name, expected) => {
-    const { imported } = importCorpusWorkflow(name);
-    expect(imported.document).toBeDefined();
+    ['accumulate-list-output.json', 'flatten'],
+    ['final-list-output.json', 'last'],
+    ['cache-disabled.json', undefined],
+  ] as const)('preserves the result role for %s', (name, expected) => {
+    const { imported } = importCorpusWorkflow(name)
+    expect(imported.document).toBeDefined()
     expect(
-      regionsOf(imported.document!)[0]!.region!.outputRoles?.["result"]?.kind,
-    ).toBe(expected);
-  });
+      regionsOf(imported.document!)[0]!.region!.outputRoles?.['result']?.kind,
+    ).toBe(expected)
+  })
 
   it.each([
-    ["nested-carry.json", 1],
-    ["heterogeneous-carry.json", 1],
-    ["list-backed-carry.json", 1],
-    ["cache-enabled.json", 0],
-  ] as const)("preserves carried state for %s", (name, expected) => {
-    const { imported } = importCorpusWorkflow(name);
-    expect(imported.document).toBeDefined();
+    ['nested-carry.json', 1],
+    ['heterogeneous-carry.json', 1],
+    ['list-backed-carry.json', 1],
+    ['cache-enabled.json', 0],
+  ] as const)('preserves carried state for %s', (name, expected) => {
+    const { imported } = importCorpusWorkflow(name)
+    expect(imported.document).toBeDefined()
     expect(
       regionsOf(imported.document!).filter((node) =>
-        node.region!.statePorts?.includes("carry"),
+        node.region!.statePorts?.includes('carry'),
       ),
-    ).toHaveLength(expected);
-  });
+    ).toHaveLength(expected)
+  })
 
   it.each([
-    ["nested-output-list.json", 2],
-    ["nested-list-backed-scalar.json", 0],
+    ['nested-output-list.json', 2],
+    ['nested-list-backed-scalar.json', 0],
   ] as const)(
-    "preserves nested output-list cardinality for %s",
+    'preserves nested output-list cardinality for %s',
     (name, flattened) => {
-      const { imported } = importCorpusWorkflow(name);
-      expect(imported.document).toBeDefined();
+      const { imported } = importCorpusWorkflow(name)
+      expect(imported.document).toBeDefined()
       expect(
         regionsOf(imported.document!).filter(
-          (node) => node.region!.outputRoles?.["result"]?.kind === "flatten",
+          (node) => node.region!.outputRoles?.['result']?.kind === 'flatten',
         ),
-      ).toHaveLength(flattened);
+      ).toHaveLength(flattened)
     },
-  );
+  )
 
-  it("decodes positional mode, range, accumulate, and cache widgets", () => {
-    const { workflow, resolve } = importCorpusWorkflow("for-state.json");
-    const positional = structuredClone(workflow);
-    for (const node of positional["nodes"] as JsonObject[]) {
-      const mutable = node as unknown as Record<string, unknown>;
-      if (node["type"] === "StartLoop")
-        mutable["widgets_values"] = ["For", 2, 8, 3, true];
-      if (node["type"] === "EndLoop") mutable["widgets_values"] = [true];
+  it('decodes positional mode, range, accumulate, and cache widgets', () => {
+    const { workflow, resolve } = importCorpusWorkflow('for-state.json')
+    const positional = structuredClone(workflow)
+    for (const node of positional['nodes'] as JsonObject[]) {
+      const mutable = node as unknown as Record<string, unknown>
+      if (node['type'] === 'StartLoop')
+        mutable['widgets_values'] = ['For', 2, 8, 3, true]
+      if (node['type'] === 'EndLoop') mutable['widgets_values'] = [true]
     }
-    const imported = importLitegraph(positional, resolve);
-    expect(imported.document).toBeDefined();
-    const region = regionsOf(imported.document!)[0]!;
-    expect(region.values["iteration_index"]).toEqual([2, 5]);
-    expect(region.region!.cachePolicy).toBe("reuse");
-    expect(region.region!.outputRoles?.["result"]).toBeUndefined();
-  });
+    const imported = importLitegraph(positional, resolve)
+    expect(imported.document).toBeDefined()
+    const region = regionsOf(imported.document!)[0]!
+    expect(region.values['iteration_index']).toEqual([2, 5])
+    expect(region.region!.cachePolicy).toBe('reuse')
+    expect(region.region!.outputRoles?.['result']).toBeUndefined()
+  })
 
-  it("lifts linked range controls into an integer range node", () => {
+  it('lifts linked range controls into an integer range node', () => {
     const workflow = topologyWorkflow({
-      count: { type: "Source" },
-      start: { type: "StartLoop", inputs: { "mode.num_iterations": "count" } },
-      body: { type: "Body", inputs: { value: "start" } },
-      end: { type: "EndLoop", inputs: { output_value: "body" } },
-      output: { type: "Output", inputs: { value: "end" } },
-    });
-    const imported = importLitegraph(workflow, topologyResolver(workflow));
+      count: { type: 'Source' },
+      start: { type: 'StartLoop', inputs: { 'mode.num_iterations': 'count' } },
+      body: { type: 'Body', inputs: { value: 'start' } },
+      end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+      output: { type: 'Output', inputs: { value: 'end' } },
+    })
+    const imported = importLitegraph(workflow, topologyResolver(workflow))
     expect(
-      imported.diagnostics.filter((item) => item.severity === "error"),
-    ).toEqual([]);
-    expect(imported.document).toBeDefined();
-    const root = imported.document!.graphs.g0!;
+      imported.diagnostics.filter((item) => item.severity === 'error'),
+    ).toEqual([])
+    expect(imported.document).toBeDefined()
+    const root = imported.document!.graphs.g0!
     const range = Object.values(root.nodes).find(
-      (node) => node.type === "std.list.range",
-    )!;
-    const region = regionsOf(imported.document!)[0]!;
-    expect(range.values).toEqual({ start: 0, step: 1 });
-    expect(region.values["iteration_index"]).toBeUndefined();
+      (node) => node.type === 'std.list.range',
+    )!
+    const region = regionsOf(imported.document!)[0]!
+    expect(range.values).toEqual({ start: 0, step: 1 })
+    expect(region.values['iteration_index']).toBeUndefined()
     expect(Object.values(root.links)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          from: { node: "n1", port: "output_0" },
-          to: { node: range.id, port: "stop" },
+          from: { node: 'n1', port: 'output_0' },
+          to: { node: range.id, port: 'stop' },
         }),
         expect.objectContaining({
-          from: { node: range.id, port: "list" },
-          to: { node: region.id, port: "iteration_index" },
+          from: { node: range.id, port: 'list' },
+          to: { node: region.id, port: 'iteration_index' },
         }),
       ]),
-    );
-  });
+    )
+  })
 
-  it("lowers last and rerun into the native graph wire", () => {
-    const { resolve, imported } = importCorpusWorkflow(
-      "final-list-output.json",
-    );
-    expect(imported.document).toBeDefined();
+  it('lowers last and rerun into the native graph wire', () => {
+    const { resolve, imported } = importCorpusWorkflow('final-list-output.json')
+    expect(imported.document).toBeDefined()
     const compiled = compile({
       document: imported.document!,
       revision: 1,
       resolve,
-      scope: { kind: "full" },
-      connection: asConnectionId("test"),
-      schemaHash: "fixed-comfyui-b5cc8830",
-      graphFeatures: ["regions", "typedLiteral"],
-    });
-    expect(compiled.ok).toBe(true);
-    if (!compiled.ok) return;
+      scope: { kind: 'full' },
+      connection: asConnectionId('test'),
+      schemaHash: 'fixed-comfyui-b5cc8830',
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) return
     const regions = Object.values(
       compiled.artifact.dinksterGraph!.nodes,
-    ).filter((entry) => "region" in entry);
-    expect(regions).toHaveLength(1);
-    expect(regions[0]!.region.cachePolicy).toBe("rerun");
-    expect(regions[0]!.region.outputs["result"]?.mode).toBe("last");
-  });
+    ).filter((entry) => 'region' in entry)
+    expect(regions).toHaveLength(1)
+    expect(regions[0]!.region.cachePolicy).toBe('rerun')
+    expect(regions[0]!.region.outputs['result']?.mode).toBe('last')
+  })
 
   it.each([
     [
-      "simple body",
+      'simple body',
       {
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { value: "start" } },
-        end: { type: "EndLoop", inputs: { output_value: "body" } },
-        output: { type: "Output", inputs: { value: "end" } },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { value: 'start' } },
+        end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
       undefined,
     ],
     [
-      "branched body",
+      'branched body',
       {
-        start: { type: "StartLoop" },
-        left: { type: "Body", inputs: { value: "start" } },
-        right: { type: "Termination", inputs: { value: "start" } },
+        start: { type: 'StartLoop' },
+        left: { type: 'Body', inputs: { value: 'start' } },
+        right: { type: 'Termination', inputs: { value: 'start' } },
         end: {
-          type: "EndLoop",
-          inputs: { output_value: "left", termination0: "right" },
+          type: 'EndLoop',
+          inputs: { output_value: 'left', termination0: 'right' },
         },
-        output: { type: "Output", inputs: { value: "end" } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
       undefined,
     ],
     [
-      "entering dependency",
+      'entering dependency',
       {
-        source: { type: "Source" },
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { iteration: "start", value: "source" } },
-        end: { type: "EndLoop", inputs: { output_value: "body" } },
-        output: { type: "Output", inputs: { value: "end" } },
+        source: { type: 'Source' },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { iteration: 'start', value: 'source' } },
+        end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
       undefined,
     ],
     [
-      "nested loops",
+      'nested loops',
       {
-        outer: { type: "StartLoop" },
-        inner: { type: "StartLoop", inputs: { parent_iteration: "outer" } },
-        innerBody: { type: "Body", inputs: { value: "inner" } },
-        innerEnd: { type: "EndLoop", inputs: { output_value: "innerBody" } },
+        outer: { type: 'StartLoop' },
+        inner: { type: 'StartLoop', inputs: { parent_iteration: 'outer' } },
+        innerBody: { type: 'Body', inputs: { value: 'inner' } },
+        innerEnd: { type: 'EndLoop', inputs: { output_value: 'innerBody' } },
         outerBody: {
-          type: "Body",
-          inputs: { outer: "outer", inner: "innerEnd" },
+          type: 'Body',
+          inputs: { outer: 'outer', inner: 'innerEnd' },
         },
-        outerEnd: { type: "EndLoop", inputs: { output_value: "outerBody" } },
-        output: { type: "Output", inputs: { value: "outerEnd" } },
+        outerEnd: { type: 'EndLoop', inputs: { output_value: 'outerBody' } },
+        output: { type: 'Output', inputs: { value: 'outerEnd' } },
       },
       undefined,
     ],
     [
-      "sequential loops",
+      'sequential loops',
       {
-        first: { type: "StartLoop" },
-        firstBody: { type: "Body", inputs: { value: "first" } },
-        firstEnd: { type: "EndLoop", inputs: { output_value: "firstBody" } },
-        second: { type: "StartLoop", inputs: { parent_iteration: "firstEnd" } },
-        secondBody: { type: "Body", inputs: { value: "second" } },
-        secondEnd: { type: "EndLoop", inputs: { output_value: "secondBody" } },
-        output: { type: "Output", inputs: { value: "secondEnd" } },
+        first: { type: 'StartLoop' },
+        firstBody: { type: 'Body', inputs: { value: 'first' } },
+        firstEnd: { type: 'EndLoop', inputs: { output_value: 'firstBody' } },
+        second: { type: 'StartLoop', inputs: { parent_iteration: 'firstEnd' } },
+        secondBody: { type: 'Body', inputs: { value: 'second' } },
+        secondEnd: { type: 'EndLoop', inputs: { output_value: 'secondBody' } },
+        output: { type: 'Output', inputs: { value: 'secondEnd' } },
       },
       undefined,
     ],
     [
-      "independent loops",
+      'independent loops',
       {
-        left: { type: "StartLoop" },
-        leftBody: { type: "Body", inputs: { value: "left" } },
-        leftEnd: { type: "EndLoop", inputs: { output_value: "leftBody" } },
-        leftOutput: { type: "Output", inputs: { value: "leftEnd" } },
-        right: { type: "StartLoop" },
-        rightBody: { type: "Body", inputs: { value: "right" } },
-        rightEnd: { type: "EndLoop", inputs: { output_value: "rightBody" } },
-        rightOutput: { type: "Output", inputs: { value: "rightEnd" } },
+        left: { type: 'StartLoop' },
+        leftBody: { type: 'Body', inputs: { value: 'left' } },
+        leftEnd: { type: 'EndLoop', inputs: { output_value: 'leftBody' } },
+        leftOutput: { type: 'Output', inputs: { value: 'leftEnd' } },
+        right: { type: 'StartLoop' },
+        rightBody: { type: 'Body', inputs: { value: 'right' } },
+        rightEnd: { type: 'EndLoop', inputs: { output_value: 'rightBody' } },
+        rightOutput: { type: 'Output', inputs: { value: 'rightEnd' } },
       },
       undefined,
     ],
     [
-      "termination target",
+      'termination target',
       {
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { value: "start" } },
-        sideEffect: { type: "Termination", inputs: { value: "body" } },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { value: 'start' } },
+        sideEffect: { type: 'Termination', inputs: { value: 'body' } },
         end: {
-          type: "EndLoop",
-          inputs: { output_value: "body", termination0: "sideEffect" },
+          type: 'EndLoop',
+          inputs: { output_value: 'body', termination0: 'sideEffect' },
         },
-        output: { type: "Output", inputs: { value: "end" } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
       undefined,
     ],
     [
-      "end without start",
+      'end without start',
       {
-        source: { type: "Source" },
-        end: { type: "EndLoop", inputs: { output_value: "source" } },
-        output: { type: "Output", inputs: { value: "end" } },
+        source: { type: 'Source' },
+        end: { type: 'EndLoop', inputs: { output_value: 'source' } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
-      "import.loop.unmatchedEnd",
+      'import.loop.unmatchedEnd',
     ],
     [
-      "start without end",
+      'start without end',
       {
-        start: { type: "StartLoop" },
-        output: { type: "Output", inputs: { value: "start" } },
+        start: { type: 'StartLoop' },
+        output: { type: 'Output', inputs: { value: 'start' } },
       },
-      "import.loop.unmatchedStart",
+      'import.loop.unmatchedStart',
     ],
     [
-      "all starts without ends",
+      'all starts without ends',
       {
-        first: { type: "StartLoop" },
-        second: { type: "StartLoop" },
+        first: { type: 'StartLoop' },
+        second: { type: 'StartLoop' },
         output: {
-          type: "Output",
-          inputs: { first: "first", second: "second" },
+          type: 'Output',
+          inputs: { first: 'first', second: 'second' },
         },
       },
-      "import.loop.unmatchedStart",
+      'import.loop.unmatchedStart',
     ],
     [
-      "ambiguous unrelated starts",
+      'ambiguous unrelated starts',
       {
-        left: { type: "StartLoop" },
-        right: { type: "StartLoop" },
-        body: { type: "Body", inputs: { left: "left", right: "right" } },
-        end: { type: "EndLoop", inputs: { output_value: "body" } },
-        output: { type: "Output", inputs: { value: "end" } },
+        left: { type: 'StartLoop' },
+        right: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { left: 'left', right: 'right' } },
+        end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
-      "import.loop.ambiguousNesting",
+      'import.loop.ambiguousNesting',
     ],
     [
-      "second end",
+      'second end',
       {
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { value: "start" } },
-        endA: { type: "EndLoop", inputs: { output_value: "body" } },
-        endB: { type: "EndLoop", inputs: { output_value: "body" } },
-        outputA: { type: "Output", inputs: { value: "endA" } },
-        outputB: { type: "Output", inputs: { value: "endB" } },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { value: 'start' } },
+        endA: { type: 'EndLoop', inputs: { output_value: 'body' } },
+        endB: { type: 'EndLoop', inputs: { output_value: 'body' } },
+        outputA: { type: 'Output', inputs: { value: 'endA' } },
+        outputB: { type: 'Output', inputs: { value: 'endB' } },
       },
-      "import.loop.bodyEscape",
+      'import.loop.bodyEscape',
     ],
     [
-      "body output escape",
+      'body output escape',
       {
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { value: "start" } },
-        end: { type: "EndLoop", inputs: { output_value: "body" } },
-        output: { type: "Output", inputs: { closed: "end", bypass: "body" } },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { value: 'start' } },
+        end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+        output: { type: 'Output', inputs: { closed: 'end', bypass: 'body' } },
       },
-      "import.loop.bodyEscape",
+      'import.loop.bodyEscape',
     ],
     [
-      "inner body escape",
+      'inner body escape',
       {
-        outer: { type: "StartLoop" },
-        inner: { type: "StartLoop", inputs: { parent_iteration: "outer" } },
-        body: { type: "Body", inputs: { value: "inner" } },
-        innerEnd: { type: "EndLoop", inputs: { output_value: "body" } },
+        outer: { type: 'StartLoop' },
+        inner: { type: 'StartLoop', inputs: { parent_iteration: 'outer' } },
+        body: { type: 'Body', inputs: { value: 'inner' } },
+        innerEnd: { type: 'EndLoop', inputs: { output_value: 'body' } },
         outerEnd: {
-          type: "EndLoop",
-          inputs: { closed: "innerEnd", bypass: "body" },
+          type: 'EndLoop',
+          inputs: { closed: 'innerEnd', bypass: 'body' },
         },
-        output: { type: "Output", inputs: { value: "outerEnd" } },
+        output: { type: 'Output', inputs: { value: 'outerEnd' } },
       },
-      "import.loop.bodyEscape",
+      'import.loop.bodyEscape',
     ],
     [
-      "end after paired start",
+      'end after paired start',
       {
-        start: { type: "StartLoop" },
-        firstEnd: { type: "EndLoop", inputs: { output_value: "start" } },
-        secondEnd: { type: "EndLoop", inputs: { output_value: "firstEnd" } },
-        output: { type: "Output", inputs: { value: "secondEnd" } },
+        start: { type: 'StartLoop' },
+        firstEnd: { type: 'EndLoop', inputs: { output_value: 'start' } },
+        secondEnd: { type: 'EndLoop', inputs: { output_value: 'firstEnd' } },
+        output: { type: 'Output', inputs: { value: 'secondEnd' } },
       },
-      "import.loop.unmatchedEnd",
+      'import.loop.unmatchedEnd',
     ],
     [
-      "accumulate from body",
+      'accumulate from body',
       {
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { value: "start" } },
-        control: { type: "Body", inputs: { value: "body" } },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { value: 'start' } },
+        control: { type: 'Body', inputs: { value: 'body' } },
         end: {
-          type: "EndLoop",
-          inputs: { output_value: "body", accumulate: "control" },
+          type: 'EndLoop',
+          inputs: { output_value: 'body', accumulate: 'control' },
         },
-        output: { type: "Output", inputs: { value: "end" } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
-      "import.loop.accumulateFromBody",
+      'import.loop.accumulateFromBody',
     ],
     [
-      "accumulate from start",
+      'accumulate from start',
       {
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { value: "start" } },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { value: 'start' } },
         end: {
-          type: "EndLoop",
-          inputs: { output_value: "body", accumulate: "start:1" },
+          type: 'EndLoop',
+          inputs: { output_value: 'body', accumulate: 'start:1' },
         },
-        output: { type: "Output", inputs: { value: "end" } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
-      "import.loop.accumulateFromBody",
+      'import.loop.accumulateFromBody',
     ],
     [
-      "external accumulate control",
+      'external accumulate control',
       {
-        control: { type: "Source" },
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { value: "start" } },
+        control: { type: 'Source' },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { value: 'start' } },
         end: {
-          type: "EndLoop",
-          inputs: { output_value: "body", accumulate: "control" },
+          type: 'EndLoop',
+          inputs: { output_value: 'body', accumulate: 'control' },
         },
-        output: { type: "Output", inputs: { value: "end" } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
-      "import.loop.accumulateDynamic",
+      'import.loop.accumulateDynamic',
     ],
     [
-      "prompt ambiguous boundary",
+      'prompt ambiguous boundary',
       {
-        left: { type: "StartLoop" },
-        right: { type: "StartLoop" },
-        body: { type: "Body", inputs: { left: "left", right: "right" } },
-        end: { type: "EndLoop", inputs: { output_value: "body" } },
-        output: { type: "Output", inputs: { value: "end" } },
+        left: { type: 'StartLoop' },
+        right: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { left: 'left', right: 'right' } },
+        end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
-      "import.loop.ambiguousNesting",
+      'import.loop.ambiguousNesting',
     ],
     [
-      "prompt stacked loop error",
+      'prompt stacked loop error',
       {
-        start: { type: "StartLoop" },
-        output: { type: "Output", inputs: { value: "start" } },
+        start: { type: 'StartLoop' },
+        output: { type: 'Output', inputs: { value: 'start' } },
       },
-      "import.loop.unmatchedStart",
+      'import.loop.unmatchedStart',
     ],
     [
-      "prompt recognized escape",
+      'prompt recognized escape',
       {
-        start: { type: "StartLoop" },
-        body: { type: "Body", inputs: { value: "start" } },
-        end: { type: "EndLoop", inputs: { output_value: "body" } },
-        output: { type: "Output", inputs: { closed: "end", bypass: "body" } },
+        start: { type: 'StartLoop' },
+        body: { type: 'Body', inputs: { value: 'start' } },
+        end: { type: 'EndLoop', inputs: { output_value: 'body' } },
+        output: { type: 'Output', inputs: { closed: 'end', bypass: 'body' } },
       },
-      "import.loop.bodyEscape",
+      'import.loop.bodyEscape',
     ],
     [
-      "independent output remains atomic",
+      'independent output remains atomic',
       {
-        source: { type: "Source" },
-        independent: { type: "Output", inputs: { value: "source" } },
-        start: { type: "StartLoop" },
+        source: { type: 'Source' },
+        independent: { type: 'Output', inputs: { value: 'source' } },
+        start: { type: 'StartLoop' },
       },
-      "import.loop.unmatchedStart",
+      'import.loop.unmatchedStart',
     ],
     [
-      "second unmatched end",
+      'second unmatched end',
       {
-        source: { type: "Source" },
-        end: { type: "EndLoop", inputs: { output_value: "source" } },
-        output: { type: "Output", inputs: { value: "end" } },
+        source: { type: 'Source' },
+        end: { type: 'EndLoop', inputs: { output_value: 'source' } },
+        output: { type: 'Output', inputs: { value: 'end' } },
       },
-      "import.loop.unmatchedEnd",
+      'import.loop.unmatchedEnd',
     ],
   ] as const)(
-    "matches fixed-SHA validation class: %s",
+    'matches fixed-SHA validation class: %s',
     (_name, spec, errorCode) => {
-      const workflow = topologyWorkflow(spec);
-      const imported = importLitegraph(workflow, topologyResolver(workflow));
+      const workflow = topologyWorkflow(spec)
+      const imported = importLitegraph(workflow, topologyResolver(workflow))
       const errors = imported.diagnostics.filter(
-        (item) => item.severity === "error",
-      );
+        (item) => item.severity === 'error',
+      )
       if (errorCode === undefined) {
-        expect(errors).toEqual([]);
-        expect(imported.document).toBeDefined();
+        expect(errors).toEqual([])
+        expect(imported.document).toBeDefined()
       } else {
-        expect(errors.map((item) => item.code)).toContain(errorCode);
-        expect(imported.document).toBeUndefined();
+        expect(errors.map((item) => item.code)).toContain(errorCode)
+        expect(imported.document).toBeUndefined()
       }
     },
-  );
-});
+  )
+})
