@@ -69,7 +69,7 @@ it('includes output profile detector revision in registry identity', () => {
     nodes: { 'dinkster.load_model_profile': { schemaVersion: 1, interface: [
       { role: 'input', id: 'checkpoint', required: true, type: { kind: 'concrete', types: ['ASSET'] } },
       { role: 'input', id: 'entries', required: true, type: { kind: 'concrete', types: ['STRING'] } },
-      { role: 'outputDescriptors', input: 'entries', choices: ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete', types: [`dinkster.${id}`] } })), minEntries: 1, maxEntries: 3, fixedIds: true, probe: { input: 'checkpoint', kind: 'model', revision } },
+      { role: 'outputDescriptors', input: 'entries', choices: ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete', types: [id.toUpperCase()] } })), minEntries: 1, maxEntries: 3, fixedIds: true, probe: { input: 'checkpoint', kind: 'model', revision } },
     ] } },
   })
   const first = buildDinksterRegistry(C0, payload('1'))

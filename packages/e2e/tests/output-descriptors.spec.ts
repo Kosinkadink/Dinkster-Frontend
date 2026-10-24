@@ -25,7 +25,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     const profile = mode === true
     const fixedIds = mode !== false
     const choices = profile
-      ? ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete' as const, name: `dinkster.${id}` }, displayName: id.toUpperCase() }))
+      ? ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete' as const, name: id.toUpperCase() }, displayName: id.toUpperCase() }))
       : ['float', 'string'].map((id) => ({ id, type: { kind: 'concrete' as const, name: `core.${id}` } }))
     const entries = profile ? [] : [
       { id: fixedIds ? 'float' : 'm0', name: 'Result', type: 'float', expression: 'a+b' },
@@ -270,7 +270,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     const app = window.__dinksterTest!.app
     const sink = (type: string, input: string) => ({
       type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true,
-      items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: `dinkster.${input}` }, optional: false }],
+      items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: input.toUpperCase() }, optional: false }],
     })
     app.registerSchemas([sink('ModelSink', 'model'), sink('ClipSink', 'clip'), sink('VaeSink', 'vae')])
     const original = app.activeTab()!.store.doc
