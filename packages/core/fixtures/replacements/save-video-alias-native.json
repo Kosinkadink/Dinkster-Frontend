@@ -68,7 +68,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "comfy.VIDEO"
+            "VIDEO"
           ]
         },
         "required": true
@@ -198,7 +198,7 @@
         "type": {
           "kind": "concrete",
           "types": [
-            "comfy.VIDEO"
+            "VIDEO"
           ]
         }
       },
@@ -210,7 +210,7 @@
           "element": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           }
         },

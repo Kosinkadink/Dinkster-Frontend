@@ -72,12 +72,12 @@ const curveFollowPayload = (): DinksterNodesPayload => ({
   nodes: {
     AudioSource: {
       schemaVersion: 1, displayName: 'Audio source', category: 'test', idempotent: true,
-      interface: [{ role: 'output', id: 'audio', type: { kind: 'concrete', types: ['comfy.AUDIO'] } }],
+      interface: [{ role: 'output', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] } }],
     },
     'dinkster.audio.envelope': {
       schemaVersion: 1, displayName: 'Audio envelope', category: 'audio', idempotent: true, editorRole: 'audio-envelope',
       interface: [
-        { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['comfy.AUDIO'] } },
+        { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['AUDIO'] } },
         { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
       ],
     },

@@ -1022,7 +1022,7 @@ describe('peekSource negative cache', () => {
       baseUrl: 'http://backend', clientId: 'client-1', fetchFn: async (url) =>
         new URL(url).searchParams.has('rendition')
           ? new Response(bytesOfMedia().buffer as ArrayBuffer, { status: 200, headers: { 'Content-Type': 'video/mp4', 'X-Dinkster-Fingerprint': 'fp', 'X-Dinkster-Rendition': 'preview' } })
-          : new Response(JSON.stringify({ available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'fp' }, renditions: [{ kind: 'preview', mime: 'video/mp4', default: true }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+          : new Response(JSON.stringify({ available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'fp' }, renditions: [{ kind: 'preview', mime: 'video/mp4', default: true }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
     })
     const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:dispose-proof')
     const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})

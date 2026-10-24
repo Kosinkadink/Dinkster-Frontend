@@ -22,7 +22,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "required": true
@@ -214,7 +214,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           }
         },
@@ -226,7 +226,7 @@
             "element": {
               "kind": "concrete",
               "types": [
-                "comfy.VIDEO"
+                "VIDEO"
               ]
             }
           },
@@ -396,7 +396,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "required": true
@@ -407,7 +407,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO_EDIT"
+              "VIDEO_EDIT"
             ]
           },
           "required": false,
@@ -471,7 +471,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "preview": true
@@ -499,7 +499,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "required": true
@@ -510,7 +510,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO_EDIT"
+              "VIDEO_EDIT"
             ]
           },
           "required": false,
@@ -591,7 +591,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "preview": true
@@ -682,7 +682,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.AUDIO"
+              "AUDIO"
             ]
           },
           "required": false
@@ -693,7 +693,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "preview": true

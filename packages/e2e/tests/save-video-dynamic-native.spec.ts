@@ -282,9 +282,9 @@ test('Save Video v2 migrates static formats and executes through VIDEO', async (
   for (const [nodeId, extension, mediaType] of [
     ['flat', 'mp4', 'video/mp4'], ['nested', 'mkv', 'video/x-matroska'], ['vp9', 'webm', 'video/webm'],
   ] as const) {
-    expect(outputs[nodeId]?.video?.typeId).toBe('comfy.VIDEO')
+    expect(outputs[nodeId]?.video?.typeId).toBe('VIDEO')
     expect(outputs[nodeId]?.asset).toMatchObject({
-      typeId: 'asset<comfy.VIDEO>',
+      typeId: 'asset<VIDEO>',
       meta: { name: expect.stringMatching(new RegExp(`^${nodeId === 'flat' ? 'flat-h264' : nodeId === 'nested' ? 'nested-av1' : 'vp9'}_\\d+\\.${extension}$`)), mediaType },
     })
     const digest = outputs[nodeId]?.asset?.meta?.['digest']

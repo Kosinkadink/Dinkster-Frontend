@@ -342,12 +342,12 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     for (const name of ['comfy.IMAGE', 'comfy.MASK', 'comfy.LATENT']) {
       for (const seeking of ['in', 'out'] as const) {
         expect(schemaMatchesLinkDrop(family(name), concrete(name), seeking)).toBe(true)
-        expect(schemaMatchesLinkDrop(family(name), concrete('comfy.AUDIO'), seeking)).toBe(false)
+        expect(schemaMatchesLinkDrop(family(name), concrete('AUDIO'), seeking)).toBe(false)
         expect(schemaMatchesLinkDrop(combined, concrete(name), seeking)).toBe(true)
       }
     }
-    expect(schemaMatchesLinkDrop(combined, concrete('comfy.AUDIO'), 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(combined, concrete('comfy.AUDIO'), 'out')).toBe(false)
+    expect(schemaMatchesLinkDrop(combined, concrete('AUDIO'), 'in')).toBe(false)
+    expect(schemaMatchesLinkDrop(combined, concrete('AUDIO'), 'out')).toBe(false)
   })
 })
 

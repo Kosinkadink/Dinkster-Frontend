@@ -16,7 +16,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "required": true,
@@ -566,7 +566,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO"
+              "VIDEO"
             ]
           },
           "doc": "The input video, unchanged."
