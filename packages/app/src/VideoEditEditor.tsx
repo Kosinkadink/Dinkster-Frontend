@@ -4,8 +4,10 @@ import type { RenditionOptions, ValuePeekResult } from '@dinkster/client'
 import type { VideoEditSource } from './video-edit-context.js'
 import { Check, X } from 'lucide-solid'
 import { Icon } from './Icon.js'
+import { ProductButton, ProductCheckbox } from './ProductControls.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
+import { ProductSlider } from './ProductSlider.js'
 import {
   isVideoEditObject,
   normalizedVideoCrop,
@@ -216,9 +218,9 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
         <ProductNotice tone="status">Preview color transform: {frame().color ?? thumbs().color ?? preview().color}</ProductNotice>
       </Show>
       <Show when={!features().has('crop') && frame().url}>{(url) => <img class="video-edit-source-frame" src={url()} alt="Selected source frame" onError={() => setDecodeError('The source frame could not be displayed.')} />}</Show>
-      <button type="button" disabled={!previewAvailable()} onClick={() => setPlayPreview((value) => !value)}>
+      <ProductButton type="button" size="compact" disabled={!previewAvailable()} onClick={() => setPlayPreview((value) => !value)}>
         {playPreview() ? 'Close bounded preview' : 'Load bounded source preview'}
-      </button>
+      </ProductButton>
       <Show when={preview().error}><ProductNotice tone="status">{preview().error}</ProductNotice></Show>
       <Show when={previewUrl()}>{(url) => <video aria-label="Bounded source preview" src={url()} controls muted preload="metadata" onError={() => setDecodeError('The bounded video preview could not be played.')} />}</Show>
 
@@ -227,14 +229,13 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
           <header><strong>Trim</strong><span>One clip - seconds stored, frames shown</span></header>
           <div class="video-edit-filmstrip" data-testid="video-edit-filmstrip">
             <Show when={thumbs().url} fallback={<span class="video-edit-empty-strip">Filmstrip unavailable</span>}>{(url) => <img src={url()} alt="Source thumbnails" />}</Show>
-            <input
-              aria-label="Playhead frame"
-              type="range"
+            <ProductSlider
+              ariaLabel="Playhead frame"
               min={trimFrames()?.start ?? 0}
               max={trimFrames()?.playheadMax ?? 0}
               value={playhead()}
               disabled={trimFrames() === undefined || !frameSelectable()}
-              onInput={(event) => setPlayhead(Number(event.currentTarget.value))}
+              onInput={setPlayhead}
             />
           </div>
           <div class="video-edit-fields">
@@ -242,12 +243,12 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
             <label>Duration seconds<ProductNumberInput testId="video-trim-duration-seconds" min="0" step="0.001" value={number(trim().duration)} commitUnchanged ariaInvalid={numericErrors()['Duration seconds'] !== undefined} onRevert={() => clearNumericError('Duration seconds')} onCommit={(raw) => commitNumber('Duration seconds', raw, (value) => updateTrim({ duration: Math.max(0, value) }))} /></label>
             <label>Start frame<ProductNumberInput testId="video-trim-start-frame" integer disabled={trimFrames() === undefined} value={trimFrames()?.start ?? 0} commitUnchanged ariaInvalid={numericErrors()['Start frame'] !== undefined} onRevert={() => clearNumericError('Start frame')} onCommit={(raw) => commitNumber('Start frame', raw, (value) => setTrimFrame('start', value), true)} /></label>
             <label>End frame<ProductNumberInput testId="video-trim-end-frame" integer disabled={trimFrames() === undefined} value={trimFrames()?.end ?? 0} commitUnchanged ariaInvalid={numericErrors()['End frame'] !== undefined} onRevert={() => clearNumericError('End frame')} onCommit={(raw) => commitNumber('End frame', raw, (value) => setTrimFrame('end', value), true)} /></label>
-            <Show when={props.strictDuration !== undefined}><label class="video-edit-check"><input data-testid="video-trim-strict" type="checkbox" disabled={props.strictDisabledReason !== undefined} checked={strictDuration()} onChange={(event) => setStrictDuration(event.currentTarget.checked)} /> Strict duration</label></Show>
+            <Show when={props.strictDuration !== undefined}><label class="video-edit-check"><ProductCheckbox testId="video-trim-strict" ariaLabel="Strict duration" disabled={props.strictDisabledReason !== undefined} checked={strictDuration()} onChange={setStrictDuration} /> Strict duration</label></Show>
             <Show when={props.strictDisabledReason}><span>{props.strictDisabledReason}</span></Show>
           </div>
           <div class="video-edit-trim-handles" data-testid="video-trim-handles">
-            <input aria-label="Trim start handle" type="range" min="0" max={facts() ? videoFrameCount(facts()!) - 1 : 0} value={trimFrames()?.start ?? 0} disabled={trimFrames() === undefined} onInput={(event) => setTrimFrame('start', Number(event.currentTarget.value))} />
-            <input aria-label="Trim end handle" type="range" min="1" max={facts() ? videoFrameCount(facts()!) : 1} value={trimFrames()?.end ?? 0} disabled={trimFrames() === undefined} onInput={(event) => setTrimFrame('end', Number(event.currentTarget.value))} />
+            <ProductSlider ariaLabel="Trim start handle" min={0} max={facts() ? videoFrameCount(facts()!) - 1 : 0} value={trimFrames()?.start ?? 0} disabled={trimFrames() === undefined} onInput={(value) => setTrimFrame('start', value)} />
+            <ProductSlider ariaLabel="Trim end handle" min={1} max={facts() ? videoFrameCount(facts()!) : 1} value={trimFrames()?.end ?? 0} disabled={trimFrames() === undefined} onInput={(value) => setTrimFrame('end', value)} />
           </div>
           <Show when={thumbs().error}><p class="video-edit-source-facts">{thumbs().error}</p></Show>
         </section>
@@ -265,8 +266,9 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
               height: `${cropRect()!.height / dimensions()!.height * 100}%`,
             }}>
               <For each={['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']}>{(edge) => (
-                <button
+                <ProductButton
                   type="button"
+                  size="compact"
                   class={`video-crop-handle ${edge}`}
                   aria-label={`Crop ${edge} handle`}
                   disabled={dimensions() === undefined}
@@ -283,17 +285,17 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
             )}</For>
           </div>
           <div class="video-crop-ratios" aria-label="Crop ratio presets">
-            <button type="button" disabled={dimensions() === undefined} onClick={() => ratioCrop(16 / 9)}>16:9</button>
-            <button type="button" disabled={dimensions() === undefined} onClick={() => ratioCrop(4 / 3)}>4:3</button>
-            <button type="button" disabled={dimensions() === undefined} onClick={() => ratioCrop(1)}>1:1</button>
-            <button type="button" disabled={dimensions() === undefined} onClick={() => updateCrop({ x: 0, y: 0, width: 0, height: 0 })}>Full frame</button>
+            <ProductButton type="button" size="compact" disabled={dimensions() === undefined} onClick={() => ratioCrop(16 / 9)}>16:9</ProductButton>
+            <ProductButton type="button" size="compact" disabled={dimensions() === undefined} onClick={() => ratioCrop(4 / 3)}>4:3</ProductButton>
+            <ProductButton type="button" size="compact" disabled={dimensions() === undefined} onClick={() => ratioCrop(1)}>1:1</ProductButton>
+            <ProductButton type="button" size="compact" disabled={dimensions() === undefined} onClick={() => updateCrop({ x: 0, y: 0, width: 0, height: 0 })}>Full frame</ProductButton>
           </div>
         </section>
       </Show>
 
       <ProductActionFooter>
-        <button type="button" onClick={props.onCancel}><Icon icon={X} /> Cancel</button>
-        <button type="button" class="primary" data-testid="video-edit-apply" disabled={editError() !== undefined || numericError() !== undefined} onClick={() => props.onCommit(draft(), strictDuration())}><Icon icon={Check} /> Apply</button>
+        <ProductButton type="button" size="compact" onClick={props.onCancel}><Icon icon={X} /> Cancel</ProductButton>
+        <ProductButton type="button" size="compact" variant="primary" data-testid="video-edit-apply" disabled={editError() !== undefined || numericError() !== undefined} onClick={() => props.onCommit(draft(), strictDuration())}><Icon icon={Check} /> Apply</ProductButton>
       </ProductActionFooter>
     </div>
   )
