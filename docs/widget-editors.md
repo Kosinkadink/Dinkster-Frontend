@@ -606,7 +606,7 @@ truncation workaround is part of this contract.
 
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest
-route. This includes native `asset<comfy.VIDEO>` inputs without a
+route. This includes native `asset<VIDEO>` inputs without a
 `sourceFilename` binding. `sourceFilename` declarations remain the
 legacy classifier. The editor posts the original File bytes to
 `/api/assets/media` with that media kind and a bounded display basename, then
