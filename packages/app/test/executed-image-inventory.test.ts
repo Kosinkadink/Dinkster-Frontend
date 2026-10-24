@@ -24,8 +24,8 @@ describe('executedImageInventory', () => {
     const assetUrl = vi.fn((_ref, value: string) => `own/assets/${value}`)
     const result = executedImageInventory(execution({
       z9: {
-        zeta: { typeId: 'list<ASSET>', elements: [asset(b, 'b.png'), asset(a, 'a-again.png')] },
-        alpha: { typeId: 'list<ASSET>', elements: [asset(a, 'a.png'), asset(a, 'a-copy.png')] },
+        zeta: { typeId: 'list<dinkster.asset>', elements: [asset(b, 'b.png'), asset(a, 'a-again.png')] },
+        alpha: { typeId: 'list<dinkster.asset>', elements: [asset(a, 'a.png'), asset(a, 'a-copy.png')] },
       },
       a2: { images: [{ filename: 'second.png' }, { filename: 'first.png', subfolder: 'x', type: 'output' }] },
     }), { viewUrlForExecution: viewUrl, assetUrlForExecution: assetUrl })
@@ -78,7 +78,7 @@ describe('executedImageInventory', () => {
     const result = executedImageInventory(execution({
       node: {
         images: [{}, { filename: '' }],
-        native: { typeId: 'list<ASSET>', elements: [malformed, nested, asset(valid, 'valid.png')] },
+        native: { typeId: 'list<dinkster.asset>', elements: [malformed, nested, asset(valid, 'valid.png')] },
       },
     }), {
       viewUrlForExecution: () => 'view',

@@ -288,7 +288,7 @@ test(PHYSICAL_MICROPHONE
     readonly descriptor: { readonly typeId: string; readonly fingerprint: string }
     readonly renditions: readonly unknown[]
   }
-  expect(curveDescriptor.descriptor.typeId).toBe('CURVE')
+  expect(curveDescriptor.descriptor.typeId).toBe('dinkster.curve')
   expect(curveDescriptor.renditions).toEqual([{
     kind: 'curve-points', mime: 'application/json', default: true,
     cacheKey: 'curve-points', limits: { points: 4096 },

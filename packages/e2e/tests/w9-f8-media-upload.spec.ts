@@ -60,7 +60,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
         role: 'input',
         id: 'files',
         required: true,
-        type: { kind: 'list', element: { kind: 'concrete', types: ['ASSET'] } },
+        type: { kind: 'list', element: { kind: 'concrete', types: ['dinkster.asset'] } },
         widget: { type: 'ASSET', accept: ['image/*'], kind: 'media/image', allowUpload: true },
         sourceFilename: { kind: 'media/image', category: 'input' },
       }],
@@ -70,7 +70,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
       displayName: 'Source Scalar',
       interface: [{
         role: 'input', id: 'file', required: true,
-        type: { kind: 'concrete', types: ['ASSET'] },
+        type: { kind: 'concrete', types: ['dinkster.asset'] },
         widget: { type: 'ASSET', accept: ['image/*'], kind: 'media/image', allowUpload: true },
         sourceFilename: { kind: 'media/image', category: 'input' },
       }],
@@ -80,7 +80,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
       displayName: 'Source Video',
       interface: [{
         role: 'input', id: 'video', required: true,
-        type: { kind: 'concrete', types: ['ASSET'] },
+        type: { kind: 'concrete', types: ['dinkster.asset'] },
         widget: { type: 'ASSET', accept: ['video/*'], kind: 'media/video', allowUpload: true },
         sourceFilename: { kind: 'media/video', category: 'input' },
       }],

@@ -1677,7 +1677,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const state = widgetState('SAVE_TARGET', { suffix: '.png' }, { mount: 'output', prefix: 'images/test' })
     const mounted = mountWidget({ ...state, declaredType: { kind: 'concrete', name: 'dinkster.save_target' } })
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(mounted.root.querySelector('[data-testid="widget-editor-type"]')?.textContent).toBe('SAVE_TARGET')
+    expect(mounted.root.querySelector('[data-testid="widget-editor-type"]')?.textContent).toBe('dinkster.save_target')
     expect(mounted.root.querySelector('[data-testid="save-target-output-format"]')?.textContent).toBe('.png')
     expect(mounted.root.querySelector('[data-testid="save-target-suffix"]')?.textContent).toBe('.png')
     const mount = mounted.root.querySelector<HTMLButtonElement>('[data-testid="save-target-mount"]')!

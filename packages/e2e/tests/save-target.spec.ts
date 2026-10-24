@@ -75,7 +75,7 @@ test('picker lists ONLY ready readwrite mounts; the suffix shows as context', as
   await openSaveTarget(page)
   await expect(page.getByTestId('save-target-editor')).toHaveAttribute('data-mounts', 'ready')
   await expect(page.getByTestId('save-target-editor').getByTestId('widget-editor-label')).toHaveText('target')
-  await expect(page.getByTestId('save-target-editor').getByTestId('widget-editor-type')).toHaveText('SAVE_TARGET')
+  await expect(page.getByTestId('save-target-editor').getByTestId('widget-editor-type')).toHaveText('dinkster.save_target')
   await expect(page.getByTestId('save-target-output-format')).toHaveText('.png')
   await page.getByTestId('save-target-mount').click()
   await expect(page.getByRole('listbox').getByRole('option')).toHaveText(['comfy-output', 'renders'])

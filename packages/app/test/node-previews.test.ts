@@ -346,7 +346,7 @@ describe('sourceFor', () => {
       outputs: {
         n1: {
           assets: {
-            typeId: 'list<ASSET>',
+            typeId: 'list<dinkster.asset>',
             fingerprint: 'fp',
             elements: [
               { typeId: 'dinkster.asset', fingerprint: digest, meta: { digest, mediaType: 'image/png', name: 'out.png' } },

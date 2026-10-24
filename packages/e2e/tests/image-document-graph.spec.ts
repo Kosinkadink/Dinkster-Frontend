@@ -47,7 +47,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
     if (url.searchParams.has('rendition')) phases.push('document')
     return url.searchParams.has('rendition')
       ? route.fulfill({ contentType: mime, body: fixture.canonical, headers: {
-        'X-Dinkster-Type-Id': 'LAYERS',
+        'X-Dinkster-Type-Id': 'dinkster.layers',
         'X-Dinkster-Fingerprint': 'graph-document', 'X-Dinkster-Rendition': 'document',
       } })
       : route.fulfill({ json: { available: true,

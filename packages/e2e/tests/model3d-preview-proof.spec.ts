@@ -233,7 +233,7 @@ test('a saved GLB artifact paints a poster and mounts a disposable orbit viewpor
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await installGraph(page, {
     digest: savedModelDigest,
-    typeName: 'MODEL3D',
+    typeName: 'dinkster.model3d',
     name: 'proof-mesh.glb',
     mediaType: 'model/gltf-binary',
   })
@@ -245,7 +245,7 @@ test('a saved splat PLY artifact paints a poster and mounts a disposable orbit v
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await installGraph(page, {
     digest: savedSplatDigest,
-    typeName: 'SPLAT',
+    typeName: 'dinkster.splat',
     name: 'proof-splat.ply',
     mediaType: 'model/ply',
   })

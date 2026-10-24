@@ -974,7 +974,7 @@ describe('imageAssetRefsOf', () => {
 
   it('recurses into list elements and dedupes by digest', () => {
     const list = {
-      typeId: 'list<ASSET>',
+      typeId: 'list<dinkster.asset>',
       fingerprint: 'fp-list',
       length: 3,
       elements: [asset(), asset(), asset({ digest: `blake3:${'e'.repeat(64)}` })],
@@ -1003,14 +1003,14 @@ describe('imageAssetRefsOf', () => {
   })
 
   it('terminates on cyclic in-memory descriptors', () => {
-    const cyclic: Record<string, unknown> = { typeId: 'list<ASSET>', elements: [asset()] }
+    const cyclic: Record<string, unknown> = { typeId: 'list<dinkster.asset>', elements: [asset()] }
     ;(cyclic['elements'] as unknown[]).push(cyclic)
     expect(imageAssetRefsOf(cyclic).map((r) => r.digest)).toEqual([digest])
   })
 
   it('handles absurdly deep nesting without overflowing', () => {
     let node: unknown = asset()
-    for (let i = 0; i < 100_000; i++) node = { typeId: 'list<ASSET>', elements: [node] }
+    for (let i = 0; i < 100_000; i++) node = { typeId: 'list<dinkster.asset>', elements: [node] }
     expect(imageAssetRefsOf(node).map((r) => r.digest)).toEqual([digest])
   })
 })
