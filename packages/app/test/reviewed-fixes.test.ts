@@ -707,7 +707,7 @@ describe('reviewed fixes', () => {
       { command: 'link.connect', params: { graphId: 'g0', from: { node: 'batch', port: 'value' }, to: { node: 'sink', port: 'latent' } } },
     ])
     expect(linkDropInvocations({
-      seeking: 'in', anchorType: { kind: 'concrete', name: 'comfy.AUDIO' }, anchorX: 0, anchorY: 0,
+      seeking: 'in', anchorType: { kind: 'concrete', name: 'AUDIO' }, anchorX: 0, anchorY: 0,
       fixedFrom: { node: 'source', port: 'audio' },
     }, 'g0', 'batch', batch)).toEqual([])
   })

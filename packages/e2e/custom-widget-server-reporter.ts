@@ -19,7 +19,7 @@ export default class CustomWidgetServerReporter implements Reporter {
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
-    if (basename(test.location.file) !== 'pack-custom-widget.spec.ts' || result.status === test.expectedStatus) return
+    if (!['pack-custom-widget.spec.ts', 'widget-representations-wire17.spec.ts'].includes(basename(test.location.file)) || result.status === test.expectedStatus) return
     const directory = join(test.parent.project()!.outputDir, 'custom-widget-server')
     mkdirSync(directory, { recursive: true })
     const path = join(directory, `${test.id.replace(/[^a-zA-Z0-9-]/g, '_')}-${result.retry}.log`)

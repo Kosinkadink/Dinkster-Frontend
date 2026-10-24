@@ -151,7 +151,7 @@ export function AudioTransport(props: {
         </Show>
       </div>
     </Show>
-    <div class="audio-facts"><For each={mediaMetadataOf('core.audio', meta())?.fields.filter((field) => ['sampleRateHz', 'channels', 'layout', 'durationSeconds'].includes(field.id))}>{(field) => <span>{message(`mediaInspector.metadata.${field.id}`)}: {field.value === undefined ? message('mediaInspector.metadata.notReported') : field.value}</span>}</For></div>
+    <div class="audio-facts"><For each={mediaMetadataOf('AUDIO', meta())?.fields.filter((field) => ['sampleRateHz', 'channels', 'layout', 'durationSeconds'].includes(field.id))}>{(field) => <span>{message(`mediaInspector.metadata.${field.id}`)}: {field.value === undefined ? message('mediaInspector.metadata.notReported') : field.value}</span>}</For></div>
     <Show when={props.media.audio}><small>Window preview only. Loop and gain do not change the value.</small></Show>
     <Show when={busy() || diagnostic()}><div class="audio-diagnostic" role="status">{busy() ? 'Loading audio window...' : diagnostic()}</div></Show>
   </div>

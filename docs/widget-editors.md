@@ -418,6 +418,10 @@ NUMBER constraint exactness follows the socket type. FLOAT accepts finite
 numeric bounds and positive steps, including whole-valued doubles beyond the
 safe integer range, but never decimal strings. INT requires safe numeric
 integers or canonical exact decimal strings for bounds and positive steps.
+FLOAT `round` is independent of step: a positive finite precision quantizes
+committed text, while explicit `false` preserves its parsed value unchanged.
+Absent `round` also leaves commits unquantized. INT rejects `round`; zero,
+negative or nonfinite precisions, `true`, strings and explicit null are invalid.
 
 This table inventories every family registered by `registerCoreWidgets`. The
 schema column names only metadata currently carried by `WidgetSpec`; absence is
@@ -608,7 +612,7 @@ truncation workaround is part of this contract.
 
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest
-route. This includes native `asset<comfy.VIDEO>` inputs without a
+route. This includes native `asset<VIDEO>` inputs without a
 `sourceFilename` binding. `sourceFilename` declarations remain the
 legacy classifier. The editor posts the original File bytes to
 `/api/assets/media` with that media kind and a bounded display basename, then

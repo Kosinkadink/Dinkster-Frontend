@@ -36,11 +36,11 @@ function wav(): Buffer {
 const audio = wav()
 const outputs = [
   { id: 'image', type: 'IMAGE', kind: 'image', rendition: 'png', mime: 'image/png' },
-  { id: 'mp4', type: 'core.video', kind: 'video', rendition: 'preview', mime: 'video/mp4' },
-  { id: 'webm', type: 'core.video', kind: 'video', rendition: 'preview', mime: 'video/webm' },
-  { id: 'audio', type: 'core.audio', kind: 'audio', rendition: 'window', mime: 'audio/wav' },
-  { id: 'list', type: 'list<core.video>', kind: 'video', rendition: 'preview', mime: 'video/mp4' },
-  { id: 'saved', type: 'core.video', kind: 'video', rendition: 'preview', mime: 'video/mp4' },
+  { id: 'mp4', type: 'VIDEO', kind: 'video', rendition: 'preview', mime: 'video/mp4' },
+  { id: 'webm', type: 'VIDEO', kind: 'video', rendition: 'preview', mime: 'video/webm' },
+  { id: 'audio', type: 'AUDIO', kind: 'audio', rendition: 'window', mime: 'audio/wav' },
+  { id: 'list', type: 'list<VIDEO>', kind: 'video', rendition: 'preview', mime: 'video/mp4' },
+  { id: 'saved', type: 'VIDEO', kind: 'video', rendition: 'preview', mime: 'video/mp4' },
 ] as const
 
 async function mockBackend(page: Page): Promise<void> {
@@ -96,7 +96,7 @@ async function serveValue(route: Route): Promise<void> {
   const descriptor = output === 'list' && element === null
     ? { typeId: spec.type, fingerprint: 'proof-list', length: 3 }
     : {
-        typeId: output === 'list' ? 'core.video' : spec.type,
+        typeId: output === 'list' ? 'VIDEO' : spec.type,
         fingerprint: `proof-${output}`,
         ...(output === 'audio' ? { meta: { duration: 1, sample_rate: 8000, channels: 1 } } : {}),
       }
@@ -128,16 +128,16 @@ async function installGraph(page: Page): Promise<void> {
     })
     window.__dinksterTest!.app.registerSchemas([
       schema('ProofImage', 'image', concrete('IMAGE')),
-      schema('ProofMp4', 'mp4', concrete('core.video')),
-      schema('ProofWebm', 'webm', concrete('core.video')),
-      schema('ProofAudio', 'audio', concrete('core.audio')),
-      schema('ProofSavedVideo', 'saved', concrete('core.video')),
+      schema('ProofMp4', 'mp4', concrete('VIDEO')),
+      schema('ProofWebm', 'webm', concrete('VIDEO')),
+      schema('ProofAudio', 'audio', concrete('AUDIO')),
+      schema('ProofSavedVideo', 'saved', concrete('VIDEO')),
       {
-        ...schema('ProofList', 'list', concrete('core.video')),
-        items: [{ kind: 'output' as const, id: 'list', type: { kind: 'list' as const, element: concrete('core.video') }, preview: true }],
+        ...schema('ProofList', 'list', concrete('VIDEO')),
+        items: [{ kind: 'output' as const, id: 'list', type: { kind: 'list' as const, element: concrete('VIDEO') }, preview: true }],
       },
-      schema('ProofFailed', 'failed', concrete('core.video')),
-      schema('ProofUnmarked', 'unmarked', concrete('core.video'), false),
+      schema('ProofFailed', 'failed', concrete('VIDEO')),
+      schema('ProofUnmarked', 'unmarked', concrete('VIDEO'), false),
       schema('ProofText', 'text', concrete('STRING'), false),
     ])
     const nodes = {
@@ -177,13 +177,13 @@ async function installGraph(page: Page): Promise<void> {
       kind: 'nodeStates', execution: ref, timestamp: Date.now(),
       nodes: {
         image: { state: 'done', outputs: { image: descriptor('IMAGE', 'proof-image') } },
-        mp4: { state: 'done', outputs: { mp4: descriptor('core.video', 'proof-mp4') } },
-        webm: { state: 'done', outputs: { webm: descriptor('core.video', 'proof-webm') } },
-        audio: { state: 'done', outputs: { audio: descriptor('core.audio', 'proof-audio') } },
-        saved: { state: 'done', outputs: { saved: descriptor('core.video', 'proof-saved') } },
-        list: { state: 'done', outputs: { list: descriptor('list<core.video>', 'proof-list') } },
-        failed: { state: 'done', outputs: { failed: descriptor('core.video', 'proof-failed') } },
-        unmarked: { state: 'done', outputs: { unmarked: descriptor('core.video', 'proof-unmarked') } },
+        mp4: { state: 'done', outputs: { mp4: descriptor('VIDEO', 'proof-mp4') } },
+        webm: { state: 'done', outputs: { webm: descriptor('VIDEO', 'proof-webm') } },
+        audio: { state: 'done', outputs: { audio: descriptor('AUDIO', 'proof-audio') } },
+        saved: { state: 'done', outputs: { saved: descriptor('VIDEO', 'proof-saved') } },
+        list: { state: 'done', outputs: { list: descriptor('list<VIDEO>', 'proof-list') } },
+        failed: { state: 'done', outputs: { failed: descriptor('VIDEO', 'proof-failed') } },
+        unmarked: { state: 'done', outputs: { unmarked: descriptor('VIDEO', 'proof-unmarked') } },
         text: { state: 'done', outputs: { text: { ...descriptor('STRING', 'proof-text'), value: 'Recorded text wins' } } },
       },
     })
@@ -225,7 +225,7 @@ async function duplicateSceneNode(page: Page, nodeId: string, count: number): Pr
       kind: 'nodeStates',
       execution: execution.ref,
       timestamp: Date.now(),
-      nodes: { [nodeId]: { state: 'done', outputs: { saved: { typeId: 'core.video', fingerprint: 'proof-saved' } } } },
+      nodes: { [nodeId]: { state: 'done', outputs: { saved: { typeId: 'VIDEO', fingerprint: 'proof-saved' } } } },
     })
   }, { nodeId, count })
 }
@@ -488,7 +488,7 @@ test('visible media DOM stays capped while focused, playing, and selected previe
     const count = 30
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ProofMp4', displayName: 'ProofMp4', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'mp4', type: { kind: 'concrete', name: 'core.video' }, preview: true }],
+      items: [{ kind: 'output', id: 'mp4', type: { kind: 'concrete', name: 'VIDEO' }, preview: true }],
     }])
     const nodes = Object.fromEntries(Array.from({ length: count }, (_, index) => {
       const id = `media-${index}`
@@ -520,7 +520,7 @@ test('visible media DOM stays capped while focused, playing, and selected previe
       kind: 'nodeStates', execution: ref, timestamp: Date.now(),
       nodes: Object.fromEntries(Object.keys(nodes).map((id) => [id, {
         state: 'done',
-        outputs: { mp4: { typeId: 'core.video', fingerprint: 'proof-mp4' } },
+        outputs: { mp4: { typeId: 'VIDEO', fingerprint: 'proof-mp4' } },
       }])),
     })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })

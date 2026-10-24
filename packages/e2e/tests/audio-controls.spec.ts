@@ -1,7 +1,7 @@
 import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 import { readFile } from 'node:fs/promises'
 
-const descriptor = { typeId: 'comfy.AUDIO', fingerprint: 'audio-source-unchanged', meta: { sample_rate: 48000, channels: 6, layout: '5.1', duration: 12, batch: 3 } }
+const descriptor = { typeId: 'AUDIO', fingerprint: 'audio-source-unchanged', meta: { sample_rate: 48000, channels: 6, layout: '5.1', duration: 12, batch: 3 } }
 const renditions = [
   { kind: 'original', mime: 'audio/wav', default: true },
   { kind: 'waveform', mime: 'image/png', version: 'wave-v1', parameters: ['batch', 'waveform'], defaults: { batch: '0' }, limits: { width: 2048, height: 512, pixels: 262144 } },
@@ -33,8 +33,8 @@ async function graph(page: Page, recorded = false) {
     app.registerSchemas([{
       type: 'AudioControlsTest', displayName: 'Audio waveform and recording', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        { kind: 'input', id: 'clip', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.AUDIO' } }, optional: true, widget: { widgetType: 'ASSET', kind: 'media/audio', allowUpload: true, options: { accept: ['audio/wav', 'audio/flac', 'audio/mpeg', 'audio/ogg', 'audio/webm', 'video/mp4'] } } },
-        { kind: 'output', id: 'audio', type: { kind: 'concrete', name: 'comfy.AUDIO' }, preview: true },
+        { kind: 'input', id: 'clip', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: true, widget: { widgetType: 'ASSET', kind: 'media/audio', allowUpload: true, options: { accept: ['audio/wav', 'audio/flac', 'audio/mpeg', 'audio/ogg', 'audio/webm', 'video/mp4'] } } },
+        { kind: 'output', id: 'audio', type: { kind: 'concrete', name: 'AUDIO' }, preview: true },
       ],
     }])
     app.openDocument({

@@ -158,7 +158,7 @@ describe('widgetEditorAnchorAlive', () => {
   it('retains value-source drafts only with the same effective widget contract', () => {
     const spec: WidgetSpec = { widgetType: 'VIDEO_EDIT', options: { features: ['trim'] } }
     const ed = editorState({ target: { kind: 'valueSource', valueSourceId: 'v0' }, spec })
-    const type: TypeExpr = { kind: 'concrete', name: 'comfy.VIDEO_EDIT' }
+    const type: TypeExpr = { kind: 'concrete', name: 'VIDEO_EDIT' }
     const sources = [{ id: 'v0', effective: { spec, type, consumers: [], diagnostics: [] } }]
     expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true, sources)).toBe(true)
     expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, false, sources)).toBe(false)

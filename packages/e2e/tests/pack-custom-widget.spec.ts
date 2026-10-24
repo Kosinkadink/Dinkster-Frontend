@@ -1,64 +1,10 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { expect, openRailPanel, test as base, type Page } from './fixtures.js'
+import { widgetDiagnostics } from './widget-diagnostics.js'
 
 const proofDir = process.env['DINKSTER_CUSTOM_WIDGET_PROOF_DIR']
 
-const test = base.extend<{ widgetDiagnostics: void }>({
-  widgetDiagnostics: [async ({ page }, use, testInfo) => {
-    const consoleMessages: object[] = []
-    page.on('console', (message) => consoleMessages.push({
-      at: new Date().toISOString(), type: message.type(), text: message.text(), location: message.location(),
-    }))
-    page.on('pageerror', (error) => consoleMessages.push({
-      at: new Date().toISOString(), type: 'pageerror', text: error.stack ?? error.message,
-    }))
-    await page.addInitScript(() => {
-      const clicks: object[] = []
-      Object.assign(window, { __customWidgetClicks: clicks })
-      for (const type of ['pointerdown', 'click']) {
-        document.addEventListener(type, (event) => {
-          const pointer = event as MouseEvent
-          clicks.push({
-            at: new Date().toISOString(), type, x: pointer.clientX, y: pointer.clientY,
-            target: (event.target as Element | null)?.outerHTML,
-            hitStack: document.elementsFromPoint(pointer.clientX, pointer.clientY).map((element) => ({
-              tag: element.tagName, testId: element.getAttribute('data-testid'), className: element.className,
-            })),
-            editor: document.querySelector('[data-testid="widget-editor"]')?.outerHTML,
-          })
-        }, true)
-      }
-    })
-    await use()
-    if (testInfo.status === testInfo.expectedStatus) return
-    mkdirSync(testInfo.outputDir, { recursive: true })
-    const consolePath = testInfo.outputPath('custom-widget-console.json')
-    writeFileSync(consolePath, JSON.stringify(consoleMessages, null, 2))
-    await testInfo.attach('custom-widget-console', {
-      path: consolePath, contentType: 'application/json',
-    })
-    if (page.isClosed()) return
-    const statePath = testInfo.outputPath('custom-widget-dialog-state.json')
-    writeFileSync(statePath, JSON.stringify(await page.evaluate(() => ({
-        at: new Date().toISOString(), url: location.href,
-        viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
-        activeElement: document.activeElement?.outerHTML,
-        editors: Array.from(document.querySelectorAll('[data-testid="widget-editor"], [role="dialog"]'), (element) => ({
-          html: element.outerHTML, bounds: element.getBoundingClientRect().toJSON(),
-          display: getComputedStyle(element).display, visibility: getComputedStyle(element).visibility,
-        })),
-        clicks: (window as unknown as { __customWidgetClicks?: object[] }).__customWidgetClicks,
-      })), null, 2))
-    await testInfo.attach('custom-widget-dialog-state', {
-      path: statePath, contentType: 'application/json',
-    })
-    const screenshotPath = testInfo.outputPath('custom-widget-failure.png')
-    await page.screenshot({ path: screenshotPath, animations: 'disabled', fullPage: true })
-    await testInfo.attach('custom-widget-failure', {
-      path: screenshotPath, contentType: 'image/png',
-    })
-  }, { auto: true }],
-})
+const test = base.extend(widgetDiagnostics)
 
 async function widgetPoint(page: Page): Promise<{ x: number; y: number }> {
   return page.evaluate(() => {
