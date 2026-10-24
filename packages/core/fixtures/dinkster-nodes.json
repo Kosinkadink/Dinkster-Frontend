@@ -262,6 +262,38 @@
       "schemaVersion": 1,
       "version": 1
     },
+    "test.numeric_union": {
+      "category": "test",
+      "description": "",
+      "displayName": "Frame rate",
+      "idempotent": true,
+      "interface": [
+        {
+          "default": 25.0,
+          "id": "frame_rate",
+          "required": true,
+          "role": "input",
+          "type": {
+            "kind": "union",
+            "types": [
+              "FLOAT",
+              "INT"
+            ]
+          },
+          "widget": {
+            "display": "number",
+            "max": 1000.0,
+            "min": 1.0,
+            "step": 0.01,
+            "type": "NUMBER"
+          }
+        }
+      ],
+      "nodeType": "test.numeric_union",
+      "outputNode": true,
+      "schemaVersion": 1,
+      "version": 1
+    },
     "test.primitives": {
       "category": "test",
       "description": "every widget-derivable primitive",
