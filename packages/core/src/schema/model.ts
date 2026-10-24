@@ -142,8 +142,8 @@ export const typeExprFromTypeId = (typeId: string): TypeExpr => {
  * emission-rule amendment keys on exactly these forms: a literal whose
  * runtime type is an asset source DIFFERING from the concrete declared
  * type must be $typed-stamped (the plain literal would be wrapped as the
- * declared type raw and never reach the planner). Bare `ASSET` and
- * `list<ASSET>` are NOT asset sources - the untyped atom has no
+ * declared type raw and never reach the planner). Bare `dinkster.asset` and
+ * `list<dinkster.asset>` are NOT asset sources - the untyped atom has no
  * decode target, so a stamp would not make it coercible.
  */
 export const isAssetSourceTypeId = (typeId: string): boolean => {
@@ -154,18 +154,18 @@ export const isAssetSourceTypeId = (typeId: string): boolean => {
 
 /**
  * True when a canonical type id DECLARES an asset-reference destination:
- * bare `ASSET`, `asset<...>`, or a list of either. Per the typed-assets
+ * bare `dinkster.asset`, `asset<...>`, or a list of either. Per the typed-assets
  * joint pins, such destinations receive AssetRef envelopes AS-IS - never
  * coerced - so an asset-source literal landing on one must stay a PLAIN
  * literal even when the source form differs from the declared form (e.g. an
- * `asset<comfy.IMAGE>` tap into a bare `ASSET` input): a $typed stamp
+ * `asset<comfy.IMAGE>` tap into a bare `dinkster.asset` input): a $typed stamp
  * would route it into the coercion planner, which has no asset-to-asset
  * vocabulary and would refuse a delivery the plain ref satisfies.
  */
 export const isAssetRefDestinationTypeId = (typeId: string): boolean => {
-  if (typeId === 'ASSET' || parseAssetTypeId(typeId) !== undefined) return true
+  if (typeId === 'dinkster.asset' || parseAssetTypeId(typeId) !== undefined) return true
   const inner = parseListTypeId(typeId)
-  return inner !== undefined && (inner === 'ASSET' || parseAssetTypeId(inner) !== undefined)
+  return inner !== undefined && (inner === 'dinkster.asset' || parseAssetTypeId(inner) !== undefined)
 }
 
 /**
@@ -173,7 +173,7 @@ export const isAssetRefDestinationTypeId = (typeId: string): boolean => {
  * Dinkster b56fa4f + caf1070 amendment). Two arms:
  *
  * - LIST-OUTER (schema-driven): the declared outer type is a LIST of
- *   asset references - `list<asset<T>>` or bare `list<ASSET>` -
+ *   asset references - `list<asset<T>>` or bare `list<dinkster.asset>` -
  *   because N selections lower to N descriptors in a list literal.
  * - SCALAR MERGE (registry-gated, backend 6dbbddd): the declared type is
  *   a scalar concrete atom T with a registered batch-merge provider
@@ -186,16 +186,16 @@ export const isAssetRefDestinationTypeId = (typeId: string): boolean => {
  *
  * `asset<list<T>>` stays single-pick: its multi-ness comes from the
  * DECODER (one file, many batches), not from selection. Bare scalar
- * `ASSET` stays single-pick: the untyped atom has no decode target
+ * `dinkster.asset` stays single-pick: the untyped atom has no decode target
  * to merge through (and the backend registry holds atoms like
- * comfy.IMAGE, never ASSET).
+ * comfy.IMAGE, never dinkster.asset).
  */
 export const assetMultiSelect = (t: TypeExpr, mergeableTypes?: readonly string[]): boolean =>
   (t.kind === 'list' &&
     (t.element.kind === 'asset' ||
-      (t.element.kind === 'concrete' && t.element.name === 'ASSET'))) ||
+      (t.element.kind === 'concrete' && t.element.name === 'dinkster.asset'))) ||
   (t.kind === 'concrete' &&
-    t.name !== 'ASSET' &&
+    t.name !== 'dinkster.asset' &&
     parseListTypeId(t.name) === undefined &&
     parseAssetTypeId(t.name) === undefined &&
     mergeableTypes !== undefined &&

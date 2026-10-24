@@ -4,7 +4,7 @@ import { executedImageInventory } from '../src/executed-image-inventory.js'
 
 const digest = (char: string): string => `blake3:${char.repeat(64)}`
 const asset = (value: string, name: string) => ({
-  typeId: 'ASSET',
+  typeId: 'dinkster.asset',
   fingerprint: value,
   meta: { digest: value, mediaType: 'image/png', name },
 })

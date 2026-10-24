@@ -869,11 +869,11 @@ describe('graph image document opening', () => {
     const remote = connectionFor(draft.document, bytes)
     const canonical = serializeImageDocument(draft.document)
     const peek = vi.fn(async () => ({ available: true as const,
-      descriptor: { typeId: 'LAYERS', fingerprint: 'source-fingerprint' },
+      descriptor: { typeId: 'dinkster.layers', fingerprint: 'source-fingerprint' },
       renditions: [{ kind: 'image', mime: 'image/png' }, { kind: 'document', mime: IMAGE_DOCUMENT_MEDIA_TYPE }],
     }))
     const rendition = vi.fn(async () => ({ available: true as const, fingerprint: 'source-fingerprint',
-      typeId: 'LAYERS', mime: IMAGE_DOCUMENT_MEDIA_TYPE, kind: 'document', reportedKind: 'document',
+      typeId: 'dinkster.layers', mime: IMAGE_DOCUMENT_MEDIA_TYPE, kind: 'document', reportedKind: 'document',
       bytes: new TextEncoder().encode(canonical).buffer,
     }))
     const connection = { ...remote.methods, values: () => ({ peek, rendition }) } as unknown as DinksterConnection
@@ -916,14 +916,14 @@ describe('graph image document opening', () => {
     const rendition = vi.fn()
     const connection = { ...remote.methods, values: () => ({ peek, rendition }) } as unknown as DinksterConnection
     const query = { jobId: 'job', nodeId: 'node', outputId: 'layers' }
-    const descriptor = { typeId: 'LAYERS', fingerprint: 'one' }
+    const descriptor = { typeId: 'dinkster.layers', fingerprint: 'one' }
     try {
       peek.mockResolvedValue({ available: false, error: 'evicted' })
       await expect(openGraphImageDocument(connection, target, query)).rejects.toThrow('evicted')
       peek.mockResolvedValue({ available: true, descriptor, renditions: [{ kind: 'preview', mime: 'image/png' }] })
       await expect(openGraphImageDocument(connection, target, query)).rejects.toThrow('native ImageDocument rendition')
       peek.mockResolvedValue({ available: true, descriptor, renditions: [{ kind: 'document', mime: IMAGE_DOCUMENT_MEDIA_TYPE }] })
-      const result = { available: true, mime: IMAGE_DOCUMENT_MEDIA_TYPE, typeId: 'LAYERS',
+      const result = { available: true, mime: IMAGE_DOCUMENT_MEDIA_TYPE, typeId: 'dinkster.layers',
         kind: 'document', reportedKind: 'document',
         bytes: new TextEncoder().encode(serializeImageDocument(draft.document)).buffer }
       rendition.mockResolvedValue({ ...result, fingerprint: 'two' })

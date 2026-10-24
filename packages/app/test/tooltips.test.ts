@@ -128,7 +128,7 @@ describe('canvas tooltip provider', () => {
   })
 
   it('adds the input doc string to detailed pin content', () => {
-    const target = { kind: 'pin', hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'MODEL' } } }
+    const target = { kind: 'pin', hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'dinkster.model' } } }
     expect(resolveCanvasTooltip(target, { detailed: true }, context)?.detail).toEqual(['Model used for sampling.'])
   })
 
@@ -201,7 +201,7 @@ describe('canvas tooltip provider', () => {
   it('warned pin shows its diagnostic messages one per line', () => {
     const target = {
       kind: 'pin',
-      hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'MODEL' } },
+      hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'dinkster.model' } },
       diagnostics: [
         { severity: 'warning', message: 'specialization is stale' },
         { severity: 'error', message: 'types do not match' },
@@ -240,7 +240,7 @@ describe('canvas tooltip provider', () => {
   it('pin tooltips on native dinkster types show the alias with the canonical id', () => {
     const target = {
       kind: 'pin',
-      hit: { node, direction: 'in', portId: 'clip', pin: {}, type: { kind: 'concrete', name: 'CLIP' } },
+      hit: { node, direction: 'in', portId: 'clip', pin: {}, type: { kind: 'concrete', name: 'dinkster.clip' } },
     }
     expect(resolveCanvasTooltip(target, { detailed: false }, context)?.lines).toEqual(['CLIP (dinkster.clip)'])
   })

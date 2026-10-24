@@ -946,7 +946,7 @@ describe('DinksterConnection.values()', () => {
 describe('imageAssetRefsOf', () => {
   const digest = `blake3:${'d'.repeat(64)}`
   const asset = (over?: Record<string, unknown>) => ({
-    typeId: 'ASSET',
+    typeId: 'dinkster.asset',
     fingerprint: digest,
     meta: { digest, mediaType: 'image/png', name: 'out.png', ...over },
   })
@@ -984,7 +984,7 @@ describe('imageAssetRefsOf', () => {
 
   it('skips non-image media types, missing digests, and non-asset types', () => {
     expect(imageAssetRefsOf(asset({ mediaType: 'application/json' }))).toEqual([])
-    expect(imageAssetRefsOf({ typeId: 'ASSET', fingerprint: 'x', meta: { mediaType: 'image/png' } })).toEqual([])
+    expect(imageAssetRefsOf({ typeId: 'dinkster.asset', fingerprint: 'x', meta: { mediaType: 'image/png' } })).toEqual([])
     expect(imageAssetRefsOf({ typeId: 'comfy.IMAGE', fingerprint: 'x', meta: { digest, mediaType: 'image/png' } })).toEqual([])
   })
 

@@ -147,7 +147,7 @@ describe('image.applyAsset', () => {
   it('requires the exact typed image Asset input schema', () => {
     const target = new DocumentStore(document(graph()), coreCommandRegistry([], () => ({
       ...schema,
-      items: [{ ...schema.items[0]!, type: { kind: 'concrete', name: 'ASSET' } }],
+      items: [{ ...schema.items[0]!, type: { kind: 'concrete', name: 'dinkster.asset' } }],
     } as NodeSchema)))
     expect(target.dispatch(invocation).ok).toBe(false)
     expect(target.revision).toBe(0)
@@ -282,7 +282,7 @@ const compositorSchema: NodeSchema = {
   items: [{
     kind: 'input',
     id: 'compositor',
-    type: { kind: 'concrete', name: 'COMPOSITOR' },
+    type: { kind: 'concrete', name: 'dinkster.compositor' },
     optional: true,
     widget: { widgetType: 'COMPOSITOR', options: {}, default: EMPTY_COMPOSITOR_RECIPE },
   }],
@@ -452,12 +452,12 @@ describe('image.compositorApply', () => {
 
 describe('image.documentExport', () => {
   const loadSchema: NodeSchema = { ...schema, type: 'dinkster.layers.load', editorRole: 'layers-load', items: [
-    { kind: 'input', id: 'document', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+    { kind: 'input', id: 'document', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
       widget: { widgetType: 'ASSET', options: {} } },
-    { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } },
+    { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } },
   ] }
   const flattenSchema: NodeSchema = { ...schema, type: 'dinkster.layers.flatten', editorRole: 'layers-flatten', items: [
-    { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+    { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
     { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
       widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
   ] }
@@ -525,16 +525,16 @@ describe('image.documentExport', () => {
 describe('image.documentRecipeExport', () => {
   const schemas: NodeSchema[] = [
     { ...schema, type: 'Source', items: [
-      { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'LAYERS' } },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.layers' } },
     ] },
     { ...schema, type: 'dinkster.layers.edit', editorRole: 'layers-edit', items: [
-      { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+      { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
       { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: { multiline: true } } },
-      { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } },
+      { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } },
     ] },
     { ...schema, type: 'dinkster.layers.flatten', editorRole: 'layers-flatten', items: [
-      { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+      { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
       { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true },
       { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
     ] },

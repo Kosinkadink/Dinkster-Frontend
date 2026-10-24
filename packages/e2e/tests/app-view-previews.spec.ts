@@ -289,7 +289,7 @@ test('a promoted preview retains its resolved output after a disjoint partial ru
     const digest = `blake3:${'a'.repeat(64)}`
     app.store.apply({
       kind: 'nodeOutput', execution: execution.ref, runtimeNodeId: 'widgets', timestamp: Date.now(),
-      output: { image: { typeId: 'ASSET', meta: { digest, mediaType: 'image/png', name: 'result.png' } } },
+      output: { image: { typeId: 'dinkster.asset', meta: { digest, mediaType: 'image/png', name: 'result.png' } } },
     } as never)
     app.store.apply({ kind: 'completed', execution: execution.ref, timestamp: Date.now() })
   })

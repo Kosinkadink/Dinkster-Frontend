@@ -94,7 +94,7 @@ describe('pairing', () => {
 
   it('carries source filename bindings on elaborated widget rows', () => {
     const source = widget('source', {
-      type: { kind: 'concrete', name: 'ASSET' },
+      type: { kind: 'concrete', name: 'dinkster.asset' },
       widget: { widgetType: 'ASSET', options: { accept: ['image/*'] }, kind: 'media/image', allowUpload: true },
       sourceFilename: { kind: 'media/image', category: 'input' },
     })

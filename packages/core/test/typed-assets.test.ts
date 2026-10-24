@@ -439,7 +439,7 @@ describe('assetMultiSelect gating', () => {
   it('permits multi-select only on list-of-asset declarations', () => {
     // N selections lower to N descriptors in a list literal.
     expect(assetMultiSelect(list(asset(concrete(IMG))))).toBe(true)
-    expect(assetMultiSelect(list(concrete('ASSET')))).toBe(true)
+    expect(assetMultiSelect(list(concrete('dinkster.asset')))).toBe(true)
     // Outer structure decides; an open element does not change how many
     // descriptors a selection produces.
     expect(assetMultiSelect(list(asset(T('T'))))).toBe(true)
@@ -451,7 +451,7 @@ describe('assetMultiSelect gating', () => {
 
   it('rejects every non-list-of-asset shape', () => {
     expect(assetMultiSelect(asset(concrete(IMG)))).toBe(false)
-    expect(assetMultiSelect(concrete('ASSET'))).toBe(false)
+    expect(assetMultiSelect(concrete('dinkster.asset'))).toBe(false)
     expect(assetMultiSelect(list(concrete(IMG)))).toBe(false)
     expect(assetMultiSelect(concrete(IMG))).toBe(false)
     expect(assetMultiSelect({ kind: 'wildcard' })).toBe(false)
@@ -480,7 +480,7 @@ describe('assetMultiSelect gating', () => {
       expect(assetMultiSelect(asset(list(concrete(IMG))), [IMG])).toBe(false)
       // bare ASSET is the untyped atom: no decode target to merge
       // through, even if a bogus list claimed it.
-      expect(assetMultiSelect(concrete('ASSET'), ['ASSET'])).toBe(false)
+      expect(assetMultiSelect(concrete('dinkster.asset'), ['ASSET'])).toBe(false)
       // parametric ids smuggled into concrete never take the arm.
       expect(assetMultiSelect(concrete(`list<${IMG}>`), [`list<${IMG}>`])).toBe(false)
       expect(assetMultiSelect(concrete(`asset<${IMG}>`), [`asset<${IMG}>`])).toBe(false)
@@ -493,7 +493,7 @@ describe('assetMultiSelect gating', () => {
 
     it('the list-outer arms are unaffected by the provider list', () => {
       expect(assetMultiSelect(list(asset(concrete(IMG))), [])).toBe(true)
-      expect(assetMultiSelect(list(concrete('ASSET')), [])).toBe(true)
+      expect(assetMultiSelect(list(concrete('dinkster.asset')), [])).toBe(true)
     })
   })
 })
@@ -611,7 +611,7 @@ describe('asset-source stamping on concrete destinations (2026-07-26 amendment)'
     WildSink: schemaOf('WildSink', [input('source', { kind: 'wildcard' })]),
     // Asset-REFERENCE destinations: refs deliver AS-IS, never stamped -
     // incl. a DIFFERING asset form (no asset-to-asset coercion exists).
-    BareAssetSink: schemaOf('BareAssetSink', [input('in', concrete('ASSET'))]),
+    BareAssetSink: schemaOf('BareAssetSink', [input('in', concrete('dinkster.asset'))]),
     AssetListImgSink: schemaOf('AssetListImgSink', [input('in', asset(list(concrete(IMG))))]),
   }
   const compileWith = (

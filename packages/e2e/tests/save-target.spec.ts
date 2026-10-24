@@ -58,7 +58,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'SaveTargetTest', displayName: 'Save Target', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
+      items: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: true,
         widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, default: { mount: 'comfy-output', prefix: 'ComfyUI' } } }],
     }])
     window.__dinksterTest!.app.openDocument({

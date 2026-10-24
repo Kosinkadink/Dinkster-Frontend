@@ -1,7 +1,7 @@
 # Graph-native compositor
 
 The compositor keeps source images and masks in the graph. `Add Layer` appends
-one image batch and optional transparency mask to an ordered `LAYERS`
+one image batch and optional transparency mask to an ordered `dinkster.layers`
 value. `Layers From Bounding Boxes` creates placements from an image batch and
 matching regions or detections. `Create Layered Image` renders at most 50
 expanded layers and exposes its `Compositor` row through the existing Image
@@ -27,7 +27,7 @@ sources change, execution uses native graph placements instead, marks the result
 stale, and leaves the saved delta untouched.
 
 The current schema retains the exact fieldless `COMPOSITOR` widget descriptor only
-on concrete `COMPOSITOR`. Its exact empty default is
+on concrete `dinkster.compositor`. Its exact empty default is
 `{"version":2,"documentDigest":null,"commands":[]}`. A configured delta binds
 typed canvas, layer, transform, mask-transform, and reorder commands to the
 runtime document digest. Pixel content remains in digest-owned ImageDocument

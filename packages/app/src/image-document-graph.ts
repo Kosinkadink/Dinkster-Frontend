@@ -44,7 +44,7 @@ export interface ImageDocumentGraphOrigin {
 }
 
 export const isLayerDocumentType = (typeId: string): boolean =>
-  typeId === 'LAYERS' || typeId === 'comfy.LAYERS'
+  typeId === 'dinkster.layers' || typeId === 'comfy.LAYERS'
 
 export interface OpenedGraphImageDocument {
   readonly draft: ImageDocumentDraft

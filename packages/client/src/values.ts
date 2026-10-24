@@ -312,7 +312,7 @@ export function imageAssetRefsOf(descriptor: unknown): readonly ImageAssetRef[] 
     // (asset<comfy.IMAGE> since the backend's declaration migration) - the
     // meta shape (digest/mediaType/name) is identical either way.
     const typeId = d['typeId']
-    if (typeId === 'ASSET' || (typeof typeId === 'string' && parseAssetTypeId(typeId) !== undefined)) {
+    if (typeId === 'dinkster.asset' || (typeof typeId === 'string' && parseAssetTypeId(typeId) !== undefined)) {
       const meta = rec(d['meta'])
       const digest = typeof meta?.['digest'] === 'string' ? meta['digest'] : undefined
       const mediaType = typeof meta?.['mediaType'] === 'string' ? meta['mediaType'] : undefined

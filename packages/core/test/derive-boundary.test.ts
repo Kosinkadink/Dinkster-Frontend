@@ -249,16 +249,16 @@ const innerSchemas: Record<string, NodeSchema> = {
   PlainSlotNode: {
     type: 'PlainSlotNode', displayName: 'Plain slot', category: 'util', source: 'v3', isOutputNode: false,
     items: [{
-      kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: true,
-      dynamic: { kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'MODEL' }, inputs: [] },
+      kind: 'input', id: 'model', type: { kind: 'concrete', name: 'dinkster.model' }, optional: true,
+      dynamic: { kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'dinkster.model' }, inputs: [] },
     }],
   },
   SpecializedSlotNode: {
     type: 'SpecializedSlotNode', displayName: 'Specialized slot', category: 'util', source: 'v3', isOutputNode: false,
     items: [{
-      kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: true,
+      kind: 'input', id: 'model', type: { kind: 'concrete', name: 'dinkster.model' }, optional: true,
       dynamic: {
-        kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'MODEL' }, inputs: [],
+        kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'dinkster.model' }, inputs: [],
         variants: [{
           key: 'special', type: { kind: 'variable', templateId: 'V' },
           inputs: [{ kind: 'input', id: 'strength', type: { kind: 'variable', templateId: 'V' }, optional: false }],
@@ -1531,7 +1531,7 @@ describe('dynamicSlot boundary bindings', () => {
       boundary: { inputs: [{ id: 'model', binds: { kind: 'port', node: 'a', port: 'model' } }], outputs: [] }, nextOrdinal: 1,
     }), resolve)
     expect(result.diagnostics).toEqual([])
-    expect(inputsOf(result.schema!)[0]).toMatchObject({ id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: true, forceInput: true })
+    expect(inputsOf(result.schema!)[0]).toMatchObject({ id: 'model', type: { kind: 'concrete', name: 'dinkster.model' }, optional: true, forceInput: true })
   })
 
   it('binds a selected variant dependent when its slot is connected inside the definition', () => {

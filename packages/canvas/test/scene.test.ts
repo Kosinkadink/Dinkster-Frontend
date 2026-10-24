@@ -2015,8 +2015,8 @@ describe('selector scene items', () => {
       widgetMeasure,
     })
     const sel = mixed.selectors.find((s) => s.id === 's4')!
-    expect(sel.candidates.map((c) => c.typeName)).toEqual(['comfy.IMAGE', 'comfy.IMAGE'])
-    expect(sel.typeName).toBe('comfy.IMAGE')
+    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'IMAGE'])
+    expect(sel.typeName).toBe('IMAGE')
   })
 
   it('every candidate noodle stays visible and anchors at the candidate pin', () => {

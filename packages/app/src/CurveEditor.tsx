@@ -150,7 +150,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
       const info = peek.available ? peek.renditions.find((entry) =>
         entry.kind === 'curve-points' && entry.mime === 'application/json' && entry.default === true &&
         entry.cacheKey === 'curve-points' && entry.limits?.['points'] === 4096) : undefined
-      if (!peek.available || peek.descriptor.typeId !== 'CURVE' || info === undefined) {
+      if (!peek.available || peek.descriptor.typeId !== 'dinkster.curve' || info === undefined) {
         setComputedStatus(peek.available
           ? appMessage('curveEditor.follow.renditionMissing')
           : `${peek.status} ${peek.reason}: ${peek.error}`)

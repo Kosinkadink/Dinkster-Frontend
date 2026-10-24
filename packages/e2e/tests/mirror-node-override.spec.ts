@@ -140,7 +140,7 @@ test('the node context menu overrides mirror estimates per node', async ({ page 
     store.apply({
       kind: 'nodeOutput', execution: ref, runtimeNodeId: 'src', timestamp: Date.now(),
       output: { image: {
-        typeId: 'ASSET',
+        typeId: 'dinkster.asset',
         meta: { digest: `blake3:${'ab'.repeat(32)}`, mediaType: 'image/png', name: 'image.png' },
       } },
     })

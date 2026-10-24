@@ -6,7 +6,7 @@ import { tabDocumentUnchanged, widgetEditorAnchorAlive, type WidgetEditorAnchorN
 import type { WidgetEditorState } from '../src/WidgetEditor.js'
 
 const assetSpec: WidgetSpec = { widgetType: 'ASSET', options: { accept: ['image/*'], kind: 'media/image' } }
-const assetType = { kind: 'concrete', name: 'ASSET' } as unknown as TypeExpr
+const assetType = { kind: 'concrete', name: 'dinkster.asset' } as unknown as TypeExpr
 const imageType = { kind: 'concrete', name: 'comfy.IMAGE' } as unknown as TypeExpr
 
 function widgetRow(overrides: Partial<Extract<LayoutRow, { kind: 'widget' }>> = {}): LayoutRow {

@@ -232,8 +232,20 @@ export const typeDisplayAliases: Readonly<Record<string, string>> = Object.freez
   // Null prototype so lookups by arbitrary type names (e.g. 'constructor')
   // can never resolve to inherited Object.prototype members.
   Object.assign(Object.create(null) as Record<string, string>, {
+    'dinkster.model': 'MODEL',
+    'dinkster.conditioning': 'CONDITIONING',
     'comfy.IMAGE': 'IMAGE',
     'comfy.MASK': 'MASK',
+    'dinkster.latent': 'LATENT',
+    'dinkster.control': 'CONTROL_NET',
+    'dinkster.clip': 'CLIP',
+    'dinkster.vae': 'VAE',
+    'dinkster.sampler': 'SAMPLER',
+    'dinkster.sigmas': 'SIGMAS',
+    'dinkster.guider': 'GUIDER',
+    'dinkster.noise': 'NOISE',
+    'dinkster.text_encoder': 'CLIP',
+    'dinkster.codec': 'VAE',
   }),
 )
 

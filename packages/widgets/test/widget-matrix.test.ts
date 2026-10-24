@@ -210,13 +210,13 @@ describe('compact display through the real registered views', () => {
   it('derives save-target type and output format only from canonical schema metadata', () => {
     const png = saveTargetPresentation(
       { widgetType: 'SAVE_TARGET', options: { suffix: '.png' } },
-      { kind: 'concrete', name: 'SAVE_TARGET' },
+      { kind: 'concrete', name: 'dinkster.save_target' },
     )
-    expect(png).toEqual({ canonicalType: 'SAVE_TARGET', suffix: '.png', outputFormat: '.png' })
+    expect(png).toEqual({ canonicalType: 'dinkster.save_target', suffix: '.png', outputFormat: '.png' })
     expect(saveTargetPresentation(
       { widgetType: 'SAVE_TARGET', options: {} },
-      { kind: 'concrete', name: 'SAVE_TARGET' },
-    )).toEqual({ canonicalType: 'SAVE_TARGET', suffix: '', outputFormat: 'generic' })
+      { kind: 'concrete', name: 'dinkster.save_target' },
+    )).toEqual({ canonicalType: 'dinkster.save_target', suffix: '', outputFormat: 'generic' })
   })
 
   it('COLOR paints a swatch filled with the stored color plus the uppercased text', () => {

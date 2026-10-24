@@ -75,7 +75,7 @@ async function completeRunA(page: Page, withOutput: boolean): Promise<void> {
       const digest = `blake3:${'a'.repeat(64)}`
       store.apply({
         kind: 'nodeOutput', execution: ref, runtimeNodeId: 'widgets', timestamp: Date.now(),
-        output: { image: { typeId: 'ASSET', meta: { digest, mediaType: 'image/png', name: 'result.png' } } },
+        output: { image: { typeId: 'dinkster.asset', meta: { digest, mediaType: 'image/png', name: 'result.png' } } },
       })
     }
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
