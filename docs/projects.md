@@ -20,6 +20,10 @@ until a second project is created.
 - **New window** (desktop) opens an additional workspace window bound to the
   chosen project. In the browser it opens a new tab on that project.
 
+Each project uses ProductListRow with a wrapping ProductActionFooter below its
+name. ProductTextInput owns new names and rename drafts; ProductButton owns
+actions and current-project disabling. Long names wrap instead of truncating.
+
 ![Projects dialog with the default project](assets/projects/projects-dialog-initial.png)
 
 ![Projects dialog after creating a project](assets/projects/projects-dialog-created.png)

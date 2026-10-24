@@ -1489,6 +1489,69 @@ test('Saved connection rows retain actions, credential editing and connection fa
   await page.evaluate(() => (window as unknown as { connectionVisual: { dispose(): void } }).connectionVisual.dispose())
 })
 
+test('Project rows preserve names, rename drafts and host actions', async ({ page }) => {
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(async () => {
+    const componentPath = '/src/ProjectsDialog.tsx'
+    const projectsPath = '/src/projects.ts'
+    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
+    const { ProjectsDialog } = await import(componentPath)
+    const { createProject } = await import(projectsPath)
+    const { render } = await import(rendererPath)
+    createProject('Studio production with a long descriptive project name')
+    createProject('Audio experiments')
+    const host = document.createElement('section')
+    host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:720px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
+    host.setAttribute('aria-label', 'Projects fixture')
+    document.querySelector('.canvas-pane')!.append(host)
+    const dispose = render(() => ProjectsDialog({
+      onSwitch: (id: string) => { host.dataset['switched'] = id },
+      onOpenWindow: (id: string) => { host.dataset['opened'] = id },
+    }), host)
+    ;(window as unknown as { disposeProjectsVisual(): void }).disposeProjectsVisual = () => { dispose(); host.remove() }
+  })
+  const fixture = page.getByRole('region', { name: 'Projects fixture' })
+  const current = fixture.locator('li[data-project-id="default"]')
+  await expect(current).toContainText('Current')
+  await expect(current.getByRole('button', { name: 'Switch', exact: true })).toBeDisabled()
+  const row = fixture.locator('li[data-project-id]').filter({ hasText: 'Studio production with a long descriptive project name' })
+  const id = await row.getAttribute('data-project-id')
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      const bounds = await fixture.boundingBox()
+      for (const control of await fixture.locator('button, input').all()) {
+        const box = await control.boundingBox()
+        expect(box).not.toBeNull()
+        expect(box!.x).toBeGreaterThanOrEqual(bounds!.x)
+        expect(box!.x + box!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width)
+      }
+      await page.mouse.move(0, 0)
+      await screenshot(page, `projects-${state}-${width}`)
+    }
+  }
+  await capture('ready')
+  await row.getByRole('button', { name: 'Rename', exact: true }).click()
+  const rename = fixture.getByRole('textbox', { name: 'Rename Studio production with a long descriptive project name', exact: true })
+  await expect(rename).toBeFocused()
+  await rename.fill('Studio renamed with a long descriptive project name')
+  await capture('renaming')
+  await rename.press('Enter')
+  const renamed = fixture.locator(`li[data-project-id="${id}"]`)
+  await expect(renamed).toContainText('Studio renamed with a long descriptive project name')
+  await renamed.getByRole('button', { name: 'New window', exact: true }).click()
+  await expect(fixture).toHaveAttribute('data-opened', id!)
+  await renamed.getByRole('button', { name: 'Switch', exact: true }).click()
+  await expect(fixture).toHaveAttribute('data-switched', id!)
+  await expect(fixture.getByTestId('projects-create')).toBeDisabled()
+  await fixture.getByRole('textbox', { name: 'New project name', exact: true }).fill('Compositing work')
+  await fixture.getByRole('textbox', { name: 'New project name', exact: true }).press('Enter')
+  await expect(fixture.locator('li[data-project-id]')).toHaveCount(4)
+  await expect(fixture.getByRole('textbox', { name: 'New project name', exact: true })).toBeEmpty()
+  await page.evaluate(() => (window as unknown as { disposeProjectsVisual(): void }).disposeProjectsVisual())
+})
+
 test('Search loading, empty and provider error states retain their explanations', async ({ page }) => {
   await boot(page)
   await closeGallery(page)

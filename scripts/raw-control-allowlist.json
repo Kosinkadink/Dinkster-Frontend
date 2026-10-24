@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 182,
+    "rawControl": 176,
     "inlineStyle": 65,
     "cssLiteral": 361
   },
@@ -244,12 +244,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/ProductTabs.tsx",
       "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/ProjectsDialog.tsx",
-      "count": 6,
       "issue": 382
     },
     {
