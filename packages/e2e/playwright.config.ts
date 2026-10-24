@@ -185,7 +185,7 @@ export default defineConfig({
       args: [
         '--disable-gpu',
         '--disable-gpu-compositing',
-        '--disable-skia-runtime-opts',
+        '--disable-partial-raster',
         '--force-device-scale-factor=1',
         '--font-render-hinting=none',
       ],

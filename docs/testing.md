@@ -57,10 +57,10 @@ Screenshots use the product's bundled fonts, including canvas text, without
 test-only font injection or host font configuration. Baseline paths are shared
 across projects and platforms; all validation lanes compare the same images.
 The shared Playwright configuration pins device scale to 1 and disables GPU
-rasterization/compositing, Skia runtime CPU optimizations and font hinting.
-Skia's runtime-selected paths otherwise vary rounded control-edge pixels.
-Exact decoded-pixel comparisons
-use the lockfile-pinned Linux Chromium; native Windows/macOS validate bundled
+rasterization/compositing, partial rasterization and font hinting. Repainting
+complete tiles avoids rounded control-edge differences from partial repaints.
+Exact decoded-pixel comparisons use the lockfile-pinned Linux Chromium;
+native Windows/macOS validate bundled
 font loading and geometry rather than cross-platform raster identity.
 Visual fixtures use fixed timestamps and wait for catalogs before capture.
 Run `pnpm test:visual --update-snapshots=all` to regenerate every baseline after
