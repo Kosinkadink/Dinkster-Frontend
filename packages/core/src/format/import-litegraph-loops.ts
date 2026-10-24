@@ -392,13 +392,15 @@ export function convertLitegraphLists(
     string,
     Mutable,
   ][]) {
+    const previousSinkCount = net['sinks'].length
     net['sinks'] = net['sinks'].filter((sink: Mutable) => {
       const type = raw.get(endpointNode(sink) ?? '')?.['type']
       if (type !== 'CreateList' && type !== 'GetItemFromList') return true
       addLink({ ...net['source'] }, sink, net['ext'])
       return false
     })
-    if (net['sinks'].length === 0) delete graph['nets'][netId]
+    if (previousSinkCount > 0 && net['sinks'].length === 0)
+      delete graph['nets'][netId]
   }
   const links = (): Mutable[] => Object.values(graph['links'])
   const isList = (source: Mutable, seen = new Set<string>()): boolean => {

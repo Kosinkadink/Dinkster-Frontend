@@ -61,6 +61,8 @@ Autogrow links are reconstructed from the current node schema. Prefix families
 accept their declared ordinal vocabulary and grouped forms; names families
 accept only declared member names. Recognized links create persisted members
 and member-qualified Dinkster endpoints instead of retaining ComfyUI wire names.
+Unlinked socket-only placeholders do not create members beyond the declared
+minimum. Widget-backed members retain their authored values and order.
 Prefix member IDs follow first linked input-slot appearance, not numeric or
 object-key sorting: sparse or out-of-order `image2`, `image0` becomes `m0`,
 `m1`. Names families retain the declared name as identity. A family-scoped

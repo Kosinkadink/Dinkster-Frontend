@@ -366,6 +366,7 @@ const discoverAutogrowMembers = (
   inputs: readonly { readonly name?: string }[],
   families: readonly AutogrowFamilyImport[],
   preserveSuffixes: boolean,
+  targetedSlots: ReadonlySet<number>,
 ): DiscoveredAutogrowMembers => {
   const allocated = new Map<string, Map<string, string>>()
   const order = new Map<string, string[]>()
@@ -393,6 +394,8 @@ const discoverAutogrowMembers = (
       .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
     if (candidates.length !== 1) continue
     const match = candidates[0]!
+    if (!targetedSlots.has(slotIndex) && !match.family.spec.template.some((item) =>
+      item.kind === 'input' && (item.widget !== undefined || item.dynamic !== undefined))) continue
     slots.set(slotIndex, { match, memberId: allocate(match) })
   }
   for (const family of families) {
@@ -1856,10 +1859,13 @@ function importLitegraphGraph(
     const dynamic: Record<string, Json> = {}
     const ext: Record<string, Json> = {}
     const preserveAliasSuffixes = schema !== undefined && isMaintainedAlias(n.type, schema)
+    const targetedSlots = new Set<number>()
+    for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
+    for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
 
     if (schema !== undefined) {
       const families = activeAutogrowFamilies(schema.items, dynamic)
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes)
+      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes, targetedSlots)
       for (const [familyPath, members] of discovered.order) {
         const minted = members
           .map((member) => /^m(\d{1,15})$/.exec(member)?.[1])
@@ -1913,11 +1919,8 @@ function importLitegraphGraph(
 
     if (schema !== undefined) {
       const families = activeAutogrowFamilies(schema.items, dynamic)
-      const targetedSlots = new Set<number>()
-      for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
-      for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
       const endpoints = new Map<number, JsonObject>()
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes)
+      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes, targetedSlots)
 
       // LiteGraph inputs are an ordered array. This first-observation walk is
       // the identity policy: sparse/out-of-order foreign ordinals are labels,

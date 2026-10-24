@@ -1549,6 +1549,26 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(solveGraphTypes(graph, localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
   })
 
+  it.each([1, 2])('omits unlinked socket placeholders while retaining the declared minimum %s', (minimum) => {
+    const schema: NodeSchema = {
+      type: 'NamedSockets', displayName: 'Named Sockets', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{
+        kind: 'input', id: 'values', type: { kind: 'wildcard' }, optional: true,
+        dynamic: {
+          kind: 'autogrow', materialization: 'wire15', template: [input('value')],
+          naming: { kind: 'names', names: ['a', 'b', 'c'], min: minimum },
+        },
+      }],
+    }
+    const result = importLitegraph(workflow([
+      lgNode(1, imageSource.type, { outputs: [{ name: 'IMAGE', links: [1] }] }),
+      lgNode(2, schema.type, { inputs: [{ name: 'values.a', link: null }, { name: 'values.b', link: 1 }, { name: 'values.c', link: null }] }),
+    ], [lgLink(1, 1, 0, 2, 1)]), (type) => type === schema.type ? schema : type === imageSource.type ? imageSource : undefined)
+    expect(errorsOf(result.diagnostics)).toEqual([])
+    expect(result.document!.graphs.g0!.nodes.n2!.dynamic).toEqual({ values: { members: minimum === 1 ? ['b'] : ['b', 'a'] } })
+    expect(result.document!.graphs.g0!.links.l1!.to).toEqual({ node: 'n2', port: 'values.b' })
+  })
+
   it('fills wire-15 minimum members without changing linked-member order', () => {
     const prefix: NodeSchema = {
       type: 'MinimumBatch', displayName: 'Minimum Batch', category: 'test', source: 'v3', isOutputNode: false,
