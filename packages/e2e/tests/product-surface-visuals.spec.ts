@@ -1,6 +1,7 @@
 import { expect, appViewTest as test, type Page } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-01-01T00:00:00Z'))
   await page.route('/api/**', (route) =>
     route.fulfill({ status: 502, body: 'visual fixture unavailable' }),
   )
@@ -598,6 +599,9 @@ test('document and app-view visual matrix', async ({ page }) => {
     }),
   )
   await boot(page)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.backends.get()[0]?.registry.get()?.schemas.size,
+  )).toBe(Object.keys(nodes).length)
   await closeGallery(page)
   await page.getByTestId('views-switcher').click()
   const appView = page.getByRole('menuitemradio', { name: 'App view' })
