@@ -45,6 +45,7 @@ const dispositions = [
   { type: 'BOOLEAN', compact: 'core.toggle', expanded: 'inline toggle; no modal' },
   { type: 'COMBO', compact: 'core.select', expanded: 'searchable option popover' },
   { type: 'MULTI_COMBO', compact: 'core.multiSelect', expanded: 'ordered multi-select popover' },
+  { type: 'LIST', compact: 'core.list', expanded: 'typed JSON array popover' },
   { type: 'COLOR', compact: 'core.color', expanded: 'HSV and hex popover' },
   { type: 'CURVE', compact: 'core.curve', expanded: 'curve editor' },
   { type: 'COMPOSITOR', compact: 'core.compositor', expanded: 'image editor compositor mode' },
@@ -54,6 +55,22 @@ const dispositions = [
 ] as const
 
 describe('registered widget disposition inventory', () => {
+  it('validates list elements and keeps display and submission defaults aligned', () => {
+    for (const [widgetType, values] of [
+      ['STRING', ['red', 'blue']], ['INT', [-7, '18446744073709551615']], ['FLOAT', [0.125, -3.75]],
+    ] as const) {
+      const spec: WidgetSpec = { widgetType: 'LIST', options: {}, element: { widgetType, options: {} }, default: values }
+      const kind = registry.kind('LIST')!
+      expect(kind.defaultValue(spec)).toEqual(values)
+      expect(effectiveWidgetDefault(spec)).toEqual(values)
+      expect(kind.validate([...values], spec)).toEqual([])
+      expect(kind.validate([[values[0]]], spec).some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
+      expect(kind.defaultView(spec)).toBe('core.list')
+      expect(kind.defaultValue({ ...spec, default: values[0] })).toEqual([])
+      expect(effectiveWidgetDefault({ ...spec, default: values[0] })).toEqual([])
+    }
+  })
+
   it('gives every registered core family an explicit compact and expanded/modal disposition', () => {
     expect(dispositions.map(({ type }) => type).sort()).toEqual(registeredFamilies.sort())
     for (const disposition of dispositions) {

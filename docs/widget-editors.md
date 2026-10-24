@@ -1,5 +1,29 @@
 # Widget compact controls and expanded editors
 
+## Numeric union inputs
+
+A NUMBER descriptor on an INT|FLOAT socket uses the existing FLOAT editor,
+constraints and precision rules. The socket remains a union, regardless of
+member order; importing a workflow preserves integer and fractional values.
+Named numeric representations use the same binding. Mixed nonnumeric unions
+and list-of-union widgets are not numeric editor domains. Concrete INT inputs
+retain their exact-integer editor and decimal-string precision handling.
+
+## Primitive list inputs
+
+One-level list<STRING>, list<INT>, and list<FLOAT> inputs retain their array
+value and present the schema's scalar widget constraints per element. The
+canvas popover and exposed AppView field edit an exact JSON array. Use
+Ctrl+Enter or Commit in the canvas popover; AppView commits on blur. Empty
+lists are valid. Scalars, nested lists, and mismatched element types are
+rejected without changing the document. INT values outside JavaScript's safe
+numeric range use quoted canonical decimal integers. FLOAT precision applies
+per element; `round: false` preserves the entered numbers.
+
+List inputs do not turn scalars into singleton lists or flatten nested output
+payloads. Without an explicit list default, the displayed and submitted
+default is an empty list. Existing scalar inputs keep their scalar controls.
+
 ## Floating interaction surfaces
 
 Product listboxes, cascading context menus, suggestion lists,

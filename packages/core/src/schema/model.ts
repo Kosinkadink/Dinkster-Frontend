@@ -246,6 +246,8 @@ export const cardinalityOf = (t: TypeExpr): Cardinality => {
 export interface WidgetDescriptorSpec {
   readonly widgetType: string
   readonly options: Readonly<Record<string, unknown>>
+  /** Scalar presentation retained by a one-level primitive LIST widget. */
+  readonly element?: WidgetDescriptorSpec
   /** Open-vocabulary ASSET classification (wire v7; presentation only). */
   readonly kind?: string
   /** Source media inputs may acquire bytes through the bounded media ingest route. */

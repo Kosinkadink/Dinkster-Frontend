@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from 'vitest'
 import type { Json, WidgetKind, WidgetSpec } from '@dinkster/core'
-import { colorKind, intKind } from '@dinkster/widgets'
-import { parseNumericCommit, resolveTextCommit, widgetCommitError } from '../src/widget-commit.js'
+import { colorKind, intKind, listKind } from '@dinkster/widgets'
+import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../src/widget-commit.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}): WidgetSpec => ({ widgetType, options })
 
@@ -59,6 +59,22 @@ describe('resolveTextCommit', () => {
 })
 
 describe('widgetCommitError', () => {
+  it('commits exact primitive arrays without wrapping, flattening, or losing integer precision', () => {
+    const integer: WidgetSpec = { widgetType: 'LIST', options: {}, element: spec('INT') }
+    expect(parsePrimitiveListCommit('[-7,"18446744073709551615"]', integer)).toEqual({ ok: true, value: [-7, '18446744073709551615'] })
+    for (const raw of ['7', '[[7]]', '[true]', '[1.5]', '[9007199254740993]', '["07"]']) {
+      expect(parsePrimitiveListCommit(raw, integer).ok).toBe(false)
+    }
+    const floating: WidgetSpec = { widgetType: 'LIST', options: {}, element: spec('FLOAT', { round: false }) }
+    expect(parsePrimitiveListCommit('[1.234567,-2.75]', floating)).toEqual({ ok: true, value: [1.234567, -2.75] })
+    expect(parsePrimitiveListCommit('[1.234567,-2.75]', { ...floating, element: spec('FLOAT', { round: 0.1 }) })).toEqual({ ok: true, value: [1.2, -2.7] })
+    expect(parsePrimitiveListCommit('["1.5"]', floating).ok).toBe(false)
+    const strings: WidgetSpec = { widgetType: 'LIST', options: {}, element: spec('STRING') }
+    expect(parsePrimitiveListCommit('["red","a,b","line\\nnext"]', strings)).toEqual({ ok: true, value: ['red', 'a,b', 'line\nnext'] })
+    expect(widgetCommitError(listKind as WidgetKind, ['red', 'blue'], strings)).toBeUndefined()
+    expect(widgetCommitError(listKind as WidgetKind, [['red']], strings)).toBeDefined()
+  })
+
   it('parses safe and unsafe integer text without precision loss', () => {
     expect(parseNumericCommit('42', 'INT')).toEqual({ ok: true, value: 42 })
     expect(parseNumericCommit('18446744073709551615', 'INT')).toEqual({ ok: true, value: '18446744073709551615' })
