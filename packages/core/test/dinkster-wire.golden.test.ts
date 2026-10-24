@@ -39,7 +39,7 @@ describe('Dinkster schema wire', () => {
   it('preserves list widget arrays through positional and keyed workflow import and compilation', () => {
     const decoded = parseDinksterSchema('ListConsumer', {
       schemaVersion: 1,
-      isOutputNode: true,
+      outputNode: true,
       interface: [
         { role: 'input', id: 'texts', type: { kind: 'list', element: concrete('STRING') }, required: true, widget: { type: 'STRING', multiline: false } },
         { role: 'input', id: 'tail', type: concrete('INT'), required: true, widget: { type: 'NUMBER', min: 0 } },
