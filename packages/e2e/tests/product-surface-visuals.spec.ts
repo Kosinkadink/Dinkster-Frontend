@@ -640,6 +640,67 @@ test('Settings and subgraph cleanup empty states remain usable', async ({ page }
   }
 })
 
+test('Collaboration discovery distinguishes unavailable loading empty and failed reads', async ({ page }) => {
+  let mode: 'loading' | 'empty' | 'error' = 'loading'
+  let release: (() => void) | undefined
+  await page.route('**/collab-visual/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/api/sessions')) {
+      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      return mode === 'error'
+        ? route.fulfill({ status: 503, body: 'Session fixture unavailable' })
+        : route.fulfill({ json: { sessions: [] } })
+    }
+    if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [] } })
+    const response = await page.request.get(route.request().url().replace('/collab-visual', ''))
+    return route.fulfill({ response })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      backends: { get(): { id: string }[] }
+      removeBackend(id: string, persist: boolean): void
+    }
+    for (const backend of app.backends.get()) app.removeBackend(backend.id, false)
+  })
+  const capture = async (state: string): Promise<void> => {
+    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.mouse.move(0, 0)
+      await screenshot(page, `collab-discovery-${state}-${width}`)
+    }
+  }
+  await openModal(page, 'collab')
+  await expect(page.getByTestId('collab-no-backend')).toContainText('No collaboration backend')
+  await expect(page.getByTestId('collab-refresh')).toBeDisabled()
+  await capture('unavailable')
+  await openModal(page, '')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      addBackend(url: string, label: string, persist: boolean, protocol: string): void
+    }
+    app.addBackend('/collab-visual', 'Collaboration visual', false, 'dinkster')
+  })
+  await openModal(page, 'collab')
+  await expect(page.getByTestId('collab-loading')).toContainText('Loading shared sessions')
+  await capture('loading')
+  mode = 'empty'
+  await expect.poll(() => release !== undefined).toBe(true)
+  release?.()
+  await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
+  await capture('empty')
+  mode = 'error'
+  await page.getByTestId('collab-refresh').click()
+  await expect(page.getByTestId('collab-list-error')).toContainText('Sessions could not be loaded')
+  await expect(page.getByTestId('collab-refresh')).toHaveAttribute('aria-busy', 'false')
+  await capture('error')
+  mode = 'empty'
+  await page.getByTestId('collab-refresh').click()
+  await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
+  await expect(page.getByTestId('collab-list-error')).toHaveCount(0)
+})
+
 test('dock visual matrix', async ({ page }) => {
   // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')

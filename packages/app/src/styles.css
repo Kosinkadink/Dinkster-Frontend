@@ -7455,9 +7455,6 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .collab-panel button.collab-primary-action { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); font-weight: var(--dinkster-weight-semibold); }
 .collab-panel button.collab-primary-action:disabled { color: var(--dinkster-text-disabled); background: var(--dinkster-surface-raised); border-color: var(--dinkster-border-strong); }
 .collab-panel button.danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
-.collab-unshared { display: grid; min-width: 0; justify-items: start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-16); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
-.collab-unshared > p { max-width: 62ch; margin: 0; color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); }
-.collab-unshared .product-notice { margin: 0; }
 .collab-current > .product-notice { margin: 0; }
 .collab-session-card { display: grid; min-width: 0; gap: var(--dinkster-space-12); padding: var(--dinkster-space-12); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
 .collab-current-card { border-left: 3px solid var(--dinkster-info-border); }
@@ -7554,12 +7551,6 @@ section.editor-group:not(:only-of-type)[data-focused='true'] {
 .collab-end-confirm .product-notice { margin: 0; }
 .collab-list-heading { align-items: center; }
 .collab-list-heading > button { flex: none; }
-.collab-list-state { display: flex; min-height: calc(var(--dinkster-input-primary-height) * 3); align-items: center; justify-content: center; gap: var(--dinkster-space-12); padding: var(--dinkster-space-16); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); border: 1px dashed var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); text-align: center; }
-.collab-list-state > div,
-.collab-list-state:not([data-state='loading']) { flex-direction: column; }
-.collab-list-state > div { display: grid; gap: 2px; text-align: left; }
-.collab-list-state strong { color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); }
-.collab-list-state[data-state='empty'] { border-color: var(--dinkster-info-border); }
 .collab-session-list { display: grid; max-height: 320px; gap: var(--dinkster-space-8); margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; list-style: none; }
 .collab-session-list .collab-session-card > button { justify-self: end; }
 .collab-session-list .product-notice { margin: 0; }

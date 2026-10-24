@@ -40,6 +40,12 @@ definitions and no retained definitions without private success-border styling.
 The Settings result-count announcement and Escape-to-clear behavior remain
 independent of the empty presentation.
 
+Collaboration discovery uses ProductEmptyState for unavailable, loading, empty
+and error results, and for a workflow that is not shared. Loading announces
+politely and errors are alerts. Refresh remains available after a failed read;
+retrying clears the error when discovery succeeds. The unshared workflow keeps
+its focus target and explanation of how to share from the tab menu.
+
 Declarative host UI accepts semantic tones only. The app renderer maps those
 tones to host-owned text, status, and action classes; extension trees cannot
 provide classes, style, theme values, tags, or elements.
