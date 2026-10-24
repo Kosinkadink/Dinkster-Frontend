@@ -12,10 +12,7 @@ import type { RawMessage } from '@dinkster/core/comfy-v1'
 import { ExecutionStore } from '../src/index.js'
 import { BackendConnection } from '../src/comfy-v1.js'
 
-const fixtures = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../core/fixtures/events',
-)
+const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../../core/fixtures/events')
 
 interface StreamFixture {
   readonly scenario: string
@@ -24,14 +21,9 @@ interface StreamFixture {
 }
 
 const readStream = (name: string): StreamFixture =>
-  JSON.parse(
-    readFileSync(join(fixtures, `${name}.json`), 'utf8'),
-  ) as StreamFixture
+  JSON.parse(readFileSync(join(fixtures, `${name}.json`), 'utf8')) as StreamFixture
 
-function replay(name: string): {
-  store: ExecutionStore
-  fixture: StreamFixture
-} {
+function replay(name: string): { store: ExecutionStore; fixture: StreamFixture } {
   const fixture = readStream(name)
   const store = new ExecutionStore()
   const conn = new BackendConnection({
@@ -49,10 +41,7 @@ const promptIdOf = (f: StreamFixture, i = 0): string =>
 
 describe('attributed previews', () => {
   const C0 = asConnectionId('c0')
-  const exec = (prompt: string) => ({
-    connection: C0,
-    prompt: asPromptId(prompt),
-  })
+  const exec = (prompt: string) => ({ connection: C0, prompt: asPromptId(prompt) })
 
   function storeWith(prompts: readonly string[]): ExecutionStore {
     const store = new ExecutionStore()
@@ -62,12 +51,7 @@ describe('attributed previews', () => {
     return store
   }
 
-  const frame = (
-    prompt: string,
-    node: string | undefined,
-    byte: number,
-    timestamp = 1,
-  ) => ({
+  const frame = (prompt: string, node: string | undefined, byte: number, timestamp = 1) => ({
     kind: 'preview' as const,
     execution: exec(prompt),
     timestamp,
@@ -83,12 +67,8 @@ describe('attributed previews', () => {
     store.apply(frame('p1', '3', 9, 3))
     const state = store.get(exec('p1'))!
     expect(Object.keys(state.previews).sort()).toEqual(['3', '5'])
-    expect(
-      new Uint8Array(state.previews['3']!['']!.payload as ArrayBuffer)[0],
-    ).toBe(9)
-    expect(
-      new Uint8Array(state.previews['5']!['']!.payload as ArrayBuffer)[0],
-    ).toBe(2)
+    expect(new Uint8Array(state.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(9)
+    expect(new Uint8Array(state.previews['5']!['']!.payload as ArrayBuffer)[0]).toBe(2)
     expect(state.lastPreview).toBeUndefined()
   })
 
@@ -104,47 +84,16 @@ describe('attributed previews', () => {
     const store = storeWith(['p1', 'p2'])
     store.apply(frame('p1', '3', 1))
     store.apply(frame('p2', '3', 2))
-    expect(
-      new Uint8Array(
-        store.get(exec('p1'))!.previews['3']!['']!.payload as ArrayBuffer,
-      )[0],
-    ).toBe(1)
-    expect(
-      new Uint8Array(
-        store.get(exec('p2'))!.previews['3']!['']!.payload as ArrayBuffer,
-      )[0],
-    ).toBe(2)
+    expect(new Uint8Array(store.get(exec('p1'))!.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(1)
+    expect(new Uint8Array(store.get(exec('p2'))!.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(2)
   })
 
   it('ignores connection-level control events without creating executions', () => {
     const store = new ExecutionStore()
-    store.apply({
-      kind: 'schemaChanged',
-      connection: C0,
-      timestamp: 0,
-      epoch: 2,
-    })
-    store.apply({
-      kind: 'compositionProgress',
-      connection: C0,
-      timestamp: 0,
-      done: 1,
-      total: 2,
-    })
-    store.apply({
-      kind: 'compositionComplete',
-      connection: C0,
-      timestamp: 0,
-      epoch: 2,
-      failed: [],
-    })
-    store.apply({
-      kind: 'packFailed',
-      connection: C0,
-      timestamp: 0,
-      pack: 'p',
-      error: 'e',
-    })
+    store.apply({ kind: 'schemaChanged', connection: C0, timestamp: 0, epoch: 2 })
+    store.apply({ kind: 'compositionProgress', connection: C0, timestamp: 0, done: 1, total: 2 })
+    store.apply({ kind: 'compositionComplete', connection: C0, timestamp: 0, epoch: 2, failed: [] })
+    store.apply({ kind: 'packFailed', connection: C0, timestamp: 0, pack: 'p', error: 'e' })
     expect(store.executions.get().size).toBe(0)
   })
 
@@ -156,27 +105,16 @@ describe('attributed previews', () => {
       timestamp = 1,
     ) => ({ ...frame('p1', node, byte, timestamp), ...ring })
 
-    const slotByte = (
-      store: ExecutionStore,
-      node: string,
-      slot: number,
-    ): number =>
+    const slotByte = (store: ExecutionStore, node: string, slot: number): number =>
       new Uint8Array(
-        store.get(exec('p1'))!.previewRings![node]!['']!.frames[slot]!
-          .payload as ArrayBuffer,
+        store.get(exec('p1'))!.previewRings![node]!['']!.frames[slot]!.payload as ArrayBuffer,
       )[0]!
 
     it('assembles a ring keyed by frameIndex and replaces slots in place', () => {
       const store = storeWith(['p1'])
-      store.apply(
-        ringFrame('3', 10, { frameIndex: 0, frameCount: 4, fps: 16 }, 1),
-      )
-      store.apply(
-        ringFrame('3', 11, { frameIndex: 2, frameCount: 4, fps: 16 }, 2),
-      )
-      store.apply(
-        ringFrame('3', 12, { frameIndex: 0, frameCount: 4, fps: 16 }, 3),
-      )
+      store.apply(ringFrame('3', 10, { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
+      store.apply(ringFrame('3', 11, { frameIndex: 2, frameCount: 4, fps: 16 }, 2))
+      store.apply(ringFrame('3', 12, { frameIndex: 0, frameCount: 4, fps: 16 }, 3))
       const ring = store.get(exec('p1'))!.previewRings!['3']!['']!
       expect(ring.frameCount).toBe(4)
       expect(ring.fps).toBe(16)
@@ -184,11 +122,7 @@ describe('attributed previews', () => {
       expect(slotByte(store, '3', 0)).toBe(12)
       expect(slotByte(store, '3', 2)).toBe(11)
       // The plain single-image preview still tracks the latest frame.
-      expect(
-        new Uint8Array(
-          store.get(exec('p1'))!.previews['3']!['']!.payload as ArrayBuffer,
-        )[0],
-      ).toBe(12)
+      expect(new Uint8Array(store.get(exec('p1'))!.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(12)
     })
 
     it('a changed frameCount resets accumulated slots', () => {
@@ -202,22 +136,16 @@ describe('attributed previews', () => {
 
     it('a still frame without ring addressing drops the stale ring', () => {
       const store = storeWith(['p1'])
-      store.apply(
-        ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1),
-      )
+      store.apply(ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
       store.apply(frame('p1', '3', 9, 2))
       const state = store.get(exec('p1'))!
       expect(state.previewRings!['3']).toBeUndefined()
-      expect(
-        new Uint8Array(state.previews['3']!['']!.payload as ArrayBuffer)[0],
-      ).toBe(9)
+      expect(new Uint8Array(state.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(9)
     })
 
     it('rings are independent per node', () => {
       const store = storeWith(['p1'])
-      store.apply(
-        ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1),
-      )
+      store.apply(ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
       store.apply(frame('p1', '5', 9, 2))
       const state = store.get(exec('p1'))!
       expect(state.previewRings!['3']!['']!.frameCount).toBe(4)
@@ -228,20 +156,12 @@ describe('attributed previews', () => {
       'a terminal execution (%s) releases its rings but keeps the stills',
       (kind) => {
         const store = storeWith(['p1'])
-        store.apply(
-          ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1),
-        )
+        store.apply(ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
         store.apply(
           kind === 'error'
             ? {
-                kind,
-                execution: exec('p1'),
-                timestamp: 2,
-                detail: {
-                  exceptionType: 'Boom',
-                  exceptionMessage: 'boom',
-                  traceback: [],
-                },
+                kind, execution: exec('p1'), timestamp: 2,
+                detail: { exceptionType: 'Boom', exceptionMessage: 'boom', traceback: [] },
               }
             : { kind, execution: exec('p1'), timestamp: 2 },
         )
@@ -253,9 +173,7 @@ describe('attributed previews', () => {
 
     it('a lost execution releases its rings', () => {
       const store = storeWith(['p1'])
-      store.apply(
-        ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1),
-      )
+      store.apply(ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
       store.markLost(exec('p1'), 2)
       const state = store.get(exec('p1'))!
       expect(state.status).toBe('interrupted')
@@ -265,15 +183,11 @@ describe('attributed previews', () => {
     it('a straggler ring frame after a terminal verdict never rebuilds a ring', () => {
       const store = storeWith(['p1'])
       store.markLost(exec('p1'), 1)
-      store.apply(
-        ringFrame('3', 5, { frameIndex: 0, frameCount: 4, fps: 16 }, 2),
-      )
+      store.apply(ringFrame('3', 5, { frameIndex: 0, frameCount: 4, fps: 16 }, 2))
       const state = store.get(exec('p1'))!
       expect(state.previewRings).toBeUndefined()
       // The retained still may refresh anyway.
-      expect(
-        new Uint8Array(state.previews['3']!['']!.payload as ArrayBuffer)[0],
-      ).toBe(5)
+      expect(new Uint8Array(state.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(5)
     })
   })
 
@@ -297,64 +211,28 @@ describe('attributed previews', () => {
       expect(new Uint8Array(node['audio']!.payload as ArrayBuffer)[0]).toBe(2)
     })
 
-    it("a still on one stream never drops another stream's ring", () => {
+    it('a still on one stream never drops another stream\'s ring', () => {
       const store = storeWith(['p1'])
-      store.apply(
-        streamFrame(
-          '3',
-          1,
-          'video',
-          { frameIndex: 0, frameCount: 4, fps: 16 },
-          1,
-        ),
-      )
+      store.apply(streamFrame('3', 1, 'video', { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
       store.apply(streamFrame('3', 2, 'audio', {}, 2))
       const state = store.get(exec('p1'))!
       expect(state.previewRings!['3']!['video']!.frameCount).toBe(4)
-      expect(
-        new Uint8Array(
-          state.previews['3']!['audio']!.payload as ArrayBuffer,
-        )[0],
-      ).toBe(2)
+      expect(new Uint8Array(state.previews['3']!['audio']!.payload as ArrayBuffer)[0]).toBe(2)
     })
 
-    it("a still on the ring's own stream drops exactly that ring", () => {
+    it('a still on the ring\'s own stream drops exactly that ring', () => {
       const store = storeWith(['p1'])
-      store.apply(
-        streamFrame(
-          '3',
-          1,
-          'video',
-          { frameIndex: 0, frameCount: 4, fps: 16 },
-          1,
-        ),
-      )
-      store.apply(
-        streamFrame(
-          '3',
-          2,
-          'audio',
-          { frameIndex: 0, frameCount: 4, fps: 16 },
-          2,
-        ),
-      )
+      store.apply(streamFrame('3', 1, 'video', { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
+      store.apply(streamFrame('3', 2, 'audio', { frameIndex: 0, frameCount: 4, fps: 16 }, 2))
       store.apply(streamFrame('3', 3, 'video', {}, 3))
       const rings = store.get(exec('p1'))!.previewRings!['3']!
       expect(rings['video']).toBeUndefined()
       expect(rings['audio']!.frameCount).toBe(4)
     })
 
-    it("dropping a node's only ring removes its whole entry", () => {
+    it('dropping a node\'s only ring removes its whole entry', () => {
       const store = storeWith(['p1'])
-      store.apply(
-        streamFrame(
-          '3',
-          1,
-          'video',
-          { frameIndex: 0, frameCount: 4, fps: 16 },
-          1,
-        ),
-      )
+      store.apply(streamFrame('3', 1, 'video', { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
       store.apply(streamFrame('3', 2, 'video', {}, 2))
       expect(store.get(exec('p1'))!.previewRings!['3']).toBeUndefined()
     })
@@ -363,10 +241,7 @@ describe('attributed previews', () => {
 
 describe('bounded execution activity', () => {
   const C0 = asConnectionId('c0')
-  const execution = (prompt: string) => ({
-    connection: C0,
-    prompt: asPromptId(prompt),
-  })
+  const execution = (prompt: string) => ({ connection: C0, prompt: asPromptId(prompt) })
   const activity = (prompt: string, index: number) => ({
     kind: 'activity' as const,
     execution: execution(prompt),
@@ -380,8 +255,7 @@ describe('bounded execution activity', () => {
 
   it('retains at most 200 activity entries per run in FIFO order', () => {
     const store = new ExecutionStore()
-    for (let index = 0; index < 205; index += 1)
-      store.apply(activity('current', index))
+    for (let index = 0; index < 205; index += 1) store.apply(activity('current', index))
     const entries = store.get(execution('current'))!.activities
     expect(entries).toHaveLength(200)
     expect(entries[0]).toEqual(activity('current', 5).activity)
@@ -393,15 +267,9 @@ describe('bounded execution activity', () => {
     store.apply(activity('previous', 1))
     store.apply(activity('foreign', 2))
     store.apply(activity('current', 3))
-    expect(store.get(execution('current'))!.activities).toEqual([
-      activity('current', 3).activity,
-    ])
-    expect(store.get(execution('previous'))!.activities).toEqual([
-      activity('previous', 1).activity,
-    ])
-    expect(store.get(execution('foreign'))!.activities).toEqual([
-      activity('foreign', 2).activity,
-    ])
+    expect(store.get(execution('current'))!.activities).toEqual([activity('current', 3).activity])
+    expect(store.get(execution('previous'))!.activities).toEqual([activity('previous', 1).activity])
+    expect(store.get(execution('foreign'))!.activities).toEqual([activity('foreign', 2).activity])
   })
 })
 
@@ -412,73 +280,35 @@ describe('execution semantics display facts', () => {
   it('keeps one blocked reason per node and child progress under its parent', () => {
     const store = new ExecutionStore()
     store.apply({
-      kind: 'nodeBlocked',
-      execution,
-      timestamp: 1,
-      runtimeNodeId: 'parent.0.0.child',
-      blocked: {
-        origin: 'source/value',
-        message: 'source produced no value',
-        displayRuntimeNodeId: 'parent',
-      },
+      kind: 'nodeBlocked', execution, timestamp: 1, runtimeNodeId: 'parent.0.0.child',
+      blocked: { origin: 'source/value', message: 'source produced no value', displayRuntimeNodeId: 'parent' },
     })
     store.apply({
-      kind: 'nodeBlocked',
-      execution,
-      timestamp: 2,
-      runtimeNodeId: 'parent.0.0.child',
-      blocked: {
-        origin: 'alternate/value',
-        message: 'latest root absence',
-        displayRuntimeNodeId: 'parent',
-      },
+      kind: 'nodeBlocked', execution, timestamp: 2, runtimeNodeId: 'parent.0.0.child',
+      blocked: { origin: 'alternate/value', message: 'latest root absence', displayRuntimeNodeId: 'parent' },
     })
     store.apply({
-      kind: 'nodeExpanded',
-      execution,
-      timestamp: 3,
-      runtimeNodeId: 'parent.0.0.child',
-      expansion: {
-        children: ['parent.0.0.child/left', 'parent.0.0.child/right'],
-        childCount: 2,
-        displayRuntimeNodeId: 'parent',
-      },
+      kind: 'nodeExpanded', execution, timestamp: 3, runtimeNodeId: 'parent.0.0.child',
+      expansion: { children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayRuntimeNodeId: 'parent' },
     })
     store.apply({
-      kind: 'nodeStates',
-      execution,
-      timestamp: 4,
+      kind: 'nodeStates', execution, timestamp: 4,
       nodes: {
-        'parent/left': {
-          state: 'done',
-          parentRuntimeNodeId: 'parent',
-          displayRuntimeNodeId: 'parent',
-        },
-        'parent/right': {
-          state: 'running',
-          parentRuntimeNodeId: 'parent',
-          displayRuntimeNodeId: 'parent',
-        },
+        'parent/left': { state: 'done', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+        'parent/right': { state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
       },
     })
     const state = store.get(execution)!
     expect(state.blockedNodes).toEqual({
-      'parent.0.0.child': {
-        origin: 'alternate/value',
-        message: 'latest root absence',
-        displayRuntimeNodeId: 'parent',
-      },
+      'parent.0.0.child': { origin: 'alternate/value', message: 'latest root absence', displayRuntimeNodeId: 'parent' },
     })
     expect(state.expandedNodes['parent.0.0.child']).toEqual({
-      children: ['parent.0.0.child/left', 'parent.0.0.child/right'],
-      childCount: 2,
-      displayRuntimeNodeId: 'parent',
+      children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayRuntimeNodeId: 'parent',
     })
     expect(state.nodes['parent/left']?.state).toBe('done')
     expect(state.nodes['parent/right']?.state).toBe('running')
     expect(state.nodes['parent/right']).toMatchObject({
-      parentRuntimeNodeId: 'parent',
-      displayRuntimeNodeId: 'parent',
+      parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent',
     })
   })
 })
@@ -492,10 +322,7 @@ describe('bounded execution value diagnostics', () => {
     outputId: `output-${index}`,
     inputIds: ['foreground', 'mask'],
   })
-  const event = (
-    diagnostics: readonly ReturnType<typeof alpha>[],
-    timestamp = 1,
-  ) => ({
+  const event = (diagnostics: readonly ReturnType<typeof alpha>[], timestamp = 1) => ({
     kind: 'valueDiagnostics' as const,
     execution,
     timestamp,
@@ -512,27 +339,16 @@ describe('bounded execution value diagnostics', () => {
   it('keeps coercion loss distinct from output loss while deduplicating both on replay', () => {
     const store = new ExecutionStore()
     const output = { ...alpha(1), inputIds: ['foreground'] }
-    const coercion = {
-      code: output.code,
-      nodeId: output.nodeId,
-      outputId: output.outputId,
-      inputId: 'foreground',
-    }
+    const coercion = { code: output.code, nodeId: output.nodeId, outputId: output.outputId, inputId: 'foreground' }
     for (const timestamp of [1, 2]) {
-      store.apply({
-        kind: 'valueDiagnostics',
-        execution,
-        timestamp,
-        diagnostics: [output, coercion],
-      })
+      store.apply({ kind: 'valueDiagnostics', execution, timestamp, diagnostics: [output, coercion] })
     }
     expect(store.get(execution)!.valueDiagnostics).toEqual([output, coercion])
   })
 
   it('retains at most 200 unique diagnostics in FIFO order', () => {
     const store = new ExecutionStore()
-    for (let index = 0; index < 205; index += 1)
-      store.apply(event([alpha(index)], index))
+    for (let index = 0; index < 205; index += 1) store.apply(event([alpha(index)], index))
     const diagnostics = store.get(execution)!.valueDiagnostics!
     expect(diagnostics).toHaveLength(200)
     expect(diagnostics[0]).toEqual(alpha(5))
@@ -559,15 +375,8 @@ describe('bounded execution value diagnostics', () => {
 
 describe('bounded execution logs', () => {
   const C0 = asConnectionId('c0')
-  const execution = (prompt: string) => ({
-    connection: C0,
-    prompt: asPromptId(prompt),
-  })
-  const log = (
-    prompt: string,
-    index: number,
-    extra: Record<string, unknown> = {},
-  ) => ({
+  const execution = (prompt: string) => ({ connection: C0, prompt: asPromptId(prompt) })
+  const log = (prompt: string, index: number, extra: Record<string, unknown> = {}) => ({
     kind: 'log' as const,
     execution: execution(prompt),
     timestamp: index,
@@ -580,15 +389,13 @@ describe('bounded execution logs', () => {
   it('appends log entries in arrival order with metadata preserved', () => {
     const store = new ExecutionStore()
     store.apply(log('run', 1))
-    store.apply(
-      log('run', 2, {
-        runtimeNodeId: 'sampler',
-        origin: 'logging',
-        logger: 'dinkster.engine',
-        pythonLevel: 'ERROR',
-        seq: 9,
-      }),
-    )
+    store.apply(log('run', 2, {
+      runtimeNodeId: 'sampler',
+      origin: 'logging',
+      logger: 'dinkster.engine',
+      pythonLevel: 'ERROR',
+      seq: 9,
+    }))
     const state = store.get(execution('run'))!
     expect(state.logs).toEqual([
       { level: 'info', message: 'line 1', timestamp: 1, seq: 1 },
@@ -650,8 +457,7 @@ describe('bounded execution logs', () => {
 
   it('ignores replays older than the retained window after FIFO eviction', () => {
     const store = new ExecutionStore()
-    for (let index = 0; index < 2005; index += 1)
-      store.apply(log('run', index, { seq: index }))
+    for (let index = 0; index < 2005; index += 1) store.apply(log('run', index, { seq: index }))
     // seqs 0..4 were evicted and counted; replaying one must neither re-enter
     // nor inflate the drop count.
     store.apply(log('run', 9_000, { seq: 3 }))
@@ -687,22 +493,13 @@ describe('bounded execution logs', () => {
 })
 
 describe('CL4 terminal transition hardening', () => {
-  const execution = {
-    connection: asConnectionId('c0'),
-    prompt: asPromptId('terminal'),
-  }
+  const execution = { connection: asConnectionId('c0'), prompt: asPromptId('terminal') }
 
   it('keeps authoritative terminal states absorbing while hydrating output', () => {
     const store = new ExecutionStore()
     store.apply({ kind: 'completed', execution, timestamp: 1 })
     store.apply({ kind: 'started', execution, timestamp: 2 })
-    store.apply({
-      kind: 'nodeOutput',
-      execution,
-      timestamp: 3,
-      runtimeNodeId: '1',
-      output: { value: 7 },
-    })
+    store.apply({ kind: 'nodeOutput', execution, timestamp: 3, runtimeNodeId: '1', output: { value: 7 } })
     expect(store.get(execution)!.status).toBe('completed')
     expect(store.get(execution)!.outputs['1']).toEqual({ value: 7 })
   })
@@ -719,9 +516,7 @@ describe('CL4 terminal transition hardening', () => {
     const store = new ExecutionStore()
     store.apply({ kind: 'started', execution, timestamp: 1 })
     store.markLost(execution, 2)
-    expect(
-      store.get(execution)!.errors.some((d) => d.code === 'execution.lost'),
-    ).toBe(true)
+    expect(store.get(execution)!.errors.some((d) => d.code === 'execution.lost')).toBe(true)
     store.apply({ kind: 'started', execution, timestamp: 3 })
     const state = store.get(execution)!
     expect(state.status).toBe('running')
@@ -735,12 +530,7 @@ describe('CL4 terminal transition hardening', () => {
     store.markLost(execution, 2)
     // A resumed run's first event after a gap can be a node update - there
     // is never a second run_started to trigger the started revival path.
-    store.apply({
-      kind: 'nodeStates',
-      execution,
-      timestamp: 3,
-      nodes: { n1: { state: 'running' } },
-    })
+    store.apply({ kind: 'nodeStates', execution, timestamp: 3, nodes: { n1: { state: 'running' } } })
     const state = store.get(execution)!
     expect(state.status).toBe('running')
     expect(state.endedAt).toBeUndefined()
@@ -755,15 +545,7 @@ describe('CL4 terminal transition hardening', () => {
       kind: 'nodeStates',
       execution,
       timestamp: 2,
-      nodes: {
-        sample: {
-          state: 'running',
-          executionArm: 'comfyui',
-          provider: 'vision.depth.v3',
-          pack: 'vision-pack',
-          worker: 'render-box',
-        },
-      },
+      nodes: { sample: { state: 'running', executionArm: 'comfyui', provider: 'vision.depth.v3', pack: 'vision-pack', worker: 'render-box' } },
     })
     store.apply({
       kind: 'nodeStates',
@@ -807,10 +589,7 @@ describe('CL4 terminal transition hardening', () => {
       kind: 'nodeStates',
       execution,
       timestamp: 2,
-      nodes: {
-        done: { state: 'done' },
-        live: { state: 'running', value: 0.5, max: 10 },
-      },
+      nodes: { done: { state: 'done' }, live: { state: 'running', value: 0.5, max: 10 } },
     })
     store.apply({
       kind: 'nodeStates',
@@ -828,11 +607,7 @@ describe('CL4 terminal transition hardening', () => {
     expect(nodes['done']).toEqual({ state: 'done' }) // never regressed
     expect(nodes['live']).toEqual({ state: 'running', value: 0.5, max: 10 }) // progress kept
     expect(nodes['gap']).toEqual({ state: 'done' }) // gap filled
-    expect(nodes['upgraded']).toEqual({
-      state: 'running',
-      executionArm: 'native',
-      worker: 'local',
-    }) // unknown node filled
+    expect(nodes['upgraded']).toEqual({ state: 'running', executionArm: 'native', worker: 'local' }) // unknown node filled
     // A snapshot terminal upgrades a live running state (the gap-fill case).
     store.apply({
       kind: 'nodeStates',
@@ -848,12 +623,7 @@ describe('CL4 terminal transition hardening', () => {
     })
     // LIVE events keep overwrite semantics: a rerun legitimately moves
     // done -> running, which a snapshot must never do.
-    store.apply({
-      kind: 'nodeStates',
-      execution,
-      timestamp: 5,
-      nodes: { done: { state: 'running' } },
-    })
+    store.apply({ kind: 'nodeStates', execution, timestamp: 5, nodes: { done: { state: 'running' } } })
     expect(store.get(execution)!.nodes['done']).toEqual({ state: 'running' })
   })
 
@@ -868,10 +638,7 @@ describe('CL4 terminal transition hardening', () => {
       execution,
       timestamp: 2,
       nodes: {
-        rich: {
-          state: 'done',
-          outputs: { sum: { typeId: 'core.int', value: 7 } },
-        },
+        rich: { state: 'done', outputs: { sum: { typeId: 'core.int', value: 7 } } },
         why: { state: 'skipped', skipOrigin: 'p/out', skipReason: 'no value' },
         bare: { state: 'done' },
       },
@@ -889,19 +656,9 @@ describe('CL4 terminal transition hardening', () => {
       },
     })
     const nodes = store.get(execution)!.nodes
-    expect(nodes['rich']).toEqual({
-      state: 'done',
-      outputs: { sum: { typeId: 'core.int', value: 7 } },
-    })
-    expect(nodes['why']).toEqual({
-      state: 'skipped',
-      skipOrigin: 'p/out',
-      skipReason: 'no value',
-    })
-    expect(nodes['bare']).toEqual({
-      state: 'done',
-      outputs: { out: { typeId: 'core.string' } },
-    })
+    expect(nodes['rich']).toEqual({ state: 'done', outputs: { sum: { typeId: 'core.int', value: 7 } } })
+    expect(nodes['why']).toEqual({ state: 'skipped', skipOrigin: 'p/out', skipReason: 'no value' })
+    expect(nodes['bare']).toEqual({ state: 'done', outputs: { out: { typeId: 'core.string' } } })
   })
 
   it('CL4 an authoritative terminal after inferred loss retracts the lost warning', () => {
@@ -909,52 +666,34 @@ describe('CL4 terminal transition hardening', () => {
     store.apply({ kind: 'started', execution, timestamp: 1 })
     store.markLost(execution, 2)
     store.apply({ kind: 'completed', execution, timestamp: 3 })
-    expect(
-      store.get(execution)!.errors.some((d) => d.code === 'execution.lost'),
-    ).toBe(false)
+    expect(store.get(execution)!.errors.some((d) => d.code === 'execution.lost')).toBe(false)
   })
 })
 
 describe('recorded stream replay', () => {
   it('success: completed, all touched nodes terminal, outputs captured', () => {
     const { store, fixture } = replay('success')
-    const state = store.get({
-      connection: asConnectionId('c0'),
-      prompt: asPromptId(promptIdOf(fixture)),
-    })!
+    const state = store.get({ connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture)) })!
     expect(state.status).toBe('completed')
     expect(state.errors).toEqual([])
     for (const [id, p] of Object.entries(state.nodes)) {
-      expect(['done', 'cached'], `node ${id} ended '${p.state}'`).toContain(
-        p.state,
-      )
+      expect(['done', 'cached'], `node ${id} ended '${p.state}'`).toContain(p.state)
     }
     expect(Object.keys(state.outputs).length).toBeGreaterThan(0)
   })
 
   it('cached: both executions tracked independently and completed', () => {
     const { store, fixture } = replay('cached')
-    const first = store.get({
-      connection: asConnectionId('c0'),
-      prompt: asPromptId(promptIdOf(fixture, 0)),
-    })!
-    const second = store.get({
-      connection: asConnectionId('c0'),
-      prompt: asPromptId(promptIdOf(fixture, 1)),
-    })!
+    const first = store.get({ connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture, 0)) })!
+    const second = store.get({ connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture, 1)) })!
     expect(first.status).toBe('completed')
     expect(second.status).toBe('completed')
-    expect(Object.values(second.nodes).some((p) => p.state === 'cached')).toBe(
-      true,
-    )
+    expect(Object.values(second.nodes).some((p) => p.state === 'cached')).toBe(true)
   })
 
   it('runtime_error: status error, node marked, detail preserved', () => {
     const { store, fixture } = replay('runtime_error')
-    const state = store.get({
-      connection: asConnectionId('c0'),
-      prompt: asPromptId(promptIdOf(fixture)),
-    })!
+    const state = store.get({ connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture)) })!
     expect(state.status).toBe('error')
     expect(state.errors).toHaveLength(1)
     const err = state.errors[0]!
@@ -969,10 +708,7 @@ describe('recorded stream replay', () => {
 
   it('interrupted: status interrupted, no error diagnostics', () => {
     const { store, fixture } = replay('interrupted')
-    const state = store.get({
-      connection: asConnectionId('c0'),
-      prompt: asPromptId(promptIdOf(fixture)),
-    })!
+    const state = store.get({ connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture)) })!
     expect(state.status).toBe('interrupted')
     expect(state.errors).toEqual([])
     expect(state.endedAt).toBeDefined()
@@ -992,10 +728,7 @@ describe('recorded stream replay', () => {
     // WS events can outrun the /prompt HTTP response: replay the whole
     // stream FIRST, then register. Event-derived state must survive.
     const { store, fixture } = replay('success')
-    const ref = {
-      connection: asConnectionId('c0'),
-      prompt: asPromptId(promptIdOf(fixture)),
-    }
+    const ref = { connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture)) }
     const before = store.get(ref)!
     expect(before.status).toBe('completed')
     store.register(ref, { prompt: {} } as never)
@@ -1008,23 +741,16 @@ describe('recorded stream replay', () => {
 
   it('restores a revalidated completed result without volatile stream state', () => {
     const store = new ExecutionStore()
-    const ref = {
-      connection: asConnectionId('c0'),
-      prompt: asPromptId('restored'),
-    }
-    const artifact = {
-      prompt: { producer: { class_type: 'Float', inputs: {} } },
-    } as never
-    const artifacts = [
-      {
-        nodeId: 'producer',
-        digest: `blake3:${'a'.repeat(64)}`,
-        name: 'value.json',
-        size: 3,
-        mediaType: 'application/json',
-        virtualPath: 'output/value.json',
-      },
-    ]
+    const ref = { connection: asConnectionId('c0'), prompt: asPromptId('restored') }
+    const artifact = { prompt: { producer: { class_type: 'Float', inputs: {} } } } as never
+    const artifacts = [{
+      nodeId: 'producer',
+      digest: `blake3:${'a'.repeat(64)}`,
+      name: 'value.json',
+      size: 3,
+      mediaType: 'application/json',
+      virtualPath: 'output/value.json',
+    }]
     store.restoreCompleted({
       ref,
       artifact,
@@ -1057,10 +783,7 @@ describe('recorded stream replay', () => {
 
   it('hydrateOutputs merges history outputs without overwriting live ones', () => {
     const { store, fixture } = replay('success')
-    const ref = {
-      connection: asConnectionId('c0'),
-      prompt: asPromptId(promptIdOf(fixture)),
-    }
+    const ref = { connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture)) }
     const liveOutputs = store.get(ref)!.outputs
     const liveNodeId = Object.keys(liveOutputs)[0]!
     store.hydrateOutputs(ref, {
@@ -1074,22 +797,17 @@ describe('recorded stream replay', () => {
 
   it('hydrates completed execution artifacts without changing output descriptors', () => {
     const { store, fixture } = replay('success')
-    const ref = {
-      connection: asConnectionId('c0'),
-      prompt: asPromptId(promptIdOf(fixture)),
-    }
+    const ref = { connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture)) }
     const outputs = store.get(ref)!.outputs
     expect(store.get(ref)!.artifactsHydrated).toBe(false)
-    const artifacts = [
-      {
-        nodeId: 'save-video',
-        digest: `blake3:${'a'.repeat(64)}`,
-        name: 'result.webm',
-        size: 4043,
-        mediaType: 'video/webm',
-        virtualPath: 'output/result.webm',
-      },
-    ]
+    const artifacts = [{
+      nodeId: 'save-video',
+      digest: `blake3:${'a'.repeat(64)}`,
+      name: 'result.webm',
+      size: 4043,
+      mediaType: 'video/webm',
+      virtualPath: 'output/result.webm',
+    }]
     store.hydrateArtifacts(ref, artifacts)
     const after = store.get(ref)!
     expect(after.artifacts).toEqual(artifacts)
@@ -1102,27 +820,12 @@ describe('recorded stream replay', () => {
     const store = new ExecutionStore()
     const a = asConnectionId('a')
     const b = asConnectionId('b')
-    store.apply({
-      kind: 'status',
-      connection: a,
-      timestamp: 0,
-      queueRemaining: 3,
-    })
-    store.apply({
-      kind: 'status',
-      connection: b,
-      timestamp: 1,
-      queueRemaining: 7,
-    })
+    store.apply({ kind: 'status', connection: a, timestamp: 0, queueRemaining: 3 })
+    store.apply({ kind: 'status', connection: b, timestamp: 1, queueRemaining: 7 })
     expect(store.queueRemaining.get().get(a)).toBe(3)
     expect(store.queueRemaining.get().get(b)).toBe(7)
     // A later status for one backend never touches the other's depth.
-    store.apply({
-      kind: 'status',
-      connection: a,
-      timestamp: 2,
-      queueRemaining: 0,
-    })
+    store.apply({ kind: 'status', connection: a, timestamp: 2, queueRemaining: 0 })
     expect(store.queueRemaining.get().get(a)).toBe(0)
     expect(store.queueRemaining.get().get(b)).toBe(7)
   })
@@ -1141,10 +844,7 @@ describe('recorded stream replay', () => {
 
   it('retains region expansion and terminal counts by runtime region id', () => {
     const store = new ExecutionStore()
-    const execution = {
-      connection: asConnectionId('a'),
-      prompt: asPromptId('region-run'),
-    }
+    const execution = { connection: asConnectionId('a'), prompt: asPromptId('region-run') }
     store.apply({
       kind: 'regionExpanded',
       execution,
@@ -1199,11 +899,7 @@ describe('recorded stream replay', () => {
   it('executions signal publishes immutable snapshots', () => {
     const fixture = readStream('success')
     const store = new ExecutionStore()
-    const conn = new BackendConnection({
-      id: asConnectionId('c0'),
-      baseUrl: 'http://test',
-      clientId: 't',
-    })
+    const conn = new BackendConnection({ id: asConnectionId('c0'), baseUrl: 'http://test', clientId: 't' })
     conn.onEvent((e) => store.apply(e))
     const seen: ReadonlyMap<string, unknown>[] = []
     store.executions.subscribe((m) => seen.push(m))
@@ -1216,10 +912,7 @@ describe('recorded stream replay', () => {
 describe('bounded execution retention', () => {
   const C0 = asConnectionId('c0')
   const C1 = asConnectionId('c1')
-  const exec = (prompt: string, connection = C0) => ({
-    connection,
-    prompt: asPromptId(prompt),
-  })
+  const exec = (prompt: string, connection = C0) => ({ connection, prompt: asPromptId(prompt) })
 
   const bigFrame = (prompt: string, bytes: number, timestamp = 1) => ({
     kind: 'preview' as const,
@@ -1236,13 +929,7 @@ describe('bounded execution retention', () => {
     const store = new ExecutionStore()
     store.apply({ kind: 'started', execution: exec('p1'), timestamp: 1 })
     store.apply(bigFrame('p1', 40 * MIB, 2))
-    store.apply({
-      kind: 'preview',
-      execution: exec('p1'),
-      timestamp: 2,
-      channel: 'comfy/preview-image',
-      payload: new ArrayBuffer(1 * MIB),
-    })
+    store.apply({ kind: 'preview', execution: exec('p1'), timestamp: 2, channel: 'comfy/preview-image', payload: new ArrayBuffer(1 * MIB) })
     store.apply({ kind: 'completed', execution: exec('p1'), timestamp: 3 })
     store.apply({ kind: 'started', execution: exec('p2'), timestamp: 4 })
     store.apply(bigFrame('p2', 40 * MIB, 5))
@@ -1273,20 +960,9 @@ describe('bounded execution retention', () => {
   it('budgets each connection independently', () => {
     const store = new ExecutionStore()
     for (const connection of [C0, C1]) {
-      store.apply({
-        kind: 'started',
-        execution: exec('p1', connection),
-        timestamp: 1,
-      })
-      store.apply({
-        ...bigFrame('p1', 40 * MIB, 2),
-        execution: exec('p1', connection),
-      })
-      store.apply({
-        kind: 'completed',
-        execution: exec('p1', connection),
-        timestamp: 3,
-      })
+      store.apply({ kind: 'started', execution: exec('p1', connection), timestamp: 1 })
+      store.apply({ ...bigFrame('p1', 40 * MIB, 2), execution: exec('p1', connection) })
+      store.apply({ kind: 'completed', execution: exec('p1', connection), timestamp: 3 })
     }
     expect(store.get(exec('p1', C0))!.previews['1']).toBeDefined()
     expect(store.get(exec('p1', C1))!.previews['1']).toBeDefined()
@@ -1316,13 +992,7 @@ describe('bounded execution retention', () => {
     expect(store.get(exec('p1'))!.previews).toEqual({}) // stripped by p2's terminal transition
     store.apply(bigFrame('p1', 40 * MIB, 7))
     expect(store.get(exec('p1'))!.previews).toEqual({}) // straggler must not regain frames past the budget
-    store.apply({
-      kind: 'preview',
-      execution: exec('p1'),
-      timestamp: 8,
-      channel: 'comfy/preview-image',
-      payload: new ArrayBuffer(40 * MIB),
-    })
+    store.apply({ kind: 'preview', execution: exec('p1'), timestamp: 8, channel: 'comfy/preview-image', payload: new ArrayBuffer(40 * MIB) })
     expect(store.get(exec('p1'))!.lastPreview).toBeUndefined()
     expect(store.get(exec('p2'))!.previews['1']).toBeDefined() // newest terminal keeps its frames
   })
@@ -1332,16 +1002,8 @@ describe('bounded execution retention', () => {
     store.apply({ kind: 'started', execution: exec('lost'), timestamp: 0 })
     store.markLost(exec('lost'), 1)
     for (let i = 0; i < 205; i++) {
-      store.apply({
-        kind: 'started',
-        execution: exec(`p${i}`),
-        timestamp: i + 2,
-      })
-      store.apply({
-        kind: 'completed',
-        execution: exec(`p${i}`),
-        timestamp: i + 2,
-      })
+      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i + 2 })
+      store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: i + 2 })
     }
     expect(store.get(exec('lost'))).toBeDefined()
     expect(store.isProvisionallyLost(exec('lost'))).toBe(true)
@@ -1357,16 +1019,8 @@ describe('bounded execution retention', () => {
     store.apply({ kind: 'completed', execution: exec('pinned'), timestamp: 0 })
     store.retain(exec('pinned'))
     for (let i = 0; i < 210; i++) {
-      store.apply({
-        kind: 'started',
-        execution: exec(`p${i}`),
-        timestamp: i + 1,
-      })
-      store.apply({
-        kind: 'completed',
-        execution: exec(`p${i}`),
-        timestamp: i + 1,
-      })
+      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i + 1 })
+      store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: i + 1 })
     }
     expect(store.get(exec('pinned'))).toBeDefined()
     store.release(exec('pinned'))
@@ -1382,13 +1036,7 @@ describe('bounded execution retention', () => {
     }
     expect(store.get(exec('p0'))).toBeUndefined() // evicted
     store.apply(bigFrame('p0', 1 * MIB, 300))
-    store.apply({
-      kind: 'preview',
-      execution: exec('p0'),
-      timestamp: 301,
-      channel: 'comfy/preview-image',
-      payload: new ArrayBuffer(1024),
-    })
+    store.apply({ kind: 'preview', execution: exec('p0'), timestamp: 301, channel: 'comfy/preview-image', payload: new ArrayBuffer(1024) })
     store.apply({ kind: 'completed', execution: exec('p0'), timestamp: 302 })
     expect(store.get(exec('p0'))).toBeUndefined() // stragglers must not recreate a protected entry
     // A genuine new run reusing the id is still accepted.
@@ -1401,22 +1049,13 @@ describe('bounded execution retention', () => {
     jobId: string,
     bytes: number,
     nodeId?: string,
-    ring?: {
-      readonly stream: string
-      readonly frameIndex: number
-      readonly frameCount: number
-      readonly fps?: number
-    },
+    ring?: { readonly stream: string; readonly frameIndex: number; readonly frameCount: number; readonly fps?: number },
   ): ArrayBuffer => {
-    const header = new TextEncoder().encode(
-      JSON.stringify({
-        type: 'node_event',
-        event: 'preview',
-        jobId,
-        ...(nodeId !== undefined ? { nodeId } : {}),
-        data: { mime: 'image/jpeg', ...(ring ?? {}) },
-      }),
-    )
+    const header = new TextEncoder().encode(JSON.stringify({
+      type: 'node_event', event: 'preview', jobId,
+      ...(nodeId !== undefined ? { nodeId } : {}),
+      data: { mime: 'image/jpeg', ...(ring ?? {}) },
+    }))
     const frame = new Uint8Array(4 + header.length + bytes)
     new DataView(frame.buffer).setUint32(0, header.length, false)
     frame.set(header, 4)
@@ -1429,16 +1068,8 @@ describe('bounded execution retention', () => {
     // set, so stragglers for the oldest runs are admitted as unconfirmed
     // entries instead of being discarded outright.
     for (let i = 0; i < 1000; i++) {
-      store.apply({
-        kind: 'started',
-        execution: exec(`p${i}`),
-        timestamp: i * 10,
-      })
-      store.apply({
-        kind: 'completed',
-        execution: exec(`p${i}`),
-        timestamp: i * 10 + 5,
-      })
+      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i * 10 })
+      store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: i * 10 + 5 })
     }
     expect(store.executions.get().size).toBe(200)
     // Stragglers arrive through the real normalizer, which stamps client
@@ -1446,49 +1077,27 @@ describe('bounded execution retention', () => {
     // join, so each recreates its run, but only as an unconfirmed entry.
     const normalizer = new DinksterNormalizer(C0)
     for (let i = 0; i < 600; i += 50) {
-      const frame = wirePreviewFrame(
-        `p${i}`,
-        10 * MIB,
-        i % 100 === 0 ? '1' : undefined,
-      )
+      const frame = wirePreviewFrame(`p${i}`, 10 * MIB, i % 100 === 0 ? '1' : undefined)
       for (const event of normalizer.normalize(frame)) store.apply(event)
     }
     // Unconfirmed entries stay under the entry cap...
     expect(store.executions.get().size).toBe(200)
     // ...and their frames stay under the preview byte budget (12 x 10 MiB
     // arrived; anything beyond 64 MiB was stripped, newest kept first).
-    const retainedBytes = [...store.executions.get().values()].reduce(
-      (sum, state) => {
-        let bytes =
-          state.lastPreview?.payload instanceof ArrayBuffer
-            ? state.lastPreview.payload.byteLength
-            : 0
-        for (const streams of Object.values(state.previews)) {
-          for (const frame of Object.values(streams))
-            bytes +=
-              frame.payload instanceof ArrayBuffer
-                ? frame.payload.byteLength
-                : 0
-        }
-        return sum + bytes
-      },
-      0,
-    )
+    const retainedBytes = [...store.executions.get().values()].reduce((sum, state) => {
+      let bytes = state.lastPreview?.payload instanceof ArrayBuffer ? state.lastPreview.payload.byteLength : 0
+      for (const streams of Object.values(state.previews)) {
+        for (const frame of Object.values(streams)) bytes += frame.payload instanceof ArrayBuffer ? frame.payload.byteLength : 0
+      }
+      return sum + bytes
+    }, 0)
     expect(retainedBytes).toBeLessThanOrEqual(64 * MIB)
     // Unconfirmed entries hold no protected status: newer settled work
     // evicts them like any terminal entry.
     const base = Date.now() + 1_000_000
     for (let i = 0; i < 200; i++) {
-      store.apply({
-        kind: 'started',
-        execution: exec(`q${i}`),
-        timestamp: base + i,
-      })
-      store.apply({
-        kind: 'completed',
-        execution: exec(`q${i}`),
-        timestamp: base + i,
-      })
+      store.apply({ kind: 'started', execution: exec(`q${i}`), timestamp: base + i })
+      store.apply({ kind: 'completed', execution: exec(`q${i}`), timestamp: base + i })
     }
     expect(store.executions.get().size).toBe(200)
     expect(store.get(exec('p0'))).toBeUndefined()
@@ -1499,40 +1108,18 @@ describe('bounded execution retention', () => {
     const store = new ExecutionStore()
     const normalizer = new DinksterNormalizer(C0)
     // First contact with a run another window submitted can be a preview.
-    for (const event of normalizer.normalize(
-      wirePreviewFrame('joined', 1024, '1'),
-    ))
-      store.apply(event)
+    for (const event of normalizer.normalize(wirePreviewFrame('joined', 1024, '1'))) store.apply(event)
     expect(store.get(exec('joined'))).toBeDefined()
-    store.apply({
-      kind: 'completed',
-      execution: exec('joined'),
-      timestamp: Date.now(),
-    })
+    store.apply({ kind: 'completed', execution: exec('joined'), timestamp: Date.now() })
     expect(store.get(exec('joined'))!.status).toBe('completed')
     // A resumed run's start confirms an entry first seen through chatter:
     // confirmed running entries are protected from cap eviction.
-    for (const event of normalizer.normalize(
-      wirePreviewFrame('confirmed', 1024, '1'),
-    ))
-      store.apply(event)
-    store.apply({
-      kind: 'started',
-      execution: exec('confirmed'),
-      timestamp: Date.now(),
-    })
+    for (const event of normalizer.normalize(wirePreviewFrame('confirmed', 1024, '1'))) store.apply(event)
+    store.apply({ kind: 'started', execution: exec('confirmed'), timestamp: Date.now() })
     const base = Date.now() + 1_000_000
     for (let i = 0; i < 300; i++) {
-      store.apply({
-        kind: 'started',
-        execution: exec(`c${i}`),
-        timestamp: base + i,
-      })
-      store.apply({
-        kind: 'completed',
-        execution: exec(`c${i}`),
-        timestamp: base + i,
-      })
+      store.apply({ kind: 'started', execution: exec(`c${i}`), timestamp: base + i })
+      store.apply({ kind: 'completed', execution: exec(`c${i}`), timestamp: base + i })
     }
     expect(store.get(exec('confirmed'))!.status).toBe('running')
   })
@@ -1544,21 +1131,14 @@ describe('bounded execution retention', () => {
     }
     const normalizer = new DinksterNormalizer(C0)
     for (let i = 0; i < 70; i++) {
-      for (const event of normalizer.normalize(
-        wirePreviewFrame(`ghost${i}`, 1 * MIB, '1'),
-      ))
-        store.apply(event)
+      for (const event of normalizer.normalize(wirePreviewFrame(`ghost${i}`, 1 * MIB, '1'))) store.apply(event)
     }
     // Each phantom is admitted, applied, then evicted by the cap: only the
     // 200 confirmed running entries remain, holding no phantom frames.
     expect(store.executions.get().size).toBe(200)
-    for (let i = 0; i < 70; i++)
-      expect(store.get(exec(`ghost${i}`))).toBeUndefined()
+    for (let i = 0; i < 70; i++) expect(store.get(exec(`ghost${i}`))).toBeUndefined()
     // Repeated chatter for an evicted phantom is discarded outright.
-    for (const event of normalizer.normalize(
-      wirePreviewFrame('ghost69', 1 * MIB, '1'),
-    ))
-      store.apply(event)
+    for (const event of normalizer.normalize(wirePreviewFrame('ghost69', 1 * MIB, '1'))) store.apply(event)
     expect(store.get(exec('ghost69'))).toBeUndefined()
     expect(store.executions.get().size).toBe(200)
   })
@@ -1569,12 +1149,7 @@ describe('bounded execution retention', () => {
     const normalizer = new DinksterNormalizer(C0, () => ++tick)
     const sendRing = (jobId: string, frames: number): void => {
       for (let f = 0; f < frames; f++) {
-        const wire = wirePreviewFrame(jobId, 1 * MIB, '1', {
-          stream: 'anim',
-          frameIndex: f,
-          frameCount: frames,
-          fps: 8,
-        })
+        const wire = wirePreviewFrame(jobId, 1 * MIB, '1', { stream: 'anim', frameIndex: f, frameCount: frames, fps: 8 })
         for (const event of normalizer.normalize(wire)) store.apply(event)
       }
     }
@@ -1586,16 +1161,8 @@ describe('bounded execution retention', () => {
     const stripped = store.get(exec('ringA'))!
     expect(stripped.previewRings).toBeUndefined()
     expect(stripped.previews).toEqual({})
-    expect(
-      Object.keys(
-        store.get(exec('ringB'))!.previewRings!['1']!['anim']!.frames,
-      ),
-    ).toHaveLength(30)
-    expect(
-      Object.keys(
-        store.get(exec('ringC'))!.previewRings!['1']!['anim']!.frames,
-      ),
-    ).toHaveLength(10)
+    expect(Object.keys(store.get(exec('ringB'))!.previewRings!['1']!['anim']!.frames)).toHaveLength(30)
+    expect(Object.keys(store.get(exec('ringC'))!.previewRings!['1']!['anim']!.frames)).toHaveLength(10)
   })
 
   it('a ring slot shared with its stream still is counted once, not twice', () => {
@@ -1604,11 +1171,7 @@ describe('bounded execution retention', () => {
     const normalizer = new DinksterNormalizer(C0, () => ++tick)
     const sendRing = (jobId: string, frames: number): void => {
       for (let f = 0; f < frames; f++) {
-        const wire = wirePreviewFrame(jobId, 1 * MIB, '1', {
-          stream: 'anim',
-          frameIndex: f,
-          frameCount: frames,
-        })
+        const wire = wirePreviewFrame(jobId, 1 * MIB, '1', { stream: 'anim', frameIndex: f, frameCount: frames })
         for (const event of normalizer.normalize(wire)) store.apply(event)
       }
     }
@@ -1617,34 +1180,19 @@ describe('bounded execution retention', () => {
     // still-plus-ring counting would see 65 MiB and strip ringOld.
     sendRing('ringOld', 33)
     sendRing('ringNew', 30)
-    expect(
-      Object.keys(
-        store.get(exec('ringOld'))!.previewRings!['1']!['anim']!.frames,
-      ),
-    ).toHaveLength(33)
-    expect(
-      Object.keys(
-        store.get(exec('ringNew'))!.previewRings!['1']!['anim']!.frames,
-      ),
-    ).toHaveLength(30)
+    expect(Object.keys(store.get(exec('ringOld'))!.previewRings!['1']!['anim']!.frames)).toHaveLength(33)
+    expect(Object.keys(store.get(exec('ringNew'))!.previewRings!['1']!['anim']!.frames)).toHaveLength(30)
   })
 
   it('evicting an unconfirmed entry clears its provisional-loss verdict', () => {
     const store = new ExecutionStore()
     const normalizer = new DinksterNormalizer(C0)
-    for (const event of normalizer.normalize(
-      wirePreviewFrame('phantom', 1024, '1'),
-    ))
-      store.apply(event)
+    for (const event of normalizer.normalize(wirePreviewFrame('phantom', 1024, '1'))) store.apply(event)
     store.markLost(exec('phantom'))
     expect(store.isProvisionallyLost(exec('phantom'))).toBe(true)
     const base = Date.now() + 1_000_000
     for (let i = 0; i < 200; i++) {
-      store.apply({
-        kind: 'started',
-        execution: exec(`n${i}`),
-        timestamp: base + i,
-      })
+      store.apply({ kind: 'started', execution: exec(`n${i}`), timestamp: base + i })
     }
     expect(store.get(exec('phantom'))).toBeUndefined()
     expect(store.isProvisionallyLost(exec('phantom'))).toBe(false)
@@ -1652,15 +1200,9 @@ describe('bounded execution retention', () => {
 
   it('completing an over-cap burst of running executions contracts the store to the cap', () => {
     const store = new ExecutionStore()
-    for (let i = 0; i < 205; i++)
-      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i })
+    for (let i = 0; i < 205; i++) store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i })
     expect(store.executions.get().size).toBe(205) // in-flight work is never evicted
-    for (let i = 0; i < 205; i++)
-      store.apply({
-        kind: 'completed',
-        execution: exec(`p${i}`),
-        timestamp: 300 + i,
-      })
+    for (let i = 0; i < 205; i++) store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: 300 + i })
     expect(store.executions.get().size).toBe(200) // settling re-runs eviction
     expect(store.get(exec('p4'))).toBeUndefined()
     expect(store.get(exec('p5'))).toBeDefined()
@@ -1672,12 +1214,7 @@ describe('bounded execution retention', () => {
     store.apply({ kind: 'started', execution: exec('pinned'), timestamp: 0 })
     store.apply({ kind: 'completed', execution: exec('pinned'), timestamp: 0 })
     store.retain(exec('pinned'))
-    for (let i = 0; i < 200; i++)
-      store.apply({
-        kind: 'started',
-        execution: exec(`p${i}`),
-        timestamp: i + 1,
-      })
+    for (let i = 0; i < 200; i++) store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i + 1 })
     expect(store.executions.get().size).toBe(201) // all running plus the pinned terminal
     store.release(exec('pinned'))
     expect(store.get(exec('pinned'))).toBeUndefined()
@@ -1692,16 +1229,8 @@ describe('bounded execution retention', () => {
     store.retain(exec('pinned'))
     store.release(exec('pinned'))
     for (let i = 0; i < 205; i++) {
-      store.apply({
-        kind: 'started',
-        execution: exec(`p${i}`),
-        timestamp: i + 1,
-      })
-      store.apply({
-        kind: 'completed',
-        execution: exec(`p${i}`),
-        timestamp: i + 1,
-      })
+      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i + 1 })
+      store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: i + 1 })
     }
     expect(store.get(exec('pinned'))).toBeDefined() // one pin still held
   })

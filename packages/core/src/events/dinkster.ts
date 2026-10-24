@@ -31,42 +31,18 @@
 
 import { asPromptId, type ConnectionId, type ExecutionRef } from '../ids.js'
 import type { RuntimeErrorDetail, RuntimeErrorHint } from '../diagnostics.js'
-import {
-  isValueDiagnostic,
-  type EventNormalizer,
-  type NodeActivity,
-  type NodeExpansion,
-  type NodeOutputSummary,
-  type NodeProgress,
-  type NormalizedEvent,
-  type OnMalformedEvent,
-  type ValueDiagnostic,
-} from './contract.js'
-import {
-  COMPOSITOR_STATE_PREVIEW_CHANNEL,
-  COMPOSITOR_STATE_PREVIEW_STREAM,
-  compositorStateOf,
-} from '../compositor.js'
-import {
-  GLSL_STATE_PREVIEW_CHANNEL,
-  GLSL_STATE_PREVIEW_STREAM,
-  glslShaderStateOf,
-} from '../glsl-shader.js'
-import {
-  isPackJsonObject,
-  type EffectiveExtensionSnapshot,
-} from '../extensions/manifest.js'
+import { isValueDiagnostic, type EventNormalizer, type NodeActivity, type NodeExpansion, type NodeOutputSummary, type NodeProgress, type NormalizedEvent, type OnMalformedEvent, type ValueDiagnostic } from './contract.js'
+import { COMPOSITOR_STATE_PREVIEW_CHANNEL, COMPOSITOR_STATE_PREVIEW_STREAM, compositorStateOf } from '../compositor.js'
+import { GLSL_STATE_PREVIEW_CHANNEL, GLSL_STATE_PREVIEW_STREAM, glslShaderStateOf } from '../glsl-shader.js'
+import { isPackJsonObject, type EffectiveExtensionSnapshot } from '../extensions/manifest.js'
 
 /** Raw JSON WS message: a flat record keyed by `type`. */
-export type DinksterRawJson = Readonly<Record<string, unknown>> & {
-  readonly type: string
-}
+export type DinksterRawJson = Readonly<Record<string, unknown>> & { readonly type: string }
 
 /** Raw messages: parsed JSON envelopes, or whole binary frames as received. */
 export type DinksterRawMessage = DinksterRawJson | ArrayBuffer
 
-export const CURVE_HISTOGRAM_PREVIEW_CHANNEL =
-  'application/vnd.dinkster.curve-histogram+json'
+export const CURVE_HISTOGRAM_PREVIEW_CHANNEL = 'application/vnd.dinkster.curve-histogram+json'
 
 /**
  * Split one self-describing binary frame: 4-byte big-endian JSON-header
@@ -74,35 +50,24 @@ export const CURVE_HISTOGRAM_PREVIEW_CHANNEL =
  */
 export function decodeDinksterBinaryFrame(
   frame: ArrayBuffer,
-):
-  | { readonly header: DinksterRawJson; readonly payload: ArrayBuffer }
-  | undefined {
+): { readonly header: DinksterRawJson; readonly payload: ArrayBuffer } | undefined {
   if (frame.byteLength < 4) return undefined
   const headerLength = new DataView(frame).getUint32(0, false)
   if (4 + headerLength > frame.byteLength) return undefined
   try {
-    const headerText = new TextDecoder().decode(
-      new Uint8Array(frame, 4, headerLength),
-    )
+    const headerText = new TextDecoder().decode(new Uint8Array(frame, 4, headerLength))
     const header = JSON.parse(headerText) as Record<string, unknown>
     if (typeof header['type'] !== 'string') return undefined
-    return {
-      header: header as DinksterRawJson,
-      payload: frame.slice(4 + headerLength),
-    }
+    return { header: header as DinksterRawJson, payload: frame.slice(4 + headerLength) }
   } catch {
     return undefined
   }
 }
 
-const str = (v: unknown): string | undefined =>
-  typeof v === 'string' && v !== '' ? v : undefined
-const num = (v: unknown): number | undefined =>
-  typeof v === 'number' && Number.isFinite(v) ? v : undefined
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
+const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
 const rec = (v: unknown): Readonly<Record<string, unknown>> | undefined =>
-  typeof v === 'object' && v !== null && !Array.isArray(v)
-    ? (v as Record<string, unknown>)
-    : undefined
+  typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined
 
 /**
  * Defensive bound on one log record's message from the wire. The backend
@@ -121,19 +86,11 @@ const activityString = (v: unknown): string | undefined => {
 }
 const activityNodeId = (v: unknown): string | undefined => {
   const value = str(v)
-  return value !== undefined && value.length <= ACTIVITY_NODE_ID_CAP
-    ? value
-    : undefined
+  return value !== undefined && value.length <= ACTIVITY_NODE_ID_CAP ? value : undefined
 }
 const activityStrings = (v: unknown): readonly string[] | undefined => {
-  if (
-    !Array.isArray(v) ||
-    v.some((value) => typeof value !== 'string' || value === '')
-  )
-    return undefined
-  return v
-    .slice(0, ACTIVITY_LIST_CAP)
-    .map((value) => value.slice(0, ACTIVITY_STRING_CAP))
+  if (!Array.isArray(v) || v.some((value) => typeof value !== 'string' || value === '')) return undefined
+  return v.slice(0, ACTIVITY_LIST_CAP).map((value) => value.slice(0, ACTIVITY_STRING_CAP))
 }
 
 /**
@@ -142,9 +99,7 @@ const activityStrings = (v: unknown): readonly string[] | undefined => {
  * else here is a smuggled wire; drop the field, keep the summary.
  */
 const scalar = (v: unknown): string | number | boolean | undefined =>
-  typeof v === 'string' ||
-  typeof v === 'boolean' ||
-  (typeof v === 'number' && Number.isFinite(v))
+  typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))
     ? v
     : undefined
 
@@ -155,9 +110,7 @@ const scalar = (v: unknown): string | number | boolean | undefined =>
  * fragment, or {} when absent/malformed - a bad summary never blocks the
  * state transition.
  */
-function outputSummariesOf(v: unknown): {
-  outputs?: Readonly<Record<string, NodeOutputSummary>>
-} {
+function outputSummariesOf(v: unknown): { outputs?: Readonly<Record<string, NodeOutputSummary>> } {
   const raw = rec(v)
   if (raw === undefined) return {}
   const out: Record<string, NodeOutputSummary> = {}
@@ -223,9 +176,7 @@ export class DinksterNormalizer implements EventNormalizer {
     private readonly connection: ConnectionId,
     private readonly clock: Clock = Date.now,
     private readonly onMalformed?: OnMalformedEvent,
-    private readonly extensionSnapshot?: (
-      digest: string,
-    ) => EffectiveExtensionSnapshot | undefined,
+    private readonly extensionSnapshot?: (digest: string) => EffectiveExtensionSnapshot | undefined,
   ) {}
 
   private exec(jobId: string): ExecutionRef {
@@ -242,8 +193,7 @@ export class DinksterNormalizer implements EventNormalizer {
   private jobIdOf(msg: DinksterRawJson): string | undefined {
     const jobId = str(msg['jobId'])
     const runId = str(msg['runId'])
-    if (jobId !== undefined && runId !== undefined)
-      this.jobOfRun.set(runId, jobId)
+    if (jobId !== undefined && runId !== undefined) this.jobOfRun.set(runId, jobId)
     return jobId ?? (runId !== undefined ? this.jobOfRun.get(runId) : undefined)
   }
 
@@ -256,10 +206,7 @@ export class DinksterNormalizer implements EventNormalizer {
     return this.normalizeJson(raw, undefined)
   }
 
-  private normalizeJson(
-    msg: DinksterRawJson,
-    blob: ArrayBuffer | undefined,
-  ): readonly NormalizedEvent[] {
+  private normalizeJson(msg: DinksterRawJson, blob: ArrayBuffer | undefined): readonly NormalizedEvent[] {
     const timestamp = this.clock()
     const jobId = this.jobIdOf(msg)
     if (msg.type === 'queue_state') {
@@ -268,9 +215,7 @@ export class DinksterNormalizer implements EventNormalizer {
           kind: 'status',
           connection: this.connection,
           timestamp,
-          ...(num(msg['queued']) !== undefined
-            ? { queueRemaining: num(msg['queued'])! }
-            : {}),
+          ...(num(msg['queued']) !== undefined ? { queueRemaining: num(msg['queued'])! } : {}),
         },
       ]
     }
@@ -279,16 +224,8 @@ export class DinksterNormalizer implements EventNormalizer {
     if (msg.type === 'schema_changed') {
       const epoch = num(msg['epoch'])
       // Malformed ping: no epoch, no guessing - but never a silent vanish.
-      if (epoch === undefined)
-        return this.malformed('schema_changed without an epoch')
-      return [
-        {
-          kind: 'schemaChanged',
-          connection: this.connection,
-          timestamp,
-          epoch,
-        },
-      ]
+      if (epoch === undefined) return this.malformed('schema_changed without an epoch')
+      return [{ kind: 'schemaChanged', connection: this.connection, timestamp, epoch }]
     }
     if (msg.type === 'composition_progress') {
       const done = num(msg['done'])
@@ -310,35 +247,17 @@ export class DinksterNormalizer implements EventNormalizer {
     }
     if (msg.type === 'composition_complete') {
       const epoch = num(msg['epoch'])
-      if (epoch === undefined)
-        return this.malformed('composition_complete without an epoch')
+      if (epoch === undefined) return this.malformed('composition_complete without an epoch')
       const failed = Array.isArray(msg['failed'])
         ? msg['failed'].filter((f): f is string => typeof f === 'string')
         : []
-      return [
-        {
-          kind: 'compositionComplete',
-          connection: this.connection,
-          timestamp,
-          epoch,
-          failed,
-        },
-      ]
+      return [{ kind: 'compositionComplete', connection: this.connection, timestamp, epoch, failed }]
     }
     if (msg.type === 'pack_failed') {
       const pack = str(msg['pack'])
       const error = str(msg['error'])
-      if (pack === undefined)
-        return this.malformed('pack_failed without a pack label')
-      return [
-        {
-          kind: 'packFailed',
-          connection: this.connection,
-          timestamp,
-          pack,
-          error: error ?? 'unknown error',
-        },
-      ]
+      if (pack === undefined) return this.malformed('pack_failed without a pack label')
+      return [{ kind: 'packFailed', connection: this.connection, timestamp, pack, error: error ?? 'unknown error' }]
     }
     if (jobId === undefined) {
       // Unroutable: no job identity, no guessing. A KNOWN job-scoped event
@@ -357,45 +276,27 @@ export class DinksterNormalizer implements EventNormalizer {
         if (msg.type === 'node_event') {
           const name = str(msg['event'])
           if (
-            name !== undefined &&
-            name !== 'progress' &&
-            name !== 'preview' &&
-            name !== 'lazy_demand' &&
-            name !== 'log' &&
-            name !== 'dinkster.curve.histogram' &&
-            name !== 'dinkster.compositor.state' &&
-            name !== 'dinkster.glsl.state'
-          )
-            return []
+            name !== undefined && name !== 'progress' && name !== 'preview' &&
+            name !== 'lazy_demand' && name !== 'log' && name !== 'dinkster.curve.histogram' &&
+            name !== 'dinkster.compositor.state' && name !== 'dinkster.glsl.state'
+          ) return []
         }
-        return this.malformed(
-          `${msg.type} without job identity (no jobId or runId)`,
-        )
+        return this.malformed(`${msg.type} without job identity (no jobId or runId)`)
       }
       return []
     }
     const execution = this.exec(jobId)
     const nodeId = str(msg['nodeId'])
     const detail = rec(msg['detail'])
-    const executionArm =
-      detail?.['executionArm'] === 'native' ||
-      detail?.['executionArm'] === 'comfyui'
-        ? detail['executionArm']
-        : undefined
+    const executionArm = detail?.['executionArm'] === 'native' || detail?.['executionArm'] === 'comfyui'
+      ? detail['executionArm']
+      : undefined
     const provider = str(detail?.['provider'])
     const pack = str(detail?.['pack'])
     const worker = str(detail?.['worker'])
     const parentRuntimeNodeId = str(detail?.['parentId'])
     const displayRuntimeNodeId = str(detail?.['displayNodeId'])
-    const executionLocation: Pick<
-      NodeProgress,
-      | 'executionArm'
-      | 'provider'
-      | 'pack'
-      | 'worker'
-      | 'parentRuntimeNodeId'
-      | 'displayRuntimeNodeId'
-    > = {
+    const executionLocation: Pick<NodeProgress, 'executionArm' | 'provider' | 'pack' | 'worker' | 'parentRuntimeNodeId' | 'displayRuntimeNodeId'> = {
       ...(executionArm !== undefined ? { executionArm } : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(pack !== undefined ? { pack } : {}),
@@ -407,14 +308,7 @@ export class DinksterNormalizer implements EventNormalizer {
     const nodeState = (state: NodeProgress): NormalizedEvent[] =>
       nodeId === undefined
         ? this.malformed(`${msg.type} without a nodeId`)
-        : [
-            {
-              kind: 'nodeStates',
-              execution,
-              timestamp,
-              nodes: { [nodeId]: state },
-            },
-          ]
+        : [{ kind: 'nodeStates', execution, timestamp, nodes: { [nodeId]: state } }]
 
     switch (msg.type) {
       case 'run_started':
@@ -426,94 +320,52 @@ export class DinksterNormalizer implements EventNormalizer {
         const iterations = rawIterations === null ? null : num(rawIterations)
         if (
           nodeId === undefined ||
-          (regionKind !== 'map' &&
-            regionKind !== 'fold' &&
-            regionKind !== 'while') ||
-          (binding !== 'zip' &&
-            binding !== 'cross' &&
-            binding !== 'broadcast') ||
+          (regionKind !== 'map' && regionKind !== 'fold' && regionKind !== 'while') ||
+          (binding !== 'zip' && binding !== 'cross' && binding !== 'broadcast') ||
           iterations === undefined ||
-          (regionKind === 'while') !== (iterations === null) ||
-          (iterations !== null &&
-            (!Number.isInteger(iterations) || iterations < 0))
-        )
-          return this.malformed('region_expanded with malformed detail')
-        return [
-          {
-            kind: 'regionExpanded',
-            execution,
-            timestamp,
-            runtimeNodeId: nodeId,
-            regionKind,
-            binding,
-            iterations,
-          },
-        ]
+          ((regionKind === 'while') !== (iterations === null)) ||
+          (iterations !== null && (!Number.isInteger(iterations) || iterations < 0))
+        ) return this.malformed('region_expanded with malformed detail')
+        return [{
+          kind: 'regionExpanded',
+          execution,
+          timestamp,
+          runtimeNodeId: nodeId,
+          regionKind,
+          binding,
+          iterations,
+        }]
       }
       case 'region_finished': {
         const iterations = num(detail?.['iterations'])
-        if (
-          nodeId === undefined ||
-          iterations === undefined ||
-          !Number.isInteger(iterations) ||
-          iterations < 0
-        ) {
+        if (nodeId === undefined || iterations === undefined || !Number.isInteger(iterations) || iterations < 0) {
           return this.malformed('region_finished with malformed detail')
         }
-        return [
-          {
-            kind: 'regionFinished',
-            execution,
-            timestamp,
-            runtimeNodeId: nodeId,
-            iterations,
-          },
-        ]
+        return [{ kind: 'regionFinished', execution, timestamp, runtimeNodeId: nodeId, iterations }]
       }
       case 'region_iteration_started':
       case 'region_iteration_finished': {
         const iteration = num(detail?.['iteration'])
-        if (
-          nodeId === undefined ||
-          iteration === undefined ||
-          !Number.isInteger(iteration) ||
-          iteration < 0
-        ) {
+        if (nodeId === undefined || iteration === undefined || !Number.isInteger(iteration) || iteration < 0) {
           return this.malformed(`${msg.type} with malformed detail`)
         }
-        return [
-          {
-            kind: 'regionIteration',
-            execution,
-            timestamp,
-            runtimeNodeId: nodeId,
-            iteration,
-            state:
-              msg.type === 'region_iteration_started' ? 'running' : 'completed',
-          },
-        ]
+        return [{
+          kind: 'regionIteration',
+          execution,
+          timestamp,
+          runtimeNodeId: nodeId,
+          iteration,
+          state: msg.type === 'region_iteration_started' ? 'running' : 'completed',
+        }]
       }
       case 'node_started':
         return nodeState({ state: 'running', ...executionLocation })
       case 'node_cached':
-        return nodeState({
-          state: 'cached',
-          ...executionLocation,
-          ...outputSummariesOf(detail?.['outputs']),
-        })
+        return nodeState({ state: 'cached', ...executionLocation, ...outputSummariesOf(detail?.['outputs']) })
       case 'cache_miss':
-        return this.normalizeCacheMiss(
-          execution,
-          timestamp,
-          msg['nodeId'],
-          detail,
-        )
+        return this.normalizeCacheMiss(execution, timestamp, msg['nodeId'], detail)
       case 'node_finished':
-        return nodeState({
-          state: 'done',
-          ...executionLocation,
-          ...outputSummariesOf(detail?.['outputs']),
-        })
+        return nodeState({ state: 'done', ...executionLocation, ...outputSummariesOf(detail?.['outputs']) })
       case 'node_failed':
         return nodeState({ state: 'error', ...executionLocation })
       case 'node_skipped': {
@@ -529,66 +381,31 @@ export class DinksterNormalizer implements EventNormalizer {
       case 'node_blocked': {
         const origin = str(detail?.['origin'])
         const message = str(detail?.['message'])
-        if (
-          nodeId === undefined ||
-          origin === undefined ||
-          message === undefined
-        ) {
+        if (nodeId === undefined || origin === undefined || message === undefined) {
           return this.malformed('node_blocked with malformed detail')
         }
-        return [
-          {
-            kind: 'nodeBlocked',
-            execution,
-            timestamp,
-            runtimeNodeId: nodeId,
-            blocked: {
-              origin,
-              message,
-              ...(displayRuntimeNodeId === undefined
-                ? {}
-                : { displayRuntimeNodeId }),
-            },
-          },
-        ]
+        return [{
+          kind: 'nodeBlocked', execution, timestamp, runtimeNodeId: nodeId,
+          blocked: { origin, message, ...(displayRuntimeNodeId === undefined ? {} : { displayRuntimeNodeId }) },
+        }]
       }
       case 'node_expanded': {
         const children = detail?.['children']
         const childCount = num(detail?.['childCount'])
         if (
-          nodeId === undefined ||
-          !Array.isArray(children) ||
+          nodeId === undefined || !Array.isArray(children) ||
           children.some((child) => str(child) === undefined) ||
-          childCount === undefined ||
-          !Number.isSafeInteger(childCount) ||
-          childCount < 0 ||
+          childCount === undefined || !Number.isSafeInteger(childCount) || childCount < 0 ||
           childCount !== children.length
-        )
-          return this.malformed('node_expanded with malformed detail')
+        ) return this.malformed('node_expanded with malformed detail')
         const expansion: NodeExpansion = {
-          children: [...children] as string[],
-          childCount,
-          ...(displayRuntimeNodeId === undefined
-            ? {}
-            : { displayRuntimeNodeId }),
+          children: [...children] as string[], childCount,
+          ...(displayRuntimeNodeId === undefined ? {} : { displayRuntimeNodeId }),
         }
-        return [
-          {
-            kind: 'nodeExpanded',
-            execution,
-            timestamp,
-            runtimeNodeId: nodeId,
-            expansion,
-          },
-        ]
+        return [{ kind: 'nodeExpanded', execution, timestamp, runtimeNodeId: nodeId, expansion }]
       }
       case 'value_diagnostics':
-        return this.normalizeValueDiagnostics(
-          execution,
-          timestamp,
-          nodeId,
-          detail,
-        )
+        return this.normalizeValueDiagnostics(execution, timestamp, nodeId, detail)
       case 'run_finished': {
         // A job already terminal (failed/cancelled/completed) never gets a
         // SECOND terminal event: a straggling run_finished after job_state
@@ -623,36 +440,21 @@ export class DinksterNormalizer implements EventNormalizer {
         continue
       }
       const code = row['code']
-      if (code !== 'alpha_dropped' && code !== 'mask_polarity_mismatch')
-        continue
+      if (code !== 'alpha_dropped' && code !== 'mask_polarity_mismatch') continue
       if (str(row['nodeId']) !== nodeId) {
-        this.onMalformed?.(
-          'value_diagnostics with mismatched diagnostic nodeId',
-        )
+        this.onMalformed?.('value_diagnostics with mismatched diagnostic nodeId')
         continue
       }
       if (!isValueDiagnostic(row)) {
         this.onMalformed?.(`value_diagnostics with malformed ${code} row`)
         continue
       }
-      diagnostics.push(
-        row.code === 'alpha_dropped'
-          ? {
-              code: row.code,
-              nodeId,
-              outputId: row.outputId,
-              ...('inputId' in row
-                ? { inputId: row.inputId }
-                : { inputIds: [...row.inputIds] }),
-            }
-          : {
-              code: row.code,
-              nodeId,
-              inputId: row.inputId,
-              expected: row.expected,
-              actual: row.actual,
-            },
-      )
+      diagnostics.push(row.code === 'alpha_dropped'
+        ? {
+            code: row.code, nodeId, outputId: row.outputId,
+            ...('inputId' in row ? { inputId: row.inputId } : { inputIds: [...row.inputIds] }),
+          }
+        : { code: row.code, nodeId, inputId: row.inputId, expected: row.expected, actual: row.actual })
     }
     return diagnostics.length > 0
       ? [{ kind: 'valueDiagnostics', execution, timestamp, diagnostics }]
@@ -667,18 +469,15 @@ export class DinksterNormalizer implements EventNormalizer {
     blob: ArrayBuffer | undefined,
   ): readonly NormalizedEvent[] {
     const name = str(msg['event'])
-    if (name === undefined)
-      return this.malformed('node_event without an event name')
+    if (name === undefined) return this.malformed('node_event without an event name')
     const data = rec(msg['data']) ?? {}
     if (name === 'progress') {
-      if (nodeId === undefined)
-        return this.malformed('node_event progress without a nodeId')
+      if (nodeId === undefined) return this.malformed('node_event progress without a nodeId')
       const step = num(data['step'])
       const total = num(data['total'])
-      const executionArm =
-        msg['executionArm'] === 'native' || msg['executionArm'] === 'comfyui'
-          ? msg['executionArm']
-          : undefined
+      const executionArm = msg['executionArm'] === 'native' || msg['executionArm'] === 'comfyui'
+        ? msg['executionArm']
+        : undefined
       const provider = str(msg['provider'])
       const pack = str(msg['pack'])
       const worker = str(msg['worker'])
@@ -692,14 +491,7 @@ export class DinksterNormalizer implements EventNormalizer {
           ? { value: Math.min(1, Math.max(0, step / total)), max: total }
           : {}),
       }
-      return [
-        {
-          kind: 'nodeStates',
-          execution,
-          timestamp,
-          nodes: { [nodeId]: progress },
-        },
-      ]
+      return [{ kind: 'nodeStates', execution, timestamp, nodes: { [nodeId]: progress } }]
     }
     if (name === 'preview') {
       const stream = str(data['stream'])
@@ -709,18 +501,13 @@ export class DinksterNormalizer implements EventNormalizer {
       // Ring addressing is all-or-nothing: a malformed pair degrades the
       // frame to a plain single-image preview rather than a broken ring.
       const ring =
-        frameIndex !== undefined &&
-        frameCount !== undefined &&
-        Number.isSafeInteger(frameIndex) &&
-        Number.isSafeInteger(frameCount) &&
-        frameIndex >= 0 &&
-        frameIndex < frameCount
+        frameIndex !== undefined && frameCount !== undefined &&
+        Number.isSafeInteger(frameIndex) && Number.isSafeInteger(frameCount) &&
+        frameIndex >= 0 && frameIndex < frameCount
           ? {
               frameIndex,
               frameCount,
-              ...(fps !== undefined && Number.isFinite(fps) && fps > 0
-                ? { fps }
-                : {}),
+              ...(fps !== undefined && Number.isFinite(fps) && fps > 0 ? { fps } : {}),
             }
           : {}
       return [
@@ -738,71 +525,50 @@ export class DinksterNormalizer implements EventNormalizer {
     }
     if (name === 'dinkster.curve.histogram') {
       const histogram = data['histogram']
-      if (
-        nodeId === undefined ||
-        Object.keys(data).length !== 1 ||
-        !Array.isArray(histogram) ||
-        histogram.length !== 256 ||
-        histogram.some(
-          (value) =>
-            typeof value !== 'number' ||
-            !Number.isSafeInteger(value) ||
-            value < 0,
-        )
-      ) {
-        return this.malformed(
-          'node_event dinkster.curve.histogram with malformed data',
-        )
+      if (nodeId === undefined || Object.keys(data).length !== 1 || !Array.isArray(histogram) ||
+        histogram.length !== 256 || histogram.some((value) =>
+          typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) {
+        return this.malformed('node_event dinkster.curve.histogram with malformed data')
       }
-      return [
-        {
-          kind: 'preview',
-          execution,
-          timestamp,
-          runtimeNodeId: nodeId,
-          channel: CURVE_HISTOGRAM_PREVIEW_CHANNEL,
-          payload: { histogram: [...histogram] },
-          stream: 'curve-histogram',
-        },
-      ]
+      return [{
+        kind: 'preview',
+        execution,
+        timestamp,
+        runtimeNodeId: nodeId,
+        channel: CURVE_HISTOGRAM_PREVIEW_CHANNEL,
+        payload: { histogram: [...histogram] },
+        stream: 'curve-histogram',
+      }]
     }
     if (name === 'dinkster.compositor.state') {
       const state = compositorStateOf(data)
       if (nodeId === undefined || blob !== undefined || state === undefined) {
-        return this.malformed(
-          'node_event dinkster.compositor.state with malformed data',
-        )
+        return this.malformed('node_event dinkster.compositor.state with malformed data')
       }
-      return [
-        {
-          kind: 'preview',
-          execution,
-          timestamp,
-          runtimeNodeId: nodeId,
-          channel: COMPOSITOR_STATE_PREVIEW_CHANNEL,
-          payload: state as unknown as Readonly<Record<string, unknown>>,
-          stream: COMPOSITOR_STATE_PREVIEW_STREAM,
-        },
-      ]
+      return [{
+        kind: 'preview',
+        execution,
+        timestamp,
+        runtimeNodeId: nodeId,
+        channel: COMPOSITOR_STATE_PREVIEW_CHANNEL,
+        payload: state as unknown as Readonly<Record<string, unknown>>,
+        stream: COMPOSITOR_STATE_PREVIEW_STREAM,
+      }]
     }
     if (name === 'dinkster.glsl.state') {
       const state = glslShaderStateOf(data)
       if (nodeId === undefined || blob !== undefined || state === undefined) {
-        return this.malformed(
-          'node_event dinkster.glsl.state with malformed data',
-        )
+        return this.malformed('node_event dinkster.glsl.state with malformed data')
       }
-      return [
-        {
-          kind: 'preview',
-          execution,
-          timestamp,
-          runtimeNodeId: nodeId,
-          channel: GLSL_STATE_PREVIEW_CHANNEL,
-          payload: state as unknown as Readonly<Record<string, unknown>>,
-          stream: GLSL_STATE_PREVIEW_STREAM,
-        },
-      ]
+      return [{
+        kind: 'preview',
+        execution,
+        timestamp,
+        runtimeNodeId: nodeId,
+        channel: GLSL_STATE_PREVIEW_CHANNEL,
+        payload: state as unknown as Readonly<Record<string, unknown>>,
+        stream: GLSL_STATE_PREVIEW_STREAM,
+      }]
     }
     if (name === 'lazy_demand') {
       return this.normalizeLazyDemand(execution, timestamp, msg['nodeId'], data)
@@ -813,59 +579,32 @@ export class DinksterNormalizer implements EventNormalizer {
     const digest = str(msg['extensionSnapshotDigest'])
     const pack = str(msg['pack'])
     if (digest === undefined && msg['schemaVersion'] === undefined) {
-      return [
-        {
-          kind: 'node.event',
-          execution,
-          timestamp,
-          name,
-          payload: blob ?? data,
-          ...(nodeId === undefined ? {} : { runtimeNodeId: nodeId }),
-        },
-      ]
+      return [{
+        kind: 'node.event',
+        execution,
+        timestamp,
+        name,
+        payload: blob ?? data,
+        ...(nodeId === undefined ? {} : { runtimeNodeId: nodeId }),
+      }]
     }
-    const declaration =
-      digest === undefined
-        ? undefined
-        : this.extensionSnapshot?.(digest)
-            ?.extensions.find((extension) => extension.id === pack)
-            ?.events?.find((event) => event.name === name)
+    const declaration = digest === undefined ? undefined : this.extensionSnapshot?.(digest)?.extensions
+      .find((extension) => extension.id === pack)?.events?.find((event) => event.name === name)
     const seq = num(msg['seq'])
-    if (
-      !declaration ||
-      !digest ||
-      !pack ||
-      blob !== undefined ||
-      msg['schemaVersion'] !== 1 ||
-      seq === undefined ||
-      !Number.isSafeInteger(seq) ||
-      seq < 0 ||
-      !isPackJsonObject(msg['data'], declaration.payload)
-    ) {
-      return this.malformed(
-        'node_event has invalid or unauthorized custom JSON data',
-      )
+    if (!declaration || !digest || !pack || blob !== undefined || msg['schemaVersion'] !== 1 ||
+      seq === undefined || !Number.isSafeInteger(seq) || seq < 0 || !isPackJsonObject(msg['data'], declaration.payload)) {
+      return this.malformed('node_event has invalid or unauthorized custom JSON data')
     }
     const worker = str(msg['worker'])
     const arm = msg['executionArm']
-    return [
-      Object.freeze({
-        kind: 'extensionEvent',
-        execution: Object.freeze({ ...execution }),
-        timestamp,
-        extensionSnapshotDigest: digest,
-        pack,
-        event: name,
-        schemaVersion: 1,
-        seq,
-        data: Object.freeze({ ...data }) as Readonly<
-          Record<string, string | number | boolean>
-        >,
-        ...(nodeId === undefined ? {} : { runtimeNodeId: nodeId }),
-        ...(worker === undefined ? {} : { worker }),
-        ...(arm === 'native' || arm === 'comfyui' ? { executionArm: arm } : {}),
-      }),
-    ]
+    return [Object.freeze({
+      kind: 'extensionEvent', execution: Object.freeze({ ...execution }), timestamp,
+      extensionSnapshotDigest: digest, pack, event: name, schemaVersion: 1, seq,
+      data: Object.freeze({ ...data }) as Readonly<Record<string, string | number | boolean>>,
+      ...(nodeId === undefined ? {} : { runtimeNodeId: nodeId }),
+      ...(worker === undefined ? {} : { worker }),
+      ...(arm === 'native' || arm === 'comfyui' ? { executionArm: arm } : {}),
+    })]
   }
 
   private normalizeLog(
@@ -878,46 +617,36 @@ export class DinksterNormalizer implements EventNormalizer {
     // level info|warning only: errors keep the single node_failed / job
     // error substrate and must never smuggle in as a log level.
     const level = data['level']
-    const message =
-      typeof data['message'] === 'string' ? data['message'] : undefined
+    const message = typeof data['message'] === 'string' ? data['message'] : undefined
     // seq is the record's dedupe identity across windows and replays, so a
     // log without a usable one is malformed rather than best-effort.
     const seq = num(msg['seq'])
     if (
-      (level !== 'info' && level !== 'warning') ||
-      message === undefined ||
-      seq === undefined ||
-      !Number.isSafeInteger(seq) ||
-      seq < 0
+      (level !== 'info' && level !== 'warning') || message === undefined ||
+      seq === undefined || !Number.isSafeInteger(seq) || seq < 0
     ) {
       return this.malformed('node_event log with malformed data')
     }
     const ts = num(data['ts'])
     const rawOrigin = data['origin']
-    const origin =
-      rawOrigin === 'stdout' ||
-      rawOrigin === 'stderr' ||
-      rawOrigin === 'logging' ||
-      rawOrigin === 'capture'
-        ? rawOrigin
-        : undefined
+    const origin = rawOrigin === 'stdout' || rawOrigin === 'stderr' || rawOrigin === 'logging' || rawOrigin === 'capture'
+      ? rawOrigin
+      : undefined
     const logger = activityString(data['logger'])
     const pythonLevel = activityString(data['pythonLevel'])
-    return [
-      {
-        kind: 'log',
-        execution,
-        timestamp,
-        level,
-        message: message.slice(0, LOG_MESSAGE_CAP),
-        seq,
-        ...(nodeId !== undefined ? { runtimeNodeId: nodeId } : {}),
-        ...(ts !== undefined ? { emittedAt: ts * 1000 } : {}),
-        ...(origin !== undefined ? { origin } : {}),
-        ...(logger !== undefined ? { logger } : {}),
-        ...(pythonLevel !== undefined ? { pythonLevel } : {}),
-      },
-    ]
+    return [{
+      kind: 'log',
+      execution,
+      timestamp,
+      level,
+      message: message.slice(0, LOG_MESSAGE_CAP),
+      seq,
+      ...(nodeId !== undefined ? { runtimeNodeId: nodeId } : {}),
+      ...(ts !== undefined ? { emittedAt: ts * 1000 } : {}),
+      ...(origin !== undefined ? { origin } : {}),
+      ...(logger !== undefined ? { logger } : {}),
+      ...(pythonLevel !== undefined ? { pythonLevel } : {}),
+    }]
   }
 
   private normalizeLazyDemand(
@@ -934,17 +663,10 @@ export class DinksterNormalizer implements EventNormalizer {
     const demandedInputs = activityStrings(data['demandedInputs'])
     const producerNodes = activityStrings(data['producerNodes'])
     if (
-      nodeId === undefined ||
-      round === undefined ||
-      !Number.isInteger(round) ||
-      round < 1 ||
-      (status !== 'waiting' && status !== 'ready') ||
-      requestedInputs === undefined ||
-      newInputs === undefined ||
-      demandedInputs === undefined ||
-      producerNodes === undefined
-    )
-      return this.malformed('node_event lazy_demand with malformed data')
+      nodeId === undefined || round === undefined || !Number.isInteger(round) || round < 1 ||
+      (status !== 'waiting' && status !== 'ready') || requestedInputs === undefined ||
+      newInputs === undefined || demandedInputs === undefined || producerNodes === undefined
+    ) return this.malformed('node_event lazy_demand with malformed data')
     const activity: NodeActivity = {
       kind: 'lazy_demand',
       nodeId,
@@ -967,28 +689,21 @@ export class DinksterNormalizer implements EventNormalizer {
     const nodeId = activityNodeId(rawNodeId)
     const cacheKey = str(detail?.['cache_key'])
     const reason = activityString(detail?.['reason'])
-    const changedInputs =
-      detail?.['changed_inputs'] === undefined
-        ? undefined
-        : activityStrings(detail['changed_inputs'])
-    const addedInputs =
-      detail?.['added_inputs'] === undefined
-        ? undefined
-        : activityStrings(detail['added_inputs'])
-    const removedInputs =
-      detail?.['removed_inputs'] === undefined
-        ? undefined
-        : activityStrings(detail['removed_inputs'])
+    const changedInputs = detail?.['changed_inputs'] === undefined
+      ? undefined
+      : activityStrings(detail['changed_inputs'])
+    const addedInputs = detail?.['added_inputs'] === undefined
+      ? undefined
+      : activityStrings(detail['added_inputs'])
+    const removedInputs = detail?.['removed_inputs'] === undefined
+      ? undefined
+      : activityStrings(detail['removed_inputs'])
     if (
-      nodeId === undefined ||
-      cacheKey === undefined ||
-      reason === undefined ||
-      (detail?.['changed_inputs'] !== undefined &&
-        changedInputs === undefined) ||
+      nodeId === undefined || cacheKey === undefined || reason === undefined ||
+      (detail?.['changed_inputs'] !== undefined && changedInputs === undefined) ||
       (detail?.['added_inputs'] !== undefined && addedInputs === undefined) ||
       (detail?.['removed_inputs'] !== undefined && removedInputs === undefined)
-    )
-      return this.malformed('cache_miss with malformed detail')
+    ) return this.malformed('cache_miss with malformed detail')
     const activity: NodeActivity = {
       kind: 'cache_miss',
       nodeId,
@@ -1027,12 +742,7 @@ export class DinksterNormalizer implements EventNormalizer {
         if (failedNode !== undefined) {
           // Fail-policy absences and validation errors carry the node on the
           // JOB error, with no node_failed event - mark the node here.
-          events.push({
-            kind: 'nodeStates',
-            execution,
-            timestamp,
-            nodes: { [failedNode]: { state: 'error' } },
-          })
+          events.push({ kind: 'nodeStates', execution, timestamp, nodes: { [failedNode]: { state: 'error' } } })
         }
         events.push({
           kind: 'error',
@@ -1047,39 +757,26 @@ export class DinksterNormalizer implements EventNormalizer {
         // queued/running transitions carry no node/terminal meaning; any
         // OTHER value is outside the state vocabulary and must not vanish
         // (a mistyped terminal state would strand the run as running).
-        return typeof msg['state'] === 'string' &&
-          JOB_STATE_VALUES.has(msg['state'])
+        return typeof msg['state'] === 'string' && JOB_STATE_VALUES.has(msg['state'])
           ? []
-          : this.malformed(
-              `job_state with unknown state '${String(msg['state']).slice(0, 80)}'`,
-            )
+          : this.malformed(`job_state with unknown state '${String(msg['state']).slice(0, 80)}'`)
     }
   }
 }
 
 /** Map a job error wire record into the runtime error detail contract. */
-function errorDetail(
-  error: Readonly<Record<string, unknown>> | undefined,
-): RuntimeErrorDetail {
-  if (error === undefined)
-    return {
-      exceptionType: 'unknown',
-      exceptionMessage: 'job failed',
-      traceback: [],
-    }
+function errorDetail(error: Readonly<Record<string, unknown>> | undefined): RuntimeErrorDetail {
+  if (error === undefined) return { exceptionType: 'unknown', exceptionMessage: 'job failed', traceback: [] }
   const kind = str(error['kind']) ?? 'unknown'
   const hints = errorHints(error['hints'])
   if (kind === 'validation') {
-    const diagnostics = Array.isArray(error['diagnostics'])
-      ? (error['diagnostics'] as unknown[])
-      : []
+    const diagnostics = Array.isArray(error['diagnostics']) ? (error['diagnostics'] as unknown[]) : []
     const messages = diagnostics
       .map((d) => str(rec(d)?.['message']))
       .filter((m): m is string => m !== undefined)
     return {
       exceptionType: 'validation',
-      exceptionMessage:
-        messages.length > 0 ? messages.join('\n') : 'graph validation failed',
+      exceptionMessage: messages.length > 0 ? messages.join('\n') : 'graph validation failed',
       traceback: [],
       ...(hints.length > 0 ? { hints } : {}),
     }
@@ -1151,15 +848,12 @@ const JOB_NODE_STATES: Readonly<Record<string, NodeProgress['state']>> = {
  * executed/cached/skipped arrays. Skip PROVENANCE (origin/reason) is only on
  * the live event stream today - hydrated skips carry the state alone.
  */
-export function nodeStatesFromDinksterJob(
-  job: DinksterJobWire,
-): Record<string, NodeProgress> {
+export function nodeStatesFromDinksterJob(job: DinksterJobWire): Record<string, NodeProgress> {
   const out: Record<string, NodeProgress> = {}
   const states = rec(job.nodeStates)
   if (states !== undefined && Object.keys(states).length > 0) {
     for (const [nodeId, state] of Object.entries(states)) {
-      const mapped =
-        typeof state === 'string' ? JOB_NODE_STATES[state] : undefined
+      const mapped = typeof state === 'string' ? JOB_NODE_STATES[state] : undefined
       if (mapped !== undefined) out[nodeId] = { state: mapped }
     }
   } else {
@@ -1174,8 +868,7 @@ export function nodeStatesFromDinksterJob(
   // A failed job's culprit node may never have reached a terminal node
   // state (fail-policy refusal happens before invocation).
   const failedNode = str(rec(job.error)?.['nodeId'])
-  if (failedNode !== undefined && job.state === 'failed')
-    out[failedNode] = { state: 'error' }
+  if (failedNode !== undefined && job.state === 'failed') out[failedNode] = { state: 'error' }
   // Enrich terminal states with output summaries from result descriptors
   // (targets only - descriptors carry the same typeId/length fields the live
   // node_finished/node_cached details do). Never invents a state: summaries
@@ -1184,15 +877,11 @@ export function nodeStatesFromDinksterJob(
   if (descriptors !== undefined) {
     for (const [nodeId, perOutput] of Object.entries(descriptors)) {
       const existing = out[nodeId]
-      if (
-        existing === undefined ||
-        (existing.state !== 'done' && existing.state !== 'cached')
-      ) {
+      if (existing === undefined || (existing.state !== 'done' && existing.state !== 'cached')) {
         continue
       }
       const summary = outputSummariesOf(perOutput)
-      if (summary.outputs !== undefined)
-        out[nodeId] = { ...existing, ...summary }
+      if (summary.outputs !== undefined) out[nodeId] = { ...existing, ...summary }
     }
   }
   return out
@@ -1232,18 +921,14 @@ const SEGMENT_RE = /^([^/[\]]+)(?:\[(0|[1-9][0-9]*)\])?$/
  * or signed index, trailing junk, '['/']' in the id portion) - callers must
  * then preserve the raw id rather than guess.
  */
-export function parseDinksterRuntimePath(
-  path: string,
-): readonly RuntimePathSegment[] | undefined {
+export function parseDinksterRuntimePath(path: string): readonly RuntimePathSegment[] | undefined {
   if (path.length === 0) return undefined
   const out: RuntimePathSegment[] = []
   for (const raw of path.split('/')) {
     const m = SEGMENT_RE.exec(raw)
     if (m === null) return undefined
     const seg: RuntimePathSegment =
-      m[2] === undefined
-        ? { nodeId: m[1]! }
-        : { nodeId: m[1]!, iteration: Number(m[2]) }
+      m[2] === undefined ? { nodeId: m[1]! } : { nodeId: m[1]!, iteration: Number(m[2]) }
     out.push(seg)
   }
   return out
