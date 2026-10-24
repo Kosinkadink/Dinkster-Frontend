@@ -33,7 +33,7 @@
        "meta": {
         "length": 3
        },
-       "typeId": "list<core.int>"
+       "typeId": "list<INT>"
       }
      }
     },
@@ -209,7 +209,7 @@
       "outputs": {
        "items": {
         "length": 3,
-        "typeId": "list<core.int>"
+        "typeId": "list<INT>"
        }
       }
      },
@@ -272,7 +272,7 @@
        "meta": {
         "length": 3
        },
-       "typeId": "list<core.int>"
+       "typeId": "list<INT>"
       }
      }
     },
@@ -364,7 +364,7 @@
       "outputs": {
        "items": {
         "length": 3,
-        "typeId": "list<core.int>"
+        "typeId": "list<INT>"
        }
       }
      },
