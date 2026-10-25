@@ -88,7 +88,7 @@ test('backend and runtime management remains truthful and usable across wide, na
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-wide.png'), fullPage: true })
 
   const local = page.getByTestId('backend-row').filter({ hasText: 'Local' })
-  await local.getByRole('button', { name: 'Local runtime settings' }).click()
+  await local.getByRole('button', { name: 'Runtime settings Show', exact: true }).click()
   await expect(local.getByText('Component precision', { exact: true })).toBeVisible()
   await expect(local.getByText('Grant required').first()).toBeVisible()
   await expect(local.getByText('Read-only').first()).toBeVisible()
@@ -117,7 +117,7 @@ test('backend and runtime management remains truthful and usable across wide, na
 
   await page.emulateMedia({ reducedMotion: 'reduce' })
   expect(await panel.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0s')
-  const runtimeToggle = local.getByRole('button', { name: 'Local runtime settings', exact: true })
+  const runtimeToggle = local.getByRole('button', { name: /^Runtime settings (Show|Hide)$/ })
   await runtimeToggle.scrollIntoViewIfNeeded()
   const runtimeToggleBox = await runtimeToggle.boundingBox()
   expect(runtimeToggleBox).not.toBeNull()
