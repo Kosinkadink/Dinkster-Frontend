@@ -12,6 +12,7 @@ import {
 import { solveGraphTypes } from '../schema/solve.js'
 import {
   cardinalityOf,
+  canonicalTypeIdOf,
   inputsOf,
   outputsOf,
   type NodeSchema,
@@ -389,6 +390,8 @@ export function convertLitegraphLists(
   document: JsonObject,
   rawNodesValue: readonly unknown[],
   resolve: (type: string) => NodeSchema | undefined,
+  rawLinksValue: readonly unknown[] = [],
+  diagnostics: Diagnostic[] = [],
 ): ReadonlyMap<string, string> {
   const doc = document as Mutable
   const graph = doc['graphs']['g0'] as Mutable
@@ -417,6 +420,51 @@ export function convertLitegraphLists(
       delete graph['nets'][netId]
   }
   const links = (): Mutable[] => Object.values(graph['links'])
+  const pairs = pairLoops(
+    rawNodesValue as readonly RawNode[],
+    rawLinksValue.filter(Array.isArray).map((value): RawLink => ({ id: value[0], from: value[1], fromSlot: value[2], to: value[3], toSlot: value[4] })),
+    [],
+  )
+  const incomingTo = (id: string): Mutable[] => links().filter((link) => endpointNode(link['to']) === id)
+  const declaredType = (source: Mutable, seen = new Set<string>()): TypeExpr | undefined => {
+    const trace = traceEndpoint(graph as GraphDef, source as LinkEndpoint)
+    if (trace.kind !== 'output') return undefined
+    source = trace.ref
+    const id = endpointNode(source)
+    if (!id || seen.has(id)) return undefined
+    seen = new Set([...seen, id])
+    const authored = raw.get(id)
+    if (authored?.['type'] === 'CreateList') {
+      const incoming = incomingTo(id)
+      const positions = ((authored['inputs'] as Mutable[]) ?? []).flatMap((input) => incoming.filter((link) => link['to']['port'] === input['name']))
+        .map((link) => declaredType(link['from'], seen))
+      if (positions.some((position) => position === undefined)) return undefined
+      const elements = positions.map((position) => position!.kind === 'list' ? position!.element : position!)
+      const ids = elements.map(canonicalTypeIdOf)
+      if (new Set(ids.filter((type) => type !== undefined)).size > 1) return { kind: 'tuple', elements: positions as TypeExpr[] }
+      return elements[0] === undefined ? undefined : { kind: 'list', element: elements[0] }
+    }
+    if (authored?.['type'] === 'GetItemFromList') {
+      const input = incomingTo(id).find((link) => link['to']['port'] === 'list')
+      const collection = input && declaredType(input['from'], seen)
+      if (collection?.kind === 'list') return collection.element
+      const index = graph['nodes'][id]['values']['index']
+      if (collection?.kind === 'tuple' && Number.isSafeInteger(index)) return collection.elements[index < 0 ? collection.elements.length + index : index]
+      return undefined
+    }
+    if (authored?.['type'] === 'StartLoop' && startOutputName(source['port'], resolve) === 'current_iteration_value') {
+      const initial = incomingTo(id).find((link) => link['to']['port'] === 'initial_iteration_value')
+      const pair = pairs.find((pair) => `n${pair.start}` === id)
+      const next = pair && incomingTo(`n${pair.end}`).find((link) => link['to']['port'] === 'next_iteration_value')
+      return (initial && declaredType(initial['from'], seen)) ?? (next && declaredType(next['from'], seen))
+    }
+    const type = endpointType(graph, source, 'output', resolve)
+    const output = resolve(graph['nodes'][id]['type'])?.items.find((item) => item.kind === 'output' && item.id === source['port'])
+    return type !== undefined && output?.kind === 'output' && output.isList && type.kind !== 'list' ? { kind: 'list', element: type } : type
+  }
+  const collectionTypes = new Map([...raw].map(([id, authored]) => [id, authored['type'] === 'CreateList'
+    ? declaredType({ node: id, port: 'list' })
+    : authored['type'] === 'GetItemFromList' ? (() => { const input = incomingTo(id).find((link) => link['to']['port'] === 'list'); return input && declaredType(input['from']) })() : undefined]))
   const isList = (source: Mutable, seen = new Set<string>()): boolean => {
     const trace = traceEndpoint(graph as GraphDef, source as LinkEndpoint)
     if (trace.kind !== 'output') return false
@@ -425,7 +473,7 @@ export function convertLitegraphLists(
     if (!id || seen.has(id)) return false
     seen.add(id)
     const authored = raw.get(id)
-    if (authored?.['type'] === 'CreateList') return true
+    if (authored?.['type'] === 'CreateList') return collectionTypes.get(id)?.kind !== 'tuple'
     if (authored?.['type'] === 'GetItemFromList') return false
     if (
       authored?.['type'] === 'StartLoop' &&
@@ -468,14 +516,20 @@ export function convertLitegraphLists(
       continue
     const node = graph['nodes'][id] as Mutable
     const incoming = links().filter((link) => endpointNode(link['to']) === id)
+    const collection = collectionTypes.get(id)
     if (authored['type'] === 'CreateList') {
       const ordered = ((authored['inputs'] as Mutable[]) ?? []).flatMap(
         (input) =>
           incoming.filter((link) => link['to']['port'] === input['name']),
       )
       const flatten = ordered.some((link) => isList(link['from']))
+      const tuple = collection?.kind === 'tuple'
+      if (tuple && flatten) {
+        diagnostics.push(diag('error', 'import', 'import.list.variableTuple', `CreateList ${id} cannot form fixed tuple positions from a variable-length execution list.`))
+        continue
+      }
       const family = flatten ? 'lists' : 'items'
-      node['type'] = flatten ? 'std.list.concat' : 'std.list.make'
+      node['type'] = tuple ? 'std.tuple.make' : flatten ? 'std.list.concat' : 'std.list.make'
       node['dynamic'] = {
         [family]: {
           members: ordered.map((_, index) => `m${index}`),
@@ -491,10 +545,19 @@ export function convertLitegraphLists(
           members: [`m${index}`],
         }
       }
+      if (tuple) {
+        for (const link of links()) if (endpointNode(link['from']) === id) link['from']['port'] = 'tuple'
+        for (const net of Object.values(graph['nets']) as Mutable[]) if (endpointNode(net['source']) === id) net['source']['port'] = 'tuple'
+      }
     } else {
-      node['type'] = 'std.list.element'
+      const tuple = collection?.kind === 'tuple'
+      node['type'] = tuple ? 'std.tuple.get' : 'std.list.element'
+      if (tuple && (incoming.some((link) => link['to']['port'] === 'index') || !Number.isSafeInteger(node['values']['index']))) {
+        diagnostics.push(diag('error', 'import', 'import.tuple.literalIndex', `GetItemFromList ${id} requires a literal integer index for heterogeneous positions.`))
+      }
       for (const link of incoming) {
-        if (link['to']['port'] === 'list' && !isList(link['from']))
+        if (tuple && link['to']['port'] === 'list') link['to']['port'] = 'tuple'
+        if (!tuple && link['to']['port'] === 'list' && !isList(link['from']))
           link['from'] = singleton(link['from'], id)
         if (link['to']['port'] === 'index') {
           delete node['values']['index']

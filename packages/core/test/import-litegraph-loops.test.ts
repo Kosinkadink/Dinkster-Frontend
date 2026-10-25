@@ -11,6 +11,7 @@ import type {
 } from '../src/format/document.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
 import { asConnectionId } from '../src/ids.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import type {
   InputSpec,
   InterfaceItem,
@@ -310,6 +311,37 @@ const workflowFiles = readdirSync(fixtureRoot)
   .sort()
 
 describe('explicit imported list utilities', () => {
+  it.each([0, -1])('imports declared heterogeneous positions using a literal tuple index %s', (index) => {
+    const make = parseDinksterSchema('std.tuple.make', { schemaVersion: 1, interface: [
+      { role: 'inputFamily', id: 'items', required: true, independentTypes: true, template: [{ role: 'input', id: 'value', required: true, type: { kind: 'variable', templateId: 'T' } }] },
+      { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
+    ] }).schema!
+    const get = parseDinksterSchema('std.tuple.get', { schemaVersion: 1, interface: [
+      { role: 'input', id: 'tuple', required: true, type: { kind: 'variable', templateId: 'Tuple' } },
+      { role: 'input', id: 'index', required: true, default: 0, type: { kind: 'concrete', types: ['INT'] } },
+      { role: 'output', id: 'item', type: { kind: 'tuple_element', input: 'tuple', index: 'index' } },
+    ] }).schema!
+    const sink = parseDinksterSchema('Sink', { schemaVersion: 1, outputNode: true, interface: [{ role: 'input', id: 'value', required: true, type: { kind: 'concrete', types: [index === 0 ? 'INT' : 'STRING'] } }] }).schema!
+    const resolve = (type: string) => type === make.type ? make : type === get.type ? get : type === 'Sink' ? sink : coreSchemas.get(type)
+    const workflow: JsonObject = { nodes: [
+      { id: 1, type: 'PrimitiveInt', outputs: [{ name: 'INT' }], widgets_values: [7] },
+      { id: 2, type: 'PrimitiveString', outputs: [{ name: 'STRING' }], widgets_values: ['label'] },
+      { id: 3, type: 'CreateList', inputs: [{ name: 'inputs.input0' }, { name: 'inputs.input1' }], outputs: [{ name: 'list' }] },
+      { id: 4, type: 'GetItemFromList', inputs: [{ name: 'list' }], outputs: [{ name: '*' }], widgets_values: [index] },
+      { id: 5, type: 'Sink', inputs: [{ name: 'value' }] },
+    ], links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 3, 1, 'STRING'], [3, 3, 0, 4, 0, '*'], [4, 4, 0, 5, 0, '*']] }
+    const imported = importLitegraph(workflow, resolve)
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(imported.document!.graphs.g0!.nodes.n3!.type).toBe('std.tuple.make')
+    expect(imported.document!.graphs.g0!.nodes.n4!.type).toBe('std.tuple.get')
+    const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('tuple-import'), schemaHash: 'tuple', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+    if (compiled.ok) {
+      expect(compiled.artifact.dinksterGraph!.nodes.n3).toMatchObject({ nodeType: 'std.tuple.make' })
+      expect(compiled.artifact.dinksterGraph!.nodes.n4).toMatchObject({ inputs: { tuple: { $link: { node: 'n3', output: 'tuple' } }, index } })
+    }
+  })
+
   it.each([
     [false, 0],
     [true, 0],

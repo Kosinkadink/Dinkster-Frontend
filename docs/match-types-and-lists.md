@@ -64,3 +64,15 @@ incompatible connected constraints are reported instead of being coerced.
 There is no implicit scalar-to-list promotion, list-to-scalar extraction, or
 flattening. Use Create List, List Element, Append to List, or Concat Lists to
 make the intended cardinality change visible in the graph.
+
+## Positional tuples
+
+Create Tuple preserves independently typed positions as one scalar value.
+Tuple socket labels show each zero-based position and its type. Tuple Item
+selects a position with a stored integer index; negative indices count from
+the end. Connected indices, nonintegers and out-of-range positions are errors.
+A tuple crossing a region or loop remains one value, not an execution list.
+
+Workflow import lowers homogeneous CreateList values to list operations and
+heterogeneous declared positions to Create Tuple and Tuple Item. This choice
+uses declared source types, never runtime payload inspection.

@@ -2391,7 +2391,7 @@ function importLitegraphGraph(
     },
   } as unknown as JsonObject
 
-  const listHelperOwners = convertLitegraphLists(document, rawNodes, resolve)
+  const listHelperOwners = convertLitegraphLists(document, rawNodes, resolve, rawLinks, diags)
   convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags, listHelperOwners)
   convertLitegraphListConsumers(document, resolve)
 
