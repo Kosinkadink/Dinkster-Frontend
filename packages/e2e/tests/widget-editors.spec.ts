@@ -176,6 +176,22 @@ test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Com
   await expect(page.getByTestId('widget-editor').getByRole('slider')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('float-number-sibling.png'), animations: 'disabled' })
   await page.getByTestId('widget-editor-cancel').click()
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())
+  for (const representationId of ['number', 'slider']) {
+    const point = await rowPoint(page, 'amount')
+    await page.mouse.click(point.x, point.y, { button: 'right' })
+    await page.locator('[data-item-id="core.widget.representation"]').hover()
+    await page.locator(`[data-item-id="core.widget.representation.${representationId}"]`).click()
+    await expect.poll(async () => {
+      const view = (await activeDoc(page)).view.graphs.g0!.nodes.widgets as { views?: Record<string, string> }
+      return view.views?.amount
+    }).toBe(representationId)
+    expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBe(1.23)
+    await openEditor(page, 'amount')
+    await expect(page.getByTestId('widget-editor').locator('input')).toHaveValue('1.23')
+    await expect(page.getByTestId('widget-editor').getByRole('slider')).toHaveCount(representationId === 'slider' ? 1 : 0)
+    await page.getByTestId('widget-editor-cancel').click()
+  }
 })
 
 test('numeric union uses FLOAT editing in canvas and exposed AppView without changing its socket', async ({ page }, testInfo) => {
