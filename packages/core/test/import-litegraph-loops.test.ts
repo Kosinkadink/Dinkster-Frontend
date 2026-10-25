@@ -604,6 +604,26 @@ describe('ComfyUI Generic Loops structural import', () => {
     ).toBe(expected)
   })
 
+  it('gathers scalar tuple outputs despite legacy list metadata', () => {
+    const { workflow, resolve } = importCorpusWorkflow('accumulate-list-output.json')
+    const tuple: TypeExpr = { kind: 'tuple', elements: [
+      { kind: 'concrete', name: 'INT' },
+      { kind: 'concrete', name: 'STRING' },
+    ] }
+    const tupleResolve = (type: string): NodeSchema | undefined => {
+      const schema = resolve(type)
+      return type !== 'Issue408Pair' || schema === undefined ? schema : {
+        ...schema,
+        items: schema.items.map((item) => item.kind === 'output' ? { ...item, type: tuple, isList: true } : item),
+      }
+    }
+    const imported = importLitegraph(workflow, tupleResolve)
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(imported.document).toBeDefined()
+    const region = regionsOf(imported.document!)[0]!.region!
+    expect(region.outputRoles?.['result']?.kind ?? 'gather').toBe('gather')
+  })
+
   it.each([
     ['nested-carry.json', 1],
     ['heterogeneous-carry.json', 1],

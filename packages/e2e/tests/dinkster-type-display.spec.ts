@@ -46,7 +46,14 @@ const expectations: Record<string, { canonical: string; hex: string }> = {
   latent: { canonical: 'LATENT', hex: '#FF9CF9' },
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.title === 'tuple pins retain positional types in the tooltip') {
+    await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
+    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'tuple-e2e', schemaWire: 1 }, nodes: {},
+    } }))
+    await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
+  }
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.evaluate(({ schema, doc }) => {
@@ -80,6 +87,31 @@ test('native built-in pins show the canonical id once in the tooltip', async ({ 
     await page.mouse.move(point.x, point.y + 200)
     await expect(tooltip).toBeHidden()
   }
+})
+
+test('tuple pins retain positional types in the tooltip', async ({ page }, testInfo) => {
+  await page.evaluate((schema) => {
+    window.__dinksterTest!.app.registerSchemas([{
+      ...schema,
+      items: [{ kind: 'output', id: 'tuple', type: { kind: 'tuple', elements: [
+        { kind: 'concrete', name: 'INT' },
+        { kind: 'concrete', name: 'STRING' },
+      ] } }],
+    }] as never)
+  }, schema)
+  const point = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'native')!
+    const pin = node.layout.pins.find((candidate) => candidate.portId === 'tuple')!
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const vp = renderer.getViewport()
+    return { x: rect.left + (node.x + node.layout.width) * vp.scale + vp.x, y: rect.top + (node.y + pin.y) * vp.scale + vp.y }
+  })
+  await page.mouse.move(point.x, point.y)
+  await expect(page.getByTestId('app-tooltip')).toContainText('tuple<0: INT, 1: STRING>')
+  const path = testInfo.outputPath('tuple-type-tooltip.png')
+  await page.screenshot({ path })
+  await testInfo.attach('tuple-type-tooltip', { path, contentType: 'image/png' })
 })
 
 test('native dinkster pins paint in the exact ComfyUI palette colors', async ({ page }) => {

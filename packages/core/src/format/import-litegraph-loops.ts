@@ -840,8 +840,11 @@ export function convertLitegraphLoops(
       const producerRawId = Number(sourceNode.slice(1))
       const producerRaw = byId.get(producerRawId)
       const sourceRawLink = resultInput.raw
+      const convertedType = endpointType(graph, resultInput.link['from'], 'output', resolve)
+      const tupleSource = graph['nodes'][sourceNode]?.['type'] === 'std.tuple.make' ||
+        convertedType?.kind === 'tuple' || convertedType?.kind === 'family_tuple'
       const sourceIsList =
-        convertedOutputIsList.get(sourceNode) ??
+        tupleSource ? false : convertedOutputIsList.get(sourceNode) ??
         (producerRaw !== undefined &&
           outputIsList(producerRaw, sourceRawLink.fromSlot, resolve))
       const role = !accumulate ? 'last' : sourceIsList ? 'flatten' : 'gather'
