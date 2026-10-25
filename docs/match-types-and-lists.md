@@ -65,6 +65,10 @@ There is no implicit scalar-to-list promotion, list-to-scalar extraction, or
 flattening. Use Create List, List Element, Append to List, or Concat Lists to
 make the intended cardinality change visible in the graph.
 
+Workflow import preserves generated map outputs across subgraph boundaries and
+maps downstream scalar consumers explicitly, including save nodes. Dynamic
+selectors remain owned by the mapped body rather than becoming element inputs.
+
 ## Positional tuples
 
 Create Tuple preserves independently typed positions as one scalar value.

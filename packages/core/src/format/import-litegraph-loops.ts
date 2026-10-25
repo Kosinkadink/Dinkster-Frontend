@@ -769,7 +769,7 @@ export function convertLitegraphListConsumers(
       if (!schema || schema.mayExpandGraph) continue
       const elaborated = elaborateInterface(schema, original as NodeData)
       const inputs = elabInputsOf(elaborated).filter(
-        (input) => input.apiName !== undefined,
+        (input) => input.apiName !== undefined && input.origin.kind !== 'selector',
       )
       const sourceIsList = (endpoint: Mutable): boolean => {
         return sourceType(endpoint)?.kind === 'list'
@@ -806,6 +806,14 @@ export function convertLitegraphListConsumers(
       const outputs = elabOutputsOf(elaborated).filter(
         (output) => output.wireable !== false,
       )
+      const boundaryKeys = new Set(inputs.map((input) => elabKeyOf(input.address)))
+      const outputKeys = new Map(outputs.map((output) => {
+        const key = elabKeyOf(output.address)
+        let exposed = key
+        while (boundaryKeys.has(exposed)) exposed = `output.${exposed}`
+        boundaryKeys.add(exposed)
+        return [key, exposed]
+      }))
       const body = {
         id: defId,
         name: schema.displayName,
@@ -824,7 +832,7 @@ export function convertLitegraphListConsumers(
               : {}),
           })),
           outputs: outputs.map((output) => ({
-            id: elabKeyOf(output.address),
+            id: outputKeys.get(elabKeyOf(output.address))!,
             binds: { kind: 'port', node: 'body', ...output.address },
           })),
         },
@@ -835,7 +843,7 @@ export function convertLitegraphListConsumers(
         binding: 'broadcast',
         outputRoles: Object.fromEntries(
           outputs.map((output) => [
-            elabKeyOf(output.address),
+            outputKeys.get(elabKeyOf(output.address))!,
             { kind: output.spec.type.kind === 'list' ? 'flatten' : 'gather' },
           ]),
         ),
@@ -863,11 +871,11 @@ export function convertLitegraphListConsumers(
         for (const link of Object.values(graph['links']) as Mutable[]) {
           for (const side of ['from', 'to'])
             if (endpointNode(link[side]) === id)
-              link[side] = { node: id, port: elabKeyOf(link[side]) }
+              link[side] = { node: id, port: side === 'from' ? outputKeys.get(elabKeyOf(link[side]))! : elabKeyOf(link[side]) }
         }
         for (const net of Object.values(graph['nets']) as Mutable[]) {
           if (endpointNode(net['source']) === id)
-            net['source'] = { node: id, port: elabKeyOf(net['source']) }
+            net['source'] = { node: id, port: outputKeys.get(elabKeyOf(net['source']))! }
           net['sinks'] = net['sinks'].map((sink: Mutable) =>
             endpointNode(sink) === id
               ? {

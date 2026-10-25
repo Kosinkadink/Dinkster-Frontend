@@ -2,7 +2,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import { occurrenceKey, type NodeId } from '../ids.js'
 import { checkDocument } from '../invariants.js'
 import { deriveBoundarySchema } from '../schema/derive-boundary.js'
-import { inputsOf, type NodeSchema, type TypeExpr } from '../schema/model.js'
+import { inputsOf, outputsOf, type NodeSchema, type TypeExpr } from '../schema/model.js'
 import type { BoundaryBinding, BoundaryItem, GraphDef, Json, JsonObject, OccurrenceTopology, WorkflowDocument } from './document.js'
 import type { ImportLitegraphResult } from './import-litegraph.js'
 import { ownJson } from './json.js'
@@ -178,7 +178,9 @@ export function importLitegraphSubgraphs(
     }
     for (const [id] of generated) {
       const graph = graphs[ids.get(id)!]!
-      const derived = deriveBoundarySchema(graph, localResolve)
+      const occurrence = Object.values(document.graphs).flatMap((definition) => Object.values(definition.nodes))
+        .find((node) => node.type === `#${graph.id}`)
+      const derived = deriveBoundarySchema(graph, localResolve, occurrence?.region)
       if (derived.schema) schemas.set(derived.schema.type, derived.schema)
     }
     definitionTopologies.set(owner, Object.values(document.occurrenceTopologies ?? {}).map((topology) => ({
@@ -471,6 +473,9 @@ export function importLitegraphSubgraphs(
       return
     }
     const unresolvedBoundary = deriveErrors.length > 0 || !derived.schema
+    const outputBoundary = unresolvedBoundary ? deriveBoundarySchema({
+      ...candidate, boundary: { inputs: [], outputs: candidate.boundary!.outputs },
+    }, localResolve).schema : undefined
     def.schema = derived.schema ?? {
       ...probe,
       type: `#${id}`,
@@ -485,7 +490,7 @@ export function importLitegraphSubgraphs(
         ...def.raw['outputs'].map((slot: Mutable) => ({
           kind: 'output' as const,
           id: slot['id'],
-          type: importedSlotType(slot['type']),
+          type: (outputBoundary && outputsOf(outputBoundary).find((output) => output.id === slot['id'])?.type) ?? importedSlotType(slot['type']),
         })),
       ],
     }
