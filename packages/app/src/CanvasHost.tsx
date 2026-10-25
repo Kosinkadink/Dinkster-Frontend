@@ -241,7 +241,7 @@ export function selectedInputPreviewA11yTargets(
 export function CanvasPreviewA11y(props: { readonly targets: readonly CanvasPreviewA11yTarget[] }) {
   return (
     <Show when={props.targets.length > 0}>
-      <div class="canvas-widget-a11y" aria-label="Selected input previews">
+      <div class="canvas-widget-a11y" role="group" aria-label="Selected input previews">
         <For each={props.targets}>{(item) => (
           <div role="img" data-testid="canvas-preview-a11y" aria-label={item.label}>{item.label}</div>
         )}</For>
@@ -6207,7 +6207,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         />}
       </Show>
       <Show when={!editor() && !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()}>
-        <div class="canvas-widget-a11y" aria-label="Canvas widget controls">
+        <div class="canvas-widget-a11y" role="group" aria-label="Canvas widget controls">
           <For each={widgetA11yTargets()}>{(item) => (
             <ProductButton size="compact"
               type="button"

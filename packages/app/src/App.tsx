@@ -2484,6 +2484,7 @@ export function App(props: {
         )}
       </Show>
       <header class="topbar" aria-label={message('shell.applicationControls')}>
+        <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
         <div class="topbar-group topbar-group-left">
           <DinksterAppMenu
             commands={app.commands}
@@ -2820,11 +2821,13 @@ export function App(props: {
       )}</Show>
 
       <Show when={tooltip()}>{(tip) => (
-        <div class="app-tooltip" data-testid="app-tooltip" style={{ left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`, top: `${Math.max(8, Math.min(tip().y, window.innerHeight - 120))}px` }}>
-          <Show when={tip().title}><div class="app-tooltip-title">{tip().title}</div></Show>
-          <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
-          <Show when={tip().detailed}><For each={tip().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
-        </div>
+        <aside class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip" style={{ left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`, top: `${Math.max(8, Math.min(tip().y, window.innerHeight - 120))}px` }}>
+          <div role="tooltip">
+            <Show when={tip().title}><div class="app-tooltip-title">{tip().title}</div></Show>
+            <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
+            <Show when={tip().detailed}><For each={tip().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
+          </div>
+        </aside>
       )}</Show>
       <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
         <ProductEmptyState

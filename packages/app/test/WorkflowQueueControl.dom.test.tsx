@@ -172,7 +172,7 @@ describe('WorkflowQueueControl', () => {
     const queue = root.querySelector<HTMLButtonElement>('[data-testid="queue-button"]')!
     const toggle = root.querySelector<HTMLButtonElement>('[data-testid="workflow-queue-toggle"]')!
     expect(queue.getAttribute('aria-label')).toBe('Queue Alpha workflow')
-    expect(toggle.getAttribute('aria-label')).toBe('Show queue for Alpha workflow')
+    expect(toggle.getAttribute('aria-label')).toBe('1 recent: Show queue for Alpha workflow')
     toggle.focus()
     toggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     expect(toggle.getAttribute('aria-expanded')).toBe('true')

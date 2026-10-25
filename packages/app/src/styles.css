@@ -667,7 +667,7 @@ body,
 .search-result-row-detail,
 .search-result-row-description {
   min-width: 0;
-  color: var(--dinkster-text-muted);
+  color: var(--dinkster-text-secondary);
   font-size: var(--dinkster-type-metadata-size);
   line-height: var(--dinkster-type-metadata-line);
   overflow-wrap: anywhere;
@@ -2943,6 +2943,8 @@ body,
 .palette-categories > button span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .palette-category-row > button:last-child span:last-child,
 .palette-categories > button span:last-child { flex: none; color: var(--dinkster-text-muted); }
+.palette-category-row > button:last-child.active span:last-child,
+.palette-categories > button.active span:last-child { color: inherit; }
 .palette-category-row .category-toggle {
   display: inline-flex;
   width: var(--dinkster-control-compact-height);

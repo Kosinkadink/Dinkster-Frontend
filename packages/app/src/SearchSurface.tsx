@@ -81,7 +81,7 @@ export function SearchResultGroup(props: {
       role={props.role ?? 'group'}
       aria-labelledby={headingId}
     >
-      <header class="search-result-group-header">
+      <header class="search-result-group-header" aria-hidden={props.role !== 'region' ? 'true' : undefined}>
         <h2 id={headingId}>{props.label}</h2>
         <Show when={props.count !== undefined}>
           <span aria-label={`${props.count} results`}>{props.count}</span>
