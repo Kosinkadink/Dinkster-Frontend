@@ -125,6 +125,9 @@ Base, hosted and audit Playwright servers explicitly enable the v1
 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing
 development server is reused or stopped.
+The hosted native server also accepts the `localhost` Host alias so the
+run-history backend-switch test can address the same server through two
+distinct backend identities without an HTTP 421 schema rejection.
 
 Owners still run lint, typecheck, full unit/component suites, app build,
 fixture drift and relevant browser checks locally before landing. The fast
