@@ -24,6 +24,7 @@ import { ProductButton, ProductCheckbox, ProductColorInput, ProductTextInput } f
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductSlider } from './ProductSlider.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 interface RuntimeCompositor {
   readonly state: CompositorState
@@ -345,7 +346,7 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
   })
 
   return <section class="image-editor compositor-editor" data-testid="compositor-editor">
-    <Show when={target()} fallback={<div class="editor-missing">{message('compositor.noTarget')}</div>}>
+    <Show when={target()} fallback={<ProductEmptyState title={message('compositor.noTarget')} />}>
       {(request) => <>
         <header class="image-editor-header">
           <div><strong>{message('compositor.editor')}</strong><span>{message('compositor.title')}</span><small>{request().nodeId} / {request().inputId}</small></div>
@@ -355,10 +356,7 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
           </div>
         </header>
         <Show when={draft()} fallback={
-          <div class="compositor-empty" data-testid="compositor-empty">
-            <strong>{message('compositor.empty.title')}</strong>
-            <p>{message('compositor.empty.detail')}</p>
-          </div>
+          <ProductEmptyState testId="compositor-empty" title={message('compositor.empty.title')} hint={message('compositor.empty.detail')} />
         }>
           {(recipe) => <div class="compositor-editor-body">
             <aside class="compositor-layer-panel" aria-label={message('compositor.layers.ariaLabel')}>

@@ -244,7 +244,8 @@ describe('UniversalSearch palette', () => {
 
     expect(root.querySelector('[data-provider="sync"]')).not.toBeNull()
     expect(root.querySelector('[data-provider="async"] [data-search-state="loading"]')?.textContent).toContain('Searching Async')
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('Searching providers')
+    expect(root.querySelector('[data-provider="async"] [role="status"]')?.getAttribute('aria-live')).toBe('polite')
+    expect(document.getElementById(input(root).getAttribute('aria-describedby')!)?.textContent).toContain('Searching providers')
     expect(calls).toBe(0)
     input(root).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     expect(root.querySelector('.search-result-row.active')?.textContent).toContain('sync-second')
@@ -281,6 +282,7 @@ describe('UniversalSearch palette', () => {
     const errorState = failed.root.querySelector('[data-search-state="error"]')!
     expect(errorState.textContent).toContain('Provider unavailable')
     expect(errorState.textContent).toContain('Private provider could not return results')
+    expect(errorState.querySelector('[role="alert"]')?.textContent).toContain('Provider unavailable')
     expect(failed.root.querySelector('[role="listbox"]')!.contains(errorState)).toBe(false)
     expect(errorState.closest('[role="region"]')).not.toBeNull()
     expect(errorState.closest('[role="group"]')).toBeNull()

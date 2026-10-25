@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 200,
+    "rawControl": 176,
     "inlineStyle": 65,
-    "cssLiteral": 376
+    "cssLiteral": 361
   },
   "entries": [
     {
@@ -50,12 +50,6 @@
     },
     {
       "kind": "rawControl",
-      "path": "packages/app/src/BackendsPanel.tsx",
-      "count": 5,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
       "path": "packages/app/src/BadgePopover.tsx",
       "count": 5,
       "issue": 382
@@ -81,7 +75,7 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/CollabPanel.tsx",
-      "count": 8,
+      "count": 6,
       "issue": 382
     },
     {
@@ -100,12 +94,6 @@
       "kind": "inlineStyle",
       "path": "packages/app/src/CompositorEditor.tsx",
       "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/ConnectionProfiles.tsx",
-      "count": 10,
       "issue": 382
     },
     {
@@ -235,12 +223,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/OutputMountSettings.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
       "kind": "inlineStyle",
       "path": "packages/app/src/PanelDragOverlay.tsx",
       "count": 4,
@@ -262,12 +244,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/ProductTabs.tsx",
       "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/ProjectsDialog.tsx",
-      "count": 6,
       "issue": 382
     },
     {
@@ -453,7 +429,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 376,
+      "count": 361,
       "issue": 382
     },
     {

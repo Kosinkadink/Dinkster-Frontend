@@ -212,7 +212,7 @@ describe('SettingsDialog search', () => {
     const search = root.querySelector<HTMLInputElement>('.settings-search')!
 
     expect(root.querySelector('[role="status"]')?.textContent).toBe('0 results for "no such setting"')
-    expect(root.querySelector('.settings-empty-results')?.textContent).toContain('No matching settings')
+    expect(root.textContent).toContain('No matching settings')
     expect(root.querySelectorAll('.settings-result-group')).toHaveLength(0)
     expect([...root.querySelectorAll<HTMLButtonElement>('.settings-categories button')].slice(1).every((button) => button.disabled)).toBe(true)
 
@@ -221,7 +221,7 @@ describe('SettingsDialog search', () => {
     expect(escape.defaultPrevented).toBe(true)
     expect(search.value).toBe('')
     expect(document.activeElement).toBe(search)
-    expect(root.querySelector('.settings-empty-results')).toBeNull()
+    expect(root.textContent).not.toContain('No matching settings')
     unmount()
   })
 
@@ -248,7 +248,7 @@ describe('SettingsDialog search', () => {
     unregisterShell()
 
     expect(root.querySelector('[role="status"]')?.textContent).toBe('0 results for "grid" in Shell')
-    expect(root.querySelector('.settings-empty-results')?.textContent).toContain('No matching settings')
+    expect(root.textContent).toContain('No matching settings')
     expect(root.querySelectorAll('.settings-result-group')).toHaveLength(0)
     unmount()
   })

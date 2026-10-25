@@ -49,6 +49,20 @@ describe('product control primitives', () => {
     expect(loading!.getAttribute('aria-busy')).toBe('true')
   })
 
+  it('preserves caller-owned busy state without disabling a focusable action', () => {
+    const [busy, setBusy] = createSignal(true)
+    const root = mount(() => <ProductButton aria-busy={busy()} aria-disabled={busy()}>Refresh</ProductButton>)
+    const button = root.querySelector<HTMLButtonElement>('button')!
+    button.focus()
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(button.disabled).toBe(false)
+    expect(document.activeElement).toBe(button)
+    setBusy(false)
+    expect(button.getAttribute('aria-busy')).toBe('false')
+    expect(button.getAttribute('aria-disabled')).toBe('false')
+    expect(document.activeElement).toBe(button)
+  })
+
   it('retains labels, values, input events and invalid state', () => {
     const changed = vi.fn()
     const root = mount(() => (
@@ -77,6 +91,7 @@ describe('product surface primitives', () => {
       <>
         <ProductPanelHeader
           title="Problems"
+          headingId="problems-heading"
           count={2}
           actions={<ProductButton>Clear</ProductButton>}
         />
@@ -96,6 +111,7 @@ describe('product surface primitives', () => {
       </>
     ))
     expect(root.querySelector('h2')?.textContent).toBe('Problems')
+    expect(root.querySelector('h2')?.id).toBe('problems-heading')
     expect(
       root.querySelector('[role="option"]')?.getAttribute('aria-selected'),
     ).toBe('true')

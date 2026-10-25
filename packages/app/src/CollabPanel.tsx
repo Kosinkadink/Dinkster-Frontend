@@ -3,6 +3,8 @@ import type { CollabSessionDescriptor, SharedSessionStatus } from '@dinkster/cor
 import type { AppState, CollabTabState, Tab } from './app-state.js'
 import { actorColor, actorLabel } from './collab-presence.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductButton } from './ProductControls.js'
+import { ProductEmptyState, ProductListRow, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
 
@@ -271,23 +273,18 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
       <p class="collab-announcer" role="status" aria-live="polite" aria-atomic="true">{announcement()}</p>
 
       <section class="collab-current" aria-labelledby="collab-current-heading">
-        <header class="collab-section-heading">
-          <div>
-            <span class="collab-eyebrow">Active workflow</span>
-            <h2 id="collab-current-heading">This workflow</h2>
-          </div>
-        </header>
+        <span class="collab-eyebrow">Active workflow</span>
+        <ProductPanelHeader headingId="collab-current-heading" title="This workflow" />
         <Show
           when={activeCollab()}
           keyed
           fallback={
-            <article ref={unsharedState} class="collab-unshared" data-testid="collab-unshared" tabindex="-1">
-              <strong>Not shared</strong>
-              <p>{
+            <article ref={unsharedState} data-testid="collab-unshared" tabindex="-1">
+              <ProductEmptyState title="Not shared" hint={
                 activeTab() === undefined ? 'Open a workflow to share it from its tab menu.'
                 : activeTab()!.execution !== undefined ? 'Execution snapshots cannot be shared.'
                 : 'This workflow is local. Open its tab menu to start sharing.'
-              }</p>
+              } />
               <Show when={backend() === undefined}>
                 <ProductNotice tone="info" testId="collab-backend-unavailable">
                   Connect a Dinkster backend to host collaboration sessions.
@@ -504,12 +501,9 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
       </section>
 
       <section class="collab-join" aria-labelledby="collab-join-heading" aria-busy={isPending('refresh')}>
-        <header class="collab-section-heading collab-list-heading">
-          <div>
-            <span class="collab-eyebrow">Available now</span>
-            <h2 id="collab-join-heading">Shared sessions</h2>
-          </div>
-          <button
+        <span class="collab-eyebrow">Available now</span>
+        <ProductPanelHeader headingId="collab-join-heading" title="Shared sessions" actions={
+          <ProductButton
             type="button"
             data-testid="collab-refresh"
             data-action-state={isPending('refresh') ? 'pending' : 'idle'}
@@ -520,31 +514,20 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
           >
             <Show when={isPending('refresh')}><span class="collab-spinner" aria-hidden="true" /></Show>
             {isPending('refresh') ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </header>
+          </ProductButton>
+        } />
 
         <Show when={listState() === 'loading'}>
-          <div class="collab-list-state" data-testid="collab-loading" data-state="loading">
-            <span class="collab-spinner" aria-hidden="true" />
-            <div><strong>Loading shared sessions</strong><span>Checking this backend for sessions you can join.</span></div>
-          </div>
+          <ProductEmptyState tone="loading" testId="collab-loading" title="Loading shared sessions" hint="Checking this backend for sessions you can join." icon={<span class="collab-spinner" />} />
         </Show>
         <Show when={listState() === 'unavailable'}>
-          <div class="collab-list-state" data-testid="collab-no-backend" data-state="unavailable">
-            <strong>No collaboration backend</strong>
-            <span>Connect a Dinkster backend to discover and host shared sessions.</span>
-          </div>
+          <ProductEmptyState testId="collab-no-backend" title="No collaboration backend" hint="Connect a Dinkster backend to discover and host shared sessions." />
         </Show>
         <Show when={listState() === 'error'}>
-          <ProductNotice tone="error" testId="collab-list-error">
-            Sessions could not be loaded: {failureFor('refresh')}
-          </ProductNotice>
+          <ProductEmptyState tone="error" testId="collab-list-error" title="Sessions could not be loaded" hint={failureFor('refresh')} />
         </Show>
         <Show when={listState() === 'ready' && sessions().length === 0}>
-          <div class="collab-list-state" data-testid="collab-empty" data-state="empty">
-            <strong>No shared sessions</strong>
-            <span>Refresh when someone else starts a session.</span>
-          </div>
+          <ProductEmptyState testId="collab-empty" title="No shared sessions" hint="Refresh when someone else starts a session." />
         </Show>
         <Show when={listState() === 'ready' && sessions().length > 0}>
           <ul class="collab-session-list" data-testid="collab-session-list">
@@ -552,26 +535,23 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
               {(session) => {
                 const key = `join:${session.sessionId}` as const
                 return (
-                  <li class="collab-session-card" data-testid="collab-session" data-session-id={session.sessionId}>
-                    <div class="collab-session-row-heading">
-                      <div class="collab-session-identity">
-                        <strong>{session.documentId}</strong>
-                        <code>{session.sessionId}</code>
-                      </div>
-                      <span class="collab-revision">Revision {session.revision}</span>
-                    </div>
-                    <button
-                      type="button"
-                      class="collab-primary-action"
-                      data-testid="collab-join"
-                      data-action-state={isPending(key) ? 'pending' : 'idle'}
-                      aria-busy={isPending(key)}
-                      aria-disabled={isPending(key)}
-                      onClick={() => join(session.sessionId)}
-                    >
-                      <Show when={isPending(key)}><span class="collab-spinner" aria-hidden="true" /></Show>
-                      {isPending(key) ? 'Joining...' : 'Join session'}
-                    </button>
+                  <li data-testid="collab-session" data-session-id={session.sessionId}>
+                    <ProductListRow
+                      primary={session.documentId}
+                      secondary={<><code>{session.sessionId}</code> - Revision {session.revision}</>}
+                      actions={<ProductButton
+                        type="button"
+                        variant="primary"
+                        data-testid="collab-join"
+                        data-action-state={isPending(key) ? 'pending' : 'idle'}
+                        aria-busy={isPending(key)}
+                        aria-disabled={isPending(key)}
+                        onClick={() => join(session.sessionId)}
+                      >
+                        <Show when={isPending(key)}><span class="collab-spinner" aria-hidden="true" /></Show>
+                        {isPending(key) ? 'Joining...' : 'Join session'}
+                      </ProductButton>}
+                    />
                     <Show when={failureFor(key)}>{(message) => (
                       <ProductNotice tone="error" testId="collab-join-error">Join failed: {message()}</ProductNotice>
                     )}</Show>

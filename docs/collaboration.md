@@ -39,6 +39,9 @@ never deletes the server session. Ending is always an explicit action.
 ## Session management presentation
 
 The modal separates the active workflow from sessions available to join.
+Both sections use ProductPanelHeader with labelled section headings. Discovered
+sessions use ProductListRow with document identity, session identity, revision,
+and a trailing ProductButton; the active session retains its detailed card.
 Discovery has distinct loading, unavailable, empty, ready, and failed states;
 a failed request never also claims that the list is empty. Active sessions
 show the document and session identities, backend, exact

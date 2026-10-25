@@ -5,6 +5,14 @@ currently open on the canvas. Inputs describe values entering the workflow;
 outputs describe values returned by it. Empty sections remain visible so the
 absence of an interface is explicit.
 
+Outside a subgraph, the panel shows a ProductEmptyState prompt instead of a
+blank area. An Open action is available for each subgraph occurrence on the
+current canvas whose definition has a boundary. It enters through that
+occurrence, preserving instance navigation without editing the document.
+When there is no available occurrence, the prompt explains how to open a
+subgraph on the canvas. Empty input and output sections use ProductEmptyState
+and retain their status announcements.
+
 Drilling into a subgraph definition leaves the current side-panel tab active.
 An information badge highlights the Boundary tab while its editor is available;
 the badge clears after navigating back out of the definition. The badge follows

@@ -154,6 +154,7 @@ import { ModalSurface } from './ModalSurface.js'
 import { palettePreviewLayout, placementSchemaKey } from './palette-node-preview.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import {
   CanvasSemanticNavigator,
   buildCanvasSemanticItems,
@@ -6503,7 +6504,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           >
             <Show
               when={valueSourceInfoFor(p().valueSourceId)}
-              fallback={<p class="empty">Value source missing.</p>}
+              fallback={<ProductEmptyState title="Value source missing." />}
             >
               {(info) => (
                 <>
@@ -6578,7 +6579,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           >
             <Show
               when={selectorExecInfoFor(p().selectorId)}
-              fallback={<p class="empty">Selector missing.</p>}
+              fallback={<ProductEmptyState title="Selector missing." />}
             >
               {(info) => (
                 <>

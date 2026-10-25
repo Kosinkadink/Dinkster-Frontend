@@ -2,7 +2,8 @@
 
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { registerCatalog, setLocale } from '@dinkster/core'
+import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
+import { DinksterConnection, type FetchLike, type WebSocketLike } from '@dinkster/client'
 import { DesktopManagementDialog, type DesktopMountConnection } from '../src/DesktopManagementDialog.js'
 import type { DesktopInfo, DinksterDesktopBridge } from '../src/desktop-bridge.js'
 
@@ -93,6 +94,23 @@ afterEach(() => {
 })
 
 describe('DesktopManagementDialog', () => {
+  it('displays the latest mount snapshot when its initial read finishes after another refresh', async () => {
+    let finish!: (response: Response) => void
+    const fetchFn = vi.fn<FetchLike>()
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      .mockImplementation(async () => new Response(JSON.stringify({
+        mounts: [{ id: 'current-models', mode: 'read', state: 'ready' }], mountChangesAllowed: true,
+      })))
+    const connection = new DinksterConnection({ id: asConnectionId('desktop'), baseUrl: '', clientId: 'test', fetchFn, webSocketFactory: () => ({}) as WebSocketLike })
+    const { root, unmount } = mount(connection)
+    await flush()
+    await connection.fetchMountSettings()
+    finish(new Response(JSON.stringify({ mounts: [{ id: 'removed-models', mode: 'read', state: 'ready' }] })))
+    await vi.waitFor(() => expect(root.querySelector('.desktop-mount-list')?.textContent).toContain('current-models - ready - read'))
+    expect(root.querySelector('.desktop-mount-list')?.textContent).not.toContain('removed-models')
+    unmount()
+  })
+
   it('shows release, storage, update, and rollback controls', async () => {
     const { root, selectEngine } = mount()
     await flush()

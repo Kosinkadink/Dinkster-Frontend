@@ -2,6 +2,7 @@ import { Show, type JSX } from 'solid-js'
 
 export function ProductPanelHeader(props: {
   readonly title: JSX.Element
+  readonly headingId?: string
   readonly count?: JSX.Element
   readonly actions?: JSX.Element
   readonly class?: string
@@ -13,7 +14,7 @@ export function ProductPanelHeader(props: {
       data-testid={props.testId}
     >
       <div class="product-panel-header-title">
-        <h2>{props.title}</h2>
+        <h2 id={props.headingId}>{props.title}</h2>
         <Show when={props.count !== undefined}>
           <span class="product-panel-header-count">{props.count}</span>
         </Show>
