@@ -1161,6 +1161,37 @@ const topologyResolver = (workflow: JsonObject) => {
 }
 
 describe('ComfyUI Generic Loops structural import', () => {
+  it.each(['simple', 'For'])('gathers heterogeneous tuples as single values in a %s loop', (mode) => {
+    const make = parseDinksterSchema('std.tuple.make', { schemaVersion: 1, interface: [
+      { role: 'inputFamily', id: 'items', required: true, independentTypes: true, template: [{ role: 'input', id: 'value', required: true, type: { kind: 'variable', templateId: 'T' } }] },
+      { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
+    ] }).schema!
+    const workflow: JsonObject = { nodes: [
+      { id: 1, type: 'StartLoop', outputs: [{ name: 'iteration_index' }], widgets_values: { mode, 'mode.num_iterations': 2, 'mode.start_iteration_index': 1, 'mode.max_iteration': 4, 'mode.step': 2 } },
+      { id: 2, type: 'PrimitiveString', outputs: [{ name: 'STRING' }], widgets_values: ['label'] },
+      { id: 3, type: 'CreateList', inputs: [{ name: 'inputs.input0' }, { name: 'inputs.input1' }], outputs: [{ name: 'list' }] },
+      { id: 4, type: 'EndLoop', inputs: [{ name: 'output_value' }], outputs: [{ name: 'output' }], widgets_values: { accumulate: true } },
+      { id: 5, type: 'Sink', inputs: [{ name: 'value' }] },
+    ], links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 3, 1, 'STRING'], [3, 3, 0, 4, 0, '*'], [4, 4, 0, 5, 0, '*']] }
+    const tuple: TypeExpr = { kind: 'tuple', elements: [{ kind: 'concrete', name: 'INT' }, { kind: 'concrete', name: 'STRING' }] }
+    const sink: NodeSchema = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true, items: [{ kind: 'input', id: 'value', optional: false, type: { kind: 'list', element: tuple } }] }
+    const resolve = (type: string) => type === make.type ? make : type === sink.type ? sink : coreSchemas.get(type) ?? helperSchemas.get(type)
+    const imported = importLitegraph(workflow, resolve)
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    const region = regionsOf(imported.document!)[0]!
+    expect(region.region!.outputRoles?.['result']?.kind ?? 'gather').toBe('gather')
+    const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('tuple-loop'), schemaHash: 'tuple', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+    if (compiled.ok) {
+      const fold = compiled.artifact.dinksterGraph!.nodes[region.id]!
+      expect('region' in fold).toBe(true)
+      if ('region' in fold) {
+        expect(fold.region.outputs['result']?.mode ?? 'gather').toBe('gather')
+        expect(fold.region.outputs['result']?.source).toEqual({ node: 'n3', output: 'tuple' })
+      }
+    }
+  })
+
   it('keeps the fixed-SHA acceptance corpus complete', () => {
     expect(workflowFiles).toHaveLength(23)
   })
@@ -1651,7 +1682,7 @@ describe('ComfyUI Generic Loops structural import', () => {
     const imported = importLitegraph(positional, resolve)
     expect(imported.document).toBeDefined()
     const region = regionsOf(imported.document!)[0]!
-    expect(region.values['iteration_index']).toEqual([2, 5])
+    expect(region.values['iteration_index']).toEqual({ $typed: { type: 'list<INT>', value: [2, 5] } })
     expect(region.region!.cachePolicy).toBe('reuse')
     expect(region.region!.outputRoles?.['result']).toBeUndefined()
   })

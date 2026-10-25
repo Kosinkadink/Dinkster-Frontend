@@ -1140,7 +1140,7 @@ export function convertLitegraphLoops(
         : undefined
     let sequenceSource: Mutable | undefined
     if (iteration.mode === 'range' && !linkedRange) {
-      values['iteration_index'] = iteration.values
+      values['iteration_index'] = { $typed: { type: 'list<INT>', value: iteration.values } }
       elementPorts.add('iteration_index')
     }
 
@@ -1406,10 +1406,13 @@ export function convertLitegraphLoops(
       const producerRawId = Number(sourceNode.slice(1))
       const producerRaw = byId.get(producerRawId)
       const sourceRawLink = resultInput.raw
+      const sourceType = endpointType(graph, resultInput.link['from'], 'output', localResolve)
       const sourceIsList =
-        convertedOutputIsList.get(sourceNode) ??
-        (producerRaw !== undefined &&
-          outputIsList(producerRaw, sourceRawLink.fromSlot, resolve))
+        sourceType?.kind === 'tuple' || sourceType?.kind === 'family_tuple'
+          ? false
+          : convertedOutputIsList.get(sourceNode) ??
+            (producerRaw !== undefined &&
+              outputIsList(producerRaw, sourceRawLink.fromSlot, resolve))
       const role = !accumulate ? 'last' : sourceIsList ? 'flatten' : 'gather'
       addOutput('result', resultInput.link['from'], role)
       convertedOutputIsList.set(startId, accumulate && sourceIsList)

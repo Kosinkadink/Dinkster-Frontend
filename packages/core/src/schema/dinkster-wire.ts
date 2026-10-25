@@ -1969,7 +1969,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
       if (type.kind === 'family_tuple') {
         const family = decodedInputs.get(type.input)?.dynamic
-        if (!output || family?.kind !== 'autogrow' || !family.independentTypes) throw new Error('family_tuple requires an independent input family and an output declaration')
+        if (!output || family?.kind !== 'autogrow' || !family.independentTypes || family.template.length !== 1) throw new Error('family_tuple requires an independent single-input family and an output declaration')
       } else if (type.kind === 'tuple_element') {
         const source = type.input === undefined ? undefined : decodedInputs.get(type.input)
         const selector = typeof type.index === 'string' ? decodedInputs.get(type.index) : undefined

@@ -229,6 +229,21 @@ const n = asNodeId
 // ---------------------------------------------------------------------------
 
 describe('positional tuple types', () => {
+  it('rejects a tuple family with more than one input per member', () => {
+    const parsed = parseDinksterSchema('InvalidTuple', {
+      schemaVersion: 1,
+      interface: [
+        { role: 'inputFamily', id: 'items', independentTypes: true, template: [
+          { role: 'input', id: 'first', required: true, type: { kind: 'variable', templateId: 'T' } },
+          { role: 'input', id: 'second', required: true, type: { kind: 'variable', templateId: 'U' } },
+        ] },
+        { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
+      ],
+    })
+    expect(parsed.schema).toBeUndefined()
+    expect(parsed.diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
+  })
+
   it.each([false, true])('projects independent family positions with reversed edge order=%s', (reverse) => {
     expect(tupleMake).toBeDefined()
     expect(tupleGet).toBeDefined()

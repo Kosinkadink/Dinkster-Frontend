@@ -102,7 +102,7 @@ import {
   type BoundaryCrossing,
 } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -2767,6 +2767,8 @@ function compileImpl(
   const resolvingNativeTypes = new Set<string>()
   const nativeInputType = (fn: FlatNode, key: string): TypeExpr | undefined => {
     const value = fn.inputs[key]
+    const stamped = value === undefined ? undefined : parseTypedLiteralWire(value)
+    if (stamped !== undefined) return typeExprFromTypeId(stamped.type)
     if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && typeof value[1] === 'number') {
       return nativeOutputType(value[0], value[1])
     }
