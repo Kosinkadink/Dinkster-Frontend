@@ -80,6 +80,10 @@ export interface NodeOutputSummary {
 
 export interface NodeProgress {
   readonly state: NodeRunState
+  /** Runtime parent that created this child during expansion. */
+  readonly parentRuntimeNodeId?: string
+  /** Runtime occurrence that presents this child's progress to the user. */
+  readonly displayRuntimeNodeId?: string
   /** Selected implementation for this attempt, when reported by Dinkster. */
   readonly executionArm?: ExecutionArm
   /** Concrete provider selected for this attempt, when reported by Dinkster. */
@@ -105,6 +109,24 @@ export interface NodeProgress {
    * intermediate nodes mid-run (job results only cover targets).
    */
   readonly outputs?: Readonly<Record<string, NodeOutputSummary>>
+}
+
+/** One absence reason, emitted once for the runtime node that became blocked. */
+export interface NodeBlockedReason {
+  /** Root producer output whose absence reached this node. */
+  readonly origin: string
+  /** Engine-provided explanation for the absence. */
+  readonly message: string
+  /** Runtime occurrence that presents this blocked child to the user. */
+  readonly displayRuntimeNodeId?: string
+}
+
+/** Runtime children created while executing one parent node. */
+export interface NodeExpansion {
+  readonly children: readonly string[]
+  readonly childCount: number
+  /** Runtime occurrence that presents this expanded child to the user. */
+  readonly displayRuntimeNodeId?: string
 }
 
 export interface RegionProgress {
@@ -218,6 +240,22 @@ export type NormalizedEvent =
        * terminal) instead of overwriting newer live state.
        */
       readonly snapshot?: true
+    }
+  | {
+      /** One displayable root-absence explanation for a runtime node. */
+      readonly kind: 'nodeBlocked'
+      readonly execution: ExecutionRef
+      readonly timestamp: number
+      readonly runtimeNodeId: string
+      readonly blocked: NodeBlockedReason
+    }
+  | {
+      /** Runtime children created by one parent node during this execution. */
+      readonly kind: 'nodeExpanded'
+      readonly execution: ExecutionRef
+      readonly timestamp: number
+      readonly runtimeNodeId: string
+      readonly expansion: NodeExpansion
     }
   | {
       /** Preview frame/media chunk on a preview channel. */

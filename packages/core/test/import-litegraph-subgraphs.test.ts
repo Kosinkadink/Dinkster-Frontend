@@ -43,6 +43,48 @@ const prompt = (document: WorkflowDocument, resolver = resolve) => {
 }
 
 describe('LiteGraph subgraphs', () => {
+  it.each([false, true])('maps a scalar sink after a generated map crosses a subgraph boundary (unresolved input: %s)', (unresolved) => {
+    const source: NodeSchema = {
+      type: 'ListSource', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'output', id: 'values', type: { kind: 'list', element: { kind: 'concrete', name: 'INT' } } }],
+    }
+    const sink: NodeSchema = {
+      type: 'SaveValue', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      items: [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false },
+        { kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+          dynamic: { kind: 'dynamicCombo', options: [{ key: 'auto', inputs: [] }], defaultOption: 'auto' } },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' } },
+      ],
+    }
+    const resolver = (type: string) => type === 'ListSource' ? source : type === 'SaveValue' ? sink : resolve(type)
+    const doc = imported({
+      nodes: [
+        { id: 10, type: 'inner', outputs: [{ name: 'result', links: [1] }] },
+        { id: 20, type: 'SaveValue', inputs: [{ name: 'value', link: 1 }], outputs: [{ name: 'value' }], widgets_values: ['auto'] },
+      ],
+      links: [link(1, 10, 0, 20, 0)],
+      definitions: { subgraphs: [{
+        id: 'inner', name: 'inner', version: 1,
+        inputs: unresolved ? [{ id: 'unresolved', name: 'missing', type: 'INT', linkIds: [3] }] : [],
+        outputs: [{ id: 'out', name: 'result', type: 'INT', linkIds: [2] }],
+        nodes: [
+          { id: 1, type: 'ListSource', outputs: [{ name: 'values', links: [1] }] },
+          { ...relay(2), outputs: [{ name: 'result', links: [2] }] },
+          ...(unresolved ? [{ id: 3, type: 'UnknownInput', inputs: [{ name: 'missing', link: 3 }] }] : []),
+        ],
+        links: [link(1, 1, 0, 2, 0), link(2, 2, 0, -20, 0), ...(unresolved ? [link(3, -10, 0, 3, 0)] : [])],
+      }] },
+    }, resolver)
+    expect(doc.graphs.g0!.nodes.n20!.region).toMatchObject({ kind: 'map', elementPorts: ['value'] })
+    expect(doc.graphs['list-map-n20']!.boundary!.outputs[0]!.id).toBe('output.value')
+    if (unresolved) return
+    const result = compile({ document: doc, revision: 1, resolve: resolver, scope: { kind: 'full' },
+      connection: asConnectionId('test'), schemaHash: 'list-boundary', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (result.ok) expect(result.artifact.dinksterGraph!.nodes.n20).toHaveProperty('region')
+  })
+
   it('maps UUID ports, widget values, output indices and fan-out through a reusable definition', () => {
     const def = definition()
     def.nodes.push(relay(2))

@@ -27,10 +27,15 @@ export function projectExecutionNodeStates(args: {
 }): Readonly<Record<string, NodeProgress>> {
   if (args.instancePath === undefined) return {}
 
+  const toSource = { ...args.toSource }
+  for (const [runtimeId, progress] of Object.entries(args.states)) {
+    if (progress.displayRuntimeNodeId === undefined) continue
+    toSource[runtimeId] = args.toSource?.[progress.displayRuntimeNodeId] ?? progress.displayRuntimeNodeId
+  }
   const occurrences = occurrencesForView({
     instancePath: args.instancePath,
     runtimeIds: Object.keys(args.states),
-    toSource: args.toSource,
+    toSource,
   })
   const sceneNodes = new Map(args.scene.nodes.map((node) => [node.id, node]))
   return nodeStatesForGraph(args.states, args.scene, (id, isSubgraph) =>
