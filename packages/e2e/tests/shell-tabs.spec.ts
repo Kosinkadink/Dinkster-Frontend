@@ -379,8 +379,8 @@ test('settings is pinned under the two-line label-under-icon rail controls', asy
   })
   const buttons = sidebar.locator('.sidebar-button')
   const names = await buttons.evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-label')))
-  const standardNames = ['Workflow library', 'Assets', 'Backends', 'Memory telemetry', 'Activity', 'Execution log', 'Settings']
-  const namesWithGuides = [standardNames[0]!, 'Learning guides', ...standardNames.slice(1)]
+  const standardNames = ['Library: Workflow library', 'Assets', 'Backends', 'Memory: Memory telemetry', 'Activity', 'Execution log', 'Settings']
+  const namesWithGuides = [standardNames[0]!, 'Learn: Learning guides', ...standardNames.slice(1)]
   expect([standardNames, namesWithGuides]).toContainEqual(names)
 })
 
