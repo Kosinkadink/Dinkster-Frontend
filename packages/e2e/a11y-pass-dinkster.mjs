@@ -92,6 +92,12 @@ async function audit(page, id, note) {
   }[id]
   if (!surface) throw new Error(`Unknown audit screen ${id}`)
   await expect(page.locator(surface).first()).toBeVisible()
+  if (id === '01-start-gallery') {
+    await expect(
+      page.locator('.template-family[role="group"][aria-label]').first(),
+    ).toBeVisible()
+    await expect(page.getByTestId('template-card').first()).toBeVisible()
+  }
   if (id === '02-blank-canvas' || id === '03-canvas-demo-workflow') {
     await expect(page.locator('.template-gallery-content')).toBeHidden()
     await expect
@@ -176,7 +182,9 @@ await page.waitForFunction(() => Boolean(window.__dinksterTest?.app), null, {
 })
 await page.waitForTimeout(3500)
 
-await page.evaluate(() => window.__dinksterTest.app.templateGalleryOpen.set(true))
+await page.evaluate(() =>
+  window.__dinksterTest.app.templateGalleryOpen.set(true),
+)
 await audit(page, '01-start-gallery', 'first load, starter template gallery')
 await safe('close gallery', async () => {
   const close = page.locator('.template-gallery-close')
