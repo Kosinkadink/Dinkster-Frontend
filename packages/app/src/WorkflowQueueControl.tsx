@@ -91,7 +91,7 @@ export function WorkflowQueueControl(props: {
           type="button"
           class="workflow-queue-toggle"
           data-testid="workflow-queue-toggle"
-          aria-label={`${open() ? 'Hide' : 'Show'} queue for ${props.owner.title}`}
+          aria-label={`${summary()}: ${open() ? 'Hide' : 'Show'} queue for ${props.owner.title}`}
           aria-expanded={open()}
           aria-controls={popoverId}
           onClick={() => setOpen((value) => !value)}

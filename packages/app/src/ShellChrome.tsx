@@ -83,7 +83,7 @@ export function ActivityBarButton(props: {
       data-panel-toggle={props.panelId}
       data-tooltip-label={props.suppressTooltipWhenPressed && props.pressed ? undefined : props.tooltip}
       data-tooltip-detail={props.tooltipDetail}
-      aria-label={props.accessibleName}
+      aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
       onClick={props.onActivate}
     >

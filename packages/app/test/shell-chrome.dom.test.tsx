@@ -1140,7 +1140,7 @@ describe('left activity rail buttons', () => {
     ), root)
 
     const button = root.querySelector<HTMLButtonElement>('.sidebar-button')!
-    expect(button.getAttribute('aria-label')).toBe('Workflow library')
+    expect(button.getAttribute('aria-label')).toBe('Library: Workflow library')
     expect(button.getAttribute('data-tooltip-label')).toBe('Browse saved workflows')
     expect(button.querySelector('.sidebar-button-label')?.textContent).toBe('Library')
     expect(button.querySelector('.sidebar-button-icon [data-testid="test-rail-icon"]')).not.toBeNull()

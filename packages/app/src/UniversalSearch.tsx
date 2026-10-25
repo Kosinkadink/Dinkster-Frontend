@@ -15,11 +15,10 @@ export function UniversalSearchTrigger(props: { readonly shortcut?: string | und
     <button
       class="search-trigger"
       data-testid="topbar-search"
-      aria-label={props.shortcut ? `Search Dinkster, ${props.shortcut}` : 'Search Dinkster'}
       onClick={props.onOpen}
     >
       <Icon icon={Search} />
-      <span>Search Dinkster</span>
+      <span>Search Dinkster</span>{' '}
       <Show when={props.shortcut}>{(shortcut) => <kbd>{shortcut()}</kbd>}</Show>
     </button>
   )

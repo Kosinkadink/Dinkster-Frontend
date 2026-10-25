@@ -309,7 +309,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
 
   return (
     <section class="runtime-settings" data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
-      <Show when={props.alwaysOpen !== true}><ProductButton size="compact" class="runtime-settings-toggle" aria-expanded={open()} aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })} onClick={toggle}><span>{message('runtimeSettings.panel.title')}</span><span aria-hidden="true">{message(open() ? 'runtimeSettings.action.hide' : 'runtimeSettings.action.show')}</span></ProductButton></Show>
+      <Show when={props.alwaysOpen !== true}><ProductButton size="compact" class="runtime-settings-toggle" aria-expanded={open()} onClick={toggle}><span>{message('runtimeSettings.panel.title')}</span>{' '}<span>{message(open() ? 'runtimeSettings.action.hide' : 'runtimeSettings.action.show')}</span></ProductButton></Show>
       <Show when={open()}>
         <div class="runtime-settings-body">
           <div class="runtime-settings-toolbar">

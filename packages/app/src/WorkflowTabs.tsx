@@ -180,7 +180,10 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
       data-testid="tab-bar"
       aria-label={message('shell.workflowTabs.documents')}
     >
-      <div class="workflow-tablist" role="tablist" aria-label={message('shell.workflowTabs.openWorkflows')}>
+      {/* Keep close/new buttons outside the tablist without changing visual scroll order. */}
+      <div class="visually-hidden" role="tablist" aria-label={message('shell.workflowTabs.openWorkflows')}
+        aria-owns={props.tabs.map((tab) => workflowTabDomId(tab.id)).join(' ')} />
+      <div class="workflow-tablist">
         <For each={props.tabs}>{(tab) => (
           <div
             classList={{
