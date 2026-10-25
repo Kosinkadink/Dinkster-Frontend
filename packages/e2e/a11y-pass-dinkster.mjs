@@ -4,7 +4,7 @@
 // AUDIT_RESULTS select the screenshot directory and JSON report.
 import fs from 'node:fs'
 import path from 'node:path'
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import axe from 'axe-core'
 
 const BASE = process.env['AUDIT_BASE'] ?? 'http://127.0.0.1:15630'
@@ -69,6 +69,46 @@ let current = 'boot'
 
 async function audit(page, id, note) {
   current = id
+  const surface = {
+    '01-start-gallery': '.template-gallery-content',
+    '02-blank-canvas': '[data-testid="graph-canvas"]',
+    '03-canvas-demo-workflow': '[data-testid="graph-canvas"]',
+    '04-dock-library': '[data-testid="library-overlay"]',
+    '04-dock-assets': '[data-testid="assets-overlay"]',
+    '04-dock-backends': '[data-testid="backends-panel"]',
+    '05-bottom-execution-log': '[data-testid="execution-log-panel"]',
+    '06-rail-focused-node-selected':
+      '[data-testid="context-summary"][data-context-kind="node"]',
+    '07-rail-problems': '[data-testid="problems-panel"]',
+    '08-rail-boundary': '[data-testid="boundary-panel"]',
+    '09-widget-combo-editor': '[data-testid="combo-dropdown"]',
+    '10-widget-int-editor': '[data-testid="widget-editor"]',
+    '12-node-context-menu': '[data-testid="context-menu"]',
+    '13-node-palette': '[data-testid="node-palette"]',
+    '14-universal-search': '.search-result-listbox [role="option"]',
+    '15-modal-settings': '.settings-editor',
+    '15-modal-projects': '[data-testid="projects-dialog"]',
+    '15-modal-collab': '[data-testid="collab-panel"]',
+  }[id]
+  if (!surface) throw new Error(`Unknown audit screen ${id}`)
+  await expect(page.locator(surface).first()).toBeVisible()
+  if (id === '02-blank-canvas' || id === '03-canvas-demo-workflow') {
+    await expect(page.locator('.template-gallery-content')).toBeHidden()
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.__dinksterTest.renderer
+            .getScene()
+            .nodes.map((node) => node.id)
+            .sort(),
+        ),
+      )
+      .toEqual(id === '02-blank-canvas' ? [] : ['gen', 'prev'])
+  }
+  if (id === '10-widget-int-editor')
+    await expect(page.getByTestId('widget-editor-type')).toHaveText('INT')
+  if (id === '14-universal-search')
+    await expect(page.getByTestId('universal-search-input')).toHaveValue('sett')
   await page.waitForTimeout(500)
   await page.screenshot({
     path: path.join(OUT, `${id}.png`),
@@ -136,6 +176,7 @@ await page.waitForFunction(() => Boolean(window.__dinksterTest?.app), null, {
 })
 await page.waitForTimeout(3500)
 
+await page.evaluate(() => window.__dinksterTest.app.templateGalleryOpen.set(true))
 await audit(page, '01-start-gallery', 'first load, starter template gallery')
 await safe('close gallery', async () => {
   const close = page.locator('.template-gallery-close')
@@ -166,6 +207,7 @@ async function openDock(toggleTestId) {
   const toggle = page.getByTestId(toggleTestId)
   if ((await toggle.getAttribute('aria-pressed')) !== 'true')
     await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await page.waitForTimeout(600)
 }
 for (const [toggle, id] of [
@@ -202,6 +244,7 @@ async function openRail(title) {
         .click()
     }
   }
+  await expect(tab.first()).toHaveAttribute('aria-selected', 'true')
   await page.waitForTimeout(500)
 }
 async function nodePoint(nodeId, dx, dy) {
