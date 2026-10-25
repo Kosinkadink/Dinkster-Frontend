@@ -378,10 +378,16 @@ Canvas control mirrors are labelled groups. The shell has one level-one
 heading and context help lives in a named landmark.
 
 Run `node packages/e2e/a11y-pass-dinkster.mjs` against a fresh frontend and the
-workflow-pinned native backend with its development pack loaded. Set
+workflow-pinned native backend with its development pack loaded. In the
+disposable backend's library root, set `settings.json` to
+`{"features":{"templates":{"enabled":true}}}` before starting it so the
+gallery is available. Set
 `AUDIT_BASE`, `AUDIT_OUT` and `AUDIT_RESULTS` for the frontend URL, screenshots
-and JSON report. The check covers the original 18 audit screens and fails on
-missing screens, browser errors, or any critical/serious axe violation.
+and JSON report. The check requires each named screen's visible state before
+capturing it and fails on missing screens, browser errors, or any
+critical/serious axe violation across the original 18 audit screens. Axe
+incomplete checks remain in the report for manual assessment; they are not
+reported as passed checks or as violations.
 
 The canvas keeps one accessible host label and DOM shell controls. Focused
 editors, media controls, and popovers remain host-owned DOM. General semantic
