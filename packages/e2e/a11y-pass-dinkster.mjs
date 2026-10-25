@@ -73,8 +73,8 @@ async function audit(page, id, note) {
     '01-start-gallery': '.template-gallery-content',
     '02-blank-canvas': '[data-testid="graph-canvas"]',
     '03-canvas-demo-workflow': '[data-testid="graph-canvas"]',
-    '04-dock-library': '[data-testid="library-overlay"]',
-    '04-dock-assets': '[data-testid="assets-overlay"]',
+    '04-dock-library': '[role="tabpanel"][id$="-panel-library"]',
+    '04-dock-assets': '[role="tabpanel"][id$="-panel-assets"]',
     '04-dock-backends': '[data-testid="backends-panel"]',
     '05-bottom-execution-log': '[data-testid="execution-log-panel"]',
     '06-rail-focused-node-selected':

@@ -194,8 +194,8 @@ export function TemplateGallery(props: {
           <div id={resultsId} role="listbox" aria-label={message('templateGallery.results')}>
             <For each={families()}>
               {(family) => (
-                <section class="template-family" data-family={family.id}>
-                  <h3>{family.id}</h3>
+                <section class="template-family" data-family={family.id} role="group" aria-label={family.id}>
+                  <h3 aria-hidden="true">{family.id}</h3>
                   <div class="template-family-grid">
                     <For each={family.entries}>
                       {(entry) => {
