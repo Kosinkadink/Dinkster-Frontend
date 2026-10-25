@@ -672,7 +672,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }
 
   const commitNumeric = (row: Extract<ParamRow, { kind: 'live' }>, raw: string, widgetType: 'INT' | 'FLOAT'): void => {
-    const parsed = parseNumericCommit(raw, widgetType, row.spec?.options['round'])
+    const parsed = parseNumericCommit(raw, widgetType, row.spec?.options['round'], row.spec?.options['precision'])
     if (!parsed.ok) {
       setError(row.entry, parsed.error)
       return

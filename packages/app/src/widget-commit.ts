@@ -28,17 +28,10 @@ export function resolveTextCommit(openBase: Json | undefined, editorValue: strin
   return { kind: 'splice', splice: transformed }
 }
 
-function decimalPlaces(value: number): number {
-  const [coefficient, exponentText] = value.toString().toLowerCase().split('e')
-  const decimals = coefficient!.split('.')[1]?.length ?? 0
-  const exponent = exponentText === undefined ? 0 : Number(exponentText)
-  return Math.max(0, decimals - exponent)
-}
-
-export function parseNumericCommit(raw: string, widgetType: 'FLOAT', round?: unknown): FloatNumericCommitResult
-export function parseNumericCommit(raw: string, widgetType: 'INT', round?: unknown): NumericCommitResult
-export function parseNumericCommit(raw: string, widgetType: 'INT' | 'FLOAT', round?: unknown): NumericCommitResult
-export function parseNumericCommit(raw: string, widgetType: 'INT' | 'FLOAT', round?: unknown): NumericCommitResult {
+export function parseNumericCommit(raw: string, widgetType: 'FLOAT', round?: unknown, precision?: unknown): FloatNumericCommitResult
+export function parseNumericCommit(raw: string, widgetType: 'INT', round?: unknown, precision?: unknown): NumericCommitResult
+export function parseNumericCommit(raw: string, widgetType: 'INT' | 'FLOAT', round?: unknown, precision?: unknown): NumericCommitResult
+export function parseNumericCommit(raw: string, widgetType: 'INT' | 'FLOAT', round?: unknown, precision?: unknown): NumericCommitResult {
   const trimmed = raw.trim()
   if (trimmed === '') return { ok: false, error: 'Enter a finite number.' }
   if (widgetType === 'INT') {
@@ -57,7 +50,8 @@ export function parseNumericCommit(raw: string, widgetType: 'INT' | 'FLOAT', rou
   if (typeof round !== 'number' || !Number.isFinite(round) || round <= 0) return { ok: true, value: parsed }
   const quantized = Math.round(parsed / round) * round
   if (!Number.isFinite(quantized)) return { ok: true, value: parsed }
-  const places = decimalPlaces(round)
+  const places = typeof precision === 'number' && Number.isInteger(precision) && precision >= 0 && precision <= 100
+    ? precision : Math.max(0, -Math.floor(Math.log10(round)))
   return { ok: true, value: places <= 100 ? Number(quantized.toFixed(places)) : quantized }
 }
 
@@ -70,7 +64,7 @@ export function parsePrimitiveListCommit(raw: string, spec: WidgetSpec):
   }
   if (spec.element?.widgetType === 'FLOAT') {
     value = value.map((item) => {
-      const parsed = parseNumericCommit(String(item), 'FLOAT', spec.element!.options['round'])
+      const parsed = parseNumericCommit(String(item), 'FLOAT', spec.element!.options['round'], spec.element!.options['precision'])
       return parsed.ok ? parsed.value : item
     })
   }

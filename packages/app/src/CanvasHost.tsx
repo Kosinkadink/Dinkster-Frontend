@@ -4851,6 +4851,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(hit.row.selector !== undefined ? { selector: hit.row.selector } : {}),
         },
         spec: widgetKind === undefined ? undefined : spec,
+        viewId: hit.row.viewId,
         ...(widgetKind === undefined ? { anchorSpec: spec } : {}),
         declaredType: hit.row.type,
         ...(hit.row.sourceFilename !== undefined ? { sourceFilename: hit.row.sourceFilename } : {}),
@@ -4938,6 +4939,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         label: vs.title,
         target: { kind: 'valueSource', valueSourceId: vs.id },
         spec,
+        ...(viewId === undefined ? {} : { viewId }),
         // Raw fallback edits JSON text, which wants a multiline field.
         multiline: spec ? viewId === 'core.text' : true,
         rect: {

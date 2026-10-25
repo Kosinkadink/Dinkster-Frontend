@@ -138,6 +138,46 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Commit', async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'WidgetEditorsTest', displayName: 'Float sliders', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: { display: 'slider', min: -0.5, max: 2.5, step: 0.25, round: 0.01, precision: 2 }, default: 0.5 } },
+        { kind: 'input', id: 'ordinary', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: { min: -0.5, max: 2.5 }, default: 0.5 } },
+      ],
+    }])
+  })
+  for (const [width, height] of [[1440, 900], [900, 700]]) {
+    await page.setViewportSize({ width: width!, height: height! })
+    await openEditor(page, 'amount')
+    const editor = page.getByTestId('widget-editor')
+    const slider = editor.getByRole('slider')
+    await expect(slider).toHaveAttribute('aria-valuenow', '0.5')
+    await slider.focus()
+    await slider.press('ArrowRight')
+    await expect(editor.locator('input')).toHaveValue('0.75')
+    expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
+    const bounds = await slider.boundingBox()
+    await page.mouse.click(bounds!.x + bounds!.width * 0.8, bounds!.y + bounds!.height / 2)
+    await expect(editor.locator('input')).toHaveValue('2')
+    await page.screenshot({ path: testInfo.outputPath(`float-slider-${width}.png`), animations: 'disabled' })
+    await editor.getByTestId('widget-editor-cancel').click()
+    expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
+  }
+  await openEditor(page, 'amount')
+  await page.getByTestId('widget-editor').locator('input').fill('1.2346')
+  await page.getByTestId('widget-editor-commit').click()
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBe(1.23)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
+  await openEditor(page, 'ordinary')
+  await expect(page.getByTestId('widget-editor').getByRole('slider')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('float-number-sibling.png'), animations: 'disabled' })
+  await page.getByTestId('widget-editor-cancel').click()
+})
+
 test('numeric union uses FLOAT editing in canvas and exposed AppView without changing its socket', async ({ page }, testInfo) => {
   const fixture = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {

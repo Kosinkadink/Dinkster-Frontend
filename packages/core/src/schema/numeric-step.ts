@@ -157,7 +157,9 @@ export function formatWidgetValue(value: unknown, spec: Pick<WidgetSpec, 'widget
     if (!Number.isFinite(value)) return String(value)
     const constraints = numericStepConstraints(spec)
     if (constraints.integer) return String(value)
-    const digits = Math.max(1, numericStepPrecision(constraints.step))
+    const precision = spec.options['precision']
+    const digits = typeof precision === 'number' && Number.isInteger(precision) && precision >= 0 && precision <= 100
+      ? precision : Math.max(1, numericStepPrecision(constraints.step))
     return formatNumber(value === 0 ? 0 : value, {
       useGrouping: false,
       minimumFractionDigits: digits,
