@@ -1663,6 +1663,18 @@ describe('registered interactive widget expanded-editor integration', () => {
     }))
   })
 
+  it('previews the same rounded FLOAT slider value that Commit stores', () => {
+    const mounted = mountWidget(widgetState('FLOAT', { display: 'slider', min: 0, max: 1, step: 0.1, round: 0.25, precision: 2 }, 0.2))
+    const slider = mounted.root.querySelector<HTMLElement>('[role="slider"]')!
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(mounted.root.querySelector<HTMLInputElement>('#widget-editor-value')!.value).toBe('0.25')
+    expect(slider.getAttribute('aria-valuenow')).toBe('0.25')
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 0.25 }) }))
+    mounted.unmount()
+  })
+
   it('keeps FLOAT slider drafts local until Commit and discards them on Cancel', () => {
     const state = widgetState('FLOAT', { display: 'slider', min: -0.5, max: 2.5, step: 0.25, round: 0.01, precision: 2 }, 0.5)
     const mounted = mountWidget(state)

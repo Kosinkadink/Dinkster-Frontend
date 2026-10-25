@@ -195,7 +195,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4905,
+      "line": 4906,
       "column": 36,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -203,7 +203,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4922,
+      "line": 4923,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -211,7 +211,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 6703,
+      "line": 6705,
       "column": 19,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -275,7 +275,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 43,
+      "line": 45,
       "column": 5,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -283,7 +283,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 80,
+      "line": 82,
       "column": 16,
       "symbol": "widgetType:LIST",
       "issue": 511
@@ -291,7 +291,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 81,
+      "line": 83,
       "column": 16,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -299,17 +299,9 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 118,
+      "line": 123,
       "column": 16,
       "symbol": "widgetType:INT",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 122,
-      "column": 16,
-      "symbol": "widgetType:FLOAT",
       "issue": 122
     },
     {
@@ -355,7 +347,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/widget-commit.ts",
-      "line": 44,
+      "line": 37,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -363,7 +355,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/widget-commit.ts",
-      "line": 71,
+      "line": 65,
       "column": 7,
       "symbol": "widgetType:FLOAT",
       "issue": 511
@@ -371,7 +363,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/widget-commit.ts",
-      "line": 95,
+      "line": 89,
       "column": 7,
       "symbol": "widgetType:MULTI_COMBO",
       "issue": 122
@@ -637,13 +629,21 @@
       "path": "packages/core/src/schema/model.ts",
       "line": 330,
       "column": 7,
+      "symbol": "widgetType:FLOAT",
+      "issue": 507
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/core/src/schema/model.ts",
+      "line": 343,
+      "column": 7,
       "symbol": "widgetType:STRING",
       "issue": 122
     },
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1036,
+      "line": 1049,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -651,7 +651,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1039,
+      "line": 1052,
       "column": 3,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -675,23 +675,23 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/numeric-step.ts",
-      "line": 167,
-      "column": 7,
-      "symbol": "widgetType:INT",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/schema/numeric-step.ts",
-      "line": 168,
-      "column": 7,
-      "symbol": "widgetType:INT",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/schema/numeric-step.ts",
       "line": 169,
+      "column": 7,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/core/src/schema/numeric-step.ts",
+      "line": 170,
+      "column": 7,
+      "symbol": "widgetType:INT",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/core/src/schema/numeric-step.ts",
+      "line": 171,
       "column": 7,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -699,7 +699,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/numeric-step.ts",
-      "line": 172,
+      "line": 174,
       "column": 7,
       "symbol": "widgetType:MULTI_COMBO",
       "issue": 122

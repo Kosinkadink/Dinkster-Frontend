@@ -83,7 +83,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   const text = ed.spec?.widgetType === 'STRING'
   const initialText = list ? JSON.stringify(ed.initial ?? []) : String(ed.initial ?? '')
   const [draft, setDraft] = createSignal(initialText)
-  const slider = ed.spec?.widgetType === 'FLOAT' && floatSliderView.isCompatible(ed.spec)
+  const slider = ed.spec !== undefined && ed.spec.widgetType === floatKind.type && floatSliderView.isCompatible(ed.spec)
     && (ed.viewId ?? floatKind.defaultView(ed.spec)) === 'core.slider'
   const fieldIds = productFieldIds('widget-editor-value')
   const [error, setError] = createSignal<string>()
@@ -124,7 +124,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
       const parsed = scalarStrategies.INT(raw)
       if (!parsed.ok) { setError(parsed.error); return undefined }
       value = parsed.value
-    } else if (ed.spec.widgetType === 'FLOAT') {
+    } else if (ed.spec.widgetType === floatKind.type) {
       const parsed = scalarStrategies.FLOAT(raw, ed.spec.options['round'], ed.spec.options['precision'])
       if (!parsed.ok) { setError(parsed.error); return undefined }
       const min = ed.spec.options['min']
@@ -283,7 +283,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   return <div ref={(el) => { popover = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover" data-testid="widget-editor" data-editor-target={ed.target.kind} data-editor-mode={ed.spec?.widgetType ?? 'raw'} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${ed.spec?.widgetType ?? 'JSON'}`} style={props.popoverStyle}>
     <props.header type={ed.spec?.widgetType ?? 'JSON'} />
     <Show when={slider}>
-      <ProductSlider ariaLabel={`${ed.label} slider`} value={Number.isFinite(Number(draft())) ? Number(draft()) : Number(ed.initial ?? 0)} min={Number(ed.spec!.options['min'])} max={Number(ed.spec!.options['max'])} step={Number(numericStepConstraints(ed.spec!).step)} onInput={(value) => { setError(undefined); setDraft(String(value)) }} />
+      <ProductSlider ariaLabel={`${ed.label} slider`} value={Number.isFinite(Number(draft())) ? Number(draft()) : Number(ed.initial ?? 0)} min={Number(ed.spec!.options['min'])} max={Number(ed.spec!.options['max'])} step={Number(numericStepConstraints(ed.spec!).step)} onInput={(value) => { setError(undefined); const parsed = parse(String(value)); if (typeof parsed === 'number') setDraft(String(parsed)) }} />
     </Show>
     <ProductField controlId="widget-editor-value" label="Value" layout="compact" message={error()} messageTestId="widget-editor-error" invalid={error() !== undefined}>
       <Show when={ed.multiline || list} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completionAnchor = el; queueMicrotask(() => { el.focus(); if (numeric) el.select() }) }} value={draft()} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setDraft(event.currentTarget.value); setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />}>
