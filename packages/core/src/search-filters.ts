@@ -117,6 +117,11 @@ export function typeMatchesToken(t: TypeExpr, token: string): boolean {
       return true
     case 'variable':
       return t.allowedTypes === undefined || t.allowedTypes.some((a) => typeMatchesToken(a, token))
+    case 'tuple':
+      return t.elements.some((element) => typeMatchesToken(element, token))
+    case 'family_tuple':
+    case 'tuple_element':
+      return false
     case 'concrete':
       return listInner === undefined && assetInner === undefined && streamInner === undefined && nameMatchesToken(t.name, token)
     case 'union':
@@ -224,6 +229,11 @@ export function hintsMatchAnyPortFilters(
  */
 export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
   switch (type.kind) {
+    case 'tuple':
+      return type.elements.every(hasKnownLinkDropAnchorType)
+    case 'family_tuple':
+    case 'tuple_element':
+      return false
     case 'concrete':
       return type.name.length > 0
     case 'union':

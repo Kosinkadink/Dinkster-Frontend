@@ -274,6 +274,9 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
     types?: unknown
     templateId?: unknown
     element?: unknown
+    elements?: unknown
+    input?: unknown
+    index?: unknown
   }
   const types: string[] = Array.isArray(w.types) ? w.types.map((t) => String(t)) : []
   if (types.some((type) => type.startsWith('stream<'))) throw new Error('stream type requires a structured constructor')
@@ -305,6 +308,10 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
     case 'asset':
     case 'stream':
       return { kind: w.kind, element: typeExprFromDinksterWire(w.element) }
+    case 'tuple':
+    case 'family_tuple':
+    case 'tuple_element':
+      return wireType(wire, 'type')
     default:
       throw new Error(`unknown type expression kind: ${String(w.kind)}`)
   }
@@ -1417,6 +1424,20 @@ function wireType(value: unknown, where: string): TypeExpr {
         kind: type['kind'],
         element: wireType(type['element'], `${where}.element`),
       }
+    case 'tuple': {
+      if (!Array.isArray(type['elements'])) throw new Error(`${where}.elements must be an array`)
+      return { kind: 'tuple', elements: type['elements'].map((element, index) => wireType(element, `${where}.elements[${index}]`)) }
+    }
+    case 'family_tuple':
+      return { kind: 'family_tuple', input: wireSegment(type['input'], `${where}.input`) }
+    case 'tuple_element': {
+      const input = type['input'] === undefined ? undefined : wireSegment(type['input'], `${where}.input`)
+      const element = type['element'] === undefined ? undefined : wireType(type['element'], `${where}.element`)
+      if ((input === undefined) === (element === undefined)) throw new Error(`${where} requires exactly one tuple source`)
+      const index = type['index']
+      if (typeof index !== 'string' && !(typeof index === 'number' && Number.isSafeInteger(index))) throw new Error(`${where}.index must be an integer or input id`)
+      return { kind: 'tuple_element', ...(input !== undefined ? { input } : { element: element! }), index: typeof index === 'string' ? wireSegment(index, `${where}.index`) : index as number }
+    }
     default:
       throw new Error(`${where} has unknown type expression kind '${String(type['kind'])}'`)
   }
@@ -1573,6 +1594,7 @@ function decodeWireFamily(
       kind: 'autogrow',
       template,
       naming,
+      ...(wireBoolean(entry['independentTypes'], `${where}.independentTypes`, false) ? { independentTypes: true } : {}),
       ...(!flatFamilyCompatible ? { materialization: 'wire15' as const } : {}),
     },
   }
@@ -1756,6 +1778,8 @@ function* slotTypeBindingsOf(
 
 function* typeVariablesOf(type: TypeExpr): Generator<TypeExpr & { readonly kind: 'variable' }> {
   if (type.kind === 'variable') yield type
+  else if (type.kind === 'tuple') for (const element of type.elements) yield* typeVariablesOf(element)
+  else if (type.kind === 'tuple_element' && type.element !== undefined) yield* typeVariablesOf(type.element)
   else if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') yield* typeVariablesOf(type.element)
 }
 
@@ -1942,6 +1966,20 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     }
     const decodedInputs = new Map(items.filter((item): item is InputSpec => item.kind === 'input').map((item) => [item.id, item]))
     const decodedOutputs = items.filter((item): item is OutputSpec => item.kind === 'output')
+    const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
+      if (type.kind === 'family_tuple') {
+        const family = decodedInputs.get(type.input)?.dynamic
+        if (!output || family?.kind !== 'autogrow' || !family.independentTypes || family.template.length !== 1) throw new Error('family_tuple requires an independent single-input family and an output declaration')
+      } else if (type.kind === 'tuple_element') {
+        const source = type.input === undefined ? undefined : decodedInputs.get(type.input)
+        const selector = typeof type.index === 'string' ? decodedInputs.get(type.index) : undefined
+        if (!output || (type.input !== undefined && (source === undefined || source.dynamic !== undefined))) throw new Error('tuple_element requires an ordinary tuple input and an output declaration')
+        if (typeof type.index === 'string' && (selector === undefined || selector.dynamic !== undefined || selector.optional || selector.type.kind !== 'concrete' || selector.type.name !== 'INT')) throw new Error('tuple_element requires an ordinary required INT selector')
+      } else if (type.kind === 'tuple') {
+        type.elements.forEach((element) => validateTupleDeclaration(element, output))
+      } else if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') validateTupleDeclaration(type.element, output)
+    }
+    for (const item of items) if (item.kind !== 'section') validateTupleDeclaration(item.type, item.kind === 'output')
     if (decodedOutputs.filter((output) => output.outputDescriptors !== undefined).length > 1) {
       throw new Error('a schema may declare only one outputDescriptors construct')
     }

@@ -6,7 +6,7 @@
  * input, endpoints resolve) are what commands enforce.
  */
 
-import { assetTypeId, canonicalTypeIdOf, cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, streamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
+import { assetTypeId, canonicalTypeIdOf, cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, parseTupleTypeId, streamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
 
 /**
  * Type ids that denote the same values on both sides of the comfy-compat
@@ -33,6 +33,8 @@ const canonicalAtom = (name: string): string => INTERCHANGEABLE_TYPE_IDS[name] ?
  * are preserved. Comparison and presentation only - never persist the result.
  */
 export const canonicalCompatTypeId = (typeId: string): string => {
+  const positions = parseTupleTypeId(typeId)
+  if (positions !== undefined) return `tuple<${positions.map(canonicalCompatTypeId).join(',')}>`
   const listInner = parseListTypeId(typeId)
   if (listInner !== undefined) return listTypeId(canonicalCompatTypeId(listInner))
   const assetInner = parseAssetTypeId(typeId)
@@ -69,6 +71,15 @@ export const atomNamesOf = (t: TypeExpr): readonly string[] | undefined => {
     case 'variable':
       if (!t.allowedTypes || t.allowedTypes.length === 0) return undefined
       return t.allowedTypes.flatMap((a) => atomNamesOf(a) ?? [])
+    case 'family_tuple':
+    case 'tuple_element':
+      return undefined
+    case 'tuple': {
+      const positions = t.elements.map(atomNamesOf)
+      if (positions.some((position) => position === undefined)) return undefined
+      return positions.reduce<string[][]>((products, position) => products.flatMap((product) => position!.map((atom) => [...product, atom])), [[]])
+        .map((product) => `tuple<${product.join(',')}>`)
+    }
     case 'list':
     case 'asset':
     case 'stream': {
@@ -99,6 +110,10 @@ export function typesCompatible(from: TypeExpr, to: TypeExpr): boolean {
 /** Direct compatibility without the engine's optional asset coercion step. */
 export function typesDirectlyCompatible(from: TypeExpr, to: TypeExpr): boolean {
   if (from.kind === 'wildcard' || to.kind === 'wildcard') return true
+  if (from.kind === 'tuple' && to.kind === 'tuple') {
+    return from.elements.length === to.elements.length && from.elements.every((element, index) => typesDirectlyCompatible(element, to.elements[index]!))
+  }
+  if ((from.kind === 'tuple' || to.kind === 'tuple') && from.kind !== 'variable' && to.kind !== 'variable') return false
   const ca = cardinalityOf(from)
   const cb = cardinalityOf(to)
   if (ca !== 'unknown' && cb !== 'unknown' && ca !== cb) return false

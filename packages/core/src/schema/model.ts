@@ -53,6 +53,9 @@ export type TypeExpr =
   | { readonly kind: 'list'; readonly element: TypeExpr }
   | { readonly kind: 'asset'; readonly element: TypeExpr }
   | { readonly kind: 'stream'; readonly element: TypeExpr }
+  | { readonly kind: 'tuple'; readonly elements: readonly TypeExpr[] }
+  | { readonly kind: 'family_tuple'; readonly input: string }
+  | { readonly kind: 'tuple_element'; readonly input?: string; readonly element?: TypeExpr; readonly index: string | number }
 
 /** COMBO is a concrete STRING-valued type at the wire level; we keep its own name. */
 export const COMBO_TYPE = 'COMBO'
@@ -103,6 +106,28 @@ export const streamTypeId = (elementTypeId: string): string => `stream<${element
 export const parseStreamTypeId = (typeId: string): string | undefined =>
   parseParametricTypeId(typeId, 'stream<')
 
+/** Split positional ids without splitting commas inside nested constructors. */
+export const parseTupleTypeId = (typeId: string): readonly string[] | undefined => {
+  if (!typeId.startsWith('tuple<') || !typeId.endsWith('>')) return undefined
+  const body = typeId.slice(6, -1)
+  if (body === '') return []
+  const elements: string[] = []
+  let start = 0
+  let depth = 0
+  for (let index = 0; index < body.length; index++) {
+    const char = body[index]
+    if (char === '<') depth++
+    else if (char === '>') {
+      if (--depth < 0) return undefined
+    } else if (char === ',' && depth === 0) {
+      elements.push(body.slice(start, index))
+      start = index + 1
+    }
+  }
+  elements.push(body.slice(start))
+  return depth === 0 && elements.every((element) => element !== '') ? elements : undefined
+}
+
 /**
  * The canonical type id a recursively-closed expression denotes (concrete ->
  * its name, closed list -> 'list<...>', closed asset -> 'asset<...>'), else
@@ -112,6 +137,10 @@ export const parseStreamTypeId = (typeId: string): string | undefined =>
  */
 export const canonicalTypeIdOf = (t: TypeExpr): string | undefined => {
   if (t.kind === 'concrete') return t.name
+  if (t.kind === 'tuple') {
+    const elements = t.elements.map(canonicalTypeIdOf)
+    return elements.some((element) => element === undefined) ? undefined : `tuple<${elements.join(',')}>`
+  }
   if (t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream') {
     const inner = canonicalTypeIdOf(t.element)
     return inner === undefined ? undefined : `${t.kind}<${inner}>`
@@ -126,6 +155,8 @@ export const canonicalTypeIdOf = (t: TypeExpr): string | undefined => {
  * `concrete` directly, so `concrete('list<...>')` never enters the system.
  */
 export const typeExprFromTypeId = (typeId: string): TypeExpr => {
+  const positions = parseTupleTypeId(typeId)
+  if (positions !== undefined) return { kind: 'tuple', elements: positions.map(typeExprFromTypeId) }
   const listInner = parseListTypeId(typeId)
   if (listInner !== undefined) return { kind: 'list', element: typeExprFromTypeId(listInner) }
   const assetInner = parseAssetTypeId(typeId)
@@ -214,6 +245,7 @@ export const cardinalityOf = (t: TypeExpr): Cardinality => {
   switch (t.kind) {
     case 'list':
       return 'list'
+    case 'tuple':
     case 'stream':
       return 'scalar'
     case 'asset':
@@ -391,6 +423,8 @@ export interface RemoteSourceSpec {
 export interface AutogrowSpec {
   readonly kind: 'autogrow'
   readonly template: readonly InputSpec[]
+  /** Each stored member binds its own variables instead of sharing the family template. */
+  readonly independentTypes?: boolean
   /** Wire-15 document-driven materialization (absent keeps wire-14 identity). */
   readonly materialization?: 'wire15'
   readonly naming:
