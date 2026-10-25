@@ -64,6 +64,9 @@ Click the source widget on the node to open the output descriptor editor.
 Edit names and types, reorder rows, or add/remove outputs, then choose **Apply
 outputs**. One ordinary value command commits the whole document and is
 undoable. **Stored JSON** edits node-owned fields or repairs malformed data.
+Malformed data and diagnostics use ProductNotice status feedback; the absent
+document uses ProductEmptyState with repair guidance. Probe and apply errors
+use error notices without discarding the editable draft.
 Links follow IDs, not row positions: removing an output leaves repairable
 missing-port links instead of deleting or retargeting them.
 Documents containing unsafe integers or overflowing numbers use read-only

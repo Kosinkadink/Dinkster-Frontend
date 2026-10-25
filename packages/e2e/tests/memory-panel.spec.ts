@@ -252,8 +252,8 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
     leases: [],
   }))
   await expect(primary).toContainText('No active leases')
-  await expect(primary.locator('.memory-empty-state', { hasText: 'No consumers' })).toHaveCount(2)
-  if (proofDir) await captureAt(page, primary.locator('.memory-empty-state', { hasText: 'No active leases' }), 'memory-empty.png')
+  await expect(primary.locator('.product-empty-state', { hasText: 'No consumers' })).toHaveCount(2)
+  if (proofDir) await captureAt(page, primary.locator('.product-empty-state', { hasText: 'No active leases' }), 'memory-empty.png')
 
   primarySocket!.send(JSON.stringify({ type: 'memory_status', ...baseStatus, memoryGovernor: null, leases: null }))
   await expect(primary).toContainText('Memory governor telemetry is unsupported')

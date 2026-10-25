@@ -24,6 +24,7 @@
 
 import { batch, createEffect, createSignal as createSolidSignal, createUniqueId, For, onCleanup, Show, type JSX } from 'solid-js'
 import type { CollectionEntry, CollectionSource } from '@dinkster/core'
+import { requestWithDeadline } from '@dinkster/client'
 // Barrel import, NOT lucide-solid/icons/* deep imports: this module is
 // transitively imported by unit-tested code (WidgetEditor), and the deep
 // icon paths resolve to lucide's client-compiled ESM under vitest's node
@@ -33,6 +34,8 @@ import { initialsOf, readCollectionViewMode, safeLocalStorage, writeCollectionVi
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
+import { ProductButton } from './ProductControls.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { SearchInput } from './SearchSurface.js'
 
 const PAGE_SIZE = 24
@@ -322,8 +325,7 @@ export function CollectionPanel(props: {
     setLoading(true)
     setError(undefined)
     if (!append) setPageOwner(undefined)
-    void src
-      .page(req)
+    void requestWithDeadline((signal) => src.page({ ...req, signal: AbortSignal.any([req.signal, signal]) }))
       .then((page) => {
         if (gen !== generation) return // a newer query/source superseded us
         // A fresh page replaces every row object, so <For> unmounts the
@@ -708,8 +710,9 @@ export function CollectionPanel(props: {
       data-collection-state={stateProps.state.kind}
     >
       {props.renderState?.(stateProps.state) ?? (
-        <p class="empty">
-          {stateProps.state.kind === 'loading'
+        <ProductEmptyState
+          tone={stateProps.state.kind === 'error' ? 'error' : stateProps.state.kind === 'loading' ? 'loading' : 'empty'}
+          title={stateProps.state.kind === 'loading'
             ? message('collection.state.loading')
             : stateProps.state.kind === 'error'
               ? stateProps.state.message
@@ -718,8 +721,11 @@ export function CollectionPanel(props: {
                 : stateProps.state.kind === 'no-compatible'
                   ? message('collection.state.noAvailable')
                   : message('collection.state.empty')}
-        </p>
+        />
       )}
+      <Show when={stateProps.state.kind === 'error'}>
+        <ProductButton type="button" data-testid="collection-retry" disabled={loading()} onClick={() => runPage(false)}>{message('templateGallery.retry')}</ProductButton>
+      </Show>
     </div>
   )
 

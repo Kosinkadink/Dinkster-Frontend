@@ -533,6 +533,27 @@ describe('MemoryPanel', () => {
     unmount()
   })
 
+  it('leaves initial loading for an error without claiming retained telemetry', async () => {
+    let reject!: (error: Error) => void
+    const connection = {
+      status: createSignal<ConnectionStatus>('connected'),
+      onMemoryStatus: () => () => {},
+      fetchRuntimeSettings: vi.fn(),
+      updateRuntimeSetting: vi.fn(),
+      fetchMemoryStatus: () => new Promise<MemoryStatus>((_resolve, fail) => { reject = fail }),
+    }
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <MemoryPanel connection={connection} label="Unavailable" />, root)
+    expect(root.textContent).toContain('Waiting for memory telemetry')
+    reject(new Error('telemetry offline'))
+    await Promise.resolve(); await Promise.resolve()
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('Memory telemetry unavailable')
+    expect(root.textContent).toContain('telemetry offline')
+    expect(root.textContent).not.toContain('Waiting for memory telemetry')
+    expect(root.textContent).not.toContain('retained')
+    unmount()
+  })
+
   it('keeps retained base telemetry visible with explicit disconnected and error labels', async () => {
     const status = createSignal<ConnectionStatus>('connected')
     let baseRequests = 0

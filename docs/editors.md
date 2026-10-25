@@ -68,7 +68,9 @@ supporting nodes used by image and layer commands.
 renders the descriptor's component inside `.canvas-stage`. With no active
 tab the graph editor stays mounted (it owns the empty state). A tab whose
 kind has no registered editor (an unregistered extension kind) renders a
-loud `editor-missing` placeholder - never a blank stage.
+ProductEmptyState alert with the `editor-missing` test ID, never a blank stage.
+Image and curve editors without an active target use neutral ProductEmptyState
+messages rather than an error-colored private placeholder.
 
 The keyed host only remounts when the DESCRIPTOR changes: same-kind tab
 switches return the same descriptor object, so switching between two graph

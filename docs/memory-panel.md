@@ -65,6 +65,8 @@ range table exposes every raw flag, its resident interpretation, and page-in
 or page-out transition, so the heatmap is never the only source of meaning.
 
 Active leases retain reservation id, device, byte count, and countdown.
+Each lease uses a ProductListRow with device and selectable reservation identity
+beside byte and expiry facts, matching other runtime list rows.
 Unsupported lease telemetry and a supported empty lease list are distinct.
 
 Pushed `memory_status` updates take precedence. Polling `/memory/status` every

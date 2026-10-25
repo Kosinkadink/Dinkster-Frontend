@@ -24,8 +24,10 @@
  */
 
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
+import { requestWithDeadline } from './request-deadline.js'
 import {
   asPromptId,
+  createSignal,
   canonicalJson,
   comfyAliasCatalogFromDinksterWire,
   comfyGroupCatalogFromDinksterWire,
@@ -1616,6 +1618,10 @@ export class DinksterConnection {
   private readonly packLocaleCatalogs = new Map<string, Promise<unknown | undefined>>()
 
   readonly status: ReadonlySignal<ConnectionStatus>
+  private readonly mountErrors = createSignal<string | undefined>(undefined)
+  readonly mountError: ReadonlySignal<string | undefined> = this.mountErrors
+  private mountRequestGeneration = 0
+  private newestMountFetch: { generation: number; promise: Promise<MountSettings> } | undefined
 
   constructor(config: DinksterConnectionConfig) {
     this.id = config.id
@@ -1718,7 +1724,7 @@ export class DinksterConnection {
 
   async fetchSchemas(): Promise<SchemaRegistry> {
     const generation = ++this.schemaRequestGeneration
-    const promise = this.fetchSchemasPass(generation)
+    const promise = requestWithDeadline((signal) => this.fetchSchemasPass(generation, signal))
     this.newestSchemaFetch = { generation, promise }
     // A superseded invocation must hand back the registry the connection
     // actually committed, not its own stale decode: follow the newest fetch
@@ -1745,9 +1751,10 @@ export class DinksterConnection {
 
   private async fetchSchemasPass(
     generation: number,
+    signal: AbortSignal,
     pairingAttempts = 3,
   ): Promise<SchemaRegistry> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`)
+    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`, { signal })
     if (res.status === 503) {
       // A supervisor gates every proxied route with 503 engine-not-ready
       // until the engine answers healthy. Surface that as its own error so
@@ -1779,14 +1786,14 @@ export class DinksterConnection {
         throw new Error('GET /api/nodes: malformed extensionSnapshotDigest')
       }
       const extensionSnapshotDigest = payload.extensionSnapshotDigest
-      const snapshotResponse = await this.fetchFn(`${this.baseUrl}/api/extensions/snapshot`)
+      const snapshotResponse = await this.fetchFn(`${this.baseUrl}/api/extensions/snapshot`, { signal })
       if (!snapshotResponse.ok) throw new Error(`GET /api/extensions/snapshot failed: ${snapshotResponse.status}`)
       const snapshotBuffer = await snapshotResponse.arrayBuffer()
       const snapshotBytes = new Uint8Array(snapshotBuffer)
       const actualDigest = await sha256Digest(snapshotBuffer)
       if (actualDigest !== extensionSnapshotDigest) {
         if (pairingAttempts > 1) {
-          return this.fetchSchemasPass(generation, pairingAttempts - 1)
+          return this.fetchSchemasPass(generation, signal, pairingAttempts - 1)
         }
         throw new Error(`schema/snapshot pairing failed: schema names '${extensionSnapshotDigest}', snapshot hashes to '${actualDigest}'`)
       }
@@ -1812,6 +1819,7 @@ export class DinksterConnection {
         `schema wire version mismatch: this build decodes ${DINKSTER_SCHEMA_WIRE_VERSION}; the server encodes ${String(selected)}`,
       )
     }
+    signal.throwIfAborted()
     if (generation === this.schemaRequestGeneration) {
       this.registry = registry
       if (extensionSnapshotPair) this.extensionSnapshots.set(extensionSnapshotPair.digest, extensionSnapshotPair.snapshot)
@@ -2604,7 +2612,33 @@ export class DinksterConnection {
   }
 
   async fetchMountSettings(): Promise<MountSettings> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts`)
+    const generation = ++this.mountRequestGeneration
+    const promise = requestWithDeadline((signal) => this.readMountSettings(signal))
+    this.newestMountFetch = { generation, promise }
+    // Every consumer must see the newest snapshot, including callers whose
+    // earlier response arrives after another consumer has refreshed mounts.
+    let current = { generation, promise }
+    for (;;) {
+      const newest = (): { generation: number; promise: Promise<MountSettings> } =>
+        this.newestMountFetch ?? current
+      try {
+        const settings = await current.promise
+        if (newest().generation === current.generation) {
+          this.mountErrors.set(undefined)
+          return settings
+        }
+      } catch (error) {
+        if (newest().generation === current.generation) {
+          this.mountErrors.set(error instanceof Error ? error.message : String(error))
+          throw error
+        }
+      }
+      current = newest()
+    }
+  }
+
+  private async readMountSettings(signal: AbortSignal): Promise<MountSettings> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts`, { signal })
     if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
     const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; mountChangesAllowed?: unknown }
     // Compatibility: a response without the field (older backend) decodes

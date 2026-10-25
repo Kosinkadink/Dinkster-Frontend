@@ -1,6 +1,7 @@
 import { Show, type JSX } from 'solid-js'
 import { CircleAlert, LoaderCircle, Search, SearchX, X } from 'lucide-solid'
 import { Icon } from './Icon.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 export function SearchInput(props: {
   readonly value: string
@@ -143,12 +144,13 @@ export function SearchState(props: {
 }) {
   const icon = () => props.kind === 'loading' ? LoaderCircle : props.kind === 'error' ? CircleAlert : SearchX
   return (
-    <div class="search-state" classList={{ [`search-state-${props.kind}`]: true }} data-search-state={props.kind}>
-      <span class="search-state-icon"><Icon icon={icon()} /></span>
-      <span class="search-state-copy">
-        <strong>{props.title}</strong>
-        <span>{props.detail}</span>
-      </span>
+    <div class="search-feedback" data-search-state={props.kind}>
+      <ProductEmptyState
+        tone={props.kind}
+        title={props.title}
+        hint={props.detail}
+        icon={<span classList={{ 'search-progress': props.kind === 'loading' }}><Show when={icon()} keyed>{(glyph) => <Icon icon={glyph} />}</Show></span>}
+      />
     </div>
   )
 }

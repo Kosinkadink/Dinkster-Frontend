@@ -15,7 +15,7 @@ export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
       class={`product-button${local.class ? ` ${local.class}` : ''}`}
       data-variant={local.variant ?? 'secondary'}
       data-size={local.size ?? 'control'}
-      aria-busy={local.loading === true ? 'true' : undefined}
+      aria-busy={local.loading === true ? 'true' : button['aria-busy']}
       disabled={local.disabled === true || local.loading === true}
     >{local.children}</button>
   )

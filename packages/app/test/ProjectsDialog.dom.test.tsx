@@ -20,7 +20,7 @@ function mount(options: { readonly withOpenWindow?: boolean } = {}) {
 }
 
 function rows(root: HTMLElement): readonly HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>('.projects-dialog-row')]
+  return [...root.querySelectorAll<HTMLElement>('li[data-project-id]')]
 }
 
 function actionButton(row: HTMLElement, label: string): HTMLButtonElement {
@@ -39,10 +39,8 @@ describe('ProjectsDialog', () => {
     expect(defaultRow?.textContent).toContain('Default')
     expect(defaultRow?.querySelector('.projects-dialog-current')?.textContent).toBe('Current')
     expect(actionButton(defaultRow!, 'Switch').disabled).toBe(true)
-    // Row actions sit in the styled actions cluster and the create action is
-    // the footer's primary button; neither relies on native button defaults.
-    expect(actionButton(defaultRow!, 'Rename').closest('.projects-dialog-actions')).not.toBeNull()
-    expect(root.querySelector('[data-testid="projects-create"]')?.classList.contains('primary')).toBe(true)
+    expect(actionButton(defaultRow!, 'Rename').closest('.product-action-buttons')).not.toBeNull()
+    expect(root.querySelector('[data-testid="projects-create"]')?.getAttribute('data-variant')).toBe('primary')
     unmount()
   })
 

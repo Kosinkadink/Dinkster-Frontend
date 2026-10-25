@@ -18,6 +18,7 @@ import { formatActivityTimestamp } from './ActivityLog.js'
 import type { ReplacementBadgeInfo, SubgraphBadgeInfo } from './badge-info.js'
 import type { NodeProblemKind } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 /** Where and on what the popover opened; anchored in canvas-pane CSS px. */
 export interface BadgeAnchor {
@@ -59,7 +60,7 @@ export function BadgePopover(props: {
     >
       <Show when={props.anchor.badge.id === 'core.error'}>
         <div class="badge-popover-title">Execution errors: {props.anchor.nodeId}</div>
-        <For each={props.errors(props.anchor.nodeId)} fallback={<p class="empty">No error details recorded.</p>}>
+        <For each={props.errors(props.anchor.nodeId)} fallback={<ProductEmptyState title="No error details recorded." />}>
           {(d) => (
             <div class="badge-error" data-testid="badge-error-detail">
               <div class="badge-error-head">
@@ -111,7 +112,7 @@ export function BadgePopover(props: {
           const title = level === 'warning' ? 'Node warnings' : 'Node messages'
           return <>
             <div class="badge-popover-title">{title}: {props.anchor.nodeId}</div>
-            <For each={props.nodeLogs(props.anchor.nodeId, level)} fallback={<p class="empty">No log records for this run.</p>}>
+            <For each={props.nodeLogs(props.anchor.nodeId, level)} fallback={<ProductEmptyState title="No log records for this run." />}>
               {(entry) => (
                 <p class="badge-popover-line badge-log-entry" data-testid="badge-log-entry">
                   <span class="badge-log-time">{formatActivityTimestamp(entry.timestamp)}</span> {entry.message}
@@ -144,14 +145,14 @@ export function BadgePopover(props: {
               : 'Document warnings'
           return <>
             <div class="badge-popover-title">{title}: {props.anchor.nodeId}</div>
-            <For each={props.problems(props.anchor.nodeId, kind)} fallback={<p class="empty">No problem details recorded.</p>}>
+            <For each={props.problems(props.anchor.nodeId, kind)} fallback={<ProductEmptyState title="No problem details recorded." />}>
               {(message) => <p class="badge-popover-line badge-problem" data-testid="badge-problem-detail">{message}</p>}
             </For>
           </>
         })()}
       </Show>
       <Show when={props.anchor.badge.id === 'core.subgraph'}>
-        <Show when={props.subgraphInfo(props.anchor.nodeId)} fallback={<p class="empty">Definition missing.</p>}>
+        <Show when={props.subgraphInfo(props.anchor.nodeId)} fallback={<ProductEmptyState title="Definition missing." />}>
           {(info) => (
             <>
               <div class="badge-popover-title">Subgraph: {info().name}</div>
@@ -174,7 +175,7 @@ export function BadgePopover(props: {
         </Show>
       </Show>
       <Show when={props.anchor.badge.id === 'core.deprecated'}>
-        <Show when={props.replacementInfo(props.anchor.nodeId)} fallback={<p class="empty">Node missing.</p>}>
+        <Show when={props.replacementInfo(props.anchor.nodeId)} fallback={<ProductEmptyState title="Node missing." />}>
           {(info) => (
             <>
               <div class="badge-popover-title">Deprecated: {info().type}</div>

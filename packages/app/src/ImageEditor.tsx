@@ -5,6 +5,7 @@ import type { EditorHostContext } from './editors.js'
 import { useSignal } from './solid-adapter.js'
 import { CompositorEditor } from './CompositorEditor.js'
 import { ProductSlider } from './ProductSlider.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import {
   appendImageEditOperation,
   createImageSession,
@@ -374,7 +375,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
 
   return (
     <section class="image-editor" data-testid="image-editor" onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
-      <Show when={target()} fallback={<div class="editor-missing">No image target is active.</div>}>
+      <Show when={target()} fallback={<div class="editor-unavailable"><ProductEmptyState title="No image target is active." /></div>}>
         {(request) => (
           <>
             <header class="image-editor-header">
@@ -454,7 +455,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
 
 export function ImageEditor(props: { readonly app: AppState; readonly host?: EditorHostContext }) {
   const target = useSignal(props.app.imageEditorTarget)
-  return <Show when={target()} fallback={<section class="image-editor"><div class="editor-missing">No image target is active.</div></section>}>
+  return <Show when={target()} fallback={<section class="image-editor"><div class="editor-unavailable"><ProductEmptyState title="No image target is active." /></div></section>}>
     {(request) => isCompositorEditorTarget(request())
       ? <CompositorEditor app={props.app} {...(props.host ? { host: props.host } : {})} />
       : <MaskImageEditor app={props.app} {...(props.host ? { host: props.host } : {})} />}

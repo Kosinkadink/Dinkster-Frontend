@@ -11,6 +11,7 @@
 import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 import type { CollectionEntry } from '@dinkster/core'
 import { ProductNotice } from '../ProductForm.js'
+import { ProductEmptyState } from '../ProductSurfaces.js'
 import { useAppMessage } from '../locale.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
 import { formatSize, isBrowserPreviewable } from './helpers.js'
@@ -164,7 +165,7 @@ export function AssetEntrySelection(props: {
               <h3>{message('assets.selection.empty.title')}</h3>
             </div>
           </header>
-          <p class="asset-selection-empty" data-testid="asset-selection-empty">{message('assets.selection.empty.detail')}</p>
+          <ProductEmptyState testId="asset-selection-empty" title={message('assets.selection.empty.detail')} />
         </>
       }>
         {(selected) => <AssetEntrySelectionContent item={selected} previewUrl={previewUrl(selected)} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />}

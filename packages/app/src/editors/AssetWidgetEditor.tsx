@@ -16,6 +16,7 @@ import { isModel3dMime, model3dMimeFor } from '../model3d-mime.js'
 import { Model3dPosterImage } from '../Model3dPosterImage.js'
 import { AudioRecorder } from '../AudioRecorder.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
+import { ProductEmptyState } from '../ProductSurfaces.js'
 import { AssetSelectionDetails, LogicalModelVariantFacts } from '../asset-browser/rail.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../asset-browser/types.js'
 import { CollectionPanel, type CollectionPanelState } from '../CollectionPanel.js'
@@ -782,11 +783,9 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 </Show>
               </header>
               <Show when={!assetMulti && assetSelection().length === 0 && selectedUncommittableModel() === undefined}>
-                <p class="asset-selection-empty" data-testid="asset-selection-empty">
-                  {usesLogicalModelSource()
+                <ProductEmptyState testId="asset-selection-empty" title={usesLogicalModelSource()
                     ? `Click ${withArticle(assetVocabulary().singular)} in the list to select it.`
-                    : `Click ${withArticle(assetVocabulary().singular)} in the list to select it, or upload ${withArticle(assetVocabulary().uploadSingular)}.`}
-                </p>
+                    : `Click ${withArticle(assetVocabulary().singular)} in the list to select it, or upload ${withArticle(assetVocabulary().uploadSingular)}.`} />
               </Show>
               <Show when={assetPreview()}>
                 {(preview) => (
@@ -846,11 +845,9 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               <Show when={assetMulti}>
                 <div class="asset-multi-selection" data-testid="asset-multi-selection">
                   <Show when={assetSelection().length === 0}>
-                    <span class="asset-selection-empty">
-                      {usesLogicalModelSource()
+                    <ProductEmptyState title={usesLogicalModelSource()
                         ? `No ${assetVocabulary().plural} selected. Click items in the list.`
-                        : `No ${assetVocabulary().plural} selected. Click items in the list or upload ${assetVocabulary().uploadPlural}.`}
-                    </span>
+                        : `No ${assetVocabulary().plural} selected. Click items in the list or upload ${assetVocabulary().uploadPlural}.`} />
                   </Show>
                   <For each={assetSelection()}>
                     {(ref, index) => (

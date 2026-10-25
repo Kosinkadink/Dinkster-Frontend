@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { DinksterConnection, MountSettings } from "@dinkster/client";
 import {
   ProductActionFooter,
@@ -6,6 +6,8 @@ import {
   ProductNotice,
 } from "./ProductForm.js";
 import { ProductSelect } from "./ProductSelect.js";
+import { ProductButton } from "./ProductControls.js";
+import { ProductEmptyState } from "./ProductSurfaces.js";
 import { useAppMessage } from "./locale.js";
 
 type OutputMountConnection = Pick<
@@ -20,15 +22,24 @@ export function OutputMountSettings(props: {
   const [settings, setSettings] = createSignal<MountSettings>();
   const [selected, setSelected] = createSignal("");
   const [saving, setSaving] = createSignal(false);
+  const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal("");
+  let generation = 0;
+  onCleanup(() => { generation++; });
   const load = async (): Promise<void> => {
+    const request = ++generation;
+    setLoading(true);
+    setError("");
     try {
       const next = await props.connection.fetchMountSettings();
+      if (request !== generation) return;
       setSettings(next);
       setSelected(next.outputMount ?? "");
       setError("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (request === generation) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      if (request === generation) setLoading(false);
     }
   };
   onMount(() => void load());
@@ -61,9 +72,14 @@ export function OutputMountSettings(props: {
         <Show
           when={settings()}
           fallback={
-            <ProductNotice tone="status">
-              {message("outputMountSettings.loading")}
-            </ProductNotice>
+            <ProductEmptyState
+              tone={error() ? "error" : "loading"}
+              title={message(error() ? "outputMountSettings.unavailable" : "outputMountSettings.loading")}
+              hint={error() || undefined}
+              action={error() ? <ProductButton type="button" data-testid="output-mount-retry" disabled={loading()} onClick={() => void load()}>
+                {message("outputMountSettings.retry")}
+              </ProductButton> : undefined}
+            />
           }
         >
           <ProductField
@@ -92,9 +108,10 @@ export function OutputMountSettings(props: {
                 : "outputMountSettings.unsaved",
             )}
           >
-            <button
+            <ProductButton
               type="button"
-              class="primary"
+              variant="primary"
+              data-testid="output-mount-apply"
               disabled={
                 saving() ||
                 !selected() ||
@@ -107,11 +124,11 @@ export function OutputMountSettings(props: {
                   ? "outputMountSettings.saving"
                   : "outputMountSettings.apply",
               )}
-            </button>
+            </ProductButton>
           </ProductActionFooter>
         </Show>
-        <Show when={error()}>
-          <ProductNotice tone="error">{error()}</ProductNotice>
+        <Show when={settings() && error()}>
+          <ProductNotice tone="error">{error()} <ProductButton type="button" disabled={loading()} onClick={() => void load()}>{message("outputMountSettings.retry")}</ProductButton></ProductNotice>
         </Show>
       </div>
     </section>

@@ -8,6 +8,7 @@ import { useAppMessage } from './locale.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductRadio } from './ProductControls.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 
 const tierLabelKey = (tier: AssetGuessConfidence): string => ({
@@ -82,7 +83,7 @@ export function ImportAssetResolutionDialog(props: { app: AppState }) {
             <ProductRadio class="asset-decision-option import-asset-unresolved" checked={!selected().has(match.query)} onSelect={() => choose(match.query)} ariaLabel={message('importAssetResolution.leaveUnresolved.title')}>
               <span class="asset-decision-option-copy"><strong>{message('importAssetResolution.leaveUnresolved.title')}</strong><small>{message('importAssetResolution.leaveUnresolved.detail')}</small></span>
             </ProductRadio>
-            <Show when={match.candidates.length === 0}><div class="import-asset-empty" data-testid="import-asset-empty"><strong>{message('importAssetResolution.noCandidates.title')}</strong><span>{message('importAssetResolution.noCandidates.detail')}</span></div></Show>
+            <Show when={match.candidates.length === 0}><ProductEmptyState testId="import-asset-empty" title={message('importAssetResolution.noCandidates.title')} hint={message('importAssetResolution.noCandidates.detail')} /></Show>
             <For each={match.candidates}>{(candidate) => {
               const complete = assetGuessCandidateToRef(candidate) !== undefined
               return <ProductRadio

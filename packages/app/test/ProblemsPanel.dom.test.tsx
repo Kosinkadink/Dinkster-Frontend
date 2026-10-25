@@ -140,10 +140,10 @@ describe('ProblemsPanel browser interactions', () => {
     document.body.replaceChildren()
     setLocale('en')
     const empty = mountPanel(undefined, () => [], () => [])
-    const emptyState = empty.root.querySelector<HTMLElement>('.empty')!
+    const emptyState = empty.root.querySelector<HTMLElement>('.product-empty-state')!
     expect(emptyState.textContent).toBe('None.')
     setLocale('de-DE')
-    expect(empty.root.querySelector('.empty')).toBe(emptyState)
+    expect(empty.root.querySelector('.product-empty-state')).toBe(emptyState)
     expect(emptyState.textContent).toBe('[Keine Probleme.]')
     empty.unmount()
   })
