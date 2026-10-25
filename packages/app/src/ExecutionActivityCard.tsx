@@ -102,6 +102,20 @@ export function executionNodeSummary(entry: ExecutionState): string | undefined 
   return summary.length > 0 ? summary.join(', ') : undefined
 }
 
+export function executionBlockedSummary(entry: ExecutionState): readonly string[] {
+  return Object.values(entry.blockedNodes ?? {}).map((blocked) => blocked.message)
+}
+
+export function executionExpandedSummary(entry: ExecutionState): readonly string[] {
+  return Object.values(entry.expandedNodes ?? {}).map((expansion) => {
+    const complete = expansion.children.filter((child) => {
+      const state = entry.nodes[child]?.state
+      return state === 'done' || state === 'cached'
+    }).length
+    return `${complete}/${expansion.childCount} expanded child${expansion.childCount === 1 ? '' : 'ren'}`
+  })
+}
+
 export function ExecutionActivityCard(props: {
   readonly entry: ExecutionState
   readonly title: string
@@ -114,6 +128,8 @@ export function ExecutionActivityCard(props: {
   const status = () => executionStatusLabel(props.entry.status)
   const progress = () => executionProgress(props.entry)
   const nodeSummary = () => executionNodeSummary(props.entry)
+  const blockedSummary = () => executionBlockedSummary(props.entry)
+  const expandedSummary = () => executionExpandedSummary(props.entry)
   const regionIterations = () => executionRegionIterationRows(props.entry)
   const partial = () => props.entry.artifact?.scope.kind === 'partial'
   const partialTargets = () => props.entry.artifact?.scope.kind === 'partial'
@@ -160,6 +176,8 @@ export function ExecutionActivityCard(props: {
           </span>
         </Show>
         <Show when={nodeSummary()}>{(summary) => <span>{summary()}</span>}</Show>
+        <For each={blockedSummary()}>{(message) => <span class="execution-blocked">Blocked: {message}</span>}</For>
+        <For each={expandedSummary()}>{(summary) => <span class="execution-expanded">{summary}</span>}</For>
         <Show when={props.entry.errors.length > 0}>
           <span class="execution-errors">{props.entry.errors.length} error{props.entry.errors.length === 1 ? '' : 's'}</span>
         </Show>

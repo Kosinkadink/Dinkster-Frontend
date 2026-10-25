@@ -1206,7 +1206,7 @@ export function deriveBoundarySchema(
     })
   }
 
-  // Output-node status: any inner node whose schema is an output node makes
+  // Output-node status: any active inner output node makes
   // the instance one (partial-execution scoping descends through instances).
   // Runtime capabilities aggregate the same way. Nested subgraphs compose
   // because inner instances resolve to derived schemas.
@@ -1215,7 +1215,7 @@ export function deriveBoundarySchema(
   let mayExpandGraph = false
   for (const node of Object.values(def.nodes)) {
     const schema = resolveNode(node)
-    if (schema?.isOutputNode) isOutputNode = true
+    if (schema?.isOutputNode && node.mode !== 'muted' && node.mode !== 'bypassed') isOutputNode = true
     if (schema?.emitsPreviews) emitsPreviews = true
     if (schema?.mayExpandGraph) mayExpandGraph = true
     if (isOutputNode && emitsPreviews && mayExpandGraph) break
@@ -1228,6 +1228,9 @@ export function deriveBoundarySchema(
 
   let derivedItems = items
   if (region !== undefined) {
+    if (!def.boundary.outputs.some((output) => output.id !== region.continueOutput) && !isOutputNode) {
+      fail('doc.region.outputRequired', 'region requires an exported boundary output or a declared output node')
+    }
     const elements = new Set(region.elementPorts ?? [])
     const state = new Set(region.statePorts ?? [])
     const outputRoles = region.outputRoles ?? {}

@@ -101,6 +101,10 @@ regions. Simple, For, and List iteration preserve binding order, carried state,
 first and last flags, accumulated scalar or output-list results, final-only
 results, termination targets, nesting, and iteration cache policy. A loop with
 no carried state remains a fold because ComfyUI executes iterations in order.
+Heterogeneous `CreateList` values lower to positional tuples. Accumulating a
+tuple gathers one whole tuple per iteration, yielding a list of tuples; only
+execution-list outputs flatten. Tuple families declare exactly one input per
+member, matching the backend schema contract.
 Compatible lazy switches lower to Dinkster's native selector inside the region,
 so each iteration executes only its selected branch.
 

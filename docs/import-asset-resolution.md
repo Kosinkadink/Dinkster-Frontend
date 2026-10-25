@@ -31,6 +31,27 @@ The `DinksterConnection.guessAssets` client batches at 64 names per sequential r
 
 ## Dynamic construct compatibility
 
+Imported `CreateList` nodes become explicit typed list construction and
+concatenation. Connected inputs keep their authored slot order, including
+sparse or out-of-order input names. Declared list outputs are concatenated;
+scalar outputs are wrapped as single elements. Payload shape never decides
+cardinality. `GetItemFromList` becomes explicit element selection, with a
+list-valued index first selecting index zero. These translations do not add
+implicit broadcast behavior to the engine.
+
+Declared list outputs feeding ordinary scalar inputs are persisted as explicit
+map regions. Linked scalar inputs consume elements while other widget values
+broadcast unchanged. Mapping propagates through connected consumers regardless
+of serialized node order, including reroutes and named nets. Output-only
+consumers are mapped as well. Expanding controls retain their native paths.
+
+Native catalogs that register an expanding `StartLoop` retain the registered
+loop nodes for engine execution. List-backed `EndLoop` results use an explicit
+flatten map to preserve the source execution-list shape; scalar results keep
+their ordinary result list. Legacy schemas use structural region
+translation. Promoted widgets retain their authored instance values through
+generated loop definitions, including nested loops inside imported subgraphs.
+
 ComfyUI serializes widget values positionally. For a DynamicCombo it writes
 the selector first, then the selected branch's widget values in schema order,
 then resumes the containing branch or node. Dinkster's importer decodes that
@@ -50,6 +71,8 @@ Autogrow links are reconstructed from the current node schema. Prefix families
 accept their declared ordinal vocabulary and grouped forms; names families
 accept only declared member names. Recognized links create persisted members
 and member-qualified Dinkster endpoints instead of retaining ComfyUI wire names.
+Unlinked socket-only placeholders do not create members beyond the declared
+minimum. Widget-backed members retain their authored values and order.
 Prefix member IDs follow first linked input-slot appearance, not numeric or
 object-key sorting: sparse or out-of-order `image2`, `image0` becomes `m0`,
 `m1`. Names families retain the declared name as identity. A family-scoped

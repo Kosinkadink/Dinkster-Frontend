@@ -89,6 +89,12 @@ pack-defined concrete types. Map occurrences can execute concurrently, but
 gathered results remain in element-binding order. Fold and while occurrences
 execute sequentially because each iteration receives the previous state.
 
+Declared output nodes inside a region, including nested regions containing
+output nodes, execute on each iteration. A body that only saves values needs
+no exported output: a map executes its sink once per input element, and zero
+times for an empty list. A region with neither an exported output nor a
+declared output node is invalid.
+
 The Queue card creates one row per fixed map/fold item as soon as expansion is
 known. Rows move from waiting to running to completed from explicit backend
 iteration lifecycle events; while rows appear as occurrences start. The

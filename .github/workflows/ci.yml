@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: ff86f9e98f0bce5d9eea7f2f31142661022e5dc5
+  DINKSTER_REF: 201769c69636333640f28ba647e9c673ede0be74
 
 jobs:
   fast:

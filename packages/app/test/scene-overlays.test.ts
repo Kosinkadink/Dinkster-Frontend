@@ -1224,6 +1224,56 @@ describe('deriveSceneOverlays', () => {
     expect(m.runLogsByNode.has('n3')).toBe(false)
   })
 
+  it('projects blocked and expanded runtime facts onto their canvas nodes', () => {
+    const m = deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'consumer' }, { id: 'parent' }]),
+      exec: exec({
+        blockedNodes: { consumer: { origin: 'source/value', message: 'source produced no value' } },
+        expandedNodes: { parent: { children: ['parent/left', 'parent/right'], childCount: 2 } },
+      }),
+    })
+    expect(m.blockedByNode.get('consumer')).toBe('source produced no value')
+    expect(m.expandedByNode.get('parent')).toBe(2)
+    expect(m.badges['consumer']?.map((badge) => badge.glyph)).toEqual(['Blocked: source produced no value'])
+    expect(m.badges['parent']?.map((badge) => badge.glyph)).toEqual(['2 children'])
+  })
+
+  it('projects dynamic child facts through display identity before lifecycle arrives', () => {
+    const childFacts = {
+      blockedNodes: {
+        'parent.0.0.child': {
+          origin: 'source/value', message: 'source produced no value', displayRuntimeNodeId: 'parent',
+        },
+      },
+      expandedNodes: {
+        'parent.0.0.child': {
+          children: ['parent.0.0.child/left'], childCount: 1, displayRuntimeNodeId: 'parent',
+        },
+      },
+    }
+    const direct = deriveSceneOverlays({ ...base, scene: scene([{ id: 'parent' }]), exec: exec(childFacts) })
+    expect(direct.blockedByNode.get('parent')).toBe('source produced no value')
+    expect(direct.expandedByNode.get('parent')).toBe(1)
+
+    const nested = deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'parent' }]),
+      instancePath: ['outer'],
+      exec: exec({
+        blockedNodes: {
+          'parent.0.0.child': { ...childFacts.blockedNodes['parent.0.0.child'], displayRuntimeNodeId: 'runtime-parent' },
+        },
+        expandedNodes: {
+          'parent.0.0.child': { ...childFacts.expandedNodes['parent.0.0.child'], displayRuntimeNodeId: 'runtime-parent' },
+        },
+        artifact: { provenance: { toSource: { 'runtime-parent': 'outer.parent' } } },
+      }),
+    })
+    expect(nested.blockedByNode.get('parent')).toBe('source produced no value')
+    expect(nested.expandedByNode.get('parent')).toBe(1)
+  })
+
   it('attributes media warning badges to exact nested occurrences without marking execution failed', () => {
     const execution = exec({
       valueDiagnostics: [

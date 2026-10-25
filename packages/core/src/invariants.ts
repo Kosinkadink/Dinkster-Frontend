@@ -864,8 +864,8 @@ function checkRegion(
   if (region.continueOutput !== undefined && !outputIds.has(region.continueOutput)) {
     report('error', 'doc.region.continueUndeclared', `continue output '${region.continueOutput}' is not a boundary output`, region.continueOutput, 'output')
   }
-  if (![...outputIds].some((id) => id !== region.continueOutput)) {
-    report('error', 'doc.region.outputRequired', 'region requires at least one exported boundary output')
+  if (![...outputIds].some((id) => id !== region.continueOutput) && Object.keys(body.nodes).length === 0) {
+    report('error', 'doc.region.outputRequired', 'region requires an exported boundary output or a declared output node')
   }
   if (region.maxIterations !== undefined && region.maxIterations < 1) {
     report('error', 'doc.region.maxIterations', 'maxIterations must be at least 1')
