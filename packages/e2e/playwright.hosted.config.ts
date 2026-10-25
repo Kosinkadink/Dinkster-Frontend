@@ -98,6 +98,7 @@ export default defineConfig({
       command: [
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
         '--host 127.0.0.1',
+        '--allow-host localhost',
         `--port ${nativePort}`,
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
