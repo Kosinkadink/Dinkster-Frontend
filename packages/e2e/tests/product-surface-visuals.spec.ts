@@ -826,9 +826,19 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
   })
   await openModal(page, 'collab')
   await expect(page.getByTestId('collab-loading')).toContainText('Loading shared sessions')
+  // Compare the square at zero rotation, not an animation-dependent bounding box.
+  await page.getByTestId('collab-loading').locator('.collab-spinner').evaluate((element) => {
+    for (const animation of element.getAnimations()) {
+      animation.pause()
+      animation.currentTime = 0
+    }
+  })
   const spinner = await page.getByTestId('collab-loading').locator('.collab-spinner').boundingBox()
   expect(spinner!.width).toBeGreaterThan(8)
   expect(spinner!.height).toBe(spinner!.width)
+  await page.getByTestId('collab-loading').locator('.collab-spinner').evaluate((element) => {
+    for (const animation of element.getAnimations()) animation.play()
+  })
   await capture('loading')
   mode = 'empty'
   await expect.poll(() => release !== undefined).toBe(true)
