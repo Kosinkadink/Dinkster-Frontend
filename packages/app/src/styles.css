@@ -3270,6 +3270,8 @@ body,
   border-color: var(--dinkster-accent-border) !important;
 }
 .execution-errors { color: var(--dinkster-danger-foreground) !important; background: var(--dinkster-danger-background) !important; border-color: var(--dinkster-danger-border) !important; }
+.execution-blocked { color: var(--dinkster-warning-foreground) !important; background: var(--dinkster-warning-background) !important; border-color: var(--dinkster-warning-border) !important; }
+.execution-expanded { color: var(--dinkster-info-foreground) !important; background: var(--dinkster-info-background) !important; border-color: var(--dinkster-info-border) !important; }
 .execution-incomplete { color: var(--dinkster-warning-foreground) !important; background: var(--dinkster-warning-background) !important; border-color: var(--dinkster-warning-border) !important; }
 .execution-relation { color: var(--dinkster-info-foreground) !important; background: var(--dinkster-info-background) !important; border-color: var(--dinkster-info-border) !important; }
 .execution-progress { display: grid; gap: var(--dinkster-space-4); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }

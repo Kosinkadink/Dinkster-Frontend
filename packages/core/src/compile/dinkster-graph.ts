@@ -229,6 +229,16 @@ export function typeExprToDinksterWire(t: TypeExpr): Json | undefined {
         : undefined
     case 'wildcard':
       return { kind: 'wildcard' }
+    case 'family_tuple':
+      return { kind: 'family_tuple', input: t.input }
+    case 'tuple_element': {
+      const element = t.element === undefined ? undefined : typeExprToDinksterWire(t.element)
+      return { kind: 'tuple_element', ...(t.input !== undefined ? { input: t.input } : element !== undefined ? { element } : {}), index: t.index }
+    }
+    case 'tuple': {
+      const elements = t.elements.map(typeExprToDinksterWire)
+      return elements.some((element) => element === undefined) ? undefined : { kind: 'tuple', elements: elements as Json[] }
+    }
     case 'variable': {
       if (t.templateId === '') return undefined
       if (t.allowedTypes === undefined || t.allowedTypes.length === 0)

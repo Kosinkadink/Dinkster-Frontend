@@ -4,7 +4,7 @@ import { asConnectionId, asLineageId, asPromptId, type CompileArtifact } from '@
 import type { ExecutionState } from '@dinkster/client'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ExecutionActivityCard, executionNodeSummary, executionProgress, executionRegionIterationRows } from '../src/ExecutionActivityCard.js'
+import { ExecutionActivityCard, executionBlockedSummary, executionExpandedSummary, executionNodeSummary, executionProgress, executionRegionIterationRows } from '../src/ExecutionActivityCard.js'
 
 const entry = (over: Partial<ExecutionState> = {}): ExecutionState => ({
   ref: { connection: asConnectionId('backend-long-identity'), prompt: asPromptId('prompt-long-identity') },
@@ -162,6 +162,30 @@ describe('ExecutionActivityCard', () => {
       'map region - item 2running',
       'map region - item 3waiting',
     ])
+  })
+
+  it('shows blocked messages and expanded child completion as activity facts', () => {
+    const current = entry({
+      nodes: {
+        'parent.0.0.left': { state: 'done', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+        'parent.0.0.right': { state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+      },
+      blockedNodes: {
+        'parent.0.0.child': { origin: 'source/value', message: 'source produced no value', displayRuntimeNodeId: 'parent' },
+      },
+      expandedNodes: {
+        'parent.0.0.child': {
+          children: ['parent.0.0.left', 'parent.0.0.right'], childCount: 2, displayRuntimeNodeId: 'parent',
+        },
+      },
+    })
+    expect(executionBlockedSummary(current)).toEqual(['source produced no value'])
+    expect(executionExpandedSummary(current)).toEqual(['1/2 expanded children'])
+    const root = document.createElement('div')
+    document.body.append(root)
+    render(() => <ExecutionActivityCard entry={current} title="Semantics workflow" testId="activity" />, root)
+    expect(root.querySelector('.execution-blocked')?.textContent).toBe('Blocked: source produced no value')
+    expect(root.querySelector('.execution-expanded')?.textContent).toBe('1/2 expanded children')
   })
 
   it('keeps incomplete external executions truthful and disables frozen-view entry', () => {

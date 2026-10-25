@@ -215,6 +215,12 @@ const sameTypeExpr = (left: TypeExpr, right: TypeExpr): boolean => {
       return left.names.length === names.length && left.names.every((name, index) => name === names[index])
     }
     case 'wildcard': return true
+    case 'tuple': return left.elements.length === (right as typeof left).elements.length && left.elements.every((element, index) => sameTypeExpr(element, (right as typeof left).elements[index]!))
+    case 'family_tuple': return left.input === (right as typeof left).input
+    case 'tuple_element': {
+      const other = right as typeof left
+      return left.input === other.input && left.index === other.index && (left.element === undefined ? other.element === undefined : other.element !== undefined && sameTypeExpr(left.element, other.element))
+    }
     case 'variable': {
       const other = right as typeof left
       const leftAllowed = left.allowedTypes ?? []

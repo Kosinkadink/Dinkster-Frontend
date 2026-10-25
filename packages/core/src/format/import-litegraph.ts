@@ -60,7 +60,7 @@ import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
 import { isAssetRefValue, isSaveTargetValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
-import { convertLitegraphLoops } from './import-litegraph-loops.js'
+import { convertLitegraphLists, convertLitegraphLoops, convertLitegraphListConsumers } from './import-litegraph-loops.js'
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
 
@@ -366,6 +366,7 @@ const discoverAutogrowMembers = (
   inputs: readonly { readonly name?: string }[],
   families: readonly AutogrowFamilyImport[],
   preserveSuffixes: boolean,
+  targetedSlots: ReadonlySet<number>,
 ): DiscoveredAutogrowMembers => {
   const allocated = new Map<string, Map<string, string>>()
   const order = new Map<string, string[]>()
@@ -393,6 +394,8 @@ const discoverAutogrowMembers = (
       .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
     if (candidates.length !== 1) continue
     const match = candidates[0]!
+    if (!targetedSlots.has(slotIndex) && !match.family.spec.template.some((item) =>
+      item.kind === 'input' && (item.widget !== undefined || item.dynamic !== undefined))) continue
     slots.set(slotIndex, { match, memberId: allocate(match) })
   }
   for (const family of families) {
@@ -1444,7 +1447,9 @@ function importLitegraphGraph(
   const importedNodeType = (node: LgNode): string =>
     node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt' : node.type
   const resolveImported = (node: LgNode): NodeSchema | undefined =>
-    preparedGroupNodes.has(node.id)
+    node.type === 'CreateList' || node.type === 'GetItemFromList'
+      ? undefined
+      : preparedGroupNodes.has(node.id)
       ? comfyGroups?.groupSchemas.get(node.type)
       : groupPreparation.sourceSchemas.get(node.id) ?? resolve(importedNodeType(node))
 
@@ -1838,6 +1843,15 @@ function importLitegraphGraph(
     }
 
     const id = `n${n.id}`
+    if (n.type === 'CreateList' || n.type === 'GetItemFromList') {
+      const index = Array.isArray(n.widgets_values) ? n.widgets_values[0] : (n.widgets_values as Readonly<Record<string, Json>> | undefined)?.['index']
+      const mode = n.mode === 2 ? 'muted' : n.mode === 4 ? 'bypassed' : undefined
+      nodes[id] = { id, type: n.type, values: n.type === 'GetItemFromList' ? { index: index ?? 0 } : {}, ...(mode ? { mode } : {}) }
+      importedOutputEndpoints.set(n.id, new Map((n.outputs ?? []).map((output, slot) =>
+        [slot, { node: id, port: output.name ?? '*' }])))
+      viewNodes[id] = { position: posOf(n) }
+      continue
+    }
     const schema = resolveImported(n)
     const preparedGroup = preparedGroupNodes.get(n.id)
     const values: Record<string, Json> = { ...preparedGroup?.values }
@@ -1845,10 +1859,13 @@ function importLitegraphGraph(
     const dynamic: Record<string, Json> = {}
     const ext: Record<string, Json> = {}
     const preserveAliasSuffixes = schema !== undefined && isMaintainedAlias(n.type, schema)
+    const targetedSlots = new Set<number>()
+    for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
+    for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
 
     if (schema !== undefined) {
       const families = activeAutogrowFamilies(schema.items, dynamic)
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes)
+      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes, targetedSlots)
       for (const [familyPath, members] of discovered.order) {
         const minted = members
           .map((member) => /^m(\d{1,15})$/.exec(member)?.[1])
@@ -1902,11 +1919,8 @@ function importLitegraphGraph(
 
     if (schema !== undefined) {
       const families = activeAutogrowFamilies(schema.items, dynamic)
-      const targetedSlots = new Set<number>()
-      for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
-      for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
       const endpoints = new Map<number, JsonObject>()
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes)
+      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes, targetedSlots)
 
       // LiteGraph inputs are an ordered array. This first-observation walk is
       // the identity policy: sparse/out-of-order foreign ordinals are labels,
@@ -2377,7 +2391,9 @@ function importLitegraphGraph(
     },
   } as unknown as JsonObject
 
-  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags)
+  const listHelperOwners = convertLitegraphLists(document, rawNodes, resolve, rawLinks, diags)
+  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags, listHelperOwners)
+  convertLitegraphListConsumers(document, resolve)
 
   // Error-level import diagnostics (e.g. untranslatable subgraph definitions)
   // block the import outright: a partially-translated workflow is corruption.

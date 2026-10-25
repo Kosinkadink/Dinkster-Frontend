@@ -64,6 +64,24 @@ export const executionErrorBadge = (count: number): NodeBadge => ({
   glyph: count > 1 ? `Error ${count}` : 'Error',
   fallbackGlyph: ERROR_BADGE.glyph,
 })
+/** One engine explanation for the root absence that blocked this node. */
+export const executionBlockedBadge = (message: string): NodeBadge => ({
+  id: 'core.execution.blocked',
+  glyph: `Blocked: ${message}`,
+  variant: 'label',
+  placement: 'below',
+  interactive: false,
+  color: '#8a6d1f',
+})
+/** Runtime work created under a parent node during this execution. */
+export const executionExpandedBadge = (childCount: number): NodeBadge => ({
+  id: 'core.execution.expanded',
+  glyph: `${childCount} child${childCount === 1 ? '' : 'ren'}`,
+  variant: 'label',
+  placement: 'below',
+  interactive: false,
+  color: '#315d73',
+})
 /** Bottom tab counting the node's warning log records this run. */
 export const logWarningBadge = (count: number): NodeBadge => ({
   id: 'core.log.warning',

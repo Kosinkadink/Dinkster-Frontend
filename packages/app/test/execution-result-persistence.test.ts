@@ -66,6 +66,8 @@ const completed = (promptId: string, endedAt = 10): ExecutionState => ({
       outputs: { value: { typeId: 'FLOAT', value: 7.5 } },
     },
   },
+  blockedNodes: {},
+  expandedNodes: {},
   regions: {},
   outputs: {
     producer: {

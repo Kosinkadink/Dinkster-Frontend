@@ -267,20 +267,27 @@ describe('region document format and invariants', () => {
     }))).toContain('doc.region.outputContinueOverlap')
   })
 
-  it('requires an exported output and diagnoses role-required ports on an empty boundary', () => {
+  it('requires an exported output or declared sink and diagnoses role-required ports', () => {
     const empty = structuredClone(documentWith({ kind: 'map', elementPorts: ['item'] })) as WorkflowDocument
     ;(empty.graphs.body as { boundary?: unknown }).boundary = { inputs: [], outputs: [] }
-    expect(codes(empty)).toEqual(expect.arrayContaining([
-      'doc.region.elementPortUndeclared',
-      'doc.region.outputRequired',
-    ]))
+    expect(codes(empty)).toContain('doc.region.elementPortUndeclared')
+    expect(deriveBoundarySchema(empty.graphs.body!, resolve, empty.graphs.root!.nodes.n0!.region).diagnostics.map((d) => d.code)).toContain('doc.region.outputRequired')
+
+    const sink = structuredClone(empty) as WorkflowDocument
+    ;(sink.graphs.body as { nodes: GraphDef['nodes'] }).nodes = { save: { id: 'save' as never, type: 'Sink', values: {} } }
+    const sinkResult = deriveBoundarySchema(sink.graphs.body!, (type) => type === 'Sink' ? sinkSchema : resolve(type), sink.graphs.root!.nodes.n0!.region)
+    expect(sinkResult.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(sinkResult.schema?.isOutputNode).toBe(true)
+
+    ;(sink.graphs.body as { nodes: GraphDef['nodes'] }).nodes = {}
+    expect(codes(sink)).toContain('doc.region.outputRequired')
 
     const continuationOnly = structuredClone(documentWith({
       kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } }, continueOutput: 'continue', maxIterations: 2,
     })) as WorkflowDocument
     const boundary = continuationOnly.graphs.body!.boundary!
     ;(boundary as { outputs: typeof boundary.outputs }).outputs = boundary.outputs.filter((item) => item.id === 'continue')
-    expect(codes(continuationOnly)).toContain('doc.region.outputRequired')
+    expect(deriveBoundarySchema(continuationOnly.graphs.body!, resolve, continuationOnly.graphs.root!.nodes.n0!.region).diagnostics.map((d) => d.code)).toContain('doc.region.outputRequired')
   })
 
   it('rejects promoted scalar widgets on element boundary inputs', () => {
@@ -562,6 +569,36 @@ describe('region occurrence boundary projection', () => {
 })
 
 describe('region compile lowering', () => {
+  it.each(['active', 'muted', 'bypassed'] as const)('requires executable sinks when the only sink is %s', (mode) => {
+    for (const placement of ['direct', 'nested', 'disabled-ancestor'] as const) {
+      const nested = placement !== 'direct'
+      const document = structuredClone(documentWith({ kind: 'map', elementPorts: ['item'] })) as WorkflowDocument
+      const sinkBody: GraphDef = {
+        ...body(),
+        nodes: { save: { id: 'save' as never, type: 'Sink', mode: placement === 'disabled-ancestor' ? 'active' : mode, values: {} } },
+        boundary: {
+          inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'save' as never, port: 'in' as never } }],
+          outputs: [],
+        },
+      }
+      ;(document.graphs as Record<string, GraphDef>).body = nested ? {
+        ...sinkBody,
+        nodes: { inner: { id: 'inner' as never, type: '#inner', mode: placement === 'disabled-ancestor' ? mode : 'active', values: {} } },
+        boundary: { inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'inner' as never, port: 'item' as never } }], outputs: [] },
+      } : sinkBody
+      if (nested) (document.graphs as Record<string, GraphDef>).inner = { ...sinkBody, id: 'inner' as never }
+      ;(document.graphs.root!.nodes.n0 as { values: Record<string, Json> }).values = { item: [3, 11] }
+      const schema = (type: string) => type === 'Sink' ? sinkSchema : resolve(type)
+      const result = compile({ document, revision: 1, resolve: schema, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test', graphFeatures: ['regions'] })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(mode === 'active')
+      if (mode !== 'active') {
+        const resolveOccurrence = documentNodeResolver(document, schema)
+        const derived = deriveBoundarySchema(document.graphs.body!, schema, document.graphs.root!.nodes.n0!.region, (node) => resolveOccurrence('body', node))
+        expect(derived.diagnostics.map((d) => d.code)).toContain('doc.region.outputRequired')
+      }
+    }
+  })
+
   it('authors the implicit immediate iteration index without a boundary port', () => {
     const document = documentWith({ kind: 'map', elementPorts: ['item'] })
     ;(document.graphs.body!.nodes as Record<string, unknown>).indexSink = { id: 'indexSink', type: 'IndexSink', values: {} }
@@ -1100,6 +1137,30 @@ describe('region compile lowering', () => {
       'n0.n0': { class_type: 'Body', inputs: { in_item: [], in_other: 0, in_state: 0 }, outputIds: ['out_item', 'out_state', 'out_other', 'out_continue'] },
     })
     expect(result.artifact.dinksterGraph).toBeUndefined()
+  })
+
+  it('emits a native graph for an ordinary graph when the backend supports regions', () => {
+    const doc = documentWith({ kind: 'map', elementPorts: ['item'] })
+    delete (doc.graphs.root!.nodes.n0 as { region?: RegionContract }).region
+    const result = compile({
+      document: doc,
+      revision: 1,
+      resolve,
+      scope: { kind: 'full' },
+      connection: asConnectionId('test'),
+      schemaHash: 'test',
+      graphFeatures: ['regions'],
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    expect(result.artifact.dinksterGraph).toEqual({
+      nodes: {
+        'n0.n0': {
+          nodeType: 'Body',
+          inputs: { in_item: [], in_other: 0, in_state: 0 },
+        },
+      },
+    })
   })
 })
 
