@@ -15,6 +15,7 @@ import {
 } from '@dinkster/core'
 import { createMemo, createUniqueId, For, Match, onCleanup, Show, Switch } from 'solid-js'
 import { AssetEditorShell } from './AssetEditorShell.js'
+import { ProductButton } from './ProductControls.js'
 import type { CommandRegistry } from './settings.js'
 
 const HOST_UI_CONTRIBUTION_ID = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
@@ -114,14 +115,16 @@ function HostUiNode(props: { readonly node: HostUiNodeV1; readonly commands: Com
         current.run(node().payload)
       }
       return <>
-        <button
+        <ProductButton
+          variant="ghost"
+          size="compact"
           class={`host-ui-action ${toneClass()}`}
           data-host-ui-key={node().key}
           disabled={disabled()}
           aria-describedby={disabled() && node().disabledReason ? reasonId() : undefined}
           title={disabled() ? node().disabledReason : undefined}
           onClick={invoke}
-        >{node().label}</button>
+        >{node().label}</ProductButton>
         <Show when={disabled() && node().disabledReason}><span id={reasonId()} class="host-ui-disabled-reason">{node().disabledReason}</span></Show>
       </>
     }}</Match>

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import type { Diagnostic, HostUiProviderV1, Json } from '@dinkster/core'
+import { buttonView } from '@dinkster/widgets'
 import { AssetEditorShell } from '../src/AssetEditorShell.js'
 import { HostUiProviderHost, HostUiRenderer } from '../src/host-ui.js'
 import { CommandRegistry } from '../src/settings.js'
@@ -73,6 +74,37 @@ const assetEditorContribution = () => ({
 })
 
 describe('host UI renderer', () => {
+  it('invokes the BUTTON editor command with existing value and target, and refuses unavailable actions', () => {
+    const commands = new CommandRegistry()
+    const run = vi.fn()
+    commands.register({ id: 'fixture.capture', label: 'Capture frame', run })
+    const target = { kind: 'input', graphId: 'g0', nodeId: 'n0', inputId: 'capture' }
+    const [options, setOptions] = createSignal<Json>({ display_name: 'Capture frame', command: 'fixture.capture' })
+    mount(() => <HostUiProviderHost
+      owner="button-test"
+      provider={buttonView.editorUi!}
+      data={{ value: null, target, widget: { type: 'BUTTON', options: options() } }}
+      surface="widget-editor"
+      commands={commands}
+      replaceProblems={() => {}}
+    />)
+    const button = () => root.querySelector('button')!
+    expect(button().textContent).toBe('Capture frame')
+    expect(button().classList.contains('product-button')).toBe(true)
+    button().click()
+    expect(run).toHaveBeenCalledWith({ value: null, target })
+    setOptions({ display_name: 'Capture frame', command: 'fixture.capture', disabled: true })
+    expect(button().disabled).toBe(true)
+    button().click()
+    setOptions({ display_name: 'Capture frame', command: 'fixture.missing' })
+    expect(button().disabled).toBe(true)
+    button().click()
+    setOptions({ display_name: 'Capture frame' })
+    expect(button().disabled).toBe(true)
+    button().click()
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
   it('renders core and extension text/status/action semantics and invokes payload commands', () => {
     const commands = new CommandRegistry()
     let enabled = true
