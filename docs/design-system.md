@@ -119,6 +119,16 @@ raw controls, and `rawControl` or `cssLiteral` ceilings above the current total.
 After removing controls or literals, run `pnpm check:raw-controls:write` to remove
 stale entries and lower ceilings. Write mode never permits count increases.
 
+`packages/app/src/styles.css` is the ordered entrypoint for the surface files
+in `styles/`. Keep imports in cascade order: base and product controls, search
+and modals, canvas and widget surfaces, panels and library, shell and execution
+log, widget assets and App view, collaboration and boot, then image editor.
+Keep each surface's responsive and reduced-motion rules beside its rules;
+do not regroup selectors across files if that changes override order.
+The `cssLiteral` entry for `styles.css` aggregates the entrypoint and every
+CSS file under `styles/`, so extracting a surface cannot bypass the ratchet.
+Standalone component stylesheets keep their existing ownership and scope.
+
 The executed image viewer uses compact `ProductButton` controls and grid tiles,
 `ProductNumberInput` for independent left/right image selection, and
 `ProductSlider` for the compare split. Selected modes use the primary variant.

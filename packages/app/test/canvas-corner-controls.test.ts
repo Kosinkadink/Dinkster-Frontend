@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { minimapMenuPlacement } from '../src/minimap.js'
+import { shellStyles as styles } from './fixtures/styles.js'
 
 const source = readFileSync(new URL('../src/CanvasHost.tsx', import.meta.url), 'utf8')
-const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
 describe('canvas corner controls', () => {
   it('groups minimap toggle, settings, and zoom controls on the corner bar with accessible labels', () => {

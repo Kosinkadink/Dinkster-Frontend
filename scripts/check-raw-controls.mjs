@@ -80,6 +80,7 @@ const declaredTokens = new Set(
   ).match(/--dinkster-[\w-]+(?=['"]:)/gu) ?? [],
 )
 const tokenReferences = []
+let cssLiterals = 0
 for (const path of (await files(sourceRoot)).sort()) {
   const relativePath = relative(root, path).replaceAll('\\', '/')
   const sourceText = await readFile(path, 'utf8')
@@ -88,9 +89,11 @@ for (const path of (await files(sourceRoot)).sort()) {
   for (const match of sourceText.matchAll(/var\(\s*(--dinkster-[\w-]+)/gu))
     tokenReferences.push({ name: match[1], path: relativePath })
   if (path.endsWith('.css')) {
-    const count = basename(path) === 'styles.css' ? countCss(sourceText) : 0
-    if (count > 0)
-      counts.push({ kind: 'cssLiteral', path: relativePath, count })
+    if (
+      basename(path) === 'styles.css' ||
+      relative(sourceRoot, path).replaceAll('\\', '/').startsWith('styles/')
+    )
+      cssLiterals += countCss(sourceText)
     continue
   }
   const result = countTs(path, sourceText)
@@ -108,6 +111,15 @@ for (const path of (await files(sourceRoot)).sort()) {
       count: result.inlineStyle,
     })
 }
+if (cssLiterals > 0)
+  counts.push({
+    kind: 'cssLiteral',
+    path: relative(root, resolve(sourceRoot, 'styles.css')).replaceAll(
+      '\\',
+      '/',
+    ),
+    count: cssLiterals,
+  })
 
 const undefinedTokens = tokenReferences.filter(
   ({ name }) => !declaredTokens.has(name),
