@@ -18,7 +18,7 @@
     "text:(new Set()) const [loaded, setLoaded] = createSolidSignal",
     "text:.canvas-pane') const canvas = center?.querySelector",
     "text:.editor-split-region') if (!center || !canvas) return undefined const state = app.dock.effective() const visibleZones: Partial",
-    "text:0 let bodyElement!: HTMLDivElement const [panelDrag, setPanelDrag] = createSolidSignal",
+    "text:0 let bodyElement!: HTMLDivElement const [sideSpace, setSideSpace] = createSolidSignal",
     "text:1 // Pending close is validated by (id, DocumentSession): a same-id // replacement (import or collaboration adoption) installs a new session, // invalidating the user's discard decision, while editor-kind switches // replace the Tab object but keep the session and must not dismiss it. const [pendingClose, setPendingClose] = createSolidSignal",
     "text:= rect.left - pad && x",
     "text:= rect.top - pad && y",
