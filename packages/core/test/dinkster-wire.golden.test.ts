@@ -13,6 +13,54 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('keeps socketless widget values positional and compilable in direct and nested inputs', () => {
+    const fields = [
+      { role: 'input', id: 'color', type: concrete('STRING'), default: '#123456', socketless: true, widget: { type: 'COLOR' } },
+      { role: 'input', id: 'amount', type: concrete('INT'), default: 7 },
+    ]
+    for (const nested of [false, true]) {
+      const result = parseDinksterSchema('SocketlessFixture', {
+        outputNode: true,
+        interface: nested ? [{ role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs: fields }] }] : fields,
+      })
+      expect(result.diagnostics).toEqual([])
+      const resolve = (type: string) => type === 'SocketlessFixture' ? result.schema : undefined
+      for (const [widgets, color, amount] of [
+        [[], '#123456', 7], [['#abcdef', 19], '#abcdef', 19],
+      ] as const) {
+        const imported = importLitegraph({ nodes: [{ id: 1, type: 'SocketlessFixture', widgets_values: nested ? ['solid', ...widgets] : widgets }], links: [] }, resolve)
+        const compiled = compile({ document: imported.document!, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('socketless'), schemaHash: 'socketless' })
+        expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('socketless compilation failed')
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual(nested ? { style: 'solid', 'style.color': color, 'style.amount': amount } : { color, amount })
+      }
+    }
+  })
+
+  it('validates socketless flags in every ordinary input scope', () => {
+    const scopes = [
+      (inputs: unknown[]) => inputs,
+      (inputs: unknown[]) => [{ role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs }] }],
+      (inputs: unknown[]) => [{ role: 'inputFamily', id: 'colors', memberPrefix: 'color', template: inputs }],
+    ]
+    const field = { role: 'input', id: 'color', type: concrete('STRING'), default: '#123456', widget: { type: 'COLOR' } }
+    for (const scope of scopes) {
+      for (const socketless of [undefined, false, true]) {
+        const result = parseDinksterSchema('SocketlessFixture', { interface: scope([{ ...field, socketless }]) })
+        expect(result.diagnostics).toEqual([])
+        expect(result.schema).toBeDefined()
+      }
+      for (const invalid of [
+        ...[null, 0, 1, 'true', [], {}].map((socketless) => ({ ...field, socketless })),
+        { ...field, socketless: true, forceInput: true },
+      ]) {
+        const result = parseDinksterSchema('InvalidSocketless', { interface: scope([invalid]) })
+        expect(result.schema).toBeUndefined()
+        expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+      }
+    }
+  })
+
   it('keeps an appended mount separate from its adjacent prefix and original positional inputs', () => {
     const result = parseDinksterSchema('SaveFixture', {
       schemaVersion: 1,

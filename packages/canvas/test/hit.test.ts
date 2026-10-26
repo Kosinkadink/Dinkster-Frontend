@@ -15,6 +15,7 @@ import {
   asPortId,
   documentResolver,
   loadDocument,
+  parseDinksterSchema,
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
@@ -65,6 +66,44 @@ function sceneOf(workflow: string, graphId = 'g0'): Scene {
 describe('hitTest', () => {
   const scene = sceneOf('exec-basic')
   const n0 = scene.nodes.find((n) => n.id === 'n0')!
+
+  it('keeps socketless editors and value taps without incoming hits in nested and family scopes', () => {
+    const fields = [
+      { role: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', socketless: true, widget: { type: 'COLOR' } },
+      { role: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+    ]
+    const combo = { role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs: fields }] }
+    const scopes = [
+      { items: fields, keys: ['color'] },
+      { items: [combo], keys: ['style.color'] },
+      { items: [{ role: 'inputFamily', id: 'colors', memberPrefix: 'color', minMembers: 1, maxMembers: 2, template: [combo] }], keys: ['colors.m0.style.color', 'colors.m1.style.color'] },
+    ]
+    for (const { items, keys } of scopes) {
+      const decoded = parseDinksterSchema('SocketlessFixture', { interface: [
+        ...items,
+        { role: 'output', id: 'color', type: { kind: 'concrete', types: ['STRING'] } },
+      ] })
+      expect(decoded.diagnostics).toEqual([])
+      const data = { ...n0.node, values: Object.fromEntries(keys.map((key) => [key, '#abcdef'])) }
+      const layout = layoutNode(decoded.schema!, data, defaultTokens, measure, widgetMeasure)
+      const node = { ...n0, node: data, layout }
+      const socketlessScene = { ...scene, nodes: [node] }
+      for (const key of keys) {
+        const row = layout.rows.find((row) => row.kind === 'widget' && row.inputId === key)!
+        expect(row).toMatchObject({ kind: 'widget', socketless: true })
+        expect(layout.pins.some((pin) => pin.direction === 'in' && pin.portId === key)).toBe(false)
+        expect(hitTestPin(socketlessScene, node.x, node.y + row.y + defaultTokens.rowHeight / 2)).toBeUndefined()
+        expect(hitTest(socketlessScene, node.x + layout.width / 2, node.y + row.y + row.height / 2)).toMatchObject({ kind: 'widget', row: { inputId: key } })
+        expect(layout.pins.some((pin) => pin.direction === 'in' && pin.portId === key.replace(/color$/, 'amount'))).toBe(true)
+      }
+      expect(layout.pins.some((pin) => pin.direction === 'out' && pin.portId === 'color' && !pin.widgetTap)).toBe(true)
+      if (keys.length === 1) {
+        const key = keys[0]!
+        const tap = pinPosition(node, key, 'out', true)!
+        expect(hitTest(socketlessScene, tap.x, tap.y, { widgetTaps: new Set([`${node.id}:${key}:out:tap`]) })).toMatchObject({ kind: 'widgetTap' })
+      }
+    }
+  })
 
   it('independently hits horizontal widgets and every input/value-output socket', () => {
     const schema: NodeSchema = {

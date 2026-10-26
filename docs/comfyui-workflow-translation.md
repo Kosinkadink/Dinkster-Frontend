@@ -36,6 +36,12 @@ constraints. The decoder retains the FLOATS socket and scalar default, min and
 step; it does not replace the runtime type with FLOAT or a primitive list.
 Unforced FLOATS and list<FLOATS> do not accept this numeric presentation.
 
+Native inputs may declare the boolean `socketless` presentation flag. True
+omits only the incoming socket and its hit target, preserving the editor,
+outgoing value tap, runtime type, default, positional slot and compile value.
+Nested branches and family members retain the flag in their own scopes.
+It does not change registry identity and cannot be combined with `forceInput`.
+
 Native save inputs keep `filename_prefix` as a STRING and append an optional
 STRING `mount` with the closed widget descriptor `{"type":"MOUNT"}`. Null or
 omitted mount uses the backend's snapshot default output mount; an explicit

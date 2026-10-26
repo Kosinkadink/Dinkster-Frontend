@@ -124,6 +124,7 @@ export interface PortSlot extends DynamicAnnotations {
   readonly label: string
   readonly type: TypeExpr
   readonly optional?: boolean
+  readonly socketless?: true
   /** Output slot whose producer may deliberately emit no value. */
   readonly maybeAbsent?: true
 }
@@ -157,6 +158,8 @@ export type LayoutRow =
       readonly rows: number
       /** The schema widget spec, so painters are self-contained. */
       readonly spec: WidgetSpec
+      /** Keep the editor and outgoing value tap without an incoming socket. */
+      readonly socketless?: true
       /** Wire-15 family literal that keeps an always-visible input socket. */
       readonly familyLiteral?: true
       /** Wire-22 execution binding retained from the elaborated input. */
@@ -911,7 +914,7 @@ export function layoutNode(
     if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
     if (options.minimized !== true && spec.widget && item.origin.kind === 'static' && conditionallyHidden.has(spec.id)) continue
     if (isHidden(section)) {
-      if (isConnected('in', spec.id)) {
+      if (!spec.socketless && isConnected('in', spec.id)) {
         collapsedPins.push({
           sectionId: section!, portId: spec.id, direction: 'in', type: spec.type,
           ...(spec.optional ? { optional: true as const } : {}), ...annotate(item),
@@ -937,6 +940,7 @@ export function layoutNode(
           portId: spec.id,
           label: displayLabel(spec),
           type: spec.type,
+          ...(spec.socketless ? { socketless: true as const } : {}),
           ...(spec.optional ? { optional: true } : {}),
           ...annotate(item),
         },
@@ -974,6 +978,7 @@ export function layoutNode(
         viewId: w.viewId,
         rows: w.rows,
         spec: representation.spec,
+        ...(spec.socketless ? { socketless: true as const } : {}),
         ...(familyLiteral ? { familyLiteral: true as const } : {}),
         ...(spec.sourceFilename !== undefined ? { sourceFilename: spec.sourceFilename } : {}),
         ...(representation.id !== undefined ? { representationId: representation.id } : {}),
@@ -1121,7 +1126,7 @@ export function layoutNode(
         ...(row.input ? { input: row.input } : {}),
         ...(row.output ? { output: row.output } : {}),
       })
-      if (row.input) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
+      if (row.input && !row.input.socketless) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
       if (row.output) pins.push({ ...annotationsOf(row.output), portId: row.output.portId, label: row.output.label, direction: 'out', y: y + height / 2, type: row.output.type, ...(row.output.maybeAbsent ? { maybeAbsent: true as const } : {}) })
       if (row.sectionId === advancedSectionId && advancedBounds !== undefined) {
         advancedBounds.bottom = y + height
@@ -1139,8 +1144,8 @@ export function layoutNode(
       // border. The symmetric side also reserves space for output widgets.
       const inset = tokens.pinRadius + WIDGET_PIN_GAP
       rows.push({ kind: 'widget', y, height, inset, ...w })
-      // Widget-backed inputs are connectable: pin at the first row line.
-      pins.push({
+      // Socketless controls keep their editor and outgoing value tap.
+      if (!w.socketless) pins.push({
         ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
         ...(w.optional ? { optional: true as const } : {}),
         ...(w.familyLiteral ? {} : { widgetBacked: true as const }),

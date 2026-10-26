@@ -627,6 +627,8 @@ export interface InputSpec extends PortSpecBase {
   readonly widget?: WidgetSpec
   /** Widget-backed input forced to render as a socket. */
   readonly forceInput?: boolean
+  /** Presentation-only omission of the incoming socket; values and output taps are unchanged. */
+  readonly socketless?: boolean
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
   readonly lazy?: true
   /** Execution binding for a staged Comfy source filename (wire 22). */

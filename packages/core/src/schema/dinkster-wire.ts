@@ -84,6 +84,7 @@ interface WireEntry {
   readonly memberPrefix?: unknown
   readonly memberNames?: unknown
   readonly forceInput?: unknown
+  readonly socketless?: unknown
   /** Computation-semantic demand marker. */
   readonly lazy?: unknown
   /** Storage-backed execution marker. */
@@ -1437,7 +1438,9 @@ function decodeWireOrdinary(nodeType: string, entry: Record<string, unknown>, wh
   // paths); top-level ordinary inputs are plain ids.
   const id = depth > 0 ? wireSegment(entry['id'], `${where}.id`) : wireEntryId(entry['id'], `${where}.id`)
   const required = wireBoolean(entry['required'], `${where}.required`, true)
-  wireBoolean(entry['forceInput'], `${where}.forceInput`, false)
+  const forceInput = wireBoolean(entry['forceInput'], `${where}.forceInput`, false)
+  const socketless = wireBoolean(entry['socketless'], `${where}.socketless`, false)
+  if (socketless && forceInput) throw new Error(`${where}.socketless conflicts with forceInput`)
   wireBoolean(entry['advanced'], `${where}.advanced`, false)
   const hidden = wireBoolean(entry['hidden'], `${where}.hidden`, false)
   wireJson(entry['default'], `${where}.default`)
@@ -1453,6 +1456,7 @@ function decodeWireOrdinary(nodeType: string, entry: Record<string, unknown>, wh
     id,
     ...(entry['adjacentTo'] !== undefined ? { adjacentTo: wireEntryId(entry['adjacentTo'], `${where}.adjacentTo`) } : {}),
     ...(entry['forceInput'] === true ? { forceInput: true } : {}),
+    ...(socketless ? { socketless: true } : {}),
     ...(entry['advanced'] === true ? { advanced: true } : {}),
     ...(hidden ? { hidden: true } : {}),
   }

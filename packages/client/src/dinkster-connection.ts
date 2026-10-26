@@ -3342,6 +3342,7 @@ function schemaIdentityWithoutWidgetPresentation(
   const multiComboWidget = record['type'] === 'MULTI_COMBO'
   return Object.fromEntries(Object.entries(value).flatMap(([key, entry]) =>
     key === 'hasDocs' ||
+    (record['role'] === 'input' && key === 'socketless') ||
     (record['role'] === 'input' && (key === 'acceptsStorage' || key === 'acceptsStream') && entry === false) ||
     (comboOption && COMBO_OPTION_PRESENTATION_FIELDS.has(key)) ||
     (multiComboWidget && MULTI_COMBO_PRESENTATION_FIELDS.has(key)) ||

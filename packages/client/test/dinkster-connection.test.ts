@@ -841,6 +841,20 @@ function chainArtifact(): CompileArtifact {
 }
 
 describe('native schema registry', () => {
+  it('keeps socketless presentation outside registry identity without dropping input values', () => {
+    const field = { role: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', widget: { type: 'COLOR' } }
+    for (const scoped of [false, true]) {
+      const payload = (socketless: boolean, value = '#123456') => ({ schemaVersion: 1, nodes: { ColorFixture: { interface: scoped
+        ? [{ role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs: [{ ...field, default: value, socketless }] }] }]
+        : [{ ...field, default: value, socketless }] } } })
+      const ordinary = buildDinksterRegistry(C0, payload(false))
+      const socketless = buildDinksterRegistry(C0, payload(true))
+      expect(socketless.diagnostics).toEqual([])
+      expect(socketless.hash).toBe(ordinary.hash)
+      expect(buildDinksterRegistry(C0, payload(true, '#abcdef')).hash).not.toBe(socketless.hash)
+    }
+  })
+
   it('parses the real /api/nodes fixture with a stable hash', () => {
     const again = buildDinksterRegistry(C0, nodesPayload)
     expect(registry.schemas.size).toBeGreaterThan(0)
