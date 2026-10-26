@@ -753,7 +753,7 @@ describe('planReplacement rewires', () => {
     expect(planned.plan!.dropLinks).toEqual([])
   })
 
-  it('treats interchangeable comfy-compat tap type spellings as the same type', () => {
+  it('does not preserve a tap across distinct prefixed and native types', () => {
     const before = doc({
       g0: graph({
         id: 'g0',
@@ -768,8 +768,8 @@ describe('planReplacement rewires', () => {
     })
     const rule: ReplacementRule = { from: 'TapMaskOld', cases: [{ to: 'TapMaskComfy' }] }
     const planned = planReplacement(before, 'g0', 'old', rule, resolve)
-    expect(planned.diagnostics).toEqual([])
-    expect(planned.plan!.dropLinks).toEqual([])
+    expect(planned.diagnostics.map((d) => d.code)).toEqual(['replace.output.dropped'])
+    expect(planned.plan!.dropLinks).toEqual(['tapLink'])
     expect(planned.plan!.tapGuards).toEqual([{ link: 'tapLink', tap: 'amount' }])
   })
 
