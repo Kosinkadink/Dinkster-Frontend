@@ -19,7 +19,7 @@
  * Skips loudly when no backend answers OR the dev node is absent, so the
  * suite stays runnable against ComfyUI alone or a non-dev native server.
  */
-import { expect, productOption, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, nativeTest, productOption, selectProductOption, test, type Page } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -332,7 +332,7 @@ test('runs lingering through a backend switch can never clear the incoming backe
   expect(clearCalls).toEqual([])
 })
 
-test('clear arms first, wipes the whole scope on confirmation', async ({ page }) => {
+nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('assets-toggle').click()
   const assets = page.getByTestId('assets-overlay')
