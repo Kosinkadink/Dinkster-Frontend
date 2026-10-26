@@ -1,0 +1,209 @@
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+button,
+input,
+select,
+textarea {
+  border: 1px solid var(--dinkster-border-strong);
+  border-radius: var(--dinkster-radius-control);
+  color: inherit;
+  background: var(--dinkster-surface-inset);
+  font: inherit;
+}
+
+:is(button, input, select, textarea, summary, a, [tabindex]):focus-visible {
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline-offset: 2px;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  min-width: 24px;
+  min-height: 24px;
+  background: var(--scrollbar-thumb);
+  border: 2px solid var(--scrollbar-track);
+  border-radius: var(--dinkster-radius-card);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}
+
+.desktop-setup {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 50% 20%, rgb(44 87 96 / 35%), transparent 42%),
+    var(--dinkster-surface-canvas);
+}
+
+.desktop-setup-card {
+  width: min(560px, 100%);
+  padding: 48px;
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: 16px;
+  background: var(--dinkster-surface-panel);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 40%);
+}
+
+.desktop-setup-mark {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 24px;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--dinkster-text-on-selected);
+  background: var(--dinkster-accent-background);
+  font-size: 28px;
+  font-weight: var(--dinkster-weight-semibold);
+}
+
+.desktop-setup-eyebrow,
+.desktop-setup-variant,
+.desktop-setup-note {
+  color: var(--dinkster-text-muted);
+}
+
+.desktop-setup-eyebrow {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: var(--dinkster-weight-semibold);
+  letter-spacing: 0.16em;
+}
+
+.desktop-setup-card h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.desktop-setup-detail {
+  min-height: 24px;
+  margin: 20px 0 8px;
+  color: var(--dinkster-text-secondary);
+}
+
+.desktop-setup-variant,
+.desktop-setup-note {
+  font-size: 12px;
+}
+
+.desktop-setup-error {
+  max-height: 160px;
+  padding: 12px;
+  overflow: auto;
+  border-radius: var(--dinkster-radius-control);
+  color: var(--dinkster-danger-foreground);
+  background: var(--dinkster-danger-background);
+  font: 12px/1.5 var(--dinkster-font-mono);
+  white-space: pre-wrap;
+}
+
+.desktop-setup-progress {
+  height: 4px;
+  margin: 24px 0;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dinkster-surface-raised);
+}
+
+.desktop-setup-progress span {
+  display: block;
+  width: 36%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--dinkster-accent-foreground);
+  animation: desktop-setup-progress 1.4s ease-in-out infinite alternate;
+}
+
+.desktop-setup-retry {
+  min-height: 36px;
+  margin: 20px 0;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--dinkster-radius-control);
+  color: var(--dinkster-text-on-selected);
+  background: var(--dinkster-accent-background);
+  font-weight: var(--dinkster-weight-semibold);
+}
+
+@keyframes desktop-setup-progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(280%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-setup-progress span { animation: none; width: 100%; }
+}
+
+html,
+body,
+#root {
+  --scrollbar-track: var(--dinkster-surface-canvas);
+  --scrollbar-thumb: #444;
+  --scrollbar-thumb-hover: #555;
+  --image-canvas-checker: #292929;
+  --image-canvas-background: #202020;
+  --image-tool-rail-width: 150px;
+  margin: 0;
+  height: 100%;
+  background: var(--dinkster-surface-canvas);
+  color: var(--dinkster-text-primary);
+  font-family: var(--dinkster-font-family);
+  font-size: var(--dinkster-type-body-size);
+  /* The app is a fixed shell: wheel/touch momentum over non-scrolling UI
+     must never rubber-band the page itself. Panels that scroll declare
+     overflow themselves and keep working. */
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.brand {
+  font-weight: var(--dinkster-weight-semibold);
+  letter-spacing: 0.06em;
+}
+
+.app-menu { position: relative; }
+.app-menu-button.product-button {
+  gap: var(--dinkster-space-4);
+  padding-inline: var(--dinkster-space-4);
+  font-weight: var(--dinkster-weight-semibold);
+}
+.app-menu-button[aria-expanded='true'] { background: var(--dinkster-interaction-hover); }
+.app-menu-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+.app-menu .context-menu-cascade { position: fixed; }
+.app-menu .context-menu { position: fixed; min-width: 220px; }

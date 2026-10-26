@@ -198,6 +198,20 @@ test('raw-control ratchet rejects new controls and styling literals but accepts 
       '--allowlist',
       allowlist,
     ])
+    await mkdir(join(source, 'styles'))
+    const extracted = join(source, 'styles', 'panel.css')
+    await writeFile(css, "@import './styles/panel.css';\n")
+    await writeFile(extracted, '.example { color: #fff; }\n')
+    const extractedArgs = [script, '--source', source, '--allowlist', allowlist]
+    await exec(process.execPath, extractedArgs)
+    await writeFile(extracted, '.example { color: #fff; background: #000; }\n')
+    await assert.rejects(exec(process.execPath, extractedArgs), (error) =>
+      String(error.stderr).includes('cssLiteral'),
+    )
+    await assert.rejects(
+      exec(process.execPath, [...extractedArgs, '--write']),
+      (error) => String(error.stderr).includes('cssLiteral'),
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }

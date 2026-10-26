@@ -1,0 +1,67 @@
+/* -- control surfaces panel ------------------------------------------------ */
+
+.surface {
+  margin: 8px 0;
+  padding: 6px 8px;
+  border: 1px solid #2e2e2e;
+  border-radius: 4px;
+  background: #1d1d1d;
+}
+
+.surface-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.surface-title {
+  font-size: 12px;
+  color: #d0d0d0;
+}
+
+.surface-remove {
+  background: none;
+  border: none;
+  color: #808080;
+  cursor: pointer;
+  font: 11px/1 var(--dinkster-font-family);
+  padding: 2px 4px;
+}
+
+.surface-remove:hover {
+  color: #e08080;
+}
+
+.surface-bindings {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+}
+
+.mode-binding-unresolved {
+  color: var(--dinkster-warning-foreground);
+  text-decoration: line-through;
+}
+
+.mode-binding-warning {
+  color: var(--dinkster-warning-foreground);
+  cursor: help;
+}
+
+.surface-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.surface-group-select {
+  font: 12px/1.4 var(--dinkster-font-family);
+}
+
+.banner-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+

@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-
-const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+import { shellStyles as styles } from './fixtures/styles.js'
 
 const block = (startSelector: string, endSelector: string): string => {
   const start = styles.indexOf(startSelector)
