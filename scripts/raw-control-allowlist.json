@@ -1,8 +1,8 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 175,
-    "inlineStyle": 65,
+    "rawControl": 171,
+    "inlineStyle": 64,
     "cssLiteral": 358
   },
   "entries": [
@@ -387,18 +387,6 @@
     {
       "kind": "inlineStyle",
       "path": "packages/app/src/editors/ComboEditorImplementation.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/editors/SaveTargetWidgetEditor.tsx",
-      "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/editors/SaveTargetWidgetEditor.tsx",
       "count": 1,
       "issue": 382
     },

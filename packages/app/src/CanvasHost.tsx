@@ -2358,7 +2358,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     const isInside = (event: Event, selector: string): boolean =>
       event.composedPath().some((item) => item instanceof Element && item.matches(selector))
-    const EDITOR_SURFACES = '.widget-editor, .combo-dropdown, .color-editor, .asset-editor, .save-target-editor, .product-select-listbox, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
+    const EDITOR_SURFACES = '.widget-editor, .combo-dropdown, .color-editor, .asset-editor, .product-select-listbox, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
     const AUDIO_SLIDER = '.node-media-overlay .product-slider'
     // An editor can refuse host dismissal while an effect is in flight (an
     // asset upload batch must not keep uploading into a closed overlay).
@@ -4234,7 +4234,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           // JSON cannot store undefined, so undefined means "not stored":
           // the schema default applies and is the schema author's problem,
           // not the document's. An explicit null IS stored (ASSET and
-          // SAVE_TARGET use it as "no value") and must reach the validator.
+          // MOUNT use it as "no value") and must reach the validator.
           const value = node.node.values[row.valueKey]
           if (value === undefined) continue
           const where = `${node.id}.${row.valueKey}`

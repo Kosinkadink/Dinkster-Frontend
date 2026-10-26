@@ -7,7 +7,6 @@ import { ComboWidgetEditor } from './ComboWidgetEditor.js'
 import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
 import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
 import { MountWidgetEditor } from './MountWidgetEditor.js'
-import { SaveTargetWidgetEditor } from './SaveTargetWidgetEditor.js'
 import { ScalarWidgetEditor } from './ScalarWidgetEditor.js'
 import { VideoEditWidgetEditor } from './VideoEditWidgetEditor.js'
 
@@ -24,7 +23,6 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['ASSET', AssetWidgetEditor],
   ['AUDIO_RECORD', AudioRecordWidgetEditor],
   ['MOUNT', MountWidgetEditor],
-  ['SAVE_TARGET', SaveTargetWidgetEditor],
   ['VIDEO_EDIT', VideoEditWidgetEditor],
 ])
 

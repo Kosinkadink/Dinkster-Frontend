@@ -97,7 +97,7 @@ and active descendant. The popup and rows expose listbox and option roles,
 selected state, and disabled state. Callers may synthesize a disabled current
 option when a stored value is outside the available vocabulary. AppView keeps
 typed COMBO values mapped by option index; runtime settings keep changes in
-their Apply draft; SAVE_TARGET keeps mount choice staged until Save; registry
+their Apply draft; MOUNT stages a writable mount until Apply; registry
 settings write immediately; and CollectionPanel preserves asynchronous,
 open-vocabulary source and filter values while resetting paging on a source
 change.
@@ -179,7 +179,7 @@ retain proportional sharing. The ASSET `no asset` placeholder uses muted italic
 text and remains complete at ordinary and minimum node widths. Activating the
 row body opens optional expanded controls only when
 more deliberate editing is useful. INT, FLOAT, single-line STRING, COLOR,
-COMBO, and SAVE_TARGET use a small non-modal popover anchored to that row. A
+COMBO, and MOUNT use a small non-modal popover anchored to that row. A
 node-input multiline STRING in the `core.text` representation is edited
 directly in its painted rectangle instead. The popovers are non-draggable,
 non-resizable, canvas-stage-clamped, and close through Escape, Cancel, a
@@ -192,8 +192,8 @@ to the graph canvas.
 Popover fields never commit merely because focus moves. Numeric and single-line
 text commit on Enter or Commit, value-source multiline text and raw JSON on
 Ctrl+Enter or Commit, COLOR on Enter or Commit, COMBO on a deliberate option
-activation, and SAVE_TARGET on Save. An outside pointer commits a changed,
-valid INT, FLOAT, single-line STRING, COLOR, SAVE_TARGET, or raw-JSON field
+activation, and MOUNT on Apply. An outside pointer commits a changed,
+valid INT, FLOAT, single-line STRING, COLOR, or raw-JSON field
 through that same command path and then closes; unchanged or invalid text
 closes without a write. COMBO still commits only a deliberately activated
 option, and value-source multiline STRING closes without committing its draft.
@@ -221,8 +221,8 @@ Declared minimum, maximum, and step values are shown; absent bounds say
 immediate single-pick and staged multi-select rules described below.
 
 Ordinary expanded editors share the product field and action-footer language.
-The scalar, color, combo-search, and save-target controls expose visible labels;
-invalid scalar, color, and prefix drafts are linked to inline alerts without
+The scalar, color, combo-search, and mount controls expose visible labels;
+invalid scalar and color drafts are linked to inline alerts without
 changing their existing commit rules. Footer actions wrap together and stack at
 narrow widths. Loading, empty, and failure data remains in semantic notices,
 while each editor retains ownership of its draft, validation, and command.
@@ -364,14 +364,11 @@ the stored number. INT remains integer-formatted.
 
 The type pill uses the same `typeColor` resolver and design tokens as canvas
 pins and noodles, including namespaced ids such as `comfy.IMAGE`. Its text is
-black or white according to the resolved color's relative luminance. The
-SAVE_TARGET editor labels the pill with the input's canonical declared type
-(for example `SAVE_TARGET`) rather than the widget renderer family.
-Its output-format row and inline filename context come only from the widget
-descriptor's declared suffix. A `.png` suffix is displayed as `.png`; it is
-not expanded through a guessed extension registry. An absent or empty suffix
-stays `generic`; any declared suffix is displayed verbatim. The stored value
-remains exactly `{mount, prefix}`.
+black or white according to the resolved color's relative luminance.
+MOUNT is a scalar STRING presentation, not a combined filename destination.
+Its value is a mount id or null; filename_prefix remains a separate input.
+The schema's adjacentTo hint places the mount row next to its declared sibling
+without changing interface or execution argument order.
 
 The transparent popover layer is not hit-testable outside the solid editor.
 CanvasHost asks the editor to commit-or-close during capture without preventing
@@ -542,7 +539,7 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | `COMPOSITOR` | `core.compositor`: saved command count, or a run-first prompt | Existing full-center Image editor in Compositor mode; selected-run ImageDocument and bounded layer previews plus layer order, visibility, opacity, all declared blends, transform, flips, canvas, background, and atomic Apply | Exact fieldless descriptor on concrete `COMPOSITOR`; version 2 commands bound to the runtime document digest and at most 50 layers | `core/test/compositor.test.ts`, `core/test/dinkster-wire41.golden.test.ts`, `widgets/test/widgets.test.ts`, `app/test/CompositorEditor.dom.test.tsx`, `e2e/compositor-editor.spec.ts` |
 | `COMBO` | `core.select`: selected static or remote label, shared-edge-centered down chevron with a separate 12px text reserve, and optional refresh-controller chip/menu | Anchored searchable option popover for filtering, keyboard and folder navigation, per-option info, refresh, and errors; no duplicate controller control | typed static `options` with exact value plus optional label/info/folder presentation; optional remote route, refresh button, refresh controller metadata, retry/timeout/refresh hints; display name | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `core/test/dinkster-wire23.golden.test.ts`, `canvas/test/registry-painter-label.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/dynamic-combo.spec.ts`, `e2e/seed-controller.spec.ts`, `e2e/widget-trailing-actions.spec.ts` |
 | `ASSET` | `core.asset`: selected name, `N assets`, or `no asset` | Native product dialog with shared `CollectionPanel`, upload for non-model kinds, image/video preview, details, a right-side selection panel with a staged-selection Remove action, Cancel, and a primary Use-asset commit; modal warranted: yes, for a focus-contained browser | declared type determines single/list/merge selection; top-level semantic `kind`; MIME `accept`; `default`; display name; AssetRef digest/name/size/media type/virtual path; classified image uploads are limited to 256 MiB, audio/video and latent uploads to 1 GiB, and generic uploads to 16 MiB per file; model upload is disabled | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/asset-browser.test.ts`, `app/test/LogicalModelCollection.dom.test.tsx`, `e2e/asset-widget.spec.ts`, `e2e/asset-browser.spec.ts`, `e2e/logical-model-picker.spec.ts`, `e2e/w9-f8-media-upload.spec.ts` |
-| `SAVE_TARGET` | `core.saveTarget`: mount, prefix, and descriptor-only suffix | Anchored mount/prefix popover with canonical declared type, declared output format, ready writable-mount choice, and grammar-validated prefix entry | `default`, display-only `suffix`, declared socket type, display name; mount and relative-prefix grammar; backend mount readiness/mode | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `e2e/save-target.spec.ts` |
+| `MOUNT` | `core.mount`: selected mount id or snapshot-default placeholder | Anchored writable-mount selection popover; filename prefix stays a separate STRING input | Concrete STRING, fieldless MOUNT descriptor, null intrinsic default, writable mount index, presentation-only adjacentTo | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `e2e/save-mount.spec.ts` |
 
 Unavailable widget kinds use the raw JSON fallback; registered views without
 `editorUi` use the generic shared text popover. A registered `editorUi` uses

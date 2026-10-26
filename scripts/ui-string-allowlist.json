@@ -944,19 +944,6 @@
   "editors/MarkdownWidgetEditor.tsx": [
     "text:props.editor.bindClickAway?.(undefined)) return"
   ],
-  "editors/SaveTargetWidgetEditor.tsx": [
-    "attribute:aria-label:Save target output metadata",
-    "attribute:label:Mount",
-    "attribute:label:Prefix",
-    "text:Output format",
-    "text:cancel",
-    "text:clear",
-    "text:loading mounts...",
-    "text:mount list failed to load",
-    "text:no writable mounts available",
-    "text:props.editor.bindClickAway?.(undefined)) return",
-    "text:save"
-  ],
   "editors/ScalarWidgetEditor.tsx": [
     "attribute:aria-label:Numeric constraints",
     "attribute:label:Value",
