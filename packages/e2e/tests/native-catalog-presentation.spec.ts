@@ -12,32 +12,6 @@ async function openPalette(page: Page): Promise<void> {
   await expect(page.getByTestId('node-palette')).toBeVisible()
 }
 
-async function openNativeSaveTarget(page: Page): Promise<void> {
-  await page.route('/api/mounts*', (route) => void route.fulfill({
-    json: { mounts: [{ id: 'comfy-output', mode: 'readwrite', state: 'ready' }] },
-  }))
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'native-save-target-display', root: 'g0',
-      graphs: { g0: {
-        id: 'g0', name: 'root',
-        nodes: { save: { id: 'save', type: 'dinkster.save_image', values: {} } },
-        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-      } },
-      view: { graphs: { g0: { nodes: { save: { position: { x: 100, y: 100 } } } } } },
-    }, 'Native Save Target Display')
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  const point = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'save')!
-    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'target')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + row.y + row.height / 2 }
-  })
-  await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('save-target-editor')).toBeVisible()
-}
-
 test.beforeEach(async ({ page, request }) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND so the Vite same-origin proxy targets the native backend')
@@ -88,15 +62,4 @@ test('native universal search lists the canonical node', async ({ page }) => {
   })
   await expect(native).toBeVisible()
   await expect(native).toHaveAccessibleName(/Preview as Text/)
-})
-
-test('native SAVE_TARGET editor shows canonical type and generic output format', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
-  await openNativeSaveTarget(page)
-  await expect(page.getByTestId('save-target-editor')).toHaveAttribute('data-mounts', 'ready')
-  await expect(page.getByTestId('save-target-editor').getByTestId('widget-editor-type')).toHaveText('SAVE_TARGET')
-  await expect(page.getByTestId('save-target-output-format')).toHaveText('generic')
-  await expect(page.getByTestId('save-target-suffix')).toHaveCount(0)
-  await expect(page.getByTestId('save-target-prefix')).toHaveValue('ComfyUI')
 })

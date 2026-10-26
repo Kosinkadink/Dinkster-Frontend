@@ -9,7 +9,7 @@
  *
  * - only STORED values are diagnosed (schema defaults are the author's
  *   contract, not the document's)
- * - explicit JSON null is a stored value (ASSET / SAVE_TARGET "no value"),
+ * - explicit JSON null is a stored value (ASSET / MOUNT "no value"),
  *   not an absent one, and must validate clean
  * - link-driven inputs are skipped: the wire decides the executed value and
  *   the dormant stored literal underneath must not nag
@@ -77,8 +77,8 @@ async function openFixture(
           { kind: 'input', id: 'required', displayName: 'Required value', type: { kind: 'concrete', name: 'INT' }, optional: false },
           { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: true,
             widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
-          { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
-            widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, default: { mount: 'comfy-output', prefix: 'ComfyUI' } } },
+          { kind: 'input', id: 'mount', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+            widget: { widgetType: 'MOUNT', options: {}, default: null } },
         ],
       },
       {
@@ -102,57 +102,11 @@ async function openFixture(
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'widget-diagnostics-fixture', schemaWire: 1 }, nodes: {},
+  } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-})
-
-test('legacy SAVE_TARGET prefixes migrate structurally, reopen, and compile while unsafe strings stay loud', async ({ page }) => {
-  const valid = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    app.registerSchemas([{
-      type: 'LegacySaveTargetTest', displayName: 'Legacy Save Target', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
-        widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } } }],
-    }])
-    const diagnostics = app.openDocument({
-      last_node_id: 1, last_link_id: 0,
-      nodes: [{ id: 1, type: 'LegacySaveTargetTest', pos: [10, 10], widgets_values: ['SD1.5'] }],
-      links: [], groups: [], config: {}, extra: {}, version: 0.4,
-    }, 'Legacy structured target') as ReadonlyArray<{ code: string }>
-    const tab = app.activeTab()!
-    const value = tab.store.doc.graphs.g0!.nodes.n1!.values.target
-    const exported = app.exportDocument(tab.id)
-    const compiled = app.compileTab(tab)
-    if (!compiled?.ok) throw new Error('migrated target did not compile')
-    const prompt = (compiled.artifact as unknown as { prompt: Record<string, { inputs: Record<string, unknown> }> }).prompt
-    return { diagnostics: diagnostics.map((entry) => entry.code), value, exported, compiled: prompt.n1!.inputs.target }
-  })
-  expect(valid.diagnostics).not.toContain('import.saveTarget.invalidLegacy')
-  expect(valid.value).toEqual({ mount: 'comfy-output', prefix: 'SD1.5' })
-  expect(valid.compiled).toEqual(valid.value)
-  await expect(problems(page)).not.toContainText('widget.SAVE_TARGET.badValue')
-  expect(await page.evaluate((document) => {
-    const app = window.__dinksterTest!.app
-    app.openDocument(document, 'Reopened structured target')
-    return app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.target
-  }, valid.exported)).toEqual(valid.value)
-
-  const invalid = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    app.openDocument({
-      last_node_id: 1, last_link_id: 0,
-      nodes: [{ id: 1, type: 'LegacySaveTargetTest', pos: [10, 10], widgets_values: ['../escape'] }],
-      links: [], groups: [], config: {}, extra: {}, version: 0.4,
-    }, 'Invalid legacy target')
-    return {
-      codes: app.problems.get().map((entry) => entry.code),
-      value: app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.target,
-    }
-  })
-  expect(invalid.value).toBe('../escape')
-  expect(invalid.codes).toContain('import.saveTarget.invalidLegacy')
-  await expect(problems(page)).toContainText('import.saveTarget.invalidLegacy')
-  await expect(problems(page)).toContainText('widget.SAVE_TARGET.badValue')
 })
 
 test('out-of-range stored INT reports anchored in Problems and clears when fixed in the editor', async ({ page }) => {
@@ -186,25 +140,25 @@ test('unknown stored COMBO option reports and clears when a listed option is pic
   await expect(problems(page)).not.toContainText('widget.COMBO')
 })
 
-test('invalid stored save target reports the grammar violation and clears through the picker', async ({ page }) => {
+test('invalid stored mount reports the grammar violation and clears through the picker', async ({ page }) => {
   await page.route('**/api/mounts*', (route) => void route.fulfill({ json: { mounts: [
     { id: 'comfy-output', path: '/srv/out', mode: 'readwrite', source: 'derived', state: 'ready' },
   ] } }))
-  // Absolute prefix: refused by the shared save-target grammar.
-  await openFixture(page, { target: { mount: 'comfy-output', prefix: '/etc/passwd' } })
-  await expect(problems(page)).toContainText('widget.SAVE_TARGET.invalid')
-  await expect(problems(page)).toContainText('widgets.target')
-  await openEditor(page, 'widgets', 'target')
-  await expect(page.getByTestId('save-target-editor')).toHaveAttribute('data-mounts', 'ready')
-  await page.getByTestId('save-target-prefix').fill('renders/stem')
-  await page.getByTestId('save-target-save').click()
-  await expect(problems(page)).not.toContainText('widget.SAVE_TARGET')
+  await openFixture(page, { mount: '/etc/passwd' })
+  await expect(problems(page)).toContainText('widget.MOUNT.invalid')
+  await expect(problems(page)).toContainText('widgets.mount')
+  await openEditor(page, 'widgets', 'mount')
+  await expect(page.getByTestId('mount-widget-editor')).toHaveAttribute('data-mounts', 'ready')
+  await page.getByTestId('mount-widget-choice').click()
+  await page.locator('[data-option-id="comfy-output"]').click()
+  await page.getByTestId('mount-widget-apply').click()
+  await expect(problems(page)).not.toContainText('widget.MOUNT')
 })
 
-test('explicit null ASSET and SAVE_TARGET are stored values that validate clean', async ({ page }) => {
+test('explicit null ASSET and MOUNT are stored values that validate clean', async ({ page }) => {
   // null is "no value chosen", a legal state for both kinds - it must not
   // be mistaken for absent (skipped) OR for a shape violation (badValue).
-  await openFixture(page, { image: null, target: null })
+  await openFixture(page, { image: null, mount: null })
   await expect(problems(page)).toContainText('None.')
 })
 

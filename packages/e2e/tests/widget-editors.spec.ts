@@ -847,7 +847,7 @@ test('FR15 Enter during an IME composition never commits an editor', async ({ pa
 
 test('FR15 a composing Enter never commits the COMBO, multiline, or COLOR editors', async ({ page }) => {
   // Each surface wires its own Enter handler, so each guard is pinned
-  // through its own rendered editor (SAVE_TARGET lives in save-target.spec.ts).
+  // through its own rendered editor.
   const values = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values
 
   // COMBO: a composing Enter selects the IME candidate, not the highlighted option.
