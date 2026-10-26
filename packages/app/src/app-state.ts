@@ -4654,7 +4654,7 @@ export class AppState {
 
   /**
    * Register a replacement rule from a pack/extension (the 'pack' layer; the
-   * 'core' layer is the frontend's own historical-rename table). Malformed
+   * 'core' layer holds explicitly registered lower-precedence rules). Malformed
    * rules are rejected with diagnostics and land in Problems.
    */
   registerReplacementRule(layer: 'pack' | 'core', rule: ReplacementRule): readonly Diagnostic[] {
