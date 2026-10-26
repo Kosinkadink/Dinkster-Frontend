@@ -12,6 +12,10 @@ and explicitly registered replacement rules retain their own upgrade flow.
 The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Node-declared aliases and
 search terms remain properties of the ordinary registered schema.
+The core no longer exports a pack alias-catalog parser. Historical SaveVideo
+carrier conversion and MiniMax carrier-catalog fixtures are not import paths;
+ordinary workflow fixtures preserve their authored class identities and remain
+unresolved when those classes are absent from the selected registry.
 
 Positional `widgets_values` consume one companion entry after a widget with
 `control_after_generate`. The strings `fixed`, `increment`, `decrement` and
