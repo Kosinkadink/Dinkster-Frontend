@@ -289,11 +289,30 @@ test('top-right region toggles and tab geometry match the workspace columns', as
   expect(barWithDock.x).toBeGreaterThanOrEqual(dock.x + dock.width - 1)
 })
 
-test('topbar search stays geometrically centered and chrome order is stable', async ({ page }) => {
-  for (const width of [1280, 600]) {
+test('topbar search stays centered on desktop and clear of compact controls while chrome order is stable', async ({ page }) => {
+  for (const width of [1440, 1280, 1101]) {
     await page.setViewportSize({ width, height: 720 })
     const search = (await page.getByTestId('topbar-search').boundingBox())!
     expect(Math.abs(search.x + search.width / 2 - width / 2)).toBeLessThanOrEqual(1)
+  }
+
+  for (const width of [1100, 900, 600]) {
+    await page.setViewportSize({ width, height: 720 })
+    const search = (await page.getByTestId('topbar-search').boundingBox())!
+    const left = (await page.locator('.topbar-group-left').boundingBox())!
+    const right = (await page.locator('.topbar-group-right').boundingBox())!
+    expect(search.width).toBeGreaterThan(0)
+    expect(search.x).toBeGreaterThanOrEqual(left.x + left.width)
+    expect(search.x + search.width).toBeLessThanOrEqual(right.x)
+    const shortcut = page.getByTestId('topbar-search').locator('kbd')
+    if (width > 720) {
+      await expect(shortcut).toBeVisible()
+      const badge = (await shortcut.boundingBox())!
+      expect(badge.x).toBeGreaterThanOrEqual(search.x)
+      expect(badge.x + badge.width).toBeLessThanOrEqual(search.x + search.width)
+    } else {
+      await expect(shortcut).toBeHidden()
+    }
   }
 
   await expect(page.locator('.topbar-group-right > button')).toHaveCount(7)
