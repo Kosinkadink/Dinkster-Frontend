@@ -222,7 +222,7 @@ are recorded in report format `dinkster-comfy-subgraph-coverage/2`.
 `definitions` means native definitions were retained,
 `blocked` means no document was produced, and `not-needed` identifies workflows
 without subgraphs. Exit status is nonzero if any workflow is blocked, has
-missing schemas, or has error diagnostics. Missing schemas remain unresolved
+missing schemas, unresolved boundaries or promoted widgets, or error diagnostics. Missing schemas remain unresolved
 nodes with raw values. This offline report proves neither compilation nor
 runtime execution, and does not replace the ordinary browser importer sweep.
 

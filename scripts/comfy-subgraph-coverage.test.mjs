@@ -17,7 +17,7 @@ test('reports a structurally retained subgraph separately from missing native sc
   assert.equal(row.errorFree, false)
   const markdown = renderCoverage({ inputs: { templateRevision: 'current', schemaSource: 'nodes.json' },
     summary: { imported: 1, errorFree: 0, workflows: 1, subgraphsImported: 1, subgraphWorkflows: 1 }, workflows: [row] })
-  assert.match(markdown, /\| subgraph-import \| Missing schemas \| Errors \|/)
+  assert.match(markdown, /\| subgraph-import \| Missing schemas \| Unresolved \| Errors \|/)
   assert.match(markdown, /Error-free imports: 0\/1/)
   assert.match(markdown, /\| definitions \| 1 \|/)
 })
@@ -38,6 +38,21 @@ test('accepts exact ordinary schemas without rewriting authored classes', () => 
   assert.equal(row.missingSchemas, 0)
   assert.equal(row.errors, 0)
   assert.equal(row.errorFree, true)
+})
+
+test('does not certify unresolved boundaries when all node schemas are present', () => {
+  const schema = { type: 'NativeOutput', displayName: 'Output', category: 'test', source: 'v3', isOutputNode: true, items: [] }
+  const row = coverageRow('boundary.json', { nodes: [], links: [], definitions: { subgraphs: [{
+    id: 'inner', nodes: [{ id: 1, type: 'NativeOutput', inputs: [{ name: 'missing', link: 1 }] }],
+    inputs: [{ id: 'input', type: 'INT', linkIds: [1] }], outputs: [],
+    links: [[1, -10, 0, 1, 0, 'INT']],
+  }] } }, (type) => type === schema.type ? schema : undefined)
+  assert.equal(row.imported, true)
+  assert.equal(row.missingSchemas, 0)
+  assert.equal(row.errors, 0)
+  assert.ok(row.diagnostics.includes('import.subgraphs.boundaryUnresolved'))
+  assert.equal(row.unresolved, 1)
+  assert.equal(row.errorFree, false)
 })
 
 test('rejects an invalid native catalog before scanning templates', () => {

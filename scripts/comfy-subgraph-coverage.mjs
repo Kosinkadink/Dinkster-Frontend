@@ -14,10 +14,12 @@ export function coverageRow(path, workflow, resolver) {
   const status = !result.document ? 'blocked'
     : subgraphCount === 0 ? 'not-needed' : 'definitions'
   const missingSchemas = result.diagnostics.filter((item) => item.code === 'import.schema.missing').length
+  const unresolved = result.diagnostics.filter((item) =>
+    item.code === 'import.subgraphs.boundaryUnresolved' || item.code === 'import.subgraphs.widgetUnresolved').length
   const errors = result.diagnostics.filter((item) => item.severity === 'error').length
-  return { path, subgraphCount, 'subgraph-import': status, missingSchemas, errors,
+  return { path, subgraphCount, 'subgraph-import': status, missingSchemas, unresolved, errors,
     imported: result.document !== undefined,
-    errorFree: result.document !== undefined && missingSchemas === 0 && errors === 0,
+    errorFree: result.document !== undefined && missingSchemas === 0 && unresolved === 0 && errors === 0,
     retainedDefinitions: result.document ? Object.keys(result.document.graphs).length - 1 : 0,
     diagnostics: codes,
   }
@@ -32,9 +34,9 @@ export function renderCoverage(report) {
     `Error-free imports: ${report.summary.errorFree}/${report.summary.workflows}.`, '',
     'Structural import and schema resolution are separate from compilation and execution.',
     'Absent node schemas remain unresolved; they are blockers, not exclusions.', '',
-    '| Workflow | Subgraphs | subgraph-import | Missing schemas | Errors |',
-    '| --- | ---: | --- | ---: | ---: |',
-    ...report.workflows.map((row) => `| ${row.path} | ${row.subgraphCount} | ${row['subgraph-import']} | ${row.missingSchemas} | ${row.errors} |`), '',
+    '| Workflow | Subgraphs | subgraph-import | Missing schemas | Unresolved | Errors |',
+    '| --- | ---: | --- | ---: | ---: | ---: |',
+    ...report.workflows.map((row) => `| ${row.path} | ${row.subgraphCount} | ${row['subgraph-import']} | ${row.missingSchemas} | ${row.unresolved} | ${row.errors} |`), '',
   ].join('\n')
 }
 
