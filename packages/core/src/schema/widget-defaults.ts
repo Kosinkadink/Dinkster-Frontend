@@ -113,6 +113,7 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'COMBO':
       return comboValue(d)
     case 'MULTI_COMBO':
+    case 'COLORS':
       return Array.isArray(d) && d.every((value) => typeof value === 'string')
     case 'LIST':
       return isPrimitiveListWidgetValue(d, widget)
@@ -163,6 +164,7 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
       return undefined
     }
     case 'MULTI_COMBO':
+    case 'COLORS':
     case 'LIST':
       return []
     case 'COLOR':

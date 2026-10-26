@@ -256,6 +256,20 @@ presentation label rather than a frontend semantic enum. These constraints let
 backend-owned adapters supply future semantics without changing the host shell
 or giving providers DOM, CSS, network, store, or raw route access.
 
+## COLORS editor
+
+COLORS stores an ordered string array with a copied schema default or an empty
+palette. `core.colors` shows up to four compact swatches and the total count.
+The expanded palette uses ProductColorInput and exact hex ProductTextInput
+fields with keyboard-accessible Up, Down and Remove actions. Add color appends
+white until there are 16 entries; longer imported arrays remain intact.
+Text accepts `#rgb`, `#rrggbb` and `#rrggbbaa` without normalizing case or alpha.
+The RGB picker preserves an existing alpha pair. Invalid drafts stay visible
+and cannot commit. Commit writes the ordered array as one undoable change;
+Cancel, Escape and outside dismissal discard staged edits, additions, removals
+and reorders. Empty palettes are valid. No server palette or color-space
+conversion is inferred.
+
 ## MARKDOWN editor
 
 MARKDOWN stores a plain string and uses `core.markdown` for a compact first-line

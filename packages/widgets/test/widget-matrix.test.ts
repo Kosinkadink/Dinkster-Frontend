@@ -22,6 +22,7 @@ const cases: Array<{
   { type: 'COMBO', options: { options: ['euler', 'ddim'] }, explicit: 'ddim', intrinsic: 'euler', invalid: 'unknown', invalidCode: 'widget.COMBO.unknownOption', view: 'core.select' },
   { type: 'MULTI_COMBO', options: { options: ['euler', 'ddim'] }, explicit: ['ddim', 'euler', 'ddim'], intrinsic: [], invalid: ['unknown'], invalidCode: 'widget.MULTI_COMBO.unknownOption', view: 'core.multiSelect' },
   { type: 'COLOR', options: {}, explicit: '#12345678', intrinsic: '#ffffff', invalid: 42, view: 'core.color' },
+  { type: 'COLORS', options: {}, explicit: ['#A1B2C3dd', '#f00', '#A1B2C3dd'], intrinsic: [], invalid: ['#fff', 3], view: 'core.colors' },
   { type: 'CURVE', options: {}, explicit: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, intrinsic: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, invalid: { points: [{ position: 1, value: 0 }, { position: 1, value: 1 }] }, view: 'core.curve' },
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
@@ -55,9 +56,32 @@ const dispositions = [
   { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
   { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
   { type: 'MARKDOWN', compact: 'core.markdown', expanded: 'safe preview and source popover' },
+  { type: 'COLORS', compact: 'core.colors', expanded: 'ordered palette draft popover' },
 ] as const
 
 describe('registered widget disposition inventory', () => {
+  it('copies COLORS defaults without truncation or normalization and draws ordered compact swatches', () => {
+    const defaults = ['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000']
+    const spec: WidgetSpec = { widgetType: 'COLORS', options: {}, default: defaults }
+    const kind = registry.kind('COLORS')!
+    const copied = kind.defaultValue(spec) as string[]
+    expect(copied).toEqual(defaults)
+    expect(copied).not.toBe(defaults)
+    copied.reverse()
+    expect(defaults).toEqual(['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000'])
+    expect(kind.defaultValue({ ...spec, default: ['#fff', 3] })).toEqual([])
+    expect(effectiveWidgetDefault({ ...spec, default: ['#fff', 3] })).toEqual([])
+    const rec = recordingBuilder()
+    const view = registry.viewsFor('COLORS')[0]!
+    view.drawCompact(rec.builder, defaults, spec, { focused: false, connected: false, readonly: false })
+    expect(rec.rects.filter((rect) => rect.style['fill'] !== undefined).map((rect) => rect.style['fill'])).toEqual(defaults.slice(0, 4))
+    expect(rec.texts.map((text) => text.run)).toContain('5 colors')
+    expect(rec.actions).toEqual(['widget.edit'])
+    const readonly = recordingBuilder()
+    view.drawCompact(readonly.builder, defaults, spec, { focused: false, connected: true, readonly: true })
+    expect(readonly.actions).toEqual([])
+  })
+
   it('validates list elements and keeps display and submission defaults aligned', () => {
     for (const [widgetType, values] of [
       ['STRING', ['red', 'blue']], ['INT', [-7, '18446744073709551615']], ['FLOAT', [0.125, -3.75]],

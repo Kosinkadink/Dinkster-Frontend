@@ -1752,6 +1752,12 @@ body,
 .markdown-editor-preview { min-height: 80px; max-height: 300px; overflow: auto; overflow-wrap: anywhere; }
 .markdown-editor .product-text-area { min-height: 160px; resize: vertical; font-family: var(--dinkster-font-mono); }
 
+.widget-editor-popover.colors-editor { width: min(520px, calc(100% - 8px)); }
+.colors-editor-list { display: grid; gap: var(--dinkster-space-8); max-height: 300px; overflow: auto; }
+.colors-editor-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-4); }
+.colors-editor-controls > .product-text-input:not(.product-color-input) { flex: 1; min-width: 100px; width: 100px; }
+.colors-editor-controls > .product-color-input { flex: none; width: 40px; }
+
 .video-edit-editor { display: grid; gap: var(--dinkster-space-12); }
 .video-edit-editor .product-notice { margin: 0; }
 .video-edit-source-facts { margin: 0; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-secondary); }
