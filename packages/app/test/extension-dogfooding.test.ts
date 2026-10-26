@@ -46,6 +46,7 @@ describe('core extension door dogfooding', () => {
       'CURVE',
       'COMPOSITOR',
       'ASSET',
+      'MOUNT',
       'SAVE_TARGET',
       'VIDEO_EDIT',
       'BUTTON',

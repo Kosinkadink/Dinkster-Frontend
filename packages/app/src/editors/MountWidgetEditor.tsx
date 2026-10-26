@@ -11,8 +11,8 @@ const MountImplementation: Component<WidgetEditorImplementationProps> = (props) 
   const ed = props.editor.ed
   const initial = ed.initial === undefined ? ed.spec?.default : ed.initial
   const [selected, setSelected] = createSignal(typeof initial === 'string' ? initial : '')
-  const [settings, setSettings] = createSignal<MountSettings>()
-  const [error, setError] = createSignal<string>()
+  const [settings, setSettings] = createSignal(undefined as MountSettings | undefined)
+  const [error, setError] = createSignal(undefined as string | undefined)
   let live = true
   onCleanup(() => { live = false })
   const backend = props.editor.app.backendForTab(ed.tab)
@@ -34,7 +34,7 @@ const MountImplementation: Component<WidgetEditorImplementationProps> = (props) 
   }
   const canApply = () => selected() === '' || writable().some((mount) => mount.id === selected())
   props.editor.bindClickAway?.(props.close)
-  onCleanup(() => props.editor.bindClickAway?.(undefined))
+  onCleanup(() => { props.editor.bindClickAway?.(undefined) })
 
   return <div ref={props.bindPopover} class="widget-editor floating-surface widget-editor-popover" data-testid="mount-widget-editor" data-mounts={settings() ? 'ready' : error() ? 'error' : 'loading'} role="dialog" aria-label={ed.label}>
     <props.header type="MOUNT" />

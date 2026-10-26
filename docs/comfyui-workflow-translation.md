@@ -44,6 +44,8 @@ Native save inputs keep `filename_prefix` as a STRING and append an optional
 STRING `mount` with the closed widget descriptor `{"type":"MOUNT"}`. Null or
 omitted mount uses the backend's snapshot default output mount; an explicit
 mount remains a separate string, never a combined prefix/target value.
+Optionality and the null default belong to these save-node declarations, not
+to the generic MOUNT descriptor, which can present other STRING inputs.
 The input's `adjacentTo` names a different sibling input for presentation only.
 The codec preserves declaration order, including positional widget slots, and
 rejects empty, self-referencing or missing sibling hints and extra MOUNT fields.

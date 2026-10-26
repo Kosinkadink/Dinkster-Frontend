@@ -22,7 +22,7 @@ import type {
   TypeExpr,
   IntegerWidgetValue,
 } from '@dinkster/core'
-import { canonicalTypeIdOf, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision } from '@dinkster/core'
+import { canonicalTypeIdOf, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, t } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -553,6 +553,15 @@ export const audioRecordKind: WidgetKind<(AssetRef & JsonObject) | null> = {
   defaultView: () => 'core.audioRecord',
 }
 
+export const mountKind: WidgetKind<string | null> = {
+  type: 'MOUNT',
+  valueSchema: { version: 1, validate: (value: unknown): value is string | null => value === null || typeof value === 'string' },
+  defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : null,
+  validate: (value) => value === null || (typeof value === 'string' && MOUNT_ID_RE.test(value)) ? []
+    : [diag('warning', 'schema', 'widget.MOUNT.invalid', 'Mount must be a mount id or null for the default output mount')],
+  defaultView: () => 'core.mount',
+}
+
 /**
  * Null is an explicitly unset optional target (the node's schema default
  * applies at execution). The value schema accepts any {mount, prefix} string
@@ -887,6 +896,13 @@ export const audioRecordView: WidgetView<Json> = {
       isAssetRef(value) ? value.name : 'no recording', state, 'widget.edit', !isAssetRef(value))
   },
 }
+export const mountView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.mount', 'MOUNT'),
+  drawCompact(ctx, value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      typeof value === 'string' ? value : t('mountWidget.default'), state, 'widget.edit')
+  },
+}
 export const saveTargetView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.saveTarget', 'SAVE_TARGET'),
   drawCompact(ctx, value, spec, state) {
@@ -954,11 +970,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, saveTargetKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, saveTargetView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

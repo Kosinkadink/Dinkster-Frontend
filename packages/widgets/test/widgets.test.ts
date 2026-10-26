@@ -39,6 +39,21 @@ function recordingBuilder() {
   return { ops, builder }
 }
 
+describe('MOUNT values', () => {
+  it('preserves scalar mount ids and the null default through the public registry', () => {
+    const kind = registry().kind('MOUNT')!
+    expect(kind.defaultValue(spec('MOUNT'))).toBeNull()
+    expect(kind.defaultValue(spec('MOUNT', {}, 'archive'))).toBe('archive')
+    for (const value of [null, 'archive']) {
+      expect(kind.valueSchema.validate(value)).toBe(true)
+      expect(kind.validate(value, spec('MOUNT'))).toEqual([])
+    }
+    expect(kind.valueSchema.validate({ mount: 'archive', prefix: 'frames' })).toBe(false)
+    expect(kind.validate('../archive', spec('MOUNT'))).not.toEqual([])
+    expect(kind.defaultView(spec('MOUNT'))).toBe('core.mount')
+  })
+})
+
 describe('BUTTON actions', () => {
   it('registers a stateless kind and a readonly-aware view with an expanded command', () => {
     const r = registry()
