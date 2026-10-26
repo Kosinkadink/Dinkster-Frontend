@@ -77,6 +77,33 @@ describe('pairing', () => {
     expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
   })
 
+  it('keeps adjacency inside each materialized branch and family member', () => {
+    const siblings = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' })]
+    const combo = widget('mode', { dynamic: {
+      kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'save', inputs: siblings }],
+    } })
+    const family = input('files', { dynamic: {
+      kind: 'autogrow', materialization: 'wire15', template: [combo],
+      naming: { kind: 'prefix', prefix: 'file', min: 1, max: 2 },
+    } })
+    for (const [items, values, prefixes] of [
+      [[combo], {}, ['mode']],
+      [[family], { 'files.m0.mode.prefix': 'first', 'files.m1.mode.prefix': 'second' }, ['files.m0.mode', 'files.m1.mode']],
+    ] as const) {
+      const schema = schemaOf(items)
+      const node = { ...nodeData, values }
+      const before = JSON.stringify({ schema, node })
+      const elaborated = elaborateInterface(schema, node)
+      const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
+      const rows = layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)
+      for (const prefix of prefixes) {
+        expect(rows.filter((id) => id?.startsWith(`${prefix}.`))).toEqual([`${prefix}.prefix`, `${prefix}.mount`, `${prefix}.quality`])
+        expect(elaborated.items.filter((item) => item.kind === 'input' && item.spec.id.startsWith(`${prefix}.`)).map((item) => item.kind === 'input' && item.spec.id)).toEqual([`${prefix}.prefix`, `${prefix}.quality`, `${prefix}.mount`])
+      }
+      expect(JSON.stringify({ schema, node })).toBe(before)
+    }
+  })
+
   it('outputs pair with connection-input rows top-down', () => {
     const l = doLayout([input('a'), input('b'), output('x'), output('y')])
     expect(l.rows).toHaveLength(2)

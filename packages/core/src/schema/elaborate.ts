@@ -1558,10 +1558,15 @@ export function elaborateInterface(
           emittedApiNames.add(apiName)
           if (scope.wire15Materialization) wire15ApiNames.add(apiName)
         }
+        const adjacentTo = item.spec.adjacentTo === undefined ? undefined : elabKeyOf({
+          port: joinValuePath(scope.valuePrefix, item.spec.adjacentTo),
+          ...(scope.members.length > 0 ? { members: scope.members } : {}),
+        })
         const spec =
           canonical && (!scope.ghost || item.spec.optional)
+            && adjacentTo === item.spec.adjacentTo
             ? item.spec
-            : stripDynamic({ ...item.spec, id, ...(scope.ghost ? { optional: true } : {}) })
+            : stripDynamic({ ...item.spec, id, ...(adjacentTo !== undefined ? { adjacentTo } : {}), ...(scope.ghost ? { optional: true } : {}) })
         items.push({
           ...rest,
           ...(apiName !== undefined ? { apiName } : {}),

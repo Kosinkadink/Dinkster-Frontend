@@ -51,6 +51,8 @@ The codec preserves declaration order, including positional widget slots, and
 rejects empty, self-referencing, cyclic or missing sibling hints and extra MOUNT fields.
 Visible widget rows honor the hint directly after the referenced sibling in
 the same section; a hidden or socket-only sibling leaves ordinary row order.
+Nested branch and family hints resolve within their own materialized sibling
+scope; they never attach to a different member or change declaration order.
 The MOUNT editor uses the existing mount index, offers only ready writable
 mounts and an explicit default-output choice, and commits only a mount string
 or null. Missing saved mount ids remain visible as unavailable, not silently

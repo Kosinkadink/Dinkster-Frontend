@@ -78,3 +78,36 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes))).toEqual(['save'])
   await expect(page.getByTestId('save-target-editor')).toHaveCount(0)
 })
+
+test('nested save presentation qualifies adjacent controls without reordering stored inputs', async ({ page }, testInfo) => {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'nested-mount-contract-fixture', schemaWire: 1 },
+    nodes: { NestedSaveFixture: {
+      schemaVersion: 1, displayName: 'Nested save contract fixture', outputNode: true,
+      interface: [{ role: 'dynamicCombo', id: 'mode', options: [{ key: 'save', inputs: [
+        { role: 'input', id: 'prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'nested/session' },
+        { role: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 73 },
+        { role: 'input', id: 'destination', displayName: 'Mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' }, adjacentTo: 'prefix' },
+      ] }] }],
+    } },
+  } }))
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-mount-contract', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        save: { id: 'save', type: 'NestedSaveFixture', values: { 'mode.prefix': 'nested/session', 'mode.quality': 73 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { save: { position: { x: 60, y: 60 } } } } } },
+    }, 'Nested save contract')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await expect.poll(() => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'save')
+    return node?.layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)
+  })).toEqual(['mode', 'mode.prefix', 'mode.destination', 'mode.quality'])
+  await page.screenshot({ path: testInfo.outputPath('mount-nested.png') })
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values))
+    .toEqual({ 'mode.prefix': 'nested/session', 'mode.quality': 73 })
+})
