@@ -896,24 +896,18 @@ const dynamicOutputPayload = (): DinksterNodesPayload => {
 }
 
 describe('dynamic output replacement integration', () => {
-  it('applies a DynamicSlot replacement whose producer is import-only', () => {
+  it('applies a DynamicSlot replacement whose producer schema is missing', () => {
     const backend = app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, dynamicTargetPayload())
     const schemas = new Map(registry.schemas)
     const producer = schemas.get('fixture.mask-source')!
     schemas.delete(producer.type)
-    const importOnlyRegistry: typeof registry = {
+    const registryWithoutProducer: typeof registry = {
       ...registry,
       schemas,
       resolve: (type) => schemas.get(type),
-      comfyAliases: {
-        records: [],
-        sourceSchemas: new Map([[producer.type, producer]]),
-        recordsBySourceType: new Map(),
-        recordsByNodeClass: new Map(),
-      },
     }
-    backend.registry.set(importOnlyRegistry)
+    backend.registry.set(registryWithoutProducer)
     expect(app.openDocument(docJson(
       'dynamic-slot-import-only-producer',
       {
@@ -1154,7 +1148,7 @@ describe('legacy documents against a native backend', () => {
     const backend = app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, maintainedGroupPayload())
     backend.registry.set(registry)
-    expect(registry.comfyGroups?.records).toHaveLength(1)
+    expect(registry).not.toHaveProperty('comfyGroups')
 
     const litegraph = {
       nodes: [
@@ -1201,7 +1195,7 @@ describe('legacy documents against a native backend', () => {
     const backend = app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, maintainedTiledGroupPayload())
     backend.registry.set(registry)
-    expect(registry.comfyGroups?.records).toHaveLength(1)
+    expect(registry).not.toHaveProperty('comfyGroups')
 
     const litegraph = {
       nodes: [
@@ -1313,9 +1307,8 @@ describe('legacy documents against a native backend', () => {
     const registry = buildDinksterRegistry(backend.id, payload)
     backend.registry.set(registry)
     expect(registry.resolve('comfy.LegacyEmptyImage')).toBeUndefined()
-    expect(registry.comfyAliases?.sourceSchemas.has('comfy.LegacyEmptyImage')).toBe(true)
-    expect(registry.resolve('comfy.EmptyImage')?.searchTerms).toContain('EmptyImage')
-    expect(registry.resolve('comfy.EmptyImage')?.searchTerms).toContain('FamilyImage')
+    expect(registry).not.toHaveProperty('comfyAliases')
+    expect(registry.resolve('comfy.EmptyImage')?.searchTerms ?? []).not.toContain('FamilyImage')
 
     const litegraph = {
       nodes: [

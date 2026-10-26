@@ -9,6 +9,9 @@ as missing; a carrier catalog does not make them executable.
 Historical alias and group snapshots also supply no post-open replacement
 rules, source schemas, or asset lookup authority. Ordinary schema-declared
 and explicitly registered replacement rules retain their own upgrade flow.
+The native client ignores pack-level alias/group catalogs: they supply neither
+registry entries nor extra carrier search terms. Node-declared aliases and
+search terms remain properties of the ordinary registered schema.
 
 Positional `widgets_values` consume one companion entry after a widget with
 `control_after_generate`. The strings `fixed`, `increment`, `decrement` and

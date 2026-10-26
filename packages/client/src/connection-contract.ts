@@ -1,6 +1,4 @@
 import type {
-  ComfyAliasCatalog,
-  ComfyGroupCatalog,
   ConnectionId,
   Diagnostic,
   ExecutionRef,
@@ -16,10 +14,6 @@ export interface SchemaRegistry {
   readonly schemas: ReadonlyMap<string, NodeSchema>
   readonly diagnostics: readonly Diagnostic[]
   readonly resolve: SchemaResolver
-  /** Maintained import-only ComfyUI class translations from installed packs. */
-  readonly comfyAliases?: ComfyAliasCatalog
-  /** Maintained exact ComfyUI node-group translations from installed packs. */
-  readonly comfyGroups?: ComfyGroupCatalog
   /**
    * Pack presentation table (Dinkster native only; ComfyUI V1 has no pack
    * provenance). Keys are the pack ids NodeSchema.pack refers to.

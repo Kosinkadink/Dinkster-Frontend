@@ -29,8 +29,6 @@ import {
   asPromptId,
   createSignal,
   canonicalJson,
-  comfyAliasCatalogFromDinksterWire,
-  comfyGroupCatalogFromDinksterWire,
   decodeEffectiveExtensionSnapshot,
   diag,
   DINKSTER_SCHEMA_WIRE_VERSION,
@@ -3274,17 +3272,7 @@ export function buildDinksterRegistry(
   extensionSnapshotPair?: { readonly digest: string; readonly snapshot: EffectiveExtensionSnapshot },
 ): SchemaRegistry {
   const parsed = parseDinksterNodes(raw)
-  const aliases = comfyAliasCatalogFromDinksterWire(raw, parsed.schemas)
-  const groups = comfyGroupCatalogFromDinksterWire(raw, parsed.schemas)
   const schemas = new Map(parsed.schemas)
-  for (const record of aliases.catalog.records) {
-    const carrier = schemas.get(record.carrier)
-    if (carrier === undefined) continue
-    schemas.set(record.carrier, {
-      ...carrier,
-      searchTerms: [...new Set([...(carrier.searchTerms ?? []), record.source.nodeClass])],
-    })
-  }
   const server = serverInfoFromDinksterWire(raw)
   const graphFeatures = graphFeaturesFromDinksterWire(raw)
   const mergeableTypes = mergeableTypesFromDinksterWire(raw)
@@ -3323,11 +3311,9 @@ export function buildDinksterRegistry(
     connection,
     hash: fnv1a64(canonicalJson(schemaIdentityWithoutWidgetPresentation(raw) as Json)),
     schemas,
-    diagnostics: [...parsed.diagnostics, ...aliasDiags, ...aliases.diagnostics, ...groups.diagnostics],
+    diagnostics: [...parsed.diagnostics, ...aliasDiags],
     resolve,
     packs: packsFromDinksterWire(raw),
-    ...(aliases.catalog.records.length > 0 ? { comfyAliases: aliases.catalog } : {}),
-    ...(groups.catalog.records.length > 0 ? { comfyGroups: groups.catalog } : {}),
     ...(server !== undefined ? { server } : {}),
     ...(graphFeatures !== undefined ? { graphFeatures } : {}),
     ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
