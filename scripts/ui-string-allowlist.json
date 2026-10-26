@@ -112,7 +112,6 @@
   ],
   "AudioRecorder.tsx": [
     "attribute:aria-label:Record audio",
-    "text:('idle') const [message, setMessage] = createSignal(provider ? 'Microphone is off. Recording requires browser permission.' : 'Recording unavailable: this browser needs MediaRecorder and a secure microphone context.') let generation = 0 let stream: MediaStream | undefined let recorder: MediaRecorder | undefined let timer: ReturnType",
     "text:([]) const [device, setDevice] = createSignal('') const [limit, setLimit] = createSignal(60) const [recordedBytes, setRecordedBytes] = createSignal(0) const [state, setState] = createSignal",
     "text:Discard recording",
     "text:Find microphones",
@@ -123,6 +122,7 @@
     "text:Save recording",
     "text:Stop recording",
     "text:open(deviceId: string): Promise",
+    "text:props.onPendingChange?.(state() !== 'idle')) const [message, setMessage] = createSignal(provider ? 'Microphone is off. Recording requires browser permission.' : 'Recording unavailable: this browser needs MediaRecorder and a secure microphone context.') let generation = 0 let stream: MediaStream | undefined let recorder: MediaRecorder | undefined let timer: ReturnType",
     "text:state() === 'idle' || state() === 'ready' return"
   ],
   "AudioTransport.tsx": [

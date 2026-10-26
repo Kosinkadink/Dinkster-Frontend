@@ -141,6 +141,9 @@ test.beforeEach(async ({ page }) => {
 test('AUDIO_RECORD captures only on request and stages canonical uploads with retry, cancel and undo', async ({ page }, testInfo) => {
   let uploaded: Buffer = Buffer.alloc(0)
   let attempts = 0
+  let releaseUpload: (() => void) | undefined
+  let uploadStarted: (() => void) | undefined
+  const pendingUpload = new Promise<void>((resolve) => { uploadStarted = resolve })
   const canonical = { digest: `blake3:${'a'.repeat(64)}`, name: 'canonical-recording.webm', size: 0, mediaType: 'audio/webm', virtualPath: '' }
   await page.route('**/api/assets/media?*', async (route) => {
     const query = new URL(route.request().url()).searchParams
@@ -151,7 +154,10 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
     expect(uploaded.subarray(0, 4)).toEqual(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
     canonical.size = uploaded.length
     if (++attempts === 1) await route.fulfill({ status: 503, body: 'temporary upload failure' })
-    else await route.fulfill({ json: { kind: 'media/audio', asset: canonical } })
+    else {
+      if (attempts === 3) await new Promise<void>((resolve) => { releaseUpload = resolve; uploadStarted!() })
+      await route.fulfill({ json: { kind: 'media/audio', asset: canonical } })
+    }
   })
   await page.route('**/api/assets/blake3*', (route) => route.fulfill({ contentType: 'audio/webm', body: uploaded }))
   await page.evaluate(() => {
@@ -196,17 +202,24 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
   await page.evaluate(() => { (window as unknown as { audioDenied: boolean }).audioDenied = false })
   await recorder.getByRole('button', { name: 'Record microphone' }).click()
   await expect(recorder.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
+  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
   await page.screenshot({ path: testInfo.outputPath('audio-record-recording.png'), animations: 'disabled' })
   await recorder.getByRole('button', { name: 'Stop recording' }).click()
   await expect(recorder).toContainText('Recording ready')
+  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
   expect(await page.evaluate(() => (window as unknown as { audioStops: number }).audioStops)).toBe(1)
   await recorder.getByRole('button', { name: 'Save recording' }).click()
   await expect(editor.getByRole('alert')).toContainText('503')
   await expect(recorder).toContainText('Clip retained for retry')
+  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
   expect(await value()).toBeUndefined()
   await recorder.getByRole('button', { name: 'Save recording' }).click()
   await expect(editor.getByText('canonical-recording.webm', { exact: true })).toBeVisible()
   await expect(editor.getByRole('alert')).toHaveCount(0)
+  await expect(editor.locator('audio')).toHaveAttribute('src', /^blob:/)
+  await editor.getByRole('button', { name: 'Play audio', exact: true }).click()
+  await expect(editor.getByRole('button', { name: 'Pause audio', exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Pause audio', exact: true }).click()
   expect(await value()).toBeUndefined()
   await page.setViewportSize({ width: 900, height: 700 })
   await page.screenshot({ path: testInfo.outputPath('audio-record-ready-compact.png'), animations: 'disabled' })
@@ -227,6 +240,25 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
   await expect(editor).toHaveCount(0)
   expect(await page.evaluate(() => (window as unknown as { audioStops: number }).audioStops)).toBe(2)
   expect(await value()).toEqual(canonical)
+  const stored = await value()
+  await openEditor(page, 'recording')
+  await recorder.getByRole('button', { name: 'Record microphone' }).click()
+  await expect(recorder.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
+  await recorder.getByRole('button', { name: 'Stop recording' }).click()
+  await expect(recorder).toContainText('Recording ready')
+  await recorder.getByRole('button', { name: 'Save recording' }).click()
+  await pendingUpload
+  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
+  const aborted = page.waitForEvent('requestfailed', (request) => request.url().includes('/api/assets/media?'))
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  releaseUpload!()
+  await aborted
+  await expect(editor).toHaveCount(0)
+  expect(await value()).toEqual(stored)
+  await openEditor(page, 'recording')
+  await expect(editor.getByText('canonical-recording.webm', { exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(await value()).toEqual(stored)
 })
 
 test('COLORS stages exact ordered palettes with add, remove, reorder and one undoable commit', async ({ page }, testInfo) => {
