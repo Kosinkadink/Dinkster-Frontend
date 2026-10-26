@@ -178,6 +178,12 @@ export const intKind: WidgetKind<IntegerWidgetValue> = {
   defaultView: () => 'core.number',
 }
 
+/**
+ * NumberWidget edits quantize by positive round, then toFixed(precision), then
+ * clamp to bounds; absent precision uses max(0, -floor(log10(round))). False or
+ * absent round preserves parsed precision. Step and display formatting do not
+ * round stored values. The app commit gate owns this editing-only conversion.
+ */
 export const floatKind: WidgetKind<number> = {
   type: 'FLOAT',
   valueSchema: numberSchema,
@@ -222,6 +228,11 @@ export const markdownKind: WidgetKind<string> = {
   defaultView: () => 'core.markdown',
 }
 
+/**
+ * refreshComboInNodes replaces option vocabulary in root and nested graphs,
+ * even with an empty list, without rewriting stored selections. Schema refresh
+ * owns that replacement; defaultValue is only for newly created inputs.
+ */
 export const comboKind: WidgetKind<Json> = {
   type: 'COMBO',
   // NaN/Infinity are not JSON numbers: they cannot round-trip a document.

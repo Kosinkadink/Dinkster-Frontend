@@ -91,10 +91,15 @@ describe('widgetCommitError', () => {
     }
   })
 
-  it('quantizes FLOAT commits by round metadata without treating step as round', () => {
+  // ComfyUI_frontend 2dde8ae00c36b43e0ec84bc6f3a60caad5119303:
+  // useFloatWidget.ts onFloatValueChange supplies these literal expectations.
+  it('matches NumberWidget round and precision without treating step as round', () => {
     expect(parseNumericCommit('1.2346', 'FLOAT', 0.001)).toEqual({ ok: true, value: 1.235 })
     expect(parseNumericCommit('1.24', 'FLOAT', 0.25)).toEqual({ ok: true, value: 1.3 })
     expect(parseNumericCommit('1.24', 'FLOAT', 0.25, 2)).toEqual({ ok: true, value: 1.25 })
+    expect(parseNumericCommit('1.375', 'FLOAT', 0.25, 2)).toEqual({ ok: true, value: 1.5 })
+    expect(parseNumericCommit('-1.375', 'FLOAT', 0.25, 2)).toEqual({ ok: true, value: -1.25 })
+    expect(parseNumericCommit('1.2346', 'FLOAT', 0.001, 0)).toEqual({ ok: true, value: 1 })
     expect(parseNumericCommit('1.2346', 'FLOAT', 0.001, 2)).toEqual({ ok: true, value: 1.24 })
     expect(parseNumericCommit('1.2346', 'FLOAT', false, 2)).toEqual({ ok: true, value: 1.2346 })
     expect(parseNumericCommit('123456789012345.6', 'FLOAT', 0.1)).toEqual({ ok: true, value: 123456789012345.6 })

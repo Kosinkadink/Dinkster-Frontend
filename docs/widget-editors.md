@@ -31,6 +31,10 @@ precision 2. False or absent round preserves parsed precision; step affects
 slider movement, not typed-text rounding. Display precision never changes the
 stored value. The native NUMBER descriptor currently carries round but not
 precision; explicit precision is honored when supplied by a WidgetSpec.
+The reference is ComfyUI_frontend `2dde8ae00c36b43e0ec84bc6f3a60caad5119303`,
+`useFloatWidget.ts`'s `onFloatValueChange` callback, used by NumberWidget.
+`widget-commit.test.ts` states independent expected values, including negative
+half-step ties toward positive infinity and explicit zero precision.
 
 ## Numeric union inputs
 
@@ -104,7 +108,10 @@ change.
 
 Refreshing backend schemas replaces the options shown by COMBO widgets in root
 and subgraph scenes. Stored selections remain document values, including a
-selection that the refreshed vocabulary no longer lists.
+selection that the refreshed vocabulary no longer lists, or an empty refreshed
+list. This follows the same reference's `app.ts` `refreshComboInNodes` and
+`reloadNodeDefs`: replace option vocabulary without assigning widget values.
+`backends.test.ts` asserts both scene vocabularies and an unchanged document.
 
 ## Product number, slider, and color controls
 
