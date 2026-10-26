@@ -13,6 +13,10 @@ The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses
 only exact registered node IDs; historical node alias metadata is not a lookup
 path. Search terms remain presentation-only properties of the schema.
+The importer also requires a supplied schema's ID to equal the requested class:
+a custom resolver cannot rename a node by returning another class's schema.
+Mismatched results are treated as missing, retaining authored widget values and
+serialized socket names for diagnosis and refusing compilation when unresolved.
 The importer accepts only the ordinary schema resolver and the optional
 class/version widget upgrade table; there is no group-collapse or source-snapshot
 predicate. Family members use the declared schema scope, with prefix members

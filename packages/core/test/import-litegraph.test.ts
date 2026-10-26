@@ -120,38 +120,37 @@ const sdOutput = (id: string, type: string): OutputSpec => ({
 })
 const sdSchema = (
   type: string,
-  alias: string,
+  displayName: string,
   items: readonly (InputSpec | OutputSpec)[],
   isOutputNode = false,
 ): NodeSchema => ({
   type,
-  displayName: alias,
+  displayName,
   category: 'test',
   source: 'v3',
   isOutputNode,
   items,
-  aliases: [alias],
 })
 
 const sd15Schemas = [
-  sdSchema('dinkster.load_checkpoint', 'CheckpointLoaderSimple', [
+  sdSchema('CheckpointLoaderSimple', 'CheckpointLoaderSimple', [
     sdInput('ckpt_name', 'STRING', 'STRING'),
     sdOutput('model', 'core.model'),
     sdOutput('clip', 'core.clip'),
     sdOutput('vae', 'core.vae'),
   ]),
-  sdSchema('dinkster.clip_text_encode', 'CLIPTextEncode', [
+  sdSchema('CLIPTextEncode', 'CLIPTextEncode', [
     sdInput('clip', 'core.clip'),
     sdInput('text', 'STRING', 'STRING'),
     sdOutput('conditioning', 'core.conditioning'),
   ]),
-  sdSchema('dinkster.empty_latent_image', 'EmptyLatentImage', [
+  sdSchema('EmptyLatentImage', 'EmptyLatentImage', [
     sdInput('width', 'core.integer', 'INT'),
     sdInput('height', 'core.integer', 'INT'),
     sdInput('batch_size', 'core.integer', 'INT'),
     sdOutput('latent', 'LATENT'),
   ]),
-  sdSchema('dinkster.ksampler', 'KSampler', [
+  sdSchema('KSampler', 'KSampler', [
     sdInput('model', 'core.model'),
     sdInput('positive', 'core.conditioning'),
     sdInput('negative', 'core.conditioning'),
@@ -164,37 +163,25 @@ const sd15Schemas = [
     sdInput('denoise', 'FLOAT', 'FLOAT'),
     sdOutput('latent', 'LATENT'),
   ]),
-  sdSchema('dinkster.vae_decode', 'VAEDecode', [
+  sdSchema('VAEDecode', 'VAEDecode', [
     sdInput('samples', 'LATENT'),
     sdInput('vae', 'core.vae'),
     sdOutput('image', 'IMAGE'),
   ]),
-  sdSchema('dinkster.save_image', 'SaveImage', [
+  sdSchema('SaveImage', 'SaveImage', [
     sdInput('images', 'IMAGE'),
     sdInput('filename_prefix', 'STRING', 'STRING'),
   ], true),
-  sdSchema('comfy.PreviewImage', 'PreviewImage', [
+  sdSchema('PreviewImage', 'PreviewImage', [
     sdInput('images', 'IMAGE'),
     sdOutput('images', 'IMAGE'),
   ], true),
 ] as const
 
 const sd15Resolve = (type: string): NodeSchema | undefined =>
-  sd15Schemas.find((schema) => schema.type === type || schema.aliases?.includes(type))
+  sd15Schemas.find((schema) => schema.type === type)
 
-const trellis2Aliases = {
-  EmptyTrellis2LatentStructure: 'dinkster.empty_trellis2_latent_structure',
-  Trellis2Conditioning: 'dinkster.trellis2_conditioning',
-  Pixal3DConditioning: 'dinkster.pixal3d_conditioning',
-  VaeDecodeStructureTrellis2: 'dinkster.vae_decode_structure_trellis2',
-  Trellis2ShapeStage: 'dinkster.trellis2_shape_stage',
-  Trellis2UpsampleStage: 'dinkster.trellis2_upsample_stage',
-  VaeDecodeShapeTrellis: 'dinkster.vae_decode_shape_trellis',
-  Trellis2TextureStage: 'dinkster.trellis2_texture_stage',
-  VaeDecodeTextureTrellis: 'dinkster.vae_decode_texture_trellis',
-} as const
-
-const schemaFromLitegraphNode = (node: any, type = node.type, aliases?: readonly string[]): NodeSchema => {
+const schemaFromLitegraphNode = (node: any): NodeSchema => {
   const connectedInputs: InputSpec[] = (node.inputs ?? []).map((input: any) => sdInput(input.name, input.type ?? '*'))
   const connectedNames = new Set(connectedInputs.map((input) => input.id))
   const widgetInputs = Object.keys(node.widgets_values_named ?? {})
@@ -202,13 +189,12 @@ const schemaFromLitegraphNode = (node: any, type = node.type, aliases?: readonly
     .map((name) => sdInput(name, 'core.value', 'UNKNOWN'))
   const outputs = (node.outputs ?? []).map((output: any) => sdOutput(output.name.toLowerCase(), output.type ?? '*'))
   return {
-    type,
+    type: node.type,
     displayName: node.type,
     category: 'test fixture',
     source: 'v3',
     isOutputNode: outputs.length === 0,
     items: [...connectedInputs, ...widgetInputs, ...outputs],
-    ...(aliases ? { aliases } : {}),
   }
 }
 
@@ -244,6 +230,27 @@ const sd15Workflow = (): JsonObject => workflow(
 // -- basics -------------------------------------------------------------------
 
 describe('basic translation', () => {
+  it('refuses a custom resolver substituting another class schema', () => {
+    const input = workflow([
+      lgNode(1, 'AuthoredSource', { outputs: [{ name: 'IMAGE' }] }),
+      lgNode(2, 'AuthoredSink', { inputs: [{ name: 'images' }], widgets_values: ['kept'] }),
+    ], [lgLink(1, 1, 0, 2, 0)])
+    const substituted = sdSchema('DifferentClass', 'Other class', [
+      sdInput('renamed', 'STRING', 'STRING'), sdOutput('renamed_output', 'IMAGE'),
+    ])
+    const imported = importLitegraph(input, () => substituted)
+    const graph = imported.document!.graphs.g0!
+    expect(Object.values(graph.nodes).map((node) => node.type)).toEqual(['AuthoredSource', 'AuthoredSink'])
+    expect(graph.nodes.n2!.values).toEqual({})
+    expect(graph.nodes.n2!.ext?.['importer.rawWidgetValues']).toEqual(['kept'])
+    expect(graph.links.l1).toMatchObject({ from: { node: 'n1', port: 'IMAGE' }, to: { node: 'n2', port: 'images' } })
+    expect(codesOf(imported.diagnostics)).toContain('import.schema.missing')
+    const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
+    expect(reopened.document).toEqual(imported.document)
+    const compiled = compile({ document: reopened.document!, revision: 0, resolve: () => undefined, scope: { kind: 'full' }, connection: asConnectionId('exact'), schemaHash: 'exact' })
+    expect(compiled.ok).toBe(false)
+  })
+
   it('imports and compiles the official TRELLIS.2 Pixal3D workflow', () => {
     const official = readJson('fixtures/workflows/3d_pixal3d_trellis2_image_to_model.json') as JsonObject
     const nodes = (official as any).nodes as any[]
@@ -252,10 +259,8 @@ describe('basic translation', () => {
     const fixtureSchemas = new Map<string, NodeSchema>()
     for (const node of nodes) {
       if (resolve(node.type) || node.type === 'Note' || node.type === 'MarkdownNote') continue
-      const canonical = trellis2Aliases[node.type as keyof typeof trellis2Aliases]
-      const schema = schemaFromLitegraphNode(node, canonical ?? node.type, canonical ? [node.type] : undefined)
+      const schema = schemaFromLitegraphNode(node)
       fixtureSchemas.set(schema.type, schema)
-      fixtureSchemas.set(node.type, schema)
     }
     const officialResolve = (type: string) => fixtureSchemas.get(type) ?? resolve(type)
     const imported = importLitegraph(official, officialResolve)
@@ -263,10 +268,10 @@ describe('basic translation', () => {
     expect(errorsOf(imported.diagnostics)).toEqual([])
     const graph = imported.document!.graphs[imported.document!.root]!
     expect(Object.keys(graph.nodes)).toHaveLength(66)
-    for (const [alias, canonical] of Object.entries(trellis2Aliases)) {
-      const authoredCount = nodes.filter((node) => node.type === alias).length
-      const expectedType = resolve(alias) === undefined ? canonical : alias
-      expect(Object.values(graph.nodes).filter((node) => node.type === expectedType)).toHaveLength(authoredCount)
+    for (const type of new Set<string>(nodes.map((node) => node.type))) {
+      if (type === 'Note' || type === 'MarkdownNote') continue
+      const authoredCount = nodes.filter((node) => node.type === type).length
+      expect(Object.values(graph.nodes).filter((node) => node.type === type)).toHaveLength(authoredCount)
     }
 
     const pathTypes = Object.values(graph.nodes).map((node) => node.type)
@@ -340,20 +345,20 @@ describe('basic translation', () => {
     expect(g.nodes['n2']!.title).toBeUndefined()
   })
 
-  it('canonicalizes a real SD1.5 alias graph and positional ports at ingress', () => {
+  it('preserves SD1.5 classes while mapping positional ports through exact schemas', () => {
     const imported = importLitegraph(sd15Workflow(), sd15Resolve)
     expect(imported.diagnostics).toEqual([])
     const document = imported.document!
     const graph = document.graphs.g0!
     expect(Object.values(graph.nodes).map((node) => node.type)).toEqual([
-      'dinkster.load_checkpoint',
-      'dinkster.clip_text_encode',
-      'dinkster.clip_text_encode',
-      'dinkster.empty_latent_image',
-      'dinkster.ksampler',
-      'dinkster.vae_decode',
-      'dinkster.save_image',
-      'comfy.PreviewImage',
+      'CheckpointLoaderSimple',
+      'CLIPTextEncode',
+      'CLIPTextEncode',
+      'EmptyLatentImage',
+      'KSampler',
+      'VAEDecode',
+      'SaveImage',
+      'PreviewImage',
     ])
     expect(graph.links.l4).toMatchObject({
       from: { node: 'n2', port: 'conditioning' },
@@ -371,7 +376,7 @@ describe('basic translation', () => {
       from: { node: 'n6', port: 'image' },
       to: { node: 'n8', port: 'images' },
     })
-    expect(graph.nodes.n8!.type).toBe('comfy.PreviewImage')
+    expect(graph.nodes.n8!.type).toBe('PreviewImage')
     expect(graph.nodes.n1!.values).toEqual({ ckpt_name: 'sd15.safetensors' })
     expect(graph.nodes.n2!.values).toEqual({ text: 'positive' })
     expect(graph.nodes.n3!.values).toEqual({ text: 'negative' })
@@ -390,19 +395,19 @@ describe('basic translation', () => {
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
     if (!compiled.ok) return
     expect(compiled.artifact.diagnostics).toEqual([])
-    expect(compiled.artifact.prompt['n2']!.class_type).toBe('dinkster.clip_text_encode')
+    expect(compiled.artifact.prompt['n2']!.class_type).toBe('CLIPTextEncode')
     expect(compiled.artifact.prompt['n5']!.inputs['positive']).toEqual(['n2', 0])
     expect(compiled.artifact.prompt['n5']!.inputs['negative']).toEqual(['n3', 0])
   })
 
   it('preserves separate MiniMax H3 positive and negative conditioning nodes', () => {
     const h3Schemas = [
-      sdSchema('test.h3_sources', 'H3Sources', [
+      sdSchema('H3Sources', 'H3Sources', [
         sdOutput('clip', 'core.clip'),
         sdOutput('vae', 'core.vae'),
         sdOutput('model', 'core.model'),
       ]),
-      sdSchema('comfy.MiniMaxH3ImageToVideo', 'MiniMaxH3ImageToVideo', [
+      sdSchema('MiniMaxH3ImageToVideo', 'MiniMaxH3ImageToVideo', [
         sdInput('clip', 'core.clip'),
         sdInput('vae', 'core.vae'),
         sdInput('prompt', 'STRING', 'STRING'),
@@ -412,16 +417,16 @@ describe('basic translation', () => {
         sdOutput('conditioning', 'core.conditioning'),
         sdOutput('latent', 'LATENT'),
       ]),
-      sdSchema('comfy.CFGGuider', 'CFGGuider', [
+      sdSchema('CFGGuider', 'CFGGuider', [
         sdInput('model', 'core.model'),
         sdInput('positive', 'core.conditioning'),
         sdInput('negative', 'core.conditioning'),
         sdOutput('guider', 'core.guider'),
       ]),
-      sdSchema('test.guider_sink', 'GuiderSink', [sdInput('guider', 'core.guider')], true),
+      sdSchema('GuiderSink', 'GuiderSink', [sdInput('guider', 'core.guider')], true),
     ] as const
     const h3Resolve = (type: string): NodeSchema | undefined =>
-      h3Schemas.find((schema) => schema.type === type || schema.aliases?.includes(type))
+      h3Schemas.find((schema) => schema.type === type)
     const imported = importLitegraph(workflow([
       lgNode(1, 'H3Sources', {
         outputs: [
@@ -464,11 +469,11 @@ describe('basic translation', () => {
     const document = imported.document!
     const graph = document.graphs.g0!
     expect(Object.values(graph.nodes).map((node) => node.type)).toEqual([
-      'test.h3_sources',
-      'comfy.MiniMaxH3ImageToVideo',
-      'comfy.MiniMaxH3ImageToVideo',
-      'comfy.CFGGuider',
-      'test.guider_sink',
+      'H3Sources',
+      'MiniMaxH3ImageToVideo',
+      'MiniMaxH3ImageToVideo',
+      'CFGGuider',
+      'GuiderSink',
     ])
     expect(graph.nodes.n2!.values).toEqual({
       prompt: 'cinematic sunrise', width: 1344, height: 768, length: 124,
@@ -501,11 +506,10 @@ describe('basic translation', () => {
     expect(compiled.artifact.prompt['n4']!.inputs['negative']).toEqual(['n3', 0])
   })
 
-  it('keeps an unresolved alias raw and diagnosed', () => {
-    const alias = sd15Schemas[1]!
+  it('keeps an unresolved class raw and diagnosed', () => {
     const { document, diagnostics } = importLitegraph(
       workflow([lgNode(1, 'CLIPTextEncode', { widgets_values: ['text'] })]),
-      (type) => type === alias.type ? alias : undefined,
+      () => undefined,
     )
     expect(document!.graphs.g0!.nodes.n1!.type).toBe('CLIPTextEncode')
     expect(document!.graphs.g0!.nodes.n1!.ext?.['importer.rawWidgetValues']).toEqual(['text'])
@@ -513,21 +517,21 @@ describe('basic translation', () => {
   })
 
   it('keeps mixed converted-widget sockets from shifting ordinary positional inputs', () => {
-    const mixed = sdSchema('dinkster.mixed', 'Mixed', [
+    const mixed = sdSchema('Mixed', 'Mixed', [
       sdInput('model', 'core.model'),
       sdInput('seed', 'core.integer', 'INT'),
       sdInput('positive', 'core.conditioning'),
       { ...sdInput('forced', 'FLOAT', 'FLOAT'), forceInput: true },
       sdInput('negative', 'core.conditioning'),
     ])
-    const source = sdSchema('dinkster.sources', 'Sources', [
+    const source = sdSchema('Sources', 'Sources', [
       sdOutput('model', 'core.model'),
       sdOutput('integer', 'core.integer'),
       sdOutput('conditioning', 'core.conditioning'),
       sdOutput('float', 'FLOAT'),
     ])
     const localResolve = (type: string): NodeSchema | undefined =>
-      [mixed, source].find((schema) => schema.type === type || schema.aliases?.includes(type))
+      [mixed, source].find((schema) => schema.type === type)
     const json = workflow(
       [
         lgNode(1, 'Sources', { outputs: [{ name: 'M' }, { name: 'I' }, { name: 'C' }, { name: 'F' }] }),
@@ -837,7 +841,7 @@ describe('positional widget mapping', () => {
     ])
 
   it('does not consume a positional widget value for a forceInput socket', () => {
-    const schema = sdSchema('dinkster.force_then_label', 'ForceThenLabel', [
+    const schema = sdSchema('ForceThenLabel', 'ForceThenLabel', [
       { ...sdInput('forced', 'FLOAT', 'FLOAT'), forceInput: true },
       sdInput('label', 'STRING', 'STRING'),
     ])
@@ -848,7 +852,7 @@ describe('positional widget mapping', () => {
           widgets_values: ['kept'],
         }),
       ]),
-      (type) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined,
+      (type) => type === schema.type ? schema : undefined,
     )
     expect(diagnostics).toEqual([])
     expect(document!.graphs.g0!.nodes.n1!.values).toEqual({ label: 'kept' })

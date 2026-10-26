@@ -599,7 +599,10 @@ export function importLitegraph(
 ): ImportLitegraphResult {
   const ingress = ownJson(input)
   if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
-  const result = importLitegraphSubgraphs(ingress.value as JsonObject, resolve, (graph, localResolve, definitions) =>
+  const result = importLitegraphSubgraphs(ingress.value as JsonObject, (type) => {
+    const schema = resolve(type)
+    return schema?.type === type ? schema : undefined
+  }, (graph, localResolve, definitions) =>
     importLitegraphGraph(graph, localResolve, definitions, upgrades))
   if (!result.document) return result
   return { ...result, document: Object.freeze({ ...result.document,
@@ -1672,7 +1675,7 @@ function importLitegraphGraph(
 
     nodes[id] = {
       id,
-      type: schema?.type ?? n.type,
+      type: importedNodeType(n),
       values,
       ...(Object.keys(controllers).length > 0 ? { controllers } : {}),
       ...(Object.keys(dynamic).length > 0 ? { dynamic } : {}),
