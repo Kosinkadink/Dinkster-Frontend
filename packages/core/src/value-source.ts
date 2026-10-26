@@ -184,9 +184,7 @@ const intersectTypes = (a: TypeExpr, b: TypeExpr): TypeExpr => {
   // exact identity like any atom; typeExprFromTypeId rebuilds the structured
   // form (never `concrete('list<...>')`). Open lists/variables/wildcards
   // yield undefined -> the other side wins (advisory display only).
-  // atomNamesOf canonicalizes interchangeable comfy-compat spellings, so a
-  // source driving both MASK and comfy.MASK intersects to one MASK
-  // atom instead of collapsing to wildcard.
+  // Atom names retain exact identity, including namespace prefixes.
   const names = (t: TypeExpr): readonly string[] | undefined =>
     t.kind === 'concrete' || t.kind === 'union' || t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream' ? atomNamesOf(t) : undefined
   const an = names(a)
@@ -196,7 +194,7 @@ const intersectTypes = (a: TypeExpr, b: TypeExpr): TypeExpr => {
   const both = [...new Set(an)].filter((n) => bn.includes(n))
   if (both.length === 1) return typeExprFromTypeId(both[0]!)
   if (both.length > 1) return { kind: 'union', names: both }
-  return { kind: 'wildcard' } // disjoint; compat layer will warn on the links
+  return { kind: 'wildcard' } // disjoint; link validation reports the conflict
 }
 
 /**
