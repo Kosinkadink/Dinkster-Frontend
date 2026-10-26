@@ -40,7 +40,6 @@ interface DinksterBridgeSceneNode {
     pins: ReadonlyArray<{
       portId: string
       direction: 'in' | 'out'
-      x?: number
       y: number
       warn?: true
       /** Trailing ghost affordance (dynamic family growth slot). */

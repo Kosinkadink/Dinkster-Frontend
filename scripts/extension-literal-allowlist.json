@@ -387,7 +387,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/interaction.ts",
-      "line": 3342,
+      "line": 3339,
       "column": 27,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -395,7 +395,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/interaction.ts",
-      "line": 3342,
+      "line": 3339,
       "column": 60,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -403,7 +403,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/interaction.ts",
-      "line": 3349,
+      "line": 3346,
       "column": 29,
       "symbol": "widgetType:INT",
       "issue": 122

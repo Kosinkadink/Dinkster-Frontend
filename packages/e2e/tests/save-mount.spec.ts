@@ -120,8 +120,8 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
     const to = sink?.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'destination')
     const link = scene.links[0]
     return !!source && !!sink && !!from && !!to && !!link &&
-      link.x1 === source.x + from.x! && link.y1 === source.y + from.y &&
-      link.x2 === sink.x + to.x! && link.y2 === sink.y + to.y
+      link.x1 === source.x + source.layout.width && link.y1 === source.y + from.y &&
+      link.x2 === sink.x && link.y2 === sink.y + to.y
   })).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('mount-row-connected.png') })
 })

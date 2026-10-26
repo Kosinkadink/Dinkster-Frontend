@@ -2836,9 +2836,6 @@ export class InteractionController {
           pin.widgetTap !== true &&
           pinRevealed(node, pin)
         ) {
-          if (pin.x !== undefined && pin.x !== 0 && pin.x !== node.layout.width &&
-            Math.abs(localX - pin.x) <= PIN_HIT_RADIUS + coordinateTolerance &&
-            Math.abs(localY - pin.y) <= PIN_HIT_RADIUS + coordinateTolerance) return true
           minY = Math.min(minY, pin.y)
           maxY = Math.max(maxY, pin.y)
         }

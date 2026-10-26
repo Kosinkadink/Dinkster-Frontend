@@ -364,20 +364,18 @@ describe('same-id widget tap vs real output', () => {
     const tapPin = source.layout.pins.find((pin) => pin.widgetTap === true && pin.portId === 'image')!
     expect(scene.links[0]).toMatchObject({
       from: { kind: 'widgetTap', node: 'source', input: 'image' },
-      x1: source.x + tapPin.x!, y1: source.y + tapPin.y, typeName: 'STRING',
+      x1: source.x + source.layout.width, y1: source.y + tapPin.y, typeName: 'STRING',
     })
   })
 
-  it('paints a connected noodle at both interior widget anchors', () => {
+  it('paints a connected noodle at the outer borders of adjacent widget rows', () => {
     const scene = builtScene({ node: 'source', tap: 'image' }, 'mount')
     const source = scene.nodes.find((node) => node.id === 'source')!
     const sink = scene.nodes.find((node) => node.id === 'sink')!
     const from = source.layout.pins.find((pin) => pin.widgetTap && pin.portId === 'image')!
     const to = sink.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'mount')!
-    expect(from.x).toBeLessThan(source.layout.width)
-    expect(to.x).toBeGreaterThan(0)
-    const start = [source.x + from.x!, source.y + from.y]
-    const end = [sink.x + to.x!, sink.y + to.y]
+    const start = [source.x + source.layout.width, source.y + from.y]
+    const end = [sink.x, sink.y + to.y]
     expect(scene.links[0]).toMatchObject({ x1: start[0], y1: start[1], x2: end[0], y2: end[1] })
     const calls = paint(scene)
     expect(calls.some((call) => call.method === 'moveTo' && call.args[0] === start[0] && call.args[1] === start[1])).toBe(true)

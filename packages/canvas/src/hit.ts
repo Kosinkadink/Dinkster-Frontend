@@ -273,7 +273,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       // Paint suppresses every family-owned pin; hit testing must agree
       // (taps are memberless today, so this is consistency armor).
       if (pin.familyOwner !== undefined) continue
-      const x = node.x + (pin.x ?? node.layout.width)
+      const x = node.x + node.layout.width
       const y = node.y + pin.y
       if (Math.hypot(wx - x, wy - y) <= pinHitRadius)
         return { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
@@ -815,7 +815,7 @@ export function hitTestPin(
       if (pin.widgetTap === true) continue
       if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
       if (pinRevealed && !pinRevealed(node, pin)) continue
-      const px = node.x + (pin.x ?? (pin.direction === 'in' ? 0 : node.layout.width))
+      const px = pin.direction === 'in' ? node.x : node.x + node.layout.width
       const py = node.y + pin.y
       const d = Math.hypot(wx - px, wy - py)
       if (d <= bestDist) {
@@ -923,5 +923,5 @@ export function pinPosition(
 ): { x: number; y: number } | undefined {
   const pin = node.layout.pins.find((p) => p.portId === portId && p.direction === direction && (p.widgetTap === true) === widgetTap)
   if (!pin) return undefined
-  return { x: node.x + (pin.x ?? (direction === 'in' ? 0 : node.layout.width)), y: node.y + pin.y }
+  return { x: direction === 'in' ? node.x : node.x + node.layout.width, y: node.y + pin.y }
 }

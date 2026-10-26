@@ -232,8 +232,6 @@ export interface PinLayout extends DynamicAnnotations {
   /** Human-readable port label retained when rows are hidden. */
   readonly label?: string
   readonly direction: 'in' | 'out'
-  /** Center x for a shared widget cell; otherwise the direction's border. */
-  readonly x?: number
   /** Center y, node-local. */
   readonly y: number
   readonly type: TypeExpr
@@ -1061,8 +1059,12 @@ export function layoutNode(
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
       : row.widget!.rows * tokens.rowHeight)
+  const lineBaseHeight = (line: PendingRow[]): number => Math.max(
+    ...line.map(rowBaseHeight),
+    line.length > 1 ? line.length * (tokens.pinRadius * 2 + WIDGET_PIN_GAP * 2) : 0,
+  )
   const naturalRowsHeight = [...new Set(lines.values())].reduce((height, line) =>
-    height + Math.max(...line.map(rowBaseHeight)), 0)
+    height + lineBaseHeight(line), 0)
   const naturalHeight = tokens.headerHeight + naturalRowsHeight + tokens.padBottom
   const requestedExtra = options.size === undefined
     ? 0
@@ -1128,7 +1130,7 @@ export function layoutNode(
     } else {
       const w = row.widget!
       const flexible = flexibleRows.includes(row)
-      const baseHeight = flexible ? Math.max(...lines.get(row)!.map(rowBaseHeight)) : rowBaseHeight(row)
+      const baseHeight = lineBaseHeight(lines.get(row)!)
       const height = baseHeight + (flexible
         ? flexibleShare + (flexibleIndex === flexibleRows.length - 1 ? flexibleRemainder : 0)
         : 0)
@@ -1216,7 +1218,6 @@ export function layoutNode(
 
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
-    // Separate neighboring output/input anchors by more than their grab radii.
     const gap = cellGap
     const compactWidth = tokens.nodeMinWidth
     let left = 0
@@ -1227,7 +1228,9 @@ export function layoutNode(
       rows[index] = { ...row, inset: left + row.inset, width: cellWidth - row.inset * 2 }
       for (const [index, pin] of pins.entries()) {
         if (pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
-          pins[index] = { ...pin, x: left + (pin.direction === 'in' ? 0 : cellWidth) }
+          // Border sockets keep noodles outside the node body. Distinct slots
+          // retain independent hit targets while the controls share a line.
+          pins[index] = { ...pin, y: row.y + (column + 0.5) * lineBaseHeight(line) / line.length }
       }
       left += cellWidth + gap
     }
@@ -1248,7 +1251,7 @@ export function layoutNode(
       title,
       titleRenamed,
       rows: [],
-      pins: pins.map(({ x: _x, ...pin }) => ({
+      pins: pins.map((pin) => ({
         ...pin,
         y: tokens.headerHeight / 2,
         minimized: true as const,

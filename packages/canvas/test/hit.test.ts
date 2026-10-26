@@ -86,6 +86,11 @@ describe('hitTest', () => {
       }
       for (const pin of layout.pins) {
         const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)!
+        expect(position.x).toBe(pin.direction === 'in' ? node.x : node.x + layout.width)
+        for (const sibling of layout.pins) {
+          if (sibling !== pin && sibling.direction === pin.direction)
+            expect(Math.abs(sibling.y - pin.y)).toBeGreaterThan(PIN_HIT_RADIUS * 2)
+        }
         const hit = hitTest(pairedScene, position.x, position.y, { widgetTaps: new Set(layout.pins.filter((pin) => pin.widgetTap).map((pin) => `${node.id}:${pin.portId}:out:tap`)) })
         expect(hit).toMatchObject(pin.widgetTap ? { kind: 'widgetTap', pin: { portId: pin.portId } } : { kind: 'pin', portId: pin.portId })
       }

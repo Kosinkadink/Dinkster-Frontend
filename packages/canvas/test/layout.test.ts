@@ -81,7 +81,8 @@ describe('pairing', () => {
     for (const projected of [layout, withPreviewRegion(layout, defaultTokens), withCompactPreviewRegion(layout, defaultTokens), withTextOutputRegion(layout, defaultTokens)]) {
       expect(projected.rows[1]!.y).toBe(projected.rows[0]!.y)
       const inputs = projected.pins.filter((pin) => pin.direction === 'in')
-      expect(inputs[0]!.y).toBe(inputs[1]!.y)
+      expect(inputs[1]!.y - inputs[0]!.y).toBeGreaterThan(18)
+      expect(inputs[1]!.y).toBeLessThan(projected.rows[0]!.y + projected.rows[0]!.height)
     }
   })
 
@@ -89,8 +90,6 @@ describe('pairing', () => {
     const layout = doLayout([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')])
     const realOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.direction === 'out' && !pin.widgetTap)!
     const valueOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.widgetTap)!
-    expect(realOutput.x ?? layout.width).toBe(layout.width)
-    expect(valueOutput.x).toBeLessThan(layout.width)
     expect(realOutput.y).toBeGreaterThan(valueOutput.y)
   })
 

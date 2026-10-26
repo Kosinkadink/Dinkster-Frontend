@@ -1179,12 +1179,12 @@ export class CanvasRenderer {
           prefix.every((member, index) => candidate.address.members?.[index] === member),
         )
         return {
-          x: node.x + (familyPin?.x ?? (direction === 'out' ? node.layout.width : 0)),
+          x: direction === 'out' ? node.x + node.layout.width : node.x,
           y: node.y + (familyPin?.y ?? node.layout.headerHeight / 2),
         }
       }
       if (pin === undefined) return fallback
-      return { x: node.x + (pin.x ?? (direction === 'out' ? node.layout.width : 0)), y: node.y + pin.y }
+      return { x: direction === 'out' ? node.x + node.layout.width : node.x, y: node.y + pin.y }
     }
     const links = scene.links.map((link) => {
       const from = anchor(link.from, 'out', { x: link.x1, y: link.y1 }, link.boundaryFamily === true)
@@ -1199,7 +1199,7 @@ export class CanvasRenderer {
         candidate.direction === direction && candidate.portId === key && candidate.widgetTap !== true,
       )
       if (node === undefined || pin === undefined) return stub
-      const pinX = node.x + (pin.x ?? (direction === 'out' ? node.layout.width : 0))
+      const pinX = direction === 'out' ? node.x + node.layout.width : node.x
       const pinY = node.y + pin.y
       return stub.authored === true
         ? { ...stub, pinX, pinY }
@@ -2147,7 +2147,7 @@ export class CanvasRenderer {
                 candidate.portId === origin.port && candidate.direction === origin.side && candidate.widgetTap !== true,
               )
               return node !== undefined && pin !== undefined
-                ? { x: node.x + (pin.x ?? (origin.side === 'out' ? node.layout.width : 0)), y: node.y + pin.y }
+                ? { x: origin.side === 'out' ? node.x + node.layout.width : node.x, y: node.y + pin.y }
                 : undefined
             })()
           : origin.kind === 'widgetTap'
@@ -2157,7 +2157,7 @@ export class CanvasRenderer {
                   candidate.widgetTap === true && candidate.address.port === origin.input,
                 )
                 return node !== undefined && pin !== undefined
-                  ? { x: node.x + (pin.x ?? node.layout.width), y: node.y + pin.y }
+                  ? { x: node.x + node.layout.width, y: node.y + pin.y }
                   : undefined
               })()
           : (() => {
@@ -3331,7 +3331,7 @@ export class CanvasRenderer {
       return
     }
     for (const pin of l.pins) {
-      const px = node.x + (pin.x ?? (pin.direction === 'in' ? 0 : l.width))
+      const px = pin.direction === 'in' ? node.x : node.x + l.width
       const py = node.y + pin.y
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
