@@ -269,7 +269,7 @@ describe('Dinkster schema wire', () => {
       mayExpandGraph: true,
       interface: [
         { role: 'input', id: 'asset', type: concrete('ASSET'), required: true, widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' } },
-        { role: 'input', id: 'save', type: concrete('SAVE_TARGET'), required: true, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
+        { role: 'input', id: 'mount', type: concrete('STRING'), required: false, default: null, widget: { type: 'MOUNT' } },
         { role: 'input', id: 'combo', type: concrete('COMBO'), required: true, default: 'a', widget: { type: 'COMBO', options: ['a'] } },
         { role: 'input', id: 'multi', type: { kind: 'list', element: concrete('COMBO') }, required: true, default: ['a'], widget: { type: 'MULTI_COMBO', options: ['a'] } },
         { role: 'input', id: 'boolean', type: concrete('BOOLEAN'), required: true, default: true, widget: { type: 'BOOLEAN', labelOn: 'On' } },
@@ -303,7 +303,7 @@ describe('Dinkster schema wire', () => {
     expect(result.schema?.mayExpandGraph).toBe(true)
     expect(inputsOf(result.schema!).map((input) => input.widget?.widgetType)).toEqual([
       'ASSET',
-      'SAVE_TARGET',
+      'MOUNT',
       'COMBO',
       'MULTI_COMBO',
       'BOOLEAN',

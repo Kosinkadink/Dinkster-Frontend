@@ -58,7 +58,7 @@ import { ownJson } from './json.js'
 import { validateDocumentShape } from './validate.js'
 import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
-import { isAssetRefValue, isSaveTargetValue } from '../schema/widget-defaults.js'
+import { isAssetRefValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
 import { convertLitegraphLists, convertLitegraphLoops, convertLitegraphListConsumers } from './import-litegraph-loops.js'
 
@@ -181,9 +181,6 @@ interface DiscoveredAutogrowMembers {
 function normalizeLegacyWidgetValue(
   item: InputSpec,
   value: Json,
-  key: string,
-  nodeLabel: string,
-  diags: Diagnostic[],
 ): Json {
   if (item.dynamic === undefined && item.widget?.widgetType === 'COMBO') {
     const options = normalizedComboOptions(item.widget)
@@ -214,17 +211,6 @@ function normalizeLegacyWidgetValue(
     ) return numeric
     return value
   }
-  if (item.widget?.widgetType !== 'SAVE_TARGET') return value
-  const declared = item.widget.default
-  if (isSaveTargetValue(declared)) {
-    const migrated = { mount: declared.mount, prefix: value }
-    if (isSaveTargetValue(migrated)) return migrated
-  }
-  diags.push(imp(
-    'warning',
-    'import.saveTarget.invalidLegacy',
-    `${nodeLabel}: legacy save target '${key}' could not be safely migrated; raw string kept for review`,
-  ))
   return value
 }
 
@@ -280,14 +266,14 @@ function decodeKeyedWidgets(
             : joinValuePath(wireMember, slot.id)
           if (!Object.prototype.hasOwnProperty.call(raw, wireInput)) continue
           known.add(wireInput)
-          state.values[stateInput] = normalizeLegacyWidgetValue(slot, raw[wireInput]!, stateInput, nodeLabel, diags)
+          state.values[stateInput] = normalizeLegacyWidgetValue(slot, raw[wireInput]!)
         }
       }
       continue
     }
     if (item.widget !== undefined && Object.prototype.hasOwnProperty.call(raw, wireKey)) {
       known.add(wireKey)
-      state.values[stateKey] = normalizeLegacyWidgetValue(item, raw[wireKey]!, stateKey, nodeLabel, diags)
+      state.values[stateKey] = normalizeLegacyWidgetValue(item, raw[wireKey]!)
     }
   }
 }
@@ -451,7 +437,7 @@ const decodePositionalFamilyWidgets = (
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
         continue
       }
-      state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json, key, nodeLabel, diags)
+      state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
       if (item.widget.controller !== undefined && state.index < raw.length) {
         const mode = raw[state.index]
         if (typeof mode === 'string' && CONTROLLER_MODES.has(mode)) {
@@ -536,7 +522,7 @@ function decodePositionalWidgets(
       if (state.index >= raw.length) {
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
       } else {
-        state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json, key, nodeLabel, diags)
+        state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
         if (item.widget.controller !== undefined && state.index < raw.length) {
           const mode = raw[state.index]
           if (typeof mode === 'boolean') {
@@ -688,7 +674,7 @@ const decodeStaticNode = (node: LgNode, schema: NodeSchema): StaticNodeDecode | 
   const widgets = inputs.filter((input) => input.widget !== undefined && input.forceInput !== true)
   const raw = node.widgets_values
   const assign = (input: InputSpec, value: Json): void => {
-    values[input.id] = normalizeLegacyWidgetValue(input, value, input.id, `node ${node.id}`, [])
+    values[input.id] = normalizeLegacyWidgetValue(input, value)
   }
   if (Array.isArray(raw)) {
     let index = 0

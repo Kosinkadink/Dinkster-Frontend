@@ -524,11 +524,10 @@ describe('display/submission default agreement', () => {
   })
 
   it('kinds whose display default is a placeholder have NO submission default', () => {
-    // ASSET/SAVE_TARGET display null ("explicitly unset") and an empty/remote
+    // ASSET displays null ("explicitly unset") and an empty/remote
     // COMBO displays '' - placeholders a user can see through, not values a
     // prompt may execute with. Submission keeps the missing-input warning.
     expect(effectiveWidgetDefault(spec('ASSET'))).toBeUndefined()
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET'))).toBeUndefined()
     expect(effectiveWidgetDefault(spec('COMBO'))).toBeUndefined()
     expect(effectiveWidgetDefault(spec('COMBO', { options: [] }))).toBeUndefined()
   })

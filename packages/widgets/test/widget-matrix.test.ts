@@ -177,7 +177,7 @@ describe('STRING and COMBO variants', () => {
 // ---------------------------------------------------------------------------
 // Compact display: the REAL registered views draw through a recording
 // SceneBuilder, so a per-kind display regression (COLOR losing its swatch,
-// ASSET no longer naming the file, SAVE_TARGET dropping the suffix) fails
+// ASSET no longer naming the file, MOUNT losing its default label) fails
 // here - not just in a fake-view plumbing test.
 // ---------------------------------------------------------------------------
 

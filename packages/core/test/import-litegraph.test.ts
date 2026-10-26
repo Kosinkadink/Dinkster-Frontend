@@ -979,110 +979,25 @@ describe('positional widget mapping', () => {
     expect(keyed.document!.graphs.g0!.nodes.n1!.values).toEqual({ count: 2048, strength: 0.5 })
   })
 
-  it('migrates a valid legacy SAVE_TARGET prefix from the declared mount', () => {
-    const target = {
-      ...sdInput('filename_prefix', 'SAVE_TARGET', 'SAVE_TARGET'),
-      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
-    } satisfies InputSpec
-    const schema = sdSchema('dinkster.save', 'SaveImage', [target], true)
-    const localResolve = (type: string) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'SaveImage', { widgets_values: ['SD1.5'] }),
-    ]), localResolve)
+  it.each([
+    ['positional', ['daily/render', 'archive']],
+    ['keyed', { filename_prefix: 'daily/render', mount: 'archive' }],
+  ] as const)('preserves independent prefix and mount values from %s widgets through compilation', (_label, widgets_values) => {
+    const schema = sdSchema('SaveImage', 'SaveImage', [
+      sdInput('filename_prefix', 'STRING', 'STRING'),
+      { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true, widget: { widgetType: 'MOUNT', options: {}, default: null } },
+    ], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values })]), localResolve)
     expect(imported.diagnostics).toEqual([])
-    expect(imported.document!.graphs.g0!.nodes.n1!.values.filename_prefix).toEqual({
-      mount: 'comfy-output', prefix: 'SD1.5',
-    })
+    expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ filename_prefix: 'daily/render', mount: 'archive' })
     const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
-    expect(reopened.diagnostics).toEqual([])
     const compiled = compile({
       document: reopened.document!, revision: 1, resolve: localResolve,
-      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-target-test',
+      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-inputs-test',
     })
     expect(compiled.ok).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs.filename_prefix).toEqual({
-      mount: 'comfy-output', prefix: 'SD1.5',
-    })
-  })
-
-  it('keeps invalid legacy SAVE_TARGET strings raw and warns specifically', () => {
-    const target = {
-      ...sdInput('target', 'SAVE_TARGET', 'SAVE_TARGET'),
-      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
-    } satisfies InputSpec
-    const schema = sdSchema('dinkster.save', 'Save', [target])
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'Save', { widgets_values: ['../escape'] }),
-    ]), (type) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined)
-    expect(imported.document!.graphs.g0!.nodes.n1!.values.target).toBe('../escape')
-    expect(codesOf(imported.diagnostics)).toContain('import.saveTarget.invalidLegacy')
-  })
-
-  it.each([
-    ['empty prefix', '', { mount: 'comfy-output', prefix: 'ComfyUI' }],
-    ['missing default', 'safe/name', undefined],
-    ['raw default', 'safe/name', 'ComfyUI'],
-    ['invalid default mount', 'safe/name', { mount: '../output', prefix: 'ComfyUI' }],
-    ['invalid default prefix', 'safe/name', { mount: 'comfy-output', prefix: '../escape' }],
-  ] as const)('keeps %s raw when SAVE_TARGET migration lacks a valid result', (_label, raw, declaredDefault) => {
-    const widget = declaredDefault === undefined
-      ? { widgetType: 'SAVE_TARGET', options: {} }
-      : { widgetType: 'SAVE_TARGET', options: {}, default: declaredDefault }
-    const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false, widget,
-    }
-    const schema = sdSchema('dinkster.save', 'Save', [target])
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'Save', { widgets_values: [raw] }),
-    ]), (type) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined)
-    expect(imported.document!.graphs.g0!.nodes.n1!.values.target).toBe(raw)
-    expect(codesOf(imported.diagnostics).filter((code) => code === 'import.saveTarget.invalidLegacy')).toHaveLength(1)
-  })
-
-  it('normalizes keyed SAVE_TARGET values inside the active DynamicCombo branch', () => {
-    const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
-      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
-    }
-    const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
-      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'file', inputs: [target] }] },
-    }])
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'DynamicSave', { widgets_values: { mode: 'file', 'mode.target': 'daily/render' } }),
-    ]), (type) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined)
-    expect(imported.diagnostics).toEqual([])
-    expect(imported.document!.graphs.g0!.nodes.n1!.dynamic).toEqual({ mode: { selected: 'file' } })
-    expect(imported.document!.graphs.g0!.nodes.n1!.values['mode.target']).toEqual({
-      mount: 'archive', prefix: 'daily/render',
-    })
-  })
-
-  it('normalizes positional SAVE_TARGET values inside a wire-15 DynamicCombo branch', () => {
-    const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
-      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
-    }
-    const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
-      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'file', inputs: [target] }] },
-    }], true)
-    const localResolve = (type: string) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'DynamicSave', { widgets_values: ['file', 'daily/render'] }),
-    ]), localResolve)
-    expect(imported.diagnostics).toEqual([])
-    expect(imported.document!.graphs.g0!.nodes.n1!.values['mode.target']).toEqual({
-      mount: 'archive', prefix: 'daily/render',
-    })
-    const compiled = compile({
-      document: imported.document!, revision: 1, resolve: localResolve,
-      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'dynamic-save-target-test',
-    })
-    expect(compiled.ok).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs['mode.target']).toEqual({
-      mount: 'archive', prefix: 'daily/render',
-    })
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'daily/render', mount: 'archive' })
   })
 
   it('parks raw values of unknown node types without guessing', () => {

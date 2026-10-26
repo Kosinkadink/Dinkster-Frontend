@@ -426,19 +426,6 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where}.allowUpload must be a boolean`)
       }
       return
-    case 'SAVE_TARGET':
-      rejectUnknownWidgetFields(descriptor, ['type', 'suffix'], where)
-      if (descriptor['suffix'] !== undefined && typeof descriptor['suffix'] !== 'string') {
-        throw new Error(`${where}.suffix must be a string`)
-      }
-      if (
-        typeof descriptor['suffix'] === 'string' &&
-        descriptor['suffix'] !== '' &&
-        (!descriptor['suffix'].startsWith('.') || descriptor['suffix'].includes('/') || descriptor['suffix'].includes('\\'))
-      ) {
-        throw new Error(`${where}.suffix must be a bare extension`)
-      }
-      return
     case 'COMBO': {
       rejectUnknownWidgetFields(descriptor, ['type', 'options', 'remote', 'controlAfterGenerate', 'optionSource'], where)
       const options = descriptor['options']
@@ -661,9 +648,6 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       }
       return
     }
-    case 'SAVE_TARGET':
-      if (socket !== 'SAVE_TARGET') throw new Error(`${where} requires a concrete SAVE_TARGET input`)
-      return
     case 'ASSET':
       if (type.kind === 'concrete') return
       if (descriptor['allowUpload'] === true && type.kind === 'list' && type.element.kind === 'concrete' && type.element.name === 'ASSET') return
@@ -683,8 +667,6 @@ function widgetDomain(widget: WidgetDescriptorSpec): string {
   switch (widget.widgetType) {
     case 'ASSET':
       return 'asset'
-    case 'SAVE_TARGET':
-      return 'save-target'
     case 'COMBO':
       return 'combo'
     case 'BOOLEAN':
@@ -825,18 +807,6 @@ function widgetFor(
         options: { accept: [...descriptor.accept] },
         ...(kind !== undefined ? { kind } : {}),
         ...(descriptor.allowUpload === true ? { allowUpload: true } : {}),
-        ...(dflt !== undefined ? { default: dflt } : {}),
-      }
-    }
-    // The wire omits a structured save target suffix when empty; the
-    // decoder normalizes it to '' so every consumer reads ONE shape (the
-    // suffix is display context owned by the node, never persisted data).
-    if (descriptor.type === 'SAVE_TARGET' && (descriptor.suffix === undefined || typeof descriptor.suffix === 'string')) {
-      return {
-        widgetType: 'SAVE_TARGET',
-        options: {
-          suffix: typeof descriptor.suffix === 'string' ? descriptor.suffix : '',
-        },
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
