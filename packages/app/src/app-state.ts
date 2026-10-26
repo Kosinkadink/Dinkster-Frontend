@@ -4614,8 +4614,8 @@ export class AppState {
    * Stock seed tabs whose FIRST upgrade pass is silent baseline
    * normalization. The shipped seed workflows are authored in portable
    * legacy V1 form (bare class types, positional 'out{i}' ports) so they
-   * run as-is on V1 ComfyUI backends; against a native backend the alias
-   * rules migrate them to canonical types. The user never authored the
+   * run as-is on V1 ComfyUI backends. Explicit replacement rules may
+   * normalize stock content; alias metadata supplies no rules. The user never authored the
    * legacy form, so that migration must look born-this-way: no
    * 'replace.applied' Problems entry and no undo step back to a state the
    * user never saw. Consumed by upgradeOnOpen; only honored while the tab

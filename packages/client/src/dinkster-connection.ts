@@ -3276,42 +3276,18 @@ export function buildDinksterRegistry(
   const server = serverInfoFromDinksterWire(raw)
   const graphFeatures = graphFeaturesFromDinksterWire(raw)
   const mergeableTypes = mergeableTypesFromDinksterWire(raw)
-  // Legacy-name resolution: schemas declare the historical type names they
-  // answer to (bare ComfyUI class_types like 'EmptyImage' for
-  // 'comfy.EmptyImage'). Canonical ids always outrank aliases - an alias
-  // that collides with a real type id is ignored - and a name two schemas
-  // both claim resolves to neither (ambiguity must stay loud in the
-  // document, not silently pick a winner) with a warning diagnostic.
-  const aliasMap = new Map<string, NodeSchema>()
-  const aliasDiags: Diagnostic[] = []
-  const ambiguous = new Set<string>()
-  for (const schema of schemas.values()) {
-    for (const alias of schema.aliases ?? []) {
-      if (schemas.has(alias) || ambiguous.has(alias)) continue
-      const holder = aliasMap.get(alias)
-      if (holder !== undefined && holder !== schema) {
-        aliasMap.delete(alias)
-        ambiguous.add(alias)
-        aliasDiags.push(
-          diag('warning', 'schema', 'schema.dinkster.aliasCollision', `legacy name '${alias}' is claimed by both '${holder.type}' and '${schema.type}'; it will not resolve`),
-        )
-        continue
-      }
-      aliasMap.set(alias, schema)
-    }
-  }
   // Additive fields, absent on older backends: epoch is a positive int
   // (surface generation), composing is present-only-when-true.
   const epoch =
     typeof raw.epoch === 'number' && Number.isInteger(raw.epoch) && raw.epoch > 0 ? raw.epoch : undefined
-  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type) ?? aliasMap.get(type), {
+  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type), {
     forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
   })
   return {
     connection,
     hash: fnv1a64(canonicalJson(schemaIdentityWithoutWidgetPresentation(raw) as Json)),
     schemas,
-    diagnostics: [...parsed.diagnostics, ...aliasDiags],
+    diagnostics: parsed.diagnostics,
     resolve,
     packs: packsFromDinksterWire(raw),
     ...(server !== undefined ? { server } : {}),

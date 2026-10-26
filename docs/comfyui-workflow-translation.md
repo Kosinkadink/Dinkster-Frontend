@@ -10,8 +10,9 @@ Historical alias and group snapshots also supply no post-open replacement
 rules, source schemas, or asset lookup authority. Ordinary schema-declared
 and explicitly registered replacement rules retain their own upgrade flow.
 The native client ignores pack-level alias/group catalogs: they supply neither
-registry entries nor extra carrier search terms. Node-declared aliases and
-search terms remain properties of the ordinary registered schema.
+registry entries nor extra carrier search terms. Native schema resolution uses
+only exact registered node IDs; historical node alias metadata is not a lookup
+path. Search terms remain presentation-only properties of the schema.
 The importer accepts only the ordinary schema resolver and the optional
 class/version widget upgrade table; there is no group-collapse or source-snapshot
 predicate. Family members use the declared schema scope, with prefix members

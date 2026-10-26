@@ -995,10 +995,8 @@ export interface NodeSchema {
   /** Frontend-only discoverability vocabulary (wire v8; never resolution or identity). */
   readonly searchTerms?: readonly string[]
   /**
-   * Legacy type names this schema also answers to (e.g. the bare ComfyUI
-   * class_type 'EmptyImage' for 'comfy.EmptyImage'). Resolution only, never
-   * identity: documents keep whatever name they were authored with, and a
-   * canonical type id always outranks an alias.
+   * Historical alias metadata retained from schema payloads. Native registry
+   * resolution ignores it and accepts only exact registered node IDs.
    */
   readonly aliases?: readonly string[]
   /**

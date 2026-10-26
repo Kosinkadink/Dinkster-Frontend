@@ -1173,21 +1173,16 @@ describe('legacy documents against a native backend', () => {
     expect(app.openDocument(litegraph, 'Maintained group')).toEqual([])
     const tab = app.activeTab()!
     expect(Object.keys(tab.store.doc.graphs.g0!.nodes)).toEqual(['n1', 'n2'])
-    expect(nodeType(tab, 'n1')).toBe('comfy.EmptyImage')
-    expect(nodeType(tab, 'n2')).toBe('comfy.PreviewImage')
-    expect(tab.store.doc.graphs.g0!.nodes.n1!.values).toEqual({
-      width: 64,
-      height: 32,
-      batch_size: 2,
-      color: 7,
-    })
+    expect(nodeType(tab, 'n1')).toBe('EmptyImage')
+    expect(nodeType(tab, 'n2')).toBe('PreviewImage')
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.ext?.['importer.rawWidgetValues']).toEqual([64, 32, 2, 7])
     expect(tab.store.doc.view.graphs.g0!.nodes.n2!.position).toEqual({ x: 300, y: 50 })
     expect(app.problems.get().some((problem) => problem.code.startsWith('import.comfyAlias.'))).toBe(false)
-    expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType')).toBe(false)
+    expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType' && problem.message.includes('EmptyImage'))).toBe(true)
 
     expect(tab.store.canUndo).toBe(false)
     expect(Object.values(tab.store.doc.graphs.g0!.links)).toEqual([
-      { id: 'l1', from: { node: 'n1', port: 'image' }, to: { node: 'n2', port: 'images' } },
+      { id: 'l1', from: { node: 'n1', port: 'IMAGE' }, to: { node: 'n2', port: 'images' } },
     ])
   })
 
@@ -1321,11 +1316,11 @@ describe('legacy documents against a native backend', () => {
     }
     expect(app.openDocument(litegraph, 'Maintained aliases')).toEqual([])
     const tab = app.activeTab()!
-    expect(nodeType(tab, 'n1')).toBe('comfy.EmptyImage')
+    expect(nodeType(tab, 'n1')).toBe('EmptyImage')
     expect(nodeType(tab, 'n2')).toBe('FamilyImage')
-    expect(tab.store.doc.graphs.g0!.nodes.n1!.values.width).toBe(64)
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.ext?.['importer.rawWidgetValues']).toEqual([64, 64, 1, 0])
     expect(app.problems.get().some((problem) => problem.code.startsWith('import.comfyAlias.'))).toBe(false)
-    expect(app.problems.get().find((problem) => problem.code === 'schema.unresolvedType')?.message).toContain('FamilyImage')
+    expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType' && problem.message.includes('FamilyImage'))).toBe(true)
   })
 
   it('does not create a maintained alias review cohort during ordinary import', () => {
@@ -1362,13 +1357,13 @@ describe('legacy documents against a native backend', () => {
     }
     expect(app.openDocument(litegraph, 'Atomic aliases')).toEqual([])
     const tab = app.activeTab()!
-    expect(nodeType(tab, 'n1')).toBe('comfy.EmptyImage')
+    expect(nodeType(tab, 'n1')).toBe('EmptyImage')
     expect(nodeType(tab, 'n2')).toBe('UnsafeImage')
     expect(app.problems.get().filter((problem) => problem.code === 'replace.review')).toHaveLength(0)
-    expect(app.problems.get().find((problem) => problem.code === 'schema.unresolvedType')?.message).toContain('UnsafeImage')
+    expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType' && problem.message.includes('UnsafeImage'))).toBe(true)
   })
 
-  it('canonicalizes LiteGraph aliases before replacement scanning', () => {
+  it('keeps unresolved LiteGraph class identities instead of resolving schema aliases', () => {
     loadNativeSchemas()
     const litegraph = {
       nodes: [
@@ -1392,17 +1387,17 @@ describe('legacy documents against a native backend', () => {
     }
     expect(app.openDocument(litegraph, 'LiteGraph aliases')).toEqual([])
     const tab = app.activeTab()!
-    expect(nodeType(tab, 'n1')).toBe('comfy.EmptyImage')
-    expect(nodeType(tab, 'n2')).toBe('comfy.PreviewImage')
-    expect(tab.store.doc.graphs.g0!.nodes.n1!.values).toEqual({ width: 64, height: 64, batch_size: 1, color: 0 })
+    expect(nodeType(tab, 'n1')).toBe('EmptyImage')
+    expect(nodeType(tab, 'n2')).toBe('PreviewImage')
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.ext?.['importer.rawWidgetValues']).toEqual([64, 64, 1, 0])
     expect(tab.store.doc.graphs.g0!.links.l1).toMatchObject({
-      from: { node: 'n1', port: 'image' },
+      from: { node: 'n1', port: 'IMAGE' },
       to: { node: 'n2', port: 'images' },
     })
     expect(tab.store.revision).toBe(0)
     expect(app.scanTabReplacements(tab)).toEqual([])
     expect(app.problems.get().map((problem) => problem.code)).not.toContain('replace.applied')
-    expect(app.compileTab(tab)?.ok).toBe(true)
+    expect(app.compileTab(tab)?.ok).toBe(false)
   })
 
   it('preserves authored bare types and positional output ids without a migration', () => {
@@ -1425,12 +1420,12 @@ describe('legacy documents against a native backend', () => {
     expect(result?.ok).toBe(false)
   })
 
-  it('the stock seed tabs open clean: no upgrade churn, no unresolved types', () => {
+  it('reports stock seed classes absent from the exact native registry without upgrading them', () => {
     loadNativeSchemas()
     const codes = app.problems.get().map((d) => d.code)
     expect(codes).not.toContain('replace.applied')
     expect(codes).not.toContain('replace.review')
-    expect(codes).not.toContain('schema.unresolvedType')
+    expect(codes).toContain('schema.unresolvedType')
   })
 
   it('does not rewrite stock seed identities or create a migration undo step', () => {
@@ -1513,7 +1508,7 @@ describe('unresolved-type reporting', () => {
     expect(
       app.openDocument(docJson('lin-missing', { a: { type: 'NoSuchNode' }, b: { type: 'NoSuchNode' } }), 'T'),
     ).toEqual([])
-    const found = app.problems.get().find((d) => d.code === 'schema.unresolvedType')
+    const found = app.problems.get().find((d) => d.code === 'schema.unresolvedType' && d.message.includes('NoSuchNode'))
     expect(found).toBeDefined()
     expect(found!.message).toContain("'NoSuchNode'")
     expect(found!.message).toContain('2 node(s)')
@@ -1526,17 +1521,18 @@ describe('unresolved-type reporting', () => {
   it('reports once per open, not again on later backend ticks', () => {
     loadNativeSchemas()
     expect(app.openDocument(docJson('lin-once', { a: { type: 'NoSuchNode' } }), 'T')).toEqual([])
-    const count = () => app.problems.get().filter((d) => d.code === 'schema.unresolvedType').length
+    const count = () => app.problems.get().filter((d) => d.code === 'schema.unresolvedType' && d.message.includes('NoSuchNode')).length
     expect(count()).toBe(1)
     app.backendsTick.update((v) => v + 1)
     expect(count()).toBe(1)
   })
 
-  it('alias-resolved and subgraph-derived types are never reported', () => {
+  it('does not report exact registered node IDs as unresolved', () => {
     loadNativeSchemas()
+    const before = app.problems.get().filter((d) => d.code === 'schema.unresolvedType')
     expect(
-      app.openDocument(docJson('lin-alias', { a: { type: 'EmptyImage' } }), 'T'),
+      app.openDocument(docJson('lin-exact', { a: { type: 'comfy.EmptyImage' } }), 'T'),
     ).toEqual([])
-    expect(app.problems.get().some((d) => d.code === 'schema.unresolvedType')).toBe(false)
+    expect(app.problems.get().filter((d) => d.code === 'schema.unresolvedType')).toEqual(before)
   })
 })

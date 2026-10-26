@@ -907,15 +907,15 @@ describe('native schema registry', () => {
     expect(bad.composing).toBeUndefined()
   })
 
-  it('resolves legacy names through schema aliases; canonical ids stay primary', () => {
+  it('resolves only registered node IDs, ignoring historical alias metadata', () => {
     const comfy = buildDinksterRegistry(C0, readJson('fixtures/dinkster-nodes-comfy.json') as DinksterNodesPayload)
     expect(comfy.resolve('comfy.EmptyImage')?.type).toBe('comfy.EmptyImage')
-    expect(comfy.resolve('EmptyImage')?.type).toBe('comfy.EmptyImage')
-    expect(comfy.resolve('PreviewImage')?.type).toBe('comfy.PreviewImage')
+    expect(comfy.resolve('EmptyImage')).toBeUndefined()
+    expect(comfy.resolve('PreviewImage')).toBeUndefined()
     expect(comfy.resolve('NotANode')).toBeUndefined()
   })
 
-  it('an alias colliding with a canonical id is ignored; an ambiguous alias resolves to neither', () => {
+  it('alias claims neither override exact IDs nor add resolution diagnostics', () => {
     const payload = readJson('fixtures/dinkster-nodes-comfy.json') as DinksterNodesPayload
     const nodes = payload.nodes as Record<string, Record<string, unknown>>
     const doctored = {
@@ -930,11 +930,11 @@ describe('native schema registry', () => {
       },
     } as DinksterNodesPayload
     const reg = buildDinksterRegistry(C0, doctored)
-    // Canonical 'EmptyImage' wins over comfy.EmptyImage's alias claim.
     expect(reg.resolve('EmptyImage')?.type).toBe('EmptyImage')
-    // Ambiguity stays loud: no winner, one warning diagnostic.
     expect(reg.resolve('Legacy')).toBeUndefined()
-    expect(reg.diagnostics.some((d) => d.code === 'schema.dinkster.aliasCollision')).toBe(true)
+    expect(reg.resolve('comfy.A')?.type).toBe('comfy.A')
+    expect(reg.resolve('comfy.B')?.type).toBe('comfy.B')
+    expect(reg.diagnostics).toEqual([])
   })
 })
 
