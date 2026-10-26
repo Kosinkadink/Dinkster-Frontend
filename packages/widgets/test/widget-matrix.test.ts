@@ -27,6 +27,7 @@ const cases: Array<{
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
   { type: 'AUDIO_RECORD', options: {}, explicit: { ...asset, name: 'recording.webm', mediaType: 'audio/webm' }, intrinsic: undefined, invalid: asset, view: 'core.audioRecord' },
+  { type: 'MOUNT', options: {}, explicit: 'archive', intrinsic: null, invalid: 'Invalid/Mount', invalidCode: 'widget.MOUNT.invalid', view: 'core.mount' },
   { type: 'SAVE_TARGET', options: {}, explicit: target, intrinsic: undefined, invalid: { mount: 'Output', prefix: '../cat' }, invalidCode: 'widget.SAVE_TARGET.invalid', view: 'core.saveTarget' },
 ]
 
@@ -53,6 +54,7 @@ const dispositions = [
   { type: 'CURVE', compact: 'core.curve', expanded: 'curve editor' },
   { type: 'COMPOSITOR', compact: 'core.compositor', expanded: 'image editor compositor mode' },
   { type: 'ASSET', compact: 'core.asset', expanded: 'product asset modal' },
+  { type: 'MOUNT', compact: 'core.mount', expanded: 'writable mount selection popover' },
   { type: 'SAVE_TARGET', compact: 'core.saveTarget', expanded: 'mount and prefix popover' },
   { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
   { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },

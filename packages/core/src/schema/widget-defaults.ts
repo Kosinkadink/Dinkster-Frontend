@@ -151,6 +151,8 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
     case 'STRING':
     case 'MARKDOWN':
       return ''
+    case 'MOUNT':
+      return null
     case 'BOOLEAN':
       return false
     case 'COMBO': {
