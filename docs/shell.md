@@ -96,6 +96,14 @@ All three are pointer- and keyboard-resizable and all layout state persists per-
 "Layout persistence"). The status bar is a separate thin strip - it is NOT
 the bottom panel and never toggles with it.
 
+Above the 520 px sheet breakpoint, side regions share space with a canvas
+budget of at least 320 px. When both saved side widths do not fit, opening
+one side closes the other; narrowing the window closes the right rail first.
+A single side is temporarily capped to the available space without changing
+its saved width. Widening the window restores that width, not a closed side.
+The topbar search shrinks between its control groups on intermediate widths
+instead of letting its shortcut badge overlap the layout controls.
+
 At 520 px and below, the activity rail compacts to icons and each open side
 surface becomes a full-width sheet below the workflow tabs and beside the
 activity rail. The canvas is hidden while a dock or rail sheet is open, so

@@ -21,6 +21,10 @@
 .topbar-group-left { justify-self: start; }
 .topbar-group-right { justify-self: end; }
 
+@media (min-width: 521px) and (max-width: 1100px) {
+  .topbar { grid-template-columns: auto minmax(0, 1fr) auto; }
+}
+
 .tab-strip {
   display: flex;
   align-items: flex-end;
