@@ -99,6 +99,8 @@ async function rangePaint(page: Page) {
       },
       displays: Object.fromEntries(Object.entries(rows).map(([id, value]) =>
         [id, (value as any).spec.options.display ?? null])),
+      views: Object.fromEntries(Object.entries(rows).map(([id, value]) =>
+        [id, (value as any).viewId])),
     }
   }, { rangeFill: RANGE_FILL })
 }
@@ -153,10 +155,17 @@ test('declared slider owns whole chrome while every fallback stays ordinary', as
   const initial = await rangePaint(page)
   expect(initial.displays).toEqual({
     declared_slider: 'slider',
-    bounded_ordinary: null,
+    bounded_ordinary: 'number',
     explicit_number: 'number',
-    knob_fallback: 'knob',
-    gradient_fallback: 'gradientslider',
+    knob_fallback: 'number',
+    gradient_fallback: 'number',
+  })
+  expect(initial.views).toEqual({
+    declared_slider: 'core.slider',
+    bounded_ordinary: 'core.number',
+    explicit_number: 'core.number',
+    knob_fallback: 'core.number',
+    gradient_fallback: 'core.number',
   })
   const fills = initial.events.filter((event) => event.kind === 'fill')
   expect(fills).toHaveLength(1)
