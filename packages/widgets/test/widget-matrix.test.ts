@@ -25,6 +25,7 @@ const cases: Array<{
   { type: 'CURVE', options: {}, explicit: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, intrinsic: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, invalid: { points: [{ position: 1, value: 0 }, { position: 1, value: 1 }] }, view: 'core.curve' },
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
+  { type: 'AUDIO_RECORD', options: {}, explicit: { ...asset, name: 'recording.webm', mediaType: 'audio/webm' }, intrinsic: undefined, invalid: asset, view: 'core.audioRecord' },
   { type: 'SAVE_TARGET', options: {}, explicit: target, intrinsic: undefined, invalid: { mount: 'Output', prefix: '../cat' }, invalidCode: 'widget.SAVE_TARGET.invalid', view: 'core.saveTarget' },
 ]
 
@@ -55,6 +56,7 @@ const dispositions = [
   { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
   { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
   { type: 'MARKDOWN', compact: 'core.markdown', expanded: 'safe preview and source popover' },
+  { type: 'AUDIO_RECORD', compact: 'core.audioRecord', expanded: 'explicit recording and staged audio asset modal' },
 ] as const
 
 describe('registered widget disposition inventory', () => {
@@ -253,6 +255,7 @@ describe('compact display through the real registered views', () => {
     ['core.color', 'COLOR', '#123456', {}],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: null, commands: [] }, {}],
     ['core.asset', 'ASSET', asset, {}],
+    ['core.audioRecord', 'AUDIO_RECORD', null, {}],
     ['core.saveTarget', 'SAVE_TARGET', target, {}],
     ['core.toggle', 'BOOLEAN', false, {}],
     ['core.text', 'STRING', 'x', {}],

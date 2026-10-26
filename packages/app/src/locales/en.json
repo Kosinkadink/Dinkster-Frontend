@@ -1,4 +1,8 @@
 {
+  "audioRecordWidget.native": "Recording uploads require a native Dinkster backend.",
+  "audioRecordWidget.help": "Save stages an audio asset. Use asset commits it; Cancel or close leaves the stored value unchanged.",
+  "audioRecordWidget.remove": "Remove recording",
+  "audioRecordWidget.use": "Use asset",
   "markdownWidget.preview": "Markdown preview",
   "markdownWidget.source": "Markdown source",
   "markdownWidget.edit": "Edit source",

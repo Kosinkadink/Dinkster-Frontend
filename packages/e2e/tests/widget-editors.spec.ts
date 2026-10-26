@@ -138,6 +138,97 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test('AUDIO_RECORD captures only on request and stages canonical uploads with retry, cancel and undo', async ({ page }, testInfo) => {
+  let uploaded = Buffer.alloc(0)
+  let attempts = 0
+  const canonical = { digest: `blake3:${'a'.repeat(64)}`, name: 'canonical-recording.webm', size: 0, mediaType: 'audio/webm', virtualPath: '' }
+  await page.route('**/api/assets/media?*', async (route) => {
+    const query = new URL(route.request().url()).searchParams
+    expect(query.get('kind')).toBe('media/audio')
+    expect(query.get('scope')).toBe('local')
+    expect(query.get('name')).toBe('recording.webm')
+    uploaded = route.request().postDataBuffer()!
+    expect(uploaded.subarray(0, 4)).toEqual(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
+    canonical.size = uploaded.length
+    if (++attempts === 1) await route.fulfill({ status: 503, body: 'temporary upload failure' })
+    else await route.fulfill({ json: { kind: 'media/audio', asset: canonical } })
+  })
+  await page.route('**/api/assets/blake3*', (route) => route.fulfill({ contentType: 'audio/webm', body: uploaded }))
+  await page.evaluate(() => {
+    const state = window as unknown as { audioDenied: boolean; audioOpens: number; audioStops: number }
+    state.audioDenied = true; state.audioOpens = 0; state.audioStops = 0
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
+      state.audioOpens++
+      if (state.audioDenied) throw new DOMException('denied', 'NotAllowedError')
+      const context = new AudioContext()
+      const tone = context.createOscillator()
+      const output = context.createMediaStreamDestination()
+      tone.frequency.value = 523.25
+      tone.connect(output); tone.start(); await context.resume()
+      const track = output.stream.getAudioTracks()[0]!
+      const stop = track.stop.bind(track)
+      track.stop = () => { state.audioStops++; tone.stop(); void context.close(); stop() }
+      return output.stream
+    } })
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'AudioRecordWidgetTest', displayName: 'Record audio', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'input', id: 'recording', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: false,
+        widget: { widgetType: 'AUDIO_RECORD', options: {} } }],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'audio-record-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Recording', nodes: { widgets: { id: 'widgets', type: 'AudioRecordWidgetTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Recording')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'recording')))
+  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.recording
+  await openEditor(page, 'recording')
+  const editor = page.getByTestId('audio-record-editor')
+  const recorder = editor.getByRole('region', { name: 'Record audio', exact: true })
+  expect(await page.evaluate(() => (window as unknown as { audioOpens: number }).audioOpens)).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('audio-record-desktop.png'), animations: 'disabled' })
+  await recorder.getByRole('button', { name: 'Record microphone' }).click()
+  await expect(recorder).toContainText('Microphone permission denied')
+  await page.screenshot({ path: testInfo.outputPath('audio-record-denied.png'), animations: 'disabled' })
+  await page.evaluate(() => { (window as unknown as { audioDenied: boolean }).audioDenied = false })
+  await recorder.getByRole('button', { name: 'Record microphone' }).click()
+  await expect(recorder.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
+  await page.screenshot({ path: testInfo.outputPath('audio-record-recording.png'), animations: 'disabled' })
+  await recorder.getByRole('button', { name: 'Stop recording' }).click()
+  await expect(recorder).toContainText('Recording ready')
+  expect(await page.evaluate(() => (window as unknown as { audioStops: number }).audioStops)).toBe(1)
+  await recorder.getByRole('button', { name: 'Save recording' }).click()
+  await expect(editor.getByRole('alert')).toContainText('503')
+  await expect(recorder).toContainText('Clip retained for retry')
+  expect(await value()).toBeUndefined()
+  await recorder.getByRole('button', { name: 'Save recording' }).click()
+  await expect(editor.getByText('canonical-recording.webm', { exact: true })).toBeVisible()
+  await expect(editor.getByRole('alert')).toHaveCount(0)
+  expect(await value()).toBeUndefined()
+  await page.setViewportSize({ width: 900, height: 700 })
+  await page.screenshot({ path: testInfo.outputPath('audio-record-ready-compact.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Use asset', exact: true }).click()
+  expect(await value()).toEqual(canonical)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect(await value()).toBeUndefined()
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())
+  expect(await value()).toEqual(canonical)
+  await openEditor(page, 'recording')
+  await editor.getByRole('button', { name: 'Remove recording' }).click()
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(await value()).toEqual(canonical)
+  await openEditor(page, 'recording')
+  await recorder.getByRole('button', { name: 'Record microphone' }).click()
+  await expect(recorder).toContainText('Recording microphone')
+  await page.keyboard.press('Escape')
+  await expect(editor).toHaveCount(0)
+  expect(await page.evaluate(() => (window as unknown as { audioStops: number }).audioStops)).toBe(2)
+  expect(await value()).toEqual(canonical)
+})
+
 test('MARKDOWN previews safely and edits one undoable source string', async ({ page }, testInfo) => {
   const source = '## Workflow notes\n\n**Keep** the source and `code`.\n\n- First item\n- Second item\n\n[Safe](https://example.com) [Unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n![Remote](https://example.com/image.png)'
   await page.evaluate((source) => {

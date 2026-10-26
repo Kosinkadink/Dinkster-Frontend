@@ -1,4 +1,8 @@
 {
+  "audioRecordWidget.native": "录音上传需要原生 Dinkster 后端。",
+  "audioRecordWidget.help": "保存会暂存音频资源。使用资源会提交它；取消或关闭不会更改已存储的值。",
+  "audioRecordWidget.remove": "移除录音",
+  "audioRecordWidget.use": "使用资源",
   "markdownWidget.preview": "Markdown \u9884\u89c8",
   "markdownWidget.source": "Markdown \u6e90\u7801",
   "markdownWidget.edit": "\u7f16\u8f91\u6e90\u7801",

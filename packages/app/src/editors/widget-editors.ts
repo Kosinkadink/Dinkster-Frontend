@@ -1,5 +1,6 @@
 import type { WidgetRegistry } from '@dinkster/core'
 import { AssetWidgetEditor } from './AssetWidgetEditor.js'
+import { AudioRecordWidgetEditor } from './AudioRecordWidgetEditor.js'
 import { ColorWidgetEditor } from './ColorWidgetEditor.js'
 import { ComboWidgetEditor } from './ComboWidgetEditor.js'
 import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
@@ -18,6 +19,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['COMBO', ComboWidgetEditor],
   ['MULTI_COMBO', MultiComboWidgetEditor],
   ['ASSET', AssetWidgetEditor],
+  ['AUDIO_RECORD', AudioRecordWidgetEditor],
   ['SAVE_TARGET', SaveTargetWidgetEditor],
   ['VIDEO_EDIT', VideoEditWidgetEditor],
 ])

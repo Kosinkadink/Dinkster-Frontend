@@ -1254,6 +1254,17 @@ describe('ASSET widget modal integration', () => {
 })
 
 describe('registered interactive widget expanded-editor integration', () => {
+  it('opens AUDIO_RECORD through the registry and refuses upload on a non-native backend', () => {
+    const mounted = mountWidget(widgetState('AUDIO_RECORD', {}, null))
+    expect(mounted.root.querySelector('[data-testid="audio-record-editor"]')?.textContent).toContain('Recording uploads require a native Dinkster backend')
+    const use = Array.from(mounted.root.querySelectorAll('button')).find((button) => button.textContent === 'Use asset')!
+    expect(use.disabled).toBe(true)
+    mounted.clickAway()
+    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
   it('edits MARKDOWN source through the registered editor and discards outside drafts', async () => {
     const mounted = mountWidget(widgetState('MARKDOWN', {}, '## Notes\n\n**original**'))
     await new Promise<void>((resolve) => queueMicrotask(resolve))
