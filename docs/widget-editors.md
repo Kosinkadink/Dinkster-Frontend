@@ -45,6 +45,12 @@ Named numeric representations use the same binding. Mixed nonnumeric unions
 and list-of-union widgets are not numeric editor domains. Concrete INT inputs
 retain their exact-integer editor and decimal-string precision handling.
 
+A forced concrete FLOATS input may carry NUMBER presentation while retaining
+its FLOATS socket, default, bounds, step, and connection requirement. Unforced
+FLOATS, list wrappers and mixed FLOATS unions are not numeric editor domains.
+COLOR widgets accept concrete COLOR or STRING inputs without rewriting the
+socket or stored hexadecimal value. Named representations obey the same rules.
+
 ## Primitive list inputs
 
 One-level list<STRING>, list<INT>, and list<FLOAT> inputs retain their array
