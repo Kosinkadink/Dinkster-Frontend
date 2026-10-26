@@ -138,6 +138,83 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test('COLORS stages exact ordered palettes with add, remove, reorder and one undoable commit', async ({ page }, testInfo) => {
+  const initial = ['#A1B2C3dd', '#f00', '#A1B2C3dd']
+  await page.evaluate((initial) => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'ColorsWidgetTest', displayName: 'Palette', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        ...(['palette', 'empty', 'long'] as const).map((id) => ({ kind: 'input' as const, id, type: { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'STRING' } }, optional: false,
+          widget: { widgetType: 'COLORS', default: id === 'empty' ? [] : id === 'long' ? Array.from({ length: 17 }, () => '#112233') : initial, options: {} } })),
+        { kind: 'input', id: 'color', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+          widget: { widgetType: 'COLOR', default: '#11223380', options: {} } },
+      ],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'colors-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Palette', nodes: { widgets: { id: 'widgets', type: 'ColorsWidgetTest', values: { palette: initial } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Palette')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  }, initial)
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'palette')))
+  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.palette
+  const editor = page.getByTestId('colors-editor')
+  await openEditor(page, 'palette')
+  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(3)
+  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#A1B2C3dd')
+  await page.screenshot({ path: testInfo.outputPath('colors-desktop.png'), animations: 'disabled' })
+  await editor.getByRole('textbox', { name: 'Color 1', exact: true }).fill('not a color')
+  await expect(editor.getByRole('alert')).toHaveText('Use #rgb, #rrggbb or #rrggbbaa for every color.')
+  await expect(editor.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled()
+  await page.screenshot({ path: testInfo.outputPath('colors-invalid.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Cancel' }).click()
+  expect(await value()).toEqual(initial)
+  await page.setViewportSize({ width: 900, height: 700 })
+  await openEditor(page, 'palette')
+  await page.screenshot({ path: testInfo.outputPath('colors-compact.png'), animations: 'disabled' })
+  const picker = editor.getByLabel('Choose color 1', { exact: true })
+  await picker.fill('#00ff00')
+  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#00ff00dd')
+  await editor.getByRole('button', { name: 'Move color 1 down' }).press('Enter')
+  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#f00')
+  await editor.getByRole('button', { name: 'Remove color 3' }).click()
+  await editor.getByRole('button', { name: 'Add color' }).click()
+  await expect(editor.getByRole('textbox', { name: 'Color 3', exact: true })).toHaveValue('#ffffff')
+  expect(await value()).toEqual(initial)
+  await editor.getByRole('button', { name: 'Commit', exact: true }).click()
+  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+z')
+  expect(await value()).toEqual(initial)
+  await page.keyboard.press('Control+Shift+z')
+  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
+  await openEditor(page, 'palette')
+  await editor.getByRole('button', { name: 'Add color' }).click()
+  await page.keyboard.press('Escape')
+  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
+  await openEditor(page, 'empty')
+  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('colors-empty.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Add color' }).click()
+  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#ffffff')
+  await editor.getByRole('button', { name: 'Remove color 1' }).click()
+  await editor.getByRole('button', { name: 'Commit', exact: true }).click()
+  await openEditor(page, 'long')
+  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(17)
+  await expect(editor.getByRole('button', { name: 'Add color' })).toBeDisabled()
+  await editor.getByRole('button', { name: 'Remove color 17' }).click()
+  await expect(editor.getByRole('button', { name: 'Add color' })).toBeDisabled()
+  await editor.getByRole('button', { name: 'Remove color 16' }).click()
+  await expect(editor.getByRole('button', { name: 'Add color' })).toBeEnabled()
+  await page.keyboard.press('Escape')
+  await openEditor(page, 'color')
+  await expect(page.getByTestId('color-text')).toHaveValue('#11223380')
+  await page.screenshot({ path: testInfo.outputPath('colors-color-sibling.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+})
+
 test('MARKDOWN previews safely and edits one undoable source string', async ({ page }, testInfo) => {
   const source = '## Workflow notes\n\n**Keep** the source and `code`.\n\n- First item\n- Second item\n\n[Safe](https://example.com) [Unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n![Remote](https://example.com/image.png)'
   await page.evaluate((source) => {
