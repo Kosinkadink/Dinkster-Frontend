@@ -121,6 +121,8 @@ function validDefault(widget: WidgetSpec): boolean {
       return curveValue(d)
     case 'COMPOSITOR':
       return isCompositorRecipe(d)
+    case 'AUDIO_RECORD':
+      return isAssetRefValue(d) && String((d as Record<string, unknown>)['mediaType']).startsWith('audio/')
     case 'ASSET':
       // Multi-select (list-declared) asset inputs store ARRAYS of refs;
       // a non-empty all-ref array is as submittable as a single ref.

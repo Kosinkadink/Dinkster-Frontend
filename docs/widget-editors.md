@@ -256,6 +256,20 @@ presentation label rather than a frontend semantic enum. These constraints let
 backend-owned adapters supply future semantics without changing the host shell
 or giving providers DOM, CSS, network, store, or raw route access.
 
+## AUDIO_RECORD editor
+
+AUDIO_RECORD stores one server-authored audio AssetRef or an unset value, not a
+blob URL. `core.audioRecord` shows the filename or an empty recording prompt.
+The registered editor reuses AudioRecorder: capture starts only on explicit
+Record with browser permission; Stop, discard and close release the microphone.
+Save recording uploads through the editing tab's native `media/audio` route
+and stages the returned descriptor. Use asset commits one undoable change;
+Cancel, Escape and close discard the draft and abort any pending upload.
+Failed uploads retain the clip for explicit retry. Existing audio can play
+through AudioTransport without changing the graph value. A native backend is
+required for upload. Browser codec, duration and byte limits are the same as
+the existing ASSET audio recorder.
+
 ## COLORS editor
 
 COLORS stores an ordered string array with a copied schema default or an empty

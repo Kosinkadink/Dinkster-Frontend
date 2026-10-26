@@ -8,6 +8,7 @@ const asset = { digest: `blake3:${'b'.repeat(64)}`, name: 'dog.png', size: 21, m
 const values: Array<[string, Json]> = [
   ['INT', 7], ['FLOAT', 1.5], ['STRING line', 'one'], ['STRING text', 'one\ntwo'],
   ['MARKDOWN', '## Heading\n\n**bold**'],
+  ['AUDIO_RECORD', { ...asset, name: 'recording.webm', mediaType: 'audio/webm' }],
   ['COLORS', ['#A1B2C3dd', '#f00', '#A1B2C3dd']],
   ['BOOLEAN', true], ['COMBO static', 'euler'], ['COMBO remote', 'server-model'],
   ['COMBO static plus remote', 'fresh-model'], ['COLOR', '#12345678'], ['ASSET', asset],

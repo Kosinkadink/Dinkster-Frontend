@@ -1,4 +1,9 @@
 {
+  "audioRecordWidget.previewUnavailable": "录音预览不可用。",
+  "audioRecordWidget.native": "录音上传需要原生 Dinkster 后端。",
+  "audioRecordWidget.help": "保存会暂存音频资源。使用资源会提交它；取消或关闭不会更改已存储的值。",
+  "audioRecordWidget.remove": "移除录音",
+  "audioRecordWidget.use": "使用资源",
   "colorsWidget.color": "\u989c\u8272 {index}",
   "colorsWidget.pick": "\u9009\u62e9\u989c\u8272 {index}",
   "colorsWidget.earlier": "\u524d\u79fb\u989c\u8272 {index}",
