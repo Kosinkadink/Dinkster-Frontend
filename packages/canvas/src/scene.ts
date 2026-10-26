@@ -13,7 +13,7 @@ import {
   boundaryBindingKey,
   buildGraphConnectivity,
   buildRerouteIndex,
-  canonicalCompatTypeIdOf,
+  canonicalTypeIdOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
   documentNodeResolver,
@@ -1508,7 +1508,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           VS_BADGE_INSET,
       ),
     )
-    const typeName = canonicalCompatTypeIdOf(effective.type)
+    const typeName = canonicalTypeIdOf(effective.type)
     const sceneSource: SceneValueSource = {
       id: vs.id,
       x: pos.x,
@@ -1540,12 +1540,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     // Real output only: a widget tap shares its input's port id on the 'out'
     // side, so an unguarded lookup would color off the widget row.
     const pin = producer?.layout.pins.find((p) => p.direction === 'out' && p.portId === key && p.widgetTap !== true)
-    return pin === undefined ? undefined : canonicalCompatTypeIdOf(pin.type)
+    return pin === undefined ? undefined : canonicalTypeIdOf(pin.type)
   }
   const widgetTapTypeName = (nodeId: string, inputId: string): string | undefined => {
     const node = byId.get(nodeId)
     const pin = node?.layout.pins.find((p) => p.widgetTap === true && p.address.port === inputId)
-    return pin === undefined ? undefined : canonicalCompatTypeIdOf(pin.type)
+    return pin === undefined ? undefined : canonicalTypeIdOf(pin.type)
   }
   const tracedTypeName = (from: LinkEndpoint): string | undefined => {
     if (isWidgetTapRef(from)) {
@@ -1852,7 +1852,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(authored === undefined ? {} : { authored: true as const }),
         ...(geometry?.kind === 'absolute' ? { authoredAbsolute: true as const } : {}),
         ...(guideNets.has(net.id) ? { guide: true as const } : {}),
-        ...(canonicalCompatTypeIdOf(pin.type) !== undefined ? { typeName: canonicalCompatTypeIdOf(pin.type)! } : {}),
+        ...(canonicalTypeIdOf(pin.type) !== undefined ? { typeName: canonicalTypeIdOf(pin.type)! } : {}),
       })
     }
     push('source', net.source, sinkMismatches.some(Boolean))
@@ -2081,7 +2081,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       const from = boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
-      const typeName = pinType === undefined ? undefined : canonicalCompatTypeIdOf(pinType)
+      const typeName = pinType === undefined ? undefined : canonicalTypeIdOf(pinType)
       // One noodle per binding: fan-out targets render exactly like the
       // primary (the boundary pin fans out to every bound inner input).
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
@@ -2121,7 +2121,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           : item.binds.kind === 'widgetTap'
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
           : undefined
-      const typeName = traced ?? (pinType === undefined ? undefined : canonicalCompatTypeIdOf(pinType))
+      const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
       const projected = projectedAnchors('out', item, item.binds)
       const fallback = innerAnchor(item.binds, 'out')
       const sources = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]

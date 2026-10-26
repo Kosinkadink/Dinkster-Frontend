@@ -42,7 +42,7 @@ import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.
 import { isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type RegionContract } from '../format/document.js'
 import { isPortEndpoint, portAddressKey, type DynamicMemberId, type PortId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
-import { typesCompatible, typesDirectlyCompatible } from './type-compatibility.js'
+import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { DEFAULT_ELAB_BUDGET } from './elaborate.js'
 import { outputDescriptorAssetOf, outputDescriptorValueOf, parseOutputDescriptors } from './output-descriptors.js'
 import { autogrowBounds, canonicalTypeIdOf, effectiveComboOption, inputsOf, outputCountValueOf, outputSchemaInputsOf, typeExprFromTypeId } from './model.js'

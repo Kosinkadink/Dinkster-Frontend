@@ -60,11 +60,6 @@ const fixture = () => {
   )
   write(
     root,
-    'packages/core/src/schema/compat.ts',
-    'export const compatible = true\n',
-  )
-  write(
-    root,
     'packages/client/src/index.ts',
     'export const nativeClient = true\n',
   )

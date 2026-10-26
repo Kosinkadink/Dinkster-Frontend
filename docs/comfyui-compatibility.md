@@ -36,7 +36,7 @@ graph. It fails closed on malformed manifests, missing workspaces, syntax
 errors, unresolved local imports, and non-literal dynamic imports other than
 explicit Vite external-runtime imports. No native entry in `packages/core` or
 `packages/app` may reach `connection.ts`,
-`events/comfy-v1.ts`, `schema/object-info.ts`, or `schema/compat.ts`. The only
+`events/comfy-v1.ts` or `schema/object-info.ts`. The only
 allowed app edge is the explicit V1 connection-kind entry.
 
 The initial native edges and their dispositions are:
@@ -45,7 +45,7 @@ The initial native edges and their dispositions are:
 | --------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `core/index.ts -> schema/object-info.ts`                        | Removed; exported only by `@dinkster/core/comfy-v1`                |
 | `core/index.ts -> events/comfy-v1.ts`                           | Removed; exported only by `@dinkster/core/comfy-v1`                |
-| `core/index.ts -> schema/compat.ts`                             | Native type compatibility moved to `schema/type-compatibility.ts`  |
+| `core/index.ts -> schema/compat.ts`                             | Native type relations live in `schema/type-relations.ts`           |
 | `compile/bypass.ts -> schema/compat.ts`                         | Uses native type compatibility                                     |
 | `replace/plan.ts -> schema/compat.ts`                           | Uses native type compatibility                                     |
 | `schema/derive-boundary.ts -> schema/compat.ts`                 | Uses native type compatibility                                     |
@@ -66,3 +66,8 @@ The initial native edges and their dispositions are:
 `packages/client/src/connection.ts` is the optional V1 implementation and is
 intentionally reachable only through `@dinkster/client/comfy-v1`. No native
 feature depends on that entry.
+
+Native type relations compare atom names exactly. A prefixed spelling does
+not become its unprefixed counterpart, including inside lists, tuples, asset
+coercions, unions, or type-variable constraints. Canonical type ids drive
+solver bindings and scene metadata without a second namespace bridge.

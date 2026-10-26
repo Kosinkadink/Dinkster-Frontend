@@ -26,7 +26,6 @@ import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import type { BoundaryBinding, DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
 import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { normalizedComboOptions } from '../schema/combo-options.js'
-import { canonicalCompatTypeIdOf } from '../schema/type-compatibility.js'
 import {
   buildGraphConnectivity,
   collectWire15MemberEvidence,
@@ -41,6 +40,7 @@ import {
 } from '../schema/elaborate.js'
 import {
   autogrowBounds,
+  canonicalTypeIdOf,
   comboBranchValuePath,
   defaultValuesOf,
   effectiveComboOption,
@@ -1924,13 +1924,12 @@ export function planReplacement(
     dropLinks.push(...droppedMemberLinks)
   }
   // Tap links survive when the source and target tap types denote the same
-  // values: closed types compare by canonical-compatible id (so the
-  // interchangeable comfy-compat spellings, e.g. MASK/comfy.MASK,
-  // match); open types keep the exact structural comparison. Deliberately
+  // values: closed types compare by canonical id;
+  // open types keep the exact structural comparison. Deliberately
   // NOT typesCompatible - wildcards and coercions must not keep a tap alive.
   const sameTapType = (a: TypeExpr, b: TypeExpr): boolean => {
-    const ca = canonicalCompatTypeIdOf(a)
-    const cb = canonicalCompatTypeIdOf(b)
+    const ca = canonicalTypeIdOf(a)
+    const cb = canonicalTypeIdOf(b)
     if (ca !== undefined && cb !== undefined) return ca === cb
     return canonicalJson(a) === canonicalJson(b)
   }

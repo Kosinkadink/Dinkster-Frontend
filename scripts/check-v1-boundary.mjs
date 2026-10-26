@@ -16,7 +16,6 @@ const REQUIRED_V1_MODULES = [
   'packages/client/src/connection.ts',
   'packages/client/src/reconcile.ts',
   'packages/core/src/events/comfy-v1.ts',
-  'packages/core/src/schema/compat.ts',
   'packages/core/src/schema/object-info.ts',
 ]
 const V1_MODULES = new Set([
