@@ -919,6 +919,9 @@
     "text:Commit",
     "text:props.editor.bindClickAway?.(undefined)) return"
   ],
+  "editors/ColorsWidgetEditor.tsx": [
+    "text:props.editor.bindClickAway?.(undefined)) return"
+  ],
   "editors/ComboEditorImplementation.tsx": [
     "attribute:aria-label:Back to parent folder",
     "attribute:label:Search options",

@@ -291,6 +291,14 @@ export const colorKind: WidgetKind<string> = {
   defaultView: () => 'core.color',
 }
 
+export const colorsKind: WidgetKind<string[]> = {
+  type: 'COLORS',
+  valueSchema: { version: 1, validate: (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string') },
+  defaultValue: (spec) => colorsKind.valueSchema.validate(spec.default) ? [...spec.default] : [],
+  validate: () => [],
+  defaultView: () => 'core.colors',
+}
+
 export interface CurvePoint {
   readonly position: number
   readonly value: number
@@ -809,6 +817,17 @@ export const colorView: WidgetView<string> = {
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
   },
 }
+export const colorsView: WidgetView<string[]> = {
+  ...makeCompactView<string[]>('core.colors', 'COLORS'),
+  drawCompact(ctx, value, _spec, state) {
+    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
+    for (const [index, color] of value.slice(0, 4).entries()) {
+      ctx.rect(index * 0.14, 0.2, 0.12, 0.6, { fill: color, fixedAspect: 'square' })
+    }
+    ctx.text(1, 0, `${value.length} colors`, { role: 'widgetValue', align: 'right', width: 1, reserveLeft: 64, truncated: state.truncated ?? false })
+    if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
+  },
+}
 export const curveView: WidgetView<Json> = {
   id: 'core.curve',
   kind: 'CURVE',
@@ -935,11 +954,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind, markdownKind, audioRecordKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView, markdownView, audioRecordView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

@@ -50,6 +50,7 @@ describe('core extension door dogfooding', () => {
       'VIDEO_EDIT',
       'BUTTON',
       'MARKDOWN',
+      'COLORS',
       'AUDIO_RECORD',
     ])
   })

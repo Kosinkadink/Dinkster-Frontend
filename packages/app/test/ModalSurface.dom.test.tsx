@@ -1265,6 +1265,20 @@ describe('registered interactive widget expanded-editor integration', () => {
     mounted.unmount()
   })
 
+  it('preserves a COLORS draft and discards it on click-away without mutating the initial array', () => {
+    const initial = ['#A1B2C3dd', '#f00']
+    const mounted = mountWidget(widgetState('COLORS', {}, initial))
+    const fields = mounted.root.querySelectorAll<HTMLInputElement>('input:not([type="color"])')
+    expect(Array.from(fields).map((field) => field.value)).toEqual(initial)
+    fields[0]!.value = '#00ff00'
+    fields[0]!.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(initial).toEqual(['#A1B2C3dd', '#f00'])
+    mounted.clickAway()
+    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
   it('edits MARKDOWN source through the registered editor and discards outside drafts', async () => {
     const mounted = mountWidget(widgetState('MARKDOWN', {}, '## Notes\n\n**original**'))
     await new Promise<void>((resolve) => queueMicrotask(resolve))
