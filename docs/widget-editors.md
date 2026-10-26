@@ -9,6 +9,29 @@ BUTTON is stateless, with a null default and the `core.button` view. Its
 value. Executable callbacks are not document data. A missing, unavailable or
 disabled command cannot run; `options.disabled` also disables activation.
 
+## FLOAT slider display
+
+FLOAT keeps its numeric value kind. A finite, increasing min/max range with
+`display: slider` defaults to `core.slider`; the row's representation menu
+offers Number and Slider without changing its stored value. Explicit schema
+representation sets remain authoritative. Missing, equal, inverted, or
+overflowing bounds use the ordinary number view instead.
+
+The expanded slider uses ProductSlider with the schema step (default 0.1),
+plus the full-precision text field. Pointer drag, arrow keys, Home/End, and
+PageUp/PageDown update only the draft. Commit/Enter uses the normal validated,
+undoable value command; Cancel/Escape discards the draft. Moving focus alone
+does not commit. Clicking away keeps the existing valid-changed-text commit.
+
+FLOAT `round` follows the reference NumberWidget callback: multiply
+`Math.round(value / round)` by a positive finite round, then apply explicit
+`precision` or `max(0, -floor(log10(round)))` decimal places, then clamp to
+bounds. Thus 1.24 with round 0.25 becomes 1.3 without precision, but 1.25 with
+precision 2. False or absent round preserves parsed precision; step affects
+slider movement, not typed-text rounding. Display precision never changes the
+stored value. The native NUMBER descriptor currently carries round but not
+precision; explicit precision is honored when supplied by a WidgetSpec.
+
 ## Numeric union inputs
 
 A NUMBER descriptor on an INT|FLOAT socket uses the existing FLOAT editor,
@@ -78,6 +101,10 @@ their Apply draft; SAVE_TARGET keeps mount choice staged until Save; registry
 settings write immediately; and CollectionPanel preserves asynchronous,
 open-vocabulary source and filter values while resetting paging on a source
 change.
+
+Refreshing backend schemas replaces the options shown by COMBO widgets in root
+and subgraph scenes. Stored selections remain document values, including a
+selection that the refreshed vocabulary no longer lists.
 
 ## Product number, slider, and color controls
 
@@ -284,8 +311,9 @@ command-dispatch authority. The app passes its handle directly to the generic
 host suggestion surface; static extension providers remain available for
 other completion sources.
 
-FLOAT compact text derives its fixed precision from the effective schema step
-and always shows at least one fractional digit (`step: 1` and `step: 0.1` show
+FLOAT compact text uses explicit nonnegative integer precision when present;
+otherwise it derives fixed precision from the effective schema step
+and shows at least one fractional digit (`step: 1` and `step: 0.1` show
 `0.0`; `step: 0.01` shows `0.00`). Scientific-notation steps are normalized
 deterministically, trailing zeros remain visible, and formatting never changes
 the stored number. INT remains integer-formatted.
@@ -463,7 +491,7 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | Registry family | Compact renderer | Expanded path and disposition | Schema-owned constraints and metadata | Primary regression proof |
 | --- | --- | --- | --- | --- |
 | `INT` | `core.number`: right-aligned exact integer, finite-bounds range fill for safe numeric ranges, independent immediate edge steppers, and optional controller chip/menu | Anchored exact-text popover with visible min/max/step summary, validation, and commit/cancel; no duplicate +/- or controller controls | `default`, exact `min`, `max`, and positive `step` from signed 64-bit minimum through unsigned 64-bit maximum, display name, after-generate controller and initial mode | `core/test/dinkster-wire33.golden.test.ts`, `core/test/numeric-step.test.ts`, `widgets/test/widgets.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ProductNumberInput.dom.test.tsx`, `app/test/widget-commit.test.ts`, `app/test/controller-advancement.test.ts`, `e2e/widget-editors.spec.ts`, `e2e/seed-controller.spec.ts` |
-| `FLOAT` | `core.number`: step-precision fixed text (at least one fractional digit), finite-bounds range fill, and independent immediate edge steppers | Anchored full-precision text popover with visible min/max/step summary and validation; no duplicate +/- controls | `default`, `min`, `max`, positive `step`, display name, after-generate controller and initial mode | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts` |
+| `FLOAT` | `core.number` or bounded `core.slider`: precision-formatted text, slider range fill, and independent immediate edge steppers | Anchored full-precision text popover; slider view adds ProductSlider draft editing, with shared validation and Commit/Cancel | `default`, `min`, `max`, positive `step`, `display`, `round`, optional WidgetSpec `precision`, display name, after-generate controller and initial mode | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts` |
 | `STRING` | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Value-source text and raw JSON remain popovers | `default`, `multiline`, display name; optional stable representation ids/default/userSwitchable; optional completion items and dynamic input-family sources; no schema max-length constraint exists | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
 | `BOOLEAN` | `core.toggle` with a state-bearing track/thumb and optional true/false labels | Undoable inline toggle; explicit **no-modal** disposition because there is no additional complete control to present | `default`, `labelOn`, `labelOff`, display name | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts` |
 | `COLOR` | `core.color`: filled square swatch and exact hex value | Anchored HSV/hex popover for visual picking and validated exact entry | `default`, display name; accepted value grammar is `#rgb`, `#rrggbb`, or `#rrggbbaa`; no backend color-space or alpha-slider semantics exist | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts` |

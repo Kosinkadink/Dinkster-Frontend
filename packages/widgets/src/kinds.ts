@@ -182,7 +182,8 @@ export const floatKind: WidgetKind<number> = {
   valueSchema: numberSchema,
   defaultValue: (spec) => num(spec.default, num(spec.options['min'], 0)),
   validate: (value, spec) => rangeDiags(value, spec, 'FLOAT'),
-  defaultView: () => 'core.number',
+  defaultView: (spec) => spec.options['display'] === 'slider' && floatSliderView.isCompatible(spec)
+    ? 'core.slider' : 'core.number',
 }
 
 export const stringKind: WidgetKind<string> = {
@@ -647,8 +648,9 @@ function drawCompactNumber(
   spec: WidgetSpec,
   state: CompactState,
   formatted: string,
+  slider = spec.options['display'] === 'slider',
 ): void {
-  const fraction = spec.options['display'] === 'slider' && typeof value === 'number'
+  const fraction = slider && typeof value === 'number'
     ? numericRangeFraction(value, spec)
     : undefined
   if (fraction !== undefined) {
@@ -667,7 +669,18 @@ export const numberView: WidgetView<IntegerWidgetValue> = {
 export const floatNumberView: WidgetView<number> = {
   ...makeCompactView<number>('core.number', 'FLOAT'),
   drawCompact(ctx, value, spec, state) {
-    drawCompactNumber(ctx, value, spec, state, formatCompactFloat(value, spec))
+    drawCompactNumber(ctx, value, spec, state, formatCompactFloat(value, spec), false)
+  },
+}
+export const floatSliderView: WidgetView<number> = {
+  ...makeCompactView<number>('core.slider', 'FLOAT'),
+  isCompatible(spec) {
+    const { min, max } = spec.options
+    return typeof min === 'number' && typeof max === 'number'
+      && Number.isFinite(min) && Number.isFinite(max) && max > min && Number.isFinite(max - min)
+  },
+  drawCompact(ctx, value, spec, state) {
+    drawCompactNumber(ctx, value, spec, state, formatCompactFloat(value, spec), true)
   },
 }
 export const buttonView: WidgetView<null> = {
@@ -894,7 +907,7 @@ export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
     listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
-  for (const view of [numberView, floatNumberView, lineView, textView, toggleView, selectView,
+  for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
     multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView]) {
     doors.widgetView(view.id, view as WidgetView)
   }

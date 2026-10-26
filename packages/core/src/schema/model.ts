@@ -353,12 +353,25 @@ export interface ResolvedWidgetRepresentation {
 }
 
 /**
- * Every ordinary string supports the two value-compatible text views. An
+ * Ordinary strings and bounded FLOATs support value-compatible views. An
  * explicit representation set takes authority, including a locked set with
  * userSwitchable false or only one representation.
  */
 export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentationsSpec | undefined {
   if (spec.representations !== undefined) return spec.representations
+  if (spec.widgetType === 'FLOAT') {
+    const { min, max } = spec.options
+    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min)
+      || !Number.isFinite(max) || max <= min || !Number.isFinite(max - min)) return undefined
+    return {
+      default: spec.options['display'] === 'slider' ? 'slider' : 'number',
+      userSwitchable: true,
+      representations: [
+        { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
+        { id: 'slider', displayName: 'Slider', widget: { ...spec, options: { ...spec.options, display: 'slider' } } },
+      ],
+    }
+  }
   if (spec.widgetType !== 'STRING') return undefined
   const descriptor = (multiline: boolean): WidgetDescriptorSpec => ({
     ...spec,
