@@ -40,7 +40,7 @@ function recordingBuilder() {
 }
 
 describe('BUTTON actions', () => {
-  it('registers a stateless kind and a centered, readonly-aware view with an expanded command', () => {
+  it('registers a stateless kind and a readonly-aware view with an expanded command', () => {
     const r = registry()
     const s = spec('BUTTON', { display_name: 'Capture frame', command: 'fixture.capture' })
     const kind = r.kind('BUTTON')!
@@ -50,14 +50,14 @@ describe('BUTTON actions', () => {
     const view = r.viewsFor('BUTTON').find((item) => item.id === kind.defaultView(s))!
     const { builder, ops } = recordingBuilder()
     view.drawCompact(builder, null, s, { focused: false, connected: false, readonly: false })
-    expect(ops.find((op) => op.op === 'text')?.args).toEqual([0.5, 0, 'Capture frame', { role: 'widgetValue', align: 'center', width: 1 }])
+    expect(ops.find((op) => op.op === 'text')?.args).toEqual([0, 0, 'Capture frame', { role: 'widgetValue', width: 1 }])
     expect(ops.filter((op) => op.op === 'hitRegion')).toHaveLength(1)
     ops.length = 0
     view.drawCompact(builder, null, s, { focused: false, connected: false, readonly: true })
     expect(ops.filter((op) => op.op === 'hitRegion')).toHaveLength(0)
     const target = { kind: 'input', graphId: 'g', nodeId: 'n', inputId: 'capture' }
-    const data = { value: null, widget: { type: 'BUTTON', options: s.options }, target }
-    const decoded = decodeHostUiContributionV1(view.editorUi!(createHostUiProviderContextV1('widget-editor', data as never)))
+    const data = { value: null, widget: { type: 'BUTTON', options: { display_name: 'Capture frame', command: 'fixture.capture' } }, target }
+    const decoded = decodeHostUiContributionV1(view.editorUi!(createHostUiProviderContextV1('widget-editor', data)))
     expect(decoded.diagnostics).toEqual([])
     expect(decoded.contribution?.root).toMatchObject({ kind: 'action', label: 'Capture frame', command: 'fixture.capture', payload: { value: null, target }, disabled: false })
     expect(data.value).toBeNull()

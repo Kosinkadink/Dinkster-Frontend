@@ -687,7 +687,7 @@ export const buttonView: WidgetView<null> = {
   ...makeCompactView<null>('core.button', 'BUTTON'),
   drawCompact(ctx, _value, spec, state) {
     ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    ctx.text(0.5, 0, typeof spec.options['display_name'] === 'string' ? spec.options['display_name'] : 'Button', { role: 'widgetValue', align: 'center', width: 1 })
+    ctx.text(0, 0, typeof spec.options['display_name'] === 'string' ? spec.options['display_name'] : 'Button', { role: 'widgetValue', width: 1 })
     if (!state.readonly && spec.options['disabled'] !== true) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
   },
   editorUi(context) {

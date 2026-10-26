@@ -52,6 +52,7 @@ const dispositions = [
   { type: 'ASSET', compact: 'core.asset', expanded: 'product asset modal' },
   { type: 'SAVE_TARGET', compact: 'core.saveTarget', expanded: 'mount and prefix popover' },
   { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
+  { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
 ] as const
 
 describe('registered widget disposition inventory', () => {

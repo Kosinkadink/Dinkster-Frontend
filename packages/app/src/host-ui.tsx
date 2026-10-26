@@ -116,6 +116,8 @@ function HostUiNode(props: { readonly node: HostUiNodeV1; readonly commands: Com
       }
       return <>
         <ProductButton
+          variant="ghost"
+          size="compact"
           class={`host-ui-action ${toneClass()}`}
           data-host-ui-key={node().key}
           disabled={disabled()}

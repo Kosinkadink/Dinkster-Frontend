@@ -138,6 +138,67 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test('BUTTON actions invoke registered commands without changing widget values', async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.commands.register({ id: 'fixture.capture', label: 'Capture frame', run: (payload) => {
+      const calls = JSON.parse(document.body.dataset.buttonCalls ?? '[]')
+      document.body.dataset.buttonCalls = JSON.stringify([...calls, payload])
+    } })
+    app.commands.register({ id: 'fixture.busy', label: 'Busy action', enabled: () => false, run: () => {
+      throw new Error('Disabled command must not run')
+    } })
+    app.registerSchemas([{
+      type: 'ButtonWidgetTest', displayName: 'Capture controls', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        ...[
+          ['capture', { display_name: 'Capture frame', command: 'fixture.capture' }],
+          ['busy', { display_name: 'Busy action', command: 'fixture.busy' }],
+          ['missing', { display_name: 'Unavailable action', command: 'fixture.missing' }],
+          ['disabled', { display_name: 'Disabled action', command: 'fixture.capture', disabled: true }],
+        ].map(([id, options]) => ({ kind: 'input', id, type: { kind: 'concrete', name: 'BUTTON' }, optional: false,
+          widget: { widgetType: 'BUTTON', default: null, options } })),
+        { kind: 'input', id: 'title', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+          widget: { widgetType: 'STRING', default: 'Unchanged text', options: {} } },
+      ],
+    }] as Parameters<typeof app.registerSchemas>[0])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'button-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Capture', nodes: { widgets: { id: 'widgets', type: 'ButtonWidgetTest', values: { capture: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Capture controls')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'capture')))
+  const graph = (await activeDoc(page)).graphs.g0
+  await openEditor(page, 'capture')
+  const editor = page.getByTestId('widget-editor')
+  const action = editor.getByRole('button', { name: 'Capture frame', exact: true })
+  await expect(action).toBeFocused()
+  await expect(action).toHaveClass(/product-button/)
+  await action.press('Enter')
+  await action.click()
+  expect(await page.evaluate(() => JSON.parse(document.body.dataset.buttonCalls ?? '[]'))).toEqual([
+    { value: null, target: { kind: 'input', graphId: 'g0', nodeId: 'widgets', inputId: 'capture' } },
+    { value: null, target: { kind: 'input', graphId: 'g0', nodeId: 'widgets', inputId: 'capture' } },
+  ])
+  await page.screenshot({ path: testInfo.outputPath('button-desktop.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 900, height: 700 })
+  await expect(action).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('button-compact.png'), animations: 'disabled' })
+  await action.press('Escape')
+  for (const [input, label] of [['busy', 'Busy action'], ['missing', 'Unavailable action'], ['disabled', 'Disabled action']] as const) {
+    await openEditor(page, input)
+    await expect(editor.getByRole('button', { name: label, exact: true })).toBeDisabled()
+    await page.keyboard.press('Escape')
+  }
+  expect((await activeDoc(page)).graphs.g0).toEqual(graph)
+  await openEditor(page, 'title')
+  await expect(editor.locator('input')).toHaveValue('Unchanged text')
+  await page.screenshot({ path: testInfo.outputPath('button-text-sibling.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+})
+
 test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Commit', async ({ page }, testInfo) => {
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
