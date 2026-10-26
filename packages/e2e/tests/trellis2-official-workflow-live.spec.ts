@@ -69,10 +69,7 @@ test('imports, lowers, and executes the official Pixal3D and TRELLIS.2 workflow'
     )
     const tab = app.activeTab()!
     app.setTabTarget(tab.id, backend.id)
-    const registry = backend.registry.get()! as unknown as {
-      diagnostics: readonly unknown[]
-      comfyAliases?: { recordsByNodeClass: Map<string, unknown> }
-    }
+    const registry = backend.registry.get()!
     const replacements = (app as unknown as {
       scanTabReplacements(value: unknown): readonly {
         sourceType: string
@@ -84,7 +81,7 @@ test('imports, lowers, and executes the official Pixal3D and TRELLIS.2 workflow'
     return {
       failures,
       nodeCount: Object.keys(tab.store.doc.graphs['g0']!.nodes).length,
-      maintainedAliases: [...(registry.comfyAliases?.recordsByNodeClass.keys() ?? [])],
+      unresolvedTypes: ['GetMeshInfo', 'ImageCropToMask', 'MoGeInference'].filter((type) => !registry.schemas.has(type)),
       registryDiagnostics: registry.diagnostics,
       schemaProblems: app.problems.get().filter((problem) => problem.code.startsWith('schema.')),
       pendingReplacements: replacements.map((item) => ({
@@ -98,11 +95,7 @@ test('imports, lowers, and executes the official Pixal3D and TRELLIS.2 workflow'
   expect(imported.failures).toEqual([])
   expect(imported.nodeCount).toBe(64)
   expect(imported.registryDiagnostics).toEqual([])
-  expect(imported.maintainedAliases, JSON.stringify(imported.schemaProblems)).toEqual(expect.arrayContaining([
-    'GetMeshInfo',
-    'ImageCropToMask',
-    'MoGeInference',
-  ]))
+  expect(imported.unresolvedTypes, JSON.stringify(imported.schemaProblems)).toEqual([])
   expect(imported.pendingReplacements).toEqual([])
 
   await expect.poll(() => page.evaluate((names) => {
