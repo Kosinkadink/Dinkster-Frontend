@@ -14,6 +14,7 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
   const initial = audioRecordKind.defaultValue({ ...ed.spec!, default: ed.initial === undefined ? ed.spec?.default : ed.initial })
   const [draft, setDraft] = createSignal(initial)
   const [uploading, setUploading] = createSignal(false)
+  const [pending, setPending] = createSignal(false)
   const [error, setError] = createSignal<string>()
   let live = true
   let abort: AbortController | undefined
@@ -40,20 +41,34 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
   onCleanup(() => props.editor.bindClickAway?.(undefined))
 
   return <div class="widget-editor audio-record-editor" data-testid="audio-record-editor">
-    <Show when={draft()} keyed>{(ref) => <>
-      <p>{ref.name}</p>
-      <Show when={backend.protocol === 'dinkster'}>
-        <AudioTransport media={{ kind: 'audio', src: backend.protocol === 'dinkster' ? backend.connection.assetUrl(ref.digest) : '' }} />
-      </Show>
-      <ProductButton type="button" disabled={uploading()} onClick={() => setDraft(null)}>{message('audioRecordWidget.remove')}</ProductButton>
-    </>}</Show>
+    <Show when={draft()} keyed>{(ref) => {
+      const [src, setSrc] = createSignal<string>()
+      const [failed, setFailed] = createSignal(false)
+      let current = true
+      let ownedUrl: string | undefined
+      if (backend.protocol === 'dinkster') {
+        void backend.connection.fetchAssetBytes(ref.digest).then((bytes) => {
+          if (!current) return
+          if (bytes === undefined) { setFailed(true); return }
+          ownedUrl = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
+          setSrc(ownedUrl)
+        }).catch(() => { if (current) setFailed(true) })
+      }
+      onCleanup(() => { current = false; if (ownedUrl) URL.revokeObjectURL(ownedUrl) })
+      return <>
+        <p>{ref.name}</p>
+        <Show when={src()}>{(url) => <AudioTransport media={{ kind: 'audio', src: url() }} />}</Show>
+        <Show when={failed()}><ProductNotice tone="error">{message('audioRecordWidget.previewUnavailable')}</ProductNotice></Show>
+        <ProductButton type="button" disabled={uploading()} onClick={() => setDraft(null)}>{message('audioRecordWidget.remove')}</ProductButton>
+      </>
+    }}</Show>
     <Show when={backend.protocol === 'dinkster'} fallback={<ProductNotice tone="error">{message('audioRecordWidget.native')}</ProductNotice>}>
-      <AudioRecorder disabled={uploading()} onSave={save} />
+      <AudioRecorder disabled={uploading()} onPendingChange={setPending} onSave={save} />
     </Show>
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
     <ProductActionFooter>
       <ProductButton type="button" onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={uploading() || backend.protocol !== 'dinkster'} onClick={() => props.commitValue(draft())}>{message('audioRecordWidget.use')}</ProductButton>
+      <ProductButton type="button" variant="primary" disabled={pending() || uploading() || backend.protocol !== 'dinkster'} onClick={() => props.commitValue(draft())}>{message('audioRecordWidget.use')}</ProductButton>
     </ProductActionFooter>
   </div>
 }
