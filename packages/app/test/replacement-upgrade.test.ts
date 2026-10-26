@@ -1072,7 +1072,7 @@ describe('dynamic output replacement integration', () => {
 })
 
 describe('legacy documents against a native backend', () => {
-  it('applies a dynamic group replacement using its pre-registration import registry', () => {
+  it('retains every authored node when a historical dynamic group catalog is present', () => {
     const backend = app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, maintainedDynamicGroupPayload())
     expect(registry.diagnostics).toEqual([])
@@ -1107,16 +1107,16 @@ describe('legacy documents against a native backend', () => {
 
     expect(app.openDocument(litegraph, 'Dynamic maintained group')).toEqual([])
     const tab = app.activeTab()!
-    expect(Object.keys(tab.store.doc.graphs.g0!.nodes).sort()).toEqual(['n1', 'n3'])
-    expect(nodeType(tab, 'n1')).toBe('fixture.mask-source')
-    expect(nodeType(tab, 'n3')).toBe('fixture.slot-modern')
-    expect(tab.store.doc.graphs.g0!.nodes.n3).toMatchObject({
-      dynamic: { mask: { selected: 'mask' } },
-      values: { 'mask.mask_polarity': 'white' },
-    })
+    expect(Object.keys(tab.store.doc.graphs.g0!.nodes).sort()).toEqual(['n1', 'n2', 'n3'])
+    expect(nodeType(tab, 'n2')).toBe('MaskPass')
+    expect(nodeType(tab, 'n3')).toBe('MaskSink')
     expect(tab.store.doc.graphs.g0!.links.l1).toMatchObject({
-      from: { node: 'n1', port: 'mask' },
-      to: { node: 'n3', port: 'mask' },
+      from: { node: 'n1' },
+      to: { node: 'n2' },
+    })
+    expect(tab.store.doc.graphs.g0!.links.l2).toMatchObject({
+      from: { node: 'n2' },
+      to: { node: 'n3' },
     })
     expect(app.problems.get()).not.toContainEqual(expect.objectContaining({
       code: 'import.comfyGroup.review',
@@ -1126,7 +1126,7 @@ describe('legacy documents against a native backend', () => {
     }))
   })
 
-  it('collapses and replaces a maintained exact group while reporting grouped confidence', () => {
+  it('does not collapse an exact historical group into a carrier', () => {
     const backend = app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, maintainedGroupPayload())
     backend.registry.set(registry)
@@ -1154,32 +1154,26 @@ describe('legacy documents against a native backend', () => {
     }
     expect(app.openDocument(litegraph, 'Maintained group')).toEqual([])
     const tab = app.activeTab()!
-    expect(Object.keys(tab.store.doc.graphs.g0!.nodes)).toEqual(['n2'])
-    expect(nodeType(tab, 'n2')).toBe('comfy.EmptyImage')
-    expect(tab.store.doc.graphs.g0!.nodes.n2!.values).toEqual({
+    expect(Object.keys(tab.store.doc.graphs.g0!.nodes)).toEqual(['n1', 'n2'])
+    expect(nodeType(tab, 'n1')).toBe('comfy.EmptyImage')
+    expect(nodeType(tab, 'n2')).toBe('comfy.PreviewImage')
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.values).toEqual({
       width: 64,
       height: 32,
       batch_size: 2,
       color: 7,
     })
     expect(tab.store.doc.view.graphs.g0!.nodes.n2!.position).toEqual({ x: 300, y: 50 })
-    expect(app.problems.get().find((problem) => problem.code === 'import.comfyAlias.confidence.op')?.message)
-      .toContain('total=1; confidence exact=0, parametric=0, equivalent=0, grouped=1')
+    expect(app.problems.get().some((problem) => problem.code.startsWith('import.comfyAlias.'))).toBe(false)
     expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType')).toBe(false)
 
-    const translated = structuredClone(tab.store.doc)
-    expect(tab.store.undo()).toBe(true)
-    expect(Object.keys(tab.store.doc.graphs.g0!.nodes).sort()).toEqual(['n1', 'n2'])
-    expect(nodeType(tab, 'n1')).toBe('comfy_group_source:comfy-core/EmptyImage')
-    expect(nodeType(tab, 'n2')).toBe('comfy_group_source:comfy-core/PreviewImage')
+    expect(tab.store.canUndo).toBe(false)
     expect(Object.values(tab.store.doc.graphs.g0!.links)).toEqual([
       { id: 'l1', from: { node: 'n1', port: 'image' }, to: { node: 'n2', port: 'images' } },
     ])
-    expect(tab.store.redo()).toBe(true)
-    expect(tab.store.doc).toEqual(translated)
   })
 
-  it('replaces a matched tiled-upscale chain with its native carrier atomically', () => {
+  it('preserves a tiled-upscale chain instead of rewriting it to a carrier', () => {
     const backend = app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, maintainedTiledGroupPayload())
     backend.registry.set(registry)
@@ -1233,25 +1227,21 @@ describe('legacy documents against a native backend', () => {
 
     expect(app.openDocument(litegraph, 'Tiled upscale group')).toEqual([])
     const tab = app.activeTab()!
-    expect(Object.keys(tab.store.doc.graphs.g0!.nodes).sort()).toEqual(['n1', 'n4', 'n5'])
-    expect(nodeType(tab, 'n4')).toBe('comfy.TiledUpscale')
-    expect(tab.store.doc.graphs.g0!.nodes.n4!.values).toEqual({ tile_size: 512, scale_by: 2 })
+    expect(Object.keys(tab.store.doc.graphs.g0!.nodes).sort()).toEqual(['n1', 'n2', 'n3', 'n4', 'n5'])
+    expect(nodeType(tab, 'n2')).toBe('ImageTileSplit')
+    expect(nodeType(tab, 'n3')).toBe('ImageScaleBy')
+    expect(nodeType(tab, 'n4')).toBe('ImageTileMerge')
     expect(tab.store.doc.view.graphs.g0!.nodes.n4!.position).toEqual({ x: 600, y: 80 })
-    expect(Object.values(tab.store.doc.graphs.g0!.links)).toEqual([
-      { id: 'l1', from: { node: 'n1', port: 'image' }, to: { node: 'n4', port: 'image' } },
-      { id: 'l4', from: { node: 'n4', port: 'image' }, to: { node: 'n5', port: 'images' } },
+    expect(Object.values(tab.store.doc.graphs.g0!.links)).toMatchObject([
+      { id: 'l1', from: { node: 'n1' }, to: { node: 'n2' } },
+      { id: 'l2', from: { node: 'n2' }, to: { node: 'n3' } },
+      { id: 'l3', from: { node: 'n3' }, to: { node: 'n4' } },
+      { id: 'l4', from: { node: 'n4' }, to: { node: 'n5' } },
     ])
     expect(Object.values(tab.store.doc.graphs.g0!.nodes).some((node) =>
       node.type.startsWith('comfy-group.') || node.type.startsWith('comfy_group_source:'))).toBe(false)
 
-    const translated = structuredClone(tab.store.doc)
-    expect(tab.store.undo()).toBe(true)
-    expect(Object.keys(tab.store.doc.graphs.g0!.nodes).sort()).toEqual(['n1', 'n2', 'n3', 'n4', 'n5'])
-    expect(nodeType(tab, 'n2')).toBe('comfy_group_source:comfy-core/ImageTileSplit')
-    expect(nodeType(tab, 'n3')).toBe('comfy_group_source:comfy-core/ImageScaleBy')
-    expect(nodeType(tab, 'n4')).toBe('comfy_group_source:comfy-core/ImageTileMerge')
-    expect(tab.store.redo()).toBe(true)
-    expect(tab.store.doc).toEqual(translated)
+    expect(tab.store.canUndo).toBe(false)
   })
 
   it('retains the complete matched source graph when replacement review is enabled', () => {
@@ -1283,10 +1273,10 @@ describe('legacy documents against a native backend', () => {
     expect(Object.values(tab.store.doc.graphs.g0!.nodes).some((node) =>
       node.type.startsWith('comfy-group.'))).toBe(false)
     expect(tab.store.revision).toBe(0)
-    expect(app.problems.get().some((problem) => problem.code === 'import.comfyGroup.review')).toBe(true)
+    expect(app.problems.get().some((problem) => problem.code === 'import.comfyGroup.review')).toBe(false)
   })
 
-  it('uses maintained source snapshots before native aliases and reports op/family confidence separately', () => {
+  it('leaves a class missing from the ordinary registry unresolved instead of using a carrier snapshot', () => {
     const payload = maintainedAliasPayload([
       { nodeClass: 'EmptyImage', sourceType: 'comfy.LegacyEmptyImage' },
       {
@@ -1315,16 +1305,13 @@ describe('legacy documents against a native backend', () => {
     expect(app.openDocument(litegraph, 'Maintained aliases')).toEqual([])
     const tab = app.activeTab()!
     expect(nodeType(tab, 'n1')).toBe('comfy.EmptyImage')
-    expect(nodeType(tab, 'n2')).toBe('comfy.EmptyImage')
+    expect(nodeType(tab, 'n2')).toBe('FamilyImage')
     expect(tab.store.doc.graphs.g0!.nodes.n1!.values.width).toBe(64)
-    expect(tab.store.doc.graphs.g0!.nodes.n2!.values.width).toBe(32)
-    expect(app.problems.get().find((problem) => problem.code === 'import.comfyAlias.confidence.op')?.message)
-      .toContain('total=1; confidence exact=1, parametric=0, equivalent=0, grouped=0')
-    expect(app.problems.get().find((problem) => problem.code === 'import.comfyAlias.confidence.family')?.message)
-      .toContain('total=1; confidence exact=0, parametric=1, equivalent=0, grouped=0; family providers available=0, unavailable=1, unknown=0; FamilyImage:unavailable')
+    expect(app.problems.get().some((problem) => problem.code.startsWith('import.comfyAlias.'))).toBe(false)
+    expect(app.problems.get().find((problem) => problem.code === 'schema.unresolvedType')?.message).toContain('FamilyImage')
   })
 
-  it('holds every maintained alias when one item needs review', () => {
+  it('does not create a maintained alias review cohort during ordinary import', () => {
     const payload = maintainedAliasPayload([
       { nodeClass: 'EmptyImage', sourceType: 'comfy.LegacyEmptyImage' },
       {
@@ -1358,10 +1345,10 @@ describe('legacy documents against a native backend', () => {
     }
     expect(app.openDocument(litegraph, 'Atomic aliases')).toEqual([])
     const tab = app.activeTab()!
-    expect(nodeType(tab, 'n1')).toBe('comfy.LegacyEmptyImage')
-    expect(nodeType(tab, 'n2')).toBe('comfy.UnsafeImage')
-    expect(app.problems.get().filter((problem) => problem.code === 'replace.review')).toHaveLength(2)
-    expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType')).toBe(false)
+    expect(nodeType(tab, 'n1')).toBe('comfy.EmptyImage')
+    expect(nodeType(tab, 'n2')).toBe('UnsafeImage')
+    expect(app.problems.get().filter((problem) => problem.code === 'replace.review')).toHaveLength(0)
+    expect(app.problems.get().find((problem) => problem.code === 'schema.unresolvedType')?.message).toContain('UnsafeImage')
   })
 
   it('canonicalizes LiteGraph aliases before replacement scanning', () => {

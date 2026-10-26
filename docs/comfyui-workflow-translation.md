@@ -1,26 +1,11 @@
 # ComfyUI Workflow Translation
 
-Dinkster translates maintained ComfyUI classes through `dinkster-comfy-alias/1`
-registries delivered by installed native packs. Each record identifies one
-ComfyUI source class and snapshot, its native carrier, a declarative
-replacement rule, and either op-level or family-level confidence evidence.
-Core records are pinned to ComfyUI revision
-`b5cc8830279eae909a59de030af1e50761c36751`.
-
-Record IDs use the dedicated `comfy_alias:<pack>/<class>` namespace. Their
-source snapshots retain compatibility types such as `comfy.ImageScale`, but
-exist only while importing and planning a replacement: they are not normal
-schemas, executable nodes, or palette entries. Searching by an old ComfyUI
-class name instead finds the native carrier. If installed packs claim the same
-bare class name, the importer leaves it unresolved and reports the collision
-rather than guessing.
-
-Import first decodes each maintained source against its immutable snapshot,
-then runs its replacement rule. A clean mapping applies atomically and remains
-undoable. If any maintained alias in an imported workflow needs review, none
-of that workflow's maintained aliases auto-apply. The source nodes and their
-data stay available for explicit review instead of applying a partial
-translation.
+The app imports ComfyUI LiteGraph documents through `importLitegraph` against
+the selected backend's ordinary schema registry. It does not use compatibility
+catalog snapshots, collapse matched node groups into native carriers, or build
+an alias review cohort. Authored nodes and topology remain in the imported
+document. Classes absent from the registry remain unresolved and are reported
+as missing; a carrier catalog does not make them executable.
 
 Positional `widgets_values` consume one companion entry after a widget with
 `control_after_generate`. The strings `fixed`, `increment`, `decrement` and

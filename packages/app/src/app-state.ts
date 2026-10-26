@@ -73,7 +73,6 @@ import {
   subgraphDefIdOf,
   registerSchemaRules,
   synthesizeAliasRules,
-  comfyGroupReplacementInvocation,
   replacementInvocation,
   resetMenuContributions,
   scanReplacements,
@@ -88,8 +87,6 @@ import {
   type AssetRef,
   type CompileInput,
   type CompileResult,
-  type ComfyAliasRecord,
-  type ComfyGroupRecord,
   type ConnectionId,
   type ControllerInputProvenance,
   type ControllerInputSource,
@@ -6290,25 +6287,9 @@ export class AppState {
     }
     const tab = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
     if (replacesExisting) this.workspaceReplacements.add(tab)
-    let loadDiagnostics = loaded.diagnostics
-    if (legacyLoaded?.groupTranslation !== undefined) {
-      const outcome = tab.store.dispatch(legacyLoaded.groupTranslation.invocation)
-      loadDiagnostics = outcome.ok
-        ? legacyLoaded.groupTranslation.successDiagnostics
-        : [
-            ...loaded.diagnostics,
-            ...outcome.diagnostics,
-            diag(
-              'warning',
-              'import',
-              'import.comfyGroup.review',
-              'ComfyUI node groups were left unchanged because their atomic native replacement failed',
-            ),
-          ]
-    }
     // Load/translation warnings belong to the tab they describe: a
     // same-lineage replacement swaps them out; other tabs keep theirs.
-    this.replaceProblems(tab.id, loadDiagnostics)
+    this.replaceProblems(tab.id, loaded.diagnostics)
     this.markTabDirty(tab.id)
     this.followLatestExecution(tab.id) // a replaced document starts unpinned
     this.dropTabTarget(tab.id) // ... and untargeted
@@ -7007,10 +6988,6 @@ export class AppState {
   private importLegacy(json: unknown, registry = this.registry.get()): {
     readonly document?: WorkflowDocument
     readonly diagnostics: readonly Diagnostic[]
-    readonly groupTranslation?: {
-      readonly invocation: CommandInvocation
-      readonly successDiagnostics: readonly Diagnostic[]
-    }
   } {
     if (!registry) {
       return {
@@ -7019,172 +6996,7 @@ export class AppState {
         ],
       }
     }
-    const resolve = (type: string): NodeSchema | undefined => {
-      const record = registry.comfyAliases?.recordsByNodeClass.get(type)
-      return record === undefined
-        ? registry.resolve(type)
-        : registry.comfyAliases?.sourceSchemas.get(record.source.nodeType)
-    }
-    const maintainedAlias = (authoredType: string): boolean =>
-      registry.comfyAliases?.recordsByNodeClass.has(authoredType) === true
-    const importGroups = (
-      shouldCollapse: (record: ComfyGroupRecord, anchorId: number) => boolean,
-    ) => importLitegraph(
-      json as JsonObject,
-      resolve,
-      maintainedAlias,
-      registry.comfyGroups,
-      shouldCollapse,
-    )
-    const source = importGroups(() => false)
-    if (source.document === undefined) return source
-
-    const confidenceDiagnostics = (
-      extraRecords: readonly ComfyGroupRecord[],
-    ): readonly Diagnostic[] => {
-      const importedRecords = new Map<string, ComfyAliasRecord | ComfyGroupRecord>(
-        extraRecords.map((record) => [record.id, record]),
-      )
-      for (const graph of Object.values(source.document!.graphs)) {
-        for (const node of Object.values(graph.nodes)) {
-          const record = registry.comfyAliases?.recordsBySourceType.get(node.type)
-          if (record !== undefined) importedRecords.set(record.id, record)
-        }
-      }
-      const diagnostics: Diagnostic[] = []
-      for (const mappingKind of ['op', 'family'] as const) {
-        const records = [...importedRecords.values()].filter((record) => record.mappingKind === mappingKind)
-        if (records.length === 0) continue
-        const confidence = ['exact', 'parametric', 'equivalent', 'grouped']
-          .map((tier) => `${tier}=${records.filter((record) => record.confidence.tier === tier).length}`)
-          .join(', ')
-        const familyAvailability = mappingKind === 'family'
-          ? records.map((record) => {
-              const provider = record.family?.provider
-              const sourceName = 'nodeClass' in record.source
-                ? record.source.nodeClass
-                : record.source.name
-              return provider === undefined
-                ? `${sourceName}:unknown`
-                : `${sourceName}:${registry.packs?.has(provider) === true ? 'available' : 'unavailable'}`
-            })
-          : []
-        const availabilityCounts = ['available', 'unavailable', 'unknown']
-          .map((status) => `${status}=${familyAvailability.filter((entry) => entry.endsWith(`:${status}`)).length}`)
-          .join(', ')
-        diagnostics.push(diag(
-          'info',
-          'import',
-          `import.comfyAlias.confidence.${mappingKind}`,
-          `ComfyUI ${mappingKind}-level mappings: total=${records.length}; confidence ${confidence}${familyAvailability.length > 0 ? `; family providers ${availabilityCounts}; ${familyAvailability.join(', ')}` : ''}`,
-        ))
-      }
-      return diagnostics
-    }
-
-    const catalog = registry.comfyGroups
-    if (catalog === undefined || catalog.records.length === 0) {
-      return { ...source, diagnostics: [...source.diagnostics, ...confidenceDiagnostics([])] }
-    }
-    const tentative = importGroups(() => true)
-    if (tentative.document === undefined) {
-      return {
-        ...source,
-        diagnostics: [
-          ...source.diagnostics,
-          ...confidenceDiagnostics([]),
-          diag(
-            'warning',
-            'import',
-            'import.comfyGroup.review',
-            'Matched ComfyUI node groups were left unchanged because their native translation could not be prepared',
-          ),
-        ],
-      }
-    }
-    const replacementRegistry = this.replacementRegistryFor(registry)
-    const resolveReplacement: ReplacementSchemaResolver = (type, role) =>
-      this.replacementSchemaOf(registry, type, role)
-    const tentativeItems = scanReplacements(
-      tentative.document,
-      replacementRegistry,
-      resolveReplacement,
-    ).filter((item) => catalog.recordsByGroupType.has(item.sourceType))
-    const review = this.reviewReplacements.get()
-    const selectedIds = new Set(
-      tentativeItems.filter((item) => item.safe && !review).map((item) => item.nodeId),
-    )
-    const reviewDiagnostics = tentativeItems
-      .filter((item) => !selectedIds.has(item.nodeId))
-      .map((item) => diag(
-        'warning',
-        'import',
-        'import.comfyGroup.review',
-        review
-          ? `ComfyUI node group '${item.sourceType}' was left unchanged for replacement review`
-          : `ComfyUI node group '${item.sourceType}' was left unchanged because native replacement was not lossless: ${item.diagnostics.map((entry) => entry.message).join('; ')}`,
-      ))
-    if (selectedIds.size === 0) {
-      return {
-        ...source,
-        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
-      }
-    }
-
-    const collapsed = selectedIds.size === tentativeItems.length
-      ? tentative
-      : importGroups((_record, anchorId) => selectedIds.has(`n${anchorId}`))
-    if (collapsed.document === undefined) {
-      return {
-        ...source,
-        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
-      }
-    }
-    const finalItems = scanReplacements(
-      collapsed.document,
-      replacementRegistry,
-      resolveReplacement,
-    ).filter((item) => selectedIds.has(item.nodeId) && catalog.recordsByGroupType.has(item.sourceType))
-    if (finalItems.length !== selectedIds.size || finalItems.some((item) => !item.safe)) {
-      return {
-        ...source,
-        diagnostics: [
-          ...source.diagnostics,
-          ...reviewDiagnostics,
-          ...confidenceDiagnostics([]),
-          diag(
-            'warning',
-            'import',
-            'import.comfyGroup.review',
-            'Matched ComfyUI node groups were left unchanged because their atomic native replacement did not reproduce',
-          ),
-        ],
-      }
-    }
-    const plans = finalItems.flatMap((item) => item.hops.map((hop) => hop.plan))
-    const invocation = comfyGroupReplacementInvocation(source.document, collapsed.document, plans)
-    if (invocation === undefined) {
-      return {
-        ...source,
-        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
-      }
-    }
-    const appliedRecords = finalItems.flatMap((item) => {
-      const record = catalog.recordsByGroupType.get(item.sourceType)
-      return record === undefined ? [] : [record]
-    })
-    return {
-      ...source,
-      diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
-      groupTranslation: {
-        invocation,
-        successDiagnostics: [
-          ...collapsed.diagnostics,
-          ...reviewDiagnostics,
-          ...confidenceDiagnostics(appliedRecords),
-        ],
-      },
-    }
+    return importLitegraph(json as JsonObject, registry.resolve)
   }
 
   /**
