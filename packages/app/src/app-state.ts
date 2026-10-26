@@ -72,7 +72,6 @@ import {
   stepNumericValue,
   subgraphDefIdOf,
   registerSchemaRules,
-  synthesizeAliasRules,
   replacementInvocation,
   resetMenuContributions,
   scanReplacements,
@@ -4681,10 +4680,6 @@ export class AppState {
     const registry = createReplacementRegistry()
     const diags = [...registerSchemaRules(registry, reg.schemas.values())]
     for (const { layer, rule } of this.extraRules) diags.push(...registry.register(layer, rule))
-    // Synthesized legacy-name rules last, at the lowest-precedence layer:
-    // an explicit schema/pack/core rule for the same legacy name always
-    // wins over the derived rename (see replace/alias-rules.ts).
-    for (const rule of synthesizeAliasRules(reg.schemas.values())) diags.push(...registry.register('core', rule))
     this.reportProblems(GLOBAL_PROBLEMS_OWNER, diags)
     this.replacementRegistries.set(reg, { registry, version: this.extraRulesVersion })
     return registry

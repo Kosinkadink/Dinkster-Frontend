@@ -19,9 +19,6 @@ import { exportVirtualNodesToLitegraph } from '../src/format/export-litegraph.js
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
-import { synthesizeAliasRules } from '../src/replace/alias-rules.js'
-import { createReplacementRegistry } from '../src/replace/registry.js'
-import { scanReplacements } from '../src/replace/scan.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import type { CountBoundOutputAutogrowSpec, InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
@@ -378,10 +375,6 @@ describe('basic translation', () => {
     expect(graph.nodes.n1!.values).toEqual({ ckpt_name: 'sd15.safetensors' })
     expect(graph.nodes.n2!.values).toEqual({ text: 'positive' })
     expect(graph.nodes.n3!.values).toEqual({ text: 'negative' })
-
-    const replacements = createReplacementRegistry()
-    for (const rule of synthesizeAliasRules(sd15Schemas)) expect(replacements.register('core', rule)).toEqual([])
-    expect(scanReplacements(document, replacements, sd15Resolve)).toEqual([])
 
     const reopened = loadDocument(JSON.parse(JSON.stringify(document)))
     expect(reopened.diagnostics).toEqual([])

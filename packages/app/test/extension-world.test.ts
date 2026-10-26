@@ -65,6 +65,22 @@ const extensionEvent = (seq: number): ExtensionEvent => ({
   extensionSnapshotDigest: digest, event: 'demo.event', pack: 'demo', schemaVersion: 1, data: { value: seq }, seq,
 })
 
+function openNativeFixture(app: AppState): Tab {
+  expect(app.openDocument({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'extension-world-native', root: 'g0',
+    graphs: { g0: {
+      id: 'g0', name: 'root', nextOrdinal: 3,
+      nodes: {
+        n0: { id: 'n0', type: 'comfy.EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
+        n1: { id: 'n1', type: 'comfy.PreviewImage', values: {} },
+      },
+      links: { l2: { id: 'l2', from: { node: 'n0', port: 'image' }, to: { node: 'n1', port: 'images' } } },
+      nets: {}, reroutes: {},
+    } },
+  }, 'Native extension fixture')).toEqual([])
+  return app.activeTab()!
+}
+
 describe('connection extension worlds', () => {
   it('projects a pack keybinding through the selected extension world', async () => {
     const { target, bindings } = setup()
@@ -426,7 +442,7 @@ describe('connection extension worlds', () => {
     ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
     const app = new AppState()
     try {
-      const tab = app.tabs.get()[0]!
+      const tab = openNativeFixture(app)
       const backend = app.addBackend('/frozen', 'Frozen', false, 'dinkster')!
       const nodes = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes-comfy.json', import.meta.url), 'utf8'))
       const registry = buildDinksterRegistry(backend.id, nodes)
@@ -607,7 +623,7 @@ describe('submission-owned extension world lifetime', () => {
     vi.spyOn(backend, 'refreshDiagnostics').mockImplementation(() => {})
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:source')
     await refresh('a')
-    tab = app.tabs.get()[0]!
+    tab = openNativeFixture(app)
     app.setTabTarget(tab.id, backend.id)
     oldHost = app.extensions
     oldWidgets = app.widgetRegistryForTab(tab)

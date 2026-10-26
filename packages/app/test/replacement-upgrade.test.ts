@@ -462,7 +462,7 @@ describe('auto-upgrade on open', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Native backends: synthesized alias rules + unresolved-type surfacing
+// Native backends: authored identities + unresolved-type surfacing
 // ---------------------------------------------------------------------------
 
 const nodesPayload = JSON.parse(readFileSync(join(root, 'fixtures/dinkster-nodes-comfy.json'), 'utf8')) as DinksterNodesPayload
@@ -1405,7 +1405,7 @@ describe('legacy documents against a native backend', () => {
     expect(app.compileTab(tab)?.ok).toBe(true)
   })
 
-  it('auto-migrates bare types AND positional output ids in one undo step', () => {
+  it('preserves authored bare types and positional output ids without a migration', () => {
     loadNativeSchemas()
     const json = docJson(
       'lin-legacy',
@@ -1414,14 +1414,15 @@ describe('legacy documents against a native backend', () => {
     )
     expect(app.openDocument(json, 'Legacy')).toEqual([])
     const tab = app.activeTab()!
-    expect(nodeType(tab, 'n0')).toBe('comfy.EmptyImage')
-    expect(nodeType(tab, 'n1')).toBe('comfy.PreviewImage')
-    expect(tab.store.doc.graphs.g0!.links.l2!.from).toEqual({ node: 'n0', port: 'image' })
-    expect(tab.store.revision).toBe(1)
-    expect(app.problems.get().some((d) => d.code === 'replace.applied')).toBe(true)
-    // The migrated document now compiles against the native backend.
+    expect(nodeType(tab, 'n0')).toBe('EmptyImage')
+    expect(nodeType(tab, 'n1')).toBe('PreviewImage')
+    expect(tab.store.doc.graphs.g0!.links.l2!.from).toEqual({ node: 'n0', port: 'out0' })
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values).toEqual({ width: 64 })
+    expect(tab.store.revision).toBe(0)
+    expect(app.scanTabReplacements(tab)).toEqual([])
+    expect(app.problems.get().some((d) => d.code === 'replace.applied')).toBe(false)
     const result = app.compileTab(tab)
-    expect(result?.ok).toBe(true)
+    expect(result?.ok).toBe(false)
   })
 
   it('the stock seed tabs open clean: no upgrade churn, no unresolved types', () => {
@@ -1432,39 +1433,33 @@ describe('legacy documents against a native backend', () => {
     expect(codes).not.toContain('schema.unresolvedType')
   })
 
-  it('the stock seeds silently migrate to canonical types: born-this-way, no undo step, compilable', () => {
+  it('does not rewrite stock seed identities or create a migration undo step', () => {
+    const documents = app.tabs.get().map((tab) => tab.store.doc)
     loadNativeSchemas()
-    for (const tab of app.tabs.get()) {
-      for (const graph of Object.values(tab.store.doc.graphs)) {
-        for (const node of Object.values(graph.nodes)) {
-          if (node.type.startsWith('#')) continue // subgraph instances resolve locally
-          expect(node.type, `tab '${tab.title}' node '${node.id}'`).toMatch(/^comfy\./)
-        }
-      }
-      expect(tab.store.canUndo, `tab '${tab.title}' must not carry a migration undo step`).toBe(false)
-      expect(app.compileTab(tab)?.ok, `tab '${tab.title}' must compile on native`).toBe(true)
+    for (const [index, tab] of app.tabs.get().entries()) {
+      expect(tab.store.doc).toEqual(documents[index])
+      expect(tab.store.canUndo).toBe(false)
+      expect(app.scanTabReplacements(tab)).toEqual([])
     }
   })
 
-  it('a V1-first stock seed keeps its silent entitlement: retargeting to native migrates silently', () => {
-    // V1 registry first: the seeds resolve natively as bare types, the
-    // upgrade pass engages nothing, and stock provenance must survive.
+  it('retargeting a stock seed to native does not rewrite its document', () => {
     loadSchemas()
-    const tab = app.tabs.get()[0]! // seed 'Basic'
-    expect(nodeType(tab, 'n0')).toBe('EmptyImage') // untouched on V1
+    const tab = app.tabs.get()[0]!
+    const document = tab.store.doc
+    expect(nodeType(tab, 'n0')).toBe('EmptyImage')
     expect(app.problems.get().map((d) => d.code)).not.toContain('replace.applied')
-    // Point the tab at a native backend: the stock-pristine rearm must run
-    // the silent baseline migration, not the loud badge flow.
     const native = app.addBackend('http://native.test', 'native', false, 'dinkster')!
     native.registry.set(buildDinksterRegistry(native.id, nodesPayload))
     app.setTabTarget(tab.id, native.id)
-    expect(nodeType(tab, 'n0')).toBe('comfy.EmptyImage')
-    expect(nodeType(tab, 'n1')).toBe('comfy.PreviewImage')
+    expect(tab.store.doc).toEqual(document)
+    expect(nodeType(tab, 'n0')).toBe('EmptyImage')
+    expect(nodeType(tab, 'n1')).toBe('PreviewImage')
     expect(tab.store.canUndo).toBe(false)
     expect(app.problems.get().map((d) => d.code)).not.toContain('replace.applied')
   })
 
-  it('a persisted pristine V1 stock seed migrates silently in a later native session', () => {
+  it('a persisted stock seed retains authored identities in a later native session', () => {
     const g = globalThis as { localStorage?: Storage }
     const map = new Map<string, string>()
     g.localStorage = {
@@ -1478,19 +1473,15 @@ describe('legacy documents against a native backend', () => {
       },
     } as Storage
     try {
-      // Session 1: V1 backend only; the seeds run unmigrated and persist
-      // with their stock provenance intact.
       const first = new AppState()
       const firstBackend = first.backends.get()[0]!
       firstBackend.registry.set(buildSchemaRegistry(firstBackend.id, objectInfo))
       first.flushPersistTabs()
-      // Session 2: restored tabs meet a native backend; the deferred stock
-      // migration must be silent baseline normalization.
       const second = new AppState()
       const backend = second.backends.get()[0]!
       backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
       const tab = second.tabs.get()[0]!
-      expect(tab.store.doc.graphs[tab.store.doc.root]!.nodes.n0!.type).toBe('comfy.EmptyImage')
+      expect(tab.store.doc.graphs[tab.store.doc.root]!.nodes.n0!.type).toBe('EmptyImage')
       expect(tab.store.canUndo).toBe(false)
       expect(second.problems.get().map((d) => d.code)).not.toContain('replace.applied')
     } finally {
@@ -1498,18 +1489,20 @@ describe('legacy documents against a native backend', () => {
     }
   })
 
-  it('an edit made before schemas arrive keeps the seed upgrade loud and undoable', () => {
-    const tab = app.tabs.get()[0]! // seed 'Basic': n0 EmptyImage / n1 PreviewImage
-    // A user edit before any registry exists: the tab is no longer pristine,
-    // so the later stock upgrade must stay reviewable, not silently rebased.
+  it('an edit made before schemas arrive stays intact without a synthesized migration', () => {
+    const tab = app.tabs.get()[0]!
     const outcome = tab.store.dispatch({
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'width', value: 128 },
     })
     expect(outcome.ok).toBe(true)
     expect(tab.store.revision).toBeGreaterThan(0)
+    const document = tab.store.doc
+    const revision = tab.store.revision
     loadNativeSchemas()
-    expect(app.problems.get().some((d) => d.code === 'replace.applied')).toBe(true)
+    expect(tab.store.doc).toEqual(document)
+    expect(tab.store.revision).toBe(revision)
+    expect(app.problems.get().some((d) => d.code === 'replace.applied')).toBe(false)
     expect(tab.store.canUndo).toBe(true)
   })
 })

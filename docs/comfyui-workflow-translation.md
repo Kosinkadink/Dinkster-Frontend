@@ -17,6 +17,9 @@ class/version widget upgrade table; there is no group-collapse or source-snapsho
 predicate. Family members use the declared schema scope, with prefix members
 assigned persisted identities in authored input order.
 The core has no pack alias/group catalog parser or group-collapse command.
+Schema aliases do not synthesize document migrations or positional output
+rewrites. Opening a saved native document preserves its authored node and port
+identities; invalid ports remain compile diagnostics rather than being guessed.
 Historical SaveVideo carrier conversion and MiniMax carrier-catalog fixtures
 are not import paths;
 ordinary workflow fixtures preserve their authored class identities and remain
