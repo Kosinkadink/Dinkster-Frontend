@@ -9,12 +9,10 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, openRailPanel, test } from './fixtures.js'
-import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const importEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-381/', import.meta.url))
 const comboEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-118/', import.meta.url))
-const clientModuleUrl = `/@fs${fileURLToPath(new URL('../../client/src/index.ts', import.meta.url))}`
 const sd15DefaultWorkflow = JSON.parse(readFileSync(
   fileURLToPath(new URL('../fixtures/comfyui-default-workflow.json', import.meta.url)),
   'utf8',
@@ -31,80 +29,7 @@ const legacyObjectInfo = (() => {
   return selected
 })()
 
-const exactGroupPayload = (): Record<string, unknown> => {
-  const raw = JSON.parse(readFileSync(
-    fileURLToPath(new URL('../../core/fixtures/dinkster-nodes-comfy.json', import.meta.url)),
-    'utf8',
-  )) as Record<string, any>
-  const source = (nativeType: 'comfy.EmptyImage' | 'comfy.PreviewImage', nodeType: string): any => {
-    const schema = structuredClone(raw['nodes'][nativeType])
-    schema.nodeType = nodeType
-    delete schema.aliases
-    delete schema.pack
-    delete schema.signature
-    return schema
-  }
-  const emptyType = 'comfy_group_source:comfy-core/EmptyImage'
-  const previewType = 'comfy_group_source:comfy-core/PreviewImage'
-  const groupType = 'comfy-group.comfy-core.empty-image-preview'
-  const groupSchema = source('comfy.EmptyImage', groupType)
-  groupSchema.interface = groupSchema.interface.filter((item: { role: string }) => item.role === 'input')
-  raw['packs']['comfy'].comfyGroups = {
-    format: 'dinkster-comfy-group/1',
-    sourceSchemas: [
-      source('comfy.EmptyImage', emptyType),
-      source('comfy.PreviewImage', previewType),
-    ],
-    groupSchemas: [groupSchema],
-    records: [{
-      id: 'comfy_group:comfy-core/empty-image-preview',
-      mappingKind: 'op',
-      carrier: 'comfy.EmptyImage',
-      source: { pack: 'comfy-core', name: 'empty-image-preview', revision: 'b78cec87' },
-      pattern: {
-        groupType,
-        anchor: 'preview',
-        nodes: {
-          image: {
-            source: { pack: 'comfy-core', nodeClass: 'EmptyImage', nodeType: emptyType, revision: 'b78cec87' },
-            mode: 'active',
-          },
-          preview: {
-            source: { pack: 'comfy-core', nodeClass: 'PreviewImage', nodeType: previewType, revision: 'b78cec87' },
-            mode: 'active',
-          },
-        },
-        edges: [{ from: 'image:image', to: 'preview:images' }],
-        disconnected: [],
-        boundary: { inputs: {}, outputs: {} },
-        parameters: {
-          width: 'image:width',
-          height: 'image:height',
-          batch_size: 'image:batch_size',
-          color: 'image:color',
-        },
-        constants: {},
-      },
-      replacement: {
-        from: groupType,
-        cases: [{
-          to: 'comfy.EmptyImage',
-          inputs: {
-            width: { kind: 'copy', input: 'width' },
-            height: { kind: 'copy', input: 'height' },
-            batch_size: { kind: 'copy', input: 'batch_size' },
-            color: { kind: 'copy', input: 'color' },
-          },
-        }],
-      },
-      confidence: { tier: 'grouped', evidence: ['tests/empty-image-preview.json'] },
-    }],
-  }
-  return raw
-}
-
 test.beforeAll(() => {
-  mkdirSync(evidenceGroupDir('issue-681'), { recursive: true })
   if (process.env['DINKSTER_CAPTURE_ISSUE_381_IMPORT'] === '1') {
     mkdirSync(importEvidenceDir, { recursive: true })
   }
@@ -425,79 +350,6 @@ test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/c
   expect(prompt['n6']).toBeUndefined()
   expect(prompt['n7']).toBeUndefined()
   expect(prompt['n10']).toBeUndefined()
-})
-
-test('collapses an exact maintained group into its native replacement', async ({ page }) => {
-  await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-
-  const result = await page.evaluate(async ({ workflow, payload, moduleUrl }) => {
-    const client = await import(/* @vite-ignore */ moduleUrl) as {
-      buildDinksterRegistry(connection: unknown, value: unknown): unknown
-    }
-    const app = window.__dinksterTest!.app
-    const backend = app.backends.get()[0]! as unknown as {
-      id: unknown
-      registry: { set(value: unknown): void }
-    }
-    backend.registry.set(client.buildDinksterRegistry(backend.id, payload))
-    const failures = app.openDocument(workflow, 'Exact group import')
-    const tab = app.activeTab()!
-    const graph = tab.store.doc.graphs[tab.store.doc.root]!
-    return {
-      failures,
-      nodes: Object.values(graph.nodes).map((node) => ({
-        id: node.id,
-        type: node.type,
-        values: node.values,
-      })),
-      position: tab.store.doc.view.graphs[tab.store.doc.root]!.nodes['n2']?.position,
-    }
-  }, {
-    moduleUrl: clientModuleUrl,
-    payload: exactGroupPayload(),
-    workflow: {
-      nodes: [
-        {
-          id: 1,
-          type: 'EmptyImage',
-          pos: [50, 100],
-          outputs: [{ name: 'IMAGE', links: [1] }],
-          widgets_values: [640, 384, 2, 32],
-        },
-        {
-          id: 2,
-          type: 'PreviewImage',
-          pos: [500, 220],
-          inputs: [{ name: 'images', link: 1 }],
-        },
-      ],
-      links: [[1, 1, 0, 2, 0, 'IMAGE']],
-      groups: [],
-      version: 0.4,
-    },
-  })
-
-  expect(result.failures).toEqual([])
-  expect(result.nodes).toEqual([{
-    id: 'n2',
-    type: 'comfy.EmptyImage',
-    values: { width: 640, height: 384, batch_size: 2, color: 32 },
-  }])
-  expect(result.position).toEqual({ x: 500, y: 220 })
-  await expect(page.getByTestId('problems-panel')).toContainText('import.comfyGroup.collapsed')
-  await expect(page.getByTestId('problems-panel')).toContainText('grouped=1')
-
-  if (process.env['DINKSTER_CAPTURE_ISSUE_681_GROUP'] === '1') {
-    await openRailPanel(page, 'Problems')
-    await page.mouse.move(0, 0)
-    await page.waitForTimeout(350)
-    await page.screenshot({
-      path: evidencePath('issue-681', 'exact-group-import.png'),
-      fullPage: true,
-      animations: 'disabled',
-    })
-  }
 })
 
 test('native alias import is canonical before badges, save/reopen, and submission', async ({ page }) => {

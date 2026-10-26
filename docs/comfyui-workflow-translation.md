@@ -12,6 +12,10 @@ and explicitly registered replacement rules retain their own upgrade flow.
 The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Node-declared aliases and
 search terms remain properties of the ordinary registered schema.
+The importer accepts only the ordinary schema resolver and the optional
+class/version widget upgrade table; there is no group-collapse or source-snapshot
+predicate. Family members use the declared schema scope, with prefix members
+assigned persisted identities in authored input order.
 The core no longer exports a pack alias-catalog parser. Historical SaveVideo
 carrier conversion and MiniMax carrier-catalog fixtures are not import paths;
 ordinary workflow fixtures preserve their authored class identities and remain
@@ -237,27 +241,3 @@ and pin deterministic repeated import, native save/reopen identity, document
 invariants, and the absence of runtime sugar nodes. Browser coverage imports,
 renders, saves, reopens, and submits a mixed direct/Set-Get/Use Everywhere
 workflow through the production path.
-
-Problems reports independent totals and confidence-tier counts for imported
-op-level and family-level mappings. Family diagnostics also report provider
-availability totals and each record's provider status. Malformed registries,
-source or record collisions, unsupported family shapes, and unsafe replacement
-plans fail closed with diagnostics.
-
-Installed packs can also maintain exact connected-node translations through
-`dinkster-comfy-group/1`. A record pins the member source snapshots, node modes,
-internal edges, boundary ports, copied parameters, static constants, an anchor,
-and a replacement rule. Import matches this data before creating document
-nodes. A match collapses to an import-only group schema at the anchor's identity
-and position, preserving boundary links, parameter values, and controllers;
-the normal replacement planner then produces the native replacement.
-
-Group matching is exact and bounded. Extra or missing internal topology,
-undeclared boundary links, mode or constant differences, malformed registry
-data, and overlapping matches leave the original nodes unchanged. Import does
-not run ComfyUI or custom-node code. Group records contribute their `grouped`
-confidence to the same separately reported op-level and family-level totals.
-
-The official TRELLIS.2 Pixal3D workflow imports and compiles through maintained
-native aliases for all nine TRELLIS.2 nodes. Its standard CFG, rescale, flow
-sampling, loaders, and model-output path remain ordinary shared nodes.

@@ -261,8 +261,7 @@ describe('basic translation', () => {
       fixtureSchemas.set(node.type, schema)
     }
     const officialResolve = (type: string) => fixtureSchemas.get(type) ?? resolve(type)
-    const maintainedAlias = (type: string) => type in trellis2Aliases
-    const imported = importLitegraph(official, officialResolve, maintainedAlias)
+    const imported = importLitegraph(official, officialResolve)
 
     expect(errorsOf(imported.diagnostics)).toEqual([])
     const graph = imported.document!.graphs[imported.document!.root]!
@@ -814,7 +813,7 @@ describe('versioned node widget upgrades', () => {
         { ...graphSource, id: 'inner', name: 'inner', inputs: [], outputs: [] },
       ] } }) : graphSource
       const before = JSON.stringify(source)
-      const result = importLitegraph(source, resolveNative, undefined, undefined, undefined, upgrades)
+      const result = importLitegraph(source, resolveNative, upgrades)
       expect(result.diagnostics).toEqual([])
       expect(JSON.stringify(source)).toBe(before)
       const graph = result.document!.graphs[nested ? 'inner' : 'g0']!
@@ -1249,7 +1248,6 @@ describe('Autogrow endpoint reconstruction', () => {
     schema: NodeSchema,
     inputNames: string[],
     authoredType = schema.type,
-    maintainedAlias = false,
   ) => {
     const sources = inputNames.map((_, index) => lgNode(index + 1, imageSource.type, {
       outputs: [{ name: 'IMAGE', links: [index + 1] }],
@@ -1264,16 +1262,15 @@ describe('Autogrow endpoint reconstruction', () => {
       ...importLitegraph(
         workflow([...sources, target], links),
         localResolve,
-        maintainedAlias ? (type) => type === authoredType : undefined,
       ),
       localResolve,
       targetId,
     }
   }
 
-  it('preserves flat ComfyUI alias suffixes and authored input order', () => {
+  it('reconstructs scoped wire15 prefix members in authored input order', () => {
     const schema: NodeSchema = {
-      type: 'comfy.ComfyAndNode',
+      type: 'ComfyAndNode',
       displayName: 'Comfy And',
       category: 'test',
       source: 'v3',
@@ -1294,24 +1291,23 @@ describe('Autogrow endpoint reconstruction', () => {
     }
     const { document, diagnostics, targetId } = importFamily(
       schema,
-      ['value2', 'value1'],
+      ['values.value2', 'values.value1'],
       'ComfyAndNode',
-      true,
     )
     expect(errorsOf(diagnostics)).toEqual([])
     const graph = document!.graphs[document!.root]!
     expect(graph.nodes[`n${targetId}`]!.dynamic).toEqual({
-      values: { members: ['value2', 'value1'] },
+      values: { members: ['m0', 'm1'], seq: 2 },
     })
     expect(Object.values(graph.links).map((link) => link.to)).toEqual([
-      { node: `n${targetId}`, port: 'values.value2' },
-      { node: `n${targetId}`, port: 'values.value1' },
+      { node: `n${targetId}`, port: 'values.m0' },
+      { node: `n${targetId}`, port: 'values.m1' },
     ])
   })
 
-  it('preserves scoped ComfyUI alias members when current workflows include the family name', () => {
+  it('preserves scoped named members in authored input order', () => {
     const schema: NodeSchema = {
-      type: 'comfy.ComfyMathExpression',
+      type: 'ComfyMathExpression',
       displayName: 'Comfy Math Expression',
       category: 'test',
       source: 'v3',
@@ -1333,7 +1329,6 @@ describe('Autogrow endpoint reconstruction', () => {
       schema,
       ['values.b', 'values.a'],
       'ComfyMathExpression',
-      true,
     )
     expect(errorsOf(diagnostics)).toEqual([])
     const graph = document!.graphs.g0!
@@ -1346,9 +1341,9 @@ describe('Autogrow endpoint reconstruction', () => {
     ])
   })
 
-  it('does not classify maintained alias static inputs as unknown family members', () => {
+  it('does not classify static inputs as unknown family members', () => {
     const schema: NodeSchema = {
-      type: 'comfy.MixedInputs',
+      type: 'MixedInputs',
       displayName: 'Mixed Inputs',
       category: 'test',
       source: 'v3',
@@ -1370,12 +1365,12 @@ describe('Autogrow endpoint reconstruction', () => {
         },
       ],
     }
-    const { document, diagnostics, targetId } = importFamily(schema, ['fixed'], 'MixedInputs', true)
+    const { document, diagnostics, targetId } = importFamily(schema, ['fixed'], 'MixedInputs')
     expect(codesOf(diagnostics)).not.toContain('import.dynamic.autogrowWireUnknown')
     expect(document!.graphs.g0!.links.l1!.to).toEqual({ node: `n${targetId}`, port: 'fixed' })
   })
 
-  it('decodes positional and keyed widgets for flat named alias members', () => {
+  it('decodes positional and keyed widgets for scoped named members', () => {
     const scalar: InputSpec = {
       kind: 'input',
       id: 'value',
@@ -1384,7 +1379,7 @@ describe('Autogrow endpoint reconstruction', () => {
       widget: { widgetType: 'FLOAT', options: {}, default: 0 },
     }
     const schema: NodeSchema = {
-      type: 'comfy.ComfyMathExpression',
+      type: 'ComfyMathExpression',
       displayName: 'Comfy Math Expression',
       category: 'test',
       source: 'v3',
@@ -1402,14 +1397,13 @@ describe('Autogrow endpoint reconstruction', () => {
         },
       }],
     }
-    const resolveAlias = (type: string) => type === 'ComfyMathExpression' ? schema : undefined
-    const maintainedAlias = (type: string) => type === 'ComfyMathExpression'
+    const resolveSchema = (type: string) => type === schema.type ? schema : undefined
     const positional = importLitegraph(workflow([
       lgNode(1, 'ComfyMathExpression', {
-        inputs: [{ name: 'b' }, { name: 'a' }],
+        inputs: [{ name: 'values.b' }, { name: 'values.a' }],
         widgets_values: [2, 1],
       }),
-    ]), resolveAlias, maintainedAlias)
+    ]), resolveSchema)
     expect(codesOf(positional.diagnostics)).not.toContain('import.dynamic.autogrowUnsupported')
     expect(positional.document!.graphs.g0!.nodes.n1).toMatchObject({
       dynamic: { values: { members: ['b', 'a'] } },
@@ -1418,10 +1412,10 @@ describe('Autogrow endpoint reconstruction', () => {
 
     const keyed = importLitegraph(workflow([
       lgNode(1, 'ComfyMathExpression', {
-        inputs: [{ name: 'b' }, { name: 'a' }],
-        widgets_values: { b: 3, a: 4 },
+        inputs: [{ name: 'values.b' }, { name: 'values.a' }],
+        widgets_values: { 'values.b': 3, 'values.a': 4 },
       }),
-    ]), resolveAlias, maintainedAlias)
+    ]), resolveSchema)
     expect(codesOf(keyed.diagnostics)).not.toContain('import.widgets.unknownKeys')
     expect(keyed.document!.graphs.g0!.nodes.n1).toMatchObject({
       dynamic: { values: { members: ['b', 'a'] } },
