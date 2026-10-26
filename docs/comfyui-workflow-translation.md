@@ -16,8 +16,9 @@ The importer accepts only the ordinary schema resolver and the optional
 class/version widget upgrade table; there is no group-collapse or source-snapshot
 predicate. Family members use the declared schema scope, with prefix members
 assigned persisted identities in authored input order.
-The core no longer exports a pack alias-catalog parser. Historical SaveVideo
-carrier conversion and MiniMax carrier-catalog fixtures are not import paths;
+The core has no pack alias/group catalog parser or group-collapse command.
+Historical SaveVideo carrier conversion and MiniMax carrier-catalog fixtures
+are not import paths;
 ordinary workflow fixtures preserve their authored class identities and remain
 unresolved when those classes are absent from the selected registry.
 

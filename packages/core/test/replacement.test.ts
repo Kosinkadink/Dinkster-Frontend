@@ -11,7 +11,6 @@
  */
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
-import { comfyGroupReplacementInvocation } from '../src/commands/replace-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { netViewPositions } from '../src/format/net-views.js'
@@ -29,7 +28,6 @@ import { isReplacementRule, type ReplacementRule } from '../src/replace/model.js
 import { planReplacement, type NodeReplacePlan } from '../src/replace/plan.js'
 import { createReplacementRegistry } from '../src/replace/registry.js'
 import { REPLACEMENT_CHAIN_LIMIT, registerSchemaRules, replacementInvocation, scanReplacements } from '../src/replace/scan.js'
-import { parseComfyReplacement } from '../src/schema/comfy-registry-codec.js'
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 // ---------------------------------------------------------------------------
@@ -321,28 +319,7 @@ describe('isReplacementRule', () => {
     ]) expect(isReplacementRule(replacement(mapping))).toBe(false)
   })
 
-  it('strictly decodes Comfy output family vocabulary', () => {
-    const valid = {
-      from: 'A',
-      cases: [{
-        to: 'B',
-        outputFamilies: {
-          copied: { kind: 'copy', sourceFamily: 'source' },
-          explicit: { kind: 'members', members: [{ suffix: '0', output: 'left' }] },
-        },
-      }],
-    }
-    expect(parseComfyReplacement(valid, 'replacement')).toEqual(valid)
-    expect(() => parseComfyReplacement({
-      from: 'A',
-      cases: [{
-        to: 'B',
-        outputFamilies: { results: { kind: 'copy', sourceFamily: 'source', extra: true } },
-      }],
-    }, 'replacement')).toThrow(/unknown fields: extra/)
-  })
-
-  it('validates and strictly decodes literal dynamic target choices', () => {
+  it('validates literal dynamic target choices', () => {
     const valid = {
       from: 'A',
       cases: [{
@@ -353,18 +330,15 @@ describe('isReplacementRule', () => {
       }],
     }
     expect(isReplacementRule(valid)).toBe(true)
-    expect(parseComfyReplacement(valid, 'replacement')).toEqual(valid)
     for (const slotVariants of [{}, { policy: '' }, { policy: 7 }, { '.policy': 'choice' }, { 'missing:mode': 'choice' }]) {
       const malformed = { from: 'A', cases: [{ to: 'B', nodes: { helper: { type: 'H' } }, slotVariants }] }
       expect(isReplacementRule(malformed)).toBe(false)
-      expect(() => parseComfyReplacement(malformed, 'replacement')).toThrow()
     }
     const stale = { from: 'A', cases: [{ to: 'B', targetChoices: { policy: { kind: 'constant', value: 'exact' } } }] }
     expect(isReplacementRule(stale)).toBe(false)
-    expect(() => parseComfyReplacement(stale, 'replacement')).toThrow()
   })
 
-  it('validates and strictly decodes same-type migration markers', () => {
+  it('validates same-type migration markers', () => {
     const valid = {
       from: 'A',
       migration: { historicalInputs: ['legacy.value', 'selector'] },
@@ -375,7 +349,6 @@ describe('isReplacementRule', () => {
       }, { to: 'A' }],
     }
     expect(isReplacementRule(valid)).toBe(true)
-    expect(parseComfyReplacement(valid, 'replacement')).toEqual(valid)
 
     const missingFallback = {
       from: 'A',
@@ -383,7 +356,6 @@ describe('isReplacementRule', () => {
       cases: [{ to: 'A', when: { kind: 'valuePresent', input: 'legacy' } }],
     }
     expect(isReplacementRule(missingFallback)).toBe(false)
-    expect(() => parseComfyReplacement(missingFallback, 'replacement')).toThrow()
 
     for (const migration of [
       null,
@@ -398,7 +370,6 @@ describe('isReplacementRule', () => {
     ]) {
       const malformed = { from: 'A', migration, cases: [{ to: 'A' }] }
       expect(isReplacementRule(malformed)).toBe(false)
-      expect(() => parseComfyReplacement(malformed, 'replacement')).toThrow()
     }
 
     const changesType = {
@@ -407,7 +378,6 @@ describe('isReplacementRule', () => {
       cases: [{ to: 'B' }],
     }
     expect(isReplacementRule(changesType)).toBe(false)
-    expect(() => parseComfyReplacement(changesType, 'replacement')).toThrow()
   })
 
   it('rejects cyclic internal links, doubly-fed inputs, and malformed helper addresses', () => {
@@ -1269,7 +1239,6 @@ describe('input family replacement', () => {
       }],
     }
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.dynamic).toEqual({ values: { members: ['b', 'a'] } })
@@ -1320,7 +1289,6 @@ describe('input family replacement', () => {
       }],
     }
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.dynamic).toEqual({ values: { members: ['value1', 'value2'] } })
@@ -1360,7 +1328,6 @@ describe('input family replacement', () => {
       }],
     }
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.createdNodes).toEqual([expect.objectContaining({
@@ -1414,7 +1381,6 @@ describe('input family replacement', () => {
     }
 
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.createdNodes).toEqual([
@@ -2850,34 +2816,6 @@ describe('node.replace', () => {
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.diagnostics[0]!.code).toBe('replace.stale')
     expect(store2.doc).toEqual(mutated)
-  })
-})
-
-describe('import.replaceComfyGroups', () => {
-  it('rolls back the collapsed graph when native replacement fails', () => {
-    const source = {
-      ...doc({
-        g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode', { amount: 1 }) } }),
-      }),
-      view: { graphs: { g0: { nodes: {} } } },
-    } satisfies WorkflowDocument
-    const collapsed = {
-      ...doc({
-        g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode', { amount: 2 }) } }),
-      }),
-      view: { graphs: { g0: { nodes: {} } } },
-    } satisfies WorkflowDocument
-    const planned = planReplacement(collapsed, 'g0', 'old', basicRule, resolve).plan!
-    const stale = { ...planned, from: 'comfy-group.test' }
-    const invocation = comfyGroupReplacementInvocation(source, collapsed, [stale])!
-    const store = new DocumentStore(source, coreCommandRegistry())
-
-    const outcome = store.dispatch(invocation)
-
-    expect(outcome.ok).toBe(false)
-    expect(outcome.diagnostics).toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
-    expect(store.doc).toEqual(source)
-    expect(store.revision).toBe(0)
   })
 })
 

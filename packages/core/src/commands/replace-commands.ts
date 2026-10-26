@@ -24,7 +24,7 @@ import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import { MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { graphAllocator } from './alloc.js'
-import type { CommandDefinition, CommandInvocation } from './contract.js'
+import type { CommandDefinition } from './contract.js'
 import {
   REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY,
   type NodeReplacePlan,
@@ -750,83 +750,4 @@ const nodeReplace: CommandDefinition = {
   },
 }
 
-const replaceComfyGroups: CommandDefinition = {
-  id: 'import.replaceComfyGroups',
-  run(doc, params, tx, context) {
-    if (
-      !isObj(params) ||
-      typeof params.graphId !== 'string' ||
-      !isObj(params.sourceGraph) ||
-      !isObj(params.sourceView) ||
-      !isObj(params.collapsedGraph) ||
-      !isObj(params.collapsedView) ||
-      !Array.isArray(params.plans) ||
-      params.plans.length === 0 ||
-      params.plans.length > 256 ||
-      !params.plans.every((plan) =>
-        isObj(plan) &&
-        plan.graphId === params.graphId &&
-        typeof plan.nodeId === 'string' &&
-        typeof plan.from === 'string') ||
-      !params.plans.some((plan) =>
-        isObj(plan) &&
-        typeof plan.from === 'string' &&
-        plan.from.startsWith('comfy-group.'))
-    ) return [err('params.invalid', 'import.replaceComfyGroups: malformed plan')]
-    if (params.graphId !== doc.root) {
-      return [err('params.invalid', 'import.replaceComfyGroups: only the imported root graph may change')]
-    }
-    const sourceGraph = doc.graphs[params.graphId]
-    const sourceView = doc.view.graphs[params.graphId]
-    if (
-      sourceGraph === undefined ||
-      sourceView === undefined ||
-      canonicalJson(sourceGraph as unknown as Json) !== canonicalJson(params.sourceGraph) ||
-      canonicalJson(sourceView as unknown as Json) !== canonicalJson(params.sourceView)
-    ) return [err('replace.stale', 'import.replaceComfyGroups: imported source graph changed')]
-
-    tx.set(['graphs', params.graphId], params.collapsedGraph)
-    tx.set(['view', 'graphs', params.graphId], params.collapsedView)
-    const diagnostics: Diagnostic[] = []
-    for (const plan of params.plans) {
-      const next = nodeReplace.run(
-        tx.current,
-        { plan } as unknown as Json,
-        tx,
-        context,
-      )
-      diagnostics.push(...next)
-      if (next.some((item) => item.severity === 'error')) return diagnostics
-    }
-    return diagnostics
-  },
-}
-
-export function comfyGroupReplacementInvocation(
-  source: WorkflowDocument,
-  collapsed: WorkflowDocument,
-  plans: readonly NodeReplacePlan[],
-): CommandInvocation | undefined {
-  const graphId = source.root
-  if (
-    plans.length === 0 ||
-    collapsed.root !== graphId ||
-    source.graphs[graphId] === undefined ||
-    source.view.graphs[graphId] === undefined ||
-    collapsed.graphs[graphId] === undefined ||
-    collapsed.view.graphs[graphId] === undefined
-  ) return undefined
-  return {
-    command: 'import.replaceComfyGroups',
-    params: {
-      graphId,
-      sourceGraph: source.graphs[graphId],
-      sourceView: source.view.graphs[graphId],
-      collapsedGraph: collapsed.graphs[graphId],
-      collapsedView: collapsed.view.graphs[graphId],
-      plans,
-    } as unknown as Json,
-  }
-}
-
-export const REPLACE_COMMANDS: readonly CommandDefinition[] = [nodeReplace, replaceComfyGroups]
+export const REPLACE_COMMANDS: readonly CommandDefinition[] = [nodeReplace]
