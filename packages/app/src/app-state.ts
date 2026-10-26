@@ -4583,17 +4583,6 @@ export class AppState {
       : this.extensionWorlds.get(registry!.connection)?.get(digest)?.widgets ?? this.widgetRegistry
   }
 
-  private replacementSchemaOf(
-    registry: SchemaRegistry | undefined,
-    type: string,
-    role: 'source' | 'target',
-  ): NodeSchema | undefined {
-    if (role === 'target') return registry?.resolve(type)
-    return registry?.comfyAliases?.sourceSchemas.get(type) ??
-      registry?.comfyGroups?.groupSchemas.get(type) ??
-      registry?.resolve(type)
-  }
-
   // -- Deprecation + replacement --------------------------------------------
 
   /**
@@ -4691,12 +4680,6 @@ export class AppState {
     if (cached && cached.version === this.extraRulesVersion) return cached.registry
     const registry = createReplacementRegistry()
     const diags = [...registerSchemaRules(registry, reg.schemas.values())]
-    for (const record of reg.comfyAliases?.records ?? []) {
-      diags.push(...registry.register('pack', record.replacement))
-    }
-    for (const record of reg.comfyGroups?.records ?? []) {
-      diags.push(...registry.register('pack', record.replacement))
-    }
     for (const { layer, rule } of this.extraRules) diags.push(...registry.register(layer, rule))
     // Synthesized legacy-name rules last, at the lowest-precedence layer:
     // an explicit schema/pack/core rule for the same legacy name always
@@ -4715,7 +4698,7 @@ export class AppState {
     if (tab.execution) return []
     const reg = this.registryForTab(tab)
     if (!reg) return []
-    const resolve: ReplacementSchemaResolver = (type, role) => this.replacementSchemaOf(reg, type, role)
+    const resolve: ReplacementSchemaResolver = (type) => reg.resolve(type)
     return scanReplacements(tab.store.doc, this.replacementRegistryFor(reg), resolve)
   }
 
@@ -4811,18 +4794,11 @@ export class AppState {
     )
     const migrationSucceeded = failedMigrationNodes.size === 0
 
-    const maintainedItems = remainingItems.filter((item) => {
-      const registry = this.registryForTab(tab)
-      return registry?.comfyAliases?.recordsBySourceType.has(item.sourceType) === true ||
-        registry?.comfyGroups?.recordsByGroupType.has(item.sourceType) === true
-    })
-    const maintainedCohortSafe = maintainedItems.every((item) => item.safe)
     const ordinaryAuto = review
       ? []
       : remainingItems.filter((item) =>
           !failedMigrationNodes.has(nodeKey(item)) &&
-          item.safe &&
-          (maintainedCohortSafe || !maintainedItems.includes(item)),
+          item.safe,
         )
     const ordinarySucceeded = ordinaryAuto.length === 0 || this.applyReplacements(tab, ordinaryAuto)
     const rest = ordinarySucceeded
@@ -4881,9 +4857,7 @@ export class AppState {
       if (
         node.type.startsWith('#') ||
         (node.virtual === true && this.virtualNodeSchema(node.type)?.virtual === true) ||
-        registry.resolve(node.type) ||
-        registry.comfyAliases?.sourceSchemas.has(node.type) === true ||
-        registry.comfyGroups?.groupSchemas.has(node.type) === true
+        registry.resolve(node.type)
       )
         continue
       missing.set(node.type, (missing.get(node.type) ?? 0) + 1)
@@ -6313,7 +6287,7 @@ export class AppState {
     if (!registry) return []
     const refs: ImportAssetReference[] = []
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
-      const schema = registry.comfyAliases?.sourceSchemas.get(node.type) ?? registry.resolve(node.type)
+      const schema = registry.resolve(node.type)
       if (!schema) continue
       for (const item of schema.items) {
         if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET') continue

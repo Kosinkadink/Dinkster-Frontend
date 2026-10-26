@@ -1072,6 +1072,30 @@ describe('dynamic output replacement integration', () => {
 })
 
 describe('legacy documents against a native backend', () => {
+  it.each([
+    ['alias', () => maintainedAliasPayload([{ nodeClass: 'EmptyImage', sourceType: 'comfy.LegacyEmptyImage' }]), 'comfy.LegacyEmptyImage'],
+    ['group', maintainedGroupPayload, 'comfy-group.comfy-core.empty-image-preview'],
+  ] as const)('does not upgrade authored nodes using a historical %s snapshot', (_kind, payload, sourceType) => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, payload()))
+    const authored = docJson('historical-snapshot', {
+      source: { type: sourceType, values: { width: 61, height: 29, batch_size: 2, color: 7 } },
+      sink: { type: 'comfy.PreviewImage' },
+    }, {
+      image: { id: 'image', from: { node: 'source', port: 'image' }, to: { node: 'sink', port: 'images' } },
+    }) as { graphs: Record<string, unknown> }
+    expect(app.openDocument(authored, 'Historical source')).toEqual([])
+    const tab = app.activeTab()!
+    expect(tab.store.doc.graphs).toEqual(authored.graphs)
+    expect(tab.store.revision).toBe(0)
+    expect(app.scanTabReplacements(tab)).toEqual([])
+    expect(app.problems.get()).toContainEqual(expect.objectContaining({
+      code: 'schema.unresolvedType', message: expect.stringContaining(sourceType),
+    }))
+    expect(app.problems.get().some((problem) => problem.code.startsWith('replace.'))).toBe(false)
+    expect(app.compileTab(tab)?.ok).toBe(false)
+  })
+
   it('retains every authored node when a historical dynamic group catalog is present', () => {
     const backend = app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, maintainedDynamicGroupPayload())
