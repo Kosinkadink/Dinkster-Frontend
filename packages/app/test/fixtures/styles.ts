@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
-const entry = new URL('../../src/styles.css', import.meta.url)
-export const shellStyles = readFileSync(entry, 'utf8').replace(
+const source = resolve(process.cwd(), 'src')
+export const shellStyles = readFileSync(resolve(source, 'styles.css'), 'utf8').replace(
   /@import '([^']+)';/g,
-  (_match, path: string) => readFileSync(new URL(path, entry), 'utf8'),
+  (_match, path: string) => readFileSync(resolve(source, path), 'utf8'),
 )
