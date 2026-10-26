@@ -31,7 +31,7 @@ import {
 } from '../src/scene.js'
 import { hitTest, hitTestLink, hitTestPin, hoveredNodeAt, linkBounds, linkControlOffset, pinPosition, LINK_HIT_RADIUS, LINK_MIDPOINT_HIT_RADIUS, PIN_HIT_RADIUS } from '../src/hit.js'
 import { defaultTokens } from '../src/tokens.js'
-import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
+import { layoutNode, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
@@ -65,6 +65,32 @@ function sceneOf(workflow: string, graphId = 'g0'): Scene {
 describe('hitTest', () => {
   const scene = sceneOf('exec-basic')
   const n0 = scene.nodes.find((n) => n.id === 'n0')!
+
+  it('independently hits horizontal widgets and every input/value-output socket', () => {
+    const schema: NodeSchema = {
+      type: 'SaveFixture', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      items: ['prefix', 'quality', 'mount'].map((id) => ({
+        kind: 'input', id, optional: false, type: { kind: 'concrete', name: 'STRING' },
+        widget: { widgetType: 'STRING', options: {} }, ...(id === 'mount' ? { adjacentTo: 'prefix' } : {}),
+      })),
+    }
+    for (const width of [141, 440]) {
+      const layout = layoutNode(schema, n0.node, defaultTokens, measure, widgetMeasure, { size: { width, height: 0 } })
+      const node = { ...n0, layout }
+      const pairedScene = { ...scene, nodes: [node] }
+      const widgets = layout.rows.filter((row) => row.kind === 'widget')
+      expect(widgets[0]!.y).toBe(widgets[1]!.y)
+      for (const row of widgets) {
+        const hit = hitTest(pairedScene, node.x + row.inset + (row.width ?? layout.width - row.inset * 2) / 2, node.y + row.y + row.height / 2)
+        expect(hit).toMatchObject({ kind: 'widget', row: { inputId: row.inputId } })
+      }
+      for (const pin of layout.pins) {
+        const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)!
+        const hit = hitTest(pairedScene, position.x, position.y, { widgetTaps: new Set(layout.pins.filter((pin) => pin.widgetTap).map((pin) => `${node.id}:${pin.portId}:out:tap`)) })
+        expect(hit).toMatchObject(pin.widgetTap ? { kind: 'widgetTap', pin: { portId: pin.portId } } : { kind: 'pin', portId: pin.portId })
+      }
+    }
+  })
 
   it('empty space misses everything', () => {
     expect(hitTest(scene, -10_000, -10_000)).toEqual({ kind: 'empty' })

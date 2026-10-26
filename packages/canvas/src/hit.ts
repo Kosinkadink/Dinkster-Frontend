@@ -273,7 +273,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       // Paint suppresses every family-owned pin; hit testing must agree
       // (taps are memberless today, so this is consistency armor).
       if (pin.familyOwner !== undefined) continue
-      const x = node.x + node.layout.width
+      const x = node.x + (pin.x ?? node.layout.width)
       const y = node.y + pin.y
       if (Math.hypot(wx - x, wy - y) <= pinHitRadius)
         return { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
@@ -363,10 +363,11 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') return { kind: 'section', node, row }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
-        if (wx < node.x + row.inset || wx > right - row.inset) continue
+        const width = row.width ?? l.width - row.inset * 2
+        if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
         return {
           kind: 'widget', node, row,
-          x: node.x + row.inset, y: ry, width: l.width - row.inset * 2,
+          x: node.x + row.inset, y: ry, width,
           height: row.height, localX: wx - node.x - row.inset, localY: wy - ry,
         }
       }
@@ -384,14 +385,15 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') return { kind: 'section', node, row }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
-        if (wx < node.x + row.inset || wx > right - row.inset) return { kind: 'body', node }
+        const width = row.width ?? l.width - row.inset * 2
+        if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
         return {
           kind: 'widget',
           node,
           row,
           x: node.x + row.inset,
           y: ry,
-          width: l.width - row.inset * 2,
+          width,
           height: row.height,
           localX: wx - node.x - row.inset,
           localY: wy - ry,
@@ -813,7 +815,7 @@ export function hitTestPin(
       if (pin.widgetTap === true) continue
       if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
       if (pinRevealed && !pinRevealed(node, pin)) continue
-      const px = pin.direction === 'in' ? node.x : node.x + node.layout.width
+      const px = node.x + (pin.x ?? (pin.direction === 'in' ? 0 : node.layout.width))
       const py = node.y + pin.y
       const d = Math.hypot(wx - px, wy - py)
       if (d <= bestDist) {
@@ -921,5 +923,5 @@ export function pinPosition(
 ): { x: number; y: number } | undefined {
   const pin = node.layout.pins.find((p) => p.portId === portId && p.direction === direction && (p.widgetTap === true) === widgetTap)
   if (!pin) return undefined
-  return { x: direction === 'in' ? node.x : node.x + node.layout.width, y: node.y + pin.y }
+  return { x: node.x + (pin.x ?? (direction === 'in' ? 0 : node.layout.width)), y: node.y + pin.y }
 }

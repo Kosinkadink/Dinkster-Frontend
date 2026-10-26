@@ -2862,6 +2862,7 @@ export class CanvasRenderer {
           }
         } else {
           const companion = this.companions[sceneNode.id]?.[row.valueKey]
+          const widgetWidth = row.width ?? l.width - row.inset * 2
           // Selector rows ignore boundary bindings for inertness: the bound row
           // remains the occurrence-local editor.
           const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
@@ -2883,7 +2884,7 @@ export class CanvasRenderer {
             ...(companion !== undefined ? { companionAlpha } : {}),
             x: node.x + row.inset,
             y: rowY,
-            width: l.width - row.inset * 2,
+            width: widgetWidth,
             rowHeight: t.rowHeight,
             connected,
             hovered,
@@ -2893,7 +2894,7 @@ export class CanvasRenderer {
             // A neutral wash preserves the widget's own active/connected
             // styling without making value selection look like live blue data.
             const hoverAlpha = ctx.globalAlpha
-            const chrome = widgetChromeRect(node.x + row.inset, rowY, l.width - row.inset * 2, row.height)
+            const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height)
             ctx.globalAlpha = hoverAlpha * 0.12
             ctx.fillStyle = t.colors.label
             ctx.beginPath()
@@ -2906,7 +2907,7 @@ export class CanvasRenderer {
             // COMBO option, ...): a red row outline makes the Problems entry
             // actionable at the widget the user must fix, mirroring (not
             // replacing) the panel entry - same contract as the pin warn ring.
-            const chrome = widgetChromeRect(node.x + row.inset, rowY, l.width - row.inset * 2, row.height)
+            const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height)
             ctx.strokeStyle = t.colors.error
             ctx.lineWidth = 1.5
             ctx.beginPath()
@@ -2914,7 +2915,7 @@ export class CanvasRenderer {
             ctx.stroke()
           }
           if (row.controllerMode !== undefined) {
-            const chip = controllerChipRect(l.width - row.inset * 2, t.rowHeight)
+            const chip = controllerChipRect(widgetWidth, t.rowHeight)
             const x = node.x + row.inset + chip.x
             const y = rowY + chip.y
             const chipAlpha = ctx.globalAlpha
@@ -2940,7 +2941,7 @@ export class CanvasRenderer {
             ctx.lineWidth = 1.5
             ctx.lineCap = 'round'
             const rowLeft = node.x + row.inset
-            const rowWidth = l.width - row.inset * 2
+            const rowWidth = widgetWidth
             const minusX = rowLeft + edgeActionCenterX(rowWidth, 'leading')
             const plusX = rowLeft + edgeActionCenterX(rowWidth, 'trailing')
             ctx.beginPath()
@@ -2960,7 +2961,7 @@ export class CanvasRenderer {
           }
           const lensAffordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
           if (lensAffordance !== undefined) {
-            const rowWidth = l.width - row.inset * 2
+            const rowWidth = widgetWidth
             const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight, row)
             const x = node.x + row.inset + rect.x
             const y = rowY + rect.y
@@ -3330,7 +3331,7 @@ export class CanvasRenderer {
       return
     }
     for (const pin of l.pins) {
-      const px = pin.direction === 'in' ? node.x : node.x + l.width
+      const px = node.x + (pin.x ?? (pin.direction === 'in' ? 0 : l.width))
       const py = node.y + pin.y
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false

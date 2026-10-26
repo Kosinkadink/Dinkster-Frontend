@@ -24,6 +24,7 @@ interface DinksterBridgeSceneNode {
       y: number
       height: number
       inset?: number
+      width?: number
       inputId?: string
       viewId?: string
       representationId?: string

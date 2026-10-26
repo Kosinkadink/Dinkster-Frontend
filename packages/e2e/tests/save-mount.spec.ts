@@ -1,17 +1,18 @@
 import { expect, test, type Page } from './fixtures.js'
 
-async function mountPoint(page: Page) {
-  return page.evaluate(() => {
+async function mountPoint(page: Page, inputId = 'destination') {
+  return page.evaluate((inputId) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((node) => node.id === 'save')!
-    const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'destination')!
+    const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === inputId)!
+    if (row.kind !== 'widget') throw new Error('Missing widget')
     const viewport = renderer.getViewport()
     const rect = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
     return {
-      x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      x: rect.left + (node.x + row.inset! + (row.width ?? node.layout.width - row.inset! * 2) / 2) * viewport.scale + viewport.x,
       y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
     }
-  })
+  }, inputId)
 }
 
 test('schema adjacency keeps separate prefix and mount controls through selection, default reset and undo', async ({ page }, testInfo) => {
@@ -48,7 +49,14 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'save')
     return node?.layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)
   })).toEqual(['prefix', 'destination', 'quality'])
+  const prefixPoint = await mountPoint(page, 'prefix')
   const point = await mountPoint(page)
+  expect(point.y).toBe(prefixPoint.y)
+  expect(point.x).toBeGreaterThan(prefixPoint.x)
+  await page.mouse.click(prefixPoint.x, prefixPoint.y)
+  await expect(page.locator('[data-testid="widget-editor"]')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: testInfo.outputPath('mount-row-default.png') })
   await page.mouse.click(point.x, point.y)
   await expect(page.getByTestId('mount-widget-editor')).toHaveAttribute('data-mounts', 'ready')
   await expect(page.getByTestId('mount-widget-choice')).toHaveText('Default output mount')
@@ -59,10 +67,16 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
   await page.getByTestId('mount-widget-apply').click()
   const values = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values)
   expect(await values()).toEqual({ prefix: 'frames/session', quality: 73, destination: 'archive' })
+  await page.screenshot({ path: testInfo.outputPath('mount-row-explicit.png') })
   await page.mouse.click(point.x, point.y)
   await expect(page.getByTestId('mount-widget-choice')).toHaveText('archive')
   await page.screenshot({ path: testInfo.outputPath('mount-explicit.png') })
+  await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 600, height: 700 })
+  await page.getByRole('button', { name: /^Toggle right rail/ }).click()
+  const narrowPoint = await mountPoint(page)
+  expect(narrowPoint.y).toBe((await mountPoint(page, 'prefix')).y)
+  await page.mouse.click(narrowPoint.x, narrowPoint.y)
   const editor = page.getByTestId('mount-widget-editor')
   await expect.poll(async () => {
     const rect = await editor.boundingBox()
@@ -73,8 +87,10 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
   await page.locator('[data-option-id=""]').click()
   await page.getByTestId('mount-widget-apply').click()
   expect(await values()).toEqual({ prefix: 'frames/session', quality: 73, destination: null })
+  await page.screenshot({ path: testInfo.outputPath('mount-row-narrow-default.png') })
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
   expect(await values()).toEqual({ prefix: 'frames/session', quality: 73, destination: 'archive' })
+  await page.screenshot({ path: testInfo.outputPath('mount-row-narrow-explicit.png') })
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes))).toEqual(['save'])
   await expect(page.getByTestId('save-target-editor')).toHaveCount(0)
 })

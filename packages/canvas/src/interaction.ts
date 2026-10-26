@@ -2621,7 +2621,7 @@ export class InteractionController {
       const fromNode = scene.nodes.find((n) => n.id === from.node)
       const fromPin = fromNode?.layout.pins.find((p) => p.widgetTap === true && p.address.port === from.input)
       if (fromNode && fromPin) {
-        anchor = { x: fromNode.x + fromNode.layout.width, y: fromNode.y + fromPin.y }
+        anchor = pinPosition(fromNode, fromPin.portId, 'out', true) ?? anchor
         anchorType = fromPin.type
       }
       excludeNode = from.node
@@ -2836,6 +2836,9 @@ export class InteractionController {
           pin.widgetTap !== true &&
           pinRevealed(node, pin)
         ) {
+          if (pin.x !== undefined && pin.x !== 0 && pin.x !== node.layout.width &&
+            Math.abs(localX - pin.x) <= PIN_HIT_RADIUS + coordinateTolerance &&
+            Math.abs(localY - pin.y) <= PIN_HIT_RADIUS + coordinateTolerance) return true
           minY = Math.min(minY, pin.y)
           maxY = Math.max(maxY, pin.y)
         }

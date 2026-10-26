@@ -75,6 +75,14 @@ describe('pairing', () => {
     expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
     expect(JSON.stringify(items)).toBe(before)
     expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
+    const [prefix, mount, quality] = layout.rows
+    expect(mount!.y).toBe(prefix!.y)
+    expect(quality!.y).toBe(prefix!.y + prefix!.height)
+    for (const projected of [layout, withPreviewRegion(layout, defaultTokens), withCompactPreviewRegion(layout, defaultTokens), withTextOutputRegion(layout, defaultTokens)]) {
+      expect(projected.rows[1]!.y).toBe(projected.rows[0]!.y)
+      const inputs = projected.pins.filter((pin) => pin.direction === 'in')
+      expect(inputs[0]!.y).toBe(inputs[1]!.y)
+    }
   })
 
   it('keeps adjacency inside each materialized branch and family member', () => {

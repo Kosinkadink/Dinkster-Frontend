@@ -42,8 +42,10 @@ to the generic MOUNT descriptor, which can present other STRING inputs.
 The input's `adjacentTo` names a different sibling input for presentation only.
 The codec preserves declaration order, including positional widget slots, and
 rejects empty, self-referencing, cyclic or missing sibling hints and extra MOUNT fields.
-Visible widget rows honor the hint directly after the referenced sibling in
-the same section; a hidden or socket-only sibling leaves ordinary row order.
+Visible widgets honor the hint horizontally beside the referenced sibling on
+the same line in the same section, with independent editors and separated
+input/value-output sockets. A shared line has a width floor for both controls;
+a hidden or socket-only sibling leaves ordinary row order.
 Nested branch and family hints resolve within their own materialized sibling
 scope; they never attach to a different member or change declaration order.
 The MOUNT editor uses the existing mount index, offers only ready writable
