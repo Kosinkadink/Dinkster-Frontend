@@ -48,7 +48,7 @@ Optionality and the null default belong to these save-node declarations, not
 to the generic MOUNT descriptor, which can present other STRING inputs.
 The input's `adjacentTo` names a different sibling input for presentation only.
 The codec preserves declaration order, including positional widget slots, and
-rejects empty, self-referencing or missing sibling hints and extra MOUNT fields.
+rejects empty, self-referencing, cyclic or missing sibling hints and extra MOUNT fields.
 Visible widget rows honor the hint directly after the referenced sibling in
 the same section; a hidden or socket-only sibling leaves ordinary row order.
 The MOUNT editor uses the existing mount index, offers only ready writable

@@ -1527,11 +1527,22 @@ function decodeWireEntries(
 }
 
 function validateInputAdjacency(inputs: readonly InputSpec[]): void {
-  const ids = new Set(inputs.map((input) => input.id))
+  const byId = new Map(inputs.map((input) => [input.id, input]))
   for (const input of inputs) {
-    if (input.adjacentTo !== undefined && (input.adjacentTo === input.id || !ids.has(input.adjacentTo))) {
+    if (input.adjacentTo !== undefined && (input.adjacentTo === input.id || !byId.has(input.adjacentTo))) {
       throw new Error(`${input.id}.adjacentTo must name a different sibling input`)
     }
+  }
+  const checked = new Set<string>()
+  for (const input of inputs) {
+    const path = new Set<string>()
+    let current: InputSpec | undefined = input
+    while (current !== undefined && !checked.has(current.id)) {
+      if (path.has(current.id)) throw new Error(`${current.id}.adjacentTo cycle`)
+      path.add(current.id)
+      current = current.adjacentTo === undefined ? undefined : byId.get(current.adjacentTo)
+    }
+    for (const id of path) checked.add(id)
   }
 }
 

@@ -1967,10 +1967,7 @@ describe('selector scene items', () => {
     expect(s9.typeName).toBeUndefined()
   })
 
-  it('interchangeable comfy-compat spellings count as one agreed branch type', () => {
-    // IMAGE and comfy.IMAGE denote the same backend value type, so a
-    // selector fed by both must resolve to the canonical spelling instead of
-    // degrading to a wildcard output.
+  it('distinct prefixed and native branch types do not claim one agreed type', () => {
     const extra: Record<string, NodeSchema> = {
       DinksterImageSrc: {
         type: 'DinksterImageSrc', displayName: 'DinksterImageSrc', category: 'test', source: 'v3', isOutputNode: false,
@@ -2015,8 +2012,8 @@ describe('selector scene items', () => {
       widgetMeasure,
     })
     const sel = mixed.selectors.find((s) => s.id === 's4')!
-    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'IMAGE'])
-    expect(sel.typeName).toBe('IMAGE')
+    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'comfy.IMAGE'])
+    expect(sel.typeName).toBeUndefined()
   })
 
   it('every candidate noodle stays visible and anchors at the candidate pin', () => {

@@ -60,6 +60,28 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('rejects adjacency cycles in each sibling scope without rejecting acyclic chains', () => {
+    const field = (id: string, adjacentTo?: string) => ({ role: 'input', id, type: concrete('STRING'), ...(adjacentTo === undefined ? {} : { adjacentTo }) })
+    const scopes = [
+      (inputs: unknown[]) => inputs,
+      (inputs: unknown[]) => [{ role: 'inputFamily', id: 'files', memberPrefix: 'file', template: inputs }],
+      (inputs: unknown[]) => [{ role: 'dynamicCombo', id: 'mode', options: [{ key: 'save', inputs }] }],
+    ]
+    for (const scope of scopes) {
+      for (const inputs of [
+        [field('a', 'b'), field('b', 'a')],
+        [field('a', 'b'), field('b', 'c'), field('c', 'a')],
+      ]) {
+        const result = parseDinksterSchema('CycleFixture', { interface: scope(inputs) })
+        expect(result.schema).toBeUndefined()
+        expect(result.diagnostics.some((item) => item.message.includes('adjacentTo cycle'))).toBe(true)
+      }
+      const valid = parseDinksterSchema('ChainFixture', { interface: scope([field('a'), field('b', 'a'), field('c', 'b')]) })
+      expect(valid.diagnostics).toEqual([])
+      expect(valid.schema).toBeDefined()
+    }
+  })
+
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
     const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
     const production = parseDinksterSchema('test.numeric_union', fixture.nodes['test.numeric_union'])
