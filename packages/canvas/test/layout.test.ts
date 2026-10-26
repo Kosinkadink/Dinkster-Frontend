@@ -68,6 +68,15 @@ describe('conditional widget groups', () => {
 })
 
 describe('pairing', () => {
+  it('places an appended adjacent widget after its sibling without changing schema or value order', () => {
+    const items = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' }), widget('tail')]
+    const before = JSON.stringify(items)
+    const layout = doLayout(items)
+    expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
+    expect(JSON.stringify(items)).toBe(before)
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
+  })
+
   it('outputs pair with connection-input rows top-down', () => {
     const l = doLayout([input('a'), input('b'), output('x'), output('y')])
     expect(l.rows).toHaveLength(2)

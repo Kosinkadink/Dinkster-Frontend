@@ -47,6 +47,12 @@ mount remains a separate string, never a combined prefix/target value.
 The input's `adjacentTo` names a different sibling input for presentation only.
 The codec preserves declaration order, including positional widget slots, and
 rejects empty, self-referencing or missing sibling hints and extra MOUNT fields.
+Visible widget rows honor the hint directly after the referenced sibling in
+the same section; a hidden or socket-only sibling leaves ordinary row order.
+The MOUNT editor uses the existing mount index, offers only ready writable
+mounts and an explicit default-output choice, and commits only a mount string
+or null. Missing saved mount ids remain visible as unavailable, not silently
+replaced with the first writable mount. Prefix editing is independent.
 
 Positional and keyed static COMBO widgets normalize a finite numeric literal
 to its canonical string only when that exact string is a declared option.

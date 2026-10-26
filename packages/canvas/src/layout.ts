@@ -1012,6 +1012,29 @@ export function layoutNode(
     pending.splice(0, pending.length, ...ungrouped, advancedHeader, ...advancedMembers)
   }
 
+  // Placement hints affect rows, never the elaborated interface or values.
+  const adjacentRows = new Map<PendingRow, PendingRow[]>()
+  const attached = new Set<PendingRow>()
+  for (const item of items) {
+    if (item.kind !== 'input' || item.spec.adjacentTo === undefined) continue
+    const row = pending.find((row) => row.widget?.inputId === item.spec.id)
+    const anchor = pending.find((row) => row.widget?.inputId === item.spec.adjacentTo)
+    if (!row || !anchor || row === anchor || row.sectionId !== anchor.sectionId) continue
+    adjacentRows.set(anchor, [...(adjacentRows.get(anchor) ?? []), row])
+    attached.add(row)
+  }
+  const positioned: PendingRow[] = []
+  const emitted = new Set<PendingRow>()
+  const emit = (row: PendingRow): void => {
+    if (emitted.has(row)) return
+    emitted.add(row)
+    positioned.push(row)
+    for (const child of adjacentRows.get(row) ?? []) emit(child)
+  }
+  for (const row of pending) if (!attached.has(row)) emit(row)
+  for (const row of pending) emit(row)
+  pending.splice(0, pending.length, ...positioned)
+
   const naturalRowsHeight = pending.reduce((height, row) => {
     if (row.kind !== 'widget') return height + tokens.rowHeight
     return height + (row.widget!.viewId === 'core.text'
