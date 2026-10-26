@@ -22,6 +22,12 @@ of that workflow's maintained aliases auto-apply. The source nodes and their
 data stay available for explicit review instead of applying a partial
 translation.
 
+Positional `widgets_values` consume one companion entry after a widget with
+`control_after_generate`. The strings `fixed`, `increment`, `decrement` and
+`randomize` select the controller mode; legacy booleans select `fixed` for
+false and `randomize` for true. The companion is not the next input's value.
+Older arrays without a companion still preserve the next numeric widget.
+
 Positional and keyed static COMBO widgets normalize a finite numeric literal
 to its canonical string only when that exact string is a declared option.
 An exact numeric option in a legacy schema takes precedence. A legacy string

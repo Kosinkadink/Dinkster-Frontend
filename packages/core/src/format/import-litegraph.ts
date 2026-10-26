@@ -528,11 +528,11 @@ function decodePositionalWidgets(
         state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json, key, nodeLabel, diags)
         if (item.widget.controller !== undefined && state.index < raw.length) {
           const mode = raw[state.index]
-          if (typeof mode === 'string' && CONTROLLER_MODES.has(mode)) {
-            state.controllers[key] = mode as ControllerMode
+          if (typeof mode === 'boolean' || (typeof mode === 'string' && CONTROLLER_MODES.has(mode))) {
+            state.controllers[key] = typeof mode === 'boolean' ? (mode ? 'randomize' : 'fixed') : mode as ControllerMode
             state.index++
           }
-          // Not a mode string: leave it for the next widget rather than
+          // Not a controller value: leave it for the next widget rather than
           // guessing, including for widgets nested under a combo branch.
         }
       }

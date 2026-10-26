@@ -844,6 +844,20 @@ describe('positional widget mapping', () => {
     expect(n.controllers).toEqual({ seed: 'randomize' })
   })
 
+  it.each([[false, 'fixed'], [true, 'randomize']] as const)(
+    'consumes the legacy boolean controller %s without shifting later values',
+    (legacy, mode) => {
+      const { document, diagnostics } = importLitegraph(
+        ksampler([42, legacy, 23, 7.5, 'euler', 'normal', 0.8]),
+        resolve,
+      )
+      expect(diagnostics).toEqual([])
+      const node = document!.graphs[document!.root]!.nodes.n1!
+      expect(node.controllers).toEqual({ seed: mode })
+      expect(node.values).toEqual({ seed: 42, steps: 23, cfg: 7.5, sampler_name: 'euler', scheduler: 'normal', denoise: 0.8 })
+    },
+  )
+
   it('tolerates a missing controller extra (older serializations)', () => {
     const { document, diagnostics } = importLitegraph(
       ksampler([42, 20, 8.0, 'euler', 'normal', 1.0]),
