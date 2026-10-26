@@ -40,6 +40,11 @@ nodes, change class identities, or rewrite links. Missing or unmatched versions
 use the ordinary import path. Root nodes and subgraph definitions use the same
 table. These source versions are not the workflow format's `version` field.
 
+Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
+constraints. The decoder retains the FLOATS socket and scalar default, min and
+step; it does not replace the runtime type with FLOAT or a primitive list.
+Unforced FLOATS and list<FLOATS> do not accept this numeric presentation.
+
 Native save inputs keep `filename_prefix` as a STRING and append an optional
 STRING `mount` with the closed widget descriptor `{"type":"MOUNT"}`. Null or
 omitted mount uses the backend's snapshot default output mount; an explicit

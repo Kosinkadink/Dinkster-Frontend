@@ -125,6 +125,30 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('preserves forced FLOATS sockets with numeric presentation and rejects unforced or list substitutes', () => {
+    const widget = { type: 'NUMBER', min: -1, step: 0.001 }
+    const representations = { type: 'REPRESENTATIONS', default: 'number', userSwitchable: false,
+      representations: [{ id: 'number', widget }] }
+    for (const descriptor of [widget, representations]) {
+      const entry = { role: 'input', id: 'strengths', type: concrete('FLOATS'), forceInput: true, default: -1, widget: descriptor }
+      const decoded = parseDinksterSchema('ForcedFloats', { interface: [entry] })
+      expect(decoded.diagnostics).toEqual([])
+      expect(inputsOf(decoded.schema!)[0]).toMatchObject({
+        type: { kind: 'concrete', name: 'FLOATS' }, forceInput: true,
+        widget: { widgetType: 'FLOAT', default: -1, options: { min: -1, step: 0.001 } },
+      })
+      for (const invalid of [
+        { ...entry, forceInput: false },
+        { ...entry, forceInput: undefined },
+        { ...entry, type: { kind: 'list', element: concrete('FLOATS') } },
+      ]) {
+        const rejected = parseDinksterSchema('BadFloatsPresentation', { interface: [invalid] })
+        expect(rejected.schema).toBeUndefined()
+        expect(rejected.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+      }
+    }
+  })
+
   it('keeps numeric union widget support closed to the INT/FLOAT scalar domain', () => {
     for (const type of [
       { kind: 'union', types: ['FLOAT', 'STRING'] },
