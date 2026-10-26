@@ -1663,6 +1663,47 @@ describe('registered interactive widget expanded-editor integration', () => {
     }))
   })
 
+  it('previews the same rounded FLOAT slider value that Commit stores', () => {
+    const mounted = mountWidget(widgetState('FLOAT', { display: 'slider', min: 0, max: 1, step: 0.1, round: 0.25, precision: 2 }, 0.2))
+    const slider = mounted.root.querySelector<HTMLElement>('[role="slider"]')!
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(mounted.root.querySelector<HTMLInputElement>('#widget-editor-value')!.value).toBe('0.25')
+    expect(slider.getAttribute('aria-valuenow')).toBe('0.25')
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 0.25 }) }))
+    mounted.unmount()
+  })
+
+  it('keeps FLOAT slider drafts local until Commit and discards them on Cancel', () => {
+    const state = widgetState('FLOAT', { display: 'slider', min: -0.5, max: 2.5, step: 0.25, round: 0.01, precision: 2 }, 0.5)
+    const mounted = mountWidget(state)
+    const slider = mounted.root.querySelector<HTMLElement>('[role="slider"]')!
+    const field = mounted.root.querySelector<HTMLInputElement>('#widget-editor-value')!
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(field.value).toBe('0.75')
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    expect(field.value).toBe('2.5')
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 2.5 }) }))
+    mounted.unmount()
+
+    const cancelled = mountWidget(state)
+    cancelled.root.querySelector<HTMLElement>('[role="slider"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    cancelled.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-cancel"]')!.click()
+    expect(cancelled.dispatchTo).not.toHaveBeenCalled()
+    expect(cancelled.close).toHaveBeenCalledOnce()
+    cancelled.unmount()
+
+    for (const ed of [{ ...state, viewId: 'core.number' }, widgetState('FLOAT', { display: 'slider', min: 1 }, 2)]) {
+      const numeric = mountWidget(ed)
+      expect(numeric.root.querySelector('[role="slider"]')).toBeNull()
+      expect(numeric.root.querySelector('#widget-editor-value')).not.toBeNull()
+      numeric.unmount()
+    }
+  })
+
   it('keeps STRING Ctrl+Enter, exact COLOR strings, and COMBO keyboard selection semantics', () => {
     const string = mountWidget(widgetState('STRING', { multiline: true }, 'old', true))
     expect(string.root.querySelector('[data-testid="widget-editor"]')?.getAttribute('data-editor-surface')).toBe('in-node')

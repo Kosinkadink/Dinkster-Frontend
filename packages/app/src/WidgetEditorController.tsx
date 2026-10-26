@@ -88,6 +88,8 @@ export interface WidgetEditorState {
    * unconnected, undeclared value source still has an editable value - P2).
    */
   readonly spec: WidgetSpec | undefined
+  /** Resolved row view, including a user-selected presentation override. */
+  readonly viewId?: string
   /** Declared row contract when an unavailable kind uses the raw editor. */
   readonly anchorSpec?: WidgetSpec
   /**

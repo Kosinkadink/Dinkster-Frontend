@@ -771,8 +771,8 @@ describe('compact views', () => {
       && (op.args[4] as { role?: string }).role === 'numericRangeFill')).toBe(false)
   })
 
-  it('FLOAT emits the same bounded range affordance without changing its formatted value', () => {
-    const view = registry().viewsFor('FLOAT').find((candidate) => candidate.id === 'core.number')!
+  it('FLOAT slider emits the bounded range affordance without changing its formatted value', () => {
+    const view = registry().viewsFor('FLOAT').find((candidate) => candidate.id === 'core.slider')!
     const { ops, builder } = recordingBuilder()
     view.drawCompact(builder, 0.25, spec('FLOAT', { display: 'slider', min: 0, max: 1, step: 0.01 }), {
       focused: false, connected: false, readonly: false,
@@ -781,6 +781,18 @@ describe('compact views', () => {
       && (op.args[4] as { role?: string }).role === 'numericRangeFill')?.args[4])
       .toMatchObject({ fraction: 0.25 })
     expect(ops.some((op) => op.op === 'text' && op.args[2] === '0.25')).toBe(true)
+  })
+
+  it('selects a FLOAT slider only for bounded slider schemas and keeps number view selectable', () => {
+    const r = registry()
+    const slider = spec('FLOAT', { display: 'slider', min: -2, max: 3, precision: 3 })
+    expect(r.kind('FLOAT')!.defaultView(slider)).toBe('core.slider')
+    expect(r.viewsFor('FLOAT').filter((view) => view.isCompatible(slider)).map((view) => view.id)).toEqual(['core.number', 'core.slider'])
+    for (const options of [{ display: 'slider' }, { display: 'slider', min: 2, max: 2 }, { display: 'slider', min: 3, max: 2 }, { min: -2, max: 3 }]) {
+      expect(r.kind('FLOAT')!.defaultView(spec('FLOAT', options))).toBe('core.number')
+    }
+    expect(formatCompactFloat(1.2, slider)).toBe('1.200')
+    expect(formatCompactFloat(1.8, spec('FLOAT', { precision: 0 }))).toBe('2')
   })
 
   it.each([
