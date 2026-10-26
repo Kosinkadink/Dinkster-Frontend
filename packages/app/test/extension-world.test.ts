@@ -77,6 +77,7 @@ function openNativeFixture(app: AppState): Tab {
       links: { l2: { id: 'l2', from: { node: 'n0', port: 'image' }, to: { node: 'n1', port: 'images' } } },
       nets: {}, reroutes: {},
     } },
+    view: { graphs: {} },
   }, 'Native extension fixture')).toEqual([])
   return app.activeTab()!
 }
