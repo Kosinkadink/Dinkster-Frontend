@@ -10,6 +10,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
 import { canonicalTypeIdOf } from './model.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
+import { isComboValue } from './combo-options.js'
 import type {
   AbsentPolicy,
   AlphaPolicy,
@@ -340,15 +341,16 @@ function rejectUnknownWidgetFields(descriptor: Record<string, unknown>, allowed:
   if (unknown.length > 0) throw new Error(`${where} has unknown fields: ${unknown.join(', ')}`)
 }
 
-function validateComboOption(value: unknown, where: string): void {
-  if (typeof value === 'string' && value !== '') return
+function validateComboOption(value: unknown, where: string, scalar = false): void {
+  const validValue = (candidate: unknown) => scalar ? isComboValue(candidate) : typeof candidate === 'string' && candidate !== ''
+  if (validValue(value)) return
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${where} must be a non-empty string or structured choice`)
+    throw new Error(`${where} must be ${scalar ? 'a finite JSON scalar' : 'a non-empty string'} or structured choice`)
   }
   const option = value as Record<string, unknown>
   rejectUnknownWidgetFields(option, ['value', 'label', 'info', 'folder'], where)
-  if (typeof option['value'] !== 'string' || option['value'] === '') {
-    throw new Error(`${where}.value must be a non-empty string`)
+  if (!validValue(option['value'])) {
+    throw new Error(`${where}.value must be ${scalar ? 'a finite JSON scalar' : 'a non-empty string'}`)
   }
   for (const field of ['label', 'info'] as const) {
     if (option[field] !== undefined && (typeof option[field] !== 'string' || option[field] === '')) {
@@ -432,7 +434,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       const options = descriptor['options']
       if (options !== undefined) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
-        options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`))
+        options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`, true))
       }
       const remote = descriptor['remote']
       if (remote !== undefined) {

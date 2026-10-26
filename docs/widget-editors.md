@@ -96,7 +96,11 @@ The trigger exposes the combobox name, expanded state, popup relationship,
 and active descendant. The popup and rows expose listbox and option roles,
 selected state, and disabled state. Callers may synthesize a disabled current
 option when a stored value is outside the available vocabulary. AppView keeps
-typed COMBO values mapped by option index; runtime settings keep changes in
+typed COMBO values mapped by option index; string, boolean, and finite-number
+choices commit their original scalar rather than their displayed label.
+Integer `8` and string `"8"`, or boolean `true` and integer `1`, remain distinct.
+Remote lists, dynamic branch keys, and MULTI_COMBO selections remain strings.
+Runtime settings keep changes in
 their Apply draft; MOUNT stages a writable mount until Apply; registry
 settings write immediately; and CollectionPanel preserves asynchronous,
 open-vocabulary source and filter values while resetting paging on a source

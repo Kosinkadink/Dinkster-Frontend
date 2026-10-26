@@ -1,7 +1,7 @@
 {
   "ceilings": {
     "nodeIdLiteral": 0,
-    "widgetTypeComparison": 91
+    "widgetTypeComparison": 90
   },
   "slack": {
     "nodeIdLiteral": 0,
@@ -564,14 +564,6 @@
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
       "line": 183,
-      "column": 37,
-      "symbol": "widgetType:COMBO",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 201,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -579,7 +571,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 201,
+      "line": 183,
       "column": 44,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -587,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 208,
+      "line": 190,
       "column": 8,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -611,7 +603,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1207,
+      "line": 1209,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122

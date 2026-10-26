@@ -57,7 +57,7 @@ export type TypeExpr =
   | { readonly kind: 'family_tuple'; readonly input: string }
   | { readonly kind: 'tuple_element'; readonly input?: string; readonly element?: TypeExpr; readonly index: string | number }
 
-/** COMBO is a concrete STRING-valued type at the wire level; we keep its own name. */
+/** COMBO is a concrete type carrying a string, boolean, or finite number. */
 export const COMBO_TYPE = 'COMBO'
 
 // ---------------------------------------------------------------------------

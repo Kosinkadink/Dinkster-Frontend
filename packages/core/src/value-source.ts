@@ -25,6 +25,7 @@ import {
 } from './schema/elaborate.js'
 import { atomNamesOf } from './schema/type-relations.js'
 import { inputsOf, typeExprFromTypeId, type InputSpec, type NodeSchema, type TypeExpr, type WidgetSpec } from './schema/model.js'
+import { normalizeComboOption } from './schema/combo-options.js'
 
 type LinkDataOf = GraphDef['links'][string]
 
@@ -117,16 +118,19 @@ const mergeNumeric: SpecMergeFn = (a, b) => {
   return { options }
 }
 
-const comboKeyOf = (o: unknown): string =>
-  Array.isArray(o) ? String(o[0]) : typeof o === 'object' && o !== null ? JSON.stringify(o) : String(o)
-
 const mergeCombo: SpecMergeFn = (a, b) => {
   const aOpts = Array.isArray(a['options']) ? (a['options'] as unknown[]) : undefined
   const bOpts = Array.isArray(b['options']) ? (b['options'] as unknown[]) : undefined
   const options: Record<string, unknown> = { ...a, ...b }
   if (aOpts && bOpts) {
-    const bKeys = new Set(bOpts.map(comboKeyOf))
-    const merged = aOpts.filter((o) => bKeys.has(comboKeyOf(o)))
+    const bKeys = new Set(bOpts.flatMap((option) => {
+      const normalized = normalizeComboOption(option)
+      return normalized === undefined ? [] : [normalized.value]
+    }))
+    const merged = aOpts.filter((option) => {
+      const normalized = normalizeComboOption(option)
+      return normalized !== undefined && bKeys.has(normalized.value)
+    })
     if (merged.length === 0) return { conflict: 'combo option lists do not intersect' }
     options['options'] = merged
   } else if (aOpts ?? bOpts) {

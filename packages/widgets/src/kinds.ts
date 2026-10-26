@@ -21,7 +21,7 @@ import type {
   WidgetView,
   IntegerWidgetValue,
 } from '@dinkster/core'
-import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, t } from '@dinkster/core'
+import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, t } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -167,7 +167,7 @@ export const markdownKind: WidgetKind<string> = {
 export const comboKind: WidgetKind<Json> = {
   type: 'COMBO',
   // NaN/Infinity are not JSON numbers: they cannot round-trip a document.
-  valueSchema: { version: 1, validate: (v: unknown): v is Json => typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) },
+  valueSchema: { version: 1, validate: isComboValue },
   defaultValue: (spec) => {
     if (comboKind.valueSchema.validate(spec.default)) return spec.default
     for (const option of normalizedComboOptions(spec)) {
