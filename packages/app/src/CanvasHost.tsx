@@ -6409,7 +6409,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
 
       <Show when={stack().length > 1}>
-        <nav class="breadcrumb" data-testid="graph-breadcrumb">
+        <nav class="breadcrumb" data-testid="graph-breadcrumb" ref={(breadcrumb) => {
+          onMount(() => {
+            const stage = breadcrumb.closest<HTMLElement>('.canvas-stage')!
+            const measure = (): void => {
+              stage.style.setProperty('--canvas-breadcrumb-height', `${breadcrumb.offsetHeight}px`)
+            }
+            const observer = new ResizeObserver(measure)
+            observer.observe(breadcrumb)
+            measure()
+            onCleanup(() => {
+              observer.disconnect()
+              stage.style.removeProperty('--canvas-breadcrumb-height')
+            })
+          })
+        }}>
           <Index each={stack()}>
             {(graphId, i) => (
               <ProductButton variant="ghost" size="compact"

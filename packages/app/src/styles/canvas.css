@@ -505,15 +505,17 @@
 
 .breadcrumb {
   position: absolute;
-  top: 48px;
-  left: 8px;
+  top: calc(var(--canvas-toolbar-bottom, 0px) + var(--dinkster-space-8));
+  left: var(--dinkster-space-8);
+  max-width: calc(100% - 2 * var(--dinkster-space-8));
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: var(--dinkster-space-4);
   align-items: center;
-  background: #252525e0;
-  border: 1px solid #3a3a3a;
-  border-radius: 6px;
-  padding: 4px 6px;
+  background: var(--dinkster-surface-raised);
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: var(--dinkster-radius-control);
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
   z-index: 5;
 }
 
@@ -765,4 +767,3 @@
   .asset-editor-shell-fact[data-fact-state='pending'] dt svg,
   .asset-editor-shell-action[data-action-state='pending'] button:first-child svg { animation: none; }
 }
-
