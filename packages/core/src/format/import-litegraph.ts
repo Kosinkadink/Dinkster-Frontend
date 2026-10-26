@@ -476,8 +476,9 @@ function decodePositionalWidgets(
   prefix: string,
   nodeLabel: string,
   diags: Diagnostic[],
+  following: readonly InterfaceItem[] = [],
 ): void {
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     if (state.stopped) return
     if (item.kind !== 'input') continue
     const key = joinValuePath(prefix, item.id)
@@ -498,6 +499,7 @@ function decodePositionalWidgets(
             dynamic.materialization === 'wire15' ? key : comboBranchValuePath(key, branch.key),
             nodeLabel,
             diags,
+            [...items.slice(index + 1), ...following],
           )
         }
         continue
@@ -521,6 +523,7 @@ function decodePositionalWidgets(
         dynamic.materialization === 'wire15' ? key : comboBranchValuePath(key, branch.key),
         nodeLabel,
         diags,
+        [...items.slice(index + 1), ...following],
       )
       continue
     }
@@ -536,6 +539,15 @@ function decodePositionalWidgets(
         state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json, key, nodeLabel, diags)
         if (item.widget.controller !== undefined && state.index < raw.length) {
           const mode = raw[state.index]
+          if (typeof mode === 'boolean') {
+            const next = [...items.slice(index + 1), ...following].find((candidate) => candidate.kind === 'input' &&
+              (candidate.dynamic !== undefined || (candidate.widget !== undefined && candidate.forceInput !== true)))
+            if (next?.kind === 'input' && (next.dynamic !== undefined || next.widget?.widgetType === 'BOOLEAN')) {
+              state.stopped = true
+              diags.push(imp('error', 'import.controller.ambiguousBoolean', `${nodeLabel}: boolean after '${key}' could be a controller or the next widget value; use an explicit controller mode or a versioned widget upgrade`))
+              return
+            }
+          }
           if (typeof mode === 'boolean' || (typeof mode === 'string' && CONTROLLER_MODES.has(mode))) {
             state.controllers[key] = typeof mode === 'boolean' ? (mode ? 'randomize' : 'fixed') : mode as ControllerMode
             state.index++

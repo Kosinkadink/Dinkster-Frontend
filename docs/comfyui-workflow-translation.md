@@ -27,6 +27,10 @@ Positional `widgets_values` consume one companion entry after a widget with
 `randomize` select the controller mode; legacy booleans select `fixed` for
 false and `randomize` for true. The companion is not the next input's value.
 Older arrays without a companion still preserve the next numeric widget.
+If a boolean could instead belong to the next BOOLEAN widget or an unresolved
+dynamic construct, import refuses with `import.controller.ambiguousBoolean`.
+An explicit string controller or a class/version widget upgrade resolves that
+ambiguity; the importer never silently shifts a following boolean input.
 
 The importer owns `COMFY_NODE_UPGRADES`, keyed first by the authored ComfyUI
 class name and then by the exact version saved in the node's `properties.ver`.

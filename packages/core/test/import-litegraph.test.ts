@@ -909,6 +909,27 @@ describe('positional widget mapping', () => {
     expect(errorsOf(diagnostics)).toEqual([])
   })
 
+  it('refuses ambiguous boolean controllers rather than shifting a following BOOLEAN input', () => {
+    const seed = { ...sdInput('seed', 'INT', 'INT'), widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } }
+    const enabled = sdInput('enabled', 'BOOLEAN', 'BOOLEAN')
+    for (const nested of [false, true]) {
+      const schema = sdSchema('BooleanAfterSeed', 'Boolean after seed', nested ? [
+        { ...sdInput('mode', 'COMBO'), dynamic: { kind: 'dynamicCombo', options: [{ key: 'seeded', inputs: [seed] }] } }, enabled,
+      ] : [seed, enabled])
+      const resolveSchema = (type: string) => type === schema.type ? schema : undefined
+      const prefix = nested ? ['seeded'] : []
+      for (const tail of [[true], [false], [false, true]]) {
+        const result = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [...prefix, 42, ...tail] })]), resolveSchema)
+        expect(result.document).toBeUndefined()
+        expect(codesOf(errorsOf(result.diagnostics))).toContain('import.controller.ambiguousBoolean')
+      }
+      const explicit = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [...prefix, 42, 'fixed', true] })]), resolveSchema)
+      expect(explicit.diagnostics).toEqual([])
+      expect(explicit.document!.graphs.g0!.nodes.n1!.values.enabled).toBe(true)
+      expect(Object.values(explicit.document!.graphs.g0!.nodes.n1!.controllers!)).toEqual(['fixed'])
+    }
+  })
+
   it('reports missing positional values instead of inventing them', () => {
     const { document, diagnostics } = importLitegraph(ksampler([42, 'fixed']), resolve)
     const n = document!.graphs[document!.root]!.nodes['n1']!
