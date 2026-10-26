@@ -2,8 +2,8 @@
 
 ## Fast pull-request checks
 
-`.github/workflows/ci.yml` runs product screenshots and fast checks, each
-with a ten-minute limit. The required fast check also fails if screenshots
+`.github/workflows/ci.yml` runs product screenshots with a fifteen-minute
+job limit and fast checks with a ten-minute limit. The required fast check also fails if screenshots
 fail, so a visual regression cannot bypass the existing merge requirement.
 After `pnpm install --frozen-lockfile`, reproduce it with:
 
@@ -28,8 +28,13 @@ on existing application files. There is no repository-wide formatter or
 linter configuration.
 
 The fast job does not run a browser, performance budgets or E2E shards.
-The screenshot job installs Chromium and runs `pnpm test:visual` on the same
-Linux runner image as full validation, without a live backend. It discovers
+The screenshot job caches Playwright browsers by runner OS, architecture and
+lockfile, installs Chromium without reinstalling the hosted image's OS
+libraries, and runs `pnpm test:visual` without a live backend. Browser
+installation has a three-minute limit; screenshots have an eight-minute limit
+(recent hosted runs took under thirty seconds and six and a half minutes,
+respectively). Playwright still checks required runtime libraries. It uses the
+same Linux runner image as full validation and discovers
 specs containing screenshot assertions so new screenshot specs join the check.
 PR labels do not enable heavy jobs.
 
