@@ -11,7 +11,9 @@ The log retains the latest 500 entries in memory. It starts at the newest
 entry and follows appended entries while the reader remains at the tail.
 Scrolling upward pauses tail following; returning to the tail resumes it.
 The scroll region is keyboard focusable, touch-scrollable, and its text can be
-selected and copied.
+selected and copied. It fills the host panel height and scrolls internally,
+keeping the final row visible with the same bottom inset as the row's horizontal
+padding.
 
 Clear remains a host-header action. The first activation arms a four-second
 confirmation shown inside the panel; the second clears the same in-memory log.

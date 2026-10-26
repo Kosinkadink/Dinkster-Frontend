@@ -195,6 +195,14 @@ test('overflow, reader position, long content, narrow layout, and zoom remain co
   const log = page.getByRole('log', { name: 'Activity events' })
   const rows = log.locator('.activity-log-row')
   await expect(rows).toHaveCount(45)
+  await expect.poll(() => log.evaluate((element) => {
+    const panel = element.closest('.product-tabpanel')!.getBoundingClientRect()
+    const list = element.getBoundingClientRect()
+    const last = element.lastElementChild!.getBoundingClientRect()
+    const rowPadding = parseFloat(getComputedStyle(element.lastElementChild!).paddingInlineEnd)
+    return list.bottom <= panel.bottom + 1 && last.bottom <= list.bottom - rowPadding + 1
+      && element.scrollHeight > element.clientHeight
+  })).toBe(true)
   await expect.poll(() => log.evaluate((element) =>
     Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop),
   )).toBeLessThanOrEqual(1)

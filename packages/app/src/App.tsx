@@ -2663,10 +2663,10 @@ export function App(props: {
                     tooltip={panel.description ?? panel.title}
                     pressed={sidebarPressed(panel.id)}
                     panelId={panel.id}
-                    suppressTooltipWhenPressed={panel.id === 'assets' || panel.id === 'backends'}
+                    suppressTooltipWhenPressed={true}
                     testId={panel.toggleTestId}
                     onActivate={() => {
-                      if (panel.id === 'assets' || panel.id === 'backends') tooltips.hide()
+                      tooltips.hide()
                       toggleSidebarPanel(panel.id)
                     }}
                   />

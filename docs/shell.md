@@ -335,6 +335,9 @@ frame. A visible tooltip may bridge empty rail space for 300 ms so crossing
 between clusters remains forgiving, then hides if no target is reached.
 Leaving the rail boundary hides immediately, so a later re-entry uses the
 configured delay again.
+Opening a dock panel dismisses its toggle's tooltip. While that panel is open,
+the pressed toggle suppresses its tooltip, including while keyboard focus
+remains there, so help does not obscure the panel toolbar.
 
 ## The bottom panel
 
