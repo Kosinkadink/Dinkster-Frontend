@@ -196,6 +196,14 @@ export const stringKind: WidgetKind<string> = {
   defaultView: (spec) => (spec.options['multiline'] === true ? 'core.text' : 'core.line'),
 }
 
+export const buttonKind: WidgetKind<null> = {
+  type: 'BUTTON',
+  valueSchema: { version: 1, validate: (value): value is null => value === null },
+  defaultValue: () => null,
+  validate: () => [],
+  defaultView: () => 'core.button',
+}
+
 export const booleanKind: WidgetKind<boolean> = {
   type: 'BOOLEAN',
   valueSchema: booleanSchema,
@@ -662,6 +670,30 @@ export const floatNumberView: WidgetView<number> = {
     drawCompactNumber(ctx, value, spec, state, formatCompactFloat(value, spec))
   },
 }
+export const buttonView: WidgetView<null> = {
+  ...makeCompactView<null>('core.button', 'BUTTON'),
+  drawCompact(ctx, _value, spec, state) {
+    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
+    ctx.text(0.5, 0, typeof spec.options['display_name'] === 'string' ? spec.options['display_name'] : 'Button', { role: 'widgetValue', align: 'center', width: 1 })
+    if (!state.readonly && spec.options['disabled'] !== true) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
+  },
+  editorUi(context) {
+    const data = isJsonObject(context.data) ? context.data : {}
+    const widget = isJsonObject(data.widget) ? data.widget : {}
+    const options = isJsonObject(widget.options) ? widget.options : {}
+    const command = typeof options.command === 'string' ? options.command : 'core.unavailable-button'
+    return {
+      version: 1,
+      root: {
+        kind: 'action', key: 'core.button',
+        label: typeof options.display_name === 'string' ? options.display_name : 'Button',
+        command,
+        payload: { value: data.value ?? null, target: data.target ?? null },
+        disabled: options.disabled === true || typeof options.command !== 'string',
+      },
+    }
+  },
+}
 export const lineView: WidgetView<string> = {
   ...makeCompactView<string>('core.line', 'STRING'),
   drawCompact(ctx, value, spec, state) {
@@ -859,11 +891,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

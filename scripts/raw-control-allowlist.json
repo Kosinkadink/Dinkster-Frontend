@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 176,
+    "rawControl": 175,
     "inlineStyle": 65,
     "cssLiteral": 361
   },
@@ -417,12 +417,6 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/help/Markdown.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/host-ui.tsx",
       "count": 1,
       "issue": 382
     },

@@ -1,5 +1,14 @@
 # Widget compact controls and expanded editors
 
+## Button actions
+
+BUTTON is stateless, with a null default and the `core.button` view. Its
+`display_name` labels the compact row and expanded ProductButton. Set
+`options.command` to a registered host command. Activation passes the current
+`value` and input `target` to that command without replacing the stored widget
+value. Executable callbacks are not document data. A missing, unavailable or
+disabled command cannot run; `options.disabled` also disables activation.
+
 ## Numeric union inputs
 
 A NUMBER descriptor on an INT|FLOAT socket uses the existing FLOAT editor,
