@@ -138,6 +138,7 @@ test('uses the configured All assets source while preserving curated per-mount b
   await expect(page.getByTestId('library-toggle')).toHaveAttribute('aria-pressed', 'true')
   await expect(libraryDescription).toHaveCount(0)
   await page.getByTestId('library-toggle').click()
+  await page.getByTestId('graph-canvas').hover()
   await page.getByTestId('library-toggle').hover()
   await expect(page.getByTestId('library-toggle')).toHaveAttribute('aria-pressed', 'false')
   await expect(libraryDescription).toBeVisible()
