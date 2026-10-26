@@ -839,7 +839,7 @@ test('execution status stays below canvas controls when the toolbar wraps', asyn
   await page.getByTestId('library-toggle').click()
   await expect(page.getByTestId('dock-zone-right')).toBeVisible()
   await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as typeof window.__dinksterTest.app & {
+    const app = window.__dinksterTest!.app as NonNullable<typeof window.__dinksterTest>['app'] & {
       store: { restoreCompleted(state: unknown): void }
       semanticHashOfTab(tab: unknown): string
       pinExecutionOverlay(tabId: string, ref: unknown): boolean
