@@ -40,6 +40,14 @@ nodes, change class identities, or rewrite links. Missing or unmatched versions
 use the ordinary import path. Root nodes and subgraph definitions use the same
 table. These source versions are not the workflow format's `version` field.
 
+Native save inputs keep `filename_prefix` as a STRING and append an optional
+STRING `mount` with the closed widget descriptor `{"type":"MOUNT"}`. Null or
+omitted mount uses the backend's snapshot default output mount; an explicit
+mount remains a separate string, never a combined prefix/target value.
+The input's `adjacentTo` names a different sibling input for presentation only.
+The codec preserves declaration order, including positional widget slots, and
+rejects empty, self-referencing or missing sibling hints and extra MOUNT fields.
+
 Positional and keyed static COMBO widgets normalize a finite numeric literal
 to its canonical string only when that exact string is a declared option.
 An exact numeric option in a legacy schema takes precedence. A legacy string

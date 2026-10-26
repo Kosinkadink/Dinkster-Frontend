@@ -542,7 +542,7 @@ function decodePositionalWidgets(
           if (typeof mode === 'boolean') {
             const next = [...items.slice(index + 1), ...following].find((candidate) => candidate.kind === 'input' &&
               (candidate.dynamic !== undefined || (candidate.widget !== undefined && candidate.forceInput !== true)))
-            if (next?.kind === 'input' && (next.dynamic !== undefined || next.widget?.widgetType === 'BOOLEAN')) {
+            if (next?.kind === 'input' && (next.dynamic !== undefined || next.type.kind !== 'concrete' || next.type.name === 'BOOLEAN')) {
               state.stopped = true
               diags.push(imp('error', 'import.controller.ambiguousBoolean', `${nodeLabel}: boolean after '${key}' could be a controller or the next widget value; use an explicit controller mode or a versioned widget upgrade`))
               return

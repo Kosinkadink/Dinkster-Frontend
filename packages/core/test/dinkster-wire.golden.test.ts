@@ -13,6 +13,53 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('keeps an appended mount separate from its adjacent prefix and original positional inputs', () => {
+    const result = parseDinksterSchema('SaveFixture', {
+      schemaVersion: 1,
+      outputNode: true,
+      interface: [
+        { role: 'input', id: 'filename_prefix', type: concrete('STRING'), default: 'output' },
+        { role: 'input', id: 'quality', type: concrete('INT'), default: 85 },
+        { role: 'input', id: 'mount', type: concrete('STRING'), required: false, default: null, widget: { type: 'MOUNT' }, adjacentTo: 'filename_prefix' },
+      ],
+    })
+    expect(result.diagnostics).toEqual([])
+    expect(inputsOf(result.schema!).map((input) => input.id)).toEqual(['filename_prefix', 'quality', 'mount'])
+    expect(inputsOf(result.schema!)[0]).not.toHaveProperty('adjacentTo')
+    expect(inputsOf(result.schema!)[2]).toMatchObject({
+      adjacentTo: 'filename_prefix', optional: true,
+      type: { kind: 'concrete', name: 'STRING' },
+      widget: { widgetType: 'MOUNT', options: {}, default: null },
+    })
+    const resolve = (type: string) => type === 'SaveFixture' ? result.schema : undefined
+    for (const [widgets_values, expected] of [
+      [['frames/day', 73], { filename_prefix: 'frames/day', quality: 73, mount: null }],
+      [['frames/default', 42, null], { filename_prefix: 'frames/default', quality: 42, mount: null }],
+      [['frames/night', 61, 'archive'], { filename_prefix: 'frames/night', quality: 61, mount: 'archive' }],
+    ] as const) {
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'SaveFixture', widgets_values }], links: [] }, resolve)
+      expect(imported.diagnostics.map((item) => item.code)).toEqual(widgets_values.length === 2 ? ['import.widgets.missing'] : [])
+      const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('mount-test'), schemaHash: 'mount-test' })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('mount fixture compilation failed')
+      expect(compiled.artifact.prompt.n1!.inputs).toEqual(expected)
+    }
+  })
+
+  it('rejects invalid mount descriptors and non-sibling adjacency references', () => {
+    const prefix = { role: 'input', id: 'prefix', type: concrete('STRING') }
+    const mount = { role: 'input', id: 'mount', type: concrete('STRING'), required: false, widget: { type: 'MOUNT' }, adjacentTo: 'prefix' }
+    for (const invalid of [
+      { ...mount, widget: { type: 'MOUNT', options: ['archive'] } },
+      { ...mount, type: concrete('INT') },
+      ...['', 'missing', 'mount', null, 4].map((adjacentTo) => ({ ...mount, adjacentTo })),
+    ]) {
+      const result = parseDinksterSchema('BadMount', { interface: [prefix, invalid] })
+      expect(result.schema, JSON.stringify(invalid)).toBeUndefined()
+      expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+    }
+  })
+
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
     const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
     const production = parseDinksterSchema('test.numeric_union', fixture.nodes['test.numeric_union'])

@@ -612,6 +612,8 @@ export interface InputSpec extends PortSpecBase {
   readonly kind: 'input'
   readonly type: TypeExpr
   readonly optional: boolean
+  /** Presentation-only placement beside a sibling input; declaration order is unchanged. */
+  readonly adjacentTo?: string
   /** Derived boundary input forwarding an edit-time schema literal. */
   readonly outputSchemaSource?: true
   /** Descriptor editor contract projected independently of boundary outputs. */

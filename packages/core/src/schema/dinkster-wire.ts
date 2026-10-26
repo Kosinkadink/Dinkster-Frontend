@@ -575,6 +575,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where} requires a presentation field`)
       return
     case 'COLOR':
+    case 'MOUNT':
       rejectUnknownWidgetFields(descriptor, ['type'], where)
       return
     case 'CURVE':
@@ -619,6 +620,7 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
   switch (descriptor['type']) {
     case 'STRING':
     case 'COLOR':
+    case 'MOUNT':
       if (socket !== 'STRING') throw new Error(`${where} requires a concrete STRING input`)
       return
     case 'CURVE':
@@ -1477,6 +1479,7 @@ function decodeWireOrdinary(nodeType: string, entry: Record<string, unknown>, wh
   return {
     ...normalized,
     id,
+    ...(entry['adjacentTo'] !== undefined ? { adjacentTo: wireEntryId(entry['adjacentTo'], `${where}.adjacentTo`) } : {}),
     ...(entry['forceInput'] === true ? { forceInput: true } : {}),
     ...(entry['advanced'] === true ? { advanced: true } : {}),
     ...(hidden ? { hidden: true } : {}),
@@ -1519,7 +1522,17 @@ function decodeWireEntries(
     ids.add(id)
     entries.push(decodeWireEntry(nodeType, entry, childWhere, diags, budget, depth))
   }
+  validateInputAdjacency(entries)
   return entries
+}
+
+function validateInputAdjacency(inputs: readonly InputSpec[]): void {
+  const ids = new Set(inputs.map((input) => input.id))
+  for (const input of inputs) {
+    if (input.adjacentTo !== undefined && (input.adjacentTo === input.id || !ids.has(input.adjacentTo))) {
+      throw new Error(`${input.id}.adjacentTo must name a different sibling input`)
+    }
+  }
 }
 
 function decodeWireFamily(
@@ -1965,6 +1978,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       },
     }
     const decodedInputs = new Map(items.filter((item): item is InputSpec => item.kind === 'input').map((item) => [item.id, item]))
+    validateInputAdjacency([...decodedInputs.values()])
     const decodedOutputs = items.filter((item): item is OutputSpec => item.kind === 'output')
     const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
       if (type.kind === 'family_tuple') {
