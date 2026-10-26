@@ -1254,6 +1254,33 @@ describe('ASSET widget modal integration', () => {
 })
 
 describe('registered interactive widget expanded-editor integration', () => {
+  it('edits MARKDOWN source through the registered editor and discards outside drafts', async () => {
+    const mounted = mountWidget(widgetState('MARKDOWN', {}, '## Notes\n\n**original**'))
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    expect(mounted.root.querySelector('h2')?.textContent).toBe('Notes')
+    const edit = Array.from(mounted.root.querySelectorAll('button')).find((button) => button.textContent === 'Edit source')!
+    edit.click()
+    const field = mounted.root.querySelector('textarea')!
+    expect(field.value).toBe('## Notes\n\n**original**')
+    field.value = '# Draft'
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.clickAway()
+    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it('keeps read-only MARKDOWN formatted without an editable source or commit action', () => {
+    const mounted = mountWidget(widgetState('MARKDOWN', { read_only: true }, '## Read only'))
+    mounted.root.querySelector('[role="region"]')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(mounted.root.querySelector('h2')?.textContent).toBe('Read only')
+    expect(mounted.root.querySelector('textarea')).toBeNull()
+    expect(Array.from(mounted.root.querySelectorAll('button')).map((button) => button.textContent)).toEqual(['Cancel'])
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
   it.each([
     ['INT', 314],
     ['FLOAT', 3.14],

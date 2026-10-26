@@ -3,6 +3,7 @@ import { AssetWidgetEditor } from './AssetWidgetEditor.js'
 import { ColorWidgetEditor } from './ColorWidgetEditor.js'
 import { ComboWidgetEditor } from './ComboWidgetEditor.js'
 import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
+import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
 import { SaveTargetWidgetEditor } from './SaveTargetWidgetEditor.js'
 import { ScalarWidgetEditor } from './ScalarWidgetEditor.js'
 import { VideoEditWidgetEditor } from './VideoEditWidgetEditor.js'
@@ -11,6 +12,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['INT', ScalarWidgetEditor],
   ['FLOAT', ScalarWidgetEditor],
   ['STRING', ScalarWidgetEditor],
+  ['MARKDOWN', MarkdownWidgetEditor],
   ['LIST', ScalarWidgetEditor],
   ['COLOR', ColorWidgetEditor],
   ['COMBO', ComboWidgetEditor],

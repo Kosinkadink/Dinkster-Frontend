@@ -1,4 +1,8 @@
 {
+  "markdownWidget.preview": "Markdown preview",
+  "markdownWidget.source": "Markdown source",
+  "markdownWidget.edit": "Edit source",
+  "markdownWidget.commit": "Commit",
   "activityLog.aria.contents": "Activity contents",
   "activityLog.aria.events": "Activity events",
   "activityLog.clearArmed": "Clear is armed. Choose Clear again within 4 seconds to remove {count, plural, one {# entry} other {# entries}}.",
