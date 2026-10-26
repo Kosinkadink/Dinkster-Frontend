@@ -43,7 +43,7 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
     <Show when={draft()} keyed>{(ref) => <>
       <p>{ref.name}</p>
       <Show when={backend.protocol === 'dinkster'}>
-        <AudioTransport media={{ kind: 'audio', src: backend.protocol === 'dinkster' ? backend.connection.assetUrl(ref.digest) : undefined }} />
+        <AudioTransport media={{ kind: 'audio', src: backend.protocol === 'dinkster' ? backend.connection.assetUrl(ref.digest) : '' }} />
       </Show>
       <ProductButton type="button" disabled={uploading()} onClick={() => setDraft(null)}>{message('audioRecordWidget.remove')}</ProductButton>
     </>}</Show>
