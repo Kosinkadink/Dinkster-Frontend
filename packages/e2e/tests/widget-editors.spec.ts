@@ -139,7 +139,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('AUDIO_RECORD captures only on request and stages canonical uploads with retry, cancel and undo', async ({ page }, testInfo) => {
-  let uploaded = Buffer.alloc(0)
+  let uploaded: Buffer = Buffer.alloc(0)
   let attempts = 0
   const canonical = { digest: `blake3:${'a'.repeat(64)}`, name: 'canonical-recording.webm', size: 0, mediaType: 'audio/webm', virtualPath: '' }
   await page.route('**/api/assets/media?*', async (route) => {
