@@ -206,28 +206,25 @@ cache cases.
 
 ### Coverage report
 
-`pnpm coverage:subgraphs` adds a `subgraph-import` status column alongside
-the backend report's independent alias readiness. It reads the canonical
-Dinkster `docs/comfy-translation-coverage.json`, including `subgraphCount`, without
-editing backend aliases or claiming execution support:
+`pnpm coverage:subgraphs` reads an ordinary captured Dinkster `/api/nodes`
+payload using the native decoder. Invalid catalogs fail before the sweep.
+The report separates retained subgraph definitions from missing schemas and
+error diagnostics; missing families are blockers, not exclusions:
 
 ```sh
 pnpm coverage:subgraphs --templates /path/to/workflow_templates \
-  --backend-coverage /path/to/Dinkster/docs/comfy-translation-coverage.json \
-  --object-info packages/core/fixtures/object_info.json \
+  --nodes /path/to/native-nodes.json \
   --json-output coverage/subgraphs.json --markdown-output coverage/subgraphs.md
 ```
 
-The template checkout must be clean. Both corpus revisions and the schema
-source are recorded; backend statuses describe the supplied report's corpus,
-not newly added templates. `definitions` means native definitions were retained,
+The template checkout must be clean. Its revision and the supplied catalog path
+are recorded in report format `dinkster-comfy-subgraph-coverage/2`.
+`definitions` means native definitions were retained,
 `blocked` means no document was produced, and `not-needed` identifies workflows
-without subgraphs.
-Missing schemas remain unresolved nodes with raw values, not executable aliases.
-
-Against workflow_templates `db9d5859d09c21a2d4101a1c18f64fc2f70e4fa4`, all
-247 subgraph-bearing workflows import using the captured source schema catalog.
-Import is not a model-inference or backend-alias completeness claim.
+without subgraphs. Exit status is nonzero if any workflow is blocked, has
+missing schemas, or has error diagnostics. Missing schemas remain unresolved
+nodes with raw values. This offline report proves neither compilation nor
+runtime execution, and does not replace the ordinary browser importer sweep.
 
 ## Use Everywhere
 
