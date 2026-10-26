@@ -30,7 +30,10 @@ async function drillInto(page: Page, nodeId: string): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(2)
 }
 
-test('sibling subgraph occurrences project independently at root and when drilled in', async ({ page }) => {
+test('sibling subgraph occurrences project independently at root and when drilled in', async ({ page }, testInfo) => {
+  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
+  await page.route('/object_info', (route) => route.fulfill({ json: {} }))
+  await page.routeWebSocket('/ws*', () => {})
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 
@@ -108,8 +111,26 @@ test('sibling subgraph occurrences project independently at root and when drille
     inner: { state: 'running', value: 0.25 },
   })
 
+  await page.getByTestId('library-toggle').click()
+  for (const width of [1440, 900, 1440]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await page.mouse.move(0, 0)
+    await expect.poll(async () => {
+      const breadcrumb = (await page.getByTestId('graph-breadcrumb').boundingBox())!
+      const status = (await page.getByTestId('sync-chip').boundingBox())!
+      const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
+      return breadcrumb.y >= toolbar.y + toolbar.height + 8 && status.y >= breadcrumb.y + breadcrumb.height + 8
+    }).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath(`breadcrumb-${width}.png`), animations: 'disabled' })
+  }
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(1)
+  await expect.poll(async () => {
+    const status = (await page.getByTestId('sync-chip').boundingBox())!
+    const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
+    return status.y - toolbar.y - toolbar.height
+  }).toBe(8)
+  await page.getByTestId('library-toggle').click()
   await drillInto(page, 's2')
   await expect.poll(() => projectedStates(page)).toEqual({
     inner: { state: 'running', value: 0.75 },

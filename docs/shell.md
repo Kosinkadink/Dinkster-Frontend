@@ -70,7 +70,9 @@ until it closes.
 Execution status chips and frozen-execution banners sit below the measured
 canvas toolbar, including when its controls wrap onto another row. Status
 text and actions wrap inside the canvas width rather than covering the
-Views/Lenses or workflow queue controls.
+Views/Lenses or workflow queue controls. While drilled into a subgraph, the
+breadcrumb sits below the toolbar and status sits below the measured breadcrumb,
+leaving navigation reachable during live and frozen executions.
 
 The Views/Lenses switcher labels, headings, delegated tooltip labels, and the
 three graph-wide named-net display actions use the application locale catalog.
