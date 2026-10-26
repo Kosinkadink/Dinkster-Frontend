@@ -935,6 +935,9 @@
     "text:remote options stale",
     "text:remote options unavailable"
   ],
+  "editors/MarkdownWidgetEditor.tsx": [
+    "text:props.editor.bindClickAway?.(undefined)) return"
+  ],
   "editors/SaveTargetWidgetEditor.tsx": [
     "attribute:aria-label:Save target output metadata",
     "attribute:label:Mount",

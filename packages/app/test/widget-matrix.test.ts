@@ -7,6 +7,7 @@ import {
 const asset = { digest: `blake3:${'b'.repeat(64)}`, name: 'dog.png', size: 21, mediaType: 'image/png', virtualPath: 'input/dog.png' }
 const values: Array<[string, Json]> = [
   ['INT', 7], ['FLOAT', 1.5], ['STRING line', 'one'], ['STRING text', 'one\ntwo'],
+  ['MARKDOWN', '## Heading\n\n**bold**'],
   ['BOOLEAN', true], ['COMBO static', 'euler'], ['COMBO remote', 'server-model'],
   ['COMBO static plus remote', 'fresh-model'], ['COLOR', '#12345678'], ['ASSET', asset],
   ['SAVE_TARGET', { mount: 'output', prefix: 'jobs/dog' }],

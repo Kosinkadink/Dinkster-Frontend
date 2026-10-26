@@ -138,6 +138,81 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test('MARKDOWN previews safely and edits one undoable source string', async ({ page }, testInfo) => {
+  const source = '## Workflow notes\n\n**Keep** the source and `code`.\n\n- First item\n- Second item\n\n[Safe](https://example.com) [Unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n![Remote](https://example.com/image.png)'
+  await page.evaluate((source) => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'MarkdownWidgetTest', displayName: 'Workflow notes', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        ...(['notes', 'readonly'] as const).map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'STRING' }, optional: false,
+          widget: { widgetType: 'MARKDOWN', default: source, options: { read_only: id === 'readonly' } } })),
+        { kind: 'input', id: 'title', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+          widget: { widgetType: 'STRING', default: 'Unchanged text', options: {} } },
+      ],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'markdown-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Notes', nodes: { widgets: { id: 'widgets', type: 'MarkdownWidgetTest', values: { notes: source } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Workflow notes')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  }, source)
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'notes')))
+  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.notes
+  await openEditor(page, 'notes')
+  const editor = page.getByTestId('markdown-editor')
+  await expect(editor.getByRole('heading', { name: 'Workflow notes' })).toBeVisible()
+  await expect(editor.locator('strong')).toHaveText('Keep')
+  await expect(editor.locator('li')).toHaveCount(2)
+  await expect(editor.getByRole('link', { name: 'Safe', exact: true })).toHaveAttribute('href', 'https://example.com')
+  await expect(editor.locator('script, img, video')).toHaveCount(0)
+  await expect(editor.getByRole('link', { name: 'Unsafe' })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('markdown-preview-desktop.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Edit source' }).press('Enter')
+  const input = editor.getByRole('textbox', { name: 'Markdown source' })
+  await expect(input).toHaveValue(source)
+  await input.fill('## Changed\n\n*draft only*')
+  await page.screenshot({ path: testInfo.outputPath('markdown-source-desktop.png'), animations: 'disabled' })
+  expect(await value()).toBe(source)
+  await editor.getByRole('button', { name: 'Markdown preview', exact: true }).click()
+  await expect(editor.getByRole('heading', { name: 'Changed' })).toBeVisible()
+  await editor.getByRole('button', { name: 'Cancel' }).click()
+  expect(await value()).toBe(source)
+  await page.setViewportSize({ width: 900, height: 700 })
+  await openEditor(page, 'notes')
+  await page.screenshot({ path: testInfo.outputPath('markdown-preview-compact.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Edit source' }).click()
+  await input.fill('## Saved\n\n**exact source**')
+  await page.screenshot({ path: testInfo.outputPath('markdown-source-compact.png'), animations: 'disabled' })
+  await input.press('Control+Enter')
+  expect(await value()).toBe('## Saved\n\n**exact source**')
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+z')
+  expect(await value()).toBe(source)
+  await page.keyboard.press('Control+Shift+z')
+  expect(await value()).toBe('## Saved\n\n**exact source**')
+  await openEditor(page, 'notes')
+  await editor.getByRole('button', { name: 'Edit source' }).click()
+  await input.fill('discard on Escape')
+  await input.press('Escape')
+  expect(await value()).toBe('## Saved\n\n**exact source**')
+  await openEditor(page, 'readonly')
+  await editor.getByRole('region', { name: 'Markdown preview' }).dblclick()
+  await expect(editor.getByRole('textbox')).toHaveCount(0)
+  await expect(editor.getByRole('button', { name: /Edit source|Commit/ })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('markdown-readonly-compact.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openEditor(page, 'readonly')
+  await page.screenshot({ path: testInfo.outputPath('markdown-readonly-desktop.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await openEditor(page, 'title')
+  await expect(page.getByRole('dialog', { name: 'Edit title STRING' }).locator('input')).toHaveValue('Unchanged text')
+  await page.screenshot({ path: testInfo.outputPath('markdown-string-sibling.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+})
+
 test('BUTTON actions invoke registered commands without changing widget values', async ({ page }, testInfo) => {
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app

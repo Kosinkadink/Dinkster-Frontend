@@ -17,6 +17,7 @@ const cases: Array<{
   { type: 'INT', options: { min: 2, max: 9 }, explicit: 5, intrinsic: 2, invalid: 10, invalidCode: 'widget.INT.aboveMax', view: 'core.number' },
   { type: 'FLOAT', options: { min: 0.5, max: 2 }, explicit: 1.25, intrinsic: 0.5, invalid: -1, invalidCode: 'widget.FLOAT.belowMin', view: 'core.number' },
   { type: 'STRING', options: {}, explicit: 'hello', intrinsic: '', invalid: 3, view: 'core.line' },
+  { type: 'MARKDOWN', options: {}, explicit: '## Heading\n\n**bold**', intrinsic: '', invalid: 3, view: 'core.markdown' },
   { type: 'BOOLEAN', options: {}, explicit: true, intrinsic: false, invalid: 'true', view: 'core.toggle' },
   { type: 'COMBO', options: { options: ['euler', 'ddim'] }, explicit: 'ddim', intrinsic: 'euler', invalid: 'unknown', invalidCode: 'widget.COMBO.unknownOption', view: 'core.select' },
   { type: 'MULTI_COMBO', options: { options: ['euler', 'ddim'] }, explicit: ['ddim', 'euler', 'ddim'], intrinsic: [], invalid: ['unknown'], invalidCode: 'widget.MULTI_COMBO.unknownOption', view: 'core.multiSelect' },
@@ -53,6 +54,7 @@ const dispositions = [
   { type: 'SAVE_TARGET', compact: 'core.saveTarget', expanded: 'mount and prefix popover' },
   { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
   { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
+  { type: 'MARKDOWN', compact: 'core.markdown', expanded: 'safe preview and source popover' },
 ] as const
 
 describe('registered widget disposition inventory', () => {
@@ -184,6 +186,7 @@ describe('compact display through the real registered views', () => {
     ['core.number', 'INT', 7, {}, '7'],
     ['core.number', 'FLOAT', 1.25, {}, '1.3'],
     ['core.line', 'STRING', 'hello', {}, 'hello'],
+    ['core.markdown', 'MARKDOWN', '## Heading\nsecond line', {}, '## Heading'],
     ['core.text', 'STRING', 'first\nsecond', {}, ['first', 'second']],
     ['core.toggle', 'BOOLEAN', true, {}, 'true'],
     ['core.toggle', 'BOOLEAN', true, { labelOn: 'Enabled' }, 'Enabled'],

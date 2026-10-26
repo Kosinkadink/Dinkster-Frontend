@@ -256,6 +256,22 @@ presentation label rather than a frontend semantic enum. These constraints let
 backend-owned adapters supply future semantics without changing the host shell
 or giving providers DOM, CSS, network, store, or raw route access.
 
+## MARKDOWN editor
+
+MARKDOWN stores a plain string and uses `core.markdown` for a compact first-line
+source summary. Opening it shows formatted headings, emphasis, lists, links and
+code through the same constrained Markdown renderer as node help. Raw HTML is
+not injected, unsafe link schemes are refused, and images or videos are not
+fetched from workflow text. This is not a full HTML or remote-media renderer.
+
+Edit source (or double-click the preview) opens a ProductTextArea. Markdown
+preview switches back to the formatted draft without writing the document.
+Commit or Ctrl/Cmd+Enter saves one undoable string change; Cancel, Escape and
+outside dismissal discard the draft. `options.read_only: true` keeps the preview
+available but removes source editing and commit. The compact summary and
+preview never change the stored source. Its ProductButton, ProductField and
+ProductActionFooter match the ordinary STRING editor's control language.
+
 ## Text completions
 
 Node-input `core.line` and `core.text` editors expose the same typed,

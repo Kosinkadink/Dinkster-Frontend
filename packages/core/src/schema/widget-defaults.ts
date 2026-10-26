@@ -105,6 +105,7 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'FLOAT':
       return finite(d)
     case 'STRING':
+    case 'MARKDOWN':
     case 'COLOR':
       return typeof d === 'string'
     case 'BOOLEAN':
@@ -145,6 +146,7 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
       return finite(min) ? min : 0
     }
     case 'STRING':
+    case 'MARKDOWN':
       return ''
     case 'BOOLEAN':
       return false

@@ -1,4 +1,8 @@
 {
+  "markdownWidget.preview": "Markdown \u9884\u89c8",
+  "markdownWidget.source": "Markdown \u6e90\u7801",
+  "markdownWidget.edit": "\u7f16\u8f91\u6e90\u7801",
+  "markdownWidget.commit": "\u63d0\u4ea4",
   "settingsDialog.pack.loading": "\u6b63\u5728\u52a0\u8f7d\u6269\u5c55\u5305\u8bbe\u7f6e...",
   "settingsDialog.pack.saving": "\u6b63\u5728\u4fdd\u5b58...",
   "activityLog.aria.contents": "活动内容",

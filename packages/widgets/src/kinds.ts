@@ -213,6 +213,14 @@ export const booleanKind: WidgetKind<boolean> = {
   defaultView: () => 'core.toggle',
 }
 
+export const markdownKind: WidgetKind<string> = {
+  type: 'MARKDOWN',
+  valueSchema: stringSchema,
+  defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '',
+  validate: () => [],
+  defaultView: () => 'core.markdown',
+}
+
 export const comboKind: WidgetKind<Json> = {
   type: 'COMBO',
   // NaN/Infinity are not JSON numbers: they cannot round-trip a document.
@@ -715,6 +723,13 @@ export const lineView: WidgetView<string> = {
     compactRow(ctx, label, placeholder ? spec.options['placeholder'] as string : value, state, 'widget.edit', placeholder)
   },
 }
+export const markdownView: WidgetView<string> = {
+  ...makeCompactView<string>('core.markdown', 'MARKDOWN'),
+  drawCompact(ctx, value, spec, state) {
+    const label = (spec.options['display_name'] as string | undefined) ?? ''
+    compactRow(ctx, label, value.split('\n')[0] ?? '', state, 'widget.edit')
+  },
+}
 /** Multiline preview: canonical lines are emitted independently for row clipping. */
 export const textView: WidgetView<string> = {
   ...makeCompactView<string>('core.text', 'STRING', 2),
@@ -904,11 +919,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind, markdownKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView, markdownView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {
