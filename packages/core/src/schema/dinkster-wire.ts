@@ -608,18 +608,21 @@ function cloneJsonValue(value: unknown, where: string): unknown {
   throw new Error(`${where} must be JSON-safe`)
 }
 
-function numericWidgetType(type: TypeExpr): 'INT' | 'FLOAT' | undefined {
+function numericWidgetType(type: TypeExpr, forceInput = false): 'INT' | 'FLOAT' | undefined {
   if (type.kind === 'concrete' && (type.name === 'INT' || type.name === 'FLOAT')) return type.name
+  if (forceInput && type.kind === 'concrete' && type.name === 'FLOATS') return 'FLOAT'
   if (type.kind === 'union' && type.names.length === 2 && type.names.includes('INT') && type.names.includes('FLOAT')) return 'FLOAT'
   return undefined
 }
 
-function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string): void {
+function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string, forceInput = false): void {
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
     case 'STRING':
-    case 'COLOR':
       if (socket !== 'STRING') throw new Error(`${where} requires a concrete STRING input`)
+      return
+    case 'COLOR':
+      if (socket !== 'STRING' && socket !== 'COLOR') throw new Error(`${where} requires a concrete STRING or COLOR input`)
       return
     case 'CURVE':
       if (socket !== 'CURVE') throw new Error(`${where} requires a concrete CURVE input`)
@@ -639,9 +642,9 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       }
       return
     case 'NUMBER': {
-      const numericKind = numericWidgetType(type)
+      const numericKind = numericWidgetType(type, forceInput)
       if (numericKind === undefined) {
-        throw new Error(`${where} requires INT, FLOAT, or their numeric-only union`)
+        throw new Error(`${where} requires INT, FLOAT, their numeric-only union, or forced FLOATS`)
       }
       if (descriptor['round'] !== undefined && numericKind !== 'FLOAT') {
         throw new Error(`${where}.round requires FLOAT`)
@@ -710,6 +713,7 @@ function widgetFor(
   wire: unknown,
   diags: Diagnostic[],
   representationsAllowed = true,
+  forceInput = false,
 ): WidgetSpec | undefined {
   if (typeof wire === 'object' && wire !== null) {
     const descriptor = wire as {
@@ -763,7 +767,7 @@ function widgetFor(
         if (typeof representation['widget'] !== 'object' || representation['widget'] === null || Array.isArray(representation['widget'])) {
           throw new Error(`${nodeType}.${id}: representation ${index} widget must be an object`)
         }
-        const nested = widgetFor(nodeType, id, type, dflt, representation['widget'], diags, false)
+        const nested = widgetFor(nodeType, id, type, dflt, representation['widget'], diags, false, forceInput)
         if (nested === undefined || nested.representations !== undefined) {
           throw new Error(`${nodeType}.${id}: representation ${index} must contain one widget descriptor`)
         }
@@ -804,7 +808,7 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
-    validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`)
+    validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`, forceInput)
     if (descriptor.type === 'ASSET' && Array.isArray(descriptor.accept) && descriptor.accept.every((v) => typeof v === 'string')) {
       let kind: string | undefined
       if (descriptor.kind !== undefined) {
@@ -997,7 +1001,7 @@ function widgetFor(
     // metadata never hides an editor. Integer sockets retain unsafe
     // constraints as canonical decimal strings; float sockets remain numbers.
     if (descriptor.type === 'NUMBER') {
-      const numericKind = numericWidgetType(type)
+      const numericKind = numericWidgetType(type, forceInput)
       if (numericKind !== 'INT' && numericKind !== 'FLOAT') {
         diags.push(
           diag('warning', 'schema', 'schema.dinkster.badNumberSocket', `${nodeType}.${id}: NUMBER descriptor on a non-numeric input; descriptor dropped`),
@@ -1202,7 +1206,7 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
       )
     }
   }
-  const widget = widgetFor(nodeType, id, type, entry.default, entry.widget, diags)
+  const widget = widgetFor(nodeType, id, type, entry.default, entry.widget, diags, true, entry.forceInput === true)
   const representedUpload = widget?.representations?.representations.some((representation) => representation.widget.allowUpload === true) === true
   let sourceFilename: SourceFilenameSpec | undefined
   if (entry.sourceFilename !== undefined) {
