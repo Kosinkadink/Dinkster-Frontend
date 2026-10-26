@@ -17,6 +17,7 @@ import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-
 import { defaultDynamicHandlers, elabInputsOf, elaborateInterface, type DynamicKindHandler } from '../src/schema/elaborate.js'
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 import { netSinkKey, solveGraphTypes } from '../src/schema/solve.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -48,10 +49,10 @@ const schemas: Record<string, NodeSchema> = {
   LatentSrc: schemaOf('LatentSrc', [output('out', { kind: 'concrete', name: 'LATENT' })]),
   ImageSink: schemaOf('ImageSink', [input('in', { kind: 'concrete', name: 'IMAGE' })]),
   LatentSink: schemaOf('LatentSink', [input('in', { kind: 'concrete', name: 'LATENT' })]),
-  // Interchangeable comfy-compat pairs (canonicalized inside atomNamesOf)
-  DinksterImageSrc: schemaOf('DinksterImageSrc', [output('out', { kind: 'concrete', name: 'dinkster.image' })]),
+  // Comfy spellings canonicalize to wire identities inside atomNamesOf.
+  DinksterImageSrc: schemaOf('DinksterImageSrc', [output('out', { kind: 'concrete', name: 'IMAGE' })]),
   ComfyImageSink: schemaOf('ComfyImageSink', [input('in', { kind: 'concrete', name: 'comfy.IMAGE' })]),
-  DinksterMaskSrc: schemaOf('DinksterMaskSrc', [output('out', { kind: 'concrete', name: 'dinkster.mask' })]),
+  DinksterMaskSrc: schemaOf('DinksterMaskSrc', [output('out', { kind: 'concrete', name: 'MASK' })]),
   ComfyMaskSink: schemaOf('ComfyMaskSink', [input('in', { kind: 'concrete', name: 'comfy.MASK' })]),
   ComfyImageSwitch: schemaOf('ComfyImageSwitch', [input('in', T('T', ['comfy.IMAGE'])), output('out', T('T', ['comfy.IMAGE']))]),
   // Union producer (MultiType) and wildcard endpoints
@@ -91,7 +92,7 @@ const schemas: Record<string, NodeSchema> = {
     output('asset', { kind: 'asset', element: T('T', ['IMAGE', 'MASK']) }),
   ]),
   MatchedSlotEmptyFamily: schemaOf('MatchedSlotEmptyFamily', [
-    input('count', { kind: 'concrete', name: 'core.int' }),
+    input('count', { kind: 'concrete', name: 'INT' }),
     {
       ...input('source', { kind: 'union', names: ['IMAGE', 'MASK'] }),
       dynamic: {
@@ -146,6 +147,22 @@ const schemas: Record<string, NodeSchema> = {
   ]),
 }
 const resolve: SchemaResolver = (type) => schemas[type]
+
+const tupleMake = parseDinksterSchema('std.tuple.make', {
+  schemaVersion: 1,
+  interface: [
+    { role: 'inputFamily', id: 'items', independentTypes: true, template: [{ role: 'input', id: 'value', type: { kind: 'variable', templateId: 'T' }, required: true }] },
+    { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
+  ],
+}).schema!
+const tupleGet = parseDinksterSchema('std.tuple.get', {
+  schemaVersion: 1,
+  interface: [
+    { role: 'input', id: 'tuple', type: { kind: 'variable', templateId: 'Tuple' }, required: true },
+    { role: 'input', id: 'index', type: { kind: 'concrete', types: ['INT'] }, default: 0, required: true },
+    { role: 'output', id: 'item', type: { kind: 'tuple_element', input: 'tuple', index: 'index' } },
+  ],
+}).schema!
 
 /** Assemble a GraphDef literal tersely (branded ids make literals noisy). */
 type TestEndpoint =
@@ -211,6 +228,57 @@ const n = asNodeId
 // Atom-vs-atom edges
 // ---------------------------------------------------------------------------
 
+describe('positional tuple types', () => {
+  it('rejects a tuple family with more than one input per member', () => {
+    const parsed = parseDinksterSchema('InvalidTuple', {
+      schemaVersion: 1,
+      interface: [
+        { role: 'inputFamily', id: 'items', independentTypes: true, template: [
+          { role: 'input', id: 'first', required: true, type: { kind: 'variable', templateId: 'T' } },
+          { role: 'input', id: 'second', required: true, type: { kind: 'variable', templateId: 'U' } },
+        ] },
+        { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
+      ],
+    })
+    expect(parsed.schema).toBeUndefined()
+    expect(parsed.diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
+  })
+
+  it.each([false, true])('projects independent family positions with reversed edge order=%s', (reverse) => {
+    expect(tupleMake).toBeDefined()
+    expect(tupleGet).toBeDefined()
+    const links = {
+      consume: { from: ['get', 'item'], to: ['sink', 'in'] },
+      product: { from: ['make', 'tuple'], to: ['get', 'tuple'] },
+      image: { from: ['img', 'out'], to: ['make', 'items.items', 'm0'] },
+      latent: { from: ['latent', 'out'], to: ['make', 'items.items', 'm1'] },
+    } satisfies Record<string, { from: TestEndpoint; to: TestEndpoint }>
+    const def = defOf({
+      nodes: { img: { type: 'ImageSrc' }, latent: { type: 'LatentSrc' }, make: { type: tupleMake.type, dynamic: { items: { members: ['m0', 'm1'] } } }, get: { type: tupleGet.type, values: { index: -1 } }, sink: { type: 'LatentSink' } },
+      links: reverse ? Object.fromEntries(Object.entries(links).reverse()) : links,
+    })
+    const result = solveGraphTypes(def, (type) => type === tupleMake.type ? tupleMake : type === tupleGet.type ? tupleGet : resolve(type))
+    expect(result.diagnostics).toEqual([])
+    expect(result.portTypeOf(asNodeId('make'), 'output', 'tuple')).toEqual({ kind: 'tuple', elements: [{ kind: 'concrete', name: 'IMAGE' }, { kind: 'concrete', name: 'LATENT' }] })
+    expect(result.portTypeOf(asNodeId('get'), 'output', 'item')).toEqual({ kind: 'concrete', name: 'LATENT' })
+    expect([...result.linkVerdicts.values()]).toEqual(['ok', 'ok', 'ok', 'ok'])
+  })
+
+  it.each([2, -3])('rejects out-of-range tuple index %s', (index) => {
+    const source = schemaOf('Product', [output('out', { kind: 'tuple', elements: [{ kind: 'concrete', name: 'IMAGE' }, { kind: 'concrete', name: 'LATENT' }] })])
+    const def = defOf({ nodes: { source: { type: source.type }, get: { type: tupleGet.type, values: { index } } }, links: { value: { from: ['source', 'out'], to: ['get', 'tuple'] } } })
+    expect(solveGraphTypes(def, (type) => type === source.type ? source : tupleGet).diagnostics.some((diagnostic) => diagnostic.code === 'solve.tupleProjection')).toBe(true)
+  })
+
+  it('rejects connected and noninteger selectors while allowing the declared default', () => {
+    for (const index of [true, 1.5, null]) {
+      expect(elaborateInterface(tupleGet, { values: { index } }).diagnostics.some((diagnostic) => diagnostic.code === 'elab.tuple.literalIndex')).toBe(true)
+    }
+    expect(elaborateInterface(tupleGet, { values: {} }).diagnostics).toEqual([])
+    expect(elaborateInterface(tupleGet, { values: {} }, { isInputConnected: (port) => port === 'index', isOutputConnected: () => false }).diagnostics.some((diagnostic) => diagnostic.code === 'elab.tuple.literalIndex')).toBe(true)
+  })
+})
+
 describe('concrete and union edges', () => {
   it('overlapping atom sets are ok; disjoint ones are mismatches with a diagnostic', () => {
     const def = defOf({
@@ -228,7 +296,7 @@ describe('concrete and union edges', () => {
     expect(mismatch?.anchor?.link).toBe('l1')
   })
 
-  it('a dinkster.image output feeds a comfy.IMAGE input with no mismatch', () => {
+  it('an IMAGE output feeds a comfy.IMAGE input with no mismatch', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterImageSrc' }, sink: { type: 'ComfyImageSink' } },
       links: { l0: { from: ['src', 'out'], to: ['sink', 'in'] } },
@@ -238,7 +306,7 @@ describe('concrete and union edges', () => {
     expect(s.diagnostics.filter((d) => d.code === 'solve.linkMismatch')).toEqual([])
   })
 
-  it('a dinkster.mask output feeds a comfy.MASK input but never a comfy.IMAGE one', () => {
+  it('a MASK output feeds a comfy.MASK input but never a comfy.IMAGE one', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterMaskSrc' }, maskSink: { type: 'ComfyMaskSink' }, imageSink: { type: 'ComfyImageSink' } },
       links: {
@@ -251,7 +319,7 @@ describe('concrete and union edges', () => {
     expect(s.linkVerdicts.get('l1' as never)).toBe('mismatch')
   })
 
-  it('a variable constrained to comfy.IMAGE resolves through a dinkster.image edge', () => {
+  it('a variable constrained to comfy.IMAGE resolves through an IMAGE edge', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterImageSrc' }, sw: { type: 'ComfyImageSwitch' }, sink: { type: 'ComfyImageSink' } },
       links: {
@@ -260,7 +328,7 @@ describe('concrete and union edges', () => {
       },
     })
     const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
+    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
     expect(s.diagnostics).toEqual([])
   })
 
@@ -1022,8 +1090,8 @@ describe('dynamicSlot MatchType binding', () => {
     })
   })
 
-  it('binds an interchangeable Dinkster type in the canonical solver domain', () => {
-    const image = { kind: 'concrete', name: 'dinkster.image' } as const
+  it('binds IMAGE in the canonical solver domain', () => {
+    const image = { kind: 'concrete', name: 'IMAGE' } as const
     const matchedImage = schemaOf('DinksterMatchedSlot', [
       {
         ...input('source', image),
@@ -1036,14 +1104,14 @@ describe('dynamicSlot MatchType binding', () => {
           typeTemplateId: 'T',
         },
       },
-      output('out', T('T', ['dinkster.image'])),
+      output('out', T('T', ['IMAGE'])),
     ])
     const solved = solveGraphTypes(defOf({
       nodes: { matched: { type: matchedImage.type, dynamic: { source: { selected: 'image' } } } },
     }), (type) => type === matchedImage.type ? matchedImage : resolve(type))
 
     expect(solved.diagnostics).toEqual([])
-    expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
+    expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
     expect(solved.portTypeOf(n('matched'), 'output', 'out')).toEqual(image)
   })
 

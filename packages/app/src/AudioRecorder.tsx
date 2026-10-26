@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import './audio-controls.css'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
@@ -22,6 +22,7 @@ export function AudioRecorder(props: {
   readonly provider?: AudioRecordingProvider
   readonly disabled?: boolean
   readonly onSave: (file: File) => Promise<boolean>
+  readonly onPendingChange?: (pending: boolean) => void
 }) {
   const appMessage = useAppMessage()
   const provider = props.provider ?? browserProvider()
@@ -30,6 +31,7 @@ export function AudioRecorder(props: {
   const [limit, setLimit] = createSignal(60)
   const [recordedBytes, setRecordedBytes] = createSignal(0)
   const [state, setState] = createSignal<'idle' | 'permission' | 'recording' | 'ready' | 'saving'>('idle')
+  createEffect(() => props.onPendingChange?.(state() !== 'idle'))
   const [message, setMessage] = createSignal(provider ? 'Microphone is off. Recording requires browser permission.' : 'Recording unavailable: this browser needs MediaRecorder and a secure microphone context.')
   let generation = 0
   let stream: MediaStream | undefined

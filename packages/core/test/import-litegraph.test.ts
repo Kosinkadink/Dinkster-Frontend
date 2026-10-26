@@ -97,12 +97,12 @@ const basicPair = (): JsonObject =>
   workflow(
     [
       lgNode(1, 'CheckpointLoaderSimple', {
-        outputs: [{ name: 'MODEL' }, { name: 'CLIP', links: [1] }, { name: 'VAE' }],
+        outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', links: [1] }, { name: 'dinkster.vae' }],
         widgets_values: ['v1-5-pruned-emaonly.safetensors'],
       }),
       lgNode(2, 'CLIPTextEncode', {
         inputs: [{ name: 'clip', link: 1 }],
-        outputs: [{ name: 'CONDITIONING' }],
+        outputs: [{ name: 'dinkster.conditioning' }],
         widgets_values: ['a photo of a cat'],
       }),
     ],
@@ -138,47 +138,47 @@ const sdSchema = (
 
 const sd15Schemas = [
   sdSchema('dinkster.load_checkpoint', 'CheckpointLoaderSimple', [
-    sdInput('ckpt_name', 'core.string', 'STRING'),
+    sdInput('ckpt_name', 'STRING', 'STRING'),
     sdOutput('model', 'core.model'),
     sdOutput('clip', 'core.clip'),
     sdOutput('vae', 'core.vae'),
   ]),
   sdSchema('dinkster.clip_text_encode', 'CLIPTextEncode', [
     sdInput('clip', 'core.clip'),
-    sdInput('text', 'core.string', 'STRING'),
+    sdInput('text', 'STRING', 'STRING'),
     sdOutput('conditioning', 'core.conditioning'),
   ]),
   sdSchema('dinkster.empty_latent_image', 'EmptyLatentImage', [
     sdInput('width', 'core.integer', 'INT'),
     sdInput('height', 'core.integer', 'INT'),
     sdInput('batch_size', 'core.integer', 'INT'),
-    sdOutput('latent', 'core.latent'),
+    sdOutput('latent', 'LATENT'),
   ]),
   sdSchema('dinkster.ksampler', 'KSampler', [
     sdInput('model', 'core.model'),
     sdInput('positive', 'core.conditioning'),
     sdInput('negative', 'core.conditioning'),
-    sdInput('latent_image', 'core.latent'),
+    sdInput('latent_image', 'LATENT'),
     sdInput('seed', 'core.integer', 'INT'),
     sdInput('steps', 'core.integer', 'INT'),
-    sdInput('cfg', 'core.float', 'FLOAT'),
-    sdInput('sampler_name', 'core.combo', 'COMBO'),
-    sdInput('scheduler', 'core.combo', 'COMBO'),
-    sdInput('denoise', 'core.float', 'FLOAT'),
-    sdOutput('latent', 'core.latent'),
+    sdInput('cfg', 'FLOAT', 'FLOAT'),
+    sdInput('sampler_name', 'COMBO', 'COMBO'),
+    sdInput('scheduler', 'COMBO', 'COMBO'),
+    sdInput('denoise', 'FLOAT', 'FLOAT'),
+    sdOutput('latent', 'LATENT'),
   ]),
   sdSchema('dinkster.vae_decode', 'VAEDecode', [
-    sdInput('samples', 'core.latent'),
+    sdInput('samples', 'LATENT'),
     sdInput('vae', 'core.vae'),
-    sdOutput('image', 'core.image'),
+    sdOutput('image', 'IMAGE'),
   ]),
   sdSchema('dinkster.save_image', 'SaveImage', [
-    sdInput('images', 'core.image'),
-    sdInput('filename_prefix', 'core.string', 'STRING'),
+    sdInput('images', 'IMAGE'),
+    sdInput('filename_prefix', 'STRING', 'STRING'),
   ], true),
   sdSchema('comfy.PreviewImage', 'PreviewImage', [
-    sdInput('images', 'core.image'),
-    sdOutput('images', 'core.image'),
+    sdInput('images', 'IMAGE'),
+    sdOutput('images', 'IMAGE'),
   ], true),
 ] as const
 
@@ -217,9 +217,9 @@ const schemaFromLitegraphNode = (node: any, type = node.type, aliases?: readonly
 
 const sd15Workflow = (): JsonObject => workflow(
   [
-    lgNode(1, 'CheckpointLoaderSimple', { outputs: [{ name: 'MODEL' }, { name: 'CLIP' }, { name: 'VAE' }], widgets_values: ['sd15.safetensors'] }),
-    lgNode(2, 'CLIPTextEncode', { inputs: [{ name: 'foreign_clip' }], outputs: [{ name: 'CONDITIONING' }], widgets_values: ['positive'] }),
-    lgNode(3, 'CLIPTextEncode', { inputs: [{ name: 'foreign_clip' }], outputs: [{ name: 'CONDITIONING' }], widgets_values: ['negative'] }),
+    lgNode(1, 'CheckpointLoaderSimple', { outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip' }, { name: 'dinkster.vae' }], widgets_values: ['sd15.safetensors'] }),
+    lgNode(2, 'CLIPTextEncode', { inputs: [{ name: 'foreign_clip' }], outputs: [{ name: 'dinkster.conditioning' }], widgets_values: ['positive'] }),
+    lgNode(3, 'CLIPTextEncode', { inputs: [{ name: 'foreign_clip' }], outputs: [{ name: 'dinkster.conditioning' }], widgets_values: ['negative'] }),
     lgNode(4, 'EmptyLatentImage', { outputs: [{ name: 'LATENT' }], widgets_values: [512, 512, 1] }),
     lgNode(5, 'KSampler', {
       inputs: [{ name: 'm' }, { name: 'p' }, { name: 'n' }, { name: 'latent' }],
@@ -413,12 +413,12 @@ describe('basic translation', () => {
       sdSchema('comfy.MiniMaxH3ImageToVideo', 'MiniMaxH3ImageToVideo', [
         sdInput('clip', 'core.clip'),
         sdInput('vae', 'core.vae'),
-        sdInput('prompt', 'core.string', 'STRING'),
+        sdInput('prompt', 'STRING', 'STRING'),
         sdInput('width', 'core.integer', 'INT'),
         sdInput('height', 'core.integer', 'INT'),
         sdInput('length', 'core.integer', 'INT'),
         sdOutput('conditioning', 'core.conditioning'),
-        sdOutput('latent', 'core.latent'),
+        sdOutput('latent', 'LATENT'),
       ]),
       sdSchema('comfy.CFGGuider', 'CFGGuider', [
         sdInput('model', 'core.model'),
@@ -433,9 +433,9 @@ describe('basic translation', () => {
     const imported = importLitegraph(workflow([
       lgNode(1, 'H3Sources', {
         outputs: [
-          { name: 'CLIP', links: [1, 3] },
-          { name: 'VAE', links: [2, 4] },
-          { name: 'MODEL', links: [5] },
+          { name: 'dinkster.clip', links: [1, 3] },
+          { name: 'dinkster.vae', links: [2, 4] },
+          { name: 'dinkster.model', links: [5] },
         ],
       }),
       lgNode(2, 'MiniMaxH3ImageToVideo', {
@@ -454,7 +454,7 @@ describe('basic translation', () => {
           { name: 'positive', link: 6 },
           { name: 'negative', link: 7 },
         ],
-        outputs: [{ name: 'GUIDER', links: [8] }],
+        outputs: [{ name: 'dinkster.guider', links: [8] }],
       }),
       lgNode(5, 'GuiderSink', { inputs: [{ name: 'guider', link: 8 }] }),
     ], [
@@ -525,14 +525,14 @@ describe('basic translation', () => {
       sdInput('model', 'core.model'),
       sdInput('seed', 'core.integer', 'INT'),
       sdInput('positive', 'core.conditioning'),
-      { ...sdInput('forced', 'core.float', 'FLOAT'), forceInput: true },
+      { ...sdInput('forced', 'FLOAT', 'FLOAT'), forceInput: true },
       sdInput('negative', 'core.conditioning'),
     ])
     const source = sdSchema('dinkster.sources', 'Sources', [
       sdOutput('model', 'core.model'),
       sdOutput('integer', 'core.integer'),
       sdOutput('conditioning', 'core.conditioning'),
-      sdOutput('float', 'core.float'),
+      sdOutput('float', 'FLOAT'),
     ])
     const localResolve = (type: string): NodeSchema | undefined =>
       [mixed, source].find((schema) => schema.type === type || schema.aliases?.includes(type))
@@ -591,7 +591,7 @@ describe('serialized output slot identity', () => {
       {
         kind: 'input',
         id: 'count',
-        type: { kind: 'concrete', name: 'core.int' },
+        type: { kind: 'concrete', name: 'INT' },
         optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0 },
       },
@@ -763,7 +763,7 @@ describe('serialized output slot identity', () => {
   it('rejects output-family slots when the count input is linked', () => {
     const countSource: NodeSchema = {
       type: 'CountSource', displayName: 'Count Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'count', type: { kind: 'concrete', name: 'core.int' } }],
+      items: [{ kind: 'output', id: 'count', type: { kind: 'concrete', name: 'INT' } }],
     }
     const imported = importLitegraph(workflow([
       lgNode(1, countSource.type, { outputs: [{ name: 'count', links: [1] }] }),
@@ -808,8 +808,8 @@ describe('positional widget mapping', () => {
 
   it('does not consume a positional widget value for a forceInput socket', () => {
     const schema = sdSchema('dinkster.force_then_label', 'ForceThenLabel', [
-      { ...sdInput('forced', 'core.float', 'FLOAT'), forceInput: true },
-      sdInput('label', 'core.string', 'STRING'),
+      { ...sdInput('forced', 'FLOAT', 'FLOAT'), forceInput: true },
+      sdInput('label', 'STRING', 'STRING'),
     ])
     const { document, diagnostics } = importLitegraph(
       workflow([
@@ -892,8 +892,8 @@ describe('positional widget mapping', () => {
 
   it('normalizes numeric strings according to legacy widget schemas', () => {
     const schema = sdSchema('dinkster.numeric', 'Numeric', [
-      sdInput('count', 'core.int', 'INT'),
-      sdInput('strength', 'core.float', 'FLOAT'),
+      sdInput('count', 'INT', 'INT'),
+      sdInput('strength', 'FLOAT', 'FLOAT'),
     ])
     const localResolve = (type: string) => type === schema.type ? schema : undefined
     const positional = importLitegraph(workflow([
@@ -908,7 +908,7 @@ describe('positional widget mapping', () => {
 
   it('migrates a valid legacy SAVE_TARGET prefix from the declared mount', () => {
     const target = {
-      ...sdInput('filename_prefix', 'dinkster.save_target', 'SAVE_TARGET'),
+      ...sdInput('filename_prefix', 'SAVE_TARGET', 'SAVE_TARGET'),
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
     } satisfies InputSpec
     const schema = sdSchema('dinkster.save', 'SaveImage', [target], true)
@@ -934,7 +934,7 @@ describe('positional widget mapping', () => {
 
   it('keeps invalid legacy SAVE_TARGET strings raw and warns specifically', () => {
     const target = {
-      ...sdInput('target', 'dinkster.save_target', 'SAVE_TARGET'),
+      ...sdInput('target', 'SAVE_TARGET', 'SAVE_TARGET'),
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
     } satisfies InputSpec
     const schema = sdSchema('dinkster.save', 'Save', [target])
@@ -956,7 +956,7 @@ describe('positional widget mapping', () => {
       ? { widgetType: 'SAVE_TARGET', options: {} }
       : { widgetType: 'SAVE_TARGET', options: {}, default: declaredDefault }
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false, widget,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false, widget,
     }
     const schema = sdSchema('dinkster.save', 'Save', [target])
     const imported = importLitegraph(workflow([
@@ -968,7 +968,7 @@ describe('positional widget mapping', () => {
 
   it('normalizes keyed SAVE_TARGET values inside the active DynamicCombo branch', () => {
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
     }
     const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
@@ -987,7 +987,7 @@ describe('positional widget mapping', () => {
 
   it('normalizes positional SAVE_TARGET values inside a wire-15 DynamicCombo branch', () => {
     const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
     }
     const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
@@ -1391,7 +1391,7 @@ describe('Autogrow endpoint reconstruction', () => {
     const scalar: InputSpec = {
       kind: 'input',
       id: 'value',
-      type: { kind: 'concrete', name: 'core.float' },
+      type: { kind: 'concrete', name: 'FLOAT' },
       optional: false,
       widget: { widgetType: 'FLOAT', options: {}, default: 0 },
     }
@@ -1547,6 +1547,26 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(graph.nodes['n2']!.dynamic).toEqual({ mode: { selected: 'batch' }, 'mode.images': { members: ['m0'], seq: 1 } })
     expect(graph.links['l1']!.to).toEqual({ node: 'n2', port: 'mode.images.m0' })
     expect(solveGraphTypes(graph, localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
+  })
+
+  it.each([1, 2])('omits unlinked socket placeholders while retaining the declared minimum %s', (minimum) => {
+    const schema: NodeSchema = {
+      type: 'NamedSockets', displayName: 'Named Sockets', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{
+        kind: 'input', id: 'values', type: { kind: 'wildcard' }, optional: true,
+        dynamic: {
+          kind: 'autogrow', materialization: 'wire15', template: [input('value')],
+          naming: { kind: 'names', names: ['a', 'b', 'c'], min: minimum },
+        },
+      }],
+    }
+    const result = importLitegraph(workflow([
+      lgNode(1, imageSource.type, { outputs: [{ name: 'IMAGE', links: [1] }] }),
+      lgNode(2, schema.type, { inputs: [{ name: 'values.a', link: null }, { name: 'values.b', link: 1 }, { name: 'values.c', link: null }] }),
+    ], [lgLink(1, 1, 0, 2, 1)]), (type) => type === schema.type ? schema : type === imageSource.type ? imageSource : undefined)
+    expect(errorsOf(result.diagnostics)).toEqual([])
+    expect(result.document!.graphs.g0!.nodes.n2!.dynamic).toEqual({ values: { members: minimum === 1 ? ['b'] : ['b', 'a'] } })
+    expect(result.document!.graphs.g0!.links.l1!.to).toEqual({ node: 'n2', port: 'values.b' })
   })
 
   it('fills wire-15 minimum members without changing linked-member order', () => {
@@ -1809,7 +1829,7 @@ describe('malformed input', () => {
   it('rejects duplicate link IDs instead of overwriting the first link', () => {
     const json = workflow(
       [
-        lgNode(1, 'CheckpointLoaderSimple', { outputs: [{ name: 'MODEL' }, { name: 'CLIP' }] }),
+        lgNode(1, 'CheckpointLoaderSimple', { outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip' }] }),
         lgNode(2, 'CLIPTextEncode', { inputs: [{ name: 'clip' }], widgets_values: ['x'] }),
       ],
       [lgLink(1, 1, 1, 2, 0), lgLink(1, 1, 0, 2, 0)],
@@ -1934,7 +1954,7 @@ describe('malformed input', () => {
     const json = workflow(
       [
         lgNode(1, 'CheckpointLoaderSimple', {
-          outputs: [{ name: 'MODEL' }, { name: 'CLIP', links: [1] }],
+          outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', links: [1] }],
           widgets_values: ['x'],
         }),
         lgNode(2, 'CLIPTextEncode', { inputs: [{ name: 'clip', link: null }], widgets_values: ['x'] }),
@@ -1989,7 +2009,7 @@ describe('reroute import (first-class)', () => {
 
   const producer = (id: number, links: number[]) =>
     lgNode(id, 'CheckpointLoaderSimple', {
-      outputs: [{ name: 'MODEL' }, { name: 'CLIP', links }, { name: 'VAE' }],
+      outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', links }, { name: 'dinkster.vae' }],
       widgets_values: ['x'],
     })
   const consumer = (id: number, link: number) =>
@@ -2086,7 +2106,7 @@ describe('reroute import (first-class)', () => {
 describe('Set/Get to named nets', () => {
   const producer = (id: number, links: number[]) =>
     lgNode(id, 'CheckpointLoaderSimple', {
-      outputs: [{ name: 'MODEL' }, { name: 'CLIP', links }, { name: 'VAE' }],
+      outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', links }, { name: 'dinkster.vae' }],
       widgets_values: ['x'],
     })
   const consumer = (id: number, link: number) =>
@@ -2344,16 +2364,16 @@ describe('Set/Get to named nets', () => {
     const typeMismatch = importLitegraph(workflow(
       [
         lgNode(1, 'CheckpointLoaderSimple', {
-          outputs: [{ name: 'MODEL', type: 'MODEL' }, { name: 'CLIP', type: 'CLIP', links: [10] }],
+          outputs: [{ name: 'dinkster.model', type: 'MODEL' }, { name: 'dinkster.clip', type: 'CLIP', links: [10] }],
           widgets_values: ['x'],
         }),
         lgNode(5, 'SetNode', {
-          inputs: [{ name: 'MODEL', type: 'MODEL', link: 10 }],
-          outputs: [{ name: 'MODEL', type: 'MODEL' }],
+          inputs: [{ name: 'dinkster.model', type: 'MODEL', link: 10 }],
+          outputs: [{ name: 'dinkster.model', type: 'MODEL' }],
           widgets_values: ['clip'],
         }),
         lgNode(6, 'GetNode', {
-          outputs: [{ name: 'CLIP', type: 'CLIP', links: [11] }], widgets_values: ['clip'],
+          outputs: [{ name: 'dinkster.clip', type: 'CLIP', links: [11] }], widgets_values: ['clip'],
         }),
         consumer(2, 11),
       ],
@@ -2365,7 +2385,7 @@ describe('Set/Get to named nets', () => {
     const sinkTypeMismatch = importLitegraph(workflow(
       [
         lgNode(1, 'CheckpointLoaderSimple', {
-          outputs: [{ name: 'MODEL', type: 'MODEL' }, { name: 'CLIP', type: 'CLIP', links: [10] }],
+          outputs: [{ name: 'dinkster.model', type: 'MODEL' }, { name: 'dinkster.clip', type: 'CLIP', links: [10] }],
           widgets_values: ['x'],
         }),
         setNode(5, 'clip', 10),
@@ -2382,7 +2402,7 @@ describe('Set/Get to named nets', () => {
     const linkTypeMismatch = importLitegraph(workflow(
       [
         lgNode(1, 'CheckpointLoaderSimple', {
-          outputs: [{ name: 'MODEL', type: 'MODEL' }, { name: 'CLIP', type: 'CLIP', links: [10] }],
+          outputs: [{ name: 'dinkster.model', type: 'MODEL' }, { name: 'dinkster.clip', type: 'CLIP', links: [10] }],
           widgets_values: ['x'],
         }),
         setNode(5, 'clip', 10),
@@ -2402,14 +2422,14 @@ describe('Use Everywhere to named nets', () => {
   const maxUeLinks = 1024
   const producer = (links: number[] = [10]) => lgNode(1, 'CheckpointLoaderSimple', {
     outputs: [
-      { name: 'MODEL', type: 'MODEL' },
-      { name: 'CLIP', type: 'CLIP', links },
-      { name: 'VAE', type: 'VAE' },
+      { name: 'dinkster.model', type: 'MODEL' },
+      { name: 'dinkster.clip', type: 'CLIP', links },
+      { name: 'dinkster.vae', type: 'VAE' },
     ],
     widgets_values: ['x'],
   })
   const consumer = (link: number | null) => lgNode(2, 'CLIPTextEncode', {
-    inputs: [{ name: 'clip', link }], outputs: [{ name: 'CONDITIONING' }], widgets_values: ['prompt'],
+    inputs: [{ name: 'clip', link }], outputs: [{ name: 'dinkster.conditioning' }], widgets_values: ['prompt'],
   })
   const controller = (inputLink: number | null = null) => lgNode(5, 'Anything Everywhere', {
     inputs: [{ name: 'anything', link: inputLink }],
@@ -2445,11 +2465,11 @@ describe('Use Everywhere to named nets', () => {
 
   it('accepts an ordinary producer enabled as a Use Everywhere broadcaster', () => {
     const broadcaster = lgNode(1, 'CheckpointLoaderSimple', {
-      outputs: [{ name: 'MODEL' }, { name: 'CLIP', type: 'CLIP' }, { name: 'VAE' }],
+      outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', type: 'CLIP' }, { name: 'dinkster.vae' }],
       widgets_values: ['x'],
       properties: {
         ue_convert: true,
-        ue_properties: { output_not_broadcasting: { CLIP: false } },
+        ue_properties: { output_not_broadcasting: { 'dinkster.clip': false } },
       },
     })
     const result = importLitegraph(workflow(
@@ -2468,11 +2488,11 @@ describe('Use Everywhere to named nets', () => {
 
   it('accepts every linked dynamic Anything Everywhere input', () => {
     const secondProducer = lgNode(9, 'CheckpointLoaderSimple', {
-      outputs: [{ name: 'MODEL' }, { name: 'CLIP', type: 'CLIP', links: [12] }, { name: 'VAE' }],
+      outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', type: 'CLIP', links: [12] }, { name: 'dinkster.vae' }],
       widgets_values: ['y'],
     })
     const secondConsumer = lgNode(3, 'CLIPTextEncode', {
-      inputs: [{ name: 'clip', link: null }], outputs: [{ name: 'CONDITIONING' }], widgets_values: ['second'],
+      inputs: [{ name: 'clip', link: null }], outputs: [{ name: 'dinkster.conditioning' }], widgets_values: ['second'],
     })
     const dynamicController = lgNode(5, 'Anything Everywhere', {
       inputs: [
@@ -2497,7 +2517,7 @@ describe('Use Everywhere to named nets', () => {
 
   it('accepts an empty authoritative manifest and retains an enabled producer', () => {
     const broadcaster = lgNode(1, 'CheckpointLoaderSimple', {
-      outputs: [{ name: 'MODEL' }, { name: 'CLIP', type: 'CLIP' }, { name: 'VAE' }],
+      outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', type: 'CLIP' }, { name: 'dinkster.vae' }],
       widgets_values: ['x'],
       properties: { ue_convert: true },
     })
@@ -2513,7 +2533,7 @@ describe('Use Everywhere to named nets', () => {
 
     const stale = importLitegraph(workflow([
       lgNode(1, 'CheckpointLoaderSimple', {
-        outputs: [{ name: 'MODEL' }, { name: 'CLIP', type: 'CLIP' }, { name: 'VAE' }],
+        outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', type: 'CLIP' }, { name: 'dinkster.vae' }],
         widgets_values: ['x'],
         properties: {
           ue_convert: true,
@@ -2527,11 +2547,11 @@ describe('Use Everywhere to named nets', () => {
 
   it('refuses stale controller sources and invalid converted broadcasters', () => {
     const otherProducer = lgNode(9, 'CheckpointLoaderSimple', {
-      outputs: [{ name: 'MODEL' }, { name: 'CLIP', type: 'CLIP' }, { name: 'VAE' }],
+      outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', type: 'CLIP' }, { name: 'dinkster.vae' }],
       widgets_values: ['other'],
     })
     const converted = (ueProperties?: JsonObject | string) => lgNode(1, 'CheckpointLoaderSimple', {
-      outputs: [{ name: 'MODEL' }, { name: 'CLIP', type: 'CLIP' }, { name: 'VAE' }],
+      outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', type: 'CLIP' }, { name: 'dinkster.vae' }],
       widgets_values: ['x'],
       properties: {
         ue_convert: true,
@@ -2550,7 +2570,7 @@ describe('Use Everywhere to named nets', () => {
         { extra: { ue_links: [ue({ upstream: 9, controller: 1 })] } },
       ), 'import.ue.controllerSourceMismatch'],
       [workflow(
-        [converted({ output_not_broadcasting: { CLIP: true } }), consumer(null)],
+        [converted({ output_not_broadcasting: { 'dinkster.clip': true } }), consumer(null)],
         [],
         { extra: { ue_links: [ue({ controller: 1 })] } },
       ), 'import.ue.controllerOutputDisabled'],
@@ -2571,7 +2591,7 @@ describe('Use Everywhere to named nets', () => {
       ), 'import.ue.controllerStateInvalid'],
       [workflow([
         lgNode(1, 'CheckpointLoaderSimple', {
-          outputs: [{ name: 'MODEL' }, { name: 'CLIP', type: 'CLIP' }],
+          outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', type: 'CLIP' }],
           properties: { ue_convert: 'true' }, widgets_values: ['x'],
         }),
         consumer(null),
@@ -2608,7 +2628,7 @@ describe('Use Everywhere to named nets', () => {
       ), 'import.ue.sourceTypeMismatch'],
       [workflow([
         lgNode(1, 'CheckpointLoaderSimple', {
-          outputs: [{ name: 'MODEL' }, { name: 'CLIP', type: 42 as unknown as string, links: [11] }],
+          outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip', type: 42 as unknown as string, links: [11] }],
           widgets_values: ['x'],
         }),
         consumer(null), controller(11),
@@ -2624,7 +2644,7 @@ describe('Use Everywhere to named nets', () => {
         producer([11]),
         lgNode(2, 'CLIPTextEncode', {
           inputs: [{ name: 'clip', type: 'MODEL', link: null }],
-          outputs: [{ name: 'CONDITIONING' }],
+          outputs: [{ name: 'dinkster.conditioning' }],
           widgets_values: ['prompt'],
         }),
         controller(11),
@@ -2679,7 +2699,7 @@ describe('Use Everywhere to named nets', () => {
   it('preserves a mixed translation across repeated import, save/reopen, and compilation', () => {
     const secondConsumer = (link: number | null) => lgNode(3, 'CLIPTextEncode', {
       inputs: [{ name: 'clip', type: 'CLIP', link }],
-      outputs: [{ name: 'CONDITIONING', type: 'CONDITIONING' }],
+      outputs: [{ name: 'dinkster.conditioning', type: 'CONDITIONING' }],
       widgets_values: ['second prompt'],
     })
     const explicit = workflow(
@@ -2789,7 +2809,7 @@ describe('Use Everywhere to named nets', () => {
 
   it('groups fanout by source and avoids existing named-net names', () => {
     const secondConsumer = lgNode(3, 'CLIPTextEncode', {
-      inputs: [{ name: 'clip', link: null }], outputs: [{ name: 'CONDITIONING' }], widgets_values: ['second'],
+      inputs: [{ name: 'clip', link: null }], outputs: [{ name: 'dinkster.conditioning' }], widgets_values: ['second'],
     })
     const result = importLitegraph(workflow([
       producer([10, 11]),
@@ -2884,7 +2904,7 @@ describe('Use Everywhere to named nets', () => {
 
     const missingConvertedManifest = importLitegraph(workflow([
       lgNode(1, 'CheckpointLoaderSimple', {
-        outputs: [{ name: 'MODEL' }, { name: 'CLIP' }, { name: 'VAE' }],
+        outputs: [{ name: 'dinkster.model' }, { name: 'dinkster.clip' }, { name: 'dinkster.vae' }],
         widgets_values: ['x'], properties: { ue_convert: true },
       }),
       consumer(null),

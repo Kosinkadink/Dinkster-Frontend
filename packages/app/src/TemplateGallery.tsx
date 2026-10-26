@@ -8,6 +8,7 @@ import { MountFolderForm } from './MountFolderForm.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductActionFooter } from './ProductForm.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { SearchInput } from './SearchSurface.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -168,21 +169,23 @@ export function TemplateGallery(props: {
               {message('templateGallery.search.description')}
             </span>
           </div>
-          <Show when={loading()}><p class="template-gallery-state" role="status">{message('templateGallery.loading')}</p></Show>
+          <Show when={loading()}><ProductEmptyState tone="loading" title={message('templateGallery.loading')} /></Show>
           <Show when={error() !== ''}>
-            <div class="template-gallery-error">
-              <p class="template-gallery-state" role="alert">{error()}</p>
-              <ProductActionFooter>
-                <ProductButton type="button" onClick={retry}>{message('templateGallery.retry')}</ProductButton>
-              </ProductActionFooter>
-            </div>
+            <ProductEmptyState
+              tone="error"
+              title={error()}
+              action={<ProductButton type="button" onClick={retry}>{message('templateGallery.retry')}</ProductButton>}
+            />
           </Show>
           <Show when={!loading() && error() === '' && families().length === 0}>
-            <p class="template-gallery-state">{message(query().trim() === '' ? 'templateGallery.empty' : 'templateGallery.noMatches')}</p>
+            <ProductEmptyState title={message(query().trim() === '' ? 'templateGallery.empty' : 'templateGallery.noMatches')} />
           </Show>
           <Show when={!loading() && error() === '' && mountsEmpty()}>
             <div class="template-gallery-mounts">
-              <p class="template-gallery-state">{message('desktopManagement.folders.description')}</p>
+              <ProductEmptyState
+                title={message('desktopManagement.folders.title')}
+                hint={message('desktopManagement.folders.description')}
+              />
               <Show when={allowedMountConnection()}>
                 {(connection) => <MountFolderForm connection={connection()} onGranted={() => setMountRefresh((value) => value + 1)} />}
               </Show>
@@ -191,8 +194,8 @@ export function TemplateGallery(props: {
           <div id={resultsId} role="listbox" aria-label={message('templateGallery.results')}>
             <For each={families()}>
               {(family) => (
-                <section class="template-family" data-family={family.id}>
-                  <h3>{family.id}</h3>
+                <section class="template-family" data-family={family.id} role="group" aria-label={family.id}>
+                  <h3 aria-hidden="true">{family.id}</h3>
                   <div class="template-family-grid">
                     <For each={family.entries}>
                       {(entry) => {

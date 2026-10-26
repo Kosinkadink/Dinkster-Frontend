@@ -251,8 +251,7 @@ export interface PinLayout extends DynamicAnnotations {
   readonly maybeAbsent?: true
   /**
    * Present when this pin is a visible proxy for a connected port hidden by
-   * a collapsed section. Proxies share the section header row's center;
-   * scene-audit treats same-section co-location as intentional.
+   * a collapsed section. Proxies share the section header row's center.
    */
   readonly collapsedSection?: string
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
@@ -819,8 +818,8 @@ export function layoutNode(
     if (declared !== undefined && ['INT', 'FLOAT', 'BOOLEAN'].includes(declared.widgetType)) return declared
     if (declared !== undefined || item.spec.type.kind !== 'union') return undefined
     const names = new Set(item.spec.type.names)
-    if (![...names].every((name) => ['core.int', 'core.float', 'core.boolean'].includes(name))) return undefined
-    return names.has('core.float') || names.has('core.int')
+    if (![...names].every((name) => ['INT', 'FLOAT', 'BOOLEAN'].includes(name))) return undefined
+    return names.has('FLOAT') || names.has('INT')
       ? { widgetType: 'FLOAT', options: {} }
       : undefined
   }

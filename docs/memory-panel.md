@@ -4,8 +4,8 @@ Open **Memory** from the activity bar to inspect each native Dinkster backend.
 Every backend has a separate labelled section with its own telemetry, device
 identities, consumer disclosures, history, and runtime settings.
 
-Memory remains available when P2P and workflow templates are disabled (the
-default). It uses memory telemetry endpoints, not the P2P or template catalog.
+Memory remains available when workflow templates are disabled. It uses memory
+telemetry endpoints, not the template catalog.
 
 The section status distinguishes initial loading, live data, stale retained
 data, and a disconnected backend. A failed refresh leaves previous facts
@@ -65,6 +65,8 @@ range table exposes every raw flag, its resident interpretation, and page-in
 or page-out transition, so the heatmap is never the only source of meaning.
 
 Active leases retain reservation id, device, byte count, and countdown.
+Each lease uses a ProductListRow with device and selectable reservation identity
+beside byte and expiry facts, matching other runtime list rows.
 Unsupported lease telemetry and a supported empty lease list are distinct.
 
 Pushed `memory_status` updates take precedence. Polling `/memory/status` every

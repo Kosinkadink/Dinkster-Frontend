@@ -52,7 +52,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
     app.registerSchemas([{
       type: 'auditModelLoader', displayName: 'audit Model Loader', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'model', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: false,
+        kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: {
           widgetType: 'ASSET', kind: 'model/checkpoint',
           options: { accept: ['application/x-safetensors', 'application/octet-stream'] }, default: null,

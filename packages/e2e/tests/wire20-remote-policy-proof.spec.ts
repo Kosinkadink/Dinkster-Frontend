@@ -41,7 +41,7 @@ test('proves wire20 manual control policy, CAS, TTL, and phase1 fallback through
       category: 'test', outputNode: false, signature: 'wire20-remote-policy-proof',
       interface: ['first', 'last', 'edit', 'ttl', 'legacy'].map((id) => ({
         role: 'input', id, required: true,
-        type: { kind: 'concrete', types: ['core.combo'] },
+        type: { kind: 'concrete', types: ['COMBO'] },
         widget: {
           type: 'COMBO', options: [`${id}-old`],
           remote: {

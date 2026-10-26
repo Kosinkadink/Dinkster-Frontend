@@ -53,6 +53,9 @@ export type TypeExpr =
   | { readonly kind: 'list'; readonly element: TypeExpr }
   | { readonly kind: 'asset'; readonly element: TypeExpr }
   | { readonly kind: 'stream'; readonly element: TypeExpr }
+  | { readonly kind: 'tuple'; readonly elements: readonly TypeExpr[] }
+  | { readonly kind: 'family_tuple'; readonly input: string }
+  | { readonly kind: 'tuple_element'; readonly input?: string; readonly element?: TypeExpr; readonly index: string | number }
 
 /** COMBO is a concrete STRING-valued type at the wire level; we keep its own name. */
 export const COMBO_TYPE = 'COMBO'
@@ -103,6 +106,28 @@ export const streamTypeId = (elementTypeId: string): string => `stream<${element
 export const parseStreamTypeId = (typeId: string): string | undefined =>
   parseParametricTypeId(typeId, 'stream<')
 
+/** Split positional ids without splitting commas inside nested constructors. */
+export const parseTupleTypeId = (typeId: string): readonly string[] | undefined => {
+  if (!typeId.startsWith('tuple<') || !typeId.endsWith('>')) return undefined
+  const body = typeId.slice(6, -1)
+  if (body === '') return []
+  const elements: string[] = []
+  let start = 0
+  let depth = 0
+  for (let index = 0; index < body.length; index++) {
+    const char = body[index]
+    if (char === '<') depth++
+    else if (char === '>') {
+      if (--depth < 0) return undefined
+    } else if (char === ',' && depth === 0) {
+      elements.push(body.slice(start, index))
+      start = index + 1
+    }
+  }
+  elements.push(body.slice(start))
+  return depth === 0 && elements.every((element) => element !== '') ? elements : undefined
+}
+
 /**
  * The canonical type id a recursively-closed expression denotes (concrete ->
  * its name, closed list -> 'list<...>', closed asset -> 'asset<...>'), else
@@ -112,6 +137,10 @@ export const parseStreamTypeId = (typeId: string): string | undefined =>
  */
 export const canonicalTypeIdOf = (t: TypeExpr): string | undefined => {
   if (t.kind === 'concrete') return t.name
+  if (t.kind === 'tuple') {
+    const elements = t.elements.map(canonicalTypeIdOf)
+    return elements.some((element) => element === undefined) ? undefined : `tuple<${elements.join(',')}>`
+  }
   if (t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream') {
     const inner = canonicalTypeIdOf(t.element)
     return inner === undefined ? undefined : `${t.kind}<${inner}>`
@@ -126,6 +155,8 @@ export const canonicalTypeIdOf = (t: TypeExpr): string | undefined => {
  * `concrete` directly, so `concrete('list<...>')` never enters the system.
  */
 export const typeExprFromTypeId = (typeId: string): TypeExpr => {
+  const positions = parseTupleTypeId(typeId)
+  if (positions !== undefined) return { kind: 'tuple', elements: positions.map(typeExprFromTypeId) }
   const listInner = parseListTypeId(typeId)
   if (listInner !== undefined) return { kind: 'list', element: typeExprFromTypeId(listInner) }
   const assetInner = parseAssetTypeId(typeId)
@@ -142,8 +173,8 @@ export const typeExprFromTypeId = (typeId: string): TypeExpr => {
  * emission-rule amendment keys on exactly these forms: a literal whose
  * runtime type is an asset source DIFFERING from the concrete declared
  * type must be $typed-stamped (the plain literal would be wrapped as the
- * declared type raw and never reach the planner). Bare `dinkster.asset` and
- * `list<dinkster.asset>` are NOT asset sources - the untyped atom has no
+ * declared type raw and never reach the planner). Bare `ASSET` and
+ * `list<ASSET>` are NOT asset sources - the untyped atom has no
  * decode target, so a stamp would not make it coercible.
  */
 export const isAssetSourceTypeId = (typeId: string): boolean => {
@@ -154,18 +185,18 @@ export const isAssetSourceTypeId = (typeId: string): boolean => {
 
 /**
  * True when a canonical type id DECLARES an asset-reference destination:
- * bare `dinkster.asset`, `asset<...>`, or a list of either. Per the typed-assets
+ * bare `ASSET`, `asset<...>`, or a list of either. Per the typed-assets
  * joint pins, such destinations receive AssetRef envelopes AS-IS - never
  * coerced - so an asset-source literal landing on one must stay a PLAIN
  * literal even when the source form differs from the declared form (e.g. an
- * `asset<comfy.IMAGE>` tap into a bare `dinkster.asset` input): a $typed stamp
+ * `asset<comfy.IMAGE>` tap into a bare `ASSET` input): a $typed stamp
  * would route it into the coercion planner, which has no asset-to-asset
  * vocabulary and would refuse a delivery the plain ref satisfies.
  */
 export const isAssetRefDestinationTypeId = (typeId: string): boolean => {
-  if (typeId === 'dinkster.asset' || parseAssetTypeId(typeId) !== undefined) return true
+  if (typeId === 'ASSET' || parseAssetTypeId(typeId) !== undefined) return true
   const inner = parseListTypeId(typeId)
-  return inner !== undefined && (inner === 'dinkster.asset' || parseAssetTypeId(inner) !== undefined)
+  return inner !== undefined && (inner === 'ASSET' || parseAssetTypeId(inner) !== undefined)
 }
 
 /**
@@ -173,7 +204,7 @@ export const isAssetRefDestinationTypeId = (typeId: string): boolean => {
  * Dinkster b56fa4f + caf1070 amendment). Two arms:
  *
  * - LIST-OUTER (schema-driven): the declared outer type is a LIST of
- *   asset references - `list<asset<T>>` or bare `list<dinkster.asset>` -
+ *   asset references - `list<asset<T>>` or bare `list<ASSET>` -
  *   because N selections lower to N descriptors in a list literal.
  * - SCALAR MERGE (registry-gated, backend 6dbbddd): the declared type is
  *   a scalar concrete atom T with a registered batch-merge provider
@@ -186,16 +217,16 @@ export const isAssetRefDestinationTypeId = (typeId: string): boolean => {
  *
  * `asset<list<T>>` stays single-pick: its multi-ness comes from the
  * DECODER (one file, many batches), not from selection. Bare scalar
- * `dinkster.asset` stays single-pick: the untyped atom has no decode target
+ * `ASSET` stays single-pick: the untyped atom has no decode target
  * to merge through (and the backend registry holds atoms like
- * comfy.IMAGE, never dinkster.asset).
+ * comfy.IMAGE, never ASSET).
  */
 export const assetMultiSelect = (t: TypeExpr, mergeableTypes?: readonly string[]): boolean =>
   (t.kind === 'list' &&
     (t.element.kind === 'asset' ||
-      (t.element.kind === 'concrete' && t.element.name === 'dinkster.asset'))) ||
+      (t.element.kind === 'concrete' && t.element.name === 'ASSET'))) ||
   (t.kind === 'concrete' &&
-    t.name !== 'dinkster.asset' &&
+    t.name !== 'ASSET' &&
     parseListTypeId(t.name) === undefined &&
     parseAssetTypeId(t.name) === undefined &&
     mergeableTypes !== undefined &&
@@ -214,6 +245,7 @@ export const cardinalityOf = (t: TypeExpr): Cardinality => {
   switch (t.kind) {
     case 'list':
       return 'list'
+    case 'tuple':
     case 'stream':
       return 'scalar'
     case 'asset':
@@ -246,6 +278,8 @@ export const cardinalityOf = (t: TypeExpr): Cardinality => {
 export interface WidgetDescriptorSpec {
   readonly widgetType: string
   readonly options: Readonly<Record<string, unknown>>
+  /** Scalar presentation retained by a one-level primitive LIST widget. */
+  readonly element?: WidgetDescriptorSpec
   /** Open-vocabulary ASSET classification (wire v7; presentation only). */
   readonly kind?: string
   /** Source media inputs may acquire bytes through the bounded media ingest route. */
@@ -319,12 +353,25 @@ export interface ResolvedWidgetRepresentation {
 }
 
 /**
- * Every ordinary string supports the two value-compatible text views. An
+ * Ordinary strings and bounded FLOATs support value-compatible views. An
  * explicit representation set takes authority, including a locked set with
  * userSwitchable false or only one representation.
  */
 export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentationsSpec | undefined {
   if (spec.representations !== undefined) return spec.representations
+  if (spec.widgetType === 'FLOAT') {
+    const { min, max } = spec.options
+    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min)
+      || !Number.isFinite(max) || max <= min || !Number.isFinite(max - min)) return undefined
+    return {
+      default: spec.options['display'] === 'slider' ? 'slider' : 'number',
+      userSwitchable: true,
+      representations: [
+        { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
+        { id: 'slider', displayName: 'Slider', widget: { ...spec, options: { ...spec.options, display: 'slider' } } },
+      ],
+    }
+  }
   if (spec.widgetType !== 'STRING') return undefined
   const descriptor = (multiline: boolean): WidgetDescriptorSpec => ({
     ...spec,
@@ -389,6 +436,8 @@ export interface RemoteSourceSpec {
 export interface AutogrowSpec {
   readonly kind: 'autogrow'
   readonly template: readonly InputSpec[]
+  /** Each stored member binds its own variables instead of sharing the family template. */
+  readonly independentTypes?: boolean
   /** Wire-15 document-driven materialization (absent keeps wire-14 identity). */
   readonly materialization?: 'wire15'
   readonly naming:
@@ -1029,7 +1078,7 @@ export const outputSchemaInputsOf = (s: NodeSchema): readonly string[] =>
     ]
   })])]
 
-/** An input whose concrete core.combo value is edited by a combo dropdown. */
+/** An input whose concrete COMBO value is edited by a combo dropdown. */
 export const isComboWidgetInput = (spec: InputSpec): boolean =>
   spec.widget?.widgetType === 'COMBO'
 
@@ -1039,7 +1088,7 @@ export const isAssetWidgetInput = (spec: InputSpec): boolean =>
 export const isImageAssetInput = (spec: InputSpec): boolean => {
   const type = canonicalTypeIdOf(spec.type)
   return spec.hidden !== true && isAssetWidgetInput(spec) &&
-    (type === 'asset<comfy.IMAGE>' || type === 'asset<dinkster.image>')
+    (type === 'asset<IMAGE>' || type === 'asset<comfy.IMAGE>')
 }
 
 /**

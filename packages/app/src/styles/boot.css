@@ -1,0 +1,42 @@
+/* -- Boot indicator (pre-render discovery window) -------------------------- */
+/* Centered minimal indicator shown while discoverBackend() awaits. Appears
+   only after 150ms (no flash on fast boot) and is removed when the real app
+   renders. See docs/shell.md "Boot indicator". */
+.boot-indicator {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #181818;
+  z-index: 99999;
+}
+.boot-indicator-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.boot-indicator-pulse {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #4a9;
+  opacity: 0.35;
+  animation: dinkster-boot-pulse 1.4s ease-in-out infinite;
+}
+@keyframes dinkster-boot-pulse {
+  0%, 100% { transform: scale(0.6); opacity: 0.2; }
+  50% { transform: scale(1); opacity: 0.5; }
+}
+.boot-indicator-name {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #ccc;
+}
+.boot-indicator-waiting {
+  font-size: 11px;
+  color: #777;
+}
+

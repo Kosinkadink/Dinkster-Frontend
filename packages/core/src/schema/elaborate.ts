@@ -1462,7 +1462,7 @@ export interface ElaborateOptions {
  * (namespacing), '@' (references), '$', '{', '}' (substitution), '/',
  * '\\' (alternate separators/escape), quotes and backtick (quoting in any
  * future DSL), '<', '>' (type-constructor syntax in canonical runtime type
- * ids, e.g. Dinkster's list<core.int> - schema wire v2), and whitespace
+ * ids, e.g. Dinkster's list<INT> - schema wire v2), and whitespace
  * (ambiguous everywhere). Ids matching [A-Za-z0-9_-]+ are guaranteed never
  * to collide with address syntax.
  */
@@ -1855,6 +1855,42 @@ export function elaborateInterface(
     }
     if (item.kind === 'input') elaborateInput(item, topScope)
     else elaborateOutput(item, topScope)
+  }
+  const scopeType = (type: TypeExpr, member: string): TypeExpr => {
+    if (type.kind === 'variable') return { ...type, templateId: `${member}:${type.templateId}` }
+    if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => scopeType(element, member)) }
+    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: scopeType(type.element, member) }
+    return type
+  }
+  for (const [index, item] of items.entries()) {
+    if (item.kind !== 'input' || item.ancestry === undefined) continue
+    const family = schema.items.find((candidate) => candidate.kind === 'input' && candidate.id === item.ancestry![0]!.construct)
+    if (family?.kind !== 'input' || family.dynamic?.kind !== 'autogrow' || !family.dynamic.independentTypes) continue
+    const member = `${item.ancestry[0]!.construct}.${item.ancestry[0]!.member}`
+    items[index] = { ...item, spec: { ...item.spec, type: scopeType(item.spec.type, member) } }
+  }
+  const project = (type: TypeExpr): TypeExpr => {
+    if (type.kind === 'family_tuple') {
+      return { kind: 'tuple', elements: elabInputsOf({ items, diagnostics, submissionValues }).filter((input) => input.apiName !== undefined && input.ancestry?.[0]?.construct === type.input).map((input) => input.spec.type) }
+    }
+    if (type.kind === 'tuple_element') {
+      const input = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
+      const element = type.element ?? (input?.kind === 'input' ? input.spec.type : undefined)
+      const selector = typeof type.index === 'string' ? type.index : undefined
+      const spec = selector === undefined ? undefined : schema.items.find((item) => item.kind === 'input' && item.id === selector)
+      const index = selector === undefined ? type.index : Object.hasOwn(node.values, selector) ? node.values[selector] : (spec?.kind === 'input' ? spec.widget?.default ?? spec.ext?.['default'] : undefined)
+      if (element === undefined || typeof index !== 'number' || !Number.isSafeInteger(index) || (selector !== undefined && connectivity.isInputConnected(selector))) {
+        ctx.report('error', 'elab.tuple.literalIndex', 'Tuple selection requires a stored integer index and a declared tuple input.', selector)
+        return type
+      }
+      return { kind: 'tuple_element', element, index }
+    }
+    if (type.kind === 'tuple') return { ...type, elements: type.elements.map(project) }
+    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: project(type.element) }
+    return type
+  }
+  for (const [index, item] of items.entries()) {
+    if (item.kind === 'output') items[index] = { ...item, spec: { ...item.spec, type: project(item.spec.type) } }
   }
 
   const chunkSafe = schema.chunkSafe

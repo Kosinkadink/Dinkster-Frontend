@@ -40,6 +40,7 @@ const rationalText = (value: unknown): string | undefined => {
 export function mediaMetadataOf(typeId: string, value: unknown): MediaMetadata | undefined {
   const type = parseAssetTypeId(typeId) ?? typeId
   const kind = type.split('.').at(-1)?.toUpperCase()
+  if ((kind === 'AUDIO' || kind === 'VIDEO') && type !== kind) return undefined
   if (kind !== 'IMAGE' && kind !== 'MASK' && kind !== 'AUDIO' && kind !== 'VIDEO') return undefined
   const meta = record(value) ?? {}
   const fields: MediaMetadataField[] = []

@@ -102,7 +102,7 @@ describe('ConnectionProfilesSection removal', () => {
     expect(root.querySelector('[data-testid="profile-remove"]')?.getAttribute('aria-label')).toBe('[Profil entfernen: Studio source]')
     expect(root.querySelector('[role="alert"]')?.textContent).toBe('[Token nicht geloscht: keychain locked]')
     expect(root.querySelector('[data-testid="profile-row"]')?.textContent).toContain('Studio source')
-    expect(root.querySelector('.backend-address')?.textContent).toBe('https://host:8443')
+    expect(root.querySelector('[data-testid="profile-row"] code')?.textContent).toBe('https://host:8443')
   })
 
   it('retires the stored credential before removing the profile', async () => {

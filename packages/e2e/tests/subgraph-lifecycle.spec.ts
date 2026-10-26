@@ -347,7 +347,7 @@ test('extracts an Int widget-output fan-out and flattens it back to exact taps',
       items: [{
         kind: 'input', id: 'value', displayName: 'Value',
         type: { kind: 'concrete', name: 'INT' }, optional: false,
-        widget: { widgetType: 'core.int', options: {}, default: 0 },
+        widget: { widgetType: 'INT', options: {}, default: 0 },
       }],
     }, {
       type: 'LifecycleMathExpression', displayName: 'Math Expression', category: 'test', source: 'v3', isOutputNode: false,

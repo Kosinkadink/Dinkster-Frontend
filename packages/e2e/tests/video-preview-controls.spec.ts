@@ -37,8 +37,8 @@ async function install(
     })
     const list = url.searchParams.get('outputId') === 'clips' && !url.searchParams.has('element')
     return route.fulfill({ json: { available: true,
-      descriptor: list ? { typeId: 'list<comfy.VIDEO>', fingerprint: 'clips', length: 2 }
-        : { typeId: 'comfy.VIDEO', fingerprint: 'video-fixture', meta: metadata },
+      descriptor: list ? { typeId: 'list<VIDEO>', fingerprint: 'clips', length: 2 }
+        : { typeId: 'VIDEO', fingerprint: 'video-fixture', meta: metadata },
       renditions: list ? [] : refusal === 'unadvertised' ? [{ kind: 'original', mime: 'video/mp4', default: true }] : [
         { kind: 'original', mime: 'video/x-matroska', default: true }, { kind: 'preview', mime: 'video/mp4' },
         { kind: 'poster', mime: 'image/png' },
@@ -72,8 +72,8 @@ async function install(
     app.registerSchemas([{
       type: 'VideoControlsTest', displayName: 'Video inspection', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        { kind: 'output', id: 'clips', type: { kind: 'list', element: { kind: 'concrete', name: 'comfy.VIDEO' } }, preview: true },
-        { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'comfy.VIDEO' }, preview: true },
+        { kind: 'output', id: 'clips', type: { kind: 'list', element: { kind: 'concrete', name: 'VIDEO' } }, preview: true },
+        { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'VIDEO' }, preview: true },
       ],
     }])
     app.openDocument({
@@ -90,8 +90,8 @@ async function install(
     store.apply({ kind: 'started', execution: ref, timestamp: Date.now() })
     store.apply({ kind: 'nodeStates', execution: ref, timestamp: Date.now(), nodes: { video: { state: 'done' } } })
     store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'video', timestamp: Date.now(), output: {
-      clips: { typeId: 'list<comfy.VIDEO>', fingerprint: 'clips', length: 2 },
-      other: { typeId: 'comfy.VIDEO', fingerprint: 'video-fixture', meta },
+      clips: { typeId: 'list<VIDEO>', fingerprint: 'clips', length: 2 },
+      other: { typeId: 'VIDEO', fingerprint: 'video-fixture', meta },
     } })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
@@ -372,7 +372,7 @@ test('selected cloud-only VIDEO input explicitly waits for a bounded route in Ca
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'VideoInputTest', displayName: 'Cloud video input', category: 'test', source: 'v3',
-      items: [{ kind: 'input', id: 'asset', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.VIDEO' } },
+      items: [{ kind: 'input', id: 'asset', type: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
         widget: { widgetType: 'ASSET', options: { accept: ['video/*'] }, default: null } }],
     }])
     app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-input', root: 'g0',

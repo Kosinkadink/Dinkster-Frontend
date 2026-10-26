@@ -483,7 +483,7 @@ const dynamicTargetPayload = (): DinksterNodesPayload => {
 
 const chainedMigrationPayload = (): DinksterNodesPayload => {
   const raw = structuredClone(nodesPayload) as any
-  const type = { kind: 'concrete', types: ['core.int'] }
+  const type = { kind: 'concrete', types: ['INT'] }
   const input = (id: string): Record<string, unknown> => ({
     role: 'input',
     id,
@@ -656,7 +656,7 @@ const maintainedDynamicGroupPayload = (): DinksterNodesPayload => {
   const polarityInput = (): any => ({
     role: 'input',
     id: 'mask_polarity',
-    type: { kind: 'concrete', types: ['core.string'] },
+    type: { kind: 'concrete', types: ['STRING'] },
     required: false,
     default: 'white',
   })
@@ -788,7 +788,7 @@ const maintainedTiledGroupPayload = (): DinksterNodesPayload => {
   const native = structuredClone(raw.nodes['comfy.EmptyImage'])
   native.nodeType = nativeType
   native.displayName = 'Tiled Upscale'
-  native.interface = [imageInput, input('tile_size', 'core.int', 512), input('scale_by', 'core.float', 2), imageOutput]
+  native.interface = [imageInput, input('tile_size', 'INT', 512), input('scale_by', 'FLOAT', 2), imageOutput]
   native.aliases = []
   native.signature = '0000000000000000000000000000000000000000'
   raw.nodes[nativeType] = native
@@ -804,14 +804,14 @@ const maintainedTiledGroupPayload = (): DinksterNodesPayload => {
   raw.packs.comfy.comfyGroups = {
     format: 'dinkster-comfy-group/1',
     sourceSchemas: [
-      source(splitType, [imageInput, input('tile_size', 'core.int', 512), output('tiles', 'comfy.IMAGE')]),
+      source(splitType, [imageInput, input('tile_size', 'INT', 512), output('tiles', 'comfy.IMAGE')]),
       source(scaleType, [
         imageInput,
-        input('upscale_method', 'core.string', 'nearest-exact'),
-        input('scale_by', 'core.float', 2),
+        input('upscale_method', 'STRING', 'nearest-exact'),
+        input('scale_by', 'FLOAT', 2),
         imageOutput,
       ]),
-      source(mergeType, [input('tiles', 'comfy.IMAGE'), input('overlap', 'core.int', 32), imageOutput]),
+      source(mergeType, [input('tiles', 'comfy.IMAGE'), input('overlap', 'INT', 32), imageOutput]),
     ],
     groupSchemas: [source(groupType, native.interface)],
     records: [{
@@ -875,7 +875,7 @@ const dynamicOutputPayload = (): DinksterNodesPayload => {
   const schema = (count: string, family: string): any => ({
     schemaVersion: 1,
     interface: [
-      { role: 'input', id: count, required: true, type: type('core.int') },
+      { role: 'input', id: count, required: true, type: type('INT') },
       {
         role: 'outputFamily',
         id: family,

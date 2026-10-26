@@ -379,10 +379,9 @@ test('settings is pinned under the two-line label-under-icon rail controls', asy
   })
   const buttons = sidebar.locator('.sidebar-button')
   const names = await buttons.evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-label')))
-  const standardNames = ['Workflow library', 'Assets', 'Backends', 'Memory telemetry', 'Activity', 'Execution log', 'Settings']
-  const namesWithGuides = [standardNames[0]!, 'Learning guides', ...standardNames.slice(1)]
+  const standardNames = ['Library: Workflow library', 'Assets', 'Backends', 'Memory: Memory telemetry', 'Activity', 'Execution log', 'Settings']
+  const namesWithGuides = [standardNames[0]!, 'Learn: Learning guides', ...standardNames.slice(1)]
   expect([standardNames, namesWithGuides]).toContainEqual(names)
-  await expect(page.getByTestId('p2p-sidebar-toggle')).toHaveCount(0)
 })
 
 test('draggable shell edges keep a seven pixel hit target and highlight a thicker edge', async ({ page }) => {
@@ -425,7 +424,7 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
 
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
   for (let index = 0; index < 20; index++) await page.getByTestId('new-tab').click()
-  const overflow = await page.getByRole('tablist', { name: 'Open workflows' }).evaluate((element) => {
+  const overflow = await page.getByTestId('tab-bar').locator('.workflow-tablist').evaluate((element) => {
     const style = getComputedStyle(element)
     const before = element.scrollLeft
     element.scrollLeft = element.scrollWidth

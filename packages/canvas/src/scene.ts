@@ -215,6 +215,12 @@ const sameTypeExpr = (left: TypeExpr, right: TypeExpr): boolean => {
       return left.names.length === names.length && left.names.every((name, index) => name === names[index])
     }
     case 'wildcard': return true
+    case 'tuple': return left.elements.length === (right as typeof left).elements.length && left.elements.every((element, index) => sameTypeExpr(element, (right as typeof left).elements[index]!))
+    case 'family_tuple': return left.input === (right as typeof left).input
+    case 'tuple_element': {
+      const other = right as typeof left
+      return left.input === other.input && left.index === other.index && (left.element === undefined ? other.element === undefined : other.element !== undefined && sameTypeExpr(left.element, other.element))
+    }
     case 'variable': {
       const other = right as typeof left
       const leftAllowed = left.allowedTypes ?? []
@@ -1919,7 +1925,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const regionIndexSlots: BoundarySlotInfo[] = ownerNode?.region === undefined ? [] : [{
       id: REGION_INDEX_SLOT,
       label: 'Index',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       regionIndex: true,
     }]
     const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(def.boundary.inputs, 'inputs'), ...regionIndexSlots], input.tokens, measure)
@@ -1978,7 +1984,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           y2: to.y,
           fromType: regionIndexPin.type,
           ...(to.type !== undefined ? { toType: to.type } : {}),
-          typeName: 'core.int',
+          typeName: 'INT',
           ...(c.effectiveIdentity !== undefined ? { effectiveIdentity: c.effectiveIdentity } : {}),
         })
       }

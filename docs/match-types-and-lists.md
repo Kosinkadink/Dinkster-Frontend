@@ -1,5 +1,25 @@
 # Match types and lists
 
+## Built-in type vocabulary
+
+Primitive socket ids are `INT`, `FLOAT`, `STRING`, `BOOLEAN`, and `COMBO`.
+They are exact, case-sensitive identities, not aliases for `core.*` names.
+NUMBER widgets bind to `INT` or `FLOAT`; STRING and COLOR widgets bind to
+`STRING`; BOOLEAN and COMBO widgets bind to their respective socket ids.
+MULTI_COMBO binds to `list<COMBO>`. Widget descriptors configure presentation
+without changing the socket identity. Integer sockets preserve exact decimal
+constraints outside JavaScript's safe-integer range; float constraints remain
+JSON numbers. A widget on the wrong socket type is refused during registry
+decoding rather than silently dropping the node's editor.
+
+Other built-in socket ids also use bare uppercase names, including `ASSET`,
+`SAVE_TARGET`, `REGION`, `CURVE`, `DETECTION`, `RESOURCE`, `VIDEO_DOCUMENT`,
+`LAYERS`, `COMPOSITOR`, `MODEL3D`, and `SPLAT`. The backend's canonical
+`builtin_types.py` module defines their spelling. Old `dinkster.*` type ids
+are not aliases. Node ids retain their existing pack namespaces.
+
+## Pin shapes
+
 Dinkster distinguishes fixed types, match types, and `Any` directly on canvas:
 
 | Pin | Meaning |
@@ -44,3 +64,19 @@ incompatible connected constraints are reported instead of being coerced.
 There is no implicit scalar-to-list promotion, list-to-scalar extraction, or
 flattening. Use Create List, List Element, Append to List, or Concat Lists to
 make the intended cardinality change visible in the graph.
+
+Workflow import preserves generated map outputs across subgraph boundaries and
+maps downstream scalar consumers explicitly, including save nodes. Dynamic
+selectors remain owned by the mapped body rather than becoming element inputs.
+
+## Positional tuples
+
+Create Tuple preserves independently typed positions as one scalar value.
+Tuple socket labels show each zero-based position and its type. Tuple Item
+selects a position with a stored integer index; negative indices count from
+the end. Connected indices, nonintegers and out-of-range positions are errors.
+A tuple crossing a region or loop remains one value, not an execution list.
+
+Workflow import lowers homogeneous CreateList values to list operations and
+heterogeneous declared positions to Create Tuple and Tuple Item. This choice
+uses declared source types, never runtime payload inspection.

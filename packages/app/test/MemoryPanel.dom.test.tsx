@@ -197,7 +197,11 @@ describe('MemoryPanel', () => {
     expect(unloadMemory).toHaveBeenLastCalledWith('cuda:0', undefined, undefined)
     expect(root.textContent).toContain('Freed 700 B of 1000 B requested. In-use memory may remain.')
     status.set('disconnected')
-    expect([...root.querySelectorAll<HTMLButtonElement>('.product-button')].every((button) => button.disabled)).toBe(true)
+    for (const label of ['Reset peak', 'Unload Flux model', 'Unload all']) {
+      const action = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)
+      expect(action).toBeDefined()
+      expect(action!.disabled).toBe(true)
+    }
     unmount()
   })
 
@@ -526,6 +530,27 @@ describe('MemoryPanel', () => {
     expect(cacheDetails.textContent).toContain('Item details failed to refresh: detail offline.')
     expect(cacheDetails.textContent).not.toContain('Retained details remain visible.')
     expect(cacheDetails.textContent).not.toContain('unsupported')
+    unmount()
+  })
+
+  it('leaves initial loading for an error without claiming retained telemetry', async () => {
+    let reject!: (error: Error) => void
+    const connection = {
+      status: createSignal<ConnectionStatus>('connected'),
+      onMemoryStatus: () => () => {},
+      fetchRuntimeSettings: vi.fn(),
+      updateRuntimeSetting: vi.fn(),
+      fetchMemoryStatus: () => new Promise<MemoryStatus>((_resolve, fail) => { reject = fail }),
+    }
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <MemoryPanel connection={connection} label="Unavailable" />, root)
+    expect(root.textContent).toContain('Waiting for memory telemetry')
+    reject(new Error('telemetry offline'))
+    await Promise.resolve(); await Promise.resolve()
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('Memory telemetry unavailable')
+    expect(root.textContent).toContain('telemetry offline')
+    expect(root.textContent).not.toContain('Waiting for memory telemetry')
+    expect(root.textContent).not.toContain('retained')
     unmount()
   })
 

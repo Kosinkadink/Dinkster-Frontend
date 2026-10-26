@@ -21,6 +21,8 @@ import type {
   TextWidgetEditorExtension,
 } from '@dinkster/widgets'
 import { Check, X } from 'lucide-solid'
+import { floatKind, floatSliderView } from '@dinkster/widgets'
+import { ProductSlider } from '../ProductSlider.js'
 import {
   WidgetEditorController,
   type WidgetEditorImplementationProps,
@@ -36,7 +38,7 @@ import {
   type SuggestionSurfaceState,
 } from '../SuggestionSurface.js'
 import { editorScreenAnchor } from '../widget-editor-position.js'
-import { parseNumericCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
+import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
 
 export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
   if (ed.outputDescriptors !== undefined || ed.target.kind !== 'input' ||
@@ -71,12 +73,18 @@ type TextControl = HTMLInputElement | HTMLTextAreaElement
 
 const scalarStrategies = {
   INT: (raw: string) => parseNumericCommit(raw, 'INT'),
-  FLOAT: (raw: string, round?: unknown) => parseNumericCommit(raw, 'FLOAT', round),
+  FLOAT: (raw: string, round?: unknown, precision?: unknown) => parseNumericCommit(raw, 'FLOAT', round, precision),
 } as const
 
 const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const host = props.editor
   const ed = host.ed
+  const list = ed.spec?.widgetType === 'LIST'
+  const text = ed.spec?.widgetType === 'STRING'
+  const initialText = list ? JSON.stringify(ed.initial ?? []) : String(ed.initial ?? '')
+  const [draft, setDraft] = createSignal(initialText)
+  const slider = ed.spec !== undefined && ed.spec.widgetType === floatKind.type && floatSliderView.isCompatible(ed.spec)
+    && (ed.viewId ?? floatKind.defaultView(ed.spec)) === 'core.slider'
   const fieldIds = productFieldIds('widget-editor-value')
   const [error, setError] = createSignal<string>()
   let live = true
@@ -85,7 +93,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
 
   const commitTarget = (value: Json): void => {
     if (!live) return
-    if (ed.spec?.widgetType === 'STRING' && typeof value === 'string' && ed.target.kind === 'input') {
+    if (text && typeof value === 'string' && ed.target.kind === 'input') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
       const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
@@ -108,12 +116,16 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
         setError(reason instanceof Error ? reason.message : 'Invalid JSON')
         return undefined
       }
+    } else if (list) {
+      const parsed = parsePrimitiveListCommit(raw, ed.spec)
+      if (!parsed.ok) { setError(parsed.error); return undefined }
+      value = parsed.value
     } else if (ed.spec.widgetType === 'INT') {
       const parsed = scalarStrategies.INT(raw)
       if (!parsed.ok) { setError(parsed.error); return undefined }
       value = parsed.value
-    } else if (ed.spec.widgetType === 'FLOAT') {
-      const parsed = scalarStrategies.FLOAT(raw, ed.spec.options['round'])
+    } else if (ed.spec.widgetType === floatKind.type) {
+      const parsed = scalarStrategies.FLOAT(raw, ed.spec.options['round'], ed.spec.options['precision'])
       if (!parsed.ok) { setError(parsed.error); return undefined }
       const min = ed.spec.options['min']
       const max = ed.spec.options['max']
@@ -160,7 +172,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   let completionAnchor: TextControl | undefined
 
   const completionContext = (): TextWidgetEditorContext | undefined => {
-    if (ed.spec?.widgetType !== 'STRING' || ed.target.kind !== 'input') return undefined
+    if (!text || ed.spec === undefined || ed.target.kind !== 'input') return undefined
     const nodeType = ed.tab.store.doc.graphs[ed.graphId]?.nodes[ed.target.nodeId]?.type
     return nodeType === undefined ? undefined : {
       graphId: ed.graphId, nodeId: ed.target.nodeId, inputId: ed.target.valueKey, nodeType, spec: ed.spec,
@@ -245,12 +257,12 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   const completionKeyDown = (event: KeyboardEvent & { currentTarget: TextControl }): boolean => interaction.onKeyDown(event, entries(), event.currentTarget, (entry) => accept(event.currentTarget, entry), closeCompletions)
 
   const clickAway = (): void => {
-    if (ed.spec !== undefined && ed.multiline) {
+    if (ed.spec !== undefined && ed.multiline && !list) {
       props.close()
       return
     }
     const field = popover?.querySelector<TextControl>('input, textarea')
-    if (field == null || field.value === String(ed.initial ?? '')) props.close()
+    if (field == null || field.value === initialText) props.close()
     else commit(field.value, true, true)
   }
   host.bindClickAway?.(clickAway)
@@ -267,13 +279,15 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     </div>
   }
 
-  const numeric = ed.spec?.widgetType === 'INT' || ed.spec?.widgetType === 'FLOAT'
-  const text = ed.spec?.widgetType === 'STRING'
+  const numeric = ed.spec !== undefined && Object.hasOwn(scalarStrategies, ed.spec.widgetType)
   return <div ref={(el) => { popover = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover" data-testid="widget-editor" data-editor-target={ed.target.kind} data-editor-mode={ed.spec?.widgetType ?? 'raw'} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${ed.spec?.widgetType ?? 'JSON'}`} style={props.popoverStyle}>
     <props.header type={ed.spec?.widgetType ?? 'JSON'} />
+    <Show when={slider}>
+      <ProductSlider ariaLabel={`${ed.label} slider`} value={Number.isFinite(Number(draft())) ? Number(draft()) : Number(ed.initial ?? 0)} min={Number(ed.spec!.options['min'])} max={Number(ed.spec!.options['max'])} step={Number(numericStepConstraints(ed.spec!).step)} onInput={(value) => { setError(undefined); const parsed = parse(String(value)); if (typeof parsed === 'number') setDraft(String(parsed)) }} />
+    </Show>
     <ProductField controlId="widget-editor-value" label="Value" layout="compact" message={error()} messageTestId="widget-editor-error" invalid={error() !== undefined}>
-      <Show when={ed.multiline} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completionAnchor = el; queueMicrotask(() => { el.focus(); if (numeric) el.select() }) }} value={String(ed.initial ?? '')} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />}>
-        <textarea id="widget-editor-value" aria-labelledby={fieldIds.label} aria-describedby={error() === undefined ? undefined : fieldIds.message} aria-invalid={error() === undefined ? undefined : 'true'} ref={(el) => queueMicrotask(() => el.focus())} value={String(ed.initial ?? '')} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={() => setError(undefined)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />
+      <Show when={ed.multiline || list} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completionAnchor = el; queueMicrotask(() => { el.focus(); if (numeric) el.select() }) }} value={draft()} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setDraft(event.currentTarget.value); setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />}>
+        <textarea id="widget-editor-value" aria-labelledby={fieldIds.label} aria-describedby={error() === undefined ? undefined : fieldIds.message} aria-invalid={error() === undefined ? undefined : 'true'} ref={(el) => queueMicrotask(() => el.focus())} value={initialText} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={() => setError(undefined)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />
       </Show>
     </ProductField>
     <Suggestions />

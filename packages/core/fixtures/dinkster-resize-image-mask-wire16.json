@@ -26,7 +26,7 @@
       "type": {
         "kind": "concrete",
         "types": [
-          "core.combo"
+          "COMBO"
         ]
       },
       "required": false,
@@ -55,7 +55,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "required": false,
@@ -68,7 +68,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "required": false,
@@ -81,7 +81,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.combo"
+                  "COMBO"
                 ]
               },
               "required": false,
@@ -106,7 +106,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.float"
+                  "FLOAT"
                 ]
               },
               "required": false,
@@ -124,7 +124,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "required": false,
@@ -142,7 +142,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "required": false,
@@ -160,7 +160,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "required": false,
@@ -178,7 +178,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "required": false,
@@ -196,7 +196,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.float"
+                  "FLOAT"
                 ]
               },
               "required": false,
@@ -227,7 +227,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.combo"
+                  "COMBO"
                 ]
               },
               "required": false,
@@ -252,7 +252,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "required": false,

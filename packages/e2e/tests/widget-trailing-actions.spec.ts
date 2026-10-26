@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
         numeric('seed', true),
         numeric('steps'),
         {
-          kind: 'input', id: 'sampler', type: { kind: 'concrete', name: 'core.combo' }, optional: false,
+          kind: 'input', id: 'sampler', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
           widget: { widgetType: 'COMBO', options: { options: ['a-very-long-sampler-option', 'euler'] }, default: 'a-very-long-sampler-option' },
         },
       ],

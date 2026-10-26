@@ -9,6 +9,88 @@ import test from 'node:test'
 const exec = promisify(execFile)
 const script = resolve('scripts/check-raw-controls.mjs')
 
+test('raw-control ratchet rejects stale controls and unused ceiling headroom', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'dinkster-raw-controls-'))
+  const allowlist = join(source, 'allowlist.json')
+  const component = join(source, 'Example.tsx')
+  const args = [script, '--source', source, '--allowlist', allowlist]
+  try {
+    await writeFile(
+      component,
+      'export const Example = () => <button>Go</button>\n',
+    )
+    await writeFile(join(source, 'styles.css'), '.example { color: #fff; }\n')
+    await exec(process.execPath, [...args, '--write'])
+    const baseline = JSON.parse(await readFile(allowlist, 'utf8'))
+    for (const kind of ['rawControl', 'cssLiteral']) {
+      await writeFile(
+        allowlist,
+        JSON.stringify({
+          ...baseline,
+          ceilings: {
+            ...baseline.ceilings,
+            [kind]: baseline.ceilings[kind] + 1,
+          },
+        }),
+      )
+      await assert.rejects(exec(process.execPath, args), (error) =>
+        String(error.stderr).includes(`${kind}: current=1, ceiling=2`),
+      )
+      await exec(process.execPath, [...args, '--write'])
+      await exec(process.execPath, args)
+      assert.equal(
+        JSON.parse(await readFile(allowlist, 'utf8')).ceilings[kind],
+        1,
+      )
+    }
+
+    await writeFile(component, 'export const Example = () => <div>Done</div>\n')
+    await writeFile(
+      allowlist,
+      JSON.stringify({
+        ...baseline,
+        ceilings: { ...baseline.ceilings, rawControl: 0 },
+      }),
+    )
+    await assert.rejects(exec(process.execPath, args), (error) =>
+      String(error.stderr).includes('allowlist is stale'),
+    )
+    await exec(process.execPath, [...args, '--write'])
+    await exec(process.execPath, args)
+  } finally {
+    await rm(source, { recursive: true, force: true })
+  }
+})
+
+test('design tokens resolve from the shared projection or local declarations in every stylesheet', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'dinkster-tokens-'))
+  const allowlist = join(source, 'allowlist.json')
+  const css = join(source, 'panel.css')
+  const args = [script, '--source', source, '--allowlist', allowlist]
+  try {
+    await writeFile(
+      css,
+      ':root { --dinkster-local: var(--dinkster-text-primary); }\n.panel { color: var(--dinkster-local); }\n',
+    )
+    await exec(process.execPath, [...args, '--write'])
+    await exec(process.execPath, args)
+    await writeFile(css, '.panel { color: var(--dinkster-unknown); }\n')
+    await assert.rejects(exec(process.execPath, args), (error) =>
+      String(error.stderr).includes('panel.css: --dinkster-unknown'),
+    )
+    await writeFile(css, ':root { --dinkster-local: red; }\n')
+    await writeFile(
+      join(source, 'Example.tsx'),
+      'export const Example = () => <div title="var(--dinkster-unknown)" />\n',
+    )
+    await assert.rejects(exec(process.execPath, args), (error) =>
+      String(error.stderr).includes('Example.tsx: --dinkster-unknown'),
+    )
+  } finally {
+    await rm(source, { recursive: true, force: true })
+  }
+})
+
 test('raw-control ratchet rejects new controls and styling literals but accepts reductions', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dinkster-raw-controls-'))
   const source = join(root, 'src')
@@ -116,6 +198,20 @@ test('raw-control ratchet rejects new controls and styling literals but accepts 
       '--allowlist',
       allowlist,
     ])
+    await mkdir(join(source, 'styles'))
+    const extracted = join(source, 'styles', 'panel.css')
+    await writeFile(css, "@import './styles/panel.css';\n")
+    await writeFile(extracted, '.example { color: #fff; }\n')
+    const extractedArgs = [script, '--source', source, '--allowlist', allowlist]
+    await exec(process.execPath, extractedArgs)
+    await writeFile(extracted, '.example { color: #fff; background: #000; }\n')
+    await assert.rejects(exec(process.execPath, extractedArgs), (error) =>
+      String(error.stderr).includes('cssLiteral'),
+    )
+    await assert.rejects(
+      exec(process.execPath, [...extractedArgs, '--write']),
+      (error) => String(error.stderr).includes('cssLiteral'),
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }

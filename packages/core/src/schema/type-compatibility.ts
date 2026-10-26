@@ -6,26 +6,20 @@
  * input, endpoints resolve) are what commands enforce.
  */
 
-import { assetTypeId, canonicalTypeIdOf, cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, streamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
+import { assetTypeId, canonicalTypeIdOf, cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, parseTupleTypeId, streamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
 
 /**
- * Type ids that denote the SAME values on both sides of the comfy-compat
- * boundary: the backend registers both ids of a pair with the identical
- * image-array codec (dinkster_compat_comfy/native.py and comfy_compose.py
- * register comfy.IMAGE and comfy.MASK with the codec dinkster.image and
- * dinkster.mask use), so a value of one IS a value of the other. Compatibility
- * arithmetic treats each pair as one atom by canonicalizing here, the single
- * entry into atom-set math (compat, the solver's domains, bypass, and search
- * anchors all flow through atomNamesOf). Document and wire type ids are
- * never rewritten, and display naming stays in canvas typeDisplayAliases.
+ * Type ids that denote the same values on both sides of the comfy-compat
+ * boundary. Compatibility arithmetic collapses legacy Comfy spellings to
+ * the wire vocabulary at the entry into atom-set math.
  *
  * Exported read-only so the native-type coverage audit can walk the decided
- * pairs; runtime compatibility logic must go through canonicalCompatTypeId.
+ * aliases; runtime compatibility logic must go through canonicalCompatTypeId.
  */
 export const INTERCHANGEABLE_TYPE_IDS: Readonly<Record<string, string>> = Object.freeze(
   Object.assign(Object.create(null) as Record<string, string>, {
-    'dinkster.image': 'comfy.IMAGE',
-    'dinkster.mask': 'comfy.MASK',
+    'comfy.IMAGE': 'IMAGE',
+    'comfy.MASK': 'MASK',
   }),
 )
 
@@ -39,6 +33,8 @@ const canonicalAtom = (name: string): string => INTERCHANGEABLE_TYPE_IDS[name] ?
  * are preserved. Comparison and presentation only - never persist the result.
  */
 export const canonicalCompatTypeId = (typeId: string): string => {
+  const positions = parseTupleTypeId(typeId)
+  if (positions !== undefined) return `tuple<${positions.map(canonicalCompatTypeId).join(',')}>`
   const listInner = parseListTypeId(typeId)
   if (listInner !== undefined) return listTypeId(canonicalCompatTypeId(listInner))
   const assetInner = parseAssetTypeId(typeId)
@@ -75,6 +71,15 @@ export const atomNamesOf = (t: TypeExpr): readonly string[] | undefined => {
     case 'variable':
       if (!t.allowedTypes || t.allowedTypes.length === 0) return undefined
       return t.allowedTypes.flatMap((a) => atomNamesOf(a) ?? [])
+    case 'family_tuple':
+    case 'tuple_element':
+      return undefined
+    case 'tuple': {
+      const positions = t.elements.map(atomNamesOf)
+      if (positions.some((position) => position === undefined)) return undefined
+      return positions.reduce<string[][]>((products, position) => products.flatMap((product) => position!.map((atom) => [...product, atom])), [[]])
+        .map((product) => `tuple<${product.join(',')}>`)
+    }
     case 'list':
     case 'asset':
     case 'stream': {
@@ -105,6 +110,10 @@ export function typesCompatible(from: TypeExpr, to: TypeExpr): boolean {
 /** Direct compatibility without the engine's optional asset coercion step. */
 export function typesDirectlyCompatible(from: TypeExpr, to: TypeExpr): boolean {
   if (from.kind === 'wildcard' || to.kind === 'wildcard') return true
+  if (from.kind === 'tuple' && to.kind === 'tuple') {
+    return from.elements.length === to.elements.length && from.elements.every((element, index) => typesDirectlyCompatible(element, to.elements[index]!))
+  }
+  if ((from.kind === 'tuple' || to.kind === 'tuple') && from.kind !== 'variable' && to.kind !== 'variable') return false
   const ca = cardinalityOf(from)
   const cb = cardinalityOf(to)
   if (ca !== 'unknown' && cb !== 'unknown' && ca !== cb) return false

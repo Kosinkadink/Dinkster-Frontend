@@ -71,6 +71,8 @@ import { cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId
 /** Every variable occurring in `t`, including inside list/asset elements. */
 function* nestedVariablesOf(t: TypeExpr): Generator<TypeExpr & { kind: 'variable' }> {
   if (t.kind === 'variable') yield t
+  else if (t.kind === 'tuple') for (const element of t.elements) yield* nestedVariablesOf(element)
+  else if (t.kind === 'tuple_element' && t.element !== undefined) yield* nestedVariablesOf(t.element)
   else if (t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream') yield* nestedVariablesOf(t.element)
 }
 
@@ -79,6 +81,8 @@ const substituteTypeBindings = (
   bindings: ReadonlyMap<string, TypeExpr>,
 ): TypeExpr => {
   if (type.kind === 'variable') return bindings.get(type.templateId) ?? type
+  if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => substituteTypeBindings(element, bindings)) }
+  if (type.kind === 'tuple_element') return type.element === undefined ? type : { ...type, element: substituteTypeBindings(type.element, bindings) }
   if (type.kind !== 'list' && type.kind !== 'asset' && type.kind !== 'stream') return type
   const element = substituteTypeBindings(type.element, bindings)
   return element === type.element ? type : { kind: type.kind, element }
@@ -380,6 +384,26 @@ export function solveGraphTypes(
     return (side === 'input' ? entry.inputs : entry.outputs).get(key)
   }
 
+  const substitute = (type: TypeExpr, node: NodeId): TypeExpr => {
+    if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => substitute(element, node)) }
+    if (type.kind === 'tuple_element' && type.element !== undefined) {
+      const element = substitute(type.element, node)
+      if (element.kind === 'tuple' && typeof type.index === 'number') {
+        return element.elements[type.index < 0 ? element.elements.length + type.index : type.index] ?? { ...type, element }
+      }
+      return { ...type, element }
+    }
+    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: substitute(type.element, node) }
+    if (type.kind !== 'variable') return type
+    const resolution = vars.resolutionOf(varKeyOf(node, type.templateId))
+    if (resolution.kind === 'resolved') return typeExprFromTypeId(resolution.name)
+    if (resolution.kind === 'ambiguous') return { kind: 'union', names: resolution.names }
+    return type
+  }
+  const dependentEdges: { fromType: TypeExpr; toType: TypeExpr; from: PortRef; to: PortRef; source: EdgeSource; signature?: string }[] = []
+  const hasTuple = (type: TypeExpr): boolean => type.kind === 'tuple' || type.kind === 'tuple_element' ||
+    ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && hasTuple(type.element))
+
   // -- 2. Process type-carrying edges.
   //
   // One source may be constrained SEVERAL times (a link fed by a selector
@@ -406,6 +430,7 @@ export function solveGraphTypes(
   ): void => {
     const fromType = typeAt(from, fromSide)
     const toType = typeAt(to, 'input')
+    if (fromType !== undefined && toType !== undefined && hasTuple(fromType)) dependentEdges.push({ fromType, toType, from, to, source })
     if (fromType === undefined || toType === undefined) {
       setVerdict(source, 'unknown')
       const missing = fromType === undefined ? from : to
@@ -471,6 +496,16 @@ export function solveGraphTypes(
   ): void => {
     if (fromType.kind === 'wildcard' || toType.kind === 'wildcard') {
       setVerdict(source, 'ok') // no constraint, no capture
+      return
+    }
+
+    if (fromType.kind === 'tuple' && toType.kind === 'tuple') {
+      if (fromType.elements.length !== toType.elements.length) {
+        setVerdict(source, 'mismatch')
+        diagnostics.push(diag('warning', 'schema', 'solve.tupleArity', 'Tuple positions must have the same length.', { anchor: { port: to } }))
+      } else {
+        fromType.elements.forEach((element, index) => unify(element, toType.elements[index]!, from, to, source, allowCoercion, fromVariableKeys))
+      }
       return
     }
 
@@ -696,6 +731,29 @@ export function solveGraphTypes(
     }, true, projectedVariableKeys)
   }
 
+  // Tuple construction and projection depend on upstream bindings, not edge order.
+  // Each pass propagates at least one closed product along the dependency chain.
+  for (let pass = 0; pass <= dependentEdges.length; pass++) {
+    let changed = false
+    for (const edge of dependentEdges) {
+      const resolved = substitute(edge.fromType, edge.from.node)
+      if (atomNamesOf(resolved) === undefined) continue
+      const signature = JSON.stringify(resolved)
+      if (edge.signature === signature) continue
+      edge.signature = signature
+      changed = true
+      unify(resolved, edge.toType, edge.from, edge.to, edge.source)
+    }
+    if (!changed) break
+  }
+  for (const [node, ports] of portTypes) {
+    for (const [port, type] of ports.outputs) {
+      const resolved = substitute(type, node)
+      if (resolved.kind !== 'tuple_element' || resolved.element === undefined || atomNamesOf(resolved.element) === undefined) continue
+      diagnostics.push(diag('error', 'schema', 'solve.tupleProjection', `Tuple output '${port}' requires a tuple source and an in-range literal index.`, { anchor: { port: { node, port: asPortId(port) } } }))
+    }
+  }
+
   // -- 3. Conflicted classes: mark every contributing edge, one diagnostic each.
   for (const root of vars.roots()) {
     if (root.domain === undefined || root.domain.size > 0) continue
@@ -725,20 +783,6 @@ export function solveGraphTypes(
   }
 
   // -- 4. Result surface.
-  const substitute = (type: TypeExpr, node: NodeId): TypeExpr => {
-    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') {
-      const element = substitute(type.element, node)
-      return element === type.element ? type : { kind: type.kind, element }
-    }
-    if (type.kind !== 'variable') return type
-    const res = vars.resolutionOf(varKeyOf(node, type.templateId))
-    // Resolved atoms may be canonical list ids; rebuild structure so
-    // `concrete('list<...>')` never leaves the solver.
-    if (res.kind === 'resolved') return typeExprFromTypeId(res.name)
-    if (res.kind === 'ambiguous') return { kind: 'union', names: res.names }
-    return type // unconstrained/conflict: the declared expression
-  }
-
   // Specialization is a persisted choice, so solving only advises when a
   // later topology/type change makes that choice stale. Reuse the exact
   // topology tracing policy used by edge checks, including all selector

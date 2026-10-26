@@ -4,6 +4,7 @@ import type { Occurrence, WorkflowDocument } from '@dinkster/core'
 import { useAppMessage } from './locale.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { regionIterationInventory, regionValuePresentation, type RegionIteration, type RegionIterationNode } from './region-iteration.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 export function RegionIterationInspector(props: {
   readonly execution: ExecutionState
@@ -107,7 +108,7 @@ export function RegionIterationInspector(props: {
         {(current) => (
           <>
             <p class="region-iteration-summary">{iterationSummary(current)}</p>
-            <Show when={current.iterations.length > 0} fallback={<p class="empty">{message('regionInspector.empty')}</p>}>
+            <Show when={current.iterations.length > 0} fallback={<ProductEmptyState title={message('regionInspector.empty')} />}>
               <label>
                 <span>{message('regionInspector.iterationLabel')}</span>
                 <select value={iteration()?.key} onChange={(event) => setIterationKey(event.currentTarget.value)}>
@@ -120,7 +121,7 @@ export function RegionIterationInspector(props: {
                   <For each={iteration()?.nodes ?? []}>{(entry) => <option value={entry.runtimeId}>{nodeLabel(entry)}</option>}</For>
                 </select>
               </label>
-              <Show when={(node()?.outputIds.length ?? 0) > 0} fallback={<p class="empty">{message('regionInspector.noOutputs')}</p>}>
+              <Show when={(node()?.outputIds.length ?? 0) > 0} fallback={<ProductEmptyState title={message('regionInspector.noOutputs')} />}>
                 <label>
                   <span>{message('regionInspector.outputLabel')}</span>
                   <select value={selectedOutput()} onChange={(event) => setOutputId(event.currentTarget.value)}>
@@ -137,13 +138,12 @@ export function RegionIterationInspector(props: {
                   </Show>
                   <code>{node()?.runtimeId}</code>
                 </div>
-                <Show when={props.values !== undefined} fallback={<p class="empty">{message('regionInspector.ownerUnavailable')}</p>}>
-                  <Show when={!loading()} fallback={<p role="status">{message('regionInspector.loading')}</p>}>
+                <Show when={props.values !== undefined} fallback={<ProductEmptyState title={message('regionInspector.ownerUnavailable')} />}>
+                  <Show when={!loading()} fallback={<ProductEmptyState tone="loading" title={message('regionInspector.loading')} />}>
                     <Show when={resultView()} keyed>
                       {(value) => <Show when={value.available} fallback={
-                        <div class="region-iteration-refusal" data-state="refused" role="status">
-                          <strong>{value.reason}</strong>
-                          <span>{value.error}</span>
+                        <div data-state="refused" role="status">
+                          <ProductEmptyState title={value.reason} hint={value.error} />
                         </div>
                       }>
                         <dl class="region-iteration-value" data-state="available">

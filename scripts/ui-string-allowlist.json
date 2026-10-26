@@ -7,6 +7,8 @@
   ],
   "App.tsx": [
     "attribute:aria-label:Execution provenance",
+    "attribute:title:No execution selected",
+    "attribute:title:Nothing queued for this workflow.",
     "text:'close' path), and closing restores focus to the opener. A body that must swallow keys - e.g. the settings keybinding capture - calls preventDefault on the keydown, which suppresses the native close request. The host owns the chrome (::backdrop, title, close button); a keyed Show remounts the body per panel, so opening IS the reset. aria-modal is redundant on a modal",
     "text:('.product-tablist') const body = element.querySelector",
     "text:('.product-tabpanel:not([hidden])') const overflowButton = element.querySelector",
@@ -27,9 +29,6 @@
     "text:Execution",
     "text:Execution owner removed or disconnected. Retained output routes are used when available.",
     "text:Image unavailable",
-    "text:No execution selected",
-    "text:Nothing queued for this workflow.",
-    "text:Run this workflow or open a recorded execution to inspect its outputs.",
     "text:Status",
     "text:app.panels.get(drag().panelId) return (",
     "text:app.settings.get",
@@ -101,7 +100,7 @@
   ],
   "AssetsBody.tsx": [
     "text:() const [mounts, setMounts] = createSignal",
-    "text:() const [sourceFailures, setSourceFailures] = createSignal",
+    "text:() const [retryTick, setRetryTick] = createSignal(0) const [sourceFailures, setSourceFailures] = createSignal",
     "text:([]) const [discoveryError, setDiscoveryError] = createSignal",
     "text:= 1024 && unit",
     "text:if (state.kind === 'error') return",
@@ -113,7 +112,6 @@
   ],
   "AudioRecorder.tsx": [
     "attribute:aria-label:Record audio",
-    "text:('idle') const [message, setMessage] = createSignal(provider ? 'Microphone is off. Recording requires browser permission.' : 'Recording unavailable: this browser needs MediaRecorder and a secure microphone context.') let generation = 0 let stream: MediaStream | undefined let recorder: MediaRecorder | undefined let timer: ReturnType",
     "text:([]) const [device, setDevice] = createSignal('') const [limit, setLimit] = createSignal(60) const [recordedBytes, setRecordedBytes] = createSignal(0) const [state, setState] = createSignal",
     "text:Discard recording",
     "text:Find microphones",
@@ -124,6 +122,7 @@
     "text:Save recording",
     "text:Stop recording",
     "text:open(deviceId: string): Promise",
+    "text:props.onPendingChange?.(state() !== 'idle')) const [message, setMessage] = createSignal(provider ? 'Microphone is off. Recording requires browser permission.' : 'Recording unavailable: this browser needs MediaRecorder and a secure microphone context.') let generation = 0 let stream: MediaStream | undefined let recorder: MediaRecorder | undefined let timer: ReturnType",
     "text:state() === 'idle' || state() === 'ready' return"
   ],
   "AudioTransport.tsx": [
@@ -143,21 +142,20 @@
     "text:supervisor() return ("
   ],
   "BadgePopover.tsx": [
+    "attribute:title:Definition missing.",
+    "attribute:title:No error details recorded.",
+    "attribute:title:No log records for this run.",
+    "attribute:title:No problem details recorded.",
+    "attribute:title:Node missing.",
     "text:Apply Replacement",
-    "text:Definition missing.",
     "text:Dismiss",
     "text:No automatic replacement is available.",
-    "text:No error details recorded.",
-    "text:No log records for this run.",
-    "text:No problem details recorded.",
-    "text:Node missing.",
     "text:Open Subgraph",
     "text:Open in Execution log",
     "text:Open in Execution log",
     "text:ReplacementBadgeInfo"
   ],
   "BoundaryPanel.tsx": [
-    "attribute:aria-label:Boundary editor",
     "attribute:aria-label:Maximum iterations",
     "attribute:aria-label:Region binding",
     "text:(undefined) const [nameDrafts, setNameDrafts] = createSolidSignal",
@@ -214,6 +212,8 @@
     "attribute:placeholder:Selector title...",
     "attribute:title:Embedded workflow found",
     "attribute:title:File could not be added",
+    "attribute:title:Selector missing.",
+    "attribute:title:Value source missing.",
     "text:() const [fileDropSurface, setFileDropSurface] = createSolidSignal",
     "text:() let gestureRefusalId = 0 let gestureRefusalTimer: ReturnType",
     "text:([]) const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal",
@@ -258,11 +258,9 @@
     "text:Orbit",
     "text:Pin Current Spec",
     "text:Previous",
-    "text:Selector missing.",
     "text:This PNG contains a Comfy workflow. Choose one action; nothing runs automatically.",
     "text:This execution used this branch; the recorded choice never changes.",
     "text:Unpin Spec",
-    "text:Value source missing.",
     "text:View Frozen",
     "text:[item.id, item]))) const [outputPages, setOutputPages] = createSolidSignal",
     "text:createRegistryPainter(widgetRegistry())) // Bumped whenever the active tab's document or graph stack changes; the // scene effect depends on it. Subscriptions rebind on tab switch. const [docTick, setDocTick] = createSolidSignal(0) const [widgetA11yTargets, setWidgetA11yTargets] = createSolidSignal",
@@ -300,6 +298,13 @@
   "CollabPanel.tsx": [
     "attribute:aria-label:Confirm ending session",
     "attribute:aria-label:Participants in this collaboration session",
+    "attribute:title:Loading shared sessions",
+    "attribute:title:No collaboration backend",
+    "attribute:title:No shared sessions",
+    "attribute:title:Not shared",
+    "attribute:title:Sessions could not be loaded",
+    "attribute:title:Shared sessions",
+    "attribute:title:This workflow",
     "text:!dismissedProposals().has(key)) const updateProposalState = ( setter: (value: (current: ReadonlySet",
     "text:('loading') const [confirmingEnd, setConfirmingEnd] = createSignal",
     "text:() let unsharedState: HTMLElement | undefined let currentSessionCard: HTMLElement | undefined let endButton: HTMLButtonElement | undefined let confirmEndButton: HTMLButtonElement | undefined let panel: HTMLDivElement | undefined let refreshRevision = 0 let refreshQueued = false const closedSessions = new Set",
@@ -311,28 +316,19 @@
     "text:Available now",
     "text:Backend",
     "text:Cancel",
-    "text:Checking this backend for sessions you can join.",
-    "text:Connect a Dinkster backend to discover and host shared sessions.",
     "text:Connect a Dinkster backend to host collaboration sessions.",
     "text:Current value",
     "text:Dismiss",
     "text:End for everyone",
     "text:Everyone will be disconnected. Their current workflow stays open locally.",
     "text:Invalid value",
-    "text:Loading shared sessions",
-    "text:No collaboration backend",
-    "text:No shared sessions",
     "text:Not available in this client",
-    "text:Not shared",
     "text:Participants",
     "text:Promise",
     "text:Proposals",
     "text:Proposed value",
     "text:ReadonlySet",
-    "text:Refresh when someone else starts a session.",
     "text:Session",
-    "text:Shared sessions",
-    "text:This workflow",
     "text:You",
     "text:agent",
     "text:agent",
@@ -386,6 +382,7 @@
   ],
   "CurveEditor.tsx": [
     "attribute:aria-label:Interpolation",
+    "attribute:title:No curve target is active.",
     "text:() const [computed, setComputed] = createSignal",
     "text:() const [computedStatus, setComputedStatus] = createSignal('') const [selected, setSelected] = createSignal",
     "text:() const [error, setError] = createSignal",
@@ -398,7 +395,6 @@
     "text:Interpolation",
     "text:Linear",
     "text:Monotone cubic",
-    "text:No curve target is active.",
     "text:Value",
     "text:props.host?.tabId() ?? globalActiveTabId() const [documentTick, setDocumentTick] = createSignal(0) const [draft, setDraft] = createSignal"
   ],
@@ -426,7 +422,6 @@
     "text:props.status.phase === 'failed' return ("
   ],
   "ExecutedImageViewer.tsx": [
-    "attribute:aria-label:Compare split",
     "attribute:aria-label:Execution provenance",
     "attribute:aria-label:Fit image",
     "attribute:aria-label:Image viewer controls",
@@ -496,6 +491,8 @@
     "attribute:aria-label:GLSL browser preview",
     "attribute:aria-label:Preview output",
     "attribute:aria-label:Shader inputs",
+    "attribute:title:No GLSL Shader target is active.",
+    "attribute:title:No runtime state.",
     "text:() const [applyError, setApplyError] = createSignal",
     "text:(0) const [images, setImages] = createSignal",
     "text:256 samples",
@@ -504,8 +501,6 @@
     "text:Cancel",
     "text:Fragment shader",
     "text:GLSL Shader",
-    "text:No GLSL Shader target is active.",
-    "text:No runtime state.",
     "text:Preview output",
     "text:Run inputs",
     "text:This input is linked or no longer available. Disconnect it to edit.",
@@ -538,6 +533,8 @@
   ],
   "ImageEditor.tsx": [
     "attribute:aria-label:Mask tools",
+    "attribute:title:No image target is active.",
+    "attribute:title:No image target is active.",
     "text:() const [error, setError] = createSignal",
     "text:= 0.5 && point.x - radius",
     "text:= 0.5 && point.y - radius",
@@ -549,8 +546,6 @@
     "text:Invert",
     "text:Loading source image...",
     "text:Mask",
-    "text:No image target is active.",
-    "text:No image target is active.",
     "text:Paint",
     "text:Redo mask edit",
     "text:Size",
@@ -574,6 +569,10 @@
     "attribute:aria-label:Active memory leases",
     "attribute:aria-label:Memory history table",
     "attribute:aria-label:Page flag ranges table",
+    "attribute:title:No active leases",
+    "attribute:title:No consumers",
+    "attribute:title:No devices reported",
+    "attribute:title:No item details",
     "text:& Partial",
     "text:('idle') const [detailReady, setDetailReady] = createSignal",
     "text:() const [detailState, setDetailState] = createSignal",
@@ -585,7 +584,6 @@
     "text:Active leases",
     "text:Aimdo-corrected free",
     "text:Available",
-    "text:Backend",
     "text:Backend disconnected. All visible telemetry is retained from the last update.",
     "text:Budget",
     "text:Budget and headroom changes apply live. Aimdo policy applies to workers started after the change.",
@@ -600,14 +598,8 @@
     "text:Loading item details...",
     "text:Memory and Aimdo controls",
     "text:Memory governor telemetry is unsupported on this backend. Execution occupancy remains available.",
-    "text:No active leases",
-    "text:No consumers",
-    "text:No devices reported",
-    "text:No item details",
-    "text:No temporary memory reservations are reported.",
     "text:Pages",
     "text:Queue state",
-    "text:Queue, device, lease, and consumer facts will appear when the backend responds.",
     "text:Queued",
     "text:Raw capacity",
     "text:Reservations",
@@ -620,12 +612,8 @@
     "text:Server flag",
     "text:Server settings",
     "text:Telemetry is stale. Retained values remain visible while polling retries.",
-    "text:The backend returned no execution or memory device facts.",
-    "text:The backend supports details but returned no items for this consumer.",
-    "text:This device currently reports no resident memory consumers.",
     "text:Time",
     "text:Transition",
-    "text:Waiting for memory telemetry",
     "text:entry.itemId === itemId)! return",
     "text:props.backendId ?? props.label let clockTimer: ReturnType",
     "text:pulse === 'in' ? 'Moved in' : pulse === 'out' ? 'Moved out' : 'No change' return",
@@ -664,16 +652,7 @@
     "text:() const [busy, setBusy] = createSignal(false) const [raw, setRaw] = createSignal(false) const [probeCurrent, setProbeCurrent] = createSignal"
   ],
   "OutputMountSettings.tsx": [
-    "text:(); const [selected, setSelected] = createSignal(\"\"); const [saving, setSaving] = createSignal(false); const [error, setError] = createSignal(\"\"); const load = async (): Promise",
     "text:mount.mode === \"readwrite\") ?? []; const save = async (): Promise"
-  ],
-  "P2PPanel.tsx": [
-    "text:() const [draft, setDraft] = createSignal",
-    "text:() const [loading, setLoading] = createSignal(true) const [busy, setBusy] = createSignal(false) const [notice, setNotice] = createSignal('') const [error, setError] = createSignal('') const [invalid, setInvalid] = createSignal",
-    "text:() const [status, setStatus] = createSignal",
-    "text:(new Set",
-    "text:= 0 && (key === 'internetSeedRatio' || (Number.isSafeInteger(scaled) && scaled",
-    "text:invalid().has(key) return"
   ],
   "ProductControls.tsx": [
     "text:('[role=\"radio\"]')] const current = radios.indexOf(control) for (let offset = 1; offset",
@@ -750,14 +729,12 @@
     "text:props.sections[0]?.section // Placement moves (float, new window) for one tab's panel, offered through // the shared styled context menu instead of always-visible chrome buttons. const [placementMenu, setPlacementMenu] = createSignal"
   ],
   "SubgraphDefinitionsDialog.tsx": [
+    "attribute:title:No editable workflow",
+    "attribute:title:No retained definitions",
+    "attribute:title:No unused definitions",
     "text:Body nodes",
-    "text:Every subgraph definition is reachable from the workflow root.",
-    "text:No editable workflow",
-    "text:No reusable subgraph definitions are reachable from the workflow root.",
-    "text:No unused definitions",
     "text:None",
     "text:Occurrences",
-    "text:Open an editable workflow to review its subgraph definitions.",
     "text:Related saved items",
     "text:These definitions cannot be reached from the workflow root. Removing them also removes their saved layout and core-owned bookmarks, app controls, net positions, and mode-panel bindings.",
     "text:Unused definitions",
@@ -769,20 +746,6 @@
   ],
   "TemplateGallery.tsx": [
     "text:props.app.libraryBackend()?.connection) const [mountSettings, setMountSettings] = createSignal"
-  ],
-  "TimelineViewport.tsx": [
-    "attribute:aria-label:Playhead seconds",
-    "attribute:aria-label:Timeline playhead",
-    "attribute:aria-label:Timeline viewport",
-    "attribute:aria-label:Timeline zoom",
-    "attribute:aria-label:Timeline zoom level",
-    "attribute:aria-label:Zoom in timeline",
-    "attribute:aria-label:Zoom out timeline",
-    "text:= 0 && left + timelineTimeLabel(time).length * 8 + 6",
-    "text:Fit timeline",
-    "text:Playhead (seconds)",
-    "text:Time (seconds)",
-    "text:Timeline"
   ],
   "UniversalSearch.tsx": [
     "attribute:aria-label:Search Dinkster",
@@ -816,9 +779,6 @@
     "attribute:aria-label:Bounded source preview",
     "attribute:aria-label:Crop ratio presets",
     "attribute:aria-label:Crop video",
-    "attribute:aria-label:Playhead frame",
-    "attribute:aria-label:Trim end handle",
-    "attribute:aria-label:Trim start handle",
     "attribute:aria-label:Trim video",
     "text:() const [numericErrors, setNumericErrors] = createSignal",
     "text:() const [playPreview, setPlayPreview] = createSignal(false) const [decodeError, setDecodeError] = createSignal",
@@ -884,7 +844,7 @@
     "attribute:aria-label:Workflow jobs",
     "attribute:data-tooltip-detail:Ctrl+Enter",
     "attribute:data-tooltip-label:Queue workflow",
-    "text:No jobs for this workflow.",
+    "attribute:title:No jobs for this workflow.",
     "text:Queue"
   ],
   "WorkflowTabs.tsx": [
@@ -950,10 +910,16 @@
     "text:return",
     "text:stays single-select (decoder multi-ness). const assetMulti = ed.spec?.widgetType === 'ASSET' && ed.declaredType !== undefined && assetMultiSelect(ed.declaredType, ed.mergeableTypes) const sourceUpload = ed.spec?.widgetType === 'ASSET' && ed.spec.allowUpload === true && ed.sourceFilename !== undefined const uploadKind = ed.sourceFilename?.kind ?? assetBrowseKind() const classifiedMediaKind = ed.spec?.widgetType === 'ASSET' && (uploadKind === 'media/image' || uploadKind === 'media/audio' || uploadKind === 'media/video') ? uploadKind : undefined const classifiedLatent = ed.spec?.widgetType === 'ASSET' && uploadKind === 'data/latent' const assetUploadMaxBytes = classifiedMediaKind === 'media/image' ? IMAGE_UPLOAD_MAX_BYTES : classifiedMediaKind !== undefined ? MEDIA_UPLOAD_MAX_BYTES : classifiedLatent ? LATENT_UPLOAD_MAX_BYTES : GENERIC_UPLOAD_MAX_BYTES // Display copy exists only for kinds with a deliberate, user-facing limit. // Model kinds fall into the generic enforcement bucket, whose 16 MiB bound // is not an authoritative model limit, so they render no limit copy // (enforcement still applies through assetUploadMaxBytes). const assetUploadLimitLabel = classifiedMediaKind === 'media/image' ? '256 MiB per file' : classifiedMediaKind !== undefined || classifiedLatent ? '1 GiB per file' : uploadKind?.startsWith('model/') === true ? undefined : '16 MiB per file' // The SCALAR MERGE arm specifically (multi-select whose declaration is // NOT list-outer): an empty selection cannot commit `[]` there - the // declared type is scalar T, and a bare empty array would compile as raw // junk the merge provider rejects (zero batches). Applying empty in this // mode commits null (unset), mirroring the scalar clear semantics; // list-outer declarations keep the pinned `[]` commit. const assetScalarMerge = assetMulti && ed.declaredType !== undefined && !assetMultiSelect(ed.declaredType) const [assetSelection, setAssetSelection] = createSolidSignal"
   ],
+  "editors/AudioRecordWidgetEditor.tsx": [
+    "text:props.editor.bindClickAway?.(undefined)) return"
+  ],
   "editors/ColorWidgetEditor.tsx": [
     "attribute:label:Color value",
     "text:Cancel",
     "text:Commit",
+    "text:props.editor.bindClickAway?.(undefined)) return"
+  ],
+  "editors/ColorsWidgetEditor.tsx": [
     "text:props.editor.bindClickAway?.(undefined)) return"
   ],
   "editors/ComboEditorImplementation.tsx": [
@@ -974,6 +940,9 @@
     "text:refresh",
     "text:remote options stale",
     "text:remote options unavailable"
+  ],
+  "editors/MarkdownWidgetEditor.tsx": [
+    "text:props.editor.bindClickAway?.(undefined)) return"
   ],
   "editors/SaveTargetWidgetEditor.tsx": [
     "attribute:aria-label:Save target output metadata",

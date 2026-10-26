@@ -144,7 +144,7 @@ function assertExpectedOutput(
     expect(outputs["output"]?.["text"]?.["value"]).toBe("4");
     return;
   }
-  expect(outputs["output"]?.["image_a"]?.["typeId"]).toBe("dinkster.image");
+  expect(outputs["output"]?.["image_a"]?.["typeId"]).toBe("IMAGE");
   const expectedShape =
     templateId === "loop-fold-scan-images"
       ? [1, 48, 96, 3]

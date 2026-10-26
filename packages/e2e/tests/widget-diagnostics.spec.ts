@@ -65,7 +65,7 @@ async function openFixture(
 ): Promise<void> {
   await page.evaluate(({ values, links }) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
-      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'core.combo' : widgetType }, optional: false,
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
     })
     window.__dinksterTest!.app.registerSchemas([
@@ -75,9 +75,9 @@ async function openFixture(
           widget('count', 'INT', 5, { min: 0, max: 100 }),
           widget('choice', 'COMBO', 'alpha', { options: ['alpha', 'beta', 'gamma'] }),
           { kind: 'input', id: 'required', displayName: 'Required value', type: { kind: 'concrete', name: 'INT' }, optional: false },
-          { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.asset' }, optional: true,
+          { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: true,
             widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
-          { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: true,
+          { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
             widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, default: { mount: 'comfy-output', prefix: 'ComfyUI' } } },
         ],
       },
@@ -111,7 +111,7 @@ test('legacy SAVE_TARGET prefixes migrate structurally, reopen, and compile whil
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'LegacySaveTargetTest', displayName: 'Legacy Save Target', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: false,
+      items: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
         widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } } }],
     }])
     const diagnostics = app.openDocument({

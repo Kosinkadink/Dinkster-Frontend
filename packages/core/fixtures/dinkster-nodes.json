@@ -13,7 +13,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -25,7 +25,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -35,7 +35,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         }
@@ -126,7 +126,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "comfy.VIDEO_EDIT"
+              "VIDEO_EDIT"
             ]
           },
           "widget": {
@@ -156,7 +156,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -175,7 +175,7 @@
               "type": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               }
             }
@@ -206,7 +206,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -218,7 +218,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.string"
+              "STRING"
             ]
           }
         }
@@ -262,6 +262,38 @@
       "schemaVersion": 1,
       "version": 1
     },
+    "test.numeric_union": {
+      "category": "test",
+      "description": "",
+      "displayName": "Frame rate",
+      "idempotent": true,
+      "interface": [
+        {
+          "default": 25.0,
+          "id": "frame_rate",
+          "required": true,
+          "role": "input",
+          "type": {
+            "kind": "union",
+            "types": [
+              "FLOAT",
+              "INT"
+            ]
+          },
+          "widget": {
+            "display": "number",
+            "max": 1000.0,
+            "min": 1.0,
+            "step": 0.01,
+            "type": "NUMBER"
+          }
+        }
+      ],
+      "nodeType": "test.numeric_union",
+      "outputNode": true,
+      "schemaVersion": 1,
+      "version": 1
+    },
     "test.primitives": {
       "category": "test",
       "description": "every widget-derivable primitive",
@@ -277,7 +309,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.int"
+              "INT"
             ]
           }
         },
@@ -289,7 +321,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.float"
+              "FLOAT"
             ]
           }
         },
@@ -301,7 +333,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.string"
+              "STRING"
             ]
           }
         },
@@ -313,7 +345,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.boolean"
+              "BOOLEAN"
             ]
           }
         },
@@ -334,7 +366,7 @@
           "type": {
             "kind": "concrete",
             "types": [
-              "core.string"
+              "STRING"
             ]
           }
         }
@@ -356,8 +388,8 @@
           "type": {
             "kind": "union",
             "types": [
-              "core.int",
-              "core.float"
+              "INT",
+              "FLOAT"
             ]
           }
         },
@@ -384,8 +416,8 @@
           "role": "input",
           "type": {
             "allowed": [
-              "core.int",
-              "core.float"
+              "INT",
+              "FLOAT"
             ],
             "kind": "variable",
             "templateId": "C"
@@ -399,7 +431,7 @@
             "element": {
               "kind": "concrete",
               "types": [
-                "core.int"
+                "INT"
               ]
             },
             "kind": "list"
@@ -414,7 +446,7 @@
               "element": {
                 "kind": "concrete",
                 "types": [
-                  "core.int"
+                  "INT"
                 ]
               },
               "kind": "list"

@@ -148,7 +148,7 @@ describe('VideoEditEditor', () => {
     const requests: { kind: string; resolve: (result: RenditionResult) => void; signal: AbortSignal }[] = []
     const values = {
       peek: vi.fn(async (): Promise<ValuePeekResult> => ({
-        available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'source', meta: {
+        available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'source', meta: {
           effective: { width: 1920, height: 1080, duration: [10, 1], fps: [24, 1], frame_count: 17, frame_count_kind: 'estimated' },
         } },
         renditions: [
@@ -166,8 +166,11 @@ describe('VideoEditEditor', () => {
     expect(values.rendition).toHaveBeenCalledWith(expect.anything(), 'thumbs', { signal: expect.any(AbortSignal) })
     expect(requests.map((request) => request.kind).sort()).toEqual(['frame', 'thumbs'])
     const stale = requests.find((request) => request.kind === 'frame')!
-    const playhead = root.querySelector<HTMLInputElement>('[aria-label="Playhead frame"]')!
-    set(playhead, '60')
+    const playhead = root.querySelector<HTMLElement>('[role="slider"][aria-label="Playhead frame"]')!
+    playhead.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }))
+    for (let frame = 30; frame < 60; frame++) {
+      playhead.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    }
     await vi.advanceTimersByTimeAsync(110)
     expect(values.rendition).toHaveBeenLastCalledWith(expect.anything(), 'frame', expect.objectContaining({ frame: '2.5s' }))
     expect(stale.signal.aborted).toBe(true)
@@ -179,7 +182,7 @@ describe('VideoEditEditor', () => {
     await Promise.resolve()
     expect(root.querySelector('img[alt="Crop source frame"]')?.getAttribute('src')).toBe('blob:current-frame')
     expect(root.textContent).toContain('PQ to sRGB')
-    expect(playhead.max).toBe('239')
+    expect(playhead.getAttribute('aria-valuemax')).toBe('239')
     dispose!()
     dispose = undefined
     expect(revoke).toHaveBeenCalledWith('blob:current-frame')
@@ -189,7 +192,7 @@ describe('VideoEditEditor', () => {
     vi.useFakeTimers()
     const values = {
       peek: vi.fn(async (): Promise<ValuePeekResult> => ({
-        available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'legacy' },
+        available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'legacy' },
         renditions: ['frame', 'thumbs'].map((kind) => ({ kind, mime: 'image/png', ...(parameters === undefined ? {} : { parameters }) })),
       })),
       rendition: vi.fn(async (): Promise<RenditionResult> => ({ available: false, status: 406, reason: 'unavailable-rendition', error: 'No bounded decoder' })),
@@ -200,7 +203,7 @@ describe('VideoEditEditor', () => {
     await vi.advanceTimersByTimeAsync(110)
     expect(values.rendition).toHaveBeenCalledTimes(2)
     for (const kind of ['frame', 'thumbs']) expect(values.rendition).toHaveBeenCalledWith(expect.anything(), kind, { signal: expect.any(AbortSignal) })
-    expect(root.querySelector<HTMLInputElement>('[aria-label="Playhead frame"]')!.disabled).toBe(true)
+    expect(root.querySelector('[role="slider"][aria-label="Playhead frame"]')!.getAttribute('aria-disabled')).toBe('true')
     expect(root.querySelector('[data-testid="video-edit-frame-selection-unavailable"]')!.textContent).toContain('Frame selection is not advertised')
     set(input(root, 'video-trim-start-seconds'), '3')
     await vi.advanceTimersByTimeAsync(110)
@@ -221,7 +224,7 @@ describe('VideoEditEditor', () => {
     old({ available: false, status: 404, reason: 'bad-element', error: 'Stale error' })
     await Promise.resolve()
     expect(root.textContent).not.toContain('Stale error')
-    resolveOld({ available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'new' }, renditions: [{ kind: 'poster', mime: 'image/png' }] })
+    resolveOld({ available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'new' }, renditions: [{ kind: 'poster', mime: 'image/png' }] })
     await vi.advanceTimersByTimeAsync(1)
     expect(root.textContent).toContain('406 unavailable-rendition: No bounded decoder')
     expect(values.rendition).toHaveBeenCalledTimes(1)

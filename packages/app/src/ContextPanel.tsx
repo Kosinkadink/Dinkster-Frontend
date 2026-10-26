@@ -16,6 +16,7 @@ import { activateProblem } from './ProblemsPanel.js'
 import { problemDisplay } from './problem-display.js'
 import { contextProblems, deriveFocusContext, hasOwningContext, type FocusContext } from './problem-context.js'
 import { RegionIterationInspector } from './RegionIterationInspector.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -173,7 +174,7 @@ export function ContextPanel(props: {
   return (
     <section class="rail-section context-panel" data-testid="context-panel" data-native-text-scope>
       <h2>{message('contextPanel.title')}</h2>
-      <Show when={view()} keyed fallback={<p class="empty">{message('contextPanel.empty.document')}</p>}>
+      <Show when={view()} keyed fallback={<ProductEmptyState title={message('contextPanel.empty.document')} />}>
         {(current) => (
           <>
             <div class="context-summary" data-testid="context-summary" data-context-kind={current.context.kind}>
@@ -200,7 +201,7 @@ export function ContextPanel(props: {
               {message('contextPanel.problems.title')}
               <span class="problems-group-count" aria-label={message('contextPanel.problems.count', { count: problems().length })}>{problems().length}</span>
             </h3>
-            <Show when={problems().length > 0} fallback={<p class="empty" data-testid="context-no-problems">{message('contextPanel.empty.problems')}</p>}>
+            <Show when={problems().length > 0} fallback={<ProductEmptyState testId="context-no-problems" title={message('contextPanel.empty.problems')} />}>
               <div class="problems-group-items context-problems" data-testid="context-problems">
                 <For each={problems()}>
                   {(diagnostic) => (

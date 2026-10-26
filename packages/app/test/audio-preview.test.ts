@@ -5,7 +5,7 @@ import { fetchPeekRendition, type PeekValues } from '../src/peek-preview.js'
 
 const query = { jobId: 'job', nodeId: 'audio', outputId: 'out' }
 const meta = Object.freeze({ sample_rate: 48000, channels: 17, layout: '17c', duration: 7200, batch: 3 })
-const descriptor = Object.freeze({ typeId: 'core.audio', fingerprint: 'source', meta })
+const descriptor = Object.freeze({ typeId: 'AUDIO', fingerprint: 'source', meta })
 const renditions: readonly RenditionInfo[] = [
   { kind: 'waveform', mime: 'image/png', version: 'wave-v1', parameters: ['batch', 'waveform'], defaults: { batch: '0' }, limits: { width: 2048, height: 512, pixels: 262144 } },
   { kind: 'window', mime: 'audio/wav', version: 'window-v1', parameters: ['batch', 'window'], defaults: { batch: '0' }, limits: { durationSeconds: 30, sampleValues: 8388608 } },

@@ -206,7 +206,7 @@ export const defaultTokens: DesignTokens = {
     INT: '#7B1FA2',
     FLOAT: '#00838F',
     BOOLEAN: '#C2185B',
-    'core.combo': '#5D4037',
+    'COMBO': '#5D4037',
     AUDIO: '#1565C0',
   },
   stateColors: {
@@ -222,8 +222,8 @@ export const defaultTokens: DesignTokens = {
 }
 
 /**
- * Display aliases mapping native dinkster boundary type ids to their ComfyUI
- * names. Consulted by BOTH the label and the color lookup so name and color
+ * Display aliases for the existing ComfyUI image and mask bridges.
+ * Consulted by BOTH the label and the color lookup so name and color
  * can never disagree. Presentation only - never use these for compatibility
  * decisions; type ids in documents, wire payloads, and persistence are
  * unchanged.
@@ -232,28 +232,8 @@ export const typeDisplayAliases: Readonly<Record<string, string>> = Object.freez
   // Null prototype so lookups by arbitrary type names (e.g. 'constructor')
   // can never resolve to inherited Object.prototype members.
   Object.assign(Object.create(null) as Record<string, string>, {
-    'dinkster.model': 'MODEL',
-    'dinkster.conditioning': 'CONDITIONING',
-    'dinkster.image': 'IMAGE',
-    // comfy.IMAGE and dinkster.image are one value type (the backend registers
-    // both ids with the same codec), and compatibility math canonicalizes to
-    // the comfy spelling - so both spellings must present as the same IMAGE.
-    // The same holds for the comfy.MASK/dinkster.mask pair.
     'comfy.IMAGE': 'IMAGE',
-    'dinkster.mask': 'MASK',
     'comfy.MASK': 'MASK',
-    'dinkster.latent': 'LATENT',
-    'dinkster.control': 'CONTROL_NET',
-    'dinkster.clip': 'CLIP',
-    'dinkster.vae': 'VAE',
-    'dinkster.sampler': 'SAMPLER',
-    'dinkster.sigmas': 'SIGMAS',
-    'dinkster.guider': 'GUIDER',
-    'dinkster.noise': 'NOISE',
-    // Pre-rename spellings of dinkster.clip/dinkster.vae: kept so a backend that
-    // still serves the old ids presents the same label and color.
-    'dinkster.text_encoder': 'CLIP',
-    'dinkster.codec': 'VAE',
   }),
 )
 
@@ -311,6 +291,9 @@ const typeExprLabelWith = (type: TypeExpr, aliases: Readonly<Record<string, stri
     case 'concrete': return aliases[type.name] ?? type.name
     case 'union': return type.names.map((name) => aliases[name] ?? name).join(' | ')
     case 'wildcard': return 'Any'
+    case 'tuple': return `tuple<${type.elements.map((element, index) => `${index}: ${typeExprLabelWith(element, aliases)}`).join(', ')}>`
+    case 'family_tuple': return `tuple<${type.input}>`
+    case 'tuple_element': return `${type.element === undefined ? type.input : typeExprLabelWith(type.element, aliases)}[${type.index}]`
     case 'variable':
       return type.allowedTypes !== undefined && type.allowedTypes.length > 0
         ? type.allowedTypes.map((allowed) => typeExprLabelWith(allowed, aliases)).join(' | ')
@@ -332,18 +315,18 @@ export const typeExprCanonicalLabel = (type: TypeExpr): string => typeExprLabelW
 
 /**
  * One presentation boundary for pin labels, colors, and tooltip hints.
- * core.combo keeps a plain string payload while remaining its own socket type.
+ * COMBO keeps a plain string payload while remaining its own socket type.
  */
 export function presentedType(
   tokens: DesignTokens,
   type: TypeExpr,
 ): PresentedType {
   const canonicalName = canonicalTypeIdOf(type)
-  if (canonicalName === 'core.combo') {
+  if (canonicalName === 'COMBO') {
     return {
       ...(canonicalName !== undefined ? { canonicalName } : {}),
       label: 'COMBO',
-      color: typeColor(tokens, 'core.combo'),
+      color: typeColor(tokens, 'COMBO'),
       tooltip: 'COMBO (string with choices)',
     }
   }

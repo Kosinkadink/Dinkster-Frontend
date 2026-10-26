@@ -491,7 +491,7 @@ test.describe('native asset uploads', () => {
 })
 
 // Multi-select (typed-assets joint pin (5)): a list-of-asset declaration
-// (list<asset<T>> / list<dinkster.asset>) stages N picks and commits ONE array;
+// (list<asset<T>> / list<ASSET>) stages N picks and commits ONE array;
 // every other declaration keeps the single-pick commit-and-close flow (the
 // scalar-merge arm stays deferred until the wire exposes merge providers).
 test.describe('multi-select on list-of-asset declarations', () => {

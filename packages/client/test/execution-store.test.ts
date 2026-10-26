@@ -273,6 +273,46 @@ describe('bounded execution activity', () => {
   })
 })
 
+describe('execution semantics display facts', () => {
+  const C0 = asConnectionId('c0')
+  const execution = { connection: C0, prompt: asPromptId('semantics') }
+
+  it('keeps one blocked reason per node and child progress under its parent', () => {
+    const store = new ExecutionStore()
+    store.apply({
+      kind: 'nodeBlocked', execution, timestamp: 1, runtimeNodeId: 'parent.0.0.child',
+      blocked: { origin: 'source/value', message: 'source produced no value', displayRuntimeNodeId: 'parent' },
+    })
+    store.apply({
+      kind: 'nodeBlocked', execution, timestamp: 2, runtimeNodeId: 'parent.0.0.child',
+      blocked: { origin: 'alternate/value', message: 'latest root absence', displayRuntimeNodeId: 'parent' },
+    })
+    store.apply({
+      kind: 'nodeExpanded', execution, timestamp: 3, runtimeNodeId: 'parent.0.0.child',
+      expansion: { children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayRuntimeNodeId: 'parent' },
+    })
+    store.apply({
+      kind: 'nodeStates', execution, timestamp: 4,
+      nodes: {
+        'parent/left': { state: 'done', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+        'parent/right': { state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent' },
+      },
+    })
+    const state = store.get(execution)!
+    expect(state.blockedNodes).toEqual({
+      'parent.0.0.child': { origin: 'alternate/value', message: 'latest root absence', displayRuntimeNodeId: 'parent' },
+    })
+    expect(state.expandedNodes['parent.0.0.child']).toEqual({
+      children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayRuntimeNodeId: 'parent',
+    })
+    expect(state.nodes['parent/left']?.state).toBe('done')
+    expect(state.nodes['parent/right']?.state).toBe('running')
+    expect(state.nodes['parent/right']).toMatchObject({
+      parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'parent',
+    })
+  })
+})
+
 describe('bounded execution value diagnostics', () => {
   const C0 = asConnectionId('c0')
   const execution = { connection: C0, prompt: asPromptId('diagnostics') }
@@ -598,7 +638,7 @@ describe('CL4 terminal transition hardening', () => {
       execution,
       timestamp: 2,
       nodes: {
-        rich: { state: 'done', outputs: { sum: { typeId: 'core.int', value: 7 } } },
+        rich: { state: 'done', outputs: { sum: { typeId: 'INT', value: 7 } } },
         why: { state: 'skipped', skipOrigin: 'p/out', skipReason: 'no value' },
         bare: { state: 'done' },
       },
@@ -612,13 +652,13 @@ describe('CL4 terminal transition hardening', () => {
         rich: { state: 'done' }, // bare: must not strip the live summary
         why: { state: 'skipped' }, // bare: must not strip provenance
         // descriptor-enriched: fills what the bare live event never carried
-        bare: { state: 'done', outputs: { out: { typeId: 'core.string' } } },
+        bare: { state: 'done', outputs: { out: { typeId: 'STRING' } } },
       },
     })
     const nodes = store.get(execution)!.nodes
-    expect(nodes['rich']).toEqual({ state: 'done', outputs: { sum: { typeId: 'core.int', value: 7 } } })
+    expect(nodes['rich']).toEqual({ state: 'done', outputs: { sum: { typeId: 'INT', value: 7 } } })
     expect(nodes['why']).toEqual({ state: 'skipped', skipOrigin: 'p/out', skipReason: 'no value' })
-    expect(nodes['bare']).toEqual({ state: 'done', outputs: { out: { typeId: 'core.string' } } })
+    expect(nodes['bare']).toEqual({ state: 'done', outputs: { out: { typeId: 'STRING' } } })
   })
 
   it('CL4 an authoritative terminal after inferred loss retracts the lost warning', () => {

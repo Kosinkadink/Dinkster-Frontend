@@ -88,7 +88,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
           entries plus app-scoped globals and the active execution's errors. */}
       <Show
         when={groups().length > 0 || props.compatSkips().length > 0 || inferenceUnavailable().length > 0}
-        fallback={<ProductEmptyState class="empty" title={message('problems.empty')} />}
+        fallback={<ProductEmptyState title={message('problems.empty')} />}
       >
         <For each={groups()}>
           {(group, index) => {

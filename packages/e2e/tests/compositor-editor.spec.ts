@@ -267,7 +267,8 @@ test('edits, executes, persists, and falls back safely when compositor sources c
   expect(draggedX).toBeGreaterThan(8)
 
   await editor.getByRole('textbox', { name: 'Name', exact: true }).fill('Accent layer')
-  await editor.getByRole('combobox').selectOption('screen')
+  await editor.getByRole('combobox', { name: 'Blend mode' }).click()
+  await page.getByRole('option', { name: 'screen', exact: true }).click()
   await editor.getByRole('spinbutton', { name: 'X', exact: true }).fill('16')
   await editor.getByRole('spinbutton', { name: 'Y', exact: true }).fill('8')
   await editor.getByRole('spinbutton', { name: 'Rotation (degrees)', exact: true }).fill('12.5')
@@ -276,7 +277,12 @@ test('edits, executes, persists, and falls back safely when compositor sources c
   await editor.getByRole('button', { name: 'Raise', exact: true }).click()
   await editor.getByLabel('Background', { exact: true }).check()
   await editor.getByLabel('Color', { exact: true }).fill('#102030')
-  await editor.getByLabel('Background opacity', { exact: true }).fill('0.25')
+  const opacity = editor.getByRole('slider', { name: 'Background opacity', exact: true })
+  await opacity.press('Home')
+  await opacity.press('PageUp')
+  await opacity.press('PageUp')
+  for (let i = 0; i < 5; i++) await opacity.press('ArrowRight')
+  await expect(opacity).toHaveAttribute('aria-valuenow', '0.25')
 
   const screenshot = await editor.screenshot({ animations: 'disabled' })
   await testInfo.attach('native-compositor-editor', { body: screenshot, contentType: 'image/png' })

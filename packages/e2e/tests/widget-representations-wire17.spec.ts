@@ -3,8 +3,11 @@
  * the Playwright base directly because the shared fixture supplies a legacy
  * catalog and cannot establish the deployed schema contract.
  */
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test as base, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { widgetDiagnostics } from './widget-diagnostics.js'
+
+const test = base.extend(widgetDiagnostics)
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -536,7 +539,7 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
       webkitScrollbarWidth: scrollbar.width,
     }
   })
-  expect(styles.fontFamily).toContain('system-ui')
+  expect(styles.fontFamily).toContain('Noto Sans')
   expect(styles.fontSize).toBe('14px')
   expect(styles.lineHeight).toBe('20px')
   expect(styles.resize).toBe('none')

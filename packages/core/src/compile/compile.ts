@@ -78,6 +78,7 @@ import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from 
 import {
   buildGraphConnectivity,
   elabInputsOf,
+  elabKeyOf,
   elabOutputsOf,
   elaborateInterface,
   valueKeyOf,
@@ -87,6 +88,7 @@ import {
   type ElaboratedOutput,
   type PortAddress,
 } from '../schema/elaborate.js'
+import { solveGraphTypes } from '../schema/solve.js'
 import {
   buildBoundaryCrossings,
   crossingTargets,
@@ -100,7 +102,7 @@ import {
   type BoundaryCrossing,
 } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -1839,7 +1841,7 @@ function compileImpl(
    * arm, incl. asset<list<T>> onto a list<T> input) or list<asset<T>> (N
    * refs: merge arm onto scalar T, lift arm onto list<T>), never the
    * declared type. Undefined everywhere else: asset-REFERENCE destinations
-   * (bare dinkster.asset, asset<...>, lists of either) receive refs AS-IS per
+   * (bare ASSET, asset<...>, lists of either) receive refs AS-IS per
    * the joint pins - stamping there would route a valid plain delivery into
    * the coercion planner, which has no asset-to-asset vocabulary; non-ASSET
    * widgets and non-ref-shaped values pass through untouched. No scalar-T
@@ -1884,7 +1886,7 @@ function compileImpl(
     value: Json,
     sink: Diagnostic[] = diags,
   ): Json | undefined => {
-    if (canonicalTypeIdOf(input.spec.type) === 'core.int' && isCanonicalUnsafeInteger(value)) {
+    if (canonicalTypeIdOf(input.spec.type) === 'INT' && isCanonicalUnsafeInteger(value)) {
       if (emitDecimalInts) return decimalIntegerWire(value)
       sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `'${fn.node.type}' input '${input.spec.id}' holds an integer outside JavaScript's safe range, but this backend does not support lossless decimal integers; omitted`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
       return undefined
@@ -1998,7 +2000,7 @@ function compileImpl(
       ?? overrides.get(input.runtimeId)?.get(input.elabKey)
     if (staged !== undefined) {
       const decimalInteger = parseDecimalIntegerWire(staged)
-      if (decimalInteger !== undefined) return { value: decimalInteger, typeId: 'core.int' }
+      if (decimalInteger !== undefined) return { value: decimalInteger, typeId: 'INT' }
       const stamped = parseTypedLiteralWire(staged)
       if (stamped !== undefined) return { value: stamped.value, typeId: stamped.type }
       return { value: staged, typeId: assetSourceTypeOf(input.input, staged) ?? typeId }
@@ -2208,7 +2210,7 @@ function compileImpl(
           // refuse loudly instead of failing at the server.
           const dstTypeId = canonicalTypeIdOf(dst.input.spec.type)
           if (isCanonicalUnsafeInteger(baked.value)) {
-            if (baked.typeId === 'core.int' && dstTypeId === 'core.int') {
+            if (baked.typeId === 'INT' && dstTypeId === 'INT') {
               const lowered = lowerWidgetLiteral(consumer, dst.input, baked.value)
               if (lowered !== undefined) {
                 consumer.inputs[dst.elabKey] = lowered
@@ -2216,7 +2218,7 @@ function compileImpl(
                 recordSuccessfulDelivery(dst)
               }
             } else {
-              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${c.what} in graph '${defId}' bakes an integer outside JavaScript's safe range into '${consumer.node.type}' input '${dst.input.spec.id}', but the lossless integer marker requires a concrete core.int destination; omitted`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
+              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${c.what} in graph '${defId}' bakes an integer outside JavaScript's safe range into '${consumer.node.type}' input '${dst.input.spec.id}', but the lossless integer marker requires a concrete INT destination; omitted`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
             }
             continue
           }
@@ -2502,6 +2504,7 @@ function compileImpl(
     if (!validatesNode(fn.runtimeId)) continue
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue // never reaches the prompt
+      if (input.origin.kind === 'member' && input.origin.ghost === true) continue
       const spec = input.spec
       if (fn.inputs[spec.id] !== undefined) continue
       if (spec.hidden === true) continue
@@ -2757,6 +2760,65 @@ function compileImpl(
       : { node: localRuntimeId(outputs[0]!.src.runtimeId, region), output }
   }
   const validationContext = new Map<string, DinksterGraphValidationNode>()
+  const solvedTypes = new Map(Object.values(doc.graphs).map((graph) => [graph.id,
+    solveGraphTypes(graph, resolve, { resolveNode: (node) => resolveNode(graph.id, node) }),
+  ]))
+  const nativeTypes = new Map<string, TypeExpr>()
+  const resolvingNativeTypes = new Set<string>()
+  const nativeInputType = (fn: FlatNode, key: string): TypeExpr | undefined => {
+    const value = fn.inputs[key]
+    const stamped = value === undefined ? undefined : parseTypedLiteralWire(value)
+    if (stamped !== undefined) return typeExprFromTypeId(stamped.type)
+    if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && typeof value[1] === 'number') {
+      return nativeOutputType(value[0], value[1])
+    }
+    const port = typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as { $link?: { node?: string; output?: string } }).$link
+      : undefined
+    if (port?.node === DINKSTER_REGION_PSEUDO_NODE && port.output !== undefined) {
+      if (port.output === 'index') return { kind: 'concrete', name: 'INT' }
+      const owner = ownerRegionOf(fn)
+      const parent = owner && flat.get(owner.runtimeId)
+      const type = parent && nativeInputType(parent, port.output)
+      return owner?.node.region?.elementPorts?.includes(port.output) && type?.kind === 'list' ? type.element : type
+    }
+    return fn.elab.inputs.find((input) => elabKeyOf(input.address) === key)?.spec.type
+  }
+  const nativeOutputType = (runtimeId: string, index: number): TypeExpr | undefined => {
+    const key = `${runtimeId}/${index}`
+    const cached = nativeTypes.get(key)
+    if (cached) return cached
+    if (resolvingNativeTypes.has(key)) return undefined
+    const fn = flat.get(runtimeId)
+    const output = fn?.elab.outputs.filter((item) => item.wireable !== false)[index]
+    if (!fn || !output) return undefined
+    resolvingNativeTypes.add(key)
+    let type: TypeExpr | undefined
+    const region = regions.get(runtimeId)
+    if (region) {
+      const source = sourceForBoundaryOutput(region, output.address.port)
+      const producer = source && [...flat.values()].find((candidate) => ownerRegionOf(candidate)?.runtimeId === runtimeId && localRuntimeId(candidate.runtimeId, region) === source.node)
+      const producerIndex = producer?.elab.outputs.filter((item) => item.wireable !== false).findIndex((item) => nativeOutputId(producer.runtimeId, item) === source?.output)
+      const inner = producer && producerIndex !== undefined && producerIndex >= 0 ? nativeOutputType(producer.runtimeId, producerIndex) : undefined
+      const role = region.node.region?.outputRoles?.[output.address.port]
+      type = inner === undefined ? undefined : role?.kind === 'flatten' || role?.kind === 'last' || role?.kind === 'state' ? inner : { kind: 'list', element: inner }
+    } else {
+      const items = [
+        ...fn.elab.inputs.map((input, i) => ({ kind: 'input' as const, id: `input_${i}`, type: input.spec.type, optional: input.spec.optional })),
+        ...fn.elab.outputs.map((item, i) => ({ kind: 'output' as const, id: `output_${i}`, type: item.spec.type })),
+      ]
+      const schema = { ...resolveNode(fn.graphId, fn.node)!, items }
+      const projectedInputs = fn.elab.inputs.flatMap((input, i) => {
+        const type = nativeInputType(fn, elabKeyOf(input.address))
+        return type ? [{ type, to: { node: fn.node.id, port: `input_${i}` as PortRef['port'] } }] : []
+      })
+      const graph = { ...doc.graphs[fn.graphId]!, nodes: { [fn.node.id]: fn.node }, links: {}, nets: {}, reroutes: {} }
+      type = solveGraphTypes(graph, () => schema, { projectedInputs }).portTypeOf(fn.node.id, 'output', `output_${fn.elab.outputs.indexOf(output)}`)
+    }
+    resolvingNativeTypes.delete(key)
+    if (type) nativeTypes.set(key, type)
+    return type
+  }
   const validationNode = (fn: FlatNode): DinksterGraphValidationNode => {
     const inputTypes: Record<string, TypeExpr> = {}
     const inputPorts: Record<string, PortRef> = {}
@@ -2791,9 +2853,11 @@ function compileImpl(
     for (const output of fn.elab.outputs) {
       if (output.wireable === false) continue
       const outputId = nativeOutputId(fn.runtimeId, output)
+      const solved = solvedTypes.get(fn.graphId)?.portTypeOf(fn.node.id, 'output', elabKeyOf(output.address))
+      const native = nativeOutputType(fn.runtimeId, fn.elab.outputs.filter((item) => item.wireable !== false).indexOf(output))
       outputTypes[outputId] = output.spec.type.kind === 'variable' && selectorOutputType !== undefined
         ? selectorOutputType
-        : output.spec.type
+        : native !== undefined && canonicalTypeIdOf(native) !== undefined ? native : solved ?? output.spec.type
       outputPorts[outputId] = {
         node: fn.occ.node,
         port: output.address.port as PortRef['port'],
@@ -2833,7 +2897,9 @@ function compileImpl(
       const ports: Record<string, Json> = {}
       for (const item of boundarySchema?.items ?? []) {
         if (item.kind !== 'input') continue
-        const encoded = typeExprToDinksterWire(item.type)
+        const incoming = nativeInputType(fn, item.id)
+        const bodyType = contract.elementPorts?.includes(item.id) && incoming?.kind === 'list' ? incoming.element : incoming
+        const encoded = typeExprToDinksterWire(canonicalTypeIdOf(item.type) === undefined && bodyType !== undefined && canonicalTypeIdOf(bodyType) !== undefined ? bodyType : item.type)
         if (encoded === undefined) {
           diags.push(diag('error', 'compile', 'compile.region.portTypeUnsupported', `region port '${item.id}' has a type expression that cannot be emitted`, { anchor: { occurrence: region.occ } }))
           continue
@@ -2875,7 +2941,7 @@ function compileImpl(
     }
     return { nodes }
   }
-  const dinksterGraph = includedRegions.length > 0 ? buildNativeGraph() : undefined
+  const dinksterGraph = emitRegions && included.size > 0 ? buildNativeGraph() : undefined
   if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext))
   if (diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }

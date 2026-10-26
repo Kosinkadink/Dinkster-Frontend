@@ -2235,7 +2235,7 @@ export class InteractionController {
         anchor: { x: hit.x, y: hit.y },
         seeking: 'in',
         anchorType: hit.type,
-        anchorTypeName: 'core.int',
+        anchorTypeName: 'INT',
         fromPort: { node: '$region', port: 'index' },
         dropTargets: this.innerPinTargets(scene, hit.type, 'in'),
         moved: false,
@@ -2711,7 +2711,7 @@ export class InteractionController {
    * source under the same rule. Cycle-forming drops are rejected by the core
    * command, not predicted here.
    *
-   * core.combo is an ordinary concrete atom, so TypeExpr compatibility is
+   * COMBO is an ordinary concrete atom, so TypeExpr compatibility is
    * the whole legal-drop decision.
    */
   private compatibleTargets(

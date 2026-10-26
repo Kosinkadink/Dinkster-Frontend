@@ -41,12 +41,17 @@ describe('core extension door dogfooding', () => {
       'BOOLEAN',
       'COMBO',
       'MULTI_COMBO',
+      'LIST',
       'COLOR',
       'CURVE',
       'COMPOSITOR',
       'ASSET',
       'SAVE_TARGET',
       'VIDEO_EDIT',
+      'BUTTON',
+      'MARKDOWN',
+      'COLORS',
+      'AUDIO_RECORD',
     ])
   })
 

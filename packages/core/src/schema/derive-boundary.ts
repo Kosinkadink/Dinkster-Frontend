@@ -91,8 +91,8 @@ export function resolveStaticWidgetTap(schema: NodeSchema, tap: string): StaticW
 }
 
 const mentionsCombo = (type: TypeExpr): boolean => {
-  if (type.kind === 'concrete') return type.name === 'core.combo'
-  if (type.kind === 'union') return type.names.includes('core.combo')
+  if (type.kind === 'concrete') return type.name === 'COMBO'
+  if (type.kind === 'union') return type.names.includes('COMBO')
   if (type.kind === 'variable') return type.allowedTypes?.some(mentionsCombo) ?? false
   if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return mentionsCombo(type.element)
   return false
@@ -117,6 +117,10 @@ function freshenType(
   bindings: ReadonlyMap<string, TypeExpr> = NO_TYPE_BINDINGS,
 ): TypeExpr {
   switch (type.kind) {
+    case 'tuple':
+      return { ...type, elements: type.elements.map((element) => freshenType(element, nodeId, bindings)) }
+    case 'tuple_element':
+      return type.element === undefined ? type : { ...type, element: freshenType(type.element, nodeId, bindings) }
     case 'variable': {
       const bound = bindings.get(type.templateId)
       if (bound !== undefined) return bound
@@ -1202,7 +1206,7 @@ export function deriveBoundarySchema(
     })
   }
 
-  // Output-node status: any inner node whose schema is an output node makes
+  // Output-node status: any active inner output node makes
   // the instance one (partial-execution scoping descends through instances).
   // Runtime capabilities aggregate the same way. Nested subgraphs compose
   // because inner instances resolve to derived schemas.
@@ -1211,7 +1215,7 @@ export function deriveBoundarySchema(
   let mayExpandGraph = false
   for (const node of Object.values(def.nodes)) {
     const schema = resolveNode(node)
-    if (schema?.isOutputNode) isOutputNode = true
+    if (schema?.isOutputNode && node.mode !== 'muted' && node.mode !== 'bypassed') isOutputNode = true
     if (schema?.emitsPreviews) emitsPreviews = true
     if (schema?.mayExpandGraph) mayExpandGraph = true
     if (isOutputNode && emitsPreviews && mayExpandGraph) break
@@ -1224,6 +1228,9 @@ export function deriveBoundarySchema(
 
   let derivedItems = items
   if (region !== undefined) {
+    if (!def.boundary.outputs.some((output) => output.id !== region.continueOutput) && !isOutputNode) {
+      fail('doc.region.outputRequired', 'region requires an exported boundary output or a declared output node')
+    }
     const elements = new Set(region.elementPorts ?? [])
     const state = new Set(region.statePorts ?? [])
     const outputRoles = region.outputRoles ?? {}
@@ -1256,9 +1263,9 @@ export function deriveBoundarySchema(
       }
       const sourceType: TypeExpr = item.isList === true ? { kind: 'list', element: item.type } : item.type
       if (item.id === region.continueOutput) {
-        const severity = regionSourceMismatch(sourceType, { kind: 'concrete', name: 'core.boolean' })
+        const severity = regionSourceMismatch(sourceType, { kind: 'concrete', name: 'BOOLEAN' })
         if (severity !== undefined) {
-          diags.push(diag(severity, 'schema', 'doc.region.continueNotBoolean', `[${def.id}] region continue output '${item.id}' is not statically core.boolean`))
+          diags.push(diag(severity, 'schema', 'doc.region.continueNotBoolean', `[${def.id}] region continue output '${item.id}' is not statically BOOLEAN`))
         }
         continue
       }

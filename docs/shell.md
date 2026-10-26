@@ -7,6 +7,12 @@ do not accrete ad hoc. The center region itself hosts EDITORS resolved
 through the editor registry - a separate vocabulary pinned in
 docs/editors.md (today's only editor kind is the graph canvas).
 
+Shell-owned actions use `ProductButton`: compact ghost controls in the
+topbar and status bar, secondary actions for redocking and output inspection,
+and a danger action for discarding a dirty tab. Menu refs, autofocus,
+disabled state, keyboard handling, and native button activation remain on the
+underlying button. Surface CSS supplies layout, not a separate control skin.
+
 ## Layout
 
 ```diagram

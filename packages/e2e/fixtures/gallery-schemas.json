@@ -21,9 +21,9 @@
     "items": [
       { "kind": "input", "id": "line", "displayName": "single line", "type": { "kind": "concrete", "name": "STRING" }, "optional": false, "widget": { "widgetType": "STRING", "options": {}, "default": "a single-line string" } },
       { "kind": "input", "id": "prose", "displayName": "multiline", "type": { "kind": "concrete", "name": "STRING" }, "optional": false, "widget": { "widgetType": "STRING", "options": { "multiline": true }, "default": "first line\nsecond line\nthird line" } },
-      { "kind": "input", "id": "combo_static", "displayName": "combo static", "type": { "kind": "concrete", "name": "core.combo" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": ["alpha", "beta", "gamma", "a distinctly longer option label"] }, "default": "alpha" } },
-      { "kind": "input", "id": "combo_empty", "displayName": "combo empty", "type": { "kind": "concrete", "name": "core.combo" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": [] }, "default": "" } },
-      { "kind": "input", "id": "combo_remote", "displayName": "combo remote", "type": { "kind": "concrete", "name": "core.combo" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": ["baked-fallback"] }, "default": "baked-fallback", "remote": { "route": "/api/choices/gallery", "refreshButton": true } } },
+      { "kind": "input", "id": "combo_static", "displayName": "combo static", "type": { "kind": "concrete", "name": "COMBO" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": ["alpha", "beta", "gamma", "a distinctly longer option label"] }, "default": "alpha" } },
+      { "kind": "input", "id": "combo_empty", "displayName": "combo empty", "type": { "kind": "concrete", "name": "COMBO" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": [] }, "default": "" } },
+      { "kind": "input", "id": "combo_remote", "displayName": "combo remote", "type": { "kind": "concrete", "name": "COMBO" }, "optional": false, "widget": { "widgetType": "COMBO", "options": { "options": ["baked-fallback"] }, "default": "baked-fallback", "remote": { "route": "/api/choices/gallery", "refreshButton": true } } },
       { "kind": "output", "id": "text_out", "displayName": "text", "type": { "kind": "concrete", "name": "STRING" } }
     ]
   },

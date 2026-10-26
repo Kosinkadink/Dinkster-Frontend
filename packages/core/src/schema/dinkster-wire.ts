@@ -48,12 +48,12 @@ import type {
 /** The single schema wire contract decoded by this frontend. */
 export const DINKSTER_SCHEMA_WIRE_VERSION = 1
 
-/** Widget kinds implied by core primitive type ids (until the wire carries widget metadata). */
+/** Widget kinds implied by built-in primitive type ids. */
 const PRIMITIVE_WIDGETS: Readonly<Record<string, string>> = {
-  'core.int': 'INT',
-  'core.float': 'FLOAT',
-  'core.string': 'STRING',
-  'core.boolean': 'BOOLEAN',
+  INT: 'INT',
+  FLOAT: 'FLOAT',
+  STRING: 'STRING',
+  BOOLEAN: 'BOOLEAN',
 }
 
 const ABSENT_POLICIES: ReadonlySet<string> = new Set(['skip', 'accept', 'fail', 'omit'])
@@ -203,8 +203,8 @@ function decodeWireSelector(wire: unknown, inputs: ReadonlyMap<string, InputSpec
   const selectorInput = inputs.get(input)
   if (selectorInput === undefined) throw new Error(`selector.input names unknown input '${input}'`)
   if (selectorInput.dynamic !== undefined) throw new Error('selector.input must name a static input')
-  if (JSON.stringify(selectorInput.type) !== JSON.stringify({ kind: 'concrete', name: 'core.boolean' })) {
-    throw new Error('selector.input must have type core.boolean')
+  if (JSON.stringify(selectorInput.type) !== JSON.stringify({ kind: 'concrete', name: 'BOOLEAN' })) {
+    throw new Error('selector.input must have type BOOLEAN')
   }
 
   const branches = wireObject(selector['branches'], 'selector.branches')
@@ -274,6 +274,9 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
     types?: unknown
     templateId?: unknown
     element?: unknown
+    elements?: unknown
+    input?: unknown
+    index?: unknown
   }
   const types: string[] = Array.isArray(w.types) ? w.types.map((t) => String(t)) : []
   if (types.some((type) => type.startsWith('stream<'))) throw new Error('stream type requires a structured constructor')
@@ -305,6 +308,10 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
     case 'asset':
     case 'stream':
       return { kind: w.kind, element: typeExprFromDinksterWire(w.element) }
+    case 'tuple':
+    case 'family_tuple':
+    case 'tuple_element':
+      return wireType(wire, 'type')
     default:
       throw new Error(`unknown type expression kind: ${String(w.kind)}`)
   }
@@ -511,10 +518,9 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       for (const key of ['min', 'max', 'step']) {
         const value = descriptor[key]
         const finiteNumber = typeof value === 'number' && Number.isFinite(value)
-        const exactNumber = finiteNumber && (!Number.isInteger(value) || Number.isSafeInteger(value))
         const decimalInteger = isCanonicalUnsafeInteger(value)
-        if (value !== undefined && !exactNumber && !decimalInteger) {
-          throw new Error(`${where}.${key} must be a finite exact number`)
+        if (value !== undefined && !finiteNumber && !decimalInteger) {
+          throw new Error(`${where}.${key} must be a finite number or exact decimal integer`)
         }
       }
       if (descriptor['min'] !== undefined && descriptor['max'] !== undefined) {
@@ -534,6 +540,12 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         (isCanonicalUnsafeInteger(descriptor['step']) && BigInt(descriptor['step']) <= 0n)
       ) {
         throw new Error(`${where}.step must be positive`)
+      }
+      if (
+        descriptor['round'] !== undefined && descriptor['round'] !== false &&
+        (typeof descriptor['round'] !== 'number' || !Number.isFinite(descriptor['round']) || descriptor['round'] <= 0)
+      ) {
+        throw new Error(`${where}.round must be false or a finite positive number`)
       }
       if (
         descriptor['controlAfterGenerate'] !== undefined &&
@@ -596,58 +608,69 @@ function cloneJsonValue(value: unknown, where: string): unknown {
   throw new Error(`${where} must be JSON-safe`)
 }
 
+function numericWidgetType(type: TypeExpr): 'INT' | 'FLOAT' | undefined {
+  if (type.kind === 'concrete' && (type.name === 'INT' || type.name === 'FLOAT')) return type.name
+  if (type.kind === 'union' && type.names.length === 2 && type.names.includes('INT') && type.names.includes('FLOAT')) return 'FLOAT'
+  return undefined
+}
+
 function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string): void {
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
     case 'STRING':
     case 'COLOR':
-      if (socket !== 'core.string') throw new Error(`${where} requires a concrete core.string input`)
+      if (socket !== 'STRING') throw new Error(`${where} requires a concrete STRING input`)
       return
     case 'CURVE':
-      if (socket !== 'dinkster.curve') throw new Error(`${where} requires a concrete dinkster.curve input`)
+      if (socket !== 'CURVE') throw new Error(`${where} requires a concrete CURVE input`)
       return
     case 'COMPOSITOR':
-      if (socket !== 'dinkster.compositor') throw new Error(`${where} requires a concrete dinkster.compositor input`)
+      if (socket !== 'COMPOSITOR') throw new Error(`${where} requires a concrete COMPOSITOR input`)
       return
     case 'BOOLEAN':
-      if (socket !== 'core.boolean') throw new Error(`${where} requires a concrete core.boolean input`)
+      if (socket !== 'BOOLEAN') throw new Error(`${where} requires a concrete BOOLEAN input`)
       return
     case 'COMBO':
-      if (socket !== 'core.combo') throw new Error(`${where} requires a concrete core.combo input`)
+      if (socket !== 'COMBO') throw new Error(`${where} requires a concrete COMBO input`)
       return
     case 'MULTI_COMBO':
-      if (type.kind !== 'list' || type.element.kind !== 'concrete' || type.element.name !== 'core.combo') {
-        throw new Error(`${where} requires list<core.combo>`)
+      if (type.kind !== 'list' || type.element.kind !== 'concrete' || type.element.name !== 'COMBO') {
+        throw new Error(`${where} requires list<COMBO>`)
       }
       return
-    case 'NUMBER':
-      if (socket !== 'core.int' && socket !== 'core.float') {
-        throw new Error(`${where} requires a concrete core.int or core.float input`)
+    case 'NUMBER': {
+      const numericKind = numericWidgetType(type)
+      if (numericKind === undefined) {
+        throw new Error(`${where} requires INT, FLOAT, or their numeric-only union`)
       }
-      if (socket === 'core.int') {
+      if (descriptor['round'] !== undefined && numericKind !== 'FLOAT') {
+        throw new Error(`${where}.round requires FLOAT`)
+      }
+      if (numericKind === 'INT') {
         for (const key of ['min', 'max', 'step']) {
           const value = descriptor[key]
           if (value !== undefined && !Number.isSafeInteger(value) && !isCanonicalUnsafeInteger(value)) {
-            throw new Error(`${where}.${key} must be an exact integer on core.int`)
+            throw new Error(`${where}.${key} must be an exact integer on INT`)
           }
         }
       } else if (['min', 'max', 'step'].some((key) => descriptor[key] !== undefined && typeof descriptor[key] !== 'number')) {
-        throw new Error(`${where} decimal integer constraints require core.int`)
+        throw new Error(`${where} decimal integer constraints require INT`)
       }
       return
+    }
     case 'SAVE_TARGET':
-      if (socket !== 'dinkster.save_target') throw new Error(`${where} requires a concrete dinkster.save_target input`)
+      if (socket !== 'SAVE_TARGET') throw new Error(`${where} requires a concrete SAVE_TARGET input`)
       return
     case 'ASSET':
       if (type.kind === 'concrete') return
-      if (descriptor['allowUpload'] === true && type.kind === 'list' && type.element.kind === 'concrete' && type.element.name === 'dinkster.asset') return
+      if (descriptor['allowUpload'] === true && type.kind === 'list' && type.element.kind === 'concrete' && type.element.name === 'ASSET') return
       if (type.kind === 'asset') {
         const isClosed = (candidate: TypeExpr): boolean =>
           candidate.kind === 'concrete' ||
           ((candidate.kind === 'list' || candidate.kind === 'asset' || candidate.kind === 'stream') && isClosed(candidate.element))
         if (isClosed(type.element)) return
       }
-      throw new Error(`${where} requires a concrete scalar, dinkster.asset, or fully-concrete asset input`)
+      throw new Error(`${where} requires a concrete scalar, ASSET, or fully-concrete asset input`)
     default:
       return
   }
@@ -768,6 +791,19 @@ function widgetFor(
       }
     }
     validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`)
+    if (type.kind === 'list' && (descriptor.type === 'STRING' || descriptor.type === 'NUMBER')) {
+      if (type.element.kind !== 'concrete') throw new Error(`${nodeType}.${id}: list widget requires a concrete primitive element`)
+      // Decode the element through the same scalar binding and precision rules.
+      validateStrictWidgetBinding(wire as Record<string, unknown>, type.element, `${nodeType}.${id} widget element`)
+      const element = widgetFor(nodeType, id, type.element, undefined, wire, diags, false)
+      if (element === undefined) throw new Error(`${nodeType}.${id}: list widget requires a scalar element descriptor`)
+      return {
+        widgetType: 'LIST',
+        options: {},
+        element,
+        ...(dflt !== undefined ? { default: dflt } : {}),
+      }
+    }
     validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`)
     if (descriptor.type === 'ASSET' && Array.isArray(descriptor.accept) && descriptor.accept.every((v) => typeof v === 'string')) {
       let kind: string | undefined
@@ -803,12 +839,12 @@ function widgetFor(
     // COMBO supports static options and/or a declarative remote source. Static
     // options render immediately; a successful remote fetch REPLACES them
     // (never merges). At least one of the two must survive validation. A
-    // combo with neither source is invalid schema; keep the core.combo
+    // combo with neither source is invalid schema; keep the COMBO
     // socket visible but drop its unusable widget descriptor.
     if (descriptor.type === 'COMBO') {
-      if (type.kind !== 'concrete' || type.name !== 'core.combo') {
+      if (type.kind !== 'concrete' || type.name !== 'COMBO') {
         diags.push(
-          diag('warning', 'schema', 'schema.dinkster.badComboSocket', `${nodeType}.${id}: COMBO descriptor on a non-core.combo input; descriptor dropped`),
+          diag('warning', 'schema', 'schema.dinkster.badComboSocket', `${nodeType}.${id}: COMBO descriptor on a non-COMBO input; descriptor dropped`),
         )
         return undefined
       }
@@ -953,7 +989,7 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
-    // NUMBER carries presentation constraints on core.int/core.float inputs.
+    // NUMBER carries presentation constraints on INT/FLOAT inputs.
     // The SOCKET type is authoritative for integer-vs-float rendering and
     // validation (joint pin); the descriptor only carries constraints. Per
     // the BOOLEAN precedent, a malformed FIELD drops alone with a
@@ -961,7 +997,7 @@ function widgetFor(
     // metadata never hides an editor. Integer sockets retain unsafe
     // constraints as canonical decimal strings; float sockets remain numbers.
     if (descriptor.type === 'NUMBER') {
-      const numericKind = type.kind === 'concrete' ? PRIMITIVE_WIDGETS[type.name] : undefined
+      const numericKind = numericWidgetType(type)
       if (numericKind !== 'INT' && numericKind !== 'FLOAT') {
         diags.push(
           diag('warning', 'schema', 'schema.dinkster.badNumberSocket', `${nodeType}.${id}: NUMBER descriptor on a non-numeric input; descriptor dropped`),
@@ -1020,18 +1056,7 @@ function widgetFor(
           }
         }
         if (descriptor.round !== undefined) {
-          if (numericKind === 'FLOAT' && typeof descriptor.round === 'number' && Number.isFinite(descriptor.round) && descriptor.round > 0) {
-            options['round'] = descriptor.round
-          } else {
-            diags.push(
-              diag(
-                'warning',
-                'schema',
-                'schema.dinkster.badNumberRound',
-                `${nodeType}.${id}: NUMBER round '${String(descriptor.round)}' is not a finite positive float precision; field dropped`,
-              ),
-            )
-          }
+          options['round'] = descriptor.round
         }
         let controllerInitial: WidgetSpec['controllerInitial']
         if (descriptor.controlAfterGenerate !== undefined) {
@@ -1060,7 +1085,7 @@ function widgetFor(
       }
     }
     if (descriptor.type === 'STRING') {
-      if (type.kind !== 'concrete' || type.name !== 'core.string') {
+      if (type.kind !== 'concrete' || type.name !== 'STRING') {
         diags.push(
           diag('warning', 'schema', 'schema.dinkster.badStringSocket', `${nodeType}.${id}: STRING descriptor on a non-string input; descriptor dropped`),
         )
@@ -1116,7 +1141,7 @@ function widgetFor(
       }
     }
     // BOOLEAN supports custom toggle labels. A label-less boolean carries no
-    // descriptor at all (the core.boolean type alone implies the toggle);
+    // descriptor at all (the BOOLEAN type alone implies the toggle);
     // empty strings are treated as absent per the omitted-when-empty wire
     // convention. A malformed label drops alone, never the widget.
     if (descriptor.type === 'BOOLEAN') {
@@ -1198,11 +1223,11 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
     if (source['category'] !== 'input' && source['category'] !== 'output' && source['category'] !== 'temp') {
       throw new Error(`${nodeType}.${id}.sourceFilename.category is invalid`)
     }
-    const isAssetExpr = (t: TypeExpr): boolean => (t.kind === 'concrete' && t.name === 'dinkster.asset') || t.kind === 'asset'
+    const isAssetExpr = (t: TypeExpr): boolean => (t.kind === 'concrete' && t.name === 'ASSET') || t.kind === 'asset'
     const scalarAsset = isAssetExpr(type)
     const listedAsset = type.kind === 'list' && isAssetExpr(type.element)
     if (!scalarAsset && !listedAsset) {
-      throw new Error(`${nodeType}.${id}.sourceFilename requires an asset-typed input (dinkster.asset, asset<T>, or a list of either)`)
+      throw new Error(`${nodeType}.${id}.sourceFilename requires an asset-typed input (ASSET, asset<T>, or a list of either)`)
     }
     if (widget?.representations !== undefined || widget?.widgetType !== 'ASSET' || widget.allowUpload !== true || widget.kind !== source['kind']) {
       throw new Error(`${nodeType}.${id}.sourceFilename requires a matching upload-enabled ASSET widget`)
@@ -1399,6 +1424,20 @@ function wireType(value: unknown, where: string): TypeExpr {
         kind: type['kind'],
         element: wireType(type['element'], `${where}.element`),
       }
+    case 'tuple': {
+      if (!Array.isArray(type['elements'])) throw new Error(`${where}.elements must be an array`)
+      return { kind: 'tuple', elements: type['elements'].map((element, index) => wireType(element, `${where}.elements[${index}]`)) }
+    }
+    case 'family_tuple':
+      return { kind: 'family_tuple', input: wireSegment(type['input'], `${where}.input`) }
+    case 'tuple_element': {
+      const input = type['input'] === undefined ? undefined : wireSegment(type['input'], `${where}.input`)
+      const element = type['element'] === undefined ? undefined : wireType(type['element'], `${where}.element`)
+      if ((input === undefined) === (element === undefined)) throw new Error(`${where} requires exactly one tuple source`)
+      const index = type['index']
+      if (typeof index !== 'string' && !(typeof index === 'number' && Number.isSafeInteger(index))) throw new Error(`${where}.index must be an integer or input id`)
+      return { kind: 'tuple_element', ...(input !== undefined ? { input } : { element: element! }), index: typeof index === 'string' ? wireSegment(index, `${where}.index`) : index as number }
+    }
     default:
       throw new Error(`${where} has unknown type expression kind '${String(type['kind'])}'`)
   }
@@ -1555,6 +1594,7 @@ function decodeWireFamily(
       kind: 'autogrow',
       template,
       naming,
+      ...(wireBoolean(entry['independentTypes'], `${where}.independentTypes`, false) ? { independentTypes: true } : {}),
       ...(!flatFamilyCompatible ? { materialization: 'wire15' as const } : {}),
     },
   }
@@ -1596,7 +1636,7 @@ function decodeWireCombo(
   return {
     kind: 'input',
     id,
-    type: { kind: 'concrete', name: 'core.combo' },
+    type: { kind: 'concrete', name: 'COMBO' },
     optional: !required,
     ...wirePresentation(entry, where),
     widget: {
@@ -1738,6 +1778,8 @@ function* slotTypeBindingsOf(
 
 function* typeVariablesOf(type: TypeExpr): Generator<TypeExpr & { readonly kind: 'variable' }> {
   if (type.kind === 'variable') yield type
+  else if (type.kind === 'tuple') for (const element of type.elements) yield* typeVariablesOf(element)
+  else if (type.kind === 'tuple_element' && type.element !== undefined) yield* typeVariablesOf(type.element)
   else if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') yield* typeVariablesOf(type.element)
 }
 
@@ -1924,6 +1966,20 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     }
     const decodedInputs = new Map(items.filter((item): item is InputSpec => item.kind === 'input').map((item) => [item.id, item]))
     const decodedOutputs = items.filter((item): item is OutputSpec => item.kind === 'output')
+    const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
+      if (type.kind === 'family_tuple') {
+        const family = decodedInputs.get(type.input)?.dynamic
+        if (!output || family?.kind !== 'autogrow' || !family.independentTypes || family.template.length !== 1) throw new Error('family_tuple requires an independent single-input family and an output declaration')
+      } else if (type.kind === 'tuple_element') {
+        const source = type.input === undefined ? undefined : decodedInputs.get(type.input)
+        const selector = typeof type.index === 'string' ? decodedInputs.get(type.index) : undefined
+        if (!output || (type.input !== undefined && (source === undefined || source.dynamic !== undefined))) throw new Error('tuple_element requires an ordinary tuple input and an output declaration')
+        if (typeof type.index === 'string' && (selector === undefined || selector.dynamic !== undefined || selector.optional || selector.type.kind !== 'concrete' || selector.type.name !== 'INT')) throw new Error('tuple_element requires an ordinary required INT selector')
+      } else if (type.kind === 'tuple') {
+        type.elements.forEach((element) => validateTupleDeclaration(element, output))
+      } else if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') validateTupleDeclaration(type.element, output)
+    }
+    for (const item of items) if (item.kind !== 'section') validateTupleDeclaration(item.type, item.kind === 'output')
     if (decodedOutputs.filter((output) => output.outputDescriptors !== undefined).length > 1) {
       throw new Error('a schema may declare only one outputDescriptors construct')
     }
@@ -1931,13 +1987,13 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const spec = output.outputDescriptors
       if (spec === undefined) continue
       const input = decodedInputs.get(spec.input)
-      if (!input || input.dynamic || input.optional || input.type.kind !== 'concrete' || input.type.name !== 'core.string') {
-        throw new Error(`output descriptors '${spec.input}' require an ordinary required core.string input`)
+      if (!input || input.dynamic || input.optional || input.type.kind !== 'concrete' || input.type.name !== 'STRING') {
+        throw new Error(`output descriptors '${spec.input}' require an ordinary required STRING input`)
       }
       if (spec.probe) {
         const asset = decodedInputs.get(spec.probe.input)
-        if (!spec.fixedIds || !asset || asset.dynamic || asset.optional || asset.type.kind !== 'concrete' || asset.type.name !== 'dinkster.asset') {
-          throw new Error(`output descriptor probe requires fixedIds and an ordinary required dinkster.asset input`)
+        if (!spec.fixedIds || !asset || asset.dynamic || asset.optional || asset.type.kind !== 'concrete' || asset.type.name !== 'ASSET') {
+          throw new Error(`output descriptor probe requires fixedIds and an ordinary required ASSET input`)
         }
       }
     }
@@ -1956,8 +2012,8 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const count = (dynamic as CountBoundOutputAutogrowSpec).count
       const input = decodedInputs.get(count.input)
       if (input === undefined) throw new Error(`output family '${output.id}' count names unknown input '${count.input}'`)
-      if (input.dynamic !== undefined || input.optional || input.type.kind !== 'concrete' || input.type.name !== 'core.int') {
-        throw new Error(`output family '${output.id}' count input must be an ordinary required core.int input`)
+      if (input.dynamic !== undefined || input.optional || input.type.kind !== 'concrete' || input.type.name !== 'INT') {
+        throw new Error(`output family '${output.id}' count input must be an ordinary required INT input`)
       }
     }
     validateSlotTypeBindings([...decodedInputs.values()], decodedOutputs)

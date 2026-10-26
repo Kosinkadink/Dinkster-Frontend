@@ -21,8 +21,10 @@ import {
   DinksterConnection,
   EngineNotReadyError,
   reconcileDinksterExecutions,
+  type SchemaRegistry,
   type WorkerInfo,
 } from '@dinkster/client'
+import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { BackendConnection } from '../src/v1-connection-kind.js'
 
@@ -45,6 +47,32 @@ const addOffline = (url: string, label?: string): Backend => {
 
 const registryFor = (backend: Backend): void => {
   backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
+}
+
+const choiceSchema = (options: readonly string[]): NodeSchema => ({
+  type: 'Choice',
+  displayName: 'Choice',
+  category: 'test',
+  source: 'v3',
+  isOutputNode: false,
+  items: [{
+    kind: 'input',
+    id: 'choice',
+    type: { kind: 'concrete', name: 'STRING' },
+    optional: false,
+    widget: { widgetType: 'COMBO', options: { options } },
+  }],
+})
+
+const choiceRegistry = (backend: Backend, options: readonly string[]): SchemaRegistry => {
+  const schema = choiceSchema(options)
+  return {
+    connection: backend.id,
+    hash: options.join(','),
+    schemas: new Map([[schema.type, schema]]),
+    diagnostics: [],
+    resolve: (type) => type === schema.type ? schema : undefined,
+  }
 }
 
 /** Register a completed-shape execution on a connection (no artifact). */
@@ -226,6 +254,75 @@ describe('addBackend / removeBackend', () => {
 
     expect(backend.registry.get()).toBe(newest)
     expect(backend.schemaState.get()).toEqual({ status: 'ready' })
+  })
+
+  // ComfyUI_frontend 2dde8ae00c36b43e0ec84bc6f3a60caad5119303:
+  // app.ts reloadNodeDefs replaces widget.options.values, not widget.value.
+  it.each([
+    ['replacement', ['new-option-a', 'new-option-b']],
+    ['empty', []],
+  ] as const)('refreshes %s choice options in root and subgraph scenes without rewriting stored choices', async (_label, refreshedOptions) => {
+    const backend = app.backends.get()[0]!
+    const oldOptions = ['old-option']
+    backend.registry.set(choiceRegistry(backend, oldOptions))
+    expect(app.openDocument({
+      format: 'dinkster-workflow',
+      formatVersion: 1,
+      lineage: 'choice-refresh',
+      root: 'root',
+      graphs: {
+        root: {
+          id: 'root',
+          name: 'Root',
+          nodes: {
+            rootChoice: { id: 'rootChoice', type: 'Choice', values: { choice: 'retained-root' } },
+            subgraph: { id: 'subgraph', type: '#body', values: {} },
+          },
+          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 2,
+        },
+        body: {
+          id: 'body',
+          name: 'Body',
+          nodes: {
+            nestedChoice: { id: 'nestedChoice', type: 'Choice', values: { choice: 'retained-nested' } },
+          },
+          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
+          boundary: { inputs: [], outputs: [] },
+          nextOrdinal: 1,
+        },
+      },
+      view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
+    }, 'Choice refresh')).toEqual([])
+    const tab = app.activeTab()!
+    const storedBefore = JSON.stringify(tab.store.doc)
+    vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(choiceRegistry(backend, refreshedOptions))
+
+    await app.refreshBackendSchemas(backend)
+
+    const root = buildScene({
+      document: tab.store.doc,
+      graphId: 'root',
+      resolve: app.registryForTab(tab)!.resolve,
+      tokens: defaultTokens,
+      measure: (text) => text.length * 7,
+      widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }),
+    })
+    const nested = buildScene({
+      document: tab.store.doc,
+      graphId: 'body',
+      resolve: app.registryForTab(tab)!.resolve,
+      tokens: defaultTokens,
+      measure: (text) => text.length * 7,
+      widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }),
+    })
+
+    expect(root.nodes.find((node) => node.id === 'rootChoice')?.layout.rows
+      .find((row) => row.kind === 'widget')?.spec.options['options']).toEqual(refreshedOptions)
+    expect(nested.nodes.find((node) => node.id === 'nestedChoice')?.layout.rows
+      .find((row) => row.kind === 'widget')?.spec.options['options']).toEqual(refreshedOptions)
+    expect(tab.store.doc.graphs.root!.nodes.rootChoice!.values.choice).toBe('retained-root')
+    expect(tab.store.doc.graphs.body!.nodes.nestedChoice!.values.choice).toBe('retained-nested')
+    expect(JSON.stringify(tab.store.doc)).toBe(storedBefore)
   })
 
   it('publishes pack locale overlays live without refetching the schema catalog', async () => {
@@ -414,7 +511,7 @@ describe('backend protocols', () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
     const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('saved-job') }
-    const outputs = { save: { video: { typeId: 'comfy.VIDEO', fingerprint: 'live-output' } } }
+    const outputs = { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } }
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
     app.store.hydrateOutputs(ref, outputs)
     const artifact = {
@@ -460,7 +557,7 @@ describe('backend protocols', () => {
       .mockResolvedValueOnce({ state: 'completed', artifacts: [artifact] })
 
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
-    app.store.hydrateOutputs(ref, { save: { video: { typeId: 'comfy.VIDEO', fingerprint: 'live-output' } } })
+    app.store.hydrateOutputs(ref, { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } })
     backend.connection.ingest({ type: 'run_finished', jobId: 'retry-job' })
     backend.connection.ingest({ type: 'job_state', jobId: 'retry-job', state: 'completed' })
     await vi.waitFor(() => expect(fetchJob).toHaveBeenCalledOnce())

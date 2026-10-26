@@ -34,7 +34,7 @@ const innerSchemas: Record<string, NodeSchema> = {
         id: 'seed',
         type: { kind: 'concrete', name: 'INT' },
         optional: false,
-        widget: { widgetType: 'core.int', options: { min: 0 }, default: 0, controller: 'after_generate' },
+        widget: { widgetType: 'INT', options: { min: 0 }, default: 0, controller: 'after_generate' },
       },
       { kind: 'input', id: 'latent_image', displayName: 'Latent', type: { kind: 'concrete', name: 'LATENT' }, optional: false },
       { kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } },
@@ -63,7 +63,7 @@ const innerSchemas: Record<string, NodeSchema> = {
         id: 'select',
         type: { kind: 'concrete', name: 'INT' },
         optional: false,
-        widget: { widgetType: 'core.int', options: {} },
+        widget: { widgetType: 'INT', options: {} },
       },
       {
         kind: 'input',
@@ -108,7 +108,7 @@ const innerSchemas: Record<string, NodeSchema> = {
               id: 'name',
               type: { kind: 'concrete', name: 'STRING' },
               optional: true,
-              widget: { widgetType: 'core.string', options: {} },
+              widget: { widgetType: 'STRING', options: {} },
             },
             {
               kind: 'input',
@@ -181,7 +181,7 @@ const innerSchemas: Record<string, NodeSchema> = {
         id: 'count',
         type: { kind: 'concrete', name: 'INT' },
         optional: false,
-        widget: { widgetType: 'core.int', options: {}, default: 0 },
+        widget: { widgetType: 'INT', options: {}, default: 0 },
       },
       {
         kind: 'output',
@@ -209,7 +209,7 @@ const innerSchemas: Record<string, NodeSchema> = {
         id: 'count',
         type: { kind: 'concrete', name: 'INT' },
         optional: false,
-        widget: { widgetType: 'core.int', options: {}, default: 0 },
+        widget: { widgetType: 'INT', options: {}, default: 0 },
       },
       {
         kind: 'output',
@@ -316,7 +316,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
   it('promotes widgets onto the instance, controller included', () => {
     const seed = inputsOf(schema!).find((i) => i.id === 'seed')!
     expect(seed.widget).toBeDefined()
-    expect(seed.widget!.widgetType).toBe('core.int')
+    expect(seed.widget!.widgetType).toBe('INT')
     expect(seed.widget!.controller).toBe('after_generate')
     // Widget-backed => satisfiable without a connection.
     expect(seed.optional).toBe(true)
@@ -852,7 +852,7 @@ describe('whole-family forwarding derives boundary autogrow families', () => {
     const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
     expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
     const label = inputItem(schema!, 'label')
-    expect(label.widget).toEqual({ widgetType: 'core.string', options: {} })
+    expect(label.widget).toEqual({ widgetType: 'STRING', options: {} })
     expect(label.optional).toBe(true)
   })
 
@@ -926,11 +926,11 @@ describe('boundary structural identity and presentation', () => {
         {
           kind: 'input',
           id: 'value',
-          type: { kind: 'concrete', name: 'core.float' },
+          type: { kind: 'concrete', name: 'FLOAT' },
           optional: false,
           widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 },
         },
-        { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'core.float' } },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } },
       ],
     }
     const binding = { kind: 'port' as const, node: 'n0' as never, port: 'value' as never }
@@ -962,9 +962,9 @@ describe('boundary structural identity and presentation', () => {
       source: 'v3',
       isOutputNode: false,
       items: [
-        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.float' }, optional: true },
-        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'core.float' }, optional: true },
-        { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'core.float' } },
+        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
+        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } },
       ],
     }
     const binding = { kind: 'port' as const, node: 'n0' as never, port: 'value' as never }
@@ -1106,7 +1106,7 @@ describe('slot-selective forwarding (binds.slots, hazard F10)', () => {
             template: [
               { kind: 'input', id: 'image', type: img, optional: false },
               { kind: 'input', id: 'mask', type: mask, optional: true },
-              { kind: 'input', id: 'label', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'core.string', options: {} } },
+              { kind: 'input', id: 'label', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {} } },
             ],
             naming: { kind: 'prefix', prefix: 'pair', max: 6 },
           },
@@ -1131,7 +1131,7 @@ describe('slot-selective forwarding (binds.slots, hazard F10)', () => {
           dynamic: {
             kind: 'autogrow',
             template: [
-              { kind: 'input', id: 'tag', type: { kind: 'concrete', name: 'STRING' }, optional: true, widget: { widgetType: 'core.string', options: {} } },
+              { kind: 'input', id: 'tag', type: { kind: 'concrete', name: 'STRING' }, optional: true, widget: { widgetType: 'STRING', options: {} } },
               {
                 kind: 'input',
                 id: 'req',
@@ -1166,7 +1166,7 @@ describe('slot-selective forwarding (binds.slots, hazard F10)', () => {
           dynamic: {
             kind: 'autogrow',
             template: [
-              { kind: 'input', id: 'tag', type: { kind: 'concrete', name: 'STRING' }, optional: true, widget: { widgetType: 'core.string', options: {} } },
+              { kind: 'input', id: 'tag', type: { kind: 'concrete', name: 'STRING' }, optional: true, widget: { widgetType: 'STRING', options: {} } },
               {
                 kind: 'input',
                 id: 'sub',

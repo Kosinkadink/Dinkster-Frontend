@@ -1,6 +1,7 @@
 import { accessSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig } from '@playwright/test'
+import baseConfig from './playwright.config.js'
 
 const requiredDirectory = (name: string): string => {
   const value = process.env[name]
@@ -22,13 +23,15 @@ const nativeBackend = `http://127.0.0.1:${nativePort}`
 process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
 
 export default defineConfig({
+  snapshotPathTemplate: baseConfig.snapshotPathTemplate,
   globalSetup: './hosted-global-setup.ts',
   testDir: './tests',
-  testMatch: ['audit-assets-surface.spec.ts', 'import-subgraphs.spec.ts', 'boundary-conditional.spec.ts', 'boundary-output-families.spec.ts', 'boundary-output-refusals.spec.ts', 'media-metadata.spec.ts', 'image-batch.spec.ts', 'video-preview-controls.spec.ts', 'video-edit.spec.ts', 'timeline-viewport.spec.ts', 'deprecation.spec.ts', 'audio-controls.spec.ts', 'image-document-graph.spec.ts', 'image-editor.spec.ts', 'schema41-stream.spec.ts', 'extensions.spec.ts', 'extension-panes.spec.ts', 'delegated-agents.spec.ts'],
+  testMatch: ['audit-assets-surface.spec.ts', 'import-subgraphs.spec.ts', 'boundary-conditional.spec.ts', 'boundary-output-families.spec.ts', 'boundary-output-refusals.spec.ts', 'media-metadata.spec.ts', 'image-batch.spec.ts', 'video-preview-controls.spec.ts', 'video-edit.spec.ts', 'deprecation.spec.ts', 'audio-controls.spec.ts', 'image-document-graph.spec.ts', 'image-editor.spec.ts', 'schema41-stream.spec.ts', 'extensions.spec.ts', 'extension-panes.spec.ts', 'delegated-agents.spec.ts'],
   timeout: 60_000,
   workers: 1,
   reporter: 'line',
   use: {
+    ...baseConfig.use,
     baseURL: `http://127.0.0.1:${port}`,
     headless: true,
     viewport: { width: 1600, height: 950 },
@@ -40,7 +43,6 @@ export default defineConfig({
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
         '--host 127.0.0.1',
         `--port ${nativePort}`,
-        '--disable-p2p',
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/native-library'))}`,
       ].join(' '),

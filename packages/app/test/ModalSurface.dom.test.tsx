@@ -272,7 +272,7 @@ describe('ASSET widget modal integration', () => {
 
   const catalogAssetEditor = (
     kind: string,
-    declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'dinkster.asset' },
+    declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
     initial: WidgetEditorState['initial'] = null,
     mountEditor = true,
   ) => {
@@ -715,7 +715,7 @@ describe('ASSET widget modal integration', () => {
   const unresolvedAssetEditor = (
     overrides: Partial<AppState> = {},
     initial = 'models/checkpoints/missing-model.safetensors',
-    declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'dinkster.asset' },
+    declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
   ) => {
     const root = document.createElement('div')
     document.body.append(root)
@@ -926,7 +926,7 @@ describe('ASSET widget modal integration', () => {
       target: { kind: 'input', nodeId: 'n0', valueKey: 'file' },
       label: 'Reference file',
       spec: { widgetType: 'ASSET', options: { accept: ['application/octet-stream'] } },
-      declaredType: { kind: 'concrete', name: 'dinkster.asset' },
+      declaredType: { kind: 'concrete', name: 'ASSET' },
       multiline: false,
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
@@ -1098,7 +1098,7 @@ describe('ASSET widget modal integration', () => {
       target: { kind: 'input', nodeId: 'video', valueKey: 'video' },
       label: 'Source video',
       spec: { widgetType: 'ASSET', kind: 'media/video', options: { accept: ['video/*'] } },
-      declaredType: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.VIDEO' } },
+      declaredType: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
       multiline: false,
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: { digest, name: 'clip.webm', size: 4043, mediaType: 'video/webm', virtualPath: 'clip.webm' },
@@ -1195,7 +1195,7 @@ describe('ASSET widget modal integration', () => {
       target: { kind: 'input', nodeId: 'video', valueKey: 'video' },
       label: 'Source video',
       spec: { widgetType: 'ASSET', kind: 'media/video', options: { accept: ['video/*'] } },
-      declaredType: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.VIDEO' } },
+      declaredType: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
       multiline: false,
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
@@ -1254,6 +1254,58 @@ describe('ASSET widget modal integration', () => {
 })
 
 describe('registered interactive widget expanded-editor integration', () => {
+  it('opens AUDIO_RECORD through the registry and refuses upload on a non-native backend', () => {
+    const mounted = mountWidget(widgetState('AUDIO_RECORD', {}, null))
+    expect(mounted.root.querySelector('[data-testid="audio-record-editor"]')?.textContent).toContain('Recording uploads require a native Dinkster backend')
+    const use = Array.from(mounted.root.querySelectorAll('button')).find((button) => button.textContent === 'Use asset')!
+    expect(use.disabled).toBe(true)
+    mounted.clickAway()
+    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it('preserves a COLORS draft and discards it on click-away without mutating the initial array', () => {
+    const initial = ['#A1B2C3dd', '#f00']
+    const mounted = mountWidget(widgetState('COLORS', {}, initial))
+    const fields = mounted.root.querySelectorAll<HTMLInputElement>('input:not([type="color"])')
+    expect(Array.from(fields).map((field) => field.value)).toEqual(initial)
+    fields[0]!.value = '#00ff00'
+    fields[0]!.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(initial).toEqual(['#A1B2C3dd', '#f00'])
+    mounted.clickAway()
+    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it('edits MARKDOWN source through the registered editor and discards outside drafts', async () => {
+    const mounted = mountWidget(widgetState('MARKDOWN', {}, '## Notes\n\n**original**'))
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    expect(mounted.root.querySelector('h2')?.textContent).toBe('Notes')
+    const edit = Array.from(mounted.root.querySelectorAll('button')).find((button) => button.textContent === 'Edit source')!
+    edit.click()
+    const field = mounted.root.querySelector('textarea')!
+    expect(field.value).toBe('## Notes\n\n**original**')
+    field.value = '# Draft'
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.clickAway()
+    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it('keeps read-only MARKDOWN formatted without an editable source or commit action', () => {
+    const mounted = mountWidget(widgetState('MARKDOWN', { read_only: true }, '## Read only'))
+    mounted.root.querySelector('[role="region"]')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(mounted.root.querySelector('h2')?.textContent).toBe('Read only')
+    expect(mounted.root.querySelector('textarea')).toBeNull()
+    expect(Array.from(mounted.root.querySelectorAll('button')).map((button) => button.textContent)).toEqual(['Cancel'])
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
   it.each([
     ['INT', 314],
     ['FLOAT', 3.14],
@@ -1623,9 +1675,30 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
+  it('edits primitive arrays as JSON and rejects scalar or nested drafts before writing', () => {
+    const ed = widgetState('LIST', {}, ['red', 'blue'])
+    const mounted = mountWidget({ ...ed, spec: { ...ed.spec!, element: { widgetType: 'STRING', options: {} } } })
+    const field = mounted.root.querySelector<HTMLTextAreaElement>('[data-testid="widget-editor"] textarea')!
+    expect(field.value).toBe('["red","blue"]')
+    for (const invalid of ['"red"', '[["red"]]', '[7]']) {
+      field.value = invalid
+      mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      expect(field.getAttribute('aria-invalid')).toBe('true')
+    }
+    field.value = '["blue,green","line\\nnext",""]'
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
+      command: 'node.setValue',
+      params: { graphId: 'g0', nodeId: 'n0', inputId: 'list', value: ['blue,green', 'line\nnext', ''] },
+    })
+  })
+
   it.each([
     ['INT', { min: 0, max: 4, step: 3 }, 2, '4', 4],
     ['FLOAT', { min: 0, max: 0.3, step: 0.1 }, 0.2, '0.27', 0.27],
+    ['FLOAT', { min: 0, max: 2, step: 0.1, round: false }, 0.2, '1.2346', 1.2346],
+    ['FLOAT', { min: 0, max: 2, step: 0.1, round: 0.001 }, 0.2, '1.2346', 1.235],
   ] as const)('keeps compact stepping out of the optional %s popover and commits exact text explicitly', (type, options, initial, draft, committedValue) => {
     const mounted = mountWidget(widgetState(type, options, initial))
     const field = mounted.root.querySelector<HTMLInputElement>('[data-testid="widget-editor"] input')!
@@ -1640,6 +1713,47 @@ describe('registered interactive widget expanded-editor integration', () => {
       command: 'node.setValue',
       params: expect.objectContaining({ value: committedValue }),
     }))
+  })
+
+  it('previews the same rounded FLOAT slider value that Commit stores', () => {
+    const mounted = mountWidget(widgetState('FLOAT', { display: 'slider', min: 0, max: 1, step: 0.1, round: 0.25, precision: 2 }, 0.2))
+    const slider = mounted.root.querySelector<HTMLElement>('[role="slider"]')!
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(mounted.root.querySelector<HTMLInputElement>('#widget-editor-value')!.value).toBe('0.25')
+    expect(slider.getAttribute('aria-valuenow')).toBe('0.25')
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 0.25 }) }))
+    mounted.unmount()
+  })
+
+  it('keeps FLOAT slider drafts local until Commit and discards them on Cancel', () => {
+    const state = widgetState('FLOAT', { display: 'slider', min: -0.5, max: 2.5, step: 0.25, round: 0.01, precision: 2 }, 0.5)
+    const mounted = mountWidget(state)
+    const slider = mounted.root.querySelector<HTMLElement>('[role="slider"]')!
+    const field = mounted.root.querySelector<HTMLInputElement>('#widget-editor-value')!
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(field.value).toBe('0.75')
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    expect(field.value).toBe('2.5')
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 2.5 }) }))
+    mounted.unmount()
+
+    const cancelled = mountWidget(state)
+    cancelled.root.querySelector<HTMLElement>('[role="slider"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    cancelled.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-cancel"]')!.click()
+    expect(cancelled.dispatchTo).not.toHaveBeenCalled()
+    expect(cancelled.close).toHaveBeenCalledOnce()
+    cancelled.unmount()
+
+    for (const ed of [{ ...state, viewId: 'core.number' }, widgetState('FLOAT', { display: 'slider', min: 1 }, 2)]) {
+      const numeric = mountWidget(ed)
+      expect(numeric.root.querySelector('[role="slider"]')).toBeNull()
+      expect(numeric.root.querySelector('#widget-editor-value')).not.toBeNull()
+      numeric.unmount()
+    }
   })
 
   it('keeps STRING Ctrl+Enter, exact COLOR strings, and COMBO keyboard selection semantics', () => {
@@ -1675,9 +1789,9 @@ describe('registered interactive widget expanded-editor integration', () => {
 
   it('retains SAVE_TARGET constraints and commits only a valid structured target', async () => {
     const state = widgetState('SAVE_TARGET', { suffix: '.png' }, { mount: 'output', prefix: 'images/test' })
-    const mounted = mountWidget({ ...state, declaredType: { kind: 'concrete', name: 'dinkster.save_target' } })
+    const mounted = mountWidget({ ...state, declaredType: { kind: 'concrete', name: 'SAVE_TARGET' } })
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(mounted.root.querySelector('[data-testid="widget-editor-type"]')?.textContent).toBe('dinkster.save_target')
+    expect(mounted.root.querySelector('[data-testid="widget-editor-type"]')?.textContent).toBe('SAVE_TARGET')
     expect(mounted.root.querySelector('[data-testid="save-target-output-format"]')?.textContent).toBe('.png')
     expect(mounted.root.querySelector('[data-testid="save-target-suffix"]')?.textContent).toBe('.png')
     const mount = mounted.root.querySelector<HTMLButtonElement>('[data-testid="save-target-mount"]')!

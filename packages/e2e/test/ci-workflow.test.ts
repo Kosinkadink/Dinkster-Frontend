@@ -110,9 +110,10 @@ describe('fast pull-request and full validation workflows', () => {
     }
   })
 
-  it('runs exactly one bounded job without a PR label path', () => {
+  it('requires product screenshots and bounded fast checks without a PR label path', () => {
     expect(fast.on).toEqual({
       pull_request: null,
+      merge_group: null,
       workflow_dispatch: {
         inputs: {
           'simulate-fork': {
@@ -129,13 +130,16 @@ describe('fast pull-request and full validation workflows', () => {
       group: 'ci-${{ github.workflow }}-${{ github.ref }}',
       'cancel-in-progress': true,
     })
-    expect(Object.keys(fast.jobs)).toEqual(['fast'])
+    expect(Object.keys(fast.jobs)).toEqual(['fast', 'visual'])
     const job = fast.jobs['fast']!
+    expect(job.needs).toBe('visual')
+    expect(job.if).toBe('always()')
     expect(job['timeout-minutes']).toBe(10)
     expect(job['runs-on']).toBe(
       "${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}",
     )
     expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
+      "test '${{ needs.visual.result }}' = success",
       'pnpm install --frozen-lockfile',
       'pnpm ci:fast',
     ])
@@ -411,16 +415,19 @@ describe('fast pull-request and full validation workflows', () => {
           (step) => step.name === 'Install hosted compatibility dependencies',
         )!
         expect(compatibilityInstall.run).toContain(
-          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@dacdebc66f097e9889ce66e36e41c25a7b8f6494',
+          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@c4ce40550e77f5a3b9b8d2f96597a4d6c24c1377',
         )
         expect(compatibilityInstall.run).toContain(
+          'uv pip install --python .ci/Dinkster/.venv-torch/bin/python',
+        )
+        expect(compatibilityInstall.run).not.toContain(
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
         )
         expect(compatibilityInstall.run).toContain(
           '--index https://download.pytorch.org/whl/cpu',
         )
         expect(compatibilityInstall.run).toContain(
-          '"dinkster-kitchen==0.2.35.post1" "dinkster-aimdo==0.5.5.post2"',
+          '"comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0"',
         )
         expect(compatibilityInstall.run).toContain(
           '"sentencepiece==0.2.1" "tokenizers==0.23.1"',
@@ -505,6 +512,12 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(hostedConfig).toContain('if (argumentProject)')
     expect(hostedConfig).toContain(
+      'rmSync(nativeOutput, { recursive: true, force: true })',
+    )
+    expect(hostedConfig).not.toContain(
+      'rmSync(nativeLibrary, { recursive: true, force: true })',
+    )
+    expect(hostedConfig).toContain(
       "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
     )
     expect(hostedConfig).toContain(
@@ -515,15 +528,19 @@ describe('fast pull-request and full validation workflows', () => {
       '`--comfy-root ${JSON.stringify(comfyRoot)}`',
     )
     expect(hostedConfig).toContain(
-      "`--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`",
+      "`--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`",
     )
     expect(hostedConfig).not.toContain("'--comfy-arg=--cpu'")
     expect(extensionContractConfig).toContain("'--no-default-packs'")
     expect(extensionContractConfig).toContain(
       "'tests/fixtures/extension-contract-pack/dinkster-pack.toml'",
     )
+    expect(hostedConfig).not.toContain("'--development-pack'")
     expect(hostedConfig).toContain(
-      "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
+      'packages/dinkster-nodes-dev/dinkster-pack.toml',
+    )
+    expect(hostedConfig).toContain(
+      '`--pack ${JSON.stringify(resolve(dinksterRoot,',
     )
     expect(hostedConfig).not.toContain("'--dev'")
     expect(auditConfig).toContain(
@@ -531,8 +548,12 @@ describe('fast pull-request and full validation workflows', () => {
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
     expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
+    expect(auditConfig).not.toContain("'--development-pack'")
     expect(auditConfig).toContain(
-      "'packages/dinkster-nodes-dev/dinkster-pack.toml'",
+      'packages/dinkster-nodes-dev/dinkster-pack.toml',
+    )
+    expect(auditConfig).toContain(
+      '`--pack ${JSON.stringify(resolve(dinksterRoot,',
     )
     expect(auditConfig).not.toContain("'--dev'")
   })

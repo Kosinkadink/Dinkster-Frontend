@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-
-const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+import { shellStyles as styles } from './fixtures/styles.js'
 
 const block = (startSelector: string, endSelector: string): string => {
   const start = styles.indexOf(startSelector)
@@ -15,8 +14,11 @@ describe('pop-out, floating, and projects chrome styling', () => {
   it('styles the projects dialog with design tokens, including button and input states', () => {
     const projects = block('.projects-dialog {', '.settings-editor {')
     expect(projects).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i)
-    expect(projects).toContain('.projects-dialog-actions button:focus-visible')
-    expect(projects).toContain('.projects-dialog input:focus-visible')
+    const component = readFileSync(new URL('../src/ProjectsDialog.tsx', import.meta.url), 'utf8')
+    expect(component).toContain('<ProductButton')
+    expect(component).toContain('<ProductTextInput')
+    const focus = block(':is(button, input, select, textarea, summary, a, [tabindex]):focus-visible {', '*::-webkit-scrollbar {')
+    expect(focus).toContain('outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus)')
     expect(projects).not.toContain('outline: none')
   })
 

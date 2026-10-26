@@ -24,8 +24,10 @@
  */
 
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
+import { requestWithDeadline } from './request-deadline.js'
 import {
   asPromptId,
+  createSignal,
   canonicalJson,
   comfyAliasCatalogFromDinksterWire,
   comfyGroupCatalogFromDinksterWire,
@@ -392,7 +394,6 @@ export interface RuntimeSettingSection {
 
 export interface RuntimeSettings {
   readonly features?: {
-    readonly p2p?: { readonly enabled: boolean }
     readonly templates?: { readonly enabled: boolean }
   }
   readonly categories: {
@@ -483,353 +484,15 @@ function decodePackSettings(raw: unknown): PackSettings | undefined {
   }
 }
 
-export interface P2PSettings {
-  readonly downloadsEnabled: boolean
-  readonly seedingEnabled: boolean
-  readonly scope: 'lan-only' | 'lan-and-internet'
-  readonly internetUploadBytesPerSecond: number
-  readonly internetDownloadBytesPerSecond: number
-  readonly lanUploadBytesPerSecond: number
-  readonly lanDownloadBytesPerSecond: number
-  readonly pauseOnMetered: boolean
-  readonly networkCostOverride: 'auto' | 'metered' | 'unmetered'
-  readonly seedMode: 'budgeted' | 'continuous'
-  readonly internetSeedRatio: number
-  readonly internetSeedTimeSeconds: number
-  readonly stagingBudgetBytes: number
-}
-
-export type P2PTransferAction = 'pause' | 'resume' | 'stop' | 'remove-partial' | 'reset-budget' | 'continuous-seed'
-export interface P2PSeedGrant {
-  readonly version: 1
-  readonly grantId: string
-  readonly digest: string
-  readonly sourceType: 'official-provider' | 'declarative-resolver' | 'code-resolver' | 'manual'
-  readonly sourceId: string
-  readonly sourceRevision: string
-  readonly license: string
-  readonly descriptor: {
-    readonly protocol: 'bittorrent-v2'
-    readonly infoHash: string
-    readonly fileRoot: string
-    readonly pieceLength: 8388608
-  }
-  readonly expiresAt: number
-  readonly evidenceType: 'public-acquisition-receipt' | 'provider-enumeration' | 'consented-set' | 'manual-attestation'
-  readonly evidenceId: string
-}
-export interface P2PSeedAuthorization {
-  readonly grantId: string
-  readonly state: 'active' | 'inactive' | 'revoked'
-  readonly grant: P2PSeedGrant | null
-}
-export interface P2PTransferActivity {
-  readonly digest: string
-  readonly state: 'queued' | 'downloading' | 'seeding' | 'paused' | 'stopped' | 'complete' | 'error'
-  readonly sizeBytes: number
-  readonly peers: number
-  readonly downloadRateBytesPerSecond: number
-  readonly uploadRateBytesPerSecond: number
-  readonly downloadedBytes: number
-  readonly uploadedBytes: number
-  readonly partialBytes: number
-  readonly seedAuthorizations: readonly P2PSeedAuthorization[]
-  readonly remainingSeedRatio: number | null
-  readonly remainingSeedTimeSeconds: number | null
-}
-export interface P2PNetworkStatus {
-  readonly system: 'metered' | 'unmetered' | 'unknown'
-  readonly override: 'auto' | 'metered' | 'unmetered'
-  readonly effective: 'metered' | 'unmetered' | 'unknown'
-  readonly paused: boolean
-}
-export interface P2PLeaseStatus {
-  readonly leaseId: string
-  readonly kind: 'download' | 'seed'
-  readonly digest: string
-  readonly scope: 'lan-only' | 'lan-and-internet'
-  readonly expiresAt: number
-  readonly state: 'disabled' | 'expired' | 'paused' | 'inactive' | 'checking' | 'downloading' | 'publishing' | 'complete' | 'failed' | 'ready'
-  readonly durableBytes?: number
-  readonly verifiedBytes?: number
-  readonly error?: string
-  readonly path?: string
-}
-export interface P2PSidecarStatus {
-  readonly version: number
-  readonly state: 'running' | 'paused'
-  readonly pid: number
-  readonly capabilities: { readonly downloads: boolean; readonly seeding: boolean }
-  readonly libtorrentVersion: string
-  readonly listenPort: number | null
-  readonly listenInterfaces: readonly string[]
-  readonly networkPaused: boolean
-  readonly networkFeatures: {
-    readonly dht: boolean
-    readonly trackers: boolean
-    readonly pex: boolean
-    readonly lsd: boolean
-    readonly upnp: boolean
-    readonly natMappings: boolean
-    readonly tcp?: boolean
-    readonly utp?: boolean
-    readonly natPmp?: boolean
-    readonly pcp?: boolean
-  }
-  readonly global?: {
-    readonly active: boolean
-    readonly listenPort: number | null
-    readonly closureReason: string | null
-    readonly networkFeatures: Readonly<Record<'dht' | 'pex' | 'tcp' | 'utp' | 'trackers' | 'upnp' | 'natMappings' | 'natPmp' | 'pcp', boolean>>
-    readonly transfers: readonly {
-      readonly leaseId: string
-      readonly digest: string
-      readonly kind: 'download' | 'seed'
-      readonly state: P2PTransferActivity['state'] | 'publishing' | 'failed'
-      readonly peers: number
-      readonly downloadRateBytesPerSecond: number
-      readonly uploadRateBytesPerSecond: number
-      readonly downloadedBytes: number
-      readonly uploadedBytes: number
-      readonly activeSeedSeconds: number
-      readonly path?: string
-      readonly error?: string
-    }[]
-  } | null
-  readonly leases: readonly P2PLeaseStatus[]
-  readonly totals: { readonly downloadedBytes: number; readonly uploadedBytes: number }
-  readonly transfers: readonly P2PTransferActivity[]
-  readonly recovery: {
-    readonly state: 'corrupt-state-quarantined' | 'global-session-closed'
-    readonly files: readonly string[]
-    readonly error: string
-  } | null
-}
-export interface P2PStatus {
-  readonly state: 'disabled' | 'starting' | 'running' | 'restarting' | 'failed'
-  readonly settings: P2PSettings
-  readonly restartCount: number
-  readonly lastError: string | null
-  readonly sidecar: P2PSidecarStatus | null
-  readonly network: P2PNetworkStatus
-  readonly lan: {
-    readonly networkAllowed: boolean
-    readonly mappingPort: number | null
-    readonly mappedDigests: readonly string[]
-  }
-}
-
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const finiteNonnegative = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
 const integerNonnegative = (value: unknown): value is number => finiteNonnegative(value) && Number.isInteger(value)
-const p2pIntegerSetting = (value: unknown): value is number => integerNonnegative(value) && value <= 2_147_483_647
 const oneOf = <T extends string>(value: unknown, values: readonly T[]): value is T => typeof value === 'string' && values.includes(value as T)
 const exactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
 const requiredAndOptionalKeys = (value: Record<string, unknown>, required: readonly string[], optional: readonly string[]): boolean =>
   required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => required.includes(key) || optional.includes(key))
-const p2pDigest = (value: unknown): value is string => typeof value === 'string' && /^blake3:[0-9a-f]{64}$/.test(value)
-const p2pGrantId = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
 const nonemptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0
-const P2P_SETTINGS_KEYS = [
-  'downloadsEnabled', 'seedingEnabled', 'scope', 'internetUploadBytesPerSecond',
-  'internetDownloadBytesPerSecond', 'lanUploadBytesPerSecond', 'lanDownloadBytesPerSecond',
-  'pauseOnMetered', 'networkCostOverride', 'seedMode', 'internetSeedRatio',
-  'internetSeedTimeSeconds', 'stagingBudgetBytes',
-] as const
-export function decodeP2PSettings(value: unknown): value is P2PSettings {
-  return record(value) && exactKeys(value, P2P_SETTINGS_KEYS)
-    && typeof value['downloadsEnabled'] === 'boolean'
-    && typeof value['seedingEnabled'] === 'boolean'
-    && oneOf(value['scope'], ['lan-only', 'lan-and-internet'] as const)
-    && p2pIntegerSetting(value['internetUploadBytesPerSecond'])
-    && p2pIntegerSetting(value['internetDownloadBytesPerSecond'])
-    && p2pIntegerSetting(value['lanUploadBytesPerSecond'])
-    && p2pIntegerSetting(value['lanDownloadBytesPerSecond'])
-    && typeof value['pauseOnMetered'] === 'boolean'
-    && oneOf(value['networkCostOverride'], ['auto', 'metered', 'unmetered'] as const)
-    && oneOf(value['seedMode'], ['budgeted', 'continuous'] as const)
-    && finiteNonnegative(value['internetSeedRatio'])
-    && p2pIntegerSetting(value['internetSeedTimeSeconds'])
-    && integerNonnegative(value['stagingBudgetBytes']) && Number.isSafeInteger(value['stagingBudgetBytes'])
-}
-function decodeP2PSeedGrant(value: unknown, digest: string, grantId: string): P2PSeedGrant | undefined {
-  if (!record(value) || !exactKeys(value, [
-    'version', 'grantId', 'digest', 'sourceType', 'sourceId', 'sourceRevision', 'license', 'descriptor',
-    'expiresAt', 'evidenceType', 'evidenceId',
-  ]) || value['version'] !== 1 || value['grantId'] !== grantId || value['digest'] !== digest
-    || !oneOf(value['sourceType'], ['official-provider', 'declarative-resolver', 'code-resolver', 'manual'] as const)
-    || !nonemptyString(value['sourceId']) || !nonemptyString(value['sourceRevision'])
-    || typeof value['license'] !== 'string' || !finiteNonnegative(value['expiresAt'])
-    || !oneOf(value['evidenceType'], ['public-acquisition-receipt', 'provider-enumeration', 'consented-set', 'manual-attestation'] as const)
-    || !nonemptyString(value['evidenceId']) || !record(value['descriptor'])) return undefined
-  const evidenceForSource = {
-    'official-provider': 'provider-enumeration',
-    'declarative-resolver': 'public-acquisition-receipt',
-    'code-resolver': 'consented-set',
-    manual: 'manual-attestation',
-  } as const
-  if (value['evidenceType'] !== evidenceForSource[value['sourceType']]) return undefined
-  const descriptor = value['descriptor']
-  if (!exactKeys(descriptor, ['protocol', 'infoHash', 'fileRoot', 'pieceLength'])
-    || descriptor['protocol'] !== 'bittorrent-v2'
-    || !p2pGrantId(descriptor['infoHash'])
-    || !p2pGrantId(descriptor['fileRoot'])
-    || descriptor['pieceLength'] !== 8388608) return undefined
-  return value as unknown as P2PSeedGrant
-}
-function decodeP2PStatus(value: unknown): P2PStatus | undefined {
-  if (!record(value) || !exactKeys(value, ['state', 'settings', 'restartCount', 'lastError', 'sidecar', 'network', 'lan'])
-    || !oneOf(value['state'], ['disabled', 'starting', 'running', 'restarting', 'failed'] as const)
-    || !decodeP2PSettings(value['settings']) || !integerNonnegative(value['restartCount'])
-    || (value['lastError'] !== null && typeof value['lastError'] !== 'string')
-    || (value['sidecar'] !== null && !record(value['sidecar']))
-    || !record(value['network']) || !record(value['lan'])) return undefined
-  const network = value['network']
-  if (!exactKeys(network, ['system', 'override', 'effective', 'paused'])
-    || !oneOf(network['system'], ['metered', 'unmetered', 'unknown'] as const)
-    || !oneOf(network['override'], ['auto', 'metered', 'unmetered'] as const)
-    || !oneOf(network['effective'], ['metered', 'unmetered', 'unknown'] as const)
-    || typeof network['paused'] !== 'boolean') return undefined
-  const lan = value['lan']
-  if (!exactKeys(lan, ['networkAllowed', 'mappingPort', 'mappedDigests'])
-    || typeof lan['networkAllowed'] !== 'boolean'
-    || (lan['mappingPort'] !== null && (!integerNonnegative(lan['mappingPort']) || lan['mappingPort'] === 0 || lan['mappingPort'] > 65535))
-    || !Array.isArray(lan['mappedDigests']) || !lan['mappedDigests'].every(p2pDigest)
-    || new Set(lan['mappedDigests']).size !== lan['mappedDigests'].length) return undefined
-  const enabled = value['settings']['downloadsEnabled'] || value['settings']['seedingEnabled']
-  const expectedEffective = network['override'] === 'auto' ? network['system'] : network['override']
-  if (network['effective'] !== expectedEffective || (!enabled && network['paused'])
-    || lan['networkAllowed'] !== !network['paused']
-    || (!lan['networkAllowed'] && (lan['mappingPort'] !== null || lan['mappedDigests'].length !== 0))) return undefined
-  if (value['sidecar'] === null) {
-    if (value['state'] === 'running' || (value['state'] === 'disabled') !== !enabled) return undefined
-    return value as unknown as P2PStatus
-  }
-  const sidecar = value['sidecar']
-  if (!requiredAndOptionalKeys(sidecar, [
-    'version', 'state', 'pid', 'capabilities', 'libtorrentVersion', 'listenPort', 'listenInterfaces', 'networkPaused',
-    'networkFeatures', 'leases', 'totals', 'transfers', 'recovery',
-  ], ['global']) || !integerNonnegative(sidecar['version'])
-    || !oneOf(sidecar['state'], ['running', 'paused'] as const)
-    || !integerNonnegative(sidecar['pid']) || !nonemptyString(sidecar['libtorrentVersion'])
-    || (sidecar['listenPort'] !== null && (!integerNonnegative(sidecar['listenPort']) || sidecar['listenPort'] > 65535))
-    || !Array.isArray(sidecar['listenInterfaces']) || !sidecar['listenInterfaces'].every(nonemptyString)
-    || new Set(sidecar['listenInterfaces']).size !== sidecar['listenInterfaces'].length
-    || typeof sidecar['networkPaused'] !== 'boolean'
-    || !record(sidecar['capabilities'])
-    || !exactKeys(sidecar['capabilities'], ['downloads', 'seeding'])
-    || typeof sidecar['capabilities']['downloads'] !== 'boolean'
-    || typeof sidecar['capabilities']['seeding'] !== 'boolean'
-    || !record(sidecar['networkFeatures'])
-    || !(exactKeys(sidecar['networkFeatures'], ['dht', 'trackers', 'pex', 'lsd', 'upnp', 'natMappings'])
-      || exactKeys(sidecar['networkFeatures'], ['dht', 'trackers', 'pex', 'lsd', 'upnp', 'natMappings', 'tcp', 'utp', 'natPmp', 'pcp']))
-    || !Object.values(sidecar['networkFeatures']).every((item) => typeof item === 'boolean')
-    || !Array.isArray(sidecar['leases']) || !record(sidecar['totals'])
-    || !Array.isArray(sidecar['transfers'])) return undefined
-  if (value['state'] !== 'running' || !enabled
-    || sidecar['capabilities']['downloads'] !== value['settings']['downloadsEnabled']
-    || sidecar['capabilities']['seeding'] !== value['settings']['seedingEnabled']
-    || sidecar['networkPaused'] !== network['paused']
-    || (network['paused'] && sidecar['state'] !== 'paused')) return undefined
-  const global = sidecar['global']
-  if (global !== undefined && global !== null) {
-    if (!record(global) || !exactKeys(global, ['active', 'listenPort', 'closureReason', 'networkFeatures', 'transfers'])
-      || typeof global['active'] !== 'boolean'
-      || (global['listenPort'] !== null && (!integerNonnegative(global['listenPort']) || global['listenPort'] === 0 || global['listenPort'] > 65535))
-      || (global['closureReason'] !== null && !nonemptyString(global['closureReason']))
-      || (global['active'] && (global['closureReason'] !== null || network['paused'] || value['settings']['scope'] !== 'lan-and-internet'))
-      || !record(global['networkFeatures'])
-      || !exactKeys(global['networkFeatures'], ['dht', 'pex', 'tcp', 'utp', 'trackers', 'upnp', 'natMappings', 'natPmp', 'pcp'])
-      || !Object.values(global['networkFeatures']).every((item) => typeof item === 'boolean')
-      || (!global['active'] && (global['listenPort'] !== null || Object.values(global['networkFeatures']).some(Boolean)))
-      || !Array.isArray(global['transfers'])) return undefined
-    const leaseIds = new Set<string>()
-    for (const row of global['transfers']) {
-      if (!record(row) || !requiredAndOptionalKeys(row,
-        ['leaseId', 'digest', 'kind', 'state', 'peers', 'downloadRateBytesPerSecond', 'uploadRateBytesPerSecond', 'downloadedBytes', 'uploadedBytes', 'activeSeedSeconds'],
-        ['path', 'error'])
-        || !nonemptyString(row['leaseId']) || leaseIds.has(row['leaseId']) || !p2pDigest(row['digest'])
-        || !oneOf(row['kind'], ['download', 'seed'] as const)
-        || !oneOf(row['state'], ['queued', 'downloading', 'seeding', 'paused', 'stopped', 'complete', 'error', 'publishing', 'failed'] as const)
-        || !['peers', 'downloadRateBytesPerSecond', 'uploadRateBytesPerSecond', 'downloadedBytes', 'uploadedBytes', 'activeSeedSeconds'].every((key) => integerNonnegative(row[key]))
-        || (row['path'] !== undefined && !nonemptyString(row['path']))
-        || (row['error'] !== undefined && !nonemptyString(row['error']))) return undefined
-      leaseIds.add(row['leaseId'])
-    }
-  }
-  for (const lease of sidecar['leases']) {
-    if (!record(lease) || !requiredAndOptionalKeys(
-      lease,
-      ['leaseId', 'kind', 'digest', 'scope', 'expiresAt', 'state'],
-      ['durableBytes', 'verifiedBytes', 'error', 'path'],
-    )
-      || !nonemptyString(lease['leaseId']) || !oneOf(lease['kind'], ['download', 'seed'] as const)
-      || !p2pDigest(lease['digest']) || !oneOf(lease['scope'], ['lan-only', 'lan-and-internet'] as const)
-      || !finiteNonnegative(lease['expiresAt'])
-      || !oneOf(lease['state'], ['disabled', 'expired', 'paused', 'inactive', 'checking', 'downloading', 'publishing', 'complete', 'failed', 'ready'] as const)
-      || (lease['durableBytes'] !== undefined && (lease['kind'] !== 'download' || !integerNonnegative(lease['durableBytes'])))
-      || (lease['verifiedBytes'] !== undefined && (lease['kind'] !== 'download' || !integerNonnegative(lease['verifiedBytes'])))
-      || (lease['error'] !== undefined && !nonemptyString(lease['error']))
-      || (lease['path'] !== undefined && !nonemptyString(lease['path']))) return undefined
-  }
-  const recovery = sidecar['recovery']
-  if (recovery !== null && (!record(recovery)
-    || !exactKeys(recovery, ['state', 'files', 'error'])
-    || !oneOf(recovery['state'], ['corrupt-state-quarantined', 'global-session-closed'] as const)
-    || !Array.isArray(recovery['files']) || !recovery['files'].every((item) => typeof item === 'string')
-    || typeof recovery['error'] !== 'string')) return undefined
-  const totals = sidecar['totals']
-  if (!exactKeys(totals, ['downloadedBytes', 'uploadedBytes'])
-    || !integerNonnegative(totals['downloadedBytes'])
-    || !integerNonnegative(totals['uploadedBytes'])) return undefined
-  const digests = new Set<string>()
-  for (const item of sidecar['transfers']) {
-    if (!record(item) || !exactKeys(item, [
-      'digest', 'state', 'sizeBytes', 'peers', 'downloadRateBytesPerSecond', 'uploadRateBytesPerSecond',
-      'downloadedBytes', 'uploadedBytes', 'partialBytes', 'seedAuthorizations', 'remainingSeedRatio',
-      'remainingSeedTimeSeconds',
-    ]) || !p2pDigest(item['digest']) || digests.has(item['digest'])
-      || !oneOf(item['state'], ['queued', 'downloading', 'seeding', 'paused', 'stopped', 'complete', 'error'] as const)
-      || !['sizeBytes', 'peers', 'downloadRateBytesPerSecond', 'uploadRateBytesPerSecond', 'downloadedBytes', 'uploadedBytes', 'partialBytes'].every((key) => integerNonnegative(item[key]))
-      || !Array.isArray(item['seedAuthorizations'])
-      || (item['remainingSeedRatio'] !== null && !finiteNonnegative(item['remainingSeedRatio']))
-      || (item['remainingSeedTimeSeconds'] !== null && !integerNonnegative(item['remainingSeedTimeSeconds']))) return undefined
-    digests.add(item['digest'])
-    const grantIds = new Set<string>()
-    for (const authorization of item['seedAuthorizations']) {
-      if (!record(authorization) || !exactKeys(authorization, ['grantId', 'state', 'grant'])
-        || !p2pGrantId(authorization['grantId']) || grantIds.has(authorization['grantId'])
-        || !oneOf(authorization['state'], ['active', 'inactive', 'revoked'] as const)) return undefined
-      grantIds.add(authorization['grantId'])
-      const grant = authorization['grant'] === null
-        ? undefined
-        : decodeP2PSeedGrant(authorization['grant'], item['digest'], authorization['grantId'])
-      if ((authorization['grant'] !== null && grant === undefined)
-        || (authorization['state'] === 'revoked') !== (grant === undefined)) return undefined
-    }
-  }
-  return value as unknown as P2PStatus
-}
-
-export class P2PRequestError extends Error {
-  constructor(
-    readonly status: number,
-    readonly operation: string,
-    readonly code?: string,
-    readonly serverMessage?: string,
-  ) {
-    super(serverMessage ?? `${operation} failed: ${status}`)
-  }
-}
-
-async function p2pRequestError(response: Response, operation: string): Promise<P2PRequestError> {
-  const value: unknown = await response.json().catch(() => undefined)
-  const envelope = record(value) && record(value['error']) ? value['error'] : undefined
-  const code = envelope !== undefined && typeof envelope['code'] === 'string' ? envelope['code'] : undefined
-  const message = envelope !== undefined && typeof envelope['message'] === 'string' ? envelope['message'] : undefined
-  return new P2PRequestError(response.status, operation, code, message)
-}
 
 export interface MemoryMeasurement {
   readonly freeBytes: number
@@ -1955,6 +1618,10 @@ export class DinksterConnection {
   private readonly packLocaleCatalogs = new Map<string, Promise<unknown | undefined>>()
 
   readonly status: ReadonlySignal<ConnectionStatus>
+  private readonly mountErrors = createSignal<string | undefined>(undefined)
+  readonly mountError: ReadonlySignal<string | undefined> = this.mountErrors
+  private mountRequestGeneration = 0
+  private newestMountFetch: { generation: number; promise: Promise<MountSettings> } | undefined
 
   constructor(config: DinksterConnectionConfig) {
     this.id = config.id
@@ -2057,7 +1724,7 @@ export class DinksterConnection {
 
   async fetchSchemas(): Promise<SchemaRegistry> {
     const generation = ++this.schemaRequestGeneration
-    const promise = this.fetchSchemasPass(generation)
+    const promise = requestWithDeadline((signal) => this.fetchSchemasPass(generation, signal))
     this.newestSchemaFetch = { generation, promise }
     // A superseded invocation must hand back the registry the connection
     // actually committed, not its own stale decode: follow the newest fetch
@@ -2084,9 +1751,10 @@ export class DinksterConnection {
 
   private async fetchSchemasPass(
     generation: number,
+    signal: AbortSignal,
     pairingAttempts = 3,
   ): Promise<SchemaRegistry> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`)
+    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`, { signal })
     if (res.status === 503) {
       // A supervisor gates every proxied route with 503 engine-not-ready
       // until the engine answers healthy. Surface that as its own error so
@@ -2118,14 +1786,14 @@ export class DinksterConnection {
         throw new Error('GET /api/nodes: malformed extensionSnapshotDigest')
       }
       const extensionSnapshotDigest = payload.extensionSnapshotDigest
-      const snapshotResponse = await this.fetchFn(`${this.baseUrl}/api/extensions/snapshot`)
+      const snapshotResponse = await this.fetchFn(`${this.baseUrl}/api/extensions/snapshot`, { signal })
       if (!snapshotResponse.ok) throw new Error(`GET /api/extensions/snapshot failed: ${snapshotResponse.status}`)
       const snapshotBuffer = await snapshotResponse.arrayBuffer()
       const snapshotBytes = new Uint8Array(snapshotBuffer)
       const actualDigest = await sha256Digest(snapshotBuffer)
       if (actualDigest !== extensionSnapshotDigest) {
         if (pairingAttempts > 1) {
-          return this.fetchSchemasPass(generation, pairingAttempts - 1)
+          return this.fetchSchemasPass(generation, signal, pairingAttempts - 1)
         }
         throw new Error(`schema/snapshot pairing failed: schema names '${extensionSnapshotDigest}', snapshot hashes to '${actualDigest}'`)
       }
@@ -2151,6 +1819,7 @@ export class DinksterConnection {
         `schema wire version mismatch: this build decodes ${DINKSTER_SCHEMA_WIRE_VERSION}; the server encodes ${String(selected)}`,
       )
     }
+    signal.throwIfAborted()
     if (generation === this.schemaRequestGeneration) {
       this.registry = registry
       if (extensionSnapshotPair) this.extensionSnapshots.set(extensionSnapshotPair.digest, extensionSnapshotPair.snapshot)
@@ -2295,24 +1964,6 @@ export class DinksterConnection {
     const decoded = decodePackSettings(await res.json())
     if (decoded === undefined) throw new Error('pack settings response is malformed')
     return decoded
-  }
-
-  async fetchP2PStatus(): Promise<P2PStatus> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/p2p/status`)
-    if (!res.ok) throw await p2pRequestError(res, 'GET /api/p2p/status')
-    const raw: unknown = await res.json()
-    if (record(raw) && exactKeys(raw, ['state', 'message', 'sidecar'])
-      && raw['state'] === 'unavailable' && typeof raw['message'] === 'string'
-      && raw['sidecar'] === null) throw new Error(raw['message'])
-    const status = decodeP2PStatus(raw)
-    if (status === undefined) throw new Error('GET /api/p2p/status: malformed response')
-    return status
-  }
-
-  async performP2PTransferAction(digest: string, action: P2PTransferAction): Promise<void> {
-    if (!p2pDigest(digest)) throw new TypeError('P2P transfer digest must be a canonical BLAKE3 digest')
-    const res = await this.fetchFn(`${this.baseUrl}/api/p2p/transfers/${encodeURIComponent(digest)}/${action}`, { method: 'POST' })
-    if (!res.ok) throw await p2pRequestError(res, `POST P2P transfer ${action}`)
   }
 
   /** Read memory telemetry. Item-level consumer details are opt-in. */
@@ -2961,7 +2612,33 @@ export class DinksterConnection {
   }
 
   async fetchMountSettings(): Promise<MountSettings> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts`)
+    const generation = ++this.mountRequestGeneration
+    const promise = requestWithDeadline((signal) => this.readMountSettings(signal))
+    this.newestMountFetch = { generation, promise }
+    // Every consumer must see the newest snapshot, including callers whose
+    // earlier response arrives after another consumer has refreshed mounts.
+    let current = { generation, promise }
+    for (;;) {
+      const newest = (): { generation: number; promise: Promise<MountSettings> } =>
+        this.newestMountFetch ?? current
+      try {
+        const settings = await current.promise
+        if (newest().generation === current.generation) {
+          this.mountErrors.set(undefined)
+          return settings
+        }
+      } catch (error) {
+        if (newest().generation === current.generation) {
+          this.mountErrors.set(error instanceof Error ? error.message : String(error))
+          throw error
+        }
+      }
+      current = newest()
+    }
+  }
+
+  private async readMountSettings(signal: AbortSignal): Promise<MountSettings> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts`, { signal })
     if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
     const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; mountChangesAllowed?: unknown }
     // Compatibility: a response without the field (older backend) decodes

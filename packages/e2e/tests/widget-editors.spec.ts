@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -92,7 +93,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await page.evaluate(() => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
-      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'core.combo' : widgetType }, optional: false,
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
     })
     window.__dinksterTest!.app.registerSchemas([{
@@ -112,7 +113,7 @@ test.beforeEach(async ({ page }) => {
         widget('empty', 'COMBO', '', { options: [] }),
         widget('asset', 'ASSET', null, { accept: ['image/png'] }),
         widget('video_edit', 'VIDEO_EDIT', {}, { features: ['trim', 'crop'] }),
-        { ...widget('strict_duration', 'BOOLEAN', false), type: { kind: 'concrete', name: 'core.boolean' } },
+        { ...widget('strict_duration', 'BOOLEAN', false), type: { kind: 'concrete', name: 'BOOLEAN' } },
       ],
     }])
     window.__dinksterTest!.app.openDocument({
@@ -135,6 +136,487 @@ test.beforeEach(async ({ page }) => {
     }, 'Widget Editors')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+})
+
+test('AUDIO_RECORD captures only on request and stages canonical uploads with retry, cancel and undo', async ({ page }, testInfo) => {
+  let uploaded: Buffer = Buffer.alloc(0)
+  let attempts = 0
+  let releaseUpload: (() => void) | undefined
+  let uploadStarted: (() => void) | undefined
+  const pendingUpload = new Promise<void>((resolve) => { uploadStarted = resolve })
+  const canonical = { digest: `blake3:${'a'.repeat(64)}`, name: 'canonical-recording.webm', size: 0, mediaType: 'audio/webm', virtualPath: '' }
+  await page.route('**/api/assets/media?*', async (route) => {
+    const query = new URL(route.request().url()).searchParams
+    expect(query.get('kind')).toBe('media/audio')
+    expect(query.get('scope')).toBe('local')
+    expect(query.get('name')).toBe('recording.webm')
+    uploaded = route.request().postDataBuffer()!
+    expect(uploaded.subarray(0, 4)).toEqual(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
+    canonical.size = uploaded.length
+    if (++attempts === 1) await route.fulfill({ status: 503, body: 'temporary upload failure' })
+    else {
+      if (attempts === 3) await new Promise<void>((resolve) => { releaseUpload = resolve; uploadStarted!() })
+      await route.fulfill({ json: { kind: 'media/audio', asset: canonical } })
+    }
+  })
+  await page.route('**/api/assets/blake3*', (route) => route.fulfill({ contentType: 'audio/webm', body: uploaded }))
+  await page.evaluate(() => {
+    const state = window as unknown as { audioDenied: boolean; audioOpens: number; audioStops: number }
+    state.audioDenied = true; state.audioOpens = 0; state.audioStops = 0
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
+      state.audioOpens++
+      if (state.audioDenied) throw new DOMException('denied', 'NotAllowedError')
+      const context = new AudioContext()
+      const tone = context.createOscillator()
+      const output = context.createMediaStreamDestination()
+      tone.frequency.value = 523.25
+      tone.connect(output); tone.start(); await context.resume()
+      const track = output.stream.getAudioTracks()[0]!
+      const stop = track.stop.bind(track)
+      track.stop = () => { state.audioStops++; tone.stop(); void context.close(); stop() }
+      return output.stream
+    } })
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'AudioRecordWidgetTest', displayName: 'Record audio', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'input', id: 'recording', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: false,
+        widget: { widgetType: 'AUDIO_RECORD', options: {} } }],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'audio-record-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Recording', nodes: { widgets: { id: 'widgets', type: 'AudioRecordWidgetTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Recording')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'recording')))
+  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.recording
+  await openEditor(page, 'recording')
+  const editor = page.getByTestId('audio-record-editor')
+  const recorder = editor.getByRole('region', { name: 'Record audio', exact: true })
+  expect(await page.evaluate(() => (window as unknown as { audioOpens: number }).audioOpens)).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('audio-record-desktop.png'), animations: 'disabled' })
+  await recorder.getByRole('button', { name: 'Record microphone' }).click()
+  await expect(recorder).toContainText('Microphone permission denied')
+  await page.screenshot({ path: testInfo.outputPath('audio-record-denied.png'), animations: 'disabled' })
+  await page.evaluate(() => { (window as unknown as { audioDenied: boolean }).audioDenied = false })
+  await recorder.getByRole('button', { name: 'Record microphone' }).click()
+  await expect(recorder.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
+  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
+  await page.screenshot({ path: testInfo.outputPath('audio-record-recording.png'), animations: 'disabled' })
+  await recorder.getByRole('button', { name: 'Stop recording' }).click()
+  await expect(recorder).toContainText('Recording ready')
+  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
+  expect(await page.evaluate(() => (window as unknown as { audioStops: number }).audioStops)).toBe(1)
+  await recorder.getByRole('button', { name: 'Save recording' }).click()
+  await expect(editor.getByRole('alert')).toContainText('503')
+  await expect(recorder).toContainText('Clip retained for retry')
+  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
+  expect(await value()).toBeUndefined()
+  await recorder.getByRole('button', { name: 'Save recording' }).click()
+  await expect(editor.getByText('canonical-recording.webm', { exact: true })).toBeVisible()
+  await expect(editor.getByRole('alert')).toHaveCount(0)
+  await expect(editor.locator('audio')).toHaveAttribute('src', /^blob:/)
+  await editor.getByRole('button', { name: 'Play audio', exact: true }).click()
+  await expect(editor.getByRole('button', { name: 'Pause audio', exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Pause audio', exact: true }).click()
+  expect(await value()).toBeUndefined()
+  await page.setViewportSize({ width: 900, height: 700 })
+  await page.screenshot({ path: testInfo.outputPath('audio-record-ready-compact.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Use asset', exact: true }).click()
+  expect(await value()).toEqual(canonical)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect(await value()).toBeUndefined()
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())
+  expect(await value()).toEqual(canonical)
+  await openEditor(page, 'recording')
+  await editor.getByRole('button', { name: 'Remove recording' }).click()
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(await value()).toEqual(canonical)
+  await openEditor(page, 'recording')
+  await recorder.getByRole('button', { name: 'Record microphone' }).click()
+  await expect(recorder).toContainText('Recording microphone')
+  await page.keyboard.press('Escape')
+  await expect(editor).toHaveCount(0)
+  expect(await page.evaluate(() => (window as unknown as { audioStops: number }).audioStops)).toBe(2)
+  expect(await value()).toEqual(canonical)
+  const stored = await value()
+  await openEditor(page, 'recording')
+  await recorder.getByRole('button', { name: 'Record microphone' }).click()
+  await expect(recorder.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
+  await recorder.getByRole('button', { name: 'Stop recording' }).click()
+  await expect(recorder).toContainText('Recording ready')
+  await recorder.getByRole('button', { name: 'Save recording' }).click()
+  await pendingUpload
+  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
+  const aborted = page.waitForEvent('requestfailed', (request) => request.url().includes('/api/assets/media?'))
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  releaseUpload!()
+  await aborted
+  await expect(editor).toHaveCount(0)
+  expect(await value()).toEqual(stored)
+  await openEditor(page, 'recording')
+  await expect(editor.getByText('canonical-recording.webm', { exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(await value()).toEqual(stored)
+})
+
+test('COLORS stages exact ordered palettes with add, remove, reorder and one undoable commit', async ({ page }, testInfo) => {
+  const initial = ['#A1B2C3dd', '#f00', '#A1B2C3dd']
+  await page.evaluate((initial) => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'ColorsWidgetTest', displayName: 'Palette', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        ...(['palette', 'empty', 'long'] as const).map((id) => ({ kind: 'input' as const, id, type: { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'STRING' } }, optional: false,
+          widget: { widgetType: 'COLORS', default: id === 'empty' ? [] : id === 'long' ? Array.from({ length: 17 }, () => '#112233') : initial, options: {} } })),
+        { kind: 'input', id: 'color', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+          widget: { widgetType: 'COLOR', default: '#11223380', options: {} } },
+      ],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'colors-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Palette', nodes: { widgets: { id: 'widgets', type: 'ColorsWidgetTest', values: { palette: initial } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Palette')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  }, initial)
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'palette')))
+  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.palette
+  const editor = page.getByTestId('colors-editor')
+  await openEditor(page, 'palette')
+  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(3)
+  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#A1B2C3dd')
+  await page.screenshot({ path: testInfo.outputPath('colors-desktop.png'), animations: 'disabled' })
+  await editor.getByRole('textbox', { name: 'Color 1', exact: true }).fill('not a color')
+  await expect(editor.getByRole('alert')).toHaveText('Use #rgb, #rrggbb or #rrggbbaa for every color.')
+  await expect(editor.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled()
+  await page.screenshot({ path: testInfo.outputPath('colors-invalid.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Cancel' }).click()
+  expect(await value()).toEqual(initial)
+  await page.setViewportSize({ width: 900, height: 700 })
+  await openEditor(page, 'palette')
+  await page.screenshot({ path: testInfo.outputPath('colors-compact.png'), animations: 'disabled' })
+  const picker = editor.getByLabel('Choose color 1', { exact: true })
+  await picker.fill('#00ff00')
+  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#00ff00dd')
+  await editor.getByRole('button', { name: 'Move color 1 down' }).press('Enter')
+  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#f00')
+  await editor.getByRole('button', { name: 'Remove color 3' }).click()
+  await editor.getByRole('button', { name: 'Add color' }).click()
+  await expect(editor.getByRole('textbox', { name: 'Color 3', exact: true })).toHaveValue('#ffffff')
+  expect(await value()).toEqual(initial)
+  await editor.getByRole('button', { name: 'Commit', exact: true }).click()
+  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+z')
+  expect(await value()).toEqual(initial)
+  await page.keyboard.press('Control+Shift+z')
+  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
+  await openEditor(page, 'palette')
+  await editor.getByRole('button', { name: 'Add color' }).click()
+  await page.keyboard.press('Escape')
+  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
+  await openEditor(page, 'empty')
+  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('colors-empty.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Add color' }).click()
+  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#ffffff')
+  await editor.getByRole('button', { name: 'Remove color 1' }).click()
+  await editor.getByRole('button', { name: 'Commit', exact: true }).click()
+  await openEditor(page, 'long')
+  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(17)
+  await expect(editor.getByRole('button', { name: 'Add color' })).toBeDisabled()
+  await editor.getByRole('button', { name: 'Remove color 17' }).click()
+  await expect(editor.getByRole('button', { name: 'Add color' })).toBeDisabled()
+  await editor.getByRole('button', { name: 'Remove color 16' }).click()
+  await expect(editor.getByRole('button', { name: 'Add color' })).toBeEnabled()
+  await page.keyboard.press('Escape')
+  await openEditor(page, 'color')
+  await expect(page.getByTestId('color-text')).toHaveValue('#11223380')
+  await page.screenshot({ path: testInfo.outputPath('colors-color-sibling.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+})
+
+test('MARKDOWN previews safely and edits one undoable source string', async ({ page }, testInfo) => {
+  const source = '## Workflow notes\n\n**Keep** the source and `code`.\n\n- First item\n- Second item\n\n[Safe](https://example.com) [Unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n![Remote](https://example.com/image.png)'
+  await page.evaluate((source) => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'MarkdownWidgetTest', displayName: 'Workflow notes', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        ...(['notes', 'readonly'] as const).map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'STRING' }, optional: false,
+          widget: { widgetType: 'MARKDOWN', default: source, options: { read_only: id === 'readonly' } } })),
+        { kind: 'input', id: 'title', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+          widget: { widgetType: 'STRING', default: 'Unchanged text', options: {} } },
+      ],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'markdown-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Notes', nodes: { widgets: { id: 'widgets', type: 'MarkdownWidgetTest', values: { notes: source } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Workflow notes')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  }, source)
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'notes')))
+  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.notes
+  await openEditor(page, 'notes')
+  const editor = page.getByTestId('markdown-editor')
+  await expect(editor.getByRole('heading', { name: 'Workflow notes' })).toBeVisible()
+  await expect(editor.locator('strong')).toHaveText('Keep')
+  await expect(editor.locator('li')).toHaveCount(2)
+  await expect(editor.getByRole('link', { name: 'Safe', exact: true })).toHaveAttribute('href', 'https://example.com')
+  await expect(editor.locator('script, img, video')).toHaveCount(0)
+  await expect(editor.getByRole('link', { name: 'Unsafe' })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('markdown-preview-desktop.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Edit source' }).press('Enter')
+  const input = editor.getByRole('textbox', { name: 'Markdown source' })
+  await expect(input).toHaveValue(source)
+  await input.fill('## Changed\n\n*draft only*')
+  await page.screenshot({ path: testInfo.outputPath('markdown-source-desktop.png'), animations: 'disabled' })
+  expect(await value()).toBe(source)
+  await editor.getByRole('button', { name: 'Markdown preview', exact: true }).click()
+  await expect(editor.getByRole('heading', { name: 'Changed' })).toBeVisible()
+  await editor.getByRole('button', { name: 'Cancel' }).click()
+  expect(await value()).toBe(source)
+  await page.setViewportSize({ width: 900, height: 700 })
+  await openEditor(page, 'notes')
+  await page.screenshot({ path: testInfo.outputPath('markdown-preview-compact.png'), animations: 'disabled' })
+  await editor.getByRole('button', { name: 'Edit source' }).click()
+  await input.fill('## Saved\n\n**exact source**')
+  await page.screenshot({ path: testInfo.outputPath('markdown-source-compact.png'), animations: 'disabled' })
+  await input.press('Control+Enter')
+  expect(await value()).toBe('## Saved\n\n**exact source**')
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+z')
+  expect(await value()).toBe(source)
+  await page.keyboard.press('Control+Shift+z')
+  expect(await value()).toBe('## Saved\n\n**exact source**')
+  await openEditor(page, 'notes')
+  await editor.getByRole('button', { name: 'Edit source' }).click()
+  await input.fill('discard on Escape')
+  await input.press('Escape')
+  expect(await value()).toBe('## Saved\n\n**exact source**')
+  await openEditor(page, 'readonly')
+  await editor.getByRole('region', { name: 'Markdown preview' }).dblclick()
+  await expect(editor.getByRole('textbox')).toHaveCount(0)
+  await expect(editor.getByRole('button', { name: /Edit source|Commit/ })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('markdown-readonly-compact.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openEditor(page, 'readonly')
+  await page.screenshot({ path: testInfo.outputPath('markdown-readonly-desktop.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await openEditor(page, 'title')
+  await expect(page.getByRole('dialog', { name: 'Edit title STRING' }).locator('input')).toHaveValue('Unchanged text')
+  await page.screenshot({ path: testInfo.outputPath('markdown-string-sibling.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+})
+
+test('BUTTON actions invoke registered commands without changing widget values', async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.commands.register({ id: 'fixture.capture', label: 'Capture frame', run: (payload) => {
+      const calls = JSON.parse(document.body.dataset.buttonCalls ?? '[]')
+      document.body.dataset.buttonCalls = JSON.stringify([...calls, payload])
+    } })
+    app.commands.register({ id: 'fixture.busy', label: 'Busy action', enabled: () => false, run: () => {
+      throw new Error('Disabled command must not run')
+    } })
+    app.registerSchemas([{
+      type: 'ButtonWidgetTest', displayName: 'Capture controls', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        ...([
+          ['capture', { display_name: 'Capture frame', command: 'fixture.capture' }],
+          ['busy', { display_name: 'Busy action', command: 'fixture.busy' }],
+          ['missing', { display_name: 'Unavailable action', command: 'fixture.missing' }],
+          ['disabled', { display_name: 'Disabled action', command: 'fixture.capture', disabled: true }],
+        ] as const).map(([id, options]) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'BUTTON' }, optional: false,
+          widget: { widgetType: 'BUTTON', default: null, options } })),
+        { kind: 'input', id: 'title', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+          widget: { widgetType: 'STRING', default: 'Unchanged text', options: {} } },
+      ],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'button-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Capture', nodes: { widgets: { id: 'widgets', type: 'ButtonWidgetTest', values: { capture: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Capture controls')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'capture')))
+  const graph = (await activeDoc(page)).graphs.g0
+  await openEditor(page, 'capture')
+  const editor = page.getByTestId('widget-editor')
+  const action = editor.getByRole('button', { name: 'Capture frame', exact: true })
+  await expect(action).toBeFocused()
+  await expect(action).toHaveClass(/product-button/)
+  await action.press('Enter')
+  await action.click()
+  expect(await page.evaluate(() => JSON.parse(document.body.dataset.buttonCalls ?? '[]'))).toEqual([
+    { value: null, target: { kind: 'input', graphId: 'g0', nodeId: 'widgets', inputId: 'capture' } },
+    { value: null, target: { kind: 'input', graphId: 'g0', nodeId: 'widgets', inputId: 'capture' } },
+  ])
+  await page.screenshot({ path: testInfo.outputPath('button-desktop.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 900, height: 700 })
+  await expect(action).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('button-compact.png'), animations: 'disabled' })
+  await action.press('Escape')
+  for (const [input, label] of [['busy', 'Busy action'], ['missing', 'Unavailable action'], ['disabled', 'Disabled action']] as const) {
+    await openEditor(page, input)
+    await expect(editor.getByRole('button', { name: label, exact: true })).toBeDisabled()
+    if (input === 'missing') await page.screenshot({ path: testInfo.outputPath('button-unavailable.png'), animations: 'disabled' })
+    await page.keyboard.press('Escape')
+  }
+  expect((await activeDoc(page)).graphs.g0).toEqual(graph)
+  await openEditor(page, 'title')
+  await expect(editor.locator('input')).toHaveValue('Unchanged text')
+  await page.screenshot({ path: testInfo.outputPath('button-text-sibling.png'), animations: 'disabled' })
+  await page.keyboard.press('Escape')
+})
+
+test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Commit', async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'WidgetEditorsTest', displayName: 'Float sliders', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: { display: 'slider', min: -0.5, max: 2.5, step: 0.25, round: 0.01, precision: 2 }, default: 0.5 } },
+        { kind: 'input', id: 'ordinary', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: { min: -0.5, max: 2.5 }, default: 0.5 } },
+      ],
+    }])
+  })
+  for (const [width, height] of [[1440, 900], [900, 700]]) {
+    await page.setViewportSize({ width: width!, height: height! })
+    await openEditor(page, 'amount')
+    const editor = page.getByTestId('widget-editor')
+    const slider = editor.getByRole('slider')
+    await expect(slider).toHaveAttribute('aria-valuenow', '0.5')
+    await slider.focus()
+    await slider.press('ArrowRight')
+    await expect(editor.locator('input')).toHaveValue('0.75')
+    expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
+    const bounds = await slider.boundingBox()
+    await page.mouse.click(bounds!.x + bounds!.width * 0.8, bounds!.y + bounds!.height / 2)
+    await expect(editor.locator('input')).toHaveValue('2')
+    await page.screenshot({ path: testInfo.outputPath(`float-slider-${width}.png`), animations: 'disabled' })
+    await editor.getByTestId('widget-editor-cancel').click()
+    expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
+  }
+  await openEditor(page, 'amount')
+  await page.getByTestId('widget-editor').locator('input').fill('1.2346')
+  await page.getByTestId('widget-editor-commit').click()
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBe(1.23)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
+  await openEditor(page, 'ordinary')
+  await expect(page.getByTestId('widget-editor').getByRole('slider')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('float-number-sibling.png'), animations: 'disabled' })
+  await page.getByTestId('widget-editor-cancel').click()
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())
+  for (const representationId of ['number', 'slider']) {
+    const point = await rowPoint(page, 'amount')
+    await page.mouse.click(point.x, point.y, { button: 'right' })
+    await page.locator('[data-item-id="core.widget.representation"]').hover()
+    await page.locator(`[data-item-id="core.widget.representation.${representationId}"]`).click()
+    await expect.poll(async () => {
+      const view = (await activeDoc(page)).view.graphs.g0!.nodes.widgets as { views?: Record<string, string> }
+      return view.views?.amount
+    }).toBe(representationId)
+    expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBe(1.23)
+    await openEditor(page, 'amount')
+    await expect(page.getByTestId('widget-editor').locator('input')).toHaveValue('1.23')
+    await expect(page.getByTestId('widget-editor').getByRole('slider')).toHaveCount(representationId === 'slider' ? 1 : 0)
+    await page.getByTestId('widget-editor-cancel').click()
+  }
+})
+
+test('numeric union uses FLOAT editing in canvas and exposed AppView without changing its socket', async ({ page }, testInfo) => {
+  const fixture = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1,
+    dinkster: { version: 'numeric-union-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
+    nodes: { 'test.numeric_union': fixture.nodes['test.numeric_union'] },
+  } }))
+  await page.reload()
+  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.settings.set('features.appView.enabled', true)
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-union-editors', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Frame rate', nodes: { widgets: { id: 'widgets', type: 'test.numeric_union', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Frame rate')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'frame_rate')))
+  await openEditor(page, 'frame_rate')
+  const editor = page.getByTestId('widget-editor')
+  const field = editor.locator('input')
+  await expect(editor).toHaveAttribute('data-editor-mode', 'FLOAT')
+  await expect(field).toHaveValue('25')
+  await field.fill('23.976')
+  await page.screenshot({ path: testInfo.outputPath('numeric-union-canvas.png'), animations: 'disabled' })
+  await field.press('Enter')
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.frame_rate).toBe(23.976)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'frame_rate' } }))
+  await page.getByTestId('views-switcher').click()
+  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  const exposed = page.getByTestId('app-view-number')
+  await expect(exposed).toHaveValue('23.976')
+  await exposed.fill('24')
+  await exposed.blur()
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.frame_rate).toBe(24)
+  await page.screenshot({ path: testInfo.outputPath('numeric-union-app-view.png'), animations: 'disabled' })
+})
+
+test('primitive list edits preserve arrays in canvas and exposed AppView controls', async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.settings.set('features.appView.enabled', true)
+    app.registerSchemas([{
+      type: 'PrimitiveListEditorTest', displayName: 'Text list', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{
+        kind: 'input', id: 'texts', optional: false,
+        type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } },
+        widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: { multiline: false } }, default: ['red', 'blue'] },
+      }],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'primitive-list-editors', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Text list', nodes: { widgets: { id: 'widgets', type: 'PrimitiveListEditorTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Text list')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'texts')))
+  await openEditor(page, 'texts')
+  const editor = page.getByTestId('widget-editor')
+  const field = editor.locator('textarea')
+  await expect(field).toHaveValue('["red","blue"]')
+  const canvasPath = testInfo.outputPath('primitive-list-canvas.png')
+  await page.screenshot({ path: canvasPath, animations: 'disabled' })
+  await testInfo.attach('primitive-list-canvas', { path: canvasPath, contentType: 'image/png' })
+  await field.fill('[["red"]]')
+  await page.getByTestId('widget-editor-commit').click()
+  await expect(page.getByTestId('widget-editor-error')).toBeVisible()
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.texts).toBeUndefined()
+  await field.fill('["blue,green","line\\nnext",""]')
+  await field.press('Control+Enter')
+  await expect(editor).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.texts).toEqual(['blue,green', 'line\nnext', ''])
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'texts' } }))
+  await page.getByTestId('views-switcher').click()
+  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  const exposed = page.getByTestId('app-view-text')
+  await expect(exposed).toHaveValue('["blue,green","line\\nnext",""]')
+  await exposed.fill('["violet","amber"]')
+  await exposed.blur()
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.texts).toEqual(['violet', 'amber'])
+  const appPath = testInfo.outputPath('primitive-list-app-view.png')
+  await page.screenshot({ path: appPath, animations: 'disabled' })
+  await testInfo.attach('primitive-list-app-view', { path: appPath, contentType: 'image/png' })
 })
 
 test('VIDEO_EDIT trim and crop preserve imported JSON and commit strict_duration separately', async ({ page }, testInfo) => {
@@ -219,7 +701,7 @@ test('uint64 INT values edit, step, reload, and compile without precision loss',
     test.app.registerSchemas([{
       type: 'ExactSeedE2E', displayName: 'Exact Seed', category: 'test', source: 'v3', isOutputNode: true,
       items: [{
-        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: {
           widgetType: 'INT',
           options: { min: 0, max: '18446744073709551615', step: 1 },
@@ -280,7 +762,7 @@ test('unbounded INT stepping crosses the JavaScript safe-integer boundary exactl
     test.app.registerSchemas([{
       type: 'UnboundedIntE2E', displayName: 'Unbounded Integer', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0 },
       }],
     }])
@@ -967,7 +1449,7 @@ test('a changed producer exposes stale/unproven companion wording while styling 
     store.apply({ kind: 'started', execution: ref, timestamp: Date.now() })
     store.apply({
       kind: 'nodeStates', execution: ref, timestamp: Date.now(),
-      nodes: { source: { state: 'done', outputs: { out: { typeId: 'core.int', value: 512 } } } },
+      nodes: { source: { state: 'done', outputs: { out: { typeId: 'INT', value: 512 } } } },
     })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
   })
@@ -1192,7 +1674,7 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
     window.__dinksterTest!.app.registerSchemas([{
       type: 'HugeComboTest', displayName: 'Huge Combo', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
-        kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'core.combo' }, optional: false,
+        kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
           widgetType: 'COMBO',
           options: { options: Array.from({ length: 1200 }, (_, index) => `option-${index}`) },

@@ -1,10 +1,12 @@
 import { createSignal, For, Show } from 'solid-js'
 import type { AppState, Backend } from './app-state.js'
-import { canonicalBackendUrl } from './app-state.js'
+import { backendConnectionStatus, canonicalBackendUrl } from './app-state.js'
 import { ConnectionProfilesSection } from './ConnectionProfiles.js'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { useAppMessage } from './locale.js'
-import { ProductNotice } from './ProductForm.js'
+import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
+import { ProductButton, ProductTextInput } from './ProductControls.js'
+import { ProductPanelHeader } from './ProductSurfaces.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import { OutputMountSettings } from './OutputMountSettings.js'
 import { useSignal } from './solid-adapter.js'
@@ -18,7 +20,7 @@ function BackendCard(props: {
   const message = useAppMessage()
   const [restarting, setRestarting] = createSignal(false)
   const [retryingSchemas, setRetryingSchemas] = createSignal(false)
-  const status = () => { props.tick(); return props.backend.connection.status.get() }
+  const status = () => { props.tick(); return backendConnectionStatus(props.backend) }
   const registry = () => { props.tick(); return props.backend.registry.get() }
   const schemaState = () => { props.tick(); return props.backend.schemaState.get() }
   const supervisor = () => { props.tick(); return props.backend.supervisor.get() }
@@ -123,19 +125,19 @@ function BackendCard(props: {
 
       <div class="backend-actions">
         <Show when={schemaState().status === 'error'}>
-          <button type="button" disabled={retryingSchemas()} data-testid="backend-schema-retry" aria-label={message('backendsPanel.aria.retrySchemas', { backend: props.backend.label })} onClick={() => void retrySchemas()}>
+          <ProductButton type="button" disabled={retryingSchemas()} data-testid="backend-schema-retry" aria-label={message('backendsPanel.aria.retrySchemas', { backend: props.backend.label })} onClick={() => void retrySchemas()}>
             {message(retryingSchemas() ? 'backendsPanel.action.retrying' : 'backendsPanel.action.retrySchemas')}
-          </button>
+          </ProductButton>
         </Show>
         <Show when={engine()?.state === 'failed' || engine()?.state === 'stopped'}>
-          <button type="button" disabled={restarting()} data-testid="backend-engine-restart" aria-label={message('backendsPanel.aria.restart', { backend: props.backend.label })} onClick={() => void restart()}>
+          <ProductButton type="button" disabled={restarting()} data-testid="backend-engine-restart" aria-label={message('backendsPanel.aria.restart', { backend: props.backend.label })} onClick={() => void restart()}>
             {message(restarting() ? 'backendsPanel.action.restarting' : 'backendsPanel.action.restart')}
-          </button>
+          </ProductButton>
         </Show>
         <Show when={props.backend !== props.defaultBackend}>
-          <button type="button" class="danger" data-testid="backend-remove" aria-label={message('backendsPanel.aria.remove', { backend: props.backend.label })} onClick={() => props.app.removeBackend(props.backend.id)}>
+          <ProductButton type="button" variant="danger" data-testid="backend-remove" aria-label={message('backendsPanel.aria.remove', { backend: props.backend.label })} onClick={() => props.app.removeBackend(props.backend.id)}>
             {message('backendsPanel.action.remove')}
-          </button>
+          </ProductButton>
         </Show>
       </div>
 
@@ -178,31 +180,29 @@ export function BackendsPanel(props: { readonly app: AppState }) {
 
   return (
     <section class="backends-panel" data-testid="backends-panel" aria-label={message('backendsPanel.title')}>
+      <ProductPanelHeader title={message('backendsPanel.title')} />
       <div class="backend-add-surface">
-        <div>
-          <h2>{message('backendsPanel.title')}</h2>
-          <p>{message('backendsPanel.description')}</p>
-        </div>
+        <p>{message('backendsPanel.description')}</p>
         <form onSubmit={(event) => { event.preventDefault(); void add() }}>
-          <label for="backend-address">{message('backendsPanel.label.address')}</label>
-          <div class="backend-add-controls">
-            <input
+          <ProductField controlId="backend-address" label={message('backendsPanel.label.address')} description={message('backendsPanel.help.address')} layout="stack" invalid={addError() !== ''}>
+            <ProductTextInput
               id="backend-address"
-              class="backend-url-input"
               data-testid="backend-url-input"
               inputmode="url"
               autocomplete="url"
               placeholder={message('backendsPanel.placeholder.address')}
               value={url()}
-              aria-describedby={addError() ? 'backend-add-error' : 'backend-add-help'}
+              invalid={addError() !== ''}
+              aria-describedby={`${productFieldIds('backend-address').description}${addError() ? ' backend-add-error' : ''}`}
               onInput={(event) => { setUrl(event.currentTarget.value); setAddError('') }}
             />
-            <button data-testid="backend-add" type="submit" disabled={discovering() || url().trim() === ''}>
+          </ProductField>
+          <Show when={addError()}>{(key) => <div id="backend-add-error"><ProductNotice tone="error">{message(key())}</ProductNotice></div>}</Show>
+          <ProductActionFooter>
+            <ProductButton data-testid="backend-add" type="submit" variant="primary" disabled={discovering() || url().trim() === ''}>
               {message(discovering() ? 'backendsPanel.action.discovering' : 'backendsPanel.action.discover')}
-            </button>
-          </div>
-          <span id="backend-add-help" class="backend-add-help">{message('backendsPanel.help.address')}</span>
-          <Show when={addError()}>{(key) => <p id="backend-add-error" class="backend-add-error" role="alert">{message(key())}</p>}</Show>
+            </ProductButton>
+          </ProductActionFooter>
         </form>
         <Show when={discovering()}><ProductNotice tone="status">{message('backendsPanel.notice.discovering', { address: url().trim() })}</ProductNotice></Show>
       </div>

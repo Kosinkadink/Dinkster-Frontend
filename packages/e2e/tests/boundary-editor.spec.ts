@@ -150,7 +150,7 @@ async function openBoundaryWorkflow(page: Page): Promise<void> {
             kind: 'output' as const,
             id: `dense_output_${index}`,
             displayName: `Dense output ${index + 1}`,
-            type: { kind: 'concrete' as const, name: index === 1 ? 'core.boolean' : 'IMAGE' },
+            type: { kind: 'concrete' as const, name: index === 1 ? 'BOOLEAN' : 'IMAGE' },
           })),
         ],
       },
@@ -238,7 +238,7 @@ test.beforeEach(async ({ page }) => {
   await openBoundaryWorkflow(page)
 })
 
-test('panel hidden outside definitions; family item pins to an explicit full selection', async ({ page }) => {
+test('root prompt reopens definitions; family item pins to an explicit full selection', async ({ page }) => {
   const item = page.locator('[data-testid=boundary-item][data-boundary-id=fwd]')
   await expect(item).toContainText('Tracks template')
   // Port-bound items list without an exposure tree.
@@ -287,10 +287,17 @@ test('panel hidden outside definitions; family item pins to an explicit full sel
     await expect(slotToggle(page, path)).toHaveAttribute('data-state', 'whole')
   }
 
-  // Navigating back to the root hides the panel.
+  // The root offers navigation, not definition-editing controls.
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
-  await expect(page.getByTestId('boundary-panel')).not.toBeVisible()
+  await expect(page.getByTestId('boundary-prompt')).toBeVisible()
+  await expect(page.getByTestId('boundary-item')).toHaveCount(0)
   await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
+  await capture(page, 'boundary-root-prompt')
+  await page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Grower', exact: true }).click()
+  await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
+  await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
+  await expect(item).toContainText('Pinned')
+  expect(await fwdSlots(page)).toEqual(['req', 'sub', 'tag'])
 })
 
 test('unchecking an inherited nested slot expands the covering entry; one undo step reverts', async ({ page }) => {

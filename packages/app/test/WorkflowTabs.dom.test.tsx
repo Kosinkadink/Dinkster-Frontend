@@ -88,6 +88,9 @@ describe('workflow tabs', () => {
 
     expect(view.tabRoot?.getAttribute('aria-label')).toBe('Workflow documents')
     expect(tablist.getAttribute('aria-label')).toBe('Open workflows')
+    expect(tablist.getAttribute('aria-owns')?.split(' ')).toEqual(triggers.map((trigger) => trigger.id))
+    expect(closes.every((button) => !tablist.contains(button))).toBe(true)
+    expect(tablist.contains(newTab)).toBe(false)
     expect(triggers.map((trigger) => trigger.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false'])
     expect(triggers.map((trigger) => trigger.tabIndex)).toEqual([0, -1, -1])
     expect(triggers[0]?.getAttribute('aria-label')).toBe('One, unsaved changes')

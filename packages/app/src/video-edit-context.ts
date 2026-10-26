@@ -27,12 +27,12 @@ export function videoEditContext(
     ...(fields.some((field) => sources.get(nodeId)?.has(field))
       ? { editDisabledReason: 'Scalar edit inputs are linked. Disconnect them before authoring a VIDEO_EDIT override.' } : {}),
   } : {}
-  const strict = inputs.find((input) => input.id === 'strict_duration' && input.type.kind === 'concrete' && input.type.name === 'core.boolean')
+  const strict = inputs.find((input) => input.id === 'strict_duration' && input.type.kind === 'concrete' && input.type.name === 'BOOLEAN')
   const strictState = { ...scalarFallback, ...(strict === undefined ? {} : {
     strictDuration: (node.values['strict_duration'] ?? strict.widget?.default ?? false) === true,
     ...(sources.get(nodeId)?.has('strict_duration') ? { strictDisabledReason: 'Strict duration is driven by a link.' } : {}),
   }) }
-  const videos = inputs.filter((input) => input.type.kind === 'concrete' && input.type.name === 'comfy.VIDEO')
+  const videos = inputs.filter((input) => input.type.kind === 'concrete' && input.type.name === 'VIDEO')
   const source = videos.length === 1 ? sources.get(nodeId)?.get(videos[0]!.id) : undefined
   if (source?.kind !== 'producer') return { ...strictState, sourceReason: 'Connect one VIDEO source and run it to enable lazy previews.' }
   const exec = app.executionForTab(tab)

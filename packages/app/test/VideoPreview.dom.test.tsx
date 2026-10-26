@@ -74,7 +74,7 @@ it.each(['disposal', 'replacement'] as const)('cancels output selection on %s be
       peekReleased.resolve()
     }
     if (url.searchParams.has('rendition')) return new Response(new Uint8Array([1]), { headers: { 'Content-Type': 'image/png' } })
-    return new Response(JSON.stringify({ available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'video' }, renditions: [{ kind: 'poster', mime: 'image/png' }] }))
+    return new Response(JSON.stringify({ available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'video' }, renditions: [{ kind: 'poster', mime: 'image/png' }] }))
   } })
   const candidates = [{ node: 'n', output: 'first', mediaKind: 'video' }, { node: 'n', output: 'second', mediaKind: 'video' }] as const
   const initial = await fetchPeekRendition(values, 'job', candidates)

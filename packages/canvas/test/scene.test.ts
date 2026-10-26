@@ -24,7 +24,6 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
-import { auditScene } from '../src/scene-audit.js'
 import {
   buildScene,
   boundaryNodesInGroup,
@@ -1013,7 +1012,6 @@ describe('sections in scenes', () => {
       expect(stub.pinY).toBe(anchorY)
       expect(stub.pinX).toBe(stub.role === 'source' ? node.x + node.layout.width : node.x)
     }
-    expect(auditScene(scene)).toEqual([])
   })
 
   it('collapsed via view override: member rows hide, height shrinks', () => {
@@ -1088,13 +1086,6 @@ describe('sections in scenes', () => {
       expect.objectContaining({ netId: 't3', role: 'source', nodeId: 's0', portId: 'x' }),
       expect.objectContaining({ netId: 't2', role: 'sink', nodeId: 's0', portId: 'w' }),
     ]))
-  })
-
-  it('a collapsed-section scene audits clean (same-section header co-location is not overlap)', () => {
-    for (const scene of [sectionedScene(true), sectionedScene(true, true)]) {
-      const findings = auditScene(scene)
-      expect(findings, findings.map((f) => `${f.subject}: ${f.finding}`).join('; ')).toEqual([])
-    }
   })
 })
 
@@ -1738,7 +1729,7 @@ describe('boundary pseudo-nodes', () => {
     const index = drilled.boundaryNodes.find((node) => node.side === 'inputs')!.layout.pins.find((pin) => pin.regionIndex)
     expect(index).toMatchObject({
       portId: '@region:index', direction: 'out',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
     })
     expect(drilled.boundaryNodes.find((node) => node.side === 'inputs')!.layout.rows).toContainEqual(expect.objectContaining({
       output: expect.objectContaining({ portId: '@region:index', label: 'Index', regionIndex: true }),
@@ -1977,13 +1968,13 @@ describe('selector scene items', () => {
   })
 
   it('interchangeable comfy-compat spellings count as one agreed branch type', () => {
-    // dinkster.image and comfy.IMAGE denote the same backend value type, so a
+    // IMAGE and comfy.IMAGE denote the same backend value type, so a
     // selector fed by both must resolve to the canonical spelling instead of
     // degrading to a wildcard output.
     const extra: Record<string, NodeSchema> = {
       DinksterImageSrc: {
         type: 'DinksterImageSrc', displayName: 'DinksterImageSrc', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.image' } }],
+        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       ComfyImageSrc: {
         type: 'ComfyImageSrc', displayName: 'ComfyImageSrc', category: 'test', source: 'v3', isOutputNode: false,
@@ -2024,8 +2015,8 @@ describe('selector scene items', () => {
       widgetMeasure,
     })
     const sel = mixed.selectors.find((s) => s.id === 's4')!
-    expect(sel.candidates.map((c) => c.typeName)).toEqual(['comfy.IMAGE', 'comfy.IMAGE'])
-    expect(sel.typeName).toBe('comfy.IMAGE')
+    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'IMAGE'])
+    expect(sel.typeName).toBe('IMAGE')
   })
 
   it('every candidate noodle stays visible and anchors at the candidate pin', () => {

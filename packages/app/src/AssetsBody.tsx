@@ -12,7 +12,8 @@ import type { AssetSourceAdapter } from './asset-browser/types.js'
 import { federatedCollectionSource } from './asset-browser/federated-collection-source.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
-import { SearchState } from './SearchSurface.js'
+import { ProductButton } from './ProductControls.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 type SourceSectionKey = 'assets.source.section.models' | 'assets.source.section.media' | 'assets.source.section.inputOutput' | 'assets.source.section.other'
@@ -175,11 +176,11 @@ function AssetSourceControl(props: {
 
 function assetState(state: CollectionPanelState, message: AssetMessage) {
   const source = state.sourceLabel === 'All assets' ? message('assets.source.all') : state.sourceLabel
-  if (state.kind === 'loading') return <SearchState kind="loading" title={message('assets.state.loading.title')} detail={message('assets.state.loading.detail', { source })} />
-  if (state.kind === 'error') return <SearchState kind="error" title={message('assets.state.error.title')} detail={state.message ?? message('assets.state.error.detail', { source })} />
-  if (state.kind === 'no-compatible') return <SearchState kind="empty" title={message('assets.state.noCompatible.title')} detail={message('assets.state.noCompatible.detail')} />
-  if (state.kind === 'no-match') return <SearchState kind="empty" title={message('assets.state.noMatch.title')} detail={message('assets.state.noMatch.detail')} />
-  return <SearchState kind="empty" title={message('assets.state.empty.title')} detail={message('assets.state.empty.detail', { source })} />
+  if (state.kind === 'loading') return <ProductEmptyState tone="loading" title={message('assets.state.loading.title')} hint={message('assets.state.loading.detail', { source })} />
+  if (state.kind === 'error') return <ProductEmptyState tone="error" title={message('assets.state.error.title')} hint={state.message ?? message('assets.state.error.detail', { source })} />
+  if (state.kind === 'no-compatible') return <ProductEmptyState title={message('assets.state.noCompatible.title')} hint={message('assets.state.noCompatible.detail')} />
+  if (state.kind === 'no-match') return <ProductEmptyState title={message('assets.state.noMatch.title')} hint={message('assets.state.noMatch.detail')} />
+  return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source })} />
 }
 
 export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly federatedContract?: AssetDtoV1WireContract }) {
@@ -187,11 +188,13 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [discoveryError, setDiscoveryError] = createSignal<string>()
+  const [retryTick, setRetryTick] = createSignal(0)
   const [sourceFailures, setSourceFailures] = createSignal<Readonly<Record<string, AssetSourceFailurePresentation>>>({})
   let live = true
   let discoveryGeneration = 0
   onCleanup(() => { live = false })
   createEffect(() => {
+    retryTick()
     const connection = props.connection
     const generation = ++discoveryGeneration
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -265,7 +268,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       <Show
         when={discoveryError()}
         fallback={
-          <Show when={adapters() !== undefined} fallback={<div class="assets-bootstrap-state"><SearchState kind="loading" title={message('assets.discovery.loading.title')} detail={message('assets.discovery.loading.detail')} /></div>}>
+          <Show when={adapters() !== undefined} fallback={<ProductEmptyState tone="loading" title={message('assets.discovery.loading.title')} hint={message('assets.discovery.loading.detail')} />}>
             <CollectionPanel
               sources={sources()}
               sourceRail={({ selectedId, select }) => <AssetSourceControl sources={sources()} presentations={presentations()} failures={sourceFailures()} selectedId={selectedId} select={select} message={message} />}
@@ -280,7 +283,9 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
           </Show>
         }
       >
-        {(error) => <div class="assets-bootstrap-state" data-testid="assets-error"><SearchState kind="error" title={message('assets.discovery.error.title')} detail={error()} /></div>}
+        {(error) => <ProductEmptyState tone="error" testId="assets-error" title={message('assets.discovery.error.title')} hint={error()} action={
+          <ProductButton type="button" data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
+        } />}
       </Show>
     </div>
   )

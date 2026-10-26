@@ -58,7 +58,7 @@ test('legacy named family literal editing advances the ghost through compaction'
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    const scalar = { kind: 'union', names: ['core.float', 'core.int', 'core.boolean'] }
+    const scalar = { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] }
     app.registerSchemas([
       {
         type: 'FamilyLiteralProof',
@@ -85,7 +85,7 @@ test('legacy named family literal editing advances the ghost through compaction'
         category: 'proof',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'core.float' } }],
+        items: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } }],
       },
     ] as never)
     const diagnostics = app.openDocument({

@@ -2,9 +2,8 @@
 
 import { render } from 'solid-js/web'
 import { createSignal, onCleanup } from 'solid-js'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { shellStyles as css } from './fixtures/styles.js'
 import {
   asPromptId,
   coreMenuContributions,
@@ -1140,7 +1139,7 @@ describe('left activity rail buttons', () => {
     ), root)
 
     const button = root.querySelector<HTMLButtonElement>('.sidebar-button')!
-    expect(button.getAttribute('aria-label')).toBe('Workflow library')
+    expect(button.getAttribute('aria-label')).toBe('Library: Workflow library')
     expect(button.getAttribute('data-tooltip-label')).toBe('Browse saved workflows')
     expect(button.querySelector('.sidebar-button-label')?.textContent).toBe('Library')
     expect(button.querySelector('.sidebar-button-icon [data-testid="test-rail-icon"]')).not.toBeNull()
@@ -1171,7 +1170,6 @@ describe('left activity rail buttons', () => {
   })
 
   it('uses semantic shell tokens for the activity rail, labels, and focus outline', () => {
-    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
     expect(css).toMatch(/\.left-sidebar\s*\{[^}]*width:\s*72px;[^}]*flex:\s*0 0 72px;/s)
     expect(css).toMatch(/\.sidebar-button\s*\{[^}]*flex-direction:\s*column;[^}]*min-height:\s*72px;[^}]*font-family:\s*var\(--dinkster-font-family\);/s)
     expect(css).toMatch(/\.sidebar-button-icon svg\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px;[^}]*stroke-width:\s*1\.5;/s)
@@ -1989,7 +1987,6 @@ describe('DockZoneHost', () => {
     const items = [...overflowMenu()!.querySelectorAll('[role="menuitemradio"]')]
     expect(items.map((item) => item.getAttribute('aria-checked'))).toEqual(['true', 'false'])
     // The checked item is visually distinguished, not just announced.
-    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
     expect(css).toMatch(/\.dock-zone-overflow-menu button\[aria-checked='true'\]\s*\{[^}]*background:/s)
 
     click(items[1]!)

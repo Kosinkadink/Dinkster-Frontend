@@ -63,8 +63,8 @@ export interface DinksterLinkWire {
 /**
  * A typed-literal input value: {$typed: {type, value}} - the second reserved
  * input marker beside $link (Dinkster ea6eca7). The stamp names the concrete
- * runtime type id (same vocabulary workers wrap with: 'core.int',
- * 'list<core.int>', ...) the engine wraps "value" with, so a literal can
+ * runtime type id (same vocabulary workers wrap with: 'INT',
+ * 'list<INT>', ...) the engine wraps "value" with, so a literal can
  * feed a destination whose declared type does not resolve to a runtime id.
  * EMISSION RULE (joint contract, pinned 6382cf1; AMENDED 2026-07-26 for
  * typed assets): emit into non-concrete destinations, AND into concrete
@@ -104,7 +104,7 @@ export const parseTypedLiteralWire = (v: Json): { readonly type: string; readonl
  */
 export const DINKSTER_GRAPH_FEATURE_TYPED_LITERAL = 'typedLiteral'
 
-/** The /api/nodes graph feature advertising lossless unsafe core.int literals. */
+/** The /api/nodes graph feature advertising lossless unsafe INT literals. */
 export const DINKSTER_GRAPH_FEATURE_DECIMAL_INT = 'decimalInt'
 
 /** The /api/nodes graph feature advertising first-class region execution. */
@@ -114,7 +114,7 @@ export const DINKSTER_GRAPH_FEATURE_REGIONS = 'regions'
 export const typedLiteralWire = (type: string, value: Json): DinksterTypedLiteralWire =>
   ({ $typed: { type, value } })
 
-/** Lossless graph form for a core.int literal outside JavaScript's safe range. */
+/** Lossless graph form for a INT literal outside JavaScript's safe range. */
 export type DinksterDecimalIntegerWire = {
   readonly $int: string
 }
@@ -229,6 +229,16 @@ export function typeExprToDinksterWire(t: TypeExpr): Json | undefined {
         : undefined
     case 'wildcard':
       return { kind: 'wildcard' }
+    case 'family_tuple':
+      return { kind: 'family_tuple', input: t.input }
+    case 'tuple_element': {
+      const element = t.element === undefined ? undefined : typeExprToDinksterWire(t.element)
+      return { kind: 'tuple_element', ...(t.input !== undefined ? { input: t.input } : element !== undefined ? { element } : {}), index: t.index }
+    }
+    case 'tuple': {
+      const elements = t.elements.map(typeExprToDinksterWire)
+      return elements.some((element) => element === undefined) ? undefined : { kind: 'tuple', elements: elements as Json[] }
+    }
     case 'variable': {
       if (t.templateId === '') return undefined
       if (t.allowedTypes === undefined || t.allowedTypes.length === 0)

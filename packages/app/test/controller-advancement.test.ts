@@ -63,8 +63,8 @@ describe('controllerAdvancement', () => {
     const exactSchema: NodeSchema = {
       type: 'ExactSeed', displayName: 'Exact Seed', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'core.int' } },
-        { kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'core.int' }, optional: false,
+        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
+        { kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 0, max: '18446744073709551615', step: 1 }, default: 0, controller: 'after_generate' } },
       ],
     }
@@ -687,9 +687,9 @@ describe('COMBO control-after-generate', () => {
     const comboSchema: NodeSchema = {
       type: 'ComboController', displayName: 'Combo Controller', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'core.string' } },
+        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'STRING' } },
         ...(['up', 'down', 'random'] as const).map((id) => ({
-          kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'core.combo' }, optional: false,
+          kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'COMBO' }, optional: false,
           widget: { widgetType: 'COMBO', options: { options: ['alpha', 'beta', 'gamma'] }, controller: 'after_generate' as const },
         })),
       ],
@@ -1084,7 +1084,7 @@ describe('control_after_refresh advancement', () => {
   const combo = (id: string) => ({
     kind: 'input' as const,
     id,
-    type: { kind: 'concrete' as const, name: 'core.combo' },
+    type: { kind: 'concrete' as const, name: 'COMBO' },
     optional: false,
     widget: {
       widgetType: 'COMBO', options: {}, default: 'a', controller: 'after_refresh' as const,
@@ -1097,7 +1097,7 @@ describe('control_after_refresh advancement', () => {
   }
   const sourceSchema: NodeSchema = {
     type: 'ComboSource', displayName: 'Combo Source', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'core.combo' } }],
+    items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'COMBO' } }],
   }
   const comboFixture = () => ({
     format: 'dinkster-workflow' as const, formatVersion: 1 as const, lineage: 'combo-refresh-test', root: 'g0',

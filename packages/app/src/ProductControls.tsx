@@ -15,13 +15,22 @@ export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
       class={`product-button${local.class ? ` ${local.class}` : ''}`}
       data-variant={local.variant ?? 'secondary'}
       data-size={local.size ?? 'control'}
-      aria-busy={local.loading === true ? 'true' : undefined}
+      aria-busy={local.loading === true ? 'true' : button['aria-busy']}
       disabled={local.disabled === true || local.loading === true}
     >{local.children}</button>
   )
 }
 
 type ProductTextInputType = 'text' | 'search' | 'url' | 'password' | 'email' | 'tel'
+
+export function ProductFileInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type' | 'hidden'>) {
+  return <input {...props} type="file" hidden />
+}
+
+export function ProductColorInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  const [local, input] = splitProps(props, ['class'])
+  return <input {...input} type="color" class={`product-text-input product-color-input${local.class ? ` ${local.class}` : ''}`} />
+}
 
 export function ProductTextInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   readonly type?: ProductTextInputType

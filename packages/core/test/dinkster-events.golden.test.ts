@@ -157,6 +157,59 @@ describe('dinkster region lifecycle events', () => {
   })
 })
 
+describe('dinkster execution semantics events', () => {
+  it('normalizes one blocked reason and the expanded children under their parent', () => {
+    const events = replay([
+      {
+        type: 'node_blocked', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent.0.0.child',
+        detail: { origin: 'source/value', message: 'source produced no value', displayNodeId: 'parent' },
+      },
+      {
+        type: 'node_expanded', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent.0.0.child',
+        detail: { children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayNodeId: 'parent' },
+      },
+      {
+        type: 'node_started', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent.0.0.output',
+        detail: { parentId: 'parent', displayNodeId: 'source' },
+      },
+    ])
+    expect(events).toEqual([
+      {
+        kind: 'nodeBlocked', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
+        runtimeNodeId: 'parent.0.0.child',
+        blocked: { origin: 'source/value', message: 'source produced no value', displayRuntimeNodeId: 'parent' },
+      },
+      {
+        kind: 'nodeExpanded', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
+        runtimeNodeId: 'parent.0.0.child',
+        expansion: { children: ['parent.0.0.child/left', 'parent.0.0.child/right'], childCount: 2, displayRuntimeNodeId: 'parent' },
+      },
+      {
+        kind: 'nodeStates', execution: { connection: CONN, prompt: 'job-semantics' }, timestamp: 0,
+        nodes: {
+          'parent.0.0.output': {
+            state: 'running', parentRuntimeNodeId: 'parent', displayRuntimeNodeId: 'source',
+          },
+        },
+      },
+    ])
+  })
+
+  it('drops malformed blocked and expansion detail without guessing', () => {
+    const malformed: string[] = []
+    const normalizer = new DinksterNormalizer(CONN, () => 0, (detail) => malformed.push(detail))
+    expect(normalizer.normalize({
+      type: 'node_blocked', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'consumer',
+      detail: { origin: 'source/value' },
+    })).toEqual([])
+    expect(normalizer.normalize({
+      type: 'node_expanded', runId: 'run-semantics', jobId: 'job-semantics', nodeId: 'parent',
+      detail: { children: ['child'], childCount: 2 },
+    })).toEqual([])
+    expect(malformed).toEqual(['node_blocked with malformed detail', 'node_expanded with malformed detail'])
+  })
+})
+
 describe('dinkster stream replay: success', () => {
   const events = replay(successStream.messages)
 
@@ -192,8 +245,8 @@ describe('dinkster stream replay: success', () => {
     // detail.outputs (backend commit ea9ab93): {outputId: {typeId, length?}}
     // for INTERMEDIATE nodes mid-run, not just job-result targets.
     const done = new Map(nodeEntries(events).filter(([, p]) => p.state === 'done'))
-    expect(done.get('r')!.outputs).toEqual({ items: { typeId: 'list<core.int>', length: 3 } })
-    expect(done.get('a')!.outputs).toEqual({ out: { typeId: 'core.int', value: 8 } })
+    expect(done.get('r')!.outputs).toEqual({ items: { typeId: 'list<INT>', length: 3 } })
+    expect(done.get('a')!.outputs).toEqual({ out: { typeId: 'INT', value: 8 } })
     expect(done.get('a')!.outputs!['out']).not.toHaveProperty('length')
   })
 
@@ -327,8 +380,8 @@ describe('dinkster stream replay: cached', () => {
 
   it('cache hits carry the same per-output summaries as fresh finishes', () => {
     const cached = new Map(nodeEntries(events).filter(([, p]) => p.state === 'cached'))
-    expect(cached.get('r')!.outputs).toEqual({ items: { typeId: 'list<core.int>', length: 3 } })
-    expect(cached.get('a')!.outputs).toEqual({ out: { typeId: 'core.int', value: 8 } })
+    expect(cached.get('r')!.outputs).toEqual({ items: { typeId: 'list<INT>', length: 3 } })
+    expect(cached.get('a')!.outputs).toEqual({ out: { typeId: 'INT', value: 8 } })
   })
 })
 
@@ -911,8 +964,8 @@ describe('completed-job hydration (nodeStatesFromDinksterJob)', () => {
     expect(nodeStatesFromDinksterJob(successStream.job)).toEqual({
       m: { state: 'done' },
       a: { state: 'done' },
-      p: { state: 'done', outputs: { out: { typeId: 'core.int' } } },
-      r: { state: 'done', outputs: { items: { typeId: 'list<core.int>', length: 3 } } },
+      p: { state: 'done', outputs: { out: { typeId: 'INT' } } },
+      r: { state: 'done', outputs: { items: { typeId: 'list<INT>', length: 3 } } },
     })
   })
 
@@ -920,8 +973,8 @@ describe('completed-job hydration (nodeStatesFromDinksterJob)', () => {
     expect(nodeStatesFromDinksterJob(cachedStream.job)).toEqual({
       m: { state: 'cached' },
       a: { state: 'cached' },
-      p: { state: 'cached', outputs: { out: { typeId: 'core.int' } } },
-      r: { state: 'cached', outputs: { items: { typeId: 'list<core.int>', length: 3 } } },
+      p: { state: 'cached', outputs: { out: { typeId: 'INT' } } },
+      r: { state: 'cached', outputs: { items: { typeId: 'list<INT>', length: 3 } } },
     })
     expect(nodeStatesFromDinksterJob(skipStream.job)).toEqual({
       m: { state: 'done' },

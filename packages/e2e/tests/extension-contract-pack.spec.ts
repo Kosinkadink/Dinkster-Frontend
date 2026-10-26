@@ -26,7 +26,7 @@ test('an ordinary third-party pack activates and executes through public contrac
     )
     .toEqual({ contract: true, value: true, defaultPack: false })
   const status = page.locator(
-    '[data-host-ui-contribution="dinkster-extension-contract-fixture.status"]',
+    '[data-host-ui-contribution="fixture.status"]',
   )
   await expect(status).toContainText('Third-party pack route ready', {
     timeout: 15_000,

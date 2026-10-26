@@ -70,7 +70,7 @@ test.beforeEach(async ({ page }) => {
       options: Record<string, unknown> = {},
       controller?: 'after_generate',
     ) => ({
-      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'core.combo' : widgetType }, optional: false,
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue, ...(controller ? { controller } : {}) },
     })
     window.__dinksterTest!.app.registerSchemas([{

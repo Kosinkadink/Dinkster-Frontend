@@ -1,9 +1,11 @@
 # Video trim and crop widget
 
-`comfy.VIDEO_EDIT` inputs open a one-track, one-clip editor from the canvas or
+`VIDEO_EDIT` inputs open a one-track, one-clip editor from the canvas or
 an exposed App view parameter. Each schema declares a `VIDEO_EDIT` widget
 descriptor whose presentation-only `features` list selects the visible trim
 and crop sections. The frontend does not infer features from node type IDs.
+Native video producers and consumers use the canonical `VIDEO` identity;
+audio producers use `AUDIO`. Prefixed lookalikes are not native media aliases.
 An open App view editor remains
 open while shared-workspace tab metadata synchronizes.
 
@@ -18,6 +20,12 @@ Negative starts are relative to the source end. Frame positions use average
 fps and are approximate for variable-frame-rate media. `strict_duration`
 remains a separate sibling input; Apply commits both changes in one undo step.
 Linked strict inputs are read-only, and crop-only nodes do not gain one.
+
+Preview, crop presets, handles and footer actions use `ProductButton`;
+strict duration uses `ProductCheckbox`, and playhead/trim handles use
+`ProductSlider`. Numeric fields use `ProductNumberInput`. Sliders support
+arrow keys, Page Up/Down and Home/End; crop handles retain their source-pixel
+pointer and keyboard geometry. Editor layout uses shared semantic tokens.
 
 The Crop section stores source-pixel `x`, `y`, `width`, and `height`. A width
 or height less than or equal to zero means the full source frame. Crop

@@ -17,13 +17,16 @@ const cases: Array<{
   { type: 'INT', options: { min: 2, max: 9 }, explicit: 5, intrinsic: 2, invalid: 10, invalidCode: 'widget.INT.aboveMax', view: 'core.number' },
   { type: 'FLOAT', options: { min: 0.5, max: 2 }, explicit: 1.25, intrinsic: 0.5, invalid: -1, invalidCode: 'widget.FLOAT.belowMin', view: 'core.number' },
   { type: 'STRING', options: {}, explicit: 'hello', intrinsic: '', invalid: 3, view: 'core.line' },
+  { type: 'MARKDOWN', options: {}, explicit: '## Heading\n\n**bold**', intrinsic: '', invalid: 3, view: 'core.markdown' },
   { type: 'BOOLEAN', options: {}, explicit: true, intrinsic: false, invalid: 'true', view: 'core.toggle' },
   { type: 'COMBO', options: { options: ['euler', 'ddim'] }, explicit: 'ddim', intrinsic: 'euler', invalid: 'unknown', invalidCode: 'widget.COMBO.unknownOption', view: 'core.select' },
   { type: 'MULTI_COMBO', options: { options: ['euler', 'ddim'] }, explicit: ['ddim', 'euler', 'ddim'], intrinsic: [], invalid: ['unknown'], invalidCode: 'widget.MULTI_COMBO.unknownOption', view: 'core.multiSelect' },
   { type: 'COLOR', options: {}, explicit: '#12345678', intrinsic: '#ffffff', invalid: 42, view: 'core.color' },
+  { type: 'COLORS', options: {}, explicit: ['#A1B2C3dd', '#f00', '#A1B2C3dd'], intrinsic: [], invalid: ['#fff', 3], view: 'core.colors' },
   { type: 'CURVE', options: {}, explicit: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, intrinsic: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, invalid: { points: [{ position: 1, value: 0 }, { position: 1, value: 1 }] }, view: 'core.curve' },
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
+  { type: 'AUDIO_RECORD', options: {}, explicit: { ...asset, name: 'recording.webm', mediaType: 'audio/webm' }, intrinsic: undefined, invalid: asset, view: 'core.audioRecord' },
   { type: 'SAVE_TARGET', options: {}, explicit: target, intrinsic: undefined, invalid: { mount: 'Output', prefix: '../cat' }, invalidCode: 'widget.SAVE_TARGET.invalid', view: 'core.saveTarget' },
 ]
 
@@ -45,15 +48,58 @@ const dispositions = [
   { type: 'BOOLEAN', compact: 'core.toggle', expanded: 'inline toggle; no modal' },
   { type: 'COMBO', compact: 'core.select', expanded: 'searchable option popover' },
   { type: 'MULTI_COMBO', compact: 'core.multiSelect', expanded: 'ordered multi-select popover' },
+  { type: 'LIST', compact: 'core.list', expanded: 'typed JSON array popover' },
   { type: 'COLOR', compact: 'core.color', expanded: 'HSV and hex popover' },
   { type: 'CURVE', compact: 'core.curve', expanded: 'curve editor' },
   { type: 'COMPOSITOR', compact: 'core.compositor', expanded: 'image editor compositor mode' },
   { type: 'ASSET', compact: 'core.asset', expanded: 'product asset modal' },
   { type: 'SAVE_TARGET', compact: 'core.saveTarget', expanded: 'mount and prefix popover' },
   { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
+  { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
+  { type: 'MARKDOWN', compact: 'core.markdown', expanded: 'safe preview and source popover' },
+  { type: 'AUDIO_RECORD', compact: 'core.audioRecord', expanded: 'explicit recording and staged audio asset modal' },
+  { type: 'COLORS', compact: 'core.colors', expanded: 'ordered palette draft popover' },
 ] as const
 
 describe('registered widget disposition inventory', () => {
+  it('copies COLORS defaults without truncation or normalization and draws ordered compact swatches', () => {
+    const defaults = ['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000']
+    const spec: WidgetSpec = { widgetType: 'COLORS', options: {}, default: defaults }
+    const kind = registry.kind('COLORS')!
+    const copied = kind.defaultValue(spec) as string[]
+    expect(copied).toEqual(defaults)
+    expect(copied).not.toBe(defaults)
+    copied.reverse()
+    expect(defaults).toEqual(['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000'])
+    expect(kind.defaultValue({ ...spec, default: ['#fff', 3] })).toEqual([])
+    expect(effectiveWidgetDefault({ ...spec, default: ['#fff', 3] })).toEqual([])
+    const rec = recordingBuilder()
+    const view = registry.viewsFor('COLORS')[0]!
+    view.drawCompact(rec.builder, defaults, spec, { focused: false, connected: false, readonly: false })
+    expect(rec.rects.filter((rect) => rect.style['fill'] !== undefined).map((rect) => rect.style['fill'])).toEqual(defaults.slice(0, 4))
+    expect(rec.texts.map((text) => text.run)).toContain('5 colors')
+    expect(rec.actions).toEqual(['widget.edit'])
+    const readonly = recordingBuilder()
+    view.drawCompact(readonly.builder, defaults, spec, { focused: false, connected: true, readonly: true })
+    expect(readonly.actions).toEqual([])
+  })
+
+  it('validates list elements and keeps display and submission defaults aligned', () => {
+    for (const [widgetType, values] of [
+      ['STRING', ['red', 'blue']], ['INT', [-7, '18446744073709551615']], ['FLOAT', [0.125, -3.75]],
+    ] as const) {
+      const spec: WidgetSpec = { widgetType: 'LIST', options: {}, element: { widgetType, options: {} }, default: values }
+      const kind = registry.kind('LIST')!
+      expect(kind.defaultValue(spec)).toEqual(values)
+      expect(effectiveWidgetDefault(spec)).toEqual(values)
+      expect(kind.validate([...values], spec)).toEqual([])
+      expect(kind.validate([[values[0]]], spec).some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
+      expect(kind.defaultView(spec)).toBe('core.list')
+      expect(kind.defaultValue({ ...spec, default: values[0] })).toEqual([])
+      expect(effectiveWidgetDefault({ ...spec, default: values[0] })).toEqual([])
+    }
+  })
+
   it('gives every registered core family an explicit compact and expanded/modal disposition', () => {
     expect(dispositions.map(({ type }) => type).sort()).toEqual(registeredFamilies.sort())
     for (const disposition of dispositions) {
@@ -166,6 +212,7 @@ describe('compact display through the real registered views', () => {
     ['core.number', 'INT', 7, {}, '7'],
     ['core.number', 'FLOAT', 1.25, {}, '1.3'],
     ['core.line', 'STRING', 'hello', {}, 'hello'],
+    ['core.markdown', 'MARKDOWN', '## Heading\nsecond line', {}, '## Heading'],
     ['core.text', 'STRING', 'first\nsecond', {}, ['first', 'second']],
     ['core.toggle', 'BOOLEAN', true, {}, 'true'],
     ['core.toggle', 'BOOLEAN', true, { labelOn: 'Enabled' }, 'Enabled'],
@@ -210,13 +257,13 @@ describe('compact display through the real registered views', () => {
   it('derives save-target type and output format only from canonical schema metadata', () => {
     const png = saveTargetPresentation(
       { widgetType: 'SAVE_TARGET', options: { suffix: '.png' } },
-      { kind: 'concrete', name: 'dinkster.save_target' },
+      { kind: 'concrete', name: 'SAVE_TARGET' },
     )
-    expect(png).toEqual({ canonicalType: 'dinkster.save_target', suffix: '.png', outputFormat: '.png' })
+    expect(png).toEqual({ canonicalType: 'SAVE_TARGET', suffix: '.png', outputFormat: '.png' })
     expect(saveTargetPresentation(
       { widgetType: 'SAVE_TARGET', options: {} },
-      { kind: 'concrete', name: 'dinkster.save_target' },
-    )).toEqual({ canonicalType: 'dinkster.save_target', suffix: '', outputFormat: 'generic' })
+      { kind: 'concrete', name: 'SAVE_TARGET' },
+    )).toEqual({ canonicalType: 'SAVE_TARGET', suffix: '', outputFormat: 'generic' })
   })
 
   it('COLOR paints a swatch filled with the stored color plus the uppercased text', () => {
@@ -232,6 +279,7 @@ describe('compact display through the real registered views', () => {
     ['core.color', 'COLOR', '#123456', {}],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: null, commands: [] }, {}],
     ['core.asset', 'ASSET', asset, {}],
+    ['core.audioRecord', 'AUDIO_RECORD', null, {}],
     ['core.saveTarget', 'SAVE_TARGET', target, {}],
     ['core.toggle', 'BOOLEAN', false, {}],
     ['core.text', 'STRING', 'x', {}],

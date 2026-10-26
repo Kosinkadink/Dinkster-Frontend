@@ -30,7 +30,7 @@ export const APP_EDITOR_KIND = 'app'
 /** Built-in image editor. Mask editing is one capability within it. */
 export const IMAGE_EDITOR_KIND = 'image'
 
-/** Built-in editor for one dinkster.curve input. */
+/** Built-in editor for one CURVE input. */
 export const CURVE_EDITOR_KIND = 'curve'
 
 /** Built-in editor for one first-party GLSL Shader source input. */

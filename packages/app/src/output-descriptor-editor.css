@@ -5,11 +5,11 @@
 .output-descriptor-editor {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--dinkster-space-12);
   flex: 0 0 auto;
   box-sizing: border-box;
   width: 100%;
-  padding: 12px;
+  padding: var(--dinkster-space-12);
 }
 
 .output-descriptor-editor h3,
@@ -18,8 +18,8 @@
 }
 
 .output-descriptor-editor p {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--dinkster-type-body-size);
+  line-height: var(--dinkster-type-body-line);
 }
 
 .output-descriptor-entries,
@@ -27,17 +27,17 @@
 .output-descriptor-editor > label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--dinkster-space-8);
   min-width: 0;
 }
 
 .output-descriptor-entry {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
-  border: 1px solid var(--border, #454545);
-  border-radius: 6px;
-  padding: 10px;
+  gap: var(--dinkster-space-12);
+  border: 1px solid var(--dinkster-border-strong);
+  border-radius: var(--dinkster-radius-control);
+  padding: var(--dinkster-space-12);
   margin: 0;
 }
 
@@ -45,32 +45,22 @@
   grid-column: 1 / -1;
 }
 
-.output-descriptor-editor input,
-.output-descriptor-editor textarea {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
+.output-descriptor-editor .product-text-area { resize: none; }
 
 .output-descriptor-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--dinkster-space-8);
   grid-column: 1 / -1;
-}
-
-.output-descriptor-notice {
-  border-left: 3px solid #d4a64b;
-  padding: 8px;
 }
 
 .output-descriptor-stale-links {
   display: grid;
-  gap: 6px;
-  padding: 10px;
-  border: 1px solid var(--dinkster-danger-border, #8c4545);
-  border-radius: 6px;
-  background: var(--dinkster-danger-background, #351f1f);
+  gap: var(--dinkster-space-8);
+  padding: var(--dinkster-space-12);
+  border: 1px solid var(--dinkster-danger-border);
+  border-radius: var(--dinkster-radius-control);
+  background: var(--dinkster-danger-background);
 }
 
 .output-descriptor-stale-links h4,
@@ -80,7 +70,7 @@
 
 .output-descriptor-stale-links ul {
   display: grid;
-  gap: 6px;
+  gap: var(--dinkster-space-8);
   padding: 0;
   list-style: none;
 }
@@ -89,7 +79,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--dinkster-space-12);
 }
 
 .output-descriptor-stale-links code {

@@ -25,7 +25,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     const profile = mode === true
     const fixedIds = mode !== false
     const choices = profile
-      ? ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete' as const, name: `dinkster.${id}` }, displayName: id.toUpperCase() }))
+      ? ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete' as const, name: id.toUpperCase() }, displayName: id.toUpperCase() }))
       : ['float', 'string'].map((id) => ({ id, type: { kind: 'concrete' as const, name: `core.${id}` } }))
     const entries = profile ? [] : [
       { id: fixedIds ? 'float' : 'm0', name: 'Result', type: 'float', expression: 'a+b' },
@@ -36,8 +36,8 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     window.__dinksterTest!.app.registerSchemas([{
       type: nodeType, displayName: profile ? 'Load Model Profile' : 'Named Expressions', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        ...(profile ? [{ kind: 'input' as const, id: 'checkpoint', type: { kind: 'concrete' as const, name: 'dinkster.asset' }, optional: false, widget: { widgetType: 'ASSET', options: {} } }] : []),
-        { kind: 'input', id: 'entries', displayName: 'Output schema', type: { kind: 'concrete', name: 'core.string' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: source } },
+        ...(profile ? [{ kind: 'input' as const, id: 'checkpoint', type: { kind: 'concrete' as const, name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', options: {} } }] : []),
+        { kind: 'input', id: 'entries', displayName: 'Output schema', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: source } },
         { kind: 'output', id: 'entries', type: choices[0]!.type, outputDescriptors: { input: 'entries', choices, minEntries: profile ? 1 : 0, maxEntries: profile ? 3 : 32, fixedIds, ...(profile ? { probe: { input: 'checkpoint', kind: 'model' as const, revision: '1' } } : {}) } },
       ],
     }])
@@ -52,6 +52,29 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
 
 const stored = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes.n!.values.entries as string)
 const pins = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'n')!.layout.pins.filter((pin) => pin.direction === 'out' && !pin.widgetTap).map((pin) => pin.address.port))
+
+test('descriptor controls and stored JSON at desktop and compact widths', async ({ page }) => {
+  await setup(page)
+  await page.evaluate(async () => {
+    window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
+      graphId: 'root', nodeId: 'n', inputId: 'entries',
+      value: JSON.stringify({ entries: [{ id: 'm0', name: 'Result', type: 'float', expression: 'a+b' }], extra: { preserved: true } }),
+    } })
+  })
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
+    await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: -100, scale: 1 }))
+    await openDescriptors(page)
+    await expect(page.getByLabel('Output 1 name', { exact: true })).toHaveValue('Result')
+    await expect(page).toHaveScreenshot(`descriptor-controls-${width}.png`, { animations: 'disabled', maxDiffPixelRatio: 0.002 })
+    await page.getByRole('button', { name: 'Stored JSON', exact: true }).click()
+    await page.getByTestId('output-descriptors-apply').scrollIntoViewIfNeeded()
+    await expect(page.getByLabel('Descriptor document', { exact: true })).toBeVisible()
+    await expect(page).toHaveScreenshot(`descriptor-json-${width}.png`, { animations: 'disabled', maxDiffPixelRatio: 0.002 })
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.getByTestId('output-descriptor-editor')).toBeHidden()
+  }
+})
 
 test('production descriptor editor preserves IDs, extra fields, undo and typed rows', async ({ page }, info) => {
   await setup(page)
@@ -247,7 +270,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     const app = window.__dinksterTest!.app
     const sink = (type: string, input: string) => ({
       type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true,
-      items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: `dinkster.${input}` }, optional: false }],
+      items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: input.toUpperCase() }, optional: false }],
     })
     app.registerSchemas([sink('ModelSink', 'model'), sink('ClipSink', 'clip'), sink('VaeSink', 'vae')])
     const original = app.activeTab()!.store.doc

@@ -2,7 +2,10 @@ import { createMemo, createSignal, For, Index, onCleanup, Show } from 'solid-js'
 import { outputDescriptorAssetDigest, parseOutputDescriptors, type Json, type JsonObject, type OutputDescriptorDocument, type OutputDescriptorsSpec } from '@dinkster/core'
 import type { AppState, Tab } from './app-state.js'
 import { useAppMessage } from './locale.js'
+import { ProductButton, ProductTextArea, ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
+import { ProductNotice } from './ProductForm.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import './output-descriptor-editor.css'
 
 /** Draft edits commit through the ordinary value command as one undo step. */
@@ -115,18 +118,18 @@ export function OutputDescriptorEditor(props: {
   return <section class="output-descriptor-editor" data-testid="output-descriptor-editor" aria-label={message('outputDescriptors.title')}>
     <h3>{message('outputDescriptors.title')}</h3>
     <p>{message(profile() ? 'outputDescriptors.description.profile' : 'outputDescriptors.description.editable')}</p>
-    <Show when={unsafeNumbers() && !profile()}><p role="status" class="output-descriptor-notice">{message('outputDescriptors.unsafeNumbers')}</p></Show>
+    <Show when={unsafeNumbers() && !profile()}><ProductNotice tone="status">{message('outputDescriptors.unsafeNumbers')}</ProductNotice></Show>
     <Show when={props.spec.probe}>
-      <button type="button" data-testid="output-profile-probe" disabled={busy()} onClick={() => void probe()}>{message(busy() ? 'outputDescriptors.action.probing' : 'outputDescriptors.action.probe')}</button>
+      <ProductButton size="compact" type="button" data-testid="output-profile-probe" disabled={busy()} onClick={() => void probe()}>{message(busy() ? 'outputDescriptors.action.probing' : 'outputDescriptors.action.probe')}</ProductButton>
     </Show>
-    <Show when={!parsed().ok}><p role="status" class="output-descriptor-notice">{(() => { const result = parsed(); return result.ok ? '' : result.error })()}</p></Show>
-    <For each={diagnostics()}>{(message) => <p role="status" class="output-descriptor-notice">{message}</p>}</For>
-    <Show when={document()} fallback={<p>{message(profile() ? 'outputDescriptors.empty.profile' : 'outputDescriptors.empty.editable')}</p>}>
+    <Show when={!parsed().ok}><ProductNotice tone="status">{(() => { const result = parsed(); return result.ok ? '' : result.error })()}</ProductNotice></Show>
+    <For each={diagnostics()}>{(message) => <ProductNotice tone="status">{message}</ProductNotice>}</For>
+    <Show when={document()} fallback={<ProductEmptyState title={message(profile() ? 'outputDescriptors.empty.profile' : 'outputDescriptors.empty.editable')} />}>
       <div class="output-descriptor-entries">
         <Index each={document()?.entries ?? []}>{(entry, index) => <fieldset class="output-descriptor-entry">
           <legend>{message('outputDescriptors.entry.legend', { number: index + 1 })}</legend>
-          <label>{message('outputDescriptors.field.name')}<input aria-label={message('outputDescriptors.field.nameLabel', { number: index + 1 })} value={entry().name} readOnly={readOnly()} onChange={(event) => update(index, { name: event.currentTarget.value })} /></label>
-          <label>{message('outputDescriptors.field.id')}<input aria-label={message('outputDescriptors.field.idLabel', { number: index + 1 })} value={entry().id} readOnly={readOnly()} disabled={props.spec.fixedIds} onChange={(event) => update(index, { id: event.currentTarget.value })} /></label>
+          <label>{message('outputDescriptors.field.name')}<ProductTextInput aria-label={message('outputDescriptors.field.nameLabel', { number: index + 1 })} value={entry().name} readOnly={readOnly()} onChange={(event) => update(index, { name: event.currentTarget.value })} /></label>
+          <label>{message('outputDescriptors.field.id')}<ProductTextInput aria-label={message('outputDescriptors.field.idLabel', { number: index + 1 })} value={entry().id} readOnly={readOnly()} disabled={props.spec.fixedIds} onChange={(event) => update(index, { id: event.currentTarget.value })} /></label>
           <label>{message('outputDescriptors.field.type')}<ProductSelect
             ariaLabel={message('outputDescriptors.field.typeLabel', { number: index + 1 })}
             disabled={readOnly()}
@@ -135,13 +138,13 @@ export function OutputDescriptorEditor(props: {
             onSelect={({ value }) => update(index, { type: value, ...(props.spec.fixedIds ? { id: value } : {}) })}
           /></label>
           <div class="output-descriptor-actions">
-            <button type="button" aria-label={message('outputDescriptors.action.moveUpLabel', { number: index + 1 })} disabled={readOnly() || index === 0} onClick={() => move(index, -1)}>{message('outputDescriptors.action.up')}</button>
-            <button type="button" aria-label={message('outputDescriptors.action.moveDownLabel', { number: index + 1 })} disabled={readOnly() || index === (document()?.entries.length ?? 0) - 1} onClick={() => move(index, 1)}>{message('outputDescriptors.action.down')}</button>
-            <button type="button" aria-label={message('outputDescriptors.action.removeLabel', { number: index + 1 })} disabled={readOnly() || (document()?.entries.length ?? 0) <= props.spec.minEntries} onClick={() => { const doc = document()!; write({ ...doc, entries: doc.entries.filter((_, i) => i !== index) }) }}>{message('outputDescriptors.action.remove')}</button>
+            <ProductButton size="compact" type="button" aria-label={message('outputDescriptors.action.moveUpLabel', { number: index + 1 })} disabled={readOnly() || index === 0} onClick={() => move(index, -1)}>{message('outputDescriptors.action.up')}</ProductButton>
+            <ProductButton size="compact" type="button" aria-label={message('outputDescriptors.action.moveDownLabel', { number: index + 1 })} disabled={readOnly() || index === (document()?.entries.length ?? 0) - 1} onClick={() => move(index, 1)}>{message('outputDescriptors.action.down')}</ProductButton>
+            <ProductButton size="compact" type="button" aria-label={message('outputDescriptors.action.removeLabel', { number: index + 1 })} disabled={readOnly() || (document()?.entries.length ?? 0) <= props.spec.minEntries} onClick={() => { const doc = document()!; write({ ...doc, entries: doc.entries.filter((_, i) => i !== index) }) }}>{message('outputDescriptors.action.remove')}</ProductButton>
           </div>
         </fieldset>}</Index>
       </div>
-      <button type="button" onClick={add} disabled={readOnly() || busy() || (document()?.entries.length ?? 0) >= props.spec.maxEntries}>{message('outputDescriptors.action.add')}</button>
+      <ProductButton size="compact" type="button" onClick={add} disabled={readOnly() || busy() || (document()?.entries.length ?? 0) >= props.spec.maxEntries}>{message('outputDescriptors.action.add')}</ProductButton>
     </Show>
     <Show when={props.staleLinks.length > 0}>
       <section class="output-descriptor-stale-links" data-testid="output-descriptor-stale-links" aria-label={message('outputDescriptors.stale.title')}>
@@ -150,25 +153,25 @@ export function OutputDescriptorEditor(props: {
         <ul>
           <For each={props.staleLinks}>{(link) => <li>
             <code>{link.outputId}</code>
-            <button
+            <ProductButton size="compact"
               type="button"
               aria-label={message('outputDescriptors.stale.disconnectLabel', { output: link.outputId })}
               onPointerDown={(event) => event.preventDefault()}
               onClick={() => props.onDisconnect(link.linkId)}
-            >{message('outputDescriptors.stale.disconnect')}</button>
+            >{message('outputDescriptors.stale.disconnect')}</ProductButton>
           </li>}</For>
         </ul>
       </section>
     </Show>
-    <button type="button" aria-expanded={raw()} onClick={() => setRaw(!raw())}>{message('outputDescriptors.action.storedJson')}</button>
+    <ProductButton size="compact" type="button" aria-expanded={raw()} onClick={() => setRaw(!raw())}>{message('outputDescriptors.action.storedJson')}</ProductButton>
     <Show when={raw()}>
-      <label>{message('outputDescriptors.raw.label')}<textarea aria-label={message('outputDescriptors.raw.label')} rows={8} value={text()} readOnly={profile()} onInput={(event) => { if (!profile()) setText(event.currentTarget.value) }} /></label>
+      <label>{message('outputDescriptors.raw.label')}<ProductTextArea aria-label={message('outputDescriptors.raw.label')} rows={8} value={text()} readOnly={profile()} onInput={(event) => { if (!profile()) setText(event.currentTarget.value) }} /></label>
       <p>{message(profile() ? 'outputDescriptors.raw.profile' : 'outputDescriptors.raw.editable')}</p>
     </Show>
-    <Show when={error()}><p role="alert" class="output-descriptor-notice">{error()}</p></Show>
+    <Show when={error()}><ProductNotice tone="error">{error()}</ProductNotice></Show>
     <footer class="output-descriptor-actions">
-      <button type="button" onClick={props.onClose}>{message('outputDescriptors.action.cancel')}</button>
-      <button type="button" class="primary" data-testid="output-descriptors-apply" disabled={busy() || !parsed().ok} onClick={apply}>{message('outputDescriptors.action.apply')}</button>
+      <ProductButton size="compact" type="button" onClick={props.onClose}>{message('outputDescriptors.action.cancel')}</ProductButton>
+      <ProductButton size="compact" type="button" variant="primary" data-testid="output-descriptors-apply" disabled={busy() || !parsed().ok} onClick={apply}>{message('outputDescriptors.action.apply')}</ProductButton>
     </footer>
   </section>
 }

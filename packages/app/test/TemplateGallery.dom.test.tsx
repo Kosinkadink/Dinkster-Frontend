@@ -132,7 +132,7 @@ describe('TemplateGallery', () => {
     host.querySelector<HTMLButtonElement>('[data-testid="template-card"]')!.click()
     await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Starter could not be opened'))
     expect(close).not.toHaveBeenCalled()
-    host.querySelector<HTMLButtonElement>('.template-gallery-error button')!.click()
+    host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
     await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(2))
     await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1))
     dispose()

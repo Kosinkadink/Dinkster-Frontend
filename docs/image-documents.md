@@ -10,6 +10,11 @@ tabs to durable images. **New from image** creates a document from PNG, JPEG, or
 WebP. The workspace restores every valid draft in the current project and keeps
 workflow tabs unchanged when you switch back.
 
+The workspace uses shared Product buttons and text fields, including primary
+publish/render actions and danger actions for removal and ending a shared
+session. Hidden Product file inputs retain native image selection for documents,
+layers and masks. Toolbar actions wrap and layer actions reflow in narrow panes.
+
 The left pane owns the raster layer tree and stacking order. The right pane
 edits names, visibility, fixed-point affine transforms, opacity, blend mode,
 and raster masks. Mask controls include enable, invert, opacity, combine mode,
@@ -41,7 +46,7 @@ through the same command history. All 27 declared blend modes are retained.
 
 ## Graph documents
 
-The Outputs panel offers **Open layers** for `dinkster.layers` and `comfy.LAYERS`
+The Outputs panel offers **Open layers** for `LAYERS` and `comfy.LAYERS`
 values. Opening uses the selected execution, runtime node and output identity
 on the value's owning connection and explicitly requests the `document`
 rendition. The response must identify the selected type and fingerprint, report
@@ -64,7 +69,7 @@ original graph source nor publishes a library record.
 
 Documents opened from an executed native layer output also offer **Export
 editable recipe**. It branches `dinkster.layers.edit` -> `dinkster.layers.flatten` ->
-`dinkster.save_image` from the original `dinkster.layers` output without replacing or
+`dinkster.save_image` from the original `LAYERS` output without replacing or
 rewiring that source. The edit node receives canonical document commands;
 format and quality are explicit save-node values. PNG, JPEG, and WebP are
 supported, quality is 0-100, and PNG remains lossless. Output policy is
@@ -110,7 +115,7 @@ The live acceptance executes paint, layer, and flatten nodes and checks every
 decoded transparency-mask sample against the identically edited explicit bake.
 For other eligible inputs, **Bake to asset** explicitly replaces the input
 asset; **Cancel** leaves the workflow unchanged. Typed PNG inputs use the same
-editor and command guard for `asset<dinkster.image>` and `asset<comfy.IMAGE>`;
+editor and command guard for `asset<IMAGE>`;
 hidden and driven inputs are not writable.
 
 ## Authoritative render

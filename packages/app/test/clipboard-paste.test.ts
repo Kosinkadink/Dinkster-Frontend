@@ -95,7 +95,7 @@ describe('pasteClipboardIntoTab (review AP8)', () => {
     // A native Float-style node: the widget input renders as a widget row,
     // so its ONLY scene record is the widgetBacked in pin. Connected paste
     // must still recognize it as a valid external-incoming target.
-    const floatType = { kind: 'concrete', name: 'core.float' }
+    const floatType = { kind: 'concrete', name: 'FLOAT' }
     const widgetNode = {
       id: 'mid', x: 0, y: 0, node: { id: 'mid', type: 'dinkster.float', values: {} }, isSubgraph: false,
       layout: {

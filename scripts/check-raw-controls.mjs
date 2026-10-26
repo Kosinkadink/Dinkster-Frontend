@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
-import { dirname, relative, resolve } from 'node:path'
+import { basename, dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
 const args = process.argv.slice(2)
@@ -25,10 +25,7 @@ async function files(directory) {
     if (entry.name === 'node_modules' || entry.name === 'dist') continue
     const path = resolve(directory, entry.name)
     if (entry.isDirectory()) found.push(...(await files(path)))
-    else if (
-      entry.isFile() &&
-      (/\.(?:ts|tsx)$/u.test(entry.name) || entry.name === 'styles.css')
-    )
+    else if (entry.isFile() && /\.(?:ts|tsx|css)$/u.test(entry.name))
       found.push(path)
   }
   return found
@@ -74,13 +71,29 @@ const counts = []
 const sourceRoot = args.includes('--source')
   ? root
   : resolve(root, 'packages/app/src')
+const declaredTokens = new Set(
+  (
+    await readFile(
+      new URL('../packages/core/src/ui/tokens.ts', import.meta.url),
+      'utf8',
+    )
+  ).match(/--dinkster-[\w-]+(?=['"]:)/gu) ?? [],
+)
+const tokenReferences = []
+let cssLiterals = 0
 for (const path of (await files(sourceRoot)).sort()) {
   const relativePath = relative(root, path).replaceAll('\\', '/')
   const sourceText = await readFile(path, 'utf8')
+  for (const match of sourceText.matchAll(/(--dinkster-[\w-]+)['"]?\s*:/gu))
+    declaredTokens.add(match[1])
+  for (const match of sourceText.matchAll(/var\(\s*(--dinkster-[\w-]+)/gu))
+    tokenReferences.push({ name: match[1], path: relativePath })
   if (path.endsWith('.css')) {
-    const count = countCss(sourceText)
-    if (count > 0)
-      counts.push({ kind: 'cssLiteral', path: relativePath, count })
+    if (
+      basename(path) === 'styles.css' ||
+      relative(sourceRoot, path).replaceAll('\\', '/').startsWith('styles/')
+    )
+      cssLiterals += countCss(sourceText)
     continue
   }
   const result = countTs(path, sourceText)
@@ -97,6 +110,25 @@ for (const path of (await files(sourceRoot)).sort()) {
       path: relativePath,
       count: result.inlineStyle,
     })
+}
+if (cssLiterals > 0)
+  counts.push({
+    kind: 'cssLiteral',
+    path: relative(root, resolve(sourceRoot, 'styles.css')).replaceAll(
+      '\\',
+      '/',
+    ),
+    count: cssLiterals,
+  })
+
+const undefinedTokens = tokenReferences.filter(
+  ({ name }) => !declaredTokens.has(name),
+)
+if (undefinedTokens.length > 0) {
+  console.error('Undefined design tokens:')
+  for (const { name, path } of undefinedTokens)
+    console.error(`  ${path}: ${name}`)
+  process.exit(1)
 }
 
 let allowlist
@@ -140,7 +172,10 @@ const totals = Object.fromEntries(
 const ceilingProblems = kinds.filter(
   (kind) =>
     !Number.isInteger(allowlist.ceilings?.[kind]) ||
-    totals[kind] > allowlist.ceilings[kind],
+    totals[kind] > allowlist.ceilings[kind] ||
+    (!write &&
+      kind !== 'inlineStyle' &&
+      totals[kind] < allowlist.ceilings[kind]),
 )
 const initializing =
   write &&
@@ -149,7 +184,7 @@ const initializing =
 
 if (!initializing && (growth.length > 0 || ceilingProblems.length > 0)) {
   console.error(
-    'Raw controls and styling literals exceed the checked-in ratchet:',
+    'Raw-control ratchet mismatch; reduce stale ceilings with `pnpm check:raw-controls:write`:',
   )
   for (const entry of growth)
     console.error(

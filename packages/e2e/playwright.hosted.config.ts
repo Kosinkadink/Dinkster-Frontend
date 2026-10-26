@@ -45,12 +45,24 @@ const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
 const nativeOutput = resolve(nativeLibrary, 'output')
 if (argumentProject) {
-  rmSync(nativeLibrary, { recursive: true, force: true })
+  // Catalog preparation creates pack environments and schema data here before
+  // Playwright loads this config. Reset only mutable test state so the native
+  // server can still compose those prepared default packs.
+  rmSync(nativeOutput, { recursive: true, force: true })
+  rmSync(resolve(nativeLibrary, 'vault'), { recursive: true, force: true })
+  rmSync(resolve(nativeLibrary, 'value-store'), {
+    recursive: true,
+    force: true,
+  })
+  rmSync(resolve(nativeLibrary, 'worker-state'), {
+    recursive: true,
+    force: true,
+  })
   mkdirSync(nativeOutput, { recursive: true })
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
   writeFileSync(
     resolve(nativeLibrary, 'settings.json'),
-    JSON.stringify({ features: { p2p: { enabled: false }, templates: { enabled: true } } }),
+    JSON.stringify({ features: { templates: { enabled: true } } }),
   )
   writeFileSync(
     resolve(nativeLibrary, 'mounts.toml'),
@@ -98,8 +110,8 @@ export default defineConfig({
       command: [
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
         '--host 127.0.0.1',
+        '--allow-host localhost',
         `--port ${nativePort}`,
-        '--disable-p2p',
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,
@@ -107,7 +119,7 @@ export default defineConfig({
         '--execution-cache-mode memory',
         '--allow-mount-changes',
         `--comfy-root ${JSON.stringify(comfyRoot)}`,
-        `--execution-python ${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))}`,
+        `--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`,
       ].join(' '),
       cwd: dinksterRoot,
       env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },
@@ -142,5 +154,5 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 180_000,
     },
-  ],
+  ].map((server) => ({ ...server, stdout: 'pipe' as const })),
 })

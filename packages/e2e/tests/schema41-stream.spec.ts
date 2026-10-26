@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 const pathSchema = {
   schemaVersion: 1, nodeType: 'comfy.VHS_LoadVideoPath', displayName: 'VHS_LoadVideoPath',
   interface: [{ role: 'input', id: 'video', required: true,
-    type: { kind: 'concrete', types: ['core.string'] },
+    type: { kind: 'concrete', types: ['STRING'] },
     widget: { type: 'STRING', placeholder: 'X://insert/path/here.mp4' },
   }],
 }
@@ -54,7 +54,7 @@ test('loads wire41 serializer fixtures and the native path widget without browse
     const graph = tab.store.doc.graphs[tab.store.doc.root]!
     const source = renderer.getScene().nodes.find((node) => graph.nodes[node.id]?.type === 'test.stream_source')!
     const pin = source.layout.pins.find((pin) => pin.direction === 'out')!
-    if (JSON.stringify(pin.type) !== JSON.stringify({ kind: 'stream', element: { kind: 'concrete', name: 'dinkster.image' } })) throw new Error('Stream type lost in scene')
+    if (JSON.stringify(pin.type) !== JSON.stringify({ kind: 'stream', element: { kind: 'concrete', name: 'IMAGE' } })) throw new Error('Stream type lost in scene')
     const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
     return { x: canvas.left + source.x + source.layout.width, y: canvas.top + source.y + pin.y }
   })

@@ -95,7 +95,7 @@ test('native SAVE_TARGET editor shows canonical type and generic output format',
   test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await openNativeSaveTarget(page)
   await expect(page.getByTestId('save-target-editor')).toHaveAttribute('data-mounts', 'ready')
-  await expect(page.getByTestId('save-target-editor').getByTestId('widget-editor-type')).toHaveText('dinkster.save_target')
+  await expect(page.getByTestId('save-target-editor').getByTestId('widget-editor-type')).toHaveText('SAVE_TARGET')
   await expect(page.getByTestId('save-target-output-format')).toHaveText('generic')
   await expect(page.getByTestId('save-target-suffix')).toHaveCount(0)
   await expect(page.getByTestId('save-target-prefix')).toHaveValue('ComfyUI')

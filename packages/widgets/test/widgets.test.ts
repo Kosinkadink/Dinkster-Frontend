@@ -3,7 +3,7 @@
  * contract; these tests double as its first consumer alongside the canvas.
  */
 import { describe, expect, it } from 'vitest'
-import { effectiveWidgetDefault, formatWidgetValue, type PreviewRenderer, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
+import { createHostUiProviderContextV1, decodeHostUiContributionV1, effectiveWidgetDefault, formatWidgetValue, type PreviewRenderer, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
 import {
   createWidgetRegistry,
   formatCompactFloat,
@@ -38,6 +38,31 @@ function recordingBuilder() {
   }
   return { ops, builder }
 }
+
+describe('BUTTON actions', () => {
+  it('registers a stateless kind and a readonly-aware view with an expanded command', () => {
+    const r = registry()
+    const s = spec('BUTTON', { display_name: 'Capture frame', command: 'fixture.capture' })
+    const kind = r.kind('BUTTON')!
+    expect(kind.defaultValue(s)).toBeNull()
+    expect(kind.valueSchema.validate(null)).toBe(true)
+    expect(kind.valueSchema.validate(true)).toBe(false)
+    const view = r.viewsFor('BUTTON').find((item) => item.id === kind.defaultView(s))!
+    const { builder, ops } = recordingBuilder()
+    view.drawCompact(builder, null, s, { focused: false, connected: false, readonly: false })
+    expect(ops.find((op) => op.op === 'text')?.args).toEqual([0, 0, 'Capture frame', { role: 'widgetValue', width: 1 }])
+    expect(ops.filter((op) => op.op === 'hitRegion')).toHaveLength(1)
+    ops.length = 0
+    view.drawCompact(builder, null, s, { focused: false, connected: false, readonly: true })
+    expect(ops.filter((op) => op.op === 'hitRegion')).toHaveLength(0)
+    const target = { kind: 'input', graphId: 'g', nodeId: 'n', inputId: 'capture' }
+    const data = { value: null, widget: { type: 'BUTTON', options: { display_name: 'Capture frame', command: 'fixture.capture' } }, target }
+    const decoded = decodeHostUiContributionV1(view.editorUi!(createHostUiProviderContextV1('widget-editor', data)))
+    expect(decoded.diagnostics).toEqual([])
+    expect(decoded.contribution?.root).toMatchObject({ kind: 'action', label: 'Capture frame', command: 'fixture.capture', payload: { value: null, target }, disabled: false })
+    expect(data.value).toBeNull()
+  })
+})
 
 describe('color conversion', () => {
   it('round-trips representative RGB colors through HSV', () => {
@@ -771,8 +796,8 @@ describe('compact views', () => {
       && (op.args[4] as { role?: string }).role === 'numericRangeFill')).toBe(false)
   })
 
-  it('FLOAT emits the same bounded range affordance without changing its formatted value', () => {
-    const view = registry().viewsFor('FLOAT').find((candidate) => candidate.id === 'core.number')!
+  it('FLOAT slider emits the bounded range affordance without changing its formatted value', () => {
+    const view = registry().viewsFor('FLOAT').find((candidate) => candidate.id === 'core.slider')!
     const { ops, builder } = recordingBuilder()
     view.drawCompact(builder, 0.25, spec('FLOAT', { display: 'slider', min: 0, max: 1, step: 0.01 }), {
       focused: false, connected: false, readonly: false,
@@ -781,6 +806,18 @@ describe('compact views', () => {
       && (op.args[4] as { role?: string }).role === 'numericRangeFill')?.args[4])
       .toMatchObject({ fraction: 0.25 })
     expect(ops.some((op) => op.op === 'text' && op.args[2] === '0.25')).toBe(true)
+  })
+
+  it('selects a FLOAT slider only for bounded slider schemas and keeps number view selectable', () => {
+    const r = registry()
+    const slider = spec('FLOAT', { display: 'slider', min: -2, max: 3, precision: 3 })
+    expect(r.kind('FLOAT')!.defaultView(slider)).toBe('core.slider')
+    expect(r.viewsFor('FLOAT').filter((view) => view.isCompatible(slider)).map((view) => view.id)).toEqual(['core.number', 'core.slider'])
+    for (const options of [{ display: 'slider' }, { display: 'slider', min: 2, max: 2 }, { display: 'slider', min: 3, max: 2 }, { min: -2, max: 3 }]) {
+      expect(r.kind('FLOAT')!.defaultView(spec('FLOAT', options))).toBe('core.number')
+    }
+    expect(formatCompactFloat(1.2, slider)).toBe('1.200')
+    expect(formatCompactFloat(1.8, spec('FLOAT', { precision: 0 }))).toBe('2')
   })
 
   it.each([

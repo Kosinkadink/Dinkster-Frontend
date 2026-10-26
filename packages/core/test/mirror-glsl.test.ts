@@ -114,12 +114,12 @@ const imageSourceSchema: NodeSchema = {
     {
       kind: 'input',
       id: 'level',
-      type: { kind: 'concrete', name: 'core.float' },
+      type: { kind: 'concrete', name: 'FLOAT' },
       optional: false,
       widget: { widgetType: 'NUMBER', options: {}, default: 0.75 },
     },
-    output('out', 'dinkster.image'),
-    output('scalar', 'core.float'),
+    output('out', 'IMAGE'),
+    output('scalar', 'FLOAT'),
   ],
 }
 
@@ -139,25 +139,25 @@ const gateSchema = (mirror: MirrorSpec | null = GLSL_MIRROR): NodeSchema => ({
   isOutputNode: false,
   ...(mirror ? { mirror } : {}),
   items: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'dinkster.image' }, optional: false } as InputSpec,
+    { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false } as InputSpec,
     {
       kind: 'input',
       id: 'steps',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       optional: false,
       widget: { widgetType: 'INT', options: {}, default: 4 },
     },
     {
       kind: 'input',
       id: 'enabled',
-      type: { kind: 'concrete', name: 'core.boolean' },
+      type: { kind: 'concrete', name: 'BOOLEAN' },
       optional: false,
       widget: { widgetType: 'TOGGLE', options: {}, default: true },
     },
     {
       kind: 'input',
       id: 'mode',
-      type: { kind: 'concrete', name: 'core.combo' },
+      type: { kind: 'concrete', name: 'COMBO' },
       optional: false,
       widget: {
         widgetType: 'COMBO',
@@ -165,7 +165,7 @@ const gateSchema = (mirror: MirrorSpec | null = GLSL_MIRROR): NodeSchema => ({
         default: 'soft',
       },
     },
-    output('image', 'dinkster.image'),
+    output('image', 'IMAGE'),
   ],
 })
 

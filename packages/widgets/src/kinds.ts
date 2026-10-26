@@ -11,6 +11,7 @@ import type {
   CompactState,
   Diagnostic,
   Json,
+  JsonObject,
   PackActivationApi,
   PreviewRenderer,
   SceneBuilder,
@@ -21,7 +22,7 @@ import type {
   TypeExpr,
   IntegerWidgetValue,
 } from '@dinkster/core'
-import { canonicalTypeIdOf, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isCompositorRecipe, isIntegerWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision } from '@dinkster/core'
+import { canonicalTypeIdOf, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -177,12 +178,19 @@ export const intKind: WidgetKind<IntegerWidgetValue> = {
   defaultView: () => 'core.number',
 }
 
+/**
+ * NumberWidget edits quantize by positive round, then toFixed(precision), then
+ * clamp to bounds; absent precision uses max(0, -floor(log10(round))). False or
+ * absent round preserves parsed precision. Step and display formatting do not
+ * round stored values. The app commit gate owns this editing-only conversion.
+ */
 export const floatKind: WidgetKind<number> = {
   type: 'FLOAT',
   valueSchema: numberSchema,
   defaultValue: (spec) => num(spec.default, num(spec.options['min'], 0)),
   validate: (value, spec) => rangeDiags(value, spec, 'FLOAT'),
-  defaultView: () => 'core.number',
+  defaultView: (spec) => spec.options['display'] === 'slider' && floatSliderView.isCompatible(spec)
+    ? 'core.slider' : 'core.number',
 }
 
 export const stringKind: WidgetKind<string> = {
@@ -196,6 +204,14 @@ export const stringKind: WidgetKind<string> = {
   defaultView: (spec) => (spec.options['multiline'] === true ? 'core.text' : 'core.line'),
 }
 
+export const buttonKind: WidgetKind<null> = {
+  type: 'BUTTON',
+  valueSchema: { version: 1, validate: (value): value is null => value === null },
+  defaultValue: () => null,
+  validate: () => [],
+  defaultView: () => 'core.button',
+}
+
 export const booleanKind: WidgetKind<boolean> = {
   type: 'BOOLEAN',
   valueSchema: booleanSchema,
@@ -204,6 +220,19 @@ export const booleanKind: WidgetKind<boolean> = {
   defaultView: () => 'core.toggle',
 }
 
+export const markdownKind: WidgetKind<string> = {
+  type: 'MARKDOWN',
+  valueSchema: stringSchema,
+  defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '',
+  validate: () => [],
+  defaultView: () => 'core.markdown',
+}
+
+/**
+ * refreshComboInNodes replaces option vocabulary in root and nested graphs,
+ * even with an empty list, without rewriting stored selections. Schema refresh
+ * owns that replacement; defaultValue is only for newly created inputs.
+ */
 export const comboKind: WidgetKind<Json> = {
   type: 'COMBO',
   // NaN/Infinity are not JSON numbers: they cannot round-trip a document.
@@ -248,14 +277,37 @@ export const multiComboKind: WidgetKind<string[]> = {
   defaultView: () => 'core.multiSelect',
 }
 
+export const listKind: WidgetKind<Json[]> = {
+  type: 'LIST',
+  valueSchema: { version: 1, validate: (value: unknown): value is Json[] => Array.isArray(value) },
+  defaultValue: (spec) => isPrimitiveListWidgetValue(spec.default, spec) ? [...spec.default] : [],
+  validate: (value, spec) => {
+    if (!isPrimitiveListWidgetValue(value, spec)) {
+      return [diag('error', 'schema', 'widget.LIST.invalidElement', `Enter a JSON array of ${spec.element?.widgetType ?? 'primitive'} values.`)]
+    }
+    const element = spec.element!
+    const kind = ({ INT: intKind, FLOAT: floatKind, STRING: stringKind } as Readonly<Record<string, WidgetKind>>)[element.widgetType]!
+    return value.flatMap((item) => kind.validate(item, element))
+  },
+  defaultView: () => 'core.list',
+}
+
 export const colorKind: WidgetKind<string> = {
   type: 'COLOR',
   valueSchema: stringSchema,
   defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '#ffffff',
-  // COLOR is a presentation hint over canonical core.string. Preserve every
+  // COLOR is a presentation hint over canonical STRING. Preserve every
   // string exactly; color parsing and normalization are view-only concerns.
   validate: () => [],
   defaultView: () => 'core.color',
+}
+
+export const colorsKind: WidgetKind<string[]> = {
+  type: 'COLORS',
+  valueSchema: { version: 1, validate: (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string') },
+  defaultValue: (spec) => colorsKind.valueSchema.validate(spec.default) ? [...spec.default] : [],
+  validate: () => [],
+  defaultView: () => 'core.colors',
 }
 
 export interface CurvePoint {
@@ -486,7 +538,7 @@ export const compositorKind: WidgetKind<Json> = {
 
 /**
  * Multi-select values (typed-assets pin (5)): a list-declared asset input
- * (`list<asset<T>>` / `list<dinkster.asset>`) stores an ARRAY of AssetRefs -
+ * (`list<asset<T>>` / `list<ASSET>`) stores an ARRAY of AssetRefs -
  * N selections are N descriptors in a list literal, no new server surface.
  * The value schema accepts arrays regardless of the declared type so a
  * document always LOADS; a shape/cardinality mismatch is the backend's
@@ -502,6 +554,14 @@ export const assetKind: WidgetKind<Json> = {
   defaultValue: (spec) => isAssetRef(spec.default) || isAssetRefList(spec.default) ? spec.default as unknown as Json : null,
   validate: () => [],
   defaultView: () => 'core.asset',
+}
+
+export const audioRecordKind: WidgetKind<(AssetRef & JsonObject) | null> = {
+  type: 'AUDIO_RECORD',
+  valueSchema: { version: 1, validate: (value: unknown): value is (AssetRef & JsonObject) | null => value === null || (isAssetRef(value) && value.mediaType.startsWith('audio/')) },
+  defaultValue: (spec) => audioRecordKind.valueSchema.validate(spec.default) ? spec.default : null,
+  validate: () => [],
+  defaultView: () => 'core.audioRecord',
 }
 
 /**
@@ -624,8 +684,9 @@ function drawCompactNumber(
   spec: WidgetSpec,
   state: CompactState,
   formatted: string,
+  slider = spec.options['display'] === 'slider',
 ): void {
-  const fraction = spec.options['display'] === 'slider' && typeof value === 'number'
+  const fraction = slider && typeof value === 'number'
     ? numericRangeFraction(value, spec)
     : undefined
   if (fraction !== undefined) {
@@ -644,7 +705,42 @@ export const numberView: WidgetView<IntegerWidgetValue> = {
 export const floatNumberView: WidgetView<number> = {
   ...makeCompactView<number>('core.number', 'FLOAT'),
   drawCompact(ctx, value, spec, state) {
-    drawCompactNumber(ctx, value, spec, state, formatCompactFloat(value, spec))
+    drawCompactNumber(ctx, value, spec, state, formatCompactFloat(value, spec), false)
+  },
+}
+export const floatSliderView: WidgetView<number> = {
+  ...makeCompactView<number>('core.slider', 'FLOAT'),
+  isCompatible(spec) {
+    const { min, max } = spec.options
+    return typeof min === 'number' && typeof max === 'number'
+      && Number.isFinite(min) && Number.isFinite(max) && max > min && Number.isFinite(max - min)
+  },
+  drawCompact(ctx, value, spec, state) {
+    drawCompactNumber(ctx, value, spec, state, formatCompactFloat(value, spec), true)
+  },
+}
+export const buttonView: WidgetView<null> = {
+  ...makeCompactView<null>('core.button', 'BUTTON'),
+  drawCompact(ctx, _value, spec, state) {
+    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
+    ctx.text(0, 0, typeof spec.options['display_name'] === 'string' ? spec.options['display_name'] : 'Button', { role: 'widgetValue', width: 1 })
+    if (!state.readonly && spec.options['disabled'] !== true) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
+  },
+  editorUi(context) {
+    const data = isJsonObject(context.data) ? context.data : {}
+    const widget = isJsonObject(data.widget) ? data.widget : {}
+    const options = isJsonObject(widget.options) ? widget.options : {}
+    const command = typeof options.command === 'string' ? options.command : 'core.unavailable-button'
+    return {
+      version: 1,
+      root: {
+        kind: 'action', key: 'core.button',
+        label: typeof options.display_name === 'string' ? options.display_name : 'Button',
+        command,
+        payload: { value: data.value ?? null, target: data.target ?? null },
+        disabled: options.disabled === true || typeof options.command !== 'string',
+      },
+    }
   },
 }
 export const lineView: WidgetView<string> = {
@@ -653,6 +749,13 @@ export const lineView: WidgetView<string> = {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
     const placeholder = value === '' && typeof spec.options['placeholder'] === 'string'
     compactRow(ctx, label, placeholder ? spec.options['placeholder'] as string : value, state, 'widget.edit', placeholder)
+  },
+}
+export const markdownView: WidgetView<string> = {
+  ...makeCompactView<string>('core.markdown', 'MARKDOWN'),
+  drawCompact(ctx, value, spec, state) {
+    const label = (spec.options['display_name'] as string | undefined) ?? ''
+    compactRow(ctx, label, value.split('\n')[0] ?? '', state, 'widget.edit')
   },
 }
 /** Multiline preview: canonical lines are emitted independently for row clipping. */
@@ -703,6 +806,13 @@ export const multiSelectView: WidgetView<string[]> = {
     compactRow(ctx, label, `${value.length} selected`, state, 'widget.edit')
   },
 }
+export const listView: WidgetView<Json[]> = {
+  ...makeCompactView<Json[]>('core.list', 'LIST'),
+  drawCompact(ctx, value, spec, state) {
+    const label = (spec.options['display_name'] as string | undefined) ?? ''
+    compactRow(ctx, label, JSON.stringify(value), state, 'widget.edit')
+  },
+}
 export const colorView: WidgetView<string> = {
   ...makeCompactView<string>('core.color', 'COLOR'),
   drawCompact(ctx, value, spec, state) {
@@ -715,6 +825,17 @@ export const colorView: WidgetView<string> = {
     ctx.text(1, 0, value, {
       role: 'widgetValue', align: 'right', width: 1, reserveLeft: 16, truncated: state.truncated ?? false,
     })
+    if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
+  },
+}
+export const colorsView: WidgetView<string[]> = {
+  ...makeCompactView<string[]>('core.colors', 'COLORS'),
+  drawCompact(ctx, value, _spec, state) {
+    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
+    for (const [index, color] of value.slice(0, 4).entries()) {
+      ctx.rect(index * 0.14, 0.2, 0.12, 0.6, { fill: color, fixedAspect: 'square' })
+    }
+    ctx.text(1, 0, `${value.length} colors`, { role: 'widgetValue', align: 'right', width: 1, reserveLeft: 64, truncated: state.truncated ?? false })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
   },
 }
@@ -768,6 +889,13 @@ export const assetView: WidgetView<Json> = {
         : 'no asset'
     const populated = isAssetRef(value) || (isAssetRefList(value) && value.length > 0)
     compactRow(ctx, label, text, state, 'widget.edit', !populated)
+  },
+}
+export const audioRecordView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.audioRecord', 'AUDIO_RECORD'),
+  drawCompact(ctx, value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      isAssetRef(value) ? value.name : 'no recording', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const saveTargetView: WidgetView<Json> = {
@@ -837,11 +965,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
-  for (const view of [numberView, floatNumberView, lineView, textView, toggleView, selectView,
-    multiSelectView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView]) {
+  for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

@@ -111,7 +111,7 @@ const schemas: Record<string, NodeSchema> = {
       },
     },
     input('name', {
-      type: { kind: 'concrete', name: 'core.string' },
+      type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'COMBO', options: {}, optionSource: { inputFamily: 'values' } },
     }),
     output('out'),
@@ -202,7 +202,7 @@ const schemas: Record<string, NodeSchema> = {
   ]),
   Counted: schemaOf('Counted', [
     input('count', {
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       widget: { widgetType: 'INT', options: {}, default: 3 },
     }),
     {

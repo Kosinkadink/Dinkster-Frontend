@@ -298,20 +298,20 @@ const sharedCountSchema: NodeSchema = {
     {
       kind: 'input',
       id: 'count',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       optional: false,
       widget: { widgetType: 'INT', options: {}, default: 3 },
     },
     {
       kind: 'output',
       id: 'results',
-      type: { kind: 'concrete', name: 'core.int' },
+      type: { kind: 'concrete', name: 'INT' },
       dynamic: {
         kind: 'autogrow',
         template: [{
           kind: 'input',
           id: 'result',
-          type: { kind: 'concrete', name: 'core.int' },
+          type: { kind: 'concrete', name: 'INT' },
           optional: false,
         }],
         naming: { kind: 'prefix', prefix: '', min: 0, max: 4 },

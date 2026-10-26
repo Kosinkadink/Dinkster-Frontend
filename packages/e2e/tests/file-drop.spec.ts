@@ -27,7 +27,7 @@ const STARTUP_CATALOG = {
       interface: [
         { role: 'input', id: 'latent', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.LATENT'] } }, widget: { type: 'ASSET', accept: ['application/x-comfy-latent'], kind: 'data/latent' } },
         { role: 'output', id: 'samples', type: { kind: 'concrete', types: ['comfy.LATENT'] } },
-        { role: 'output', id: 'vae_hint', type: { kind: 'concrete', types: ['core.string'] } },
+        { role: 'output', id: 'vae_hint', type: { kind: 'concrete', types: ['STRING'] } },
       ],
     },
   },

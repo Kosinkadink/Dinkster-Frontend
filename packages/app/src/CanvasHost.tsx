@@ -153,6 +153,8 @@ import type { LatentMetadata } from './latent-metadata.js'
 import { ModalSurface } from './ModalSurface.js'
 import { palettePreviewLayout, placementSchemaKey } from './palette-node-preview.js'
 import { ProductActionFooter } from './ProductForm.js'
+import { ProductButton } from './ProductControls.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import {
   CanvasSemanticNavigator,
   buildCanvasSemanticItems,
@@ -240,7 +242,7 @@ export function selectedInputPreviewA11yTargets(
 export function CanvasPreviewA11y(props: { readonly targets: readonly CanvasPreviewA11yTarget[] }) {
   return (
     <Show when={props.targets.length > 0}>
-      <div class="canvas-widget-a11y" aria-label="Selected input previews">
+      <div class="canvas-widget-a11y" role="group" aria-label="Selected input previews">
         <For each={props.targets}>{(item) => (
           <div role="img" data-testid="canvas-preview-a11y" aria-label={item.label}>{item.label}</div>
         )}</For>
@@ -575,7 +577,7 @@ export function CanvasViewControls(props: {
   return (
     <div class="canvas-view-controls" classList={{ drilled: props.drilled }}>
       <div class="canvas-view-control">
-        <button
+        <ProductButton size="compact"
           type="button"
           data-testid="views-switcher"
           data-tooltip-label={props.viewMenuOpen ? undefined : message('canvas.viewControls.view.tooltip')}
@@ -583,46 +585,46 @@ export function CanvasViewControls(props: {
           aria-expanded={props.viewMenuOpen}
           disabled={props.disabled}
           onClick={props.onToggleViewMenu}
-        ><Icon icon={AppWindow} /> {viewLabel()} <Icon icon={ChevronDown} /></button>
+        ><Icon icon={AppWindow} /> {viewLabel()} <Icon icon={ChevronDown} /></ProductButton>
         <Show when={props.viewMenuOpen}>
           <div class="lens-menu view-menu" role="menu">
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.views')}</div>
-            <button role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></button>
+            <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></ProductButton>
             <Show when={props.appViewEnabled}>
-              <button role="menuitemradio" aria-checked={props.activeView === APP_EDITOR_KIND} onClick={() => props.onSelectView(APP_EDITOR_KIND)}><strong>{message('canvas.viewControls.view.app')}</strong></button>
+              <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === APP_EDITOR_KIND} onClick={() => props.onSelectView(APP_EDITOR_KIND)}><strong>{message('canvas.viewControls.view.app')}</strong></ProductButton>
             </Show>
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.namedNets')}</div>
-            <button
+            <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-noodle"
               onClick={() => props.onSetAllNetsDisplay('noodle')}
-            ><strong>{message('canvas.viewControls.namedNets.noodles.label')}</strong><small>{message('canvas.viewControls.namedNets.noodles.description')}</small></button>
-            <button
+            ><strong>{message('canvas.viewControls.namedNets.noodles.label')}</strong><small>{message('canvas.viewControls.namedNets.noodles.description')}</small></ProductButton>
+            <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-tags"
               onClick={() => props.onSetAllNetsDisplay('tags')}
-            ><strong>{message('canvas.viewControls.namedNets.tags.label')}</strong><small>{message('canvas.viewControls.namedNets.tags.description')}</small></button>
-            <button
+            ><strong>{message('canvas.viewControls.namedNets.tags.label')}</strong><small>{message('canvas.viewControls.namedNets.tags.description')}</small></ProductButton>
+            <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-guide"
               onClick={() => props.onSetAllNetsDisplay('guide')}
-            ><strong>{message('canvas.viewControls.namedNets.guides.label')}</strong><small>{message('canvas.viewControls.namedNets.guides.description')}</small></button>
+            ><strong>{message('canvas.viewControls.namedNets.guides.label')}</strong><small>{message('canvas.viewControls.namedNets.guides.description')}</small></ProductButton>
           </div>
         </Show>
       </div>
       <div class="canvas-view-control">
-        <button
+        <ProductButton size="compact"
           type="button"
           data-testid="lens-switcher"
           data-tooltip-label={props.lensMenuOpen ? undefined : message('canvas.viewControls.lens.tooltip')}
           aria-haspopup="menu"
           aria-expanded={props.lensMenuOpen}
           onClick={props.onToggleLensMenu}
-        ><Icon icon={Layers} /> {props.activeLens.label} <Icon icon={ChevronDown} /></button>
+        ><Icon icon={Layers} /> {props.activeLens.label} <Icon icon={ChevronDown} /></ProductButton>
         <Show when={props.lensMenuOpen}>
           <div class="lens-menu" role="menu">
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.lenses')}</div>
-            <For each={props.lenses}>{(lens) => <button role="menuitemradio" aria-checked={props.activeLens.id === lens.id} onClick={() => props.onSelectLens(lens.id)}><strong>{lens.label}</strong><small>{lens.description}</small></button>}</For>
+            <For each={props.lenses}>{(lens) => <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeLens.id === lens.id} onClick={() => props.onSelectLens(lens.id)}><strong>{lens.label}</strong><small>{lens.description}</small></ProductButton>}</For>
           </div>
         </Show>
       </div>
@@ -1109,12 +1111,12 @@ export function NodeModel3dOverlay(props: {
             <Show when={props.media.download}>
               {(download) => <a class="node-output-download" href={download().src} download={download().name}>Download</a>}
             </Show>
-            <button
+            <ProductButton size="compact"
               type="button"
               class="node-model3d-open"
               aria-label="Open 3D orbit view"
               onClick={() => void open()}
-            >Orbit</button>
+            >Orbit</ProductButton>
           </div>
         </Show>
       }>
@@ -1122,12 +1124,12 @@ export function NodeModel3dOverlay(props: {
           <Show when={failed()}>
             <div class="node-media-failed">3D viewer unavailable</div>
           </Show>
-          <button
+          <ProductButton size="compact"
             type="button"
             class="node-model3d-close"
             aria-label="Close 3D orbit view"
             onClick={close}
-          >Close</button>
+          >Close</ProductButton>
           <Show when={props.media.download}>
             {(download) => <a class="node-output-download" href={download().src} download={download().name}>Download</a>}
           </Show>
@@ -1234,29 +1236,29 @@ export function NodeOutputPager(props: {
       <div class="node-output-pager-controls" role="group" aria-label={`${props.title} execution ${mediaKind()}s`}>
         <Show when={props.refusal}>{(reason) => <span class="image-preview-refusal" role="alert">{reason()}</span>}</Show>
         <Show when={props.count > 1}>
-          <button type="button" class="node-output-page-previous" aria-label={`Previous ${mediaKind()} for ${props.title}`} disabled={props.index <= 0} onClick={() => page(props.onPrevious)}>Previous</button>
+          <ProductButton size="compact" type="button" class="node-output-page-previous" aria-label={`Previous ${mediaKind()} for ${props.title}`} disabled={props.index <= 0} onClick={() => page(props.onPrevious)}>Previous</ProductButton>
           <Show when={props.onOpen !== undefined} fallback={
             <span class="node-output-position node-output-label" aria-label={`${mediaKind()} ${props.index + 1} of ${props.count} for ${props.title}`}>
               <span>{props.index + 1}/{props.count}</span>
             </span>
           }>
-            <button type="button" class="node-output-position" aria-label={`Open ${mediaKind()} ${props.index + 1} of ${props.count} for ${props.title}`} onClick={() => props.onOpen?.()}>
+            <ProductButton size="compact" type="button" class="node-output-position" aria-label={`Open ${mediaKind()} ${props.index + 1} of ${props.count} for ${props.title}`} onClick={() => props.onOpen?.()}>
               <span>{props.index + 1}/{props.count}</span>
               <Show when={props.width !== undefined && props.height !== undefined}>
                 <small>{props.width}x{props.height}</small>
               </Show>
-            </button>
+            </ProductButton>
           </Show>
-          <button type="button" class="node-output-page-next" aria-label={`Next ${mediaKind()} for ${props.title}`} disabled={props.index >= props.count - 1} onClick={() => page(props.onNext)}>Next</button>
+          <ProductButton size="compact" type="button" class="node-output-page-next" aria-label={`Next ${mediaKind()} for ${props.title}`} disabled={props.index >= props.count - 1} onClick={() => page(props.onNext)}>Next</ProductButton>
         </Show>
         <Show when={props.count === 1 && props.onOpen !== undefined}>
-          <button type="button" class="node-output-position" aria-label={`Open image 1 of 1 for ${props.title}`} onClick={() => props.onOpen?.()}>Open image</button>
+          <ProductButton size="compact" type="button" class="node-output-position" aria-label={`Open image 1 of 1 for ${props.title}`} onClick={() => props.onOpen?.()}>Open image</ProductButton>
         </Show>
         <Show when={props.download}>
           {(download) => <a href={download().src} download={download().name}>Download</a>}
         </Show>
         <Show when={props.virtualPath}>{(path) => <span class="node-output-path" title={path()}>{message('outputFile.writtenTo', { path: path() })}</span>}</Show>
-        <Show when={props.onReveal}><button type="button" class="node-output-reveal" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</button></Show>
+        <Show when={props.onReveal}><ProductButton size="compact" type="button" class="node-output-reveal" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</ProductButton></Show>
       </div>
     </div>
   )
@@ -4849,6 +4851,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(hit.row.selector !== undefined ? { selector: hit.row.selector } : {}),
         },
         spec: widgetKind === undefined ? undefined : spec,
+        viewId: hit.row.viewId,
+        ...(widgetKind === undefined ? { anchorSpec: spec } : {}),
         declaredType: hit.row.type,
         ...(hit.row.sourceFilename !== undefined ? { sourceFilename: hit.row.sourceFilename } : {}),
         // Captured at open time like declaredType: the merge arm gates on
@@ -4935,6 +4939,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         label: vs.title,
         target: { kind: 'valueSource', valueSourceId: vs.id },
         spec,
+        ...(viewId === undefined ? {} : { viewId }),
         // Raw fallback edits JSON text, which wants a multiline field.
         multiline: spec ? viewId === 'core.text' : true,
         rect: {
@@ -6042,21 +6047,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 </div>
                 <Show when={surface.cancelable} fallback={
                   <Show when={surface.state === 'success' || surface.state === 'error'}>
-                    <button
+                    <ProductButton variant="ghost" size="compact"
                       type="button"
                       class="canvas-file-drop-action"
                       aria-label={`Dismiss ${surface.title}`}
                       onClick={() => presentFileDropResult(undefined)}
                     >
                       <Icon icon={X} />
-                    </button>
+                    </ProductButton>
                   </Show>
                 }>
-                  <button
+                  <ProductButton size="compact"
                     type="button"
                     class="canvas-file-drop-action"
                     onClick={() => cancelCanvasFileDrop?.()}
-                  >Cancel</button>
+                  >Cancel</ProductButton>
                 </Show>
               </div>
             </section>
@@ -6075,13 +6080,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             <span style={{ 'max-height': `${refusal.contentMaxHeight}px` }}>
               <strong>{refusal.diagnostic.code}</strong>: {refusal.diagnostic.message}
             </span>
-            <button
+            <ProductButton variant="ghost" size="compact"
               type="button"
               aria-label="Dismiss refusal message"
               onClick={() => setGestureRefusal(undefined)}
             >
               <Icon icon={X} />
-            </button>
+            </ProductButton>
           </div>
         )}
       </Show>
@@ -6205,9 +6210,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         />}
       </Show>
       <Show when={!editor() && !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()}>
-        <div class="canvas-widget-a11y" aria-label="Canvas widget controls">
+        <div class="canvas-widget-a11y" role="group" aria-label="Canvas widget controls">
           <For each={widgetA11yTargets()}>{(item) => (
-            <button
+            <ProductButton size="compact"
               type="button"
               data-testid={item.activate ? 'canvas-exposure-a11y' : 'canvas-widget-a11y'}
               aria-label={item.label}
@@ -6220,7 +6225,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 props.tooltips?.show(item.target, { x: rect.left, y: rect.bottom + 8 }, undefined, true, tooltipOwner)
               }}
               onBlur={() => props.tooltips?.hide()}
-            >{item.label}</button>
+            >{item.label}</ProductButton>
           )}</For>
         </div>
       </Show>
@@ -6239,9 +6244,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             <div class="embedded-file-drop-choice">
               <p id="embedded-drop-description">This PNG contains a Comfy workflow. Choose one action; nothing runs automatically.</p>
               <ProductActionFooter>
-                <button type="button" autofocus onClick={choice.loadImage}>Load image</button>
-                <button type="button" onClick={choice.openWorkflow}>Open embedded workflow</button>
-                <button type="button" onClick={choice.cancel}>Cancel</button>
+                <ProductButton type="button" variant="primary" autofocus onClick={choice.loadImage}>Load image</ProductButton>
+                <ProductButton type="button" onClick={choice.openWorkflow}>Open embedded workflow</ProductButton>
+                <ProductButton type="button" onClick={choice.cancel}>Cancel</ProductButton>
               </ProductActionFooter>
             </div>
           </ModalSurface>
@@ -6276,7 +6281,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 },
               ]}>
                 {(option) => (
-                  <button
+                  <ProductButton variant="ghost" size="compact"
                     type="button"
                     role="menuitemradio"
                     aria-checked={menu().mode === option.mode}
@@ -6290,7 +6295,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                     <Icon icon={option.icon} />
                     <span><strong>{option.label}</strong><small>{option.description}</small></span>
                     <Show when={menu().mode === option.mode}><Icon icon={Check} /></Show>
-                  </button>
+                  </ProductButton>
                 )}
               </For>
             </div>
@@ -6312,23 +6317,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         <canvas ref={minimapEl} class="minimap" classList={{ hidden: (settingsTick(), !props.app.settings.get<boolean>('canvas.minimap.visible')) }} data-testid="minimap" data-node-colors={props.app.settings.get<boolean>('canvas.minimap.nodes')} data-bypass={props.app.settings.get<boolean>('canvas.minimap.bypass')} data-links={props.app.settings.get<boolean>('canvas.minimap.noodles')} data-groups={props.app.settings.get<boolean>('canvas.minimap.groups')} data-reroutes={props.app.settings.get<boolean>('canvas.minimap.reroutes')} data-errors={props.app.settings.get<boolean>('canvas.minimap.errors')} data-bookmarks={props.app.settings.get<boolean>('canvas.minimap.bookmarks')} />
         <div class="canvas-corner-bar">
           <div class="minimap-bar-controls" role="group" aria-label="Minimap controls">
-            <button type="button" class="canvas-corner-button" data-testid="minimap-toggle" data-tooltip-label={minimapVisible() ? 'Hide minimap' : 'Show minimap'} aria-label={minimapVisible() ? 'Hide minimap' : 'Show minimap'} aria-pressed={minimapVisible()} onClick={toggleMinimap}><Icon icon={MapIcon} /></button>
-            <button ref={minimapSettingsEl} type="button" class="canvas-corner-button" data-testid="minimap-settings" data-tooltip-label="Minimap settings" aria-label="Minimap settings" aria-expanded={minimapMenu()} onClick={() => minimapMenu() ? closeMinimapMenu() : openMinimapMenu()}><Icon icon={Settings2} /></button>
+            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="minimap-toggle" data-tooltip-label={minimapVisible() ? 'Hide minimap' : 'Show minimap'} aria-label={minimapVisible() ? 'Hide minimap' : 'Show minimap'} aria-pressed={minimapVisible()} onClick={toggleMinimap}><Icon icon={MapIcon} /></ProductButton>
+            <ProductButton variant="ghost" size="compact" ref={minimapSettingsEl} type="button" class="canvas-corner-button" data-testid="minimap-settings" data-tooltip-label="Minimap settings" aria-label="Minimap settings" aria-expanded={minimapMenu()} onClick={() => minimapMenu() ? closeMinimapMenu() : openMinimapMenu()}><Icon icon={Settings2} /></ProductButton>
           </div>
           <div class="canvas-zoom-controls" role="group" aria-label="Canvas view controls">
-            <button type="button" class="canvas-corner-button" data-testid="canvas-zoom-out" data-tooltip-label="Zoom out" aria-label="Zoom out (Alt+-)" onClick={() => zoomCanvas?.(1 / 1.2)}><Icon icon={ZoomOut} /></button>
-            <button type="button" class="canvas-corner-button canvas-zoom-level" data-testid="canvas-zoom-level" data-tooltip-label="Reset zoom to 100%" aria-label={`Reset zoom to 100%. Current zoom ${Math.round(editorViewport().scale * 100)}%`} onClick={() => resetCanvasZoom?.()}>{Math.round(editorViewport().scale * 100)}%</button>
-            <button type="button" class="canvas-corner-button" data-testid="canvas-fit-view" data-tooltip-label="Fit graph to view" aria-label="Fit graph to view (.)" onClick={() => fitCanvas?.()}><Icon icon={Maximize2} /></button>
-            <button type="button" class="canvas-corner-button" data-testid="canvas-zoom-in" data-tooltip-label="Zoom in" aria-label="Zoom in (Alt+=)" onClick={() => zoomCanvas?.(1.2)}><Icon icon={ZoomIn} /></button>
+            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-zoom-out" data-tooltip-label="Zoom out" aria-label="Zoom out (Alt+-)" onClick={() => zoomCanvas?.(1 / 1.2)}><Icon icon={ZoomOut} /></ProductButton>
+            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button canvas-zoom-level" data-testid="canvas-zoom-level" data-tooltip-label="Reset zoom to 100%" aria-label={`Reset zoom to 100%. Current zoom ${Math.round(editorViewport().scale * 100)}%`} onClick={() => resetCanvasZoom?.()}>{Math.round(editorViewport().scale * 100)}%</ProductButton>
+            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-fit-view" data-tooltip-label="Fit graph to view" aria-label="Fit graph to view (.)" onClick={() => fitCanvas?.()}><Icon icon={Maximize2} /></ProductButton>
+            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-zoom-in" data-tooltip-label="Zoom in" aria-label="Zoom in (Alt+=)" onClick={() => zoomCanvas?.(1.2)}><Icon icon={ZoomIn} /></ProductButton>
           </div>
         </div>
         <Show when={minimapMenu()}><div classList={{ 'minimap-menu': true, above: minimapMenuPose().above }} style={minimapMenuPose().above ? { 'max-height': `${minimapMenuPose().maxHeight}px` } : undefined}>
             <For each={[["nodes", "Node Colors", Palette], ["bypass", "Render Bypass State", CircleSlash2], ["noodles", "Show Links", Route], ["groups", "Show Frames/Groups", Frame], ["reroutes", "Reroutes", CircleSlash2], ["errors", "Render Error State", MessageCircleWarning]] as const}>{([id, label, icon]) => {
               const setting = `canvas.minimap.${id}`
               const enabled = () => (settingsTick(), props.app.settings.get<boolean>(setting))
-              return <button type="button" role="switch" class="minimap-setting-row" data-testid={`minimap-toggle-${id}`} aria-label={label} aria-checked={enabled()} onClick={() => { props.app.settings.set(setting, !enabled()); repaintMinimap?.() }}><Icon icon={icon} /><span>{label}</span><span class="minimap-switch" aria-hidden="true"><span /></span></button>
+              return <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid={`minimap-toggle-${id}`} aria-label={label} aria-checked={enabled()} onClick={() => { props.app.settings.set(setting, !enabled()); repaintMinimap?.() }}><Icon icon={icon} /><span>{label}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
             }}</For>
-            <button type="button" role="switch" class="minimap-setting-row" data-testid="minimap-marker-toggle" aria-checked={(settingsTick(), props.app.settings.get<boolean>('canvas.minimap.bookmarks'))} data-tooltip-label="Show bookmark numbers on the minimap" aria-label="Bookmarks. Show bookmark numbers on the minimap" onClick={() => { props.app.settings.set('canvas.minimap.bookmarks', !props.app.settings.get<boolean>('canvas.minimap.bookmarks')); repaintMinimap?.() }}><Icon icon={Bookmark} /><span>Bookmarks</span><span class="minimap-switch" aria-hidden="true"><span /></span></button>
+            <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid="minimap-marker-toggle" aria-checked={(settingsTick(), props.app.settings.get<boolean>('canvas.minimap.bookmarks'))} data-tooltip-label="Show bookmark numbers on the minimap" aria-label="Bookmarks. Show bookmark numbers on the minimap" onClick={() => { props.app.settings.set('canvas.minimap.bookmarks', !props.app.settings.get<boolean>('canvas.minimap.bookmarks')); repaintMinimap?.() }}><Icon icon={Bookmark} /><span>Bookmarks</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
           </div></Show>
       </div>
 
@@ -6353,13 +6358,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             </Show>
             <Show when={f().live}>
               {(live) => (
-                <button
+                <ProductButton size="compact"
                   class="banner-button"
                   data-testid="frozen-go-live"
                   onClick={() => props.app.activeTabId.set(live().id)}
                 >
                   Go to Live
-                </button>
+                </ProductButton>
               )}
             </Show>
           </div>
@@ -6381,7 +6386,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 : `edited since execution ${s().ref.prompt.slice(0, 8)} (${s().status})`}
             </span>
             <Show when={s().mode === 'pinned'}>
-              <button
+              <ProductButton size="compact"
                 class="banner-button"
                 data-testid="sync-chip-follow-latest"
                 onClick={() => {
@@ -6390,15 +6395,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 }}
               >
                 Follow Latest
-              </button>
+              </ProductButton>
             </Show>
-            <button
+            <ProductButton size="compact"
               class="banner-button"
               data-testid="sync-chip-open"
               onClick={() => props.app.openExecutionView(s().ref)}
             >
               View Frozen
-            </button>
+            </ProductButton>
           </div>
         )}
       </Show>
@@ -6407,7 +6412,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         <nav class="breadcrumb" data-testid="graph-breadcrumb">
           <Index each={stack()}>
             {(graphId, i) => (
-              <button
+              <ProductButton variant="ghost" size="compact"
                 class="crumb"
                 disabled={i === stack().length - 1}
                 onClick={() => {
@@ -6416,7 +6421,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 }}
               >
                 {breadcrumbName(graphId())}
-              </button>
+              </ProductButton>
             )}
           </Index>
         </nav>
@@ -6444,15 +6449,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         {(linkMenu) => (
           <div class="link-menu-layer" data-testid="link-double-click-backdrop" tabIndex={-1} onPointerDown={(event) => { if (event.target === event.currentTarget && performance.now() - linkMenuOpenedAt > LINK_MENU_DISMISS_GRACE_MS) setLinkDoubleClickMenu(undefined) }} onKeyDown={(event) => { if (event.key === 'Escape') setLinkDoubleClickMenu(undefined) }} ref={(element) => queueMicrotask(() => element.focus())}>
             <div class="link-double-click-menu" data-testid="link-double-click-menu" style={{ left: `${linkMenu.x}px`, top: `${linkMenu.y}px` }}>
-              <button type="button" onClick={() => {
+              <ProductButton variant="ghost" size="compact" type="button" onClick={() => {
                 const tab = activeTab()
                 setLinkDoubleClickMenu(undefined)
                 if (tab) props.app.dispatchTo(tab, { command: 'reroute.insert', params: { graphId: currentGraphId(tab), linkId: linkMenu.context.linkId, position: linkMenu.context.position } })
-              }}>Add reroute</button>
-              <button type="button" onClick={() => {
+              }}>Add reroute</ProductButton>
+              <ProductButton variant="ghost" size="compact" type="button" onClick={() => {
                 setLinkDoubleClickMenu(undefined)
                 openSplicePalette(linkMenu.context)
-              }}>Insert node...</button>
+              }}>Insert node...</ProductButton>
             </div>
           </div>
         )}
@@ -6501,7 +6506,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           >
             <Show
               when={valueSourceInfoFor(p().valueSourceId)}
-              fallback={<p class="empty">Value source missing.</p>}
+              fallback={<ProductEmptyState title="Value source missing." />}
             >
               {(info) => (
                 <>
@@ -6531,7 +6536,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                     )}
                   </For>
                   <Show when={!frozen() && info().specState === 'derived' && info().effective.spec}>
-                    <button
+                    <ProductButton size="compact"
                       class="banner-button"
                       data-testid="value-source-pin-spec"
                       // mousedown, not click: fires before the popover blurs.
@@ -6541,10 +6546,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       }}
                     >
                       Pin Current Spec
-                    </button>
+                    </ProductButton>
                   </Show>
                   <Show when={!frozen() && info().specState === 'declared'}>
-                    <button
+                    <ProductButton size="compact"
                       class="banner-button"
                       data-testid="value-source-unpin-spec"
                       onMouseDown={(e) => {
@@ -6553,7 +6558,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       }}
                     >
                       Unpin Spec
-                    </button>
+                    </ProductButton>
                   </Show>
                 </>
               )}
@@ -6576,7 +6581,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           >
             <Show
               when={selectorExecInfoFor(p().selectorId)}
-              fallback={<p class="empty">Selector missing.</p>}
+              fallback={<ProductEmptyState title="Selector missing." />}
             >
               {(info) => (
                 <>

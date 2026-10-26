@@ -55,7 +55,7 @@ import {
 } from './image-document-graph.js'
 import { useAppMessage } from './locale.js'
 import { activeProjectId } from './projects.js'
-import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import { ProductButton, ProductCheckbox, ProductFileInput, ProductTextInput } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
@@ -381,7 +381,7 @@ function ImageDocumentEditor(props: {
     <section class="image-document-editor" data-testid="image-document-editor">
       <header class="image-document-toolbar">
         <div class="image-document-identity">
-          <input
+          <ProductTextInput
             aria-label={message('imageDocument.editor.field.documentName')}
             value={entryName()}
             disabled={props.editingBlocked()}
@@ -391,26 +391,26 @@ function ImageDocumentEditor(props: {
           <Show when={libraryLink()}><span class="image-document-published">{message('imageDocument.editor.status.published')}</span></Show>
         </div>
         <div class="image-document-actions">
-          <button type="button" disabled={props.busy() || props.editingBlocked() || !canUndo()} onClick={() => props.entry.session.undo()}>{message('imageDocument.editor.action.undo')}</button>
-          <button type="button" disabled={props.busy() || props.editingBlocked() || !canRedo()} onClick={() => props.entry.session.redo()}>{message('imageDocument.editor.action.redo')}</button>
-          <button type="button" disabled={props.busy()} onClick={() => void props.onSave()}>{message('imageDocument.editor.action.saveDraft')}</button>
-          <button type="button" disabled={props.busy()} onClick={() => void props.onExport()}>{message('imageDocument.editor.action.exportSnapshot')}</button>
+          <ProductButton size="compact" type="button" disabled={props.busy() || props.editingBlocked() || !canUndo()} onClick={() => props.entry.session.undo()}>{message('imageDocument.editor.action.undo')}</ProductButton>
+          <ProductButton size="compact" type="button" disabled={props.busy() || props.editingBlocked() || !canRedo()} onClick={() => props.entry.session.redo()}>{message('imageDocument.editor.action.redo')}</ProductButton>
+          <ProductButton size="compact" type="button" disabled={props.busy()} onClick={() => void props.onSave()}>{message('imageDocument.editor.action.saveDraft')}</ProductButton>
+          <ProductButton size="compact" type="button" disabled={props.busy()} onClick={() => void props.onExport()}>{message('imageDocument.editor.action.exportSnapshot')}</ProductButton>
           <Show when={props.onExportRecipe} keyed>{(exportRecipe) =>
-            <button type="button" disabled={props.busy()} onClick={() => void exportRecipe()}>{message('imageDocument.editor.action.exportRecipe')}</button>
+            <ProductButton size="compact" type="button" disabled={props.busy()} onClick={() => void exportRecipe()}>{message('imageDocument.editor.action.exportRecipe')}</ProductButton>
           }</Show>
-          <button type="button" class="primary" disabled={props.busy()} onClick={() => void props.onPublish()}>
+          <ProductButton size="compact" type="button" variant="primary" disabled={props.busy()} onClick={() => void props.onPublish()}>
             {props.busy()
               ? message('imageDocument.editor.action.publishing')
               : libraryLink()
                 ? message('imageDocument.editor.action.updateLibrary')
                 : message('imageDocument.editor.action.publish')}
-          </button>
+          </ProductButton>
         </div>
       </header>
       <div class="image-document-body">
         <aside class="image-document-layers" aria-label={message('imageDocument.editor.region.layers')}>
-          <header><strong>{message('imageDocument.editor.title.layers')}</strong><button type="button" disabled={props.editingBlocked()} onClick={() => layerInput.click()}>{message('imageDocument.editor.action.addRaster')}</button></header>
-          <input ref={layerInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => {
+          <header><strong>{message('imageDocument.editor.title.layers')}</strong><ProductButton size="compact" type="button" disabled={props.editingBlocked()} onClick={() => layerInput.click()}>{message('imageDocument.editor.action.addRaster')}</ProductButton></header>
+          <ProductFileInput ref={layerInput} accept="image/png,image/jpeg,image/webp" onChange={(event) => {
             const file = event.currentTarget.files?.[0]
             if (file) void addLayer(file)
           }} />
@@ -419,8 +419,10 @@ function ImageDocumentEditor(props: {
               {(layerId) => {
                 const row = () => layerRows(documentValue()).find((candidate) => candidate.layer.id === layerId)!
                 return (
-                <button
+                <ProductButton
                   type="button"
+                  size="compact"
+                  variant="ghost"
                   class="image-document-layer-row"
                   classList={{ selected: layerId === selectedLayerId() }}
                   aria-pressed={layerId === selectedLayerId()}
@@ -430,25 +432,25 @@ function ImageDocumentEditor(props: {
                   <span>{row().layer.visible ? message('imageDocument.editor.status.on') : message('imageDocument.editor.status.off')}</span>
                   <strong>{row().layer.name || message('imageDocument.editor.status.unnamedLayer')}</strong>
                   <small>{row().layer.kind} - {Math.round(row().layer.opacity / IMAGE_OPACITY_MAX * 100)}%</small>
-                </button>
+                </ProductButton>
                 )
               }}
             </For>
           </div>
           <div class="image-document-layer-actions">
-            <button type="button" disabled={!selectedRow() || selectedRow()!.index >= selectedRow()!.siblingCount - 1} onClick={() => moveSelected(1)}>{message('imageDocument.editor.action.raise')}</button>
-            <button type="button" disabled={!selectedRow() || selectedRow()!.index === 0} onClick={() => moveSelected(-1)}>{message('imageDocument.editor.action.lower')}</button>
-            <button type="button" class="danger" disabled={!selected()} onClick={() => {
+            <ProductButton size="compact" type="button" disabled={!selectedRow() || selectedRow()!.index >= selectedRow()!.siblingCount - 1} onClick={() => moveSelected(1)}>{message('imageDocument.editor.action.raise')}</ProductButton>
+            <ProductButton size="compact" type="button" disabled={!selectedRow() || selectedRow()!.index === 0} onClick={() => moveSelected(-1)}>{message('imageDocument.editor.action.lower')}</ProductButton>
+            <ProductButton size="compact" type="button" variant="danger" disabled={!selected()} onClick={() => {
               const layer = selected()
               if (layer && dispatch({ command: 'image.layer.remove', params: { layerId: layer.id } })) {
                 setSelectedLayerId(documentValue().rootLayerIds.at(-1) ?? '')
               }
-            }}>{message('imageDocument.editor.action.remove')}</button>
-            <button type="button" style={{ 'grid-column': '1 / -1' }} disabled={!selectedRow() || props.editingBlocked()} onClick={groupSelected}>
+            }}>{message('imageDocument.editor.action.remove')}</ProductButton>
+            <ProductButton size="compact" type="button" style={{ 'grid-column': '1 / -1' }} disabled={!selectedRow() || props.editingBlocked()} onClick={groupSelected}>
               {selectedRow()?.index === 0
                 ? message('imageDocument.editor.action.wrapGroup')
                 : message('imageDocument.editor.action.groupBelow')}
-            </button>
+            </ProductButton>
           </div>
         </aside>
         <section class="image-document-preview" aria-label={message('imageDocument.editor.region.preview')}>
@@ -479,14 +481,15 @@ function ImageDocumentEditor(props: {
                   disabled={authoritativeBusy() || props.busy()}
                   onSelect={(option) => setRenderSelector(option.value)}
                 />
-                <button
+                <ProductButton
                   type="button"
-                  class="primary"
+                  size="compact"
+                  variant="primary"
                   disabled={authoritativeBusy() || props.busy()}
                   onClick={() => void renderAuthoritative()}
                 >{authoritativeBusy()
                     ? message('imageDocument.editor.action.rendering')
-                    : message('imageDocument.editor.action.render')}</button>
+                    : message('imageDocument.editor.action.render')}</ProductButton>
               </div>
             </header>
             <Show when={authoritativeResult()} keyed fallback={
@@ -552,7 +555,7 @@ function ImageDocumentEditor(props: {
                 onInput={(raw) => field.set(Number(raw))}
               /></label>}</For>
             </div>
-            <button type="button" disabled={props.editingBlocked()} onClick={() => {
+            <ProductButton type="button" disabled={props.editingBlocked()} onClick={() => {
               if (dispatch({ command: 'image.canvas.crop', params: {
                 x: cropX(), y: cropY(), width: cropWidth(), height: cropHeight(),
               } })) {
@@ -560,7 +563,7 @@ function ImageDocumentEditor(props: {
                 setCropWidth(documentValue().canvas.width); setCropHeight(documentValue().canvas.height)
                 setResizeWidth(documentValue().canvas.width); setResizeHeight(documentValue().canvas.height)
               }
-            }}>{message('imageDocument.editor.action.applyCrop')}</button>
+            }}>{message('imageDocument.editor.action.applyCrop')}</ProductButton>
           </fieldset>
           <fieldset data-testid="image-document-resize-controls">
             <legend>{message('imageDocument.editor.title.resize')}</legend>
@@ -570,12 +573,12 @@ function ImageDocumentEditor(props: {
               <label>{message('imageDocument.editor.field.height')}<ProductNumberInput ariaLabel={message('imageDocument.editor.aria.resize.height')} integer min={1} max={MAX_IMAGE_CANVAS_DIMENSION}
                 step={1} value={resizeHeight()} onInput={(raw) => setResizeHeight(Number(raw))} /></label>
             </div>
-            <button type="button" disabled={props.editingBlocked()} onClick={() => {
+            <ProductButton type="button" disabled={props.editingBlocked()} onClick={() => {
               if (dispatch({ command: 'image.canvas.resize', params: { width: resizeWidth(), height: resizeHeight() } })) {
                 setCropX(0); setCropY(0)
                 setCropWidth(documentValue().canvas.width); setCropHeight(documentValue().canvas.height)
               }
-            }}>{message('imageDocument.editor.action.applyResize')}</button>
+            }}>{message('imageDocument.editor.action.applyResize')}</ProductButton>
           </fieldset>
           <fieldset data-testid="image-document-output-controls">
             <legend>{message('imageDocument.editor.title.output')}</legend>
@@ -601,7 +604,7 @@ function ImageDocumentEditor(props: {
             {(layer) => <>
                 <fieldset>
                   <legend>{message('imageDocument.editor.title.layer')}</legend>
-                  <label>{message('imageDocument.editor.field.name')}<input value={layer().name} onChange={(event) => updateLayer({ name: event.currentTarget.value })} /></label>
+                  <label>{message('imageDocument.editor.field.name')}<ProductTextInput value={layer().name} onChange={(event) => updateLayer({ name: event.currentTarget.value })} /></label>
                   <label class="image-document-check"><ProductCheckbox ariaLabel={message('imageDocument.editor.aria.layerVisibility')} checked={layer().visible} onChange={(visible) => updateLayer({ visible })} /> {message('imageDocument.editor.field.visible')}</label>
                   <label>{message('imageDocument.editor.field.opacity')} <output>{Math.round(layer().opacity / IMAGE_OPACITY_MAX * 100)}%</output>
                     <ProductSlider
@@ -658,8 +661,8 @@ function ImageDocumentEditor(props: {
                 </fieldset>
                 <fieldset>
                   <legend>{message('imageDocument.editor.title.masks')}</legend>
-                  <button type="button" disabled={props.editingBlocked()} onClick={() => maskInput.click()}>{message('imageDocument.editor.action.addRasterMask')}</button>
-                  <input ref={maskInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => {
+                  <ProductButton type="button" disabled={props.editingBlocked()} onClick={() => maskInput.click()}>{message('imageDocument.editor.action.addRasterMask')}</ProductButton>
+                  <ProductFileInput ref={maskInput} accept="image/png,image/jpeg,image/webp" onChange={(event) => {
                     const file = event.currentTarget.files?.[0]
                     if (file) void addMask(file)
                   }} />
@@ -691,7 +694,7 @@ function ImageDocumentEditor(props: {
                           options={(['alpha', 'luminance'] as const).map((channel) => ({ id: channel, label: channel, value: channel }))}
                           onSelect={(option) => dispatch({ command: 'image.mask.update', params: { maskId, channel: option.value } })}
                         /></label>
-                        <button type="button" class="danger" onClick={() => dispatch({ command: 'image.mask.remove', params: { maskId } })}>{message('imageDocument.editor.action.removeMask')}</button>
+                        <ProductButton type="button" variant="danger" onClick={() => dispatch({ command: 'image.mask.remove', params: { maskId } })}>{message('imageDocument.editor.action.removeMask')}</ProductButton>
                       </div>
                       )
                     }}
@@ -1325,8 +1328,9 @@ export function ImageDocumentWorkspace(props: {
       <header class="image-document-tabs">
         <div ref={tablist} class="image-document-tablist" role="tablist" aria-label={message('imageDocument.workspace.tablist')}>
           <For each={documents()}>{(entry) => (
-            <button
+            <ProductButton
               id={tabId(entry.draft.document.lineage)}
+              size="compact"
               type="button"
               role="tab"
               aria-selected={entry.draft.document.lineage === activeLineage()}
@@ -1336,30 +1340,31 @@ export function ImageDocumentWorkspace(props: {
               classList={{ active: entry.draft.document.lineage === activeLineage() }}
               onClick={() => setActiveLineage(entry.draft.document.lineage)}
               onKeyDown={(event) => moveTabFocus(entry.draft.document.lineage, event)}
-            >{tabName(entry)}</button>
+            >{tabName(entry)}</ProductButton>
           )}</For>
         </div>
-        <button type="button" onClick={() => importInput.click()} disabled={busy()}>{message('imageDocument.workspace.action.newFromImage')}</button>
-        <button type="button" onClick={() => void browseLibrary()} disabled={busy()}>{message('imageDocument.workspace.action.openLibrary')}</button>
-        <button type="button" data-testid="image-collab-browse" onClick={() => void refreshCollaboration()} disabled={busy()}>{message('imageDocument.workspace.action.sharedImages')}</button>
+        <ProductButton size="compact" type="button" onClick={() => importInput.click()} disabled={busy()}>{message('imageDocument.workspace.action.newFromImage')}</ProductButton>
+        <ProductButton size="compact" type="button" onClick={() => void browseLibrary()} disabled={busy()}>{message('imageDocument.workspace.action.openLibrary')}</ProductButton>
+        <ProductButton size="compact" type="button" data-testid="image-collab-browse" onClick={() => void refreshCollaboration()} disabled={busy()}>{message('imageDocument.workspace.action.sharedImages')}</ProductButton>
         <Show when={active()} keyed>{(entry) => <>
           <Show when={entry.collaboration} fallback={
-            <button
+            <ProductButton
               type="button"
+              size="compact"
               data-testid="image-collab-share"
               onClick={() => void shareActive()}
               disabled={busy() || backendForCollaboration()?.protocol !== 'dinkster'}
-            >{message('imageDocument.workspace.action.share')}</button>
+            >{message('imageDocument.workspace.action.share')}</ProductButton>
           }>
             <span class="image-document-shared-status" data-status={sharedStatus(entry)}>
               {sharedStatus(entry) === 'live' ? message('imageDocument.workspace.shared.live') : sharedStatus(entry)}
             </span>
-            <button type="button" data-testid="image-collab-leave" onClick={() => void leaveShared(entry)} disabled={busy()}>{message('imageDocument.workspace.action.leave')}</button>
-            <button type="button" class="danger" data-testid="image-collab-end" onClick={askToEndShared} disabled={busy()}>{message('imageDocument.workspace.action.end')}</button>
+            <ProductButton size="compact" type="button" data-testid="image-collab-leave" onClick={() => void leaveShared(entry)} disabled={busy()}>{message('imageDocument.workspace.action.leave')}</ProductButton>
+            <ProductButton size="compact" type="button" variant="danger" data-testid="image-collab-end" onClick={askToEndShared} disabled={busy()}>{message('imageDocument.workspace.action.end')}</ProductButton>
           </Show>
         </>}</Show>
-        <button type="button" onClick={props.onClose} disabled={busy()}>{message('imageDocument.workspace.action.back')}</button>
-        <input ref={importInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => {
+        <ProductButton size="compact" type="button" onClick={props.onClose} disabled={busy()}>{message('imageDocument.workspace.action.back')}</ProductButton>
+        <ProductFileInput ref={importInput} accept="image/png,image/jpeg,image/webp" onChange={(event) => {
           const file = event.currentTarget.files?.[0]
           if (file) void importDocument(file)
         }} />
@@ -1410,9 +1415,9 @@ export function ImageDocumentWorkspace(props: {
             }
           }}
         >
-          <header><strong>{message('imageDocument.workspace.dialog.library.title')}</strong><button type="button" onClick={() => setLibraryOpen(false)}>{message('imageDocument.workspace.action.close')}</button></header>
+          <header><strong>{message('imageDocument.workspace.dialog.library.title')}</strong><ProductButton type="button" onClick={() => setLibraryOpen(false)}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
           <Show when={libraryRecords().length > 0} fallback={<p>{message('imageDocument.workspace.dialog.library.empty')}</p>}>
-            <For each={libraryRecords()}>{(record) => <button type="button" disabled={busy()} onClick={() => void openLibraryRecord(record)}><strong>{record.name}</strong><small>{message('imageDocument.workspace.dialog.library.revision', { revision: record.revision })}</small></button>}</For>
+            <For each={libraryRecords()}>{(record) => <ProductButton type="button" disabled={busy()} onClick={() => void openLibraryRecord(record)}><strong>{record.name}</strong><small>{message('imageDocument.workspace.dialog.library.revision', { revision: record.revision })}</small></ProductButton>}</For>
           </Show>
         </div>
       </Show>
@@ -1430,10 +1435,10 @@ export function ImageDocumentWorkspace(props: {
             }
           }}
         >
-          <header><strong>{message('imageDocument.workspace.dialog.shared.title')}</strong><button type="button" onClick={() => setCollaborationOpen(false)}>{message('imageDocument.workspace.action.close')}</button></header>
+          <header><strong>{message('imageDocument.workspace.dialog.shared.title')}</strong><ProductButton type="button" onClick={() => setCollaborationOpen(false)}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
           <Show when={collaborationSessions().length > 0} fallback={<p>{message('imageDocument.workspace.dialog.shared.empty')}</p>}>
             <For each={collaborationSessions()}>{(descriptor) =>
-              <button
+              <ProductButton
                 type="button"
                 disabled={busy()}
                 data-testid="image-collab-join"
@@ -1441,7 +1446,7 @@ export function ImageDocumentWorkspace(props: {
               >
                 <strong>{descriptor.documentId}</strong>
                 <small>{message('imageDocument.workspace.dialog.shared.revision', { revision: descriptor.revision })}</small>
-              </button>
+              </ProductButton>
             }</For>
           </Show>
         </div>
@@ -1461,8 +1466,8 @@ export function ImageDocumentWorkspace(props: {
           <header><strong id="image-document-end-title">{message('imageDocument.workspace.dialog.end.title')}</strong></header>
           <p>{message('imageDocument.workspace.dialog.end.description')}</p>
           <div class="image-document-end-actions">
-            <button type="button" data-testid="image-collab-end-cancel" onClick={() => setConfirmingEnd(false)} disabled={busy()}>{message('imageDocument.workspace.action.cancel')}</button>
-            <button ref={endConfirmButton} type="button" class="danger" data-testid="image-collab-end-confirm" onClick={() => void endShared(entry)} disabled={busy()}>{message('imageDocument.workspace.action.endSession')}</button>
+            <ProductButton type="button" data-testid="image-collab-end-cancel" onClick={() => setConfirmingEnd(false)} disabled={busy()}>{message('imageDocument.workspace.action.cancel')}</ProductButton>
+            <ProductButton ref={endConfirmButton} type="button" variant="danger" data-testid="image-collab-end-confirm" onClick={() => void endShared(entry)} disabled={busy()}>{message('imageDocument.workspace.action.endSession')}</ProductButton>
           </div>
         </div>
       }</Show>

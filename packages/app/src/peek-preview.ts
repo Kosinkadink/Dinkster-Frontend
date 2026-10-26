@@ -42,15 +42,13 @@ export interface PeekCandidate {
 const mediaKindOfType = (type: TypeExpr): 'image' | 'video' | 'audio' | 'model3d' | undefined => {
   if (type.kind === 'list' || type.kind === 'asset') return mediaKindOfType(type.element)
   if (type.kind !== 'concrete') return undefined
+  if (type.name === 'VIDEO') return 'video'
+  if (type.name === 'AUDIO') return 'audio'
   const name = type.name.toLowerCase()
-  return name.endsWith('.video')
-    ? 'video'
-    : name.endsWith('.audio')
-      ? 'audio'
-      : name.endsWith('.image')
-        ? 'image'
-        // dinkster.splat renders through the model3d pipeline via its PLY rendition.
-        : name.endsWith('.model3d') || name.endsWith('.splat') ? 'model3d' : undefined
+  return name === 'image' || name.endsWith('.image')
+    ? 'image'
+    // SPLAT renders through the model3d pipeline via its PLY rendition.
+    : name === 'model3d' || name === 'splat' || name.endsWith('.model3d') || name.endsWith('.splat') ? 'model3d' : undefined
 }
 
 /** Explicit final-output preview intent, preserving declaration order. */
@@ -190,17 +188,13 @@ export async function fetchPeekRendition(
       ...(options?.signal === undefined ? {} : { signal: options.signal }),
       ...(batchCount === undefined ? {} : { batch: Math.max(0, Math.min(options?.batchIndex ?? 0, batchCount - 1)) }),
     }
-    const audio = c.mediaKind === 'audio' || /(?:^|\.)audio$/i.test(
-      parseAssetTypeId(peeked.descriptor.typeId) ?? peeked.descriptor.typeId,
-    )
+    const audio = c.mediaKind === 'audio' || (parseAssetTypeId(peeked.descriptor.typeId) ?? peeked.descriptor.typeId) === 'AUDIO'
     if (audio) return {
       bytes: new ArrayBuffer(0), mime: 'audio/wav', node: c.node, output: c.output,
       ...(count !== undefined ? { count } : {}),
       audio: { descriptor: peeked.descriptor, query, renditions: peeked.renditions },
     }
-    const video = c.mediaKind === 'video' || /(?:^|\.)video$/i.test(
-      parseAssetTypeId(peeked.descriptor.typeId) ?? peeked.descriptor.typeId,
-    )
+    const video = c.mediaKind === 'video' || (parseAssetTypeId(peeked.descriptor.typeId) ?? peeked.descriptor.typeId) === 'VIDEO'
     // Original VIDEO bytes ignore lazy edits and may require an unbounded decode.
     const renditions = video
       ? ['preview', 'poster'].flatMap((kind) => peeked.renditions.filter((rendition) => rendition.kind === kind))

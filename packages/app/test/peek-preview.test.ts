@@ -49,7 +49,7 @@ describe('peekCandidatesFor', () => {
 
   it('inline scalar outputs are excluded (they render as companions)', () => {
     const execNodes = {
-      n1: done({ sum: { typeId: 'core.int', value: 42 }, image: { typeId: 'std.image' } }),
+      n1: done({ sum: { typeId: 'INT', value: 42 }, image: { typeId: 'std.image' } }),
     }
     expect(peekCandidatesFor({ ...base, execNodes, nodeId: 'n1' })).toEqual([
       { node: 'n1', output: 'image' },
@@ -59,7 +59,7 @@ describe('peekCandidatesFor', () => {
   it('a ran node NEVER falls back to producers, even with none of its own', () => {
     const sources = sourcesOf({ n1: { in: producer('p1', 'image') } })
     const execNodes = {
-      n1: done({ sum: { typeId: 'core.int', value: 7 } }),
+      n1: done({ sum: { typeId: 'INT', value: 7 } }),
       p1: done({ image: { typeId: 'std.image' } }),
     }
     expect(peekCandidatesFor({ ...base, sources, execNodes, nodeId: 'n1' })).toEqual([])
@@ -103,7 +103,7 @@ describe('peekCandidatesFor', () => {
       },
     })
     const execNodes = {
-      scalar: done({ sum: { typeId: 'core.int', value: 3 } }),
+      scalar: done({ sum: { typeId: 'INT', value: 3 } }),
       imgsrc: done({ image: { typeId: 'std.image' } }),
     }
     expect(peekCandidatesFor({ ...base, sources, execNodes, nodeId: 'preview' })).toEqual([
@@ -153,21 +153,23 @@ describe('peekCandidatesFor', () => {
     const schema = {
       type: 'test.media',
       items: [
-        { kind: 'output', id: 'video', type: { kind: 'concrete', name: 'comfy.VIDEO' }, preview: true },
-        { kind: 'output', id: 'unmarkedAudio', type: { kind: 'concrete', name: 'comfy.AUDIO' } },
-        { kind: 'output', id: 'audio', type: { kind: 'concrete', name: 'comfy.AUDIO' }, preview: true },
+        { kind: 'output', id: 'video', type: { kind: 'concrete', name: 'VIDEO' }, preview: true },
+        { kind: 'output', id: 'unmarkedAudio', type: { kind: 'concrete', name: 'AUDIO' } },
+        { kind: 'output', id: 'audio', type: { kind: 'concrete', name: 'AUDIO' }, preview: true },
+        { kind: 'output', id: 'extensionVideo', type: { kind: 'concrete', name: 'extension.foo.VIDEO' }, preview: true },
       ],
     } as unknown as NodeSchema
     expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
       { node: 'runtime', output: 'video', declaredIntent: true, mediaKind: 'video' },
       { node: 'runtime', output: 'audio', declaredIntent: true, mediaKind: 'audio' },
+      { node: 'runtime', output: 'extensionVideo', declaredIntent: true },
     ])
   })
 
   it('carries media intent through list output types', () => {
     const schema = {
       type: 'test.list-media',
-      items: [{ kind: 'output', id: 'videos', type: { kind: 'list', element: { kind: 'concrete', name: 'comfy.VIDEO' } }, preview: true }],
+      items: [{ kind: 'output', id: 'videos', type: { kind: 'list', element: { kind: 'concrete', name: 'VIDEO' } }, preview: true }],
     } as unknown as NodeSchema
     expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
       { node: 'runtime', output: 'videos', declaredIntent: true, mediaKind: 'video' },
@@ -180,7 +182,7 @@ describe('peekCandidatesFor', () => {
       items: [{
         kind: 'output',
         id: 'video',
-        type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.VIDEO' } },
+        type: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
         preview: true,
       }],
     } as unknown as NodeSchema
@@ -189,15 +191,25 @@ describe('peekCandidatesFor', () => {
     ])
   })
 
+  it('carries bare IMAGE intent through preview outputs', () => {
+    const schema = {
+      type: 'test.image',
+      items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, preview: true }],
+    } as unknown as NodeSchema
+    expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
+      { node: 'runtime', output: 'image', declaredIntent: true, mediaKind: 'image' },
+    ])
+  })
+
   it('carries model3d intent through concrete and asset-typed outputs', () => {
     const schema = {
       type: 'test.model3d',
       items: [
-        { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'dinkster.model3d' }, preview: true },
+        { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'MODEL3D' }, preview: true },
         {
           kind: 'output',
           id: 'saved',
-          type: { kind: 'asset', element: { kind: 'concrete', name: 'dinkster.model3d' } },
+          type: { kind: 'asset', element: { kind: 'concrete', name: 'MODEL3D' } },
           preview: true,
         },
       ],
@@ -211,7 +223,7 @@ describe('peekCandidatesFor', () => {
   it('carries splat intent through concrete outputs as model3d', () => {
     const schema = {
       type: 'test.splat',
-      items: [{ kind: 'output', id: 'splat', type: { kind: 'concrete', name: 'dinkster.splat' }, preview: true }],
+      items: [{ kind: 'output', id: 'splat', type: { kind: 'concrete', name: 'SPLAT' }, preview: true }],
     } as unknown as NodeSchema
     expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
       { node: 'runtime', output: 'splat', declaredIntent: true, mediaKind: 'model3d' },
@@ -295,7 +307,7 @@ describe('fetchPeekRendition', () => {
     expect(values.calls).toContain('rendition:a.image:png')
   })
 
-  it.each(['comfy.VIDEO', 'asset<comfy.VIDEO>'])('uses the bounded preview, never default original bytes, for %s', async (typeId) => {
+  it.each(['VIDEO', 'asset<VIDEO>'])('uses the bounded preview, never default original bytes, for %s', async (typeId) => {
     const values = fakeValues({
       peek: { 'a.video': {
         available: true, descriptor: { typeId, fingerprint: 'source' },
@@ -310,7 +322,7 @@ describe('fetchPeekRendition', () => {
 
   it('makes original-only VIDEO unavailable without fetching or decoding its bytes', async () => {
     const values = fakeValues({ peek: { 'a.video': {
-      available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'source' },
+      available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'source' },
       renditions: [{ kind: 'original', mime: 'video/mp4', default: true }],
     } } })
     await expect(fetchPeekRendition(values, 'job', [{ node: 'a', output: 'video' }]))
@@ -322,7 +334,7 @@ describe('fetchPeekRendition', () => {
     const calls: string[] = []
     const values: PeekValues = {
       peek: async () => ({
-        available: true, descriptor: { typeId: 'comfy.VIDEO', fingerprint: 'source' },
+        available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'source' },
         renditions: [{ kind: 'preview', mime: 'video/webm' }, { kind: 'poster', mime: 'image/png' }],
       }),
       rendition: async (_query, kind) => {
@@ -414,12 +426,12 @@ describe('fetchPeekRendition', () => {
         return query.element === undefined
           ? hit([{ kind: 'wav', mime: 'audio/wav', default: true }]) && {
               available: true,
-              descriptor: { typeId: 'list<comfy.AUDIO>', fingerprint: 'list', length: 3 },
+              descriptor: { typeId: 'list<AUDIO>', fingerprint: 'list', length: 3 },
               renditions: [],
             }
           : {
               available: true,
-              descriptor: { typeId: 'comfy.AUDIO', fingerprint: 'audio' },
+              descriptor: { typeId: 'AUDIO', fingerprint: 'audio' },
               renditions: [{ kind: 'wav', mime: 'audio/wav', default: true }],
             }
       },

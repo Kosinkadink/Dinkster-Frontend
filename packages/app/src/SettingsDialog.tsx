@@ -20,6 +20,7 @@ import { ProductCheckbox } from './ProductControls.js'
 import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 export interface PackSettingsClient {
   fetchPackSettings(packId: string): Promise<PackSettings>
@@ -371,7 +372,7 @@ export function SettingsDialog(props: {
             }>
               <div class="settings-results">
                 <p class="settings-result-status" role="status" aria-live="polite">{searchSummary()}</p>
-                <Show when={shownMatchCount() > 0} fallback={<div class="settings-empty-results"><strong>{message('settingsDialog.search.emptyTitle')}</strong><span>{message('settingsDialog.search.emptyBody')}</span></div>}>
+                <Show when={shownMatchCount() > 0} fallback={<ProductEmptyState testId="settings-search-empty" title={message('settingsDialog.search.emptyTitle')} hint={message('settingsDialog.search.emptyBody')} />}>
                   <For each={shownSearchGroups()}>{(group) => {
                     const headingId = `settings-result-group-${group.category}`
                     return <section class="settings-result-group" data-category={group.category} aria-labelledby={headingId}>

@@ -23,11 +23,11 @@ describe('dynamic prompt expansion pinned to ComfyUI_frontend bdc0345d', () => {
     const schema: NodeSchema = {
       type: 'Prompt', displayName: 'Prompt', category: 'test', source: 'v3', isOutputNode: true,
       items: [
-        { kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'core.string' }, optional: false,
+        { kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', options: { dynamicPrompts: true } } },
-        { kind: 'input', id: 'disabled', type: { kind: 'concrete', name: 'core.string' }, optional: false,
+        { kind: 'input', id: 'disabled', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', options: { dynamicPrompts: false } } },
-        { kind: 'input', id: 'absent', type: { kind: 'concrete', name: 'core.string' }, optional: false,
+        { kind: 'input', id: 'absent', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', options: {} } },
       ],
     }
@@ -63,7 +63,7 @@ describe('dynamic prompt expansion pinned to ComfyUI_frontend bdc0345d', () => {
     const disabled = { widgetType: 'STRING' as const, options: { dynamicPrompts: false } }
     const schema: NodeSchema = {
       type: 'Prompt', displayName: 'Prompt', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'prompt', type: { kind: 'concrete', name: 'core.string' }, optional: false,
+      items: [{ kind: 'input', id: 'prompt', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { ...enabled, representations: {
           default: 'enabled', userSwitchable: true,
           representations: [

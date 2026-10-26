@@ -120,7 +120,7 @@ function sourcePresentationScene(doc: WorkflowDocument, typeName: string): Scene
 }
 
 function widgetTapPresentationScene(): Scene {
-  const stringType = { kind: 'concrete' as const, name: 'core.string' }
+  const stringType = { kind: 'concrete' as const, name: 'STRING' }
   const localSchemas = new Map<string, NodeSchema>([
     ['MarkedString', {
       type: 'MarkedString', displayName: 'Marked', category: 'test', source: 'v3', isOutputNode: false,
@@ -193,16 +193,16 @@ describe('scene building with reroutes', () => {
     for (const dot of scene.reroutes) expect(dot.typeName, dot.id).toBe('IMAGE')
   })
 
-  it('traces core.combo identity across every chain segment and dot without provenance metadata', () => {
-    const comboScene = sourcePresentationScene(reroutedDoc(), 'core.combo')
-    for (const link of comboScene.links) expect(link.typeName, link.id).toBe('core.combo')
-    for (const dot of comboScene.reroutes) expect(dot.typeName, dot.id).toBe('core.combo')
+  it('traces COMBO identity across every chain segment and dot without provenance metadata', () => {
+    const comboScene = sourcePresentationScene(reroutedDoc(), 'COMBO')
+    for (const link of comboScene.links) expect(link.typeName, link.id).toBe('COMBO')
+    for (const dot of comboScene.reroutes) expect(dot.typeName, dot.id).toBe('COMBO')
   })
 
-  it('keeps ordinary core.string distinct through reroutes', () => {
-    const stringScene = sourcePresentationScene(reroutedDoc(), 'core.string')
-    for (const link of stringScene.links) expect(link.typeName, link.id).toBe('core.string')
-    for (const dot of stringScene.reroutes) expect(dot.typeName, dot.id).toBe('core.string')
+  it('keeps ordinary STRING distinct through reroutes', () => {
+    const stringScene = sourcePresentationScene(reroutedDoc(), 'STRING')
+    for (const link of stringScene.links) expect(link.typeName, link.id).toBe('STRING')
+    for (const dot of stringScene.reroutes) expect(dot.typeName, dot.id).toBe('STRING')
   })
 
   it('an undriven junction renders without a type (wildcard color)', () => {

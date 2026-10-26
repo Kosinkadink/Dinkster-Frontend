@@ -1,5 +1,7 @@
 import { createSignal, For, Show } from 'solid-js'
 import { ProductActionFooter } from './ProductForm.js'
+import { ProductButton, ProductTextInput } from './ProductControls.js'
+import { ProductListRow } from './ProductSurfaces.js'
 import { activeProjectId, createProject, listProjects, renameProject } from './projects.js'
 
 /**
@@ -44,19 +46,19 @@ export function ProjectsDialog(props: {
       </p>
       <ul class="projects-dialog-list">
         <For each={projects()}>{(project) => (
-          <li class="projects-dialog-row" data-project-id={project.id}>
-            <Show
+          <li data-project-id={project.id}>
+            <ProductListRow primary={<Show
               when={renamingId() === project.id}
               fallback={
-                <span class="projects-dialog-name">
-                  {project.name}
+                <span>
+                  {project.name}{' '}
                   <Show when={project.id === activeProjectId()}>
                     <span class="projects-dialog-current">Current</span>
                   </Show>
                 </span>
               }
             >
-              <input
+              <ProductTextInput
                 type="text"
                 aria-label={`Rename ${project.name}`}
                 value={renameDraft()}
@@ -71,29 +73,30 @@ export function ProjectsDialog(props: {
                 onBlur={commitRename}
                 ref={(el) => queueMicrotask(() => el.focus())}
               />
-            </Show>
-            <span class="projects-dialog-actions">
-              <button
+            </Show>}>
+            <ProductActionFooter>
+              <ProductButton size="compact"
                 type="button"
                 onClick={() => {
                   setRenameDraft(project.name)
                   setRenamingId(project.id)
                 }}
-              >Rename</button>
+              >Rename</ProductButton>
               <Show when={props.onOpenWindow}>
-                <button type="button" onClick={() => props.onOpenWindow!(project.id)}>New window</button>
+                <ProductButton size="compact" type="button" onClick={() => props.onOpenWindow!(project.id)}>New window</ProductButton>
               </Show>
-              <button
+              <ProductButton size="compact"
                 type="button"
                 disabled={project.id === activeProjectId()}
                 onClick={() => props.onSwitch(project.id)}
-              >Switch</button>
-            </span>
+              >Switch</ProductButton>
+            </ProductActionFooter>
+            </ProductListRow>
           </li>
         )}</For>
       </ul>
       <ProductActionFooter>
-        <input
+        <ProductTextInput
           type="text"
           placeholder="New project name"
           aria-label="New project name"
@@ -103,9 +106,9 @@ export function ProjectsDialog(props: {
             if (event.key === 'Enter') create()
           }}
         />
-        <button type="button" class="primary" data-testid="projects-create" disabled={draft().trim().length === 0} onClick={create}>
+        <ProductButton type="button" variant="primary" data-testid="projects-create" disabled={draft().trim().length === 0} onClick={create}>
           Create project
-        </button>
+        </ProductButton>
       </ProductActionFooter>
     </div>
   )

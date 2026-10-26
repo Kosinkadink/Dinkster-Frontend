@@ -151,7 +151,7 @@ async function openRemoteWorkflow(page: Page): Promise<void> {
     const remoteCombo = (id: string) => ({
       kind: 'input',
       id,
-      type: { kind: 'concrete', name: 'core.combo' },
+      type: { kind: 'concrete', name: 'COMBO' },
       optional: false,
       widget: { widgetType: 'COMBO', options: {}, remote: { route, refreshButton: true } },
     })
@@ -174,7 +174,7 @@ async function openRemoteWorkflow(page: Page): Promise<void> {
           {
             kind: 'input',
             id: 'mode',
-            type: { kind: 'concrete', name: 'core.combo' },
+            type: { kind: 'concrete', name: 'COMBO' },
             optional: false,
             widget: { widgetType: 'COMBO', options: { options: ['alpha', 'beta'] } },
           },

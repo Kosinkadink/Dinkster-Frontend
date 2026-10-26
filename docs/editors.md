@@ -68,7 +68,9 @@ supporting nodes used by image and layer commands.
 renders the descriptor's component inside `.canvas-stage`. With no active
 tab the graph editor stays mounted (it owns the empty state). A tab whose
 kind has no registered editor (an unregistered extension kind) renders a
-loud `editor-missing` placeholder - never a blank stage.
+ProductEmptyState alert with the `editor-missing` test ID, never a blank stage.
+Image and curve editors without an active target use neutral ProductEmptyState
+messages rather than an error-colored private placeholder.
 
 The keyed host only remounts when the DESCRIPTOR changes: same-kind tab
 switches return the same descriptor object, so switching between two graph
@@ -167,6 +169,13 @@ canvas stage has room there and above the cluster when it does not (a narrow
 window or an open side panel), never covering the minimap or the bar.
 The cluster's wrapper is click-through; canvas gestures outside the visible
 controls continue to reach the graph.
+
+Canvas view and lens menus, minimap and zoom actions, output preview actions,
+breadcrumbs, and canvas dialogs use `ProductButton`. Compact ghost buttons
+serve menu rows and icon actions; primary styling marks the image-load action.
+Surface CSS retains menu placement and the corner bar's 36-pixel hit targets.
+View, lens, and minimap controls inherit Product colors, borders, focus, and
+disabled states.
 
 ## Node display names
 

@@ -26,17 +26,18 @@ from dinkster_schema import (  # noqa: E402
     InputFamilySpec,
     InputSpec,
     NodeSchema,
+    NumberWidget,
     OutputFamilySpec,
     OutputSpec,
     TypeExpr,
     schema_to_wire,
 )
-from dinkster_values import CustomWidgetDescriptor  # noqa: E402
+from dinkster_values import VIDEO_EDIT_TYPE, CustomWidgetDescriptor  # noqa: E402
 
-INT = TypeExpr.concrete("core.int")
-FLOAT = TypeExpr.concrete("core.float")
-STRING = TypeExpr.concrete("core.string")
-BOOLEAN = TypeExpr.concrete("core.boolean")
+INT = TypeExpr.concrete("INT")
+FLOAT = TypeExpr.concrete("FLOAT")
+STRING = TypeExpr.concrete("STRING")
+BOOLEAN = TypeExpr.concrete("BOOLEAN")
 IMAGE = TypeExpr.concrete("std.image")
 
 schemas = [
@@ -70,7 +71,7 @@ schemas = [
         inputs=(
             InputSpec(
                 "edit",
-                TypeExpr.concrete("comfy.VIDEO_EDIT"),
+                TypeExpr.concrete(VIDEO_EDIT_TYPE),
                 required=False,
                 widget=CustomWidgetDescriptor("VIDEO_EDIT", {"features": ["trim", "crop"]}),
             ),
@@ -91,16 +92,30 @@ schemas = [
             OutputSpec("mask", IMAGE, optional=True, doc="present when detected"),
         ),
     ),
+    NodeSchema(
+        node_type="test.numeric_union",
+        display_name="Frame rate",
+        category="test",
+        inputs=(
+            InputSpec(
+                "frame_rate",
+                TypeExpr.union("FLOAT", "INT"),
+                default=25.0,
+                widget=NumberWidget(min=1.0, max=1000.0, step=0.01, display="number"),
+            ),
+        ),
+        output_node=True,
+    ),
     # Type expressions: union, wildcard, variables, lists (nested + polymorphic).
     NodeSchema(
         node_type="test.types",
         display_name="Types",
         category="test",
         inputs=(
-            InputSpec("either", TypeExpr.union("core.int", "core.float")),
+            InputSpec("either", TypeExpr.union("INT", "FLOAT")),
             InputSpec("anything", TypeExpr.wildcard()),
             InputSpec("t_in", TypeExpr.variable("T")),
-            InputSpec("c_in", TypeExpr.variable("C", allowed=("core.int", "core.float"))),
+            InputSpec("c_in", TypeExpr.variable("C", allowed=("INT", "FLOAT"))),
             InputSpec("ints", TypeExpr.list_of(INT)),
             InputSpec("matrix", TypeExpr.list_of(TypeExpr.list_of(INT))),
             InputSpec("items", TypeExpr.list_of(TypeExpr.variable("T"))),

@@ -34,6 +34,7 @@ import {
   type RawMessage,
 } from '@dinkster/core/comfy-v1'
 import type { FetchLike, SchemaRegistry, SubmitResult } from './connection-contract.js'
+import { requestWithDeadline } from './request-deadline.js'
 import {
   ReconnectingSocket,
   type CancelFn,
@@ -168,13 +169,15 @@ export class BackendConnection {
   // -- Schemas ----------------------------------------------------------------
 
   async fetchSchemas(): Promise<SchemaRegistry> {
-    const res = await this.fetchFn(`${this.baseUrl}/object_info`)
-    if (!res.ok) throw new Error(`GET /object_info failed: ${res.status}`)
-    const raw: unknown = await res.json()
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-      throw new Error('GET /object_info: malformed schema payload')
-    }
-    return buildSchemaRegistry(this.id, raw as Record<string, ObjectInfoEntry>)
+    return requestWithDeadline(async (signal) => {
+      const res = await this.fetchFn(`${this.baseUrl}/object_info`, { signal })
+      if (!res.ok) throw new Error(`GET /object_info failed: ${res.status}`)
+      const raw: unknown = await res.json()
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        throw new Error('GET /object_info: malformed schema payload')
+      }
+      return buildSchemaRegistry(this.id, raw as Record<string, ObjectInfoEntry>)
+    })
   }
 
   // -- Prompt submission --------------------------------------------------------

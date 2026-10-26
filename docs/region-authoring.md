@@ -60,7 +60,7 @@ slot exposure, read-only, unavailable, and diagnostic states.
 ## Use the iteration index
 
 The drilled region body's Inputs node includes a derived, read-only **Index**
-source. Connect it to a `core.int` input like any other canvas output. The
+source. Connect it to a `INT` input like any other canvas output. The
 connection is local to that region occurrence and compiles to the immediate
 map, fold, or while iteration's zero-based `$region.index`; it does not add a
 workflow input or alter the shared definition boundary. Nested region bodies
@@ -88,6 +88,12 @@ images, latents, conditioning, masks, audio, video, assets, scalar values, and
 pack-defined concrete types. Map occurrences can execute concurrently, but
 gathered results remain in element-binding order. Fold and while occurrences
 execute sequentially because each iteration receives the previous state.
+
+Declared output nodes inside a region, including nested regions containing
+output nodes, execute on each iteration. A body that only saves values needs
+no exported output: a map executes its sink once per input element, and zero
+times for an empty list. A region with neither an exported output nor a
+declared output node is invalid.
 
 The Queue card creates one row per fixed map/fold item as soon as expansion is
 known. Rows move from waiting to running to completed from explicit backend
