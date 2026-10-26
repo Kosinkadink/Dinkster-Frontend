@@ -28,6 +28,14 @@ Positional `widgets_values` consume one companion entry after a widget with
 false and `randomize` for true. The companion is not the next input's value.
 Older arrays without a companion still preserve the next numeric widget.
 
+The importer owns `COMFY_NODE_UPGRADES`, keyed first by the authored ComfyUI
+class name and then by the exact version saved in the node's `properties.ver`.
+The table is empty while native widget contracts match ComfyUI. A rule upgrades
+only the saved widget values before positional decoding; it cannot insert
+nodes, change class identities, or rewrite links. Missing or unmatched versions
+use the ordinary import path. Root nodes and subgraph definitions use the same
+table. These source versions are not the workflow format's `version` field.
+
 Positional and keyed static COMBO widgets normalize a finite numeric literal
 to its canonical string only when that exact string is a declared option.
 An exact numeric option in a legacy schema takes precedence. A legacy string

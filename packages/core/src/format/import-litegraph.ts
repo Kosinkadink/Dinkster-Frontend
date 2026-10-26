@@ -89,6 +89,14 @@ interface LgNode {
   readonly bgcolor?: string
 }
 
+/** Widget upgrades are keyed by class name, then the saved node properties.ver. */
+export type ComfyNodeUpgradeTable = ReadonlyMap<string, ReadonlyMap<string,
+  (values: LgNode['widgets_values']) => NonNullable<LgNode['widgets_values']>
+>>
+
+/** Empty until a native node's widget contract diverges from its source version. */
+export const COMFY_NODE_UPGRADES: ComfyNodeUpgradeTable = new Map()
+
 /** [id, fromNode, fromSlot, toNode, toSlot, type] */
 type LgLink = readonly [number, number, number, number, number, ...unknown[]]
 
@@ -1014,11 +1022,12 @@ export function importLitegraph(
   isMaintainedAlias: (authoredType: string, schema: NodeSchema) => boolean = () => false,
   comfyGroups?: ComfyGroupCatalog,
   shouldCollapseComfyGroup: (record: ComfyGroupRecord, anchorId: number) => boolean = () => true,
+  upgrades: ComfyNodeUpgradeTable = COMFY_NODE_UPGRADES,
 ): ImportLitegraphResult {
   const ingress = ownJson(input)
   if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
   const result = importLitegraphSubgraphs(ingress.value as JsonObject, resolve, (graph, localResolve, definitions) =>
-    importLitegraphGraph(graph, localResolve, isMaintainedAlias, comfyGroups, shouldCollapseComfyGroup, definitions))
+    importLitegraphGraph(graph, localResolve, isMaintainedAlias, comfyGroups, shouldCollapseComfyGroup, definitions, upgrades))
   if (!result.document) return result
   return { ...result, document: Object.freeze({ ...result.document,
     lineage: `lg-${fnv1a(JSON.stringify(ingress.value))}` as WorkflowDocument['lineage'],
@@ -1098,6 +1107,7 @@ function importLitegraphGraph(
   comfyGroups: ComfyGroupCatalog | undefined,
   shouldCollapseComfyGroup: (record: ComfyGroupRecord, anchorId: number) => boolean,
   definitions: WorkflowDocument['graphs'],
+  upgrades: ComfyNodeUpgradeTable,
 ): ImportLitegraphResult {
   // Ownership boundary (CO1/CO9): the workflow is foreign input. Owning it
   // up front rejects accessors/proxies/cycles/non-finite numbers (e.g. an
@@ -1266,7 +1276,10 @@ function importLitegraphGraph(
       diags.push(imp('error', 'import.node.geometry', `node ${nodeId} ('${n.type}') has a non-finite or malformed position or size`))
       continue
     }
-    byId.set(nodeId, nodeId === n.id ? n : { ...n, id: nodeId })
+    const version = n.properties?.['ver']
+    const upgrade = typeof version === 'string' ? upgrades.get(n.type)?.get(version) : undefined
+    const node = upgrade === undefined ? n : { ...n, widgets_values: upgrade(n.widgets_values) }
+    byId.set(nodeId, nodeId === node.id ? node : { ...node, id: nodeId })
   }
   for (const node of byId.values()) {
     const ueConvert = node.properties?.['ue_convert']

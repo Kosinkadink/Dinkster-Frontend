@@ -14,7 +14,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
-import { importLitegraph } from '../src/format/import-litegraph.js'
+import { importLitegraph, type ComfyNodeUpgradeTable } from '../src/format/import-litegraph.js'
 import { exportVirtualNodesToLitegraph } from '../src/format/export-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId } from '../src/ids.js'
@@ -790,6 +790,44 @@ describe('serialized output slot identity', () => {
 })
 
 // -- widget value mapping -----------------------------------------------------
+
+describe('versioned node widget upgrades', () => {
+  it('selects the saved class and version without rewriting nodes, links or source JSON', () => {
+    const producer: NodeSchema = {
+      type: 'UpgradeSource', displayName: 'Upgrade source', category: 'test', source: 'v3', isOutputNode: false,
+      items: [sdInput('first', 'INT', 'INT'), sdInput('second', 'INT', 'INT'), sdOutput('value', 'INT')],
+    }
+    const consumer: NodeSchema = {
+      type: 'UpgradeSink', displayName: 'Upgrade sink', category: 'test', source: 'v3', isOutputNode: true,
+      items: [sdInput('value', 'INT')],
+    }
+    const upgrades: ComfyNodeUpgradeTable = new Map([['UpgradeSource', new Map([
+      ['0.1.0', (values) => Array.isArray(values) ? [values[1]!, values[0]!] : []],
+    ])]])
+    const resolveNative = (type: string) => type === producer.type ? producer : type === consumer.type ? consumer : undefined
+    for (const nested of [false, true]) for (const version of ['0.1.0', '0.2.0', undefined]) {
+      const graphSource = workflow([
+        lgNode(1, producer.type, { widgets_values: [7, 29], properties: version ? { ver: version } : {}, outputs: [{ name: 'value', links: [1] }] }),
+        lgNode(2, consumer.type, { properties: { ver: '0.1.0' }, inputs: [{ name: 'value', link: 1 }] }),
+      ], [lgLink(1, 1, 0, 2, 0)])
+      const source = nested ? workflow([], [], { definitions: { subgraphs: [
+        { ...graphSource, id: 'inner', name: 'inner', inputs: [], outputs: [] },
+      ] } }) : graphSource
+      const before = JSON.stringify(source)
+      const result = importLitegraph(source, resolveNative, undefined, undefined, undefined, upgrades)
+      expect(result.diagnostics).toEqual([])
+      expect(JSON.stringify(source)).toBe(before)
+      const graph = result.document!.graphs[nested ? 'inner' : 'g0']!
+      expect(Object.keys(graph.nodes)).toEqual(['n1', 'n2'])
+      expect(Object.values(graph.nodes).map((node) => node.type)).toEqual(['UpgradeSource', 'UpgradeSink'])
+      expect(graph.nodes.n1!.values).toEqual(version === '0.1.0' ? { first: 29, second: 7 } : { first: 7, second: 29 })
+      expect(graph.nodes.n2!.values).toEqual({})
+      expect(Object.values(graph.links)).toEqual([
+        { id: 'l1', from: { node: 'n1', port: 'value' }, to: { node: 'n2', port: 'value' } },
+      ])
+    }
+  })
+})
 
 describe('positional widget mapping', () => {
   const ksampler = (widgets: unknown[]) =>
