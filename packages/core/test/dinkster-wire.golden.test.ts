@@ -13,6 +13,71 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('preserves forced FLOATS numeric presentation without widening other socket domains', () => {
+    const widget = { type: 'NUMBER', min: -1, step: 0.001 }
+    const representations = { type: 'REPRESENTATIONS', default: 'number', userSwitchable: false,
+      representations: [{ id: 'number', widget }] }
+    for (const descriptor of [widget, representations]) {
+      const entry = { role: 'input', id: 'strengths', type: concrete('FLOATS'), forceInput: true, default: -1, widget: descriptor }
+      const decoded = parseDinksterSchema('ForcedFloats', { interface: [entry] })
+      expect(decoded.diagnostics).toEqual([])
+      expect(inputsOf(decoded.schema!)[0]).toMatchObject({
+        type: { kind: 'concrete', name: 'FLOATS' }, forceInput: true,
+        widget: { widgetType: 'FLOAT', default: -1, options: { min: -1, step: 0.001 } },
+      })
+      for (const invalid of [
+        { ...entry, forceInput: false },
+        { ...entry, forceInput: undefined },
+        { ...entry, type: concrete('OtherFloats') },
+        { ...entry, type: { kind: 'list', element: concrete('FLOATS') } },
+        { ...entry, type: { kind: 'union', types: ['FLOATS', 'FLOAT'] } },
+      ]) {
+        const rejected = parseDinksterSchema('BadFloatsPresentation', { interface: [invalid] })
+        expect(rejected.schema).toBeUndefined()
+        expect(rejected.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+      }
+    }
+  })
+
+  it('preserves COLOR and STRING color-widget sockets through decoding, import, and compilation', () => {
+    for (const socket of ['COLOR', 'STRING']) {
+      for (const represented of [false, true]) {
+        const widget = represented ? {
+          type: 'REPRESENTATIONS', default: 'color', userSwitchable: false,
+          representations: [{ id: 'color', widget: { type: 'COLOR' } }],
+        } : { type: 'COLOR' }
+        const decoded = parseDinksterSchema('ColorToRGBInt', {
+          schemaVersion: 1, outputNode: true,
+          interface: [{ role: 'input', id: 'color', type: concrete(socket), required: true, default: '#ffffff', widget }],
+        })
+        expect(decoded.diagnostics).toEqual([])
+        expect(inputsOf(decoded.schema!)[0]).toMatchObject({
+          type: { kind: 'concrete', name: socket },
+          widget: { widgetType: 'COLOR', default: '#ffffff' },
+        })
+        const resolve = (type: string) => type === 'ColorToRGBInt' ? decoded.schema : undefined
+        const imported = importLitegraph({ version: 0.4, nodes: [{ id: 1, type: 'ColorToRGBInt', widgets_values: ['#12345678'] }], links: [] }, resolve)
+        expect(imported.diagnostics).toEqual([])
+        const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('color'), schemaHash: 'color' })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('color compilation failed')
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual({ color: '#12345678' })
+      }
+    }
+    for (const type of [
+      concrete('INT'), concrete('OtherColor'),
+      { kind: 'list', element: concrete('COLOR') },
+      { kind: 'union', types: ['COLOR', 'STRING'] },
+    ]) {
+      const rejected = parseDinksterSchema('InvalidColor', {
+        schemaVersion: 1,
+        interface: [{ role: 'input', id: 'color', type, required: true, widget: { type: 'COLOR' } }],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
+    }
+  })
+
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
     const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
     const production = parseDinksterSchema('test.numeric_union', fixture.nodes['test.numeric_union'])
