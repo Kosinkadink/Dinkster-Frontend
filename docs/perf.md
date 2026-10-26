@@ -1726,3 +1726,19 @@ and the unchanged `packages/canvas/test/perf.test.ts` workloads.
 All unchanged 2-second budgets pass. Scene solving now resolves concrete
 subgraph nodes through their occurrence contracts, including region list
 ports; ordinary backend-node resolution remains unchanged.
+
+## 2026-10-26 Adjacent widget border sockets
+
+X570 CPU, Node 26.12.1. Before: `4ba0a2ffef43e7c394d94a2bad3b28920d23a780`;
+after: `225c5f3b6811c8ce611d3a57e7d19527031423ac`. Median of seven warm
+scene builds using the existing 60-chain, 20-node synthetic workloads and
+the same fixture schemas. These are scene-build times, not browser frame times.
+
+| Scene build | Before | After |
+| --- | ---: | ---: |
+| Plain 1200-node graph | 54.24 ms | 48.22 ms |
+| Feature-heavy 1200-node graph | 76.21 ms | 77.02 ms |
+
+The feature-heavy workload includes reroutes, value sources, nets, groups and
+selectors. Ordinary sockets remain on node borders; adjacent widget sockets
+use separate vertical slots without per-endpoint horizontal overrides.
