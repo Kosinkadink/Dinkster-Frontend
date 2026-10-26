@@ -1226,7 +1226,8 @@ export function layoutNode(
       const cellWidth = column === 0 ? width - (line.length - 1) * (compactWidth + gap) : compactWidth
       rows[index] = { ...row, inset: left + row.inset, width: cellWidth - row.inset * 2 }
       for (const [index, pin] of pins.entries()) {
-        if (pin.portId === row.inputId) pins[index] = { ...pin, x: left + (pin.direction === 'in' ? 0 : cellWidth) }
+        if (pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
+          pins[index] = { ...pin, x: left + (pin.direction === 'in' ? 0 : cellWidth) }
       }
       left += cellWidth + gap
     }

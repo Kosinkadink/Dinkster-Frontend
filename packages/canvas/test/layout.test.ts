@@ -85,6 +85,15 @@ describe('pairing', () => {
     }
   })
 
+  it('keeps a same-id real output separate from the adjacent widget value output', () => {
+    const layout = doLayout([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')])
+    const realOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.direction === 'out' && !pin.widgetTap)!
+    const valueOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.widgetTap)!
+    expect(realOutput.x ?? layout.width).toBe(layout.width)
+    expect(valueOutput.x).toBeLessThan(layout.width)
+    expect(realOutput.y).toBeGreaterThan(valueOutput.y)
+  })
+
   it('keeps adjacency inside each materialized branch and family member', () => {
     const siblings = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' })]
     const combo = widget('mode', { dynamic: {
