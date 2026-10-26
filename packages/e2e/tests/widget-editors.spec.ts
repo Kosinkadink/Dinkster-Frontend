@@ -151,17 +151,17 @@ test('BUTTON actions invoke registered commands without changing widget values',
     app.registerSchemas([{
       type: 'ButtonWidgetTest', displayName: 'Capture controls', category: 'test', source: 'v3', isOutputNode: false,
       items: [
-        ...[
+        ...([
           ['capture', { display_name: 'Capture frame', command: 'fixture.capture' }],
           ['busy', { display_name: 'Busy action', command: 'fixture.busy' }],
           ['missing', { display_name: 'Unavailable action', command: 'fixture.missing' }],
           ['disabled', { display_name: 'Disabled action', command: 'fixture.capture', disabled: true }],
-        ].map(([id, options]) => ({ kind: 'input', id, type: { kind: 'concrete', name: 'BUTTON' }, optional: false,
+        ] as const).map(([id, options]) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'BUTTON' }, optional: false,
           widget: { widgetType: 'BUTTON', default: null, options } })),
         { kind: 'input', id: 'title', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', default: 'Unchanged text', options: {} } },
       ],
-    }] as Parameters<typeof app.registerSchemas>[0])
+    }])
     app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'button-widget', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Capture', nodes: { widgets: { id: 'widgets', type: 'ButtonWidgetTest', values: { capture: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },

@@ -308,7 +308,10 @@ interface DinksterTestBridge {
     tabs: { get(): readonly DinksterBridgeTab[] }
     readonly appViewEnabled: boolean
     settings: { set(id: string, value: unknown): void }
-    commands: { get(id: string): { id: string } | undefined }
+    commands: {
+      get(id: string): { id: string } | undefined
+      register(command: { id: string; label: string; run(payload?: import('@dinkster/core').Json): void; enabled?: () => boolean }): () => void
+    }
     menuRegistry: import('@dinkster/core').MenuRegistry
     flushPersistTabs(): void
     activeTab(): DinksterBridgeTab | undefined
