@@ -97,6 +97,8 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'MARKDOWN':
     case 'COLOR':
       return typeof d === 'string'
+    case 'MOUNT':
+      return d === null || typeof d === 'string'
     case 'BOOLEAN':
       return typeof d === 'boolean'
     case 'COMBO':

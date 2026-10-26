@@ -41,6 +41,9 @@ The importer keeps prefix strings intact; it does not wrap them in target
 objects or infer a mount from a schema's prefix default.
 Optionality and the null default belong to these save-node declarations, not
 to the generic MOUNT descriptor, which can present other STRING inputs.
+MOUNT defaults accept strings or null; other JSON shapes fall back to null.
+Malformed string ids remain visible for validation rather than silently
+selecting a different mount.
 The input's `adjacentTo` names a different sibling input for presentation only.
 The codec preserves declaration order, including positional widget slots, and
 rejects empty, self-referencing, cyclic or missing sibling hints and extra MOUNT fields.

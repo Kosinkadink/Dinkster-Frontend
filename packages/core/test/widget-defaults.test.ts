@@ -137,5 +137,8 @@ describe('effectiveWidgetDefault', () => {
     expect(effectiveWidgetDefault(spec('MOUNT'))).toBeNull()
     expect(effectiveWidgetDefault(spec('MOUNT', { default: null }))).toBeNull()
     expect(effectiveWidgetDefault(spec('MOUNT', { default: 'archive' }))).toBe('archive')
+    expect(effectiveWidgetDefault(spec('MOUNT', { default: 'Invalid/Mount' }))).toBe('Invalid/Mount')
+    for (const malformed of [7, false, [], { mount: 'archive' }])
+      expect(effectiveWidgetDefault(spec('MOUNT', { default: malformed }))).toBeNull()
   })
 })
