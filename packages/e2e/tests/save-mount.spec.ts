@@ -93,6 +93,37 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
   await page.screenshot({ path: testInfo.outputPath('mount-row-narrow-explicit.png') })
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes))).toEqual(['save'])
   await expect(page.getByTestId('save-target-editor')).toHaveCount(0)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const connectedDiagnostics = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const doc = app.activeTab()!.store.doc
+    const graph = doc.graphs.g0!
+    return app.openDocument(JSON.parse(JSON.stringify({
+      ...doc,
+      lineage: 'connected-mount-contract',
+      graphs: { g0: { ...graph,
+        nextOrdinal: 2,
+        nodes: { ...graph.nodes, source: { ...graph.nodes.save!, id: 'source' } },
+        links: { l1: { id: 'l1', from: { node: 'source', tap: 'prefix' }, to: { node: 'save', port: 'destination' } } },
+      } },
+      view: { graphs: { g0: { nodes: {
+        save: { position: { x: 60, y: 60 } }, source: { position: { x: 540, y: 260 } },
+      } } } },
+    })), 'Connected mount contract')
+  })
+  expect(connectedDiagnostics).toEqual([])
+  await expect.poll(() => page.evaluate(() => {
+    const scene = window.__dinksterTest!.renderer!.getScene()
+    const source = scene.nodes.find((node) => node.id === 'source')
+    const sink = scene.nodes.find((node) => node.id === 'save')
+    const from = source?.layout.pins.find((pin) => pin.widgetTap && pin.portId === 'prefix')
+    const to = sink?.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'destination')
+    const link = scene.links[0]
+    return !!source && !!sink && !!from && !!to && !!link &&
+      link.x1 === source.x + from.x! && link.y1 === source.y + from.y &&
+      link.x2 === sink.x + to.x! && link.y2 === sink.y + to.y
+  })).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('mount-row-connected.png') })
 })
 
 test('nested save presentation qualifies adjacent controls without reordering stored inputs', async ({ page }, testInfo) => {

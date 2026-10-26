@@ -1686,7 +1686,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       const node = byId.get(end.node)
       const pin = node?.layout.pins.find((p) => p.widgetTap === true && p.address.port === end.tap)
       return node && pin ? {
-        x: node.x + node.layout.width,
+        x: node.x + (pin.x ?? node.layout.width),
         y: node.y + pin.y,
         end: { kind: 'widgetTap', node: end.node, input: end.tap },
         type: pin.type,
@@ -1700,7 +1700,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const pin = node?.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
     if (!node || !pin) return undefined
     return {
-      x: direction === 'out' ? node.x + node.layout.width : node.x,
+      x: node.x + (pin.x ?? (direction === 'out' ? node.layout.width : 0)),
       y: node.y + pin.y,
       end: {
         kind: 'port',
@@ -1821,7 +1821,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       // guards elsewhere for the same-id tap/output collision).
       const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
       if (!pin) return
-      const pinX = role === 'source' ? node.x + node.layout.width : node.x
+      const pinX = node.x + (pin.x ?? (role === 'source' ? node.layout.width : 0))
       const pinY = node.y + pin.y
       const label = `${role === 'source' ? 'Set' : 'Get'} ${net.name}`
       const width = measure(label, 'label') + NET_STUB_PAD_X * 2
@@ -2014,7 +2014,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         const pin = node.layout.pins.find((candidate) => candidate.widgetTap === true && candidate.address.port === binds.tap)
         return pin === undefined
           ? undefined
-          : { x: edgeX, y: node.y + pin.y, end: { kind: 'widgetTap', node: binds.node, input: binds.tap } }
+          : { x: node.x + (pin.x ?? node.layout.width), y: node.y + pin.y, end: { kind: 'widgetTap', node: binds.node, input: binds.tap } }
       }
       const end: Extract<SceneLinkEnd, { kind: 'port' }> = {
         kind: 'port',
@@ -2028,7 +2028,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         // endpoint resolver above).
         const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
         if (!pin) return undefined
-        return { x: edgeX, y: node.y + pin.y, end }
+        return { x: node.x + (pin.x ?? (direction === 'out' ? node.layout.width : 0)), y: node.y + pin.y, end }
       }
       const familyPin = node.layout.pins.find(
         (p) =>
@@ -2038,7 +2038,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           membersPrefixOk(p.address.members, binds.members),
       )
       const y = familyPin ? node.y + familyPin.y : node.y + node.layout.headerHeight / 2
-      return { x: edgeX, y, end }
+      return { x: familyPin?.x === undefined ? edgeX : node.x + familyPin.x, y, end }
     }
 
     const boundaryPin = (bnode: SceneBoundaryNode, itemId: string): { x: number; y: number } | undefined => {

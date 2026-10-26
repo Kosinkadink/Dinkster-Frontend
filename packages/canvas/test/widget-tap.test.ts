@@ -311,20 +311,28 @@ describe('same-id widget tap vs real output', () => {
         kind: 'input', id: 'image', type: concrete('STRING'), optional: false,
         widget: { widgetType: 'STRING', options: {}, default: 'a.png' },
       },
+      {
+        kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, adjacentTo: 'image',
+        widget: { widgetType: 'MOUNT', options: {}, default: null },
+      },
       { kind: 'output', id: 'image', type: concrete('IMAGE') },
     ],
   } as unknown as NodeSchema
   const imageSinkSchema: NodeSchema = {
     type: 'ImageSink', displayName: 'ImageSink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'pixels', type: concrete('IMAGE'), optional: false }],
+    items: [
+      { kind: 'input', id: 'pixels', type: concrete('IMAGE'), optional: false },
+      { kind: 'input', id: 'prefix', type: concrete('STRING'), optional: false, widget: { widgetType: 'STRING', options: {} } },
+      { kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, adjacentTo: 'prefix', widget: { widgetType: 'MOUNT', options: {} } },
+    ],
   }
-  const builtScene = (from: object): Scene => {
+  const builtScene = (from: object, port = 'pixels'): Scene => {
     const document = {
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'g', nodes: {
         source: { id: 'source', type: 'LoadLike', values: {} },
         sink: { id: 'sink', type: 'ImageSink', values: {} },
-      }, links: { l1: { id: 'l1', from, to: { node: 'sink', port: 'pixels' } } },
+      }, links: { l1: { id: 'l1', from, to: { node: 'sink', port } } },
       nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: {
         source: { position: { x: 40, y: 50 } }, sink: { position: { x: 400, y: 50 } },
@@ -356,7 +364,23 @@ describe('same-id widget tap vs real output', () => {
     const tapPin = source.layout.pins.find((pin) => pin.widgetTap === true && pin.portId === 'image')!
     expect(scene.links[0]).toMatchObject({
       from: { kind: 'widgetTap', node: 'source', input: 'image' },
-      x1: source.x + source.layout.width, y1: source.y + tapPin.y, typeName: 'STRING',
+      x1: source.x + tapPin.x!, y1: source.y + tapPin.y, typeName: 'STRING',
     })
+  })
+
+  it('paints a connected noodle at both interior widget anchors', () => {
+    const scene = builtScene({ node: 'source', tap: 'image' }, 'mount')
+    const source = scene.nodes.find((node) => node.id === 'source')!
+    const sink = scene.nodes.find((node) => node.id === 'sink')!
+    const from = source.layout.pins.find((pin) => pin.widgetTap && pin.portId === 'image')!
+    const to = sink.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'mount')!
+    expect(from.x).toBeLessThan(source.layout.width)
+    expect(to.x).toBeGreaterThan(0)
+    const start = [source.x + from.x!, source.y + from.y]
+    const end = [sink.x + to.x!, sink.y + to.y]
+    expect(scene.links[0]).toMatchObject({ x1: start[0], y1: start[1], x2: end[0], y2: end[1] })
+    const calls = paint(scene)
+    expect(calls.some((call) => call.method === 'moveTo' && call.args[0] === start[0] && call.args[1] === start[1])).toBe(true)
+    expect(calls.some((call) => call.method === 'bezierCurveTo' && call.args[4] === end[0] && call.args[5] === end[1])).toBe(true)
   })
 })
