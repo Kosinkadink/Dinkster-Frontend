@@ -48,6 +48,7 @@ describe('core extension door dogfooding', () => {
       'ASSET',
       'SAVE_TARGET',
       'VIDEO_EDIT',
+      'BUTTON',
     ])
   })
 

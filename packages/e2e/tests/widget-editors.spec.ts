@@ -190,6 +190,7 @@ test('BUTTON actions invoke registered commands without changing widget values',
   for (const [input, label] of [['busy', 'Busy action'], ['missing', 'Unavailable action'], ['disabled', 'Disabled action']] as const) {
     await openEditor(page, input)
     await expect(editor.getByRole('button', { name: label, exact: true })).toBeDisabled()
+    if (input === 'missing') await page.screenshot({ path: testInfo.outputPath('button-unavailable.png'), animations: 'disabled' })
     await page.keyboard.press('Escape')
   }
   expect((await activeDoc(page)).graphs.g0).toEqual(graph)
