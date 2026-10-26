@@ -67,6 +67,11 @@ either menu without consuming that press, so the same gesture can pan, select,
 link, or activate a widget. A visible modal surface continues to own input
 until it closes.
 
+Execution status chips and frozen-execution banners sit below the measured
+canvas toolbar, including when its controls wrap onto another row. Status
+text and actions wrap inside the canvas width rather than covering the
+Views/Lenses or workflow queue controls.
+
 The Views/Lenses switcher labels, headings, delegated tooltip labels, and the
 three graph-wide named-net display actions use the application locale catalog.
 An open menu relabels in place without changing focus, active view or lens,

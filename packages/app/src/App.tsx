@@ -2369,7 +2369,18 @@ export function App(props: {
               <ProductButton type="button" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</ProductButton>
             </div>
           </Show>
-          <div class="canvas-stage-toolbar">
+          <div class="canvas-stage-toolbar" ref={(toolbar) => {
+            onMount(() => {
+              const stage = toolbar.parentElement!
+              const measure = (): void => {
+                stage.style.setProperty('--canvas-toolbar-bottom', `${toolbar.offsetTop + toolbar.offsetHeight}px`)
+              }
+              const observer = new ResizeObserver(measure)
+              observer.observe(toolbar)
+              measure()
+              onCleanup(() => observer.disconnect())
+            })
+          }}>
             <CanvasViewControls
               drilled={paneEditorKind() === GRAPH_EDITOR_KIND && paneGraphStackDepth() > 1}
               disabled={!paneActiveTab() || paneActiveTab()!.execution !== undefined}
