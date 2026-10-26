@@ -398,7 +398,7 @@
 .frozen-banner,
 .sync-chip {
   position: absolute;
-  top: calc(var(--canvas-toolbar-bottom, 0px) + var(--dinkster-space-8));
+  top: calc(var(--canvas-toolbar-bottom, 0px) + var(--dinkster-space-8) + var(--canvas-breadcrumb-height, 0px) + var(--canvas-breadcrumb-gap, 0px));
   left: var(--dinkster-space-8);
   right: var(--dinkster-space-8);
   width: fit-content;
@@ -416,6 +416,10 @@
   border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   overflow-wrap: anywhere;
+}
+
+.canvas-stage:has(.breadcrumb) {
+  --canvas-breadcrumb-gap: var(--dinkster-space-8);
 }
 
 .frozen-banner {
