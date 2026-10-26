@@ -334,7 +334,13 @@ test('runs lingering through a backend switch can never clear the incoming backe
 
 test('clear arms first, wipes the whole scope on confirmation', async ({ page }) => {
   await queueAndComplete(page)
+  await page.getByTestId('assets-toggle').click()
+  const assets = page.getByTestId('assets-overlay')
+  await expect(assets).toBeVisible()
+  await assets.getByTestId('collection-search').fill('run-history-clear-empty-state')
+  await expect(assets.getByTestId('collection-empty')).toBeVisible()
   await openRuns(page)
+  await expect(assets).toBeHidden()
   await expect(page.getByTestId('collection-entry').first()).toBeVisible()
 
   const clear = page.getByTestId('collection-source-action')
@@ -345,7 +351,7 @@ test('clear arms first, wipes the whole scope on confirmation', async ({ page })
   await expect(page.getByTestId('collection-entry').first()).toBeVisible()
 
   await clear.click()
-  await expect(page.getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('library-overlay').getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }
   expect(listing.records).toHaveLength(0)
