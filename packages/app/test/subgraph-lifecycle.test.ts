@@ -281,7 +281,7 @@ describe('subgraph lifecycle app plans', () => {
     )).toBe(true)
     expect(reports).toEqual([expect.objectContaining({
       code: 'subgraph.lifecycle.selectionUpdateFailed',
-      message: 'subgraph.flatten: document committed but result selection failed: selection exploded',
+      message: 'Flattened subgraph selection: selection exploded',
     })])
   })
 
