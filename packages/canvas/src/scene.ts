@@ -2007,6 +2007,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       binds: BoundaryItem['binds'],
       direction: 'in' | 'out',
     ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' }> } | undefined => {
+      if (binds.kind === 'unbound') return undefined
       if (binds.viaReroute !== undefined) {
         const reroute = direction === 'in' ? rerouteById.get(binds.viaReroute) : undefined
         return reroute && { x: reroute.x, y: reroute.y, end: { kind: 'reroute', reroute: reroute.id } }

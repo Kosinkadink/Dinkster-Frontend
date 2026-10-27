@@ -31,6 +31,29 @@ function agree(json: unknown): { schemaValid: boolean; validatorValid: boolean }
 }
 
 describe('JSON Schema <-> runtime validator agreement', () => {
+  it('preserves typed unattached slots and rejects endpoint or widget decorations', () => {
+    const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { inputs: unknown[]; outputs: unknown[] } }> }
+    const boundary = Object.values(fixture.graphs).find((graph) => graph.boundary)!.boundary!
+    const item = { id: 'unused', binds: { kind: 'unbound', type: { kind: 'concrete', name: 'FLOAT' } } }
+    for (const side of ['inputs', 'outputs'] as const) {
+      boundary.inputs = []
+      boundary.outputs = []
+      boundary[side] = [item]
+      expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+      for (const invalid of [
+        { ...item, binds: { ...item.binds, node: 'n0' } },
+        { ...item, binds: { ...item.binds, port: 'value' } },
+        { ...item, binds: { ...item.binds, type: { kind: 'concrete' } } },
+        { ...item, binds: { ...item.binds, type: { kind: 'unknown' } } },
+        { ...item, promoted: false },
+        { ...item, alsoBinds: [item.binds] },
+      ]) {
+        boundary[side] = [invalid]
+        expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+      }
+    }
+  })
+
   it('accepts mixed input junction attachments and rejects incompatible shapes', () => {
     const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { inputs: unknown[]; outputs: unknown[] } }> }
     const boundary = Object.values(fixture.graphs).find((graph) => graph.boundary)!.boundary!

@@ -158,13 +158,13 @@ function routeContainsNul(route: readonly BoundaryRouteLeg[]): boolean {
   return route.some((leg) =>
     containsNul(leg.graph) ||
     containsNul(leg.boundaryId) ||
-    containsNul(leg.binding.node) ||
+    (leg.binding.kind !== 'unbound' && (containsNul(leg.binding.node) ||
     (leg.binding.kind === 'widgetTap'
       ? containsNul(leg.binding.tap)
       : containsNul(leg.binding.port) ||
         (leg.binding.viaReroute !== undefined && containsNul(leg.binding.viaReroute)) ||
         leg.binding.members?.some(containsNul) === true ||
-        leg.binding.slots?.some(containsNul) === true))
+        leg.binding.slots?.some(containsNul) === true))))
 }
 
 function occurrenceEndpointContainsNul(endpoint: OccurrenceLinkEndpoint): boolean {
@@ -227,6 +227,7 @@ function routeMatchesOwnerChain(
     if (bindingMatches.length !== 1)
       return false
     const binding = bindingMatches[0]!
+    if (binding.kind === 'unbound') return false
     if (binding.viaReroute !== undefined &&
         (side !== 'to' || offset + 1 !== route.length || graph.reroutes[binding.viaReroute] === undefined))
       return false
@@ -769,6 +770,10 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
         }
         boundaryIds.add(item.id)
         for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
+          if (b.kind === 'unbound') {
+            if (item.alsoBinds !== undefined || item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.unbound', where(`unattached boundary '${item.id}' cannot fan out or promote a widget`)))
+            continue
+          }
           if (b.viaReroute !== undefined) {
             if (side !== 'inputs' || b.kind !== 'port' ||
                 def.reroutes[b.viaReroute] === undefined || drivenReroutes.has(b.viaReroute) || boundaryReroutes.has(b.viaReroute)) {

@@ -160,6 +160,7 @@ export function BoundaryPanel(props: { app: AppState }) {
     item.displayName ?? defaultItemName(side, item)
 
   const conditionalKind = (item: BoundaryItem): 'dynamicCombo' | 'dynamicSlot' | undefined => {
+    if (item.binds.kind === 'unbound') return undefined
     const ctx = editedDef()
     const reg = registry()
     const node = ctx?.def.nodes[item.binds.node]
@@ -170,7 +171,7 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   const setConditionalBinding = (item: BoundaryItem, bindingKind: 'port' | 'slot' | 'dynamicCombo'): void => {
-    if (item.binds.kind === 'widgetTap') return
+    if (item.binds.kind === 'widgetTap' || item.binds.kind === 'unbound') return
     dispatch('boundary.setBinding', { side: 'inputs', itemId: item.id, node: item.binds.node, port: item.binds.port,
       ...(item.binds.members !== undefined ? { members: [...item.binds.members] } : {}), bindingKind })
   }
@@ -301,6 +302,7 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   const showOnCanvas = (item: BoundaryItem): void => {
+    if (item.binds.kind === 'unbound') return
     activateProblem(props.app, {
       severity: 'info',
       origin: 'schema',

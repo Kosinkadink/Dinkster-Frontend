@@ -918,6 +918,7 @@ function compileImpl(
       let sawMuted = false
       let sawBypassed = false
       for (const b of bindings) {
+        if (b.kind === 'unbound') continue
         // Junction deliveries lower through their retained internal links.
         if (b.viaReroute !== undefined) continue
         if (b.kind === 'widgetTap') {
@@ -1030,6 +1031,7 @@ function compileImpl(
         return undefined
       }
       const item = match.item
+      if (item.binds.kind === 'unbound') return undefined
       if (item.binds.kind === 'widgetTap') {
         const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
         if (routeIsSuppressed([...path, node.id], delivery, route)) return undefined
@@ -1708,7 +1710,7 @@ function compileImpl(
               ? [source]
               : (rerouteInputTargets(child, source.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
             for (const binding of bindings) {
-              if (binding.kind === 'widgetTap') continue
+              if (binding.kind === 'widgetTap' || binding.kind === 'unbound') continue
               const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding: source }]
               if (routeIsSuppressed(childPath, projected.delivery, route)) continue
               let list = childCtx.extraIn.get(binding.node)
@@ -1802,7 +1804,7 @@ function compileImpl(
         ? [binding]
         : (rerouteInputTargets(child, binding.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target })))
       for (const b of targets) {
-        if (b.kind === 'widgetTap') continue
+        if (b.kind === 'widgetTap' || b.kind === 'unbound') continue
         const targets = resolveInputPort(childPath, childId, b)
         // Muted/bypassed inner targets compile nothing; a promoted value for
         // them is dormant (bypass forwards connections, never widget values).

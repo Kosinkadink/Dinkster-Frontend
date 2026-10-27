@@ -378,6 +378,10 @@ export function importLitegraphSubgraphs(
       const previous = deliveries.get(key)
       if (previous === undefined) deliveries.set(key, link)
       else {
+        if (link[3] === def.outputNode) {
+          fail('import.subgraphs.boundaryUnsupported', `subgraph '${id}' has multiple drivers for an output boundary`)
+          return
+        }
         const target = def.raw['nodes'].find((node: Mutable) => Number(node?.['id']) === Number(link[3]))
         const preferred = target?.['inputs']?.[link[4]]?.['link']
         const winner = preferred === link[0] && preferred !== previous[0] ? link : previous
@@ -426,9 +430,9 @@ export function importLitegraphSubgraphs(
       }
       return end
     }
-    const bind = (end: any): BoundaryBinding | undefined =>
+    const bind = (end: any): Exclude<BoundaryBinding, { kind: 'unbound' }> | undefined =>
       typeof end.node === 'string' && typeof end.port === 'string' && end.node !== `n${def.inputNode}` && end.node !== `n${def.outputNode}`
-        ? { kind: 'port', ...end } as BoundaryBinding : undefined
+        ? { kind: 'port', ...end } : undefined
     const authoredBindings = (side: 'inputs' | 'outputs', index: number): BoundaryBinding[] =>
       def.raw['links'].flatMap((link: any[]) => {
         const nodeIndex = side === 'inputs' ? 3 : 1
@@ -444,6 +448,10 @@ export function importLitegraphSubgraphs(
       })
     let unsupported = false
     const boundary = (side: 'inputs' | 'outputs'): BoundaryItem[] => def.raw[side].flatMap((slot: Mutable, index: number) => {
+      const hasAuthoredLink = def.raw['links'].some((link: any[]) => side === 'inputs'
+        ? link[1] === def.inputNode && link[2] === index
+        : link[3] === def.outputNode && link[4] === index)
+      if (!hasAuthoredLink) return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: { kind: 'unbound', type: importedSlotType(slot['type']) } }]
       const ends = side === 'inputs'
         ? links.filter((link) => nodeEnd(link.from, `n${def.inputNode}`) && (link.from as any).port === `i${index}`).map((link) => link.to)
         : links.filter((link) => nodeEnd(link.to, `n${def.outputNode}`) && (link.to as any).port === `o${index}`).map((link) => link.from)

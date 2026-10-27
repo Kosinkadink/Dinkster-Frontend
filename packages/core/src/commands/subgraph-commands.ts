@@ -132,7 +132,7 @@ function occurrenceEndpointIntersectsSelection(
   }
   if (endpoint.kind === 'body') return topologyBody === graphId && endpointSelected(endpoint.endpoint)
   return occurrenceRefIntersectsNodes(doc, endpoint.occurrence, graphId, nodes) ||
-    endpoint.route.some((leg) => leg.graph === graphId && nodes.has(leg.binding.node))
+    endpoint.route.some((leg) => leg.graph === graphId && leg.binding.kind !== 'unbound' && nodes.has(leg.binding.node))
 }
 
 function extractionIntersectsOccurrenceTopology(
@@ -160,7 +160,7 @@ function extractionIntersectsOccurrenceTopology(
         const net = doc.graphs[topology.bodyGraph]?.nets[suppression.netId]
         if (selectedNodes.has(suppression.to.node) || (net !== undefined && selectedNodes.has(net.source.node))) return true
       } else if (suppression.kind === 'projectedLeg') {
-        if (suppression.route.some((leg) => leg.graph === graphId && selectedNodes.has(leg.binding.node))) return true
+        if (suppression.route.some((leg) => leg.graph === graphId && leg.binding.kind !== 'unbound' && selectedNodes.has(leg.binding.node))) return true
         const deliveryGraph = doc.graphs[suppression.delivery.graph]
         if (deliveryGraph?.id !== graphId) continue
         if (suppression.delivery.kind === 'link') {
@@ -234,6 +234,7 @@ function remapEndpoint(endpoint: LinkEndpoint, ids: ExtractIdMaps): LinkEndpoint
 }
 
 function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, string>, rerouteIds?: ReadonlyMap<string, string>): BoundaryBinding {
+  if (binding.kind === 'unbound') return binding
   const node = nodeIds.get(binding.node)
   if (node === undefined) throw new Error(`subgraph.extract: no node map for '${binding.node}'`)
   if (binding.kind === 'port' && binding.viaReroute !== undefined) {
@@ -245,6 +246,7 @@ function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, str
 }
 
 function bindingAsEndpoint(binding: BoundaryBinding): PortRef | Extract<LinkEndpoint, { readonly tap: string }> {
+  if (binding.kind === 'unbound') throw new Error('unbound boundary has no endpoint')
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
     : { node: binding.node, port: binding.port, ...(binding.members !== undefined ? { members: binding.members } : {}) }
@@ -1058,7 +1060,7 @@ function flattenBoundaryTargets(
 }
 
 function portFromBinding(binding: BoundaryBinding): PortRef {
-  if (binding.kind === 'widgetTap') throw new Error('widget tap binding is not a port')
+  if (binding.kind === 'widgetTap' || binding.kind === 'unbound') throw new Error('boundary binding is not a port')
   return {
     node: binding.node,
     port: binding.port,
@@ -1394,7 +1396,7 @@ function stagedFlattenIdentitiesContainNul(
   }
   for (const item of [...(staged.boundary?.inputs ?? []), ...(staged.boundary?.outputs ?? [])]) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-      if (sourceNodeByClone.has(binding.node) && binding.members?.some(hasNul) === true) return true
+      if (binding.kind !== 'unbound' && sourceNodeByClone.has(binding.node) && binding.members?.some(hasNul) === true) return true
     }
   }
   return false
@@ -1492,6 +1494,7 @@ function validateFlattenDispatch(
   const boundAuthoredTypes = new Set(Object.values(body.nodes).map((node) => node.type))
   for (const item of [...body.boundary.inputs, ...body.boundary.outputs]) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind === 'unbound') continue
       const authoredType = body.nodes[binding.node]?.type
       if (authoredType !== undefined) boundAuthoredTypes.add(authoredType)
     }
@@ -1537,6 +1540,7 @@ function validateFlattenDispatch(
     const route = routes.get(JSON.stringify([side, item.id]))
     if (route === 'plain' || route === 'plainWidget' || route === 'combo' || route === 'specialized') {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (binding.kind === 'unbound') continue
         const authoredType = body.nodes[binding.node]?.type
         if (authoredType === undefined || !Object.hasOwn(snapshot, authoredType)) {
           return [err('params.invalid', 'subgraph.flatten: boundary route requires a missing authored schema')]
@@ -1944,7 +1948,7 @@ const subgraphFlatten: CommandDefinition = {
         from = endpointFromBinding(targets[0]!)
       } else if (isWidgetTapRef(from) && from.node === nodeId) {
         const target = targetsFor('input', boundaryInputs.get(from.tap)!, { port: from.tap })?.[0]
-        if (target === undefined || target.kind === 'widgetTap') {
+        if (target === undefined || target.kind === 'widgetTap' || target.kind === 'unbound') {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: tap '${from.tap}' has no materialized target`, graphId, instancePath, nodeId)]
         }
         from = { node: target.node, tap: target.port }

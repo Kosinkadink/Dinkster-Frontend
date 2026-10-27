@@ -282,6 +282,7 @@ function resolveOccurrenceEndpoint(
       finalEndpoint = { reroute: match.binding.viaReroute }
       continue
     }
+    if (match.binding.kind === 'unbound') return undefined
     let ref: PortRef
     if (isForwardingBinding(match.binding)) {
       const view = occurrenceDynamicView(document, resolver, occurrence.instancePath)

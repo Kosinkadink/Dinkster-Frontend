@@ -33,6 +33,7 @@ import type {
   SelectorId,
   ValueSourceId,
 } from '../ids.js'
+import type { TypeExpr } from '../schema/model.js'
 
 /** JSON-serializable value. The document contains nothing else. */
 export type Json = null | boolean | number | string | readonly Json[] | JsonObject
@@ -523,7 +524,19 @@ export interface WidgetTapBoundaryBinding {
   readonly viaReroute?: never
 }
 
-export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding
+/** An authored interface slot with no endpoint inside the definition. */
+export interface UnboundBoundaryBinding {
+  readonly kind: 'unbound'
+  readonly type: TypeExpr
+  readonly node?: never
+  readonly port?: never
+  readonly tap?: never
+  readonly members?: never
+  readonly slots?: never
+  readonly viaReroute?: never
+}
+
+export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding | UnboundBoundaryBinding
 
 export const isSubtreeBinding = (binding: BoundaryBinding): binding is PortBoundaryBinding & { readonly kind: 'slot' | 'dynamicCombo' } =>
   binding.kind === 'slot' || binding.kind === 'dynamicCombo'
@@ -632,7 +645,9 @@ export interface OccurrenceTopology {
 }
 
 const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
-  binding.kind === 'widgetTap'
+  binding.kind === 'unbound'
+    ? [binding.kind, binding.type as unknown as Json]
+    : binding.kind === 'widgetTap'
     ? [binding.kind, binding.node, binding.tap]
     : [
         binding.kind,

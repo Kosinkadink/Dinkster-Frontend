@@ -517,6 +517,7 @@ export function classifyFlattenBoundaryRoute(
   expectedSide?: 'input' | 'output',
 ): FlattenRouteKind {
   const routes = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding)).map((binding) => {
+    if (binding.kind === 'unbound') return 'unresolved'
     const node = body.nodes[binding.node]
     return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide)
   })
@@ -549,6 +550,7 @@ export function planFlattenBoundaryRoutes(
   ]
   const boundaryPlan = items.map(({ side, item }) => {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind === 'unbound') continue
       const node = body.nodes[binding.node]
       const schema = node === undefined ? undefined : resolveSchema(node.type)
       if (node !== undefined && schema !== undefined) schemaSnapshot[node.type] = schema
@@ -629,7 +631,7 @@ interface FamilyMaterializationContext {
   readonly familyScopes: FlattenFamilyScopeMap[]
   readonly targetFamilySpecs: Map<string, AutogrowSpec>
   readonly entries: Map<string, FlattenAddressMapEntry>
-  readonly binding: BoundaryBinding
+  readonly binding: Exclude<BoundaryBinding, { kind: 'unbound' }>
   readonly bindingIndex: number
   readonly fail: (code: FlattenStateRefusalCode, message: string, address?: FlattenPortAddress) => void
   readonly budget: { memberCount: number; itemCount: number }
@@ -1151,6 +1153,7 @@ function planFlattenState(
     if (routePlan.route === 'widgetTap') continue
     if (routePlan.route === 'family') {
       const nativeTarget = [item.binds, ...(item.alsoBinds ?? [])].some((binding) => {
+        if (binding.kind === 'unbound') return false
         const node = body.nodes[binding.node]
         const schema = node === undefined ? undefined : resolveSchema(node.type)
         const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side)
@@ -1173,6 +1176,7 @@ function planFlattenState(
         }
         const before = { port: item.id }
         for (const [bindingIndex, binding] of [item.binds, ...(item.alsoBinds ?? [])].entries()) {
+          if (binding.kind === 'unbound') continue
           const original = body.nodes[binding.node]
           const target = original === undefined ? undefined : nodes.get(original.id as string)
           const schema = original === undefined ? undefined : resolveSchema(original.type)
@@ -1230,6 +1234,7 @@ function planFlattenState(
         continue
       }
       for (const [bindingIndex, binding] of [item.binds, ...(item.alsoBinds ?? [])].entries()) {
+        if (binding.kind === 'unbound') continue
         const original = body.nodes[binding.node]
         const target = original === undefined ? undefined : nodes.get(original.id as string)
         const schema = original === undefined ? undefined : resolveSchema(original.type)
@@ -1313,6 +1318,7 @@ function planFlattenState(
       continue
     }
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))) {
+      if (binding.kind === 'unbound') continue
       const original = body.nodes[binding.node]
       const schema = original === undefined ? undefined : resolveSchema(original.type)
       const target = original === undefined ? undefined : nodes.get(original.id as string)
@@ -1384,6 +1390,7 @@ function planFlattenState(
     if (item.promoted !== true || familyInputIds.has(item.id)) continue
     const targets = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))
     const primaryBinding = item.binds
+    if (primaryBinding.kind === 'unbound') continue
     const primaryNode = body.nodes[primaryBinding.node]
     const primarySchema = primaryNode === undefined ? undefined : resolveSchema(primaryNode.type)
     const primaryRoute = primarySchema === undefined ? undefined : resolveBoundaryRoute(primarySchema, primaryBinding, 'input')
@@ -1497,7 +1504,7 @@ function planFlattenState(
             const composed: BoundaryBinding[] = []
             for (const target of mappedTargets) {
               const targetBinding = childBindings[target.bindingIndex]
-              const targetNode = targetBinding === undefined ? undefined : body.nodes[targetBinding.node]
+              const targetNode = targetBinding === undefined || targetBinding.kind === 'unbound' ? undefined : body.nodes[targetBinding.node]
               const targetSchema = targetNode === undefined ? undefined : resolveSchema(targetNode.type)
               const targetRoute = targetSchema === undefined || targetBinding === undefined
                 ? undefined
@@ -1864,7 +1871,7 @@ function endpointSelected(endpoint: LinkEndpoint, selection: ReturnType<typeof s
 }
 
 function bindingSelected(binding: BoundaryBinding, selection: ReturnType<typeof selectedSets>): boolean {
-  return selection.nodes.has(binding.node)
+  return binding.kind !== 'unbound' && selection.nodes.has(binding.node)
 }
 
 function recordProjection(
@@ -2168,16 +2175,18 @@ function refusalForLink(
   return { code, source: 'link', id: link.id, endpoint: inner }
 }
 
-const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' }>): PortRef => ({
+const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' }>): PortRef => ({
   node: binding.node,
   port: binding.port,
   ...(binding.members !== undefined ? { members: binding.members } : {}),
 })
 
-const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef =>
-  binding.kind === 'widgetTap'
+const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef => {
+  if (binding.kind === 'unbound') throw new Error('unbound boundary has no endpoint')
+  return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
     : bindingAsPort(binding)
+}
 
 export function auditExtractionCuts(
   graph: GraphDef,
@@ -2289,15 +2298,15 @@ export function auditExtractionCuts(
   for (const side of ['inputs', 'outputs'] as const) {
     for (const [itemIndex, item] of (graph.boundary?.[side] ?? []).entries()) {
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
-      const movedBindings = bindings.filter((binding) => selected.nodes.has(binding.node))
-      const retainedBindings = bindings.filter((binding) => !selected.nodes.has(binding.node))
+      const movedBindings = bindings.filter((binding) => bindingSelected(binding, selected))
+      const retainedBindings = bindings.filter((binding) => !bindingSelected(binding, selected))
       if (bindings.some((binding) => binding.viaReroute !== undefined &&
           selected.nodes.has(binding.node) !== selected.reroutes.has(binding.viaReroute))) {
         const refusal: CutRefusal = { code: 'subgraph.extract.structuralCutUnsupported', source: 'boundary', id: item.id }
         refusals.push(refusal)
         boundaries.push({
           side, itemIndex, itemId: item.id, kind: 'unrepresentable', movedBindings, retainedBindings,
-          primaryMoved: selected.nodes.has(item.binds.node), promoted: item.promoted === true, refusal,
+          primaryMoved: bindingSelected(item.binds, selected), promoted: item.promoted === true, refusal,
         })
         continue
       }
@@ -2327,7 +2336,7 @@ export function auditExtractionCuts(
         refusals.push(refusal)
       }
       const kind = refusal !== undefined ? 'unrepresentable' : side === 'inputs' ? 'in-cut' : 'out-cut'
-      const firstMovedIndex = bindings.findIndex((binding) => selected.nodes.has(binding.node))
+      const firstMovedIndex = bindings.findIndex((binding) => bindingSelected(binding, selected))
       const nestedBindings = movedBindings.map((binding) => {
         if (binding.kind !== 'family') return binding
         const { slots: _slots, ...withoutSlots } = binding
@@ -2348,7 +2357,7 @@ export function auditExtractionCuts(
         kind,
         movedBindings,
         retainedBindings,
-        primaryMoved: selected.nodes.has(item.binds.node),
+        primaryMoved: bindingSelected(item.binds, selected),
         replacementIndex: firstMovedIndex,
         ...(nestedItem !== undefined ? { nestedItem } : {}),
         promoted: item.promoted === true,

@@ -39,7 +39,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.js'
-import { isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type RegionContract } from '../format/document.js'
+import { isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type PortBoundaryBinding, type RegionContract } from '../format/document.js'
 import { isPortEndpoint, portAddressKey, type DynamicMemberId, type PortId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
@@ -254,6 +254,7 @@ export function resolveBoundaryRoute(
   expectedSide?: 'input' | 'output',
   values?: Readonly<Record<string, unknown>>,
 ): RouteResult {
+  if (binding.kind === 'unbound') return { ok: false, code: 'boundary.unboundRoute', message: 'an unattached boundary has no inner route' }
   if (binding.kind === 'widgetTap') {
     return {
       ok: false,
@@ -501,6 +502,7 @@ export function deriveBoundarySchema(
     expectedSide: 'input' | 'output',
     silent = false,
   ): { node: NodeData; route: BoundaryRoute } | undefined => {
+    if (binds.kind === 'unbound') return undefined
     const cached = routeCache.get(binds)?.[expectedSide]
     if (cached != null) return cached
     const emit = silent ? () => {} : fail
@@ -561,7 +563,7 @@ export function deriveBoundarySchema(
     routeForBinding(item.binds, `boundary ${side} '${item.id}'`, side)
 
   /** Fan-out duplicate key: full target address (node, port, member path). */
-  const targetKeyOf = (b: Exclude<BoundaryBinding, { kind: 'widgetTap' }>): string => JSON.stringify([b.node, b.port, b.members ?? []])
+  const targetKeyOf = (b: PortBoundaryBinding): string => JSON.stringify([b.node, b.port, b.members ?? []])
 
   // Ownership is checked before item derivation so declaration order cannot
   // decide whether forwarding a conditional construct wins over exposing a
@@ -602,7 +604,7 @@ export function deriveBoundarySchema(
   }
 
   /** Link existence is scoped by node plus the exact structural member path. */
-  const isInternallyConnected = (b: Exclude<BoundaryBinding, { kind: 'widgetTap' }>, constructPath: string): boolean => {
+  const isInternallyConnected = (b: PortBoundaryBinding, constructPath: string): boolean => {
     const key = portAddressKey(constructPath, b.members)
     for (const link of Object.values(def.links)) {
       if (isPortEndpoint(link.to) && link.to.node === b.node && portAddressKey(link.to.port, link.to.members) === key) return true
@@ -713,7 +715,7 @@ export function deriveBoundarySchema(
     side: string,
     node: NodeData,
     route: BoundaryRoute,
-    binding: Exclude<BoundaryBinding, { kind: 'widgetTap' }> = item.binds as Exclude<BoundaryBinding, { kind: 'widgetTap' }>,
+    binding: PortBoundaryBinding = item.binds as PortBoundaryBinding,
   ): AutogrowSpec | undefined => {
     const terminal = route.terminal as Extract<RouteTerminal, { kind: 'family' }>
     const spec = terminal.spec
@@ -819,6 +821,7 @@ export function deriveBoundarySchema(
     node: NodeData,
     spec: CountBoundOutputAutogrowSpec,
   ): CountBoundOutputAutogrowSpec['count'] | undefined => {
+    if (boundaryOutput.binds.kind === 'unbound') return undefined
     const countBinding: BoundaryBinding = {
       kind: 'port',
       node: boundaryOutput.binds.node,
@@ -869,6 +872,10 @@ export function deriveBoundarySchema(
 
   for (const item of def.boundary.inputs) {
     if (!checkId(item)) continue
+    if (item.binds.kind === 'unbound') {
+      items.push({ kind: 'input', id: item.id, ...(item.displayName !== undefined ? { displayName: item.displayName } : {}), type: item.binds.type, optional: true })
+      continue
+    }
     if (item.binds.kind === 'widgetTap') {
       fail('boundary.tapSide', `boundary input '${item.id}' uses an output-only widget tap binding`)
       continue
@@ -954,7 +961,7 @@ export function deriveBoundarySchema(
         if (hop.kind !== 'slot' && hop.kind !== 'slotVariant') continue
         // isInternallyConnected addresses by (node, constructPath, members);
         // the binding's own port field is not consulted.
-        const slotBinding: Exclude<BoundaryBinding, { kind: 'widgetTap' }> = {
+        const slotBinding: PortBoundaryBinding = {
           kind: item.binds.kind,
           node: item.binds.node,
           port: item.binds.port,
@@ -1086,6 +1093,7 @@ export function deriveBoundarySchema(
       // input is satisfiable without a connection.
       optional: satisfiable,
       ...([item.binds, ...(item.alsoBinds ?? [])].some((binding) => {
+        if (binding.kind !== 'port') return false
         const target = def.nodes[binding.node]
         const schema = target && resolveNode(target)
         return binding.kind === 'port' && schema !== undefined && outputSchemaInputsOf(schema).includes(binding.port as string)
@@ -1143,6 +1151,10 @@ export function deriveBoundarySchema(
 
   for (const item of def.boundary.outputs) {
     if (!checkId(item)) continue
+    if (item.binds.kind === 'unbound') {
+      items.push({ kind: 'output', id: item.id, ...(item.displayName !== undefined ? { displayName: item.displayName } : {}), type: item.binds.type })
+      continue
+    }
     if (item.alsoBinds !== undefined) {
       fail('boundary.fanoutOnOutput', `boundary output '${item.id}': 'alsoBinds' is invalid on outputs (an output has exactly one source)`)
       continue

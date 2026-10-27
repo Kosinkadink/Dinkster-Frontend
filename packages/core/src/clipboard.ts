@@ -294,6 +294,7 @@ function definitionOccurrenceReferencesClosed(
         boundaryBindingKey(binding) === boundaryBindingKey(leg.binding))
       if (matchingBindings.length !== 1) return false
       const binding = matchingBindings[0]!
+      if (binding.kind === 'unbound') return false
       const targetNode = graph.nodes[binding.node]
       if (targetNode === undefined ||
           binding.kind !== 'widgetTap' && resolveDynamicAddress(binding, targetNode.dynamic).kind === 'missing') return false

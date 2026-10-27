@@ -499,11 +499,11 @@ function deleteCascade(
       let changed = false
       const kept: BoundaryItem[] = []
       for (const item of items) {
-        if (removed.has(item.binds.node)) {
+        if (item.binds.kind !== 'unbound' && removed.has(item.binds.node)) {
           changed = true
           continue
         }
-        const also = item.alsoBinds?.filter((a) => !removed.has(a.node))
+        const also = item.alsoBinds?.filter((a) => a.kind === 'unbound' || !removed.has(a.node))
         if (item.alsoBinds !== undefined && also !== undefined && also.length !== item.alsoBinds.length) {
           changed = true
           const { alsoBinds: _drop, ...rest } = item

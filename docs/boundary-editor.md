@@ -5,6 +5,12 @@ currently open on the canvas. Inputs describe values entering the workflow;
 outputs describe values returned by it. Empty sections remain visible so the
 absence of an interface is explicit.
 
+Imported interface slots without an internal endpoint retain their declared
+type and ordered position as `unbound` bindings. They do not create body
+nodes, inner wires, or promoted widgets. An unattached output has no producer;
+connecting it cannot fabricate an execution value. Flattening a definition
+with unattached slots is refused until its interface can be resolved.
+
 Outside a subgraph, the panel shows a ProductEmptyState prompt instead of a
 blank area. An Open action is available for each subgraph occurrence on the
 current canvas whose definition has a boundary. It enters through that

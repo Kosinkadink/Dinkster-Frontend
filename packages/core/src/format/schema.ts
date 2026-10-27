@@ -99,6 +99,11 @@ const widgetTapRef = {
 const boundaryBinding = {
   oneOf: [
     {
+      type: 'object', required: ['kind', 'type'],
+      properties: { kind: { const: 'unbound' }, type: { $ref: '#/$defs/typeExpr' } },
+      not: { anyOf: ['node', 'port', 'tap', 'members', 'slots', 'viaReroute'].map((field) => ({ required: [field] })) },
+    },
+    {
       type: 'object',
       required: ['kind', 'node', 'port'],
       properties: {
@@ -147,7 +152,7 @@ const boundaryItem = {
   allOf: [
     {
       if: {
-        properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'slot', 'dynamicCombo'] } }, required: ['kind'] } },
+        properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'slot', 'dynamicCombo', 'unbound'] } }, required: ['kind'] } },
         required: ['binds'],
       },
       then: {
@@ -458,6 +463,18 @@ export const WORKFLOW_SCHEMA = {
         },
         ext: { $ref: '#/$defs/extData' },
       },
+    },
+    typeExpr: {
+      oneOf: [
+        { type: 'object', required: ['kind', 'name'], properties: { kind: { const: 'concrete' }, name: { type: 'string', minLength: 1 } } },
+        { type: 'object', required: ['kind', 'names'], properties: { kind: { const: 'union' }, names: { type: 'array', minItems: 2, items: { type: 'string', minLength: 1 } } } },
+        { type: 'object', required: ['kind'], properties: { kind: { const: 'wildcard' } } },
+        { type: 'object', required: ['kind', 'templateId'], properties: { kind: { const: 'variable' }, templateId: { type: 'string', minLength: 1 }, allowedTypes: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
+        { type: 'object', required: ['kind', 'element'], properties: { kind: { enum: ['list', 'asset', 'stream'] }, element: { $ref: '#/$defs/typeExpr' } } },
+        { type: 'object', required: ['kind', 'elements'], properties: { kind: { const: 'tuple' }, elements: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
+        { type: 'object', required: ['kind', 'input'], properties: { kind: { const: 'family_tuple' }, input: { type: 'string', minLength: 1 } } },
+        { type: 'object', required: ['kind', 'index'], properties: { kind: { const: 'tuple_element' }, input: { type: 'string' }, element: { $ref: '#/$defs/typeExpr' }, index: { type: ['string', 'number'] } } },
+      ],
     },
     boundaryBinding,
     boundaryItem,

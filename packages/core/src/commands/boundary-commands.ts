@@ -267,7 +267,7 @@ const boundaryAddBinding: CommandDefinition = {
     const members = params.members as string[] | undefined
     const key = bindingTargetKey(params.node, params.port, members)
     const existing = (def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
-    if (existing.some((b) => b.kind !== 'widgetTap' && bindingTargetKey(b.node, b.port, b.members) === key))
+    if (existing.some((b) => b.kind !== 'widgetTap' && b.kind !== 'unbound' && bindingTargetKey(b.node, b.port, b.members) === key))
       return [
         err(
           'boundary.duplicateBind',
@@ -323,7 +323,7 @@ const boundaryRemoveBinding: CommandDefinition = {
       ]
     const members = params.members as string[] | undefined
     const key = bindingTargetKey(params.node, params.port, members)
-    if (found.item.binds.kind !== 'widgetTap' && bindingTargetKey(found.item.binds.node, found.item.binds.port, found.item.binds.members) === key)
+    if (found.item.binds.kind !== 'widgetTap' && found.item.binds.kind !== 'unbound' && bindingTargetKey(found.item.binds.node, found.item.binds.port, found.item.binds.members) === key)
       return [
         err(
           'boundary.primaryBind',
@@ -331,7 +331,7 @@ const boundaryRemoveBinding: CommandDefinition = {
         ),
       ]
     const also = found.item.alsoBinds ?? []
-    const kept = also.filter((b) => b.kind === 'widgetTap' || bindingTargetKey(b.node, b.port, b.members) !== key)
+    const kept = also.filter((b) => b.kind === 'widgetTap' || b.kind === 'unbound' || bindingTargetKey(b.node, b.port, b.members) !== key)
     if (kept.length === also.length)
       return [
         err(
@@ -357,12 +357,12 @@ const validMembers = (v: Json | undefined): boolean =>
 const bindingKey = (binding: BoundaryItem['binds']): string => boundaryBindingKey(binding)
 
 const bindingMatchesEndpoint = (binding: BoundaryBinding, target: BoundaryBinding): boolean =>
-  binding.kind === 'widgetTap' || target.kind === 'widgetTap'
+  binding.kind === 'widgetTap' || target.kind === 'widgetTap' || binding.kind === 'unbound' || target.kind === 'unbound'
     ? bindingKey(binding) === bindingKey(target)
     : bindingTargetKey(binding.node, binding.port, binding.members) ===
       bindingTargetKey(target.node, target.port, target.members)
 
-const bindingFromParams = (params: JsonObject, side: Side): BoundaryBinding | undefined => {
+const bindingFromParams = (params: JsonObject, side: Side): Exclude<BoundaryBinding, { kind: 'unbound' }> | undefined => {
   if (typeof params.node !== 'string') return undefined
   if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined && params.members === undefined) {
     return side === 'outputs' && params.viaReroute === undefined

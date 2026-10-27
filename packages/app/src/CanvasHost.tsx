@@ -904,8 +904,10 @@ export function selectionDeleteInvocation(args: {
       for (const sink of net.sinks) if (!deletedNodes.has(sink.node)) freedNodes.add(sink.node)
     }
     for (const item of def.boundary?.inputs ?? []) {
+      if (item.binds.kind === 'unbound') continue
       if (!deletedNodes.has(item.binds.node)) continue
       for (const binding of item.alsoBinds ?? []) {
+        if (binding.kind === 'unbound') continue
         if (!deletedNodes.has(binding.node)) freedNodes.add(binding.node)
       }
     }
