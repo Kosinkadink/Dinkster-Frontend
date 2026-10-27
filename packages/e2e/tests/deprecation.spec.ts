@@ -187,12 +187,27 @@ test('a safe plan auto-applies with a navigable notice and one undoable step', a
     .toEqual([])
   await notice.getByRole('button', { name: `old: ${sourceType} -> ${targetType}`, exact: true }).click()
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.controller!.getSelection()])).toEqual(['old'])
+  const undoUpgrades = notice.getByRole('button', { name: 'Undo upgrades', exact: true })
+  await expect(undoUpgrades).toBeEnabled()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+    command: 'node.setValue', params: { graphId: 'g0', nodeId: 'old', inputId: 'width', value: 768 },
+  }).ok)).toBe(true)
+  await expect(undoUpgrades).toBeDisabled()
+  expect((await rootTypes(page)).old).toBe(targetType)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.old!.values.width)).toBe(768)
+  await page.screenshot({ path: testInfo.outputPath('migration-undo-disabled.png'), animations: 'disabled' })
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  await expect(undoUpgrades).toBeEnabled()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.old!.values.width)).toBe(512)
   await page.screenshot({ path: testInfo.outputPath('safe-migration-notice.png'), animations: 'disabled' })
   // ONE undo restores the deprecated node exactly.
-  await page.evaluate(() => void window.__dinksterTest!.app.activeTab()!.store.undo())
+  await undoUpgrades.click()
+  await expect(notice).toHaveCount(0)
   expect((await rootTypes(page)).old).toBe(sourceType)
   const authored = await page.evaluate(() => JSON.parse(JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc)))
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
+  expect(await page.evaluate((doc) => window.__dinksterTest!.app.openDocument(doc, 'Migrated copy to dismiss'), authored)).toEqual([])
+  await expect(notice).toBeVisible()
   const exported = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     return JSON.parse(JSON.stringify(app.exportDocument(app.activeTab()!.id)!))
