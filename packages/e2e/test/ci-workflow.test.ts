@@ -415,7 +415,7 @@ describe('fast pull-request and full validation workflows', () => {
           (step) => step.name === 'Install hosted compatibility dependencies',
         )!
         expect(compatibilityInstall.run).toContain(
-          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@c4ce40550e77f5a3b9b8d2f96597a4d6c24c1377',
+          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@9a9d0fd74ede9dea3058a0a63b2c5e9a8b00cb1c',
         )
         expect(compatibilityInstall.run).toContain(
           'uv pip install --python .ci/Dinkster/.venv-torch/bin/python',
