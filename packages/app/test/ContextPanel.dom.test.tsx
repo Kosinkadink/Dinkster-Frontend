@@ -112,8 +112,8 @@ const summaryKind = (root: Element): string | null =>
   root.querySelector('[data-testid="context-summary"]')?.getAttribute('data-context-kind') ?? null
 
 const problemCodes = (root: Element): readonly string[] =>
-  [...root.querySelectorAll('[data-testid="context-problems"] details.problem summary')]
-    .map((summary) => summary.textContent ?? '')
+  [...root.querySelectorAll('[data-testid="context-problems"] details.problem code')]
+    .map((code) => code.textContent ?? '')
 
 describe('ContextPanel', () => {
   it('shows the whole document with every problem while nothing is focused', () => {
@@ -203,7 +203,10 @@ describe('ContextPanel', () => {
     expect(root.querySelector('h2')?.textContent).toBe('[FOKUSSIERTER KONTEXT MIT LANGEM TITEL]')
     expect(summary.querySelector('.context-kind')?.textContent).toBe('[KNOTENAUSWAHL]')
     expect(entity.textContent).toContain('First sampler')
-    expect(problemSummary.textContent).toContain('[error] node.first: problem on n1')
+    expect(problemSummary.textContent).toContain('problem on n1')
+    expect(problemSummary.textContent).not.toContain('node.first')
+    expect(problemSummary.textContent).not.toContain('[error]')
+    expect(details.querySelector('code')?.textContent).toBe('node.first')
     expect(root.querySelector('.context-problems-title')?.textContent).toContain('[PROBLEME IN DIESEM KONTEXT]')
     expect(root.querySelector('.problems-group-count')?.getAttribute('aria-label')).toBe('[2 PROBLEME]')
     expect(show.textContent).toBe('[AUF LEINWAND ZEIGEN]')

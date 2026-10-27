@@ -72,8 +72,8 @@ const other = diag('warning', 'compile', 'compile.other', 'other warning', {
   refs: [{ graphId: 'g0', nodeId: 'n2' }],
 })
 const diagnostics: readonly Diagnostic[] = [anchored, other]
-const firstKey = JSON.stringify(['node', 'lineage-a', 'g0', 'n1'])
-const secondKey = JSON.stringify(['node', 'lineage-a', 'g0', 'n2'])
+const firstKey = JSON.stringify(['execution', 'lineage-a'])
+const secondKey = JSON.stringify(['workflow', 'lineage-a'])
 const withoutSsrHydration = (html: string): string =>
   html.replace(/ data-hk="[^"]*"/g, '').replace(/<!--(?:\$|\/)-->/g, '')
 
@@ -91,7 +91,9 @@ describe('ProblemsPanel', () => {
     expect(initial).toContain('id="problems-group-0"')
     expect(initial).toContain('data-severity="error"')
     expect(initial).toContain('runtime.exploded')
-    expect(initial).toContain('Node "My sampler" (n1), input "Model input" (model): preview exploded')
+    expect(initial).toContain('Execution')
+    expect(initial).toContain('This workflow')
+    expect(initial).toContain('preview exploded')
     expect(initial).toContain('line one\nline two')
 
     expect(activeTabId.get()).toBe('tab-a')
@@ -156,13 +158,18 @@ describe('ProblemsPanel', () => {
     expect(html.indexOf('Diagnostic code: tensor-shape-mismatch')).toBeLessThan(html.indexOf('raw traceback'))
   })
 
-  it('keeps the no-hints runtime detail markup unchanged', () => {
+  it('keeps codes in expanded debug detail rather than the one-line summary', () => {
     const html = renderToString(() => (
       <ProblemsPanel app={app} diagnostics={() => [anchored]} compatSkips={() => []} />
     ))
-    const detail = withoutSsrHydration(html).match(/<details class="problem"[\s\S]*?<\/details>/)?.[0]
-
-    expect(detail).toBe('<details class="problem" data-severity="error" data-activatable="true"><summary>[error] runtime.exploded: Node "My sampler" (n1), input "Model input" (model): preview exploded</summary><button type="button" class="product-button problem-show-on-canvas " data-variant="secondary" data-size="compact" >Show on canvas</button><pre class="traceback">line one\nline two</pre></details>')
+    const detail = withoutSsrHydration(html)
+    const summary = detail.match(/<summary>[\s\S]*?<\/summary>/)?.[0]
+    expect(summary).toContain('preview exploded')
+    expect(summary).toContain('aria-label="error"')
+    expect(summary).not.toContain('runtime.exploded')
+    expect(summary).not.toContain('[error]')
+    expect(detail).toContain('<code>runtime.exploded</code>')
+    expect(detail).toContain('line one\nline two')
   })
 
   it('solver diagnostic activation requests focus while an anchorless row stays inert', () => {
@@ -196,10 +203,8 @@ describe('ProblemsPanel', () => {
       />
     ))
 
-    expect(html).toContain('Compat skips')
-    expect(html).toContain('aria-label="Compat skips"')
-    expect(html).toContain('advisory')
-    expect(html).toContain('These ComfyUI nodes were not added to the catalog.')
+    expect(html).toContain('Packs and backend')
+    expect(html).toContain('data-severity="info"')
     expect(html).toContain('comfy: CreateList')
     expect(html).toContain(reason)
     expect(html).not.toContain('data-activatable')
@@ -232,19 +237,16 @@ describe('ProblemsPanel', () => {
       />
     ))
 
-    expect(html).toContain('Pack inference unavailable')
-    expect(html).toContain('aria-label="Pack inference unavailable"')
-    expect(html).toContain('data-testid="pack-inference-unavailable-group"')
+    expect(html).toContain('Packs and backend')
     expect(html).toContain('data-severity="warning"')
-    expect(html).toContain('These packs composed their nodes, routes and events')
-    expect(html.match(/class="problem inference-unavailable"/g)).toHaveLength(2)
-    expect(html).toContain('<strong>pack.degraded</strong>')
-    expect(html).toContain('<strong>pack.other</strong>')
+    expect(html.match(/class="problem"/g)).toHaveLength(2)
+    expect(html).toContain('pack.degraded:')
+    expect(html).toContain('pack.other:')
     expect(html).toContain(reason)
-    // Provider ids render with a zero-width space after each dot so long
-    // ids wrap on boundaries.
-    expect(html).toContain('sampler.\u200Beuler')
-    expect(html).toContain('scheduler.\u200Bbeta')
+    expect(html).toContain('sampler')
+    expect(html).toContain('euler')
+    expect(html).toContain('scheduler')
+    expect(html).toContain('beta')
     expect(html).not.toContain('data-activatable')
     expect(html).not.toContain('None.')
   })

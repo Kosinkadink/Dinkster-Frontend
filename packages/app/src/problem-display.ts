@@ -6,6 +6,7 @@ import {
   outputsOf,
   subgraphDefIdOf,
   type Diagnostic,
+  type DiagnosticOrigin,
   type DiagnosticRef,
   type NodeSchema,
   type Occurrence,
@@ -268,78 +269,37 @@ export interface ProblemGroup {
   readonly diagnostics: readonly Diagnostic[]
 }
 
-export interface ProblemGroupingContext {
-  /** The active graph definition used to qualify otherwise graph-less port anchors. */
-  readonly graphId: string
-}
+export const problemSections = ['execution', 'workflow', 'upgrade', 'packs', 'collaboration'] as const
+export type ProblemSection = typeof problemSections[number]
 
-/**
- * Groups diagnostics by the first referenced or anchored node. Node groups
- * retain first appearance order; the General group is always appended last.
- */
+export const problemSectionForOrigin = {
+  runtime: 'execution',
+  validation: 'execution',
+  compile: 'workflow',
+  invariant: 'workflow',
+  environment: 'workflow',
+  import: 'upgrade',
+  schema: 'packs',
+  extension: 'packs',
+  command: 'packs',
+  collab: 'collaboration',
+} as const satisfies Readonly<Record<DiagnosticOrigin, ProblemSection>>
+
+/** Group by the action a user can take, keeping source order within each section. */
 export function groupProblemDiagnostics(
   diagnostics: readonly Diagnostic[],
-  document: WorkflowDocument | undefined,
-  registry: ProblemSchemaRegistry | undefined,
-  context?: ProblemGroupingContext,
+  document?: WorkflowDocument,
 ): readonly ProblemGroup[] {
-  type MutableGroup = { key: string; title: string; severity: Severity; diagnostics: Diagnostic[] }
-  const groups: MutableGroup[] = []
-  const byNode = new Map<string, MutableGroup>()
-  const resolve = document === undefined || registry === undefined
-    ? undefined
-    : documentResolver(document, registry.resolve)
-  const scope = document?.lineage ?? null
-  let general: MutableGroup | undefined
-
-  for (const diagnostic of diagnostics) {
-    const target = diagnosticNodeTargets(diagnostic, document)[0]
-    let group: MutableGroup
-    const ref = target === undefined
-      ? undefined
-      : {
-          nodeId: target.nodeId,
-          ...(target.graphId === undefined ? {} : { graphId: target.graphId }),
-        }
-    const graph = document === undefined || ref === undefined
-      ? undefined
-      : target?.source === 'occurrence' && target.graphId === undefined
-        ? undefined
-        : target?.source === 'port'
-          ? document.graphs[context?.graphId ?? '']
-          : graphForRef(document, ref)
-    const unresolvedAnchor = target !== undefined && target.source !== 'ref' && document !== undefined &&
-      (graph === undefined || graph.nodes[target.nodeId] === undefined)
-    if (ref === undefined || unresolvedAnchor) {
-      general ??= {
-        key: JSON.stringify(['general', scope]),
-        title: 'General',
-        severity: diagnostic.severity,
-        diagnostics: [],
-      }
-      group = general
-    } else {
-      const node = graph?.nodes[ref.nodeId!]
-      const schema = node === undefined || resolve === undefined ? undefined : resolve(node.type)
-      const key = JSON.stringify(['node', scope, graph?.id ?? ref.graphId ?? null, ref.nodeId])
-      const existing = byNode.get(key)
-      if (existing !== undefined) {
-        group = existing
-      } else {
-        group = {
-          key,
-          title: nodeLabel(ref, node?.title ?? schema?.displayName)!,
-          severity: diagnostic.severity,
-          diagnostics: [],
-        }
-        byNode.set(key, group)
-        groups.push(group)
-      }
-    }
-    group.diagnostics.push(diagnostic)
-    if (severityRank[diagnostic.severity] > severityRank[group.severity]) group.severity = diagnostic.severity
+  const groups: ProblemGroup[] = []
+  for (const section of problemSections) {
+    const entries = diagnostics.filter((diagnostic) => problemSectionForOrigin[diagnostic.origin] === section)
+    if (entries.length === 0) continue
+    groups.push({
+      key: JSON.stringify([section, document?.lineage ?? null]),
+      title: section,
+      severity: entries.reduce<Severity>((worst, entry) => severityRank[entry.severity] > severityRank[worst] ? entry.severity : worst, 'info'),
+      diagnostics: entries,
+    })
   }
-
-  if (general !== undefined) groups.push(general)
   return groups
 }

@@ -218,17 +218,24 @@ export function ContextPanel(props: {
                       data-activatable={hasOwningContext(diagnostic) ? true : undefined}
                     >
                       <summary>
-                        [{diagnostic.severity}] {diagnostic.code}: {problemDisplay(diagnostic, current().doc, registry())}
+                        <span class="problem-severity" aria-label={diagnostic.severity}>
+                          {diagnostic.severity === 'error' ? 'x' : diagnostic.severity === 'warning' ? '!' : 'i'}
+                        </span>
+                        <span class="problem-message">{problemDisplay(diagnostic, current().doc, registry())}</span>
                       </summary>
-                      <Show when={hasOwningContext(diagnostic)}>
-                        <button
-                          type="button"
-                          class="problem-show-on-canvas"
-                          onClick={() => activateProblem(props.app, diagnostic)}
-                        >
-                          {message('contextPanel.action.showOnCanvas')}
-                        </button>
-                      </Show>
+                      <div class="problem-detail">
+                        <code>{diagnostic.code}</code>
+                        <p>{diagnostic.message}</p>
+                        <Show when={hasOwningContext(diagnostic)}>
+                          <button
+                            type="button"
+                            class="problem-show-on-canvas"
+                            onClick={() => activateProblem(props.app, diagnostic)}
+                          >
+                            {message('contextPanel.action.showOnCanvas')}
+                          </button>
+                        </Show>
+                      </div>
                     </details>
                   )}
                 </For>

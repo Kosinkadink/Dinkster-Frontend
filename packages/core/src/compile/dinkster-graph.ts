@@ -378,7 +378,7 @@ function validateScope(
           'error',
           'compile',
           'dinksterGraph.literalOnNonConcrete',
-          `'${path}' input '${inputId}' is ${expected.kind}-typed; plain literals require a concrete runtime type (use a typed literal to stamp the type explicitly)`,
+          `${path}.${inputId}: literal has no concrete runtime type`,
           anchorData(context, path, inputId),
         ))
       }
@@ -503,7 +503,7 @@ function validateRegion(
     // plain node's outputs are schema-defined and out of structural scope.
     if (isDinksterRegionEntry(producer) && !(source.output in producer.region.outputs)) {
       out.push(
-        diag('error', 'compile', 'dinksterGraph.danglingOutput', `region '${path}': ${what} references output '${source.output}' of body region '${source.node}', which it does not declare`, anchorData(context, path, inputId, 'output')),
+        diag('error', 'compile', 'dinksterGraph.danglingOutput', `${path}.${inputId}: body region ${source.node} has no output '${source.output}'`, anchorData(context, path, inputId, 'output')),
       )
     }
   }
@@ -516,7 +516,7 @@ function validateRegion(
     const sourceType = bodyOutputType(region, output.source, path, context)
     if (output.mode === undefined || output.mode === 'gather' || output.mode === 'compact') {
       if (sourceType !== undefined && canonicalTypeIdOf(sourceType) === undefined) {
-        out.push(diag('error', 'compile', 'dinksterGraph.gatherNonConcrete', `region '${path}': output '${outputId}' gathers a ${sourceType.kind}-typed body output; gather requires a concrete runtime type`, anchorData(context, path, outputId, 'output')))
+        out.push(diag('error', 'compile', 'dinksterGraph.gatherNonConcrete', `${path}.${outputId}: gathered output has no concrete runtime type`, anchorData(context, path, outputId, 'output')))
       }
     } else if (output.mode === 'flatten') {
       if (sourceType !== undefined && sourceType.kind !== 'list') {
@@ -525,7 +525,7 @@ function validateRegion(
         out.push(diag('error', 'compile', 'dinksterGraph.flattenNonConcrete', `region '${path}': output '${outputId}' flattens a non-runtime-resolvable list type`, anchorData(context, path, outputId, 'output')))
       }
     } else if (output.mode === 'last' && sourceType !== undefined && canonicalTypeIdOf(sourceType) === undefined) {
-      out.push(diag('error', 'compile', 'dinksterGraph.lastNonConcrete', `region '${path}': output '${outputId}' selects the last value of a ${sourceType.kind}-typed body output; last requires a concrete runtime type`, anchorData(context, path, outputId, 'output')))
+      out.push(diag('error', 'compile', 'dinksterGraph.lastNonConcrete', `${path}.${outputId}: last output has no concrete runtime type`, anchorData(context, path, outputId, 'output')))
     }
     if (output.mode === 'state') {
       stateOutputs.add(outputId)

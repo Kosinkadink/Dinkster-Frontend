@@ -431,14 +431,14 @@ function rejectionDiagnostics(
       const occurrence = occKey === undefined ? undefined : parseOccurrenceKey(occKey)
       const port = inputId === undefined ? undefined : artifact.provenance.inputSources?.[runtimeId]?.[inputId]
       out.push(
-        diag('error', 'validation', `validation.${String(e['type'] ?? 'node')}`, `${String(detail['class_type'] ?? runtimeId)}: ${String(e['message'] ?? 'invalid')}${e['details'] ? ` (${String(e['details'])})` : ''}`, {
+        diag('error', 'validation', `validation.${String(e['type'] ?? 'node')}`, `${String(detail['class_type'] ?? runtimeId)}: ${String(e['message'] ?? 'invalid')}`, {
           ...(occurrence === undefined ? {} : {
             anchor: {
               occurrence,
               ...(port === undefined ? {} : { port }),
             },
           }),
-          data: { runtimeId, ...(inputId === undefined ? {} : { inputId }) },
+          data: { runtimeId, ...(inputId === undefined ? {} : { inputId }), ...(e['details'] ? { details: e['details'] } : {}) },
         }),
       )
     }

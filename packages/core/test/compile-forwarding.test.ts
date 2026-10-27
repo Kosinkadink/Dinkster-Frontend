@@ -1246,7 +1246,8 @@ describe('failure safety', () => {
     const warning = result.artifact.diagnostics.find((diagnostic) =>
       diagnostic.code === 'compile.bypass.structuralRouteDropped')
     expect(warning?.anchor?.occurrence).toEqual({ instancePath: ['right', 'inner'], node: 'relay' })
-    expect(warning?.message).toContain("input 'fallback' at index 1")
+    expect(warning?.message).toBe('relay.fallback: selected bypass route has no value')
+    expect(warning?.data?.['inputIndex']).toBe(1)
   })
 
   it('I1 obligation 8: FamilyCrossing member keeps its index but is skipped as a bypass candidate', () => {

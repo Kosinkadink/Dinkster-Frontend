@@ -1494,7 +1494,8 @@ export function viewInstancePath(tab: Tab): readonly string[] | undefined {
 export interface DiagnosticFocusPlan {
   readonly graphStack: readonly string[]
   readonly instancePath: readonly string[]
-  readonly nodeId: string
+  readonly nodeId?: string
+  readonly linkId?: string
 }
 
 /**
@@ -1511,7 +1512,21 @@ export function diagnosticFocusPlan(
   const occurrence = anchor?.occurrence ?? (anchor?.port
     ? { instancePath: portInstancePath.map(asNodeId), node: anchor.port.node }
     : undefined)
-  if (!occurrence) return undefined
+  if (!occurrence) {
+    if (anchor?.link === undefined) return undefined
+    const graphStack: string[] = [doc.root]
+    for (const instance of portInstancePath) {
+      const graph = doc.graphs[graphStack[graphStack.length - 1]!]
+      const node = graph?.nodes[instance]
+      const child = node && subgraphDefIdOf(node.type)
+      if (child === undefined || doc.graphs[child] === undefined) return undefined
+      graphStack.push(child)
+    }
+    const graph = doc.graphs[graphStack[graphStack.length - 1]!]
+    return graph?.links?.[anchor.link] === undefined ? undefined : {
+      graphStack, instancePath: [...portInstancePath], linkId: anchor.link,
+    }
+  }
   const resolved = resolveNodeOccurrence(doc, occurrence)
   return resolved === undefined
     ? undefined
@@ -4859,8 +4874,8 @@ export class AppState {
             'command',
             'replace.review',
             i.plan
-              ? `node '${i.nodeId}' (${i.sourceType}) can be upgraded to '${i.terminalType}'${i.hops.length > 1 ? ` (${i.hops.length} steps)` : ''} - review via its badge`
-              : `node '${i.nodeId}' (${i.sourceType}) has replacement rules but none apply: ${i.diagnostics.map((d) => d.message).join('; ')}`,
+              ? `${i.nodeId} (${i.sourceType}): upgrade to ${i.terminalType} needs review`
+              : `${i.nodeId} (${i.sourceType}): no replacement rule applies`,
           ),
         ),
       )
@@ -4899,7 +4914,7 @@ export class AppState {
           'warning',
           'schema',
           'schema.unresolvedType',
-          `'${tab.title}': ${count} node(s) of type '${type}' do not resolve on backend '${backend.label}' - they render with a red hue and thick border (values and links preserved) and are excluded from execution; queueing is blocked when the requested run depends on one`,
+          `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
         ),
       ),
     )
@@ -5507,6 +5522,7 @@ export class AppState {
   }
 
   private markTabClean(tabId: string): void {
+    this.dismissImportProblems(tabId)
     if (!this.dirtyTabs.get().has(tabId)) return
     this.dirtyTabs.update((ids) => {
       const next = new Set(ids)
@@ -5530,6 +5546,10 @@ export class AppState {
 
   clearProblems(owner: ProblemOwner): void {
     this.problems.update((problems) => problems.filter((problem) => problem.owner !== owner))
+  }
+
+  dismissImportProblems(tabId: string = this.activeTabId.get()): void {
+    this.problems.update((problems) => problems.filter((problem) => problem.owner !== tabId || problem.origin !== 'import'))
   }
 
   reportNodeDecorationResult(id: string, error?: unknown): void {
@@ -6008,7 +6028,8 @@ export class AppState {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
-            `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
+            `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
+            { data: { diagnostics: conflict.diagnostics } })),
         onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
       })
     } catch (e) {
@@ -6449,6 +6470,7 @@ export class AppState {
       anchor.hidden = true
       document.body.append(anchor)
       anchor.click()
+      this.dismissImportProblems(tabId)
       this.showTransientStatus(`Download started: ${filename}`)
       return true
     } catch (error) {
@@ -7076,7 +7098,8 @@ export class AppState {
           'info',
           'import',
           `import.comfyAlias.confidence.${mappingKind}`,
-          `ComfyUI ${mappingKind}-level mappings: total=${records.length}; confidence ${confidence}${familyAvailability.length > 0 ? `; family providers ${availabilityCounts}; ${familyAvailability.join(', ')}` : ''}`,
+          `ComfyUI ${mappingKind} mappings: ${records.length} (${confidence})`,
+          { data: { familyProviders: availabilityCounts, families: familyAvailability } },
         ))
       }
       return diagnostics
@@ -7121,8 +7144,8 @@ export class AppState {
         'import',
         'import.comfyGroup.review',
         review
-          ? `ComfyUI node group '${item.sourceType}' was left unchanged for replacement review`
-          : `ComfyUI node group '${item.sourceType}' was left unchanged because native replacement was not lossless: ${item.diagnostics.map((entry) => entry.message).join('; ')}`,
+          ? `${item.sourceType}: native replacement needs review`
+          : `${item.sourceType}: native replacement loses workflow data`,
       ))
     if (selectedIds.size === 0) {
       return {
@@ -8134,14 +8157,7 @@ export class AppState {
     if (invocation) this.dispatchTo(tab, invocation)
   }
 
-  /**
-   * A refused queue replaces the open-time Problems entries (including the
-   * schema.unresolvedType explanation) with the raw compile diagnostics, so
-   * the fatal unresolved-node entries must explain the refusal themselves:
-   * which node the requested run depends on, that its type does not resolve
-   * on this backend, and that unresolved nodes are excluded from execution.
-   * Core stays queue-agnostic; the wording lives here.
-   */
+  /** Include the selected backend in unresolved-node queue diagnostics. */
   private queueRefusalDiagnostics(tab: Tab, diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
     const backend = this.backendForTab(tab)
     return diagnostics.map((diagnostic) => {
@@ -8149,10 +8165,9 @@ export class AppState {
       const nodeType = diagnostic.data?.['nodeType']
       const occurrence = diagnostic.anchor?.occurrence
       if (typeof nodeType !== 'string' || occurrence === undefined) return diagnostic
-      const node = [...occurrence.instancePath, occurrence.node].join('.')
       return {
         ...diagnostic,
-        message: `not queued: the requested output(s) depend on node '${node}' of type '${nodeType}', which does not resolve on backend '${backend.label}' - unresolved nodes are excluded from execution, so a run that depends on one cannot be queued`,
+        message: `${nodeType}: not available on backend ${backend.label}`,
       }
     })
   }
@@ -8289,7 +8304,7 @@ export class AppState {
         'error',
         'compile',
         'compile.scope.inactiveSelection',
-        `selected node${missingRequired.length === 1 ? '' : 's'} ${missingRequired.map((id) => `'${id}'`).join(', ')} did not survive executable branch lowering`,
+        `Selected nodes ${missingRequired.join(', ')}: no executable branch remains`,
       )])
       return
     }

@@ -288,7 +288,8 @@ export const comfyRevisionDiagnostics = (
     'warning',
     'schema',
     'schema.comfyRegistry.sourceRevision',
-    `pack '${ownerPack}' declares ComfyUI source revision '${revision}', different from frontend reference '${COMFY_CORE_REVISION}'; declared snapshots are accepted`,
+    `${ownerPack}: ComfyUI source revision differs from the frontend reference`,
+    { data: { revision, expected: COMFY_CORE_REVISION } },
   ))
 }
 

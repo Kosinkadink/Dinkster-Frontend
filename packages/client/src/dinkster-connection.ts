@@ -200,7 +200,7 @@ export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): 
             'submit.unresolvedLink',
             producer === undefined
               ? `node '${nodeId}' input '${inputId}' links to missing node '${producerId}'`
-              : `node '${nodeId}' input '${inputId}' links to '${producer.class_type}' output #${outputIndex}, which its ${compilerOutputs.has(producerId) ? 'compiler outputIds' : 'schema'} does not declare`,
+              : `${nodeId}.${inputId}: ${producer.class_type} has no output #${outputIndex}`,
           ),
         )
         continue
@@ -2100,7 +2100,7 @@ export class DinksterConnection {
             'submit.staleSchemas',
             registry === undefined
               ? 'schemas have not been fetched on this connection'
-              : `artifact compiled against schema hash '${artifact.schemaHash}', connection has '${registry.hash}' - recompile`,
+              : `Compiled workflow: backend ${this.id} schemas have changed`,
           ),
         ],
       }
@@ -2145,7 +2145,7 @@ export class DinksterConnection {
           'error',
           'compile',
           'submit.placementInvalid',
-          `worker placement references non-active top-level node${missingPlacementNodes.length === 1 ? '' : 's'}: ${missingPlacementNodes.map((id) => `'${id}'`).join(', ')}`,
+          `Worker placement: nodes ${missingPlacementNodes.join(', ')} are not active at the root`,
         )],
       }
     }

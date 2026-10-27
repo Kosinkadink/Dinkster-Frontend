@@ -210,8 +210,8 @@ describe('canvas tooltip provider', () => {
     expect(resolveCanvasTooltip(target, { detailed: false }, context)?.lines).toEqual([
       'MODEL',
       'If absent: Skip (default for required input) - the consumer does not run and its outputs become absent.',
-      '[warning] specialization is stale',
-      '[error] types do not match',
+      'specialization is stale',
+      'types do not match',
     ])
   })
 
@@ -373,7 +373,7 @@ describe('canvas tooltip provider', () => {
     }
     expect(resolveCanvasTooltip(target, { detailed: false })).toEqual({
       title: 'Type mismatch',
-      lines: ['[warning] IMAGE cannot feed LATENT', '[error] type variable has no solution'],
+      lines: ['IMAGE cannot feed LATENT', 'type variable has no solution'],
     })
   })
 

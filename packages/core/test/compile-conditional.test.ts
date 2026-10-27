@@ -118,7 +118,7 @@ describe('dynamic combo boundary lowering', () => {
     })
     expect(okPrompt(doc)['s.n']!.inputs).toEqual({ mode: 'b', 'mode.amount': 22, 'mode.bias': 3 })
     const derived = deriveBoundarySchema(doc.graphs.sub!, resolve)
-    expect(derived.diagnostics).toEqual([{ severity: 'warning', origin: 'schema', code: 'boundary.selectorOnly', message: "[sub] boundary input 'choice' forwards only the selector; branch inputs stay definition-owned. Upgrade to full-branch forwarding to edit them per instance." }])
+    expect(derived.diagnostics).toEqual([{ severity: 'warning', origin: 'schema', code: 'boundary.selectorOnly', message: 'sub.choice: selector forwarding does not include branch inputs' }])
     expect((derived.schema!.items[0] as InputSpec).dynamic).toMatchObject({ defaultOption: 'b' })
   })
 

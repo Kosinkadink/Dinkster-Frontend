@@ -385,8 +385,8 @@ export function App(props: {
       app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
         'error', 'validation', 'deepLink.backendNotConnected',
         link.backendUrl !== undefined
-          ? `the workflow link names a server that is not connected: ${link.backendUrl}. Connect it from the Backends panel, then follow the link again.`
-          : 'the workflow link targets the default backend, but no backend is available',
+          ? `Workflow link: server ${link.backendUrl} is not connected`
+          : 'Workflow link: default backend is unavailable',
       )])
       return
     }
