@@ -182,17 +182,17 @@ export function ContextPanel(props: {
               {contextDetails(current)}
             </div>
             <Show when={selectedRegion(current)} keyed>
-              {(occurrence) => <Show when={props.execution?.()} keyed>
-                {(execution) => {
+              {(occurrence) => <Show when={props.execution?.()?.key} keyed>
+                {() => {
                   const registry = props.app.registryForTab(current.tab)
                   return registry === undefined
                     ? undefined
                     : <RegionIterationInspector
-                        execution={execution}
+                        execution={props.execution!()!}
                         regionOccurrence={occurrence}
                         document={current.doc}
                         resolveSchema={registry.resolve}
-                        values={props.values?.(execution)}
+                        values={props.values?.(props.execution!()!)}
                       />
                 }}
               </Show>}
