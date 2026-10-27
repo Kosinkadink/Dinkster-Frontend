@@ -1,11 +1,5 @@
 /**
- * Deprecation/replacement orchestration: the once-per-tab upgrade pass.
- * Safe (lossless, warning-free) plans auto-apply on document open; lossy
- * plans land in Problems for badge review. Review mode holds ordinary safe
- * plans, while best-effort migration fallbacks remain automatic.
- * The pass is DEFERRED when a document opens before its backend's schemas
- * arrive - the backendsTick subscription picks the tab up later instead of
- * missing it forever (the seed tabs always take this path).
+ * Authored workflow preservation and schema-arrival diagnostics.
  */
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -83,16 +77,10 @@ const renameRule: ReplacementRule = {
   ],
 }
 
-const openWithRule = (json: unknown): Tab => {
-  expect(app.registerReplacementRule('pack', renameRule)).toEqual([])
-  expect(app.openDocument(json, 'T')).toEqual([])
-  return app.activeTab()!
-}
-
 const nodeType = (tab: Tab, id: string): string | undefined =>
   tab.store.doc.graphs[tab.store.doc.root]!.nodes[id]?.type
 
-describe('auto-upgrade on open', () => {
+describe('schema arrival without replacements', () => {
   it('ignores embedded replacement metadata in a constructed registry', () => {
     expect(app.openDocument(docJson('embedded-rules', {
       old: { type: 'OldEmpty', values: { width: 768, height: 320 } },
@@ -111,375 +99,22 @@ describe('auto-upgrade on open', () => {
     })
     expect(tab.store.doc).toEqual(authored)
     expect(tab.store.revision).toBe(0)
-    expect(app.scanTabReplacements(tab)).toEqual([])
     expect(app.problems.get().some((entry) => entry.code === 'replace.applied')).toBe(false)
   })
 
-  it('applies a safe plan when the document opens after schemas arrived', () => {
-    loadSchemas()
-    const tab = openWithRule(docJson('lin-a', { old: { type: 'OldEmpty', values: { width: 512 } } }))
-    expect(nodeType(tab, 'old')).toBe('EmptyLatentImage')
-    // Copied value preserved; unmapped inputs get explicit declared defaults.
-    expect(tab.store.doc.graphs.g0!.nodes.old!.values.width).toBe(512)
-    expect(app.problems.get().some((d) => d.code === 'replace.applied')).toBe(true)
-    // One undo step restores the pre-upgrade document exactly.
-    expect(tab.store.undo()).toBe(true)
-    expect(nodeType(tab, 'old')).toBe('OldEmpty')
-  })
-
-  it('defers the pass until schemas arrive when the document opens first', () => {
-    const tab = openWithRule(docJson('lin-b', { old: { type: 'OldEmpty' } }))
-    expect(nodeType(tab, 'old')).toBe('OldEmpty') // nothing to plan against yet
-    loadSchemas()
-    expect(nodeType(tab, 'old')).toBe('EmptyLatentImage')
-  })
-
-  it('runs exactly once per tab: a later tick does not rescan or re-apply', () => {
-    loadSchemas()
-    const tab = openWithRule(docJson('lin-c', { old: { type: 'OldEmpty' } }))
-    expect(nodeType(tab, 'old')).toBe('EmptyLatentImage')
-    tab.store.undo()
-    app.backendsTick.update((v) => v + 1) // any backend churn
-    expect(nodeType(tab, 'old')).toBe('OldEmpty') // stays for badge review
-  })
-
-  it('batches several safe replacements into ONE undo step', () => {
-    loadSchemas()
-    const tab = openWithRule(
-      docJson('lin-d', { a: { type: 'OldEmpty' }, b: { type: 'OldEmpty' } }),
-    )
-    expect(nodeType(tab, 'a')).toBe('EmptyLatentImage')
-    expect(nodeType(tab, 'b')).toBe('EmptyLatentImage')
-    expect(tab.store.revision).toBe(1)
-    expect(tab.store.undo()).toBe(true)
-    expect(nodeType(tab, 'a')).toBe('OldEmpty')
-    expect(nodeType(tab, 'b')).toBe('OldEmpty')
-  })
-
-  it('review mode holds even safe plans for badge review', () => {
-    loadSchemas()
-    app.reviewReplacements.set(true)
-    const tab = openWithRule(docJson('lin-e', { old: { type: 'OldEmpty' } }))
-    expect(nodeType(tab, 'old')).toBe('OldEmpty')
-    expect(app.problems.get().some((d) => d.code === 'replace.review')).toBe(true)
-    // The held item is still applicable manually (the badge's apply path).
-    const items = app.scanTabReplacements(tab)
-    expect(items).toHaveLength(1)
-    expect(app.applyReplacements(tab, items)).toBe(true)
-    expect(nodeType(tab, 'old')).toBe('EmptyLatentImage')
-  })
-
-  it('a lossy plan is never auto-applied and lands in Problems', () => {
-    loadSchemas()
-    // Downstream link on an output the rule does not map -> dropped-link
-    // warning -> not safe.
-    const lossy: ReplacementRule = { from: 'OldEmpty', cases: [{ to: 'EmptyLatentImage' }] }
-    expect(app.registerReplacementRule('pack', lossy)).toEqual([])
-    const json = docJson(
-      'lin-f',
-      { old: { type: 'OldEmpty' }, sink: { type: 'VAEDecode' } },
-      { l0: { id: 'l0', from: { node: 'old', port: 'samples' }, to: { node: 'sink', port: 'samples' } } },
-    )
-    expect(app.openDocument(json, 'T')).toEqual([])
-    const tab = app.activeTab()!
-    expect(nodeType(tab, 'old')).toBe('OldEmpty')
-    expect(app.problems.get().some((d) => d.code === 'replace.review')).toBe(true)
-    const items = app.scanTabReplacements(tab)
-    expect(items[0]!.safe).toBe(false)
-    expect(items[0]!.plan).toBeDefined()
-  })
-
-  it('frozen tabs are never scanned or upgraded', () => {
-    loadSchemas()
-    app.reviewReplacements.set(true) // keep the node in place
-    const tab = openWithRule(docJson('lin-g', { old: { type: 'OldEmpty' } }))
-    const frozen: Tab = { ...tab, execution: { connection: app.backends.get()[0]!.id, prompt: 'p' as never } }
-    expect(app.scanTabReplacements(frozen)).toEqual([])
-  })
-
-  it('rejects malformed pack rules with diagnostics, not exceptions', () => {
-    const bad = { from: 'X', cases: [] } as unknown as ReplacementRule
-    const diags = app.registerReplacementRule('pack', bad)
-    expect(diags.length).toBeGreaterThan(0)
-    expect(app.problems.get().length).toBeGreaterThan(0)
-  })
-
-  it('auto-applies a one-shot same-type migration and restores it atomically', () => {
-    loadSchemas()
-    const migration: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      migration: { historicalInputs: ['legacy_width'] },
-      cases: [{
-        to: 'EmptyLatentImage',
-        when: { kind: 'valuePresent', input: 'legacy_width' },
-        inputs: { width: { kind: 'copy', input: 'legacy_width' } },
-      }, { to: 'EmptyLatentImage' }],
-    }
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.openDocument(docJson('lin-migration', {
-      image: { type: 'EmptyLatentImage', values: { legacy_width: 640 } },
+  it('reports unresolved nodes when schemas arrive without rewriting the document', () => {
+    expect(app.openDocument(docJson('deferred-diagnostics', {
+      old: { type: 'OldEmpty', values: { width: 768, height: 320 } },
     }), 'T')).toEqual([])
     const tab = app.activeTab()!
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values.width).toBe(640)
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values).not.toHaveProperty('legacy_width')
-    expect(app.scanTabReplacements(tab)).toEqual([])
-
-    expect(tab.store.undo()).toBe(true)
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values).toEqual({ legacy_width: 640 })
-    expect(tab.store.redo()).toBe(true)
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values.width).toBe(640)
-  })
-
-  it('auto-applies the fallback while archiving unmatched state and dropped topology', () => {
+    const authored = structuredClone(tab.store.doc)
+    expect(app.problems.get().some((entry) => entry.code === 'schema.unresolvedType')).toBe(false)
     loadSchemas()
-    const migration: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      migration: { historicalInputs: ['legacy_selector'] },
-      cases: [{
-        to: 'EmptyLatentImage',
-        when: { kind: 'valueEquals', input: 'legacy_selector', value: 'known' },
-      }, { to: 'EmptyLatentImage' }],
-    }
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.openDocument(docJson(
-      'lin-invalid-migration',
-      {
-        image: { type: 'EmptyLatentImage', values: { legacy_selector: 'invalid' } },
-        linkSink: { type: 'VAEDecode' },
-        netSink: { type: 'VAEDecode' },
-      },
-      {
-        droppedLink: {
-          id: 'droppedLink',
-          from: { node: 'image', port: 'out0' },
-          to: { node: 'linkSink', port: 'samples' },
-        },
-      },
-      {
-        droppedNet: {
-          id: 'droppedNet',
-          name: 'dropped',
-          source: { node: 'image', port: 'out0' },
-          sinks: [{ node: 'netSink', port: 'samples' }],
-        },
-      },
-    ), 'T')).toEqual([])
-    const tab = app.activeTab()!
-    const image = tab.store.doc.graphs.g0!.nodes.image!
-    expect(image.values).not.toHaveProperty('legacy_selector')
-    expect(image.ext?.['dinkster.replacementMigration']).toMatchObject({
-      version: 1,
-      node: { values: { legacy_selector: 'invalid' } },
-      links: {
-        droppedLink: {
-          from: { node: 'image', port: 'out0' },
-          to: { node: 'linkSink', port: 'samples' },
-        },
-      },
-      nets: {
-        droppedNet: {
-          source: { node: 'image', port: 'out0' },
-          sinks: [{ node: 'netSink', port: 'samples' }],
-        },
-      },
-    })
-    expect(tab.store.doc.graphs.g0!.links.droppedLink).toBeUndefined()
-    expect(tab.store.doc.graphs.g0!.nets.droppedNet).toBeUndefined()
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'replace.migration.archived' }))
-    expect(app.problems.get()).not.toContainEqual(expect.objectContaining({ code: 'replace.review' }))
-    expect(app.scanTabReplacements(tab)).toEqual([])
-  })
-
-  it('auto-applies a fallback in review mode while holding ordinary safe replacements', () => {
-    loadSchemas()
-    app.reviewReplacements.set(true)
-    const migration: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      migration: { historicalInputs: ['legacy_selector'] },
-      cases: [{
-        to: 'EmptyLatentImage',
-        when: { kind: 'valueEquals', input: 'legacy_selector', value: 'known' },
-      }, { to: 'EmptyLatentImage' }],
-    }
-    expect(app.registerReplacementRule('pack', renameRule)).toEqual([])
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.openDocument(docJson('lin-review-fallback', {
-      old: { type: 'OldEmpty' },
-      image: { type: 'EmptyLatentImage', values: { legacy_selector: 'invalid' } },
-    }), 'T')).toEqual([])
-    const tab = app.activeTab()!
-
-    expect(nodeType(tab, 'old')).toBe('OldEmpty')
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values).not.toHaveProperty('legacy_selector')
-    expect(tab.store.doc.graphs.g0!.nodes.image!.ext?.['dinkster.replacementMigration']).toMatchObject({
-      node: { values: { legacy_selector: 'invalid' } },
-    })
+    expect(tab.store.doc).toEqual(authored)
+    expect(tab.store.canUndo).toBe(false)
     expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'replace.migration.archived',
+      code: 'schema.unresolvedType', message: expect.stringContaining('OldEmpty'),
     }))
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'replace.review',
-      message: expect.stringContaining("node 'old'"),
-    }))
-    expect(app.problems.get()).not.toContainEqual(expect.objectContaining({
-      code: 'replace.review',
-      message: expect.stringContaining("node 'image'"),
-    }))
-  })
-
-  it('applies a leading fallback but holds its safe ordinary follow-up in review mode', () => {
-    loadSchemas()
-    app.reviewReplacements.set(true)
-    const migration: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      migration: { historicalInputs: ['legacy_selector'] },
-      cases: [{
-        to: 'EmptyLatentImage',
-        when: { kind: 'valueEquals', input: 'legacy_selector', value: 'known' },
-      }, { to: 'EmptyLatentImage' }],
-    }
-    const followUp: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      cases: [{ to: 'EmptyImage' }],
-    }
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.registerReplacementRule('pack', followUp)).toEqual([])
-    expect(app.openDocument(docJson('lin-review-fallback-chain', {
-      image: { type: 'EmptyLatentImage', values: { legacy_selector: 'invalid' } },
-    }), 'T')).toEqual([])
-    const tab = app.activeTab()!
-
-    expect(nodeType(tab, 'image')).toBe('EmptyLatentImage')
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values).not.toHaveProperty('legacy_selector')
-    expect(tab.store.doc.graphs.g0!.nodes.image!.ext?.['dinkster.replacementMigration']).toBeDefined()
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'replace.review',
-      message: expect.stringContaining("node 'image' (EmptyLatentImage) can be upgraded to 'EmptyImage'"),
-    }))
-  })
-
-  it('applies a leading fallback even when its ordinary follow-up needs review', () => {
-    loadSchemas()
-    const migration: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      migration: { historicalInputs: ['legacy_selector'] },
-      cases: [{
-        to: 'EmptyLatentImage',
-        when: { kind: 'valueEquals', input: 'legacy_selector', value: 'known' },
-        outputs: { out0: 'out0' },
-      }, {
-        to: 'EmptyLatentImage',
-        outputs: { out0: 'out0' },
-      }],
-    }
-    const followUp: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      cases: [{ to: 'EmptyImage' }],
-    }
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.registerReplacementRule('pack', followUp)).toEqual([])
-    expect(app.openDocument(docJson(
-      'lin-lossy-fallback-chain',
-      {
-        image: { type: 'EmptyLatentImage', values: { legacy_selector: 'invalid' } },
-        sink: { type: 'VAEDecode' },
-      },
-      {
-        latent: {
-          id: 'latent',
-          from: { node: 'image', port: 'out0' },
-          to: { node: 'sink', port: 'samples' },
-        },
-      },
-    ), 'T')).toEqual([])
-    const tab = app.activeTab()!
-
-    expect(nodeType(tab, 'image')).toBe('EmptyLatentImage')
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values).not.toHaveProperty('legacy_selector')
-    expect(tab.store.doc.graphs.g0!.links.latent).toBeDefined()
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'replace.review',
-      message: expect.stringContaining("node 'image' (EmptyLatentImage) can be upgraded to 'EmptyImage'"),
-    }))
-  })
-
-  it('holds unknown-selector fallbacks that share historical runtime state', () => {
-    loadSchemas()
-    app.reviewReplacements.set(true)
-    const migration: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      migration: { historicalInputs: ['mode', 'legacy'] },
-      cases: [{
-        to: 'EmptyLatentImage',
-        when: { kind: 'valueEquals', input: 'mode', value: 'known' },
-      }, { to: 'EmptyLatentImage' }],
-    }
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.openDocument(docJson(
-      'lin-shared-fallback-link',
-      {
-        a: { type: 'EmptyLatentImage', values: { mode: 'bad-a' } },
-        b: { type: 'EmptyLatentImage', values: { mode: 'bad-b' } },
-      },
-      {
-        shared: {
-          id: 'shared',
-          from: { node: 'a', tap: 'legacy', members: ['value'] },
-          to: { node: 'b', port: 'legacy' },
-        },
-      },
-    ), 'T')).toEqual([])
-    const tab = app.activeTab()!
-
-    expect(tab.store.doc.graphs.g0!.nodes.a!.values).toEqual({ mode: 'bad-a' })
-    expect(tab.store.doc.graphs.g0!.nodes.b!.values).toEqual({ mode: 'bad-b' })
-    expect(tab.store.doc.graphs.g0!.nodes.a!.ext?.['dinkster.replacementMigration']).toBeUndefined()
-    expect(tab.store.doc.graphs.g0!.nodes.b!.ext?.['dinkster.replacementMigration']).toBeUndefined()
-    expect(tab.store.doc.graphs.g0!.links.shared).toBeDefined()
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'replace.review' }))
-    expect(app.problems.get()).not.toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
-  })
-
-  it('replans matched migrations that share one historical link', () => {
-    loadSchemas()
-    const migration: ReplacementRule = {
-      from: 'EmptyLatentImage',
-      migration: { historicalInputs: ['mode', 'legacy'] },
-      cases: [{
-        to: 'EmptyLatentImage',
-        when: { kind: 'valueEquals', input: 'mode', value: 'known' },
-        inputs: { batch_size: { kind: 'copy', input: 'legacy' } },
-      }, { to: 'EmptyLatentImage' }],
-    }
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.openDocument(docJson(
-      'lin-shared-matched-link',
-      {
-        a: { type: 'EmptyLatentImage', values: { mode: 'known', legacy: 320 } },
-        b: { type: 'EmptyLatentImage', values: { mode: 'known', legacy: 640 } },
-      },
-      {
-        shared: {
-          id: 'shared',
-          from: { node: 'a', tap: 'legacy' },
-          to: { node: 'b', port: 'legacy' },
-        },
-      },
-    ), 'T')).toEqual([])
-    const tab = app.activeTab()!
-
-    expect(tab.store.doc.graphs.g0!.nodes.a!.values).not.toHaveProperty('mode')
-    expect(tab.store.doc.graphs.g0!.nodes.b!.values).not.toHaveProperty('mode')
-    expect(tab.store.doc.graphs.g0!.nodes.a!.values.batch_size).toBe(320)
-    expect(tab.store.doc.graphs.g0!.nodes.b!.values.batch_size).toBe(640)
-    expect(tab.store.doc.graphs.g0!.nodes.a!.ext?.['dinkster.replacementMigration']).toBeDefined()
-    expect(tab.store.doc.graphs.g0!.nodes.b!.ext?.['dinkster.replacementMigration']).toBeDefined()
-    expect(tab.store.doc.graphs.g0!.links.shared).toMatchObject({
-      from: { node: 'a', tap: 'batch_size' },
-      to: { node: 'b', port: 'batch_size' },
-    })
-    expect(app.problems.get()).not.toContainEqual(expect.objectContaining({ code: 'replace.review' }))
-    expect(app.problems.get()).not.toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
   })
 })
 
@@ -492,47 +127,6 @@ const dynamicTargetFixture = JSON.parse(readFileSync(
   join(root, 'fixtures/replacements/dynamic-target.json'),
   'utf8',
 )) as { schemas: Array<Record<string, unknown> & { nodeType: string }> }
-
-const dynamicTargetPayload = (): DinksterNodesPayload => {
-  const raw = structuredClone(nodesPayload) as any
-  raw.dinkster.schemaWire = 1
-  raw.packs = {}
-  raw.nodes = Object.fromEntries(
-    dynamicTargetFixture.schemas.map((schema) => [schema.nodeType, schema]),
-  )
-  return raw as DinksterNodesPayload
-}
-
-const chainedMigrationPayload = (): DinksterNodesPayload => {
-  const raw = structuredClone(nodesPayload) as any
-  const type = { kind: 'concrete', types: ['INT'] }
-  const input = (id: string): Record<string, unknown> => ({
-    role: 'input',
-    id,
-    type,
-    required: false,
-  })
-  const output = (id: string): Record<string, unknown> => ({ role: 'output', id, type })
-  raw.dinkster.schemaWire = 1
-  raw.packs = {}
-  raw.nodes = {
-    'fixture.chain-old': {
-      schemaVersion: 1,
-      nodeType: 'fixture.chain-old',
-      displayName: 'Chain Old',
-      category: 'fixture',
-      interface: [input('value'), output('result')],
-    },
-    'fixture.chain-current': {
-      schemaVersion: 1,
-      nodeType: 'fixture.chain-current',
-      displayName: 'Chain Current',
-      category: 'fixture',
-      interface: [input('legacy'), input('current'), output('legacy_result'), output('current_result')],
-    },
-  }
-  return raw as DinksterNodesPayload
-}
 
 const maintainedAliasPayload = (
   records: readonly {
@@ -891,205 +485,6 @@ const loadNativeSchemas = (): void => {
   backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
 }
 
-const dynamicOutputPayload = (): DinksterNodesPayload => {
-  const raw = structuredClone(nodesPayload) as any
-  const type = (name: string): any => ({ kind: 'concrete', types: [name] })
-  const schema = (count: string, family: string): any => ({
-    schemaVersion: 1,
-    interface: [
-      { role: 'input', id: count, required: true, type: type('INT') },
-      {
-        role: 'outputFamily',
-        id: family,
-        type: type('comfy.IMAGE'),
-        minMembers: 0,
-        maxMembers: 4,
-        count: { input: count, suffix: 'index' },
-      },
-    ],
-  })
-  raw.dinkster.schemaWire = 1
-  raw.packs = {}
-  raw.nodes = {
-    'test.DynamicOld': schema('count', 'results'),
-    'test.DynamicNew': schema('quantity', 'items'),
-  }
-  return raw as DinksterNodesPayload
-}
-
-describe('dynamic output replacement integration', () => {
-  it('applies a DynamicSlot replacement whose producer schema is missing', () => {
-    const backend = app.backends.get()[0]!
-    const registry = buildDinksterRegistry(backend.id, dynamicTargetPayload())
-    const rules = dynamicTargetFixture.schemas.flatMap((schema) =>
-      (schema.replacements as readonly ReplacementRule[] | undefined) ?? [])
-    for (const rule of rules) expect(app.registerReplacementRule('pack', rule)).toEqual([])
-    const schemas = new Map(registry.schemas)
-    const producer = schemas.get('fixture.mask-source')!
-    schemas.delete(producer.type)
-    const registryWithoutProducer: typeof registry = {
-      ...registry,
-      schemas,
-      resolve: (type) => schemas.get(type),
-    }
-    backend.registry.set(registryWithoutProducer)
-    expect(app.openDocument(docJson(
-      'dynamic-slot-import-only-producer',
-      {
-        source: { type: 'fixture.mask-source' },
-        old: { type: 'fixture.slot-legacy', values: { mask_polarity: 'white' } },
-      },
-      {
-        mask: {
-          id: 'mask',
-          from: { node: 'source', port: 'mask' },
-          to: { node: 'old', port: 'mask' },
-        },
-      },
-    ), 'Dynamic slot import')).toEqual([])
-    const tab = app.activeTab()!
-    expect(nodeType(tab, 'old')).toBe('fixture.slot-modern')
-    expect(tab.store.doc.graphs.g0!.nodes.old!.dynamic).toEqual({ mask: { selected: 'mask' } })
-    expect(tab.store.doc.graphs.g0!.nodes.old!.values).toEqual({ 'mask.mask_polarity': 'white' })
-    expect(app.problems.get()).not.toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
-  })
-
-  it('replans a migration reached after an ordinary hop against shared links', () => {
-    const backend = app.backends.get()[0]!
-    const registry = buildDinksterRegistry(backend.id, chainedMigrationPayload())
-    expect(registry.diagnostics).toEqual([])
-    backend.registry.set(registry)
-    const ordinary: ReplacementRule = {
-      from: 'fixture.chain-old',
-      cases: [{
-        to: 'fixture.chain-current',
-        inputs: { legacy: { kind: 'copy', input: 'value' } },
-        outputs: { legacy_result: 'result' },
-      }],
-    }
-    const migration: ReplacementRule = {
-      from: 'fixture.chain-current',
-      migration: { historicalInputs: ['legacy'] },
-      cases: [{
-        to: 'fixture.chain-current',
-        inputs: { current: { kind: 'copy', input: 'legacy' } },
-        outputs: { current_result: 'legacy_result' },
-      }],
-    }
-    expect(app.registerReplacementRule('pack', ordinary)).toEqual([])
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.openDocument(docJson(
-      'ordinary-then-migration-shared-link',
-      {
-        a: { type: 'fixture.chain-old', values: { value: 10 } },
-        b: { type: 'fixture.chain-old', values: { value: 20 } },
-      },
-      {
-        shared: {
-          id: 'shared',
-          from: { node: 'a', port: 'result' },
-          to: { node: 'b', port: 'value' },
-        },
-      },
-    ), 'Chained migration')).toEqual([])
-    const tab = app.activeTab()!
-    expect(app.scanTabReplacements(tab)).toEqual([])
-    expect(nodeType(tab, 'a')).toBe('fixture.chain-current')
-    expect(nodeType(tab, 'b')).toBe('fixture.chain-current')
-    expect(tab.store.doc.graphs.g0!.nodes.a!.values).toEqual({ current: 10 })
-    expect(tab.store.doc.graphs.g0!.nodes.b!.values).toEqual({ current: 20 })
-    expect(tab.store.doc.graphs.g0!.links.shared).toMatchObject({
-      from: { node: 'a', port: 'current_result' },
-      to: { node: 'b', port: 'current' },
-    })
-    expect(app.problems.get()).not.toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
-    expect(app.problems.get()).not.toContainEqual(expect.objectContaining({ code: 'replace.review' }))
-  })
-
-  it('holds an ordinary prefix whose later migration fallback is mandatory in review mode', () => {
-    const backend = app.backends.get()[0]!
-    const registry = buildDinksterRegistry(backend.id, chainedMigrationPayload())
-    expect(registry.diagnostics).toEqual([])
-    backend.registry.set(registry)
-    app.reviewReplacements.set(true)
-    const ordinary: ReplacementRule = {
-      from: 'fixture.chain-old',
-      cases: [{
-        to: 'fixture.chain-current',
-        inputs: { legacy: { kind: 'copy', input: 'value' } },
-        outputs: { legacy_result: 'result' },
-      }],
-    }
-    const migration: ReplacementRule = {
-      from: 'fixture.chain-current',
-      migration: { historicalInputs: ['legacy'] },
-      cases: [{
-        to: 'fixture.chain-current',
-        inputs: { current: { kind: 'copy', input: 'legacy' } },
-        outputs: { current_result: 'legacy_result' },
-      }],
-    }
-    expect(app.registerReplacementRule('pack', ordinary)).toEqual([])
-    expect(app.registerReplacementRule('pack', migration)).toEqual([])
-    expect(app.openDocument(docJson('review-ordinary-then-migration', {
-      old: { type: 'fixture.chain-old', values: { value: 10 } },
-    }), 'Held chained migration')).toEqual([])
-    const tab = app.activeTab()!
-
-    expect(nodeType(tab, 'old')).toBe('fixture.chain-old')
-    expect(tab.store.doc.graphs.g0!.nodes.old!.values).toEqual({ value: 10 })
-    expect(tab.store.revision).toBe(0)
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'replace.review',
-      message: expect.stringContaining("node 'old'"),
-    }))
-  })
-
-  it('runs registry scan and atomic dispatch with exact member endpoints on open', () => {
-    const backend = app.backends.get()[0]!
-    const registry = buildDinksterRegistry(backend.id, dynamicOutputPayload())
-    backend.registry.set(registry)
-    const rule: ReplacementRule = {
-      from: 'test.DynamicOld',
-      cases: [{
-        to: 'test.DynamicNew',
-        inputs: { quantity: { kind: 'copy', input: 'count' } },
-        outputFamilies: { items: { kind: 'copy', sourceFamily: 'results' } },
-      }],
-    }
-    expect(app.registerReplacementRule('pack', rule)).toEqual([])
-    expect(app.openDocument(docJson(
-      'dynamic-output-replacement',
-      {
-        old: { type: 'test.DynamicOld', values: { count: 2 } },
-        sink: { type: 'comfy.PreviewImage' },
-      },
-      {
-        linked: {
-          id: 'linked',
-          from: { node: 'old', port: 'results', members: ['1'] },
-          to: { node: 'sink', port: 'images' },
-        },
-      },
-    ), 'Dynamic outputs')).toEqual([])
-    const tab = app.activeTab()!
-    expect(nodeType(tab, 'old')).toBe('test.DynamicNew')
-    expect(tab.store.doc.graphs.g0!.nodes.old!.values).toEqual({ quantity: 2 })
-    expect(tab.store.doc.graphs.g0!.links.linked!.from).toEqual({
-      node: 'old',
-      port: 'items',
-      members: ['1'],
-    })
-    expect(tab.store.undo()).toBe(true)
-    expect(nodeType(tab, 'old')).toBe('test.DynamicOld')
-    expect(tab.store.doc.graphs.g0!.links.linked!.from).toEqual({
-      node: 'old',
-      port: 'results',
-      members: ['1'],
-    })
-  })
-})
-
 describe('legacy documents against a native backend', () => {
   it.each([
     ['alias', () => maintainedAliasPayload([{ nodeClass: 'EmptyImage', sourceType: 'comfy.LegacyEmptyImage' }]), 'comfy.LegacyEmptyImage'],
@@ -1107,7 +502,6 @@ describe('legacy documents against a native backend', () => {
     const tab = app.activeTab()!
     expect(tab.store.doc.graphs).toEqual(authored.graphs)
     expect(tab.store.revision).toBe(0)
-    expect(app.scanTabReplacements(tab)).toEqual([])
     expect(app.problems.get()).toContainEqual(expect.objectContaining({
       code: 'schema.unresolvedType', message: expect.stringContaining(sourceType),
     }))
@@ -1282,10 +676,9 @@ describe('legacy documents against a native backend', () => {
     expect(tab.store.canUndo).toBe(false)
   })
 
-  it('retains the complete matched source graph when replacement review is enabled', () => {
+  it('retains the complete matched source graph without an automatic replacement pass', () => {
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, maintainedGroupPayload()))
-    app.reviewReplacements.set(true)
     const litegraph = {
       nodes: [
         {
@@ -1420,7 +813,6 @@ describe('legacy documents against a native backend', () => {
       to: { node: 'n2', port: 'images' },
     })
     expect(tab.store.revision).toBe(0)
-    expect(app.scanTabReplacements(tab)).toEqual([])
     expect(app.problems.get().map((problem) => problem.code)).not.toContain('replace.applied')
     expect(app.compileTab(tab)?.ok).toBe(false)
   })
@@ -1439,7 +831,6 @@ describe('legacy documents against a native backend', () => {
     expect(tab.store.doc.graphs.g0!.links.l2!.from).toEqual({ node: 'n0', port: 'out0' })
     expect(tab.store.doc.graphs.g0!.nodes.n0!.values).toEqual({ width: 64 })
     expect(tab.store.revision).toBe(0)
-    expect(app.scanTabReplacements(tab)).toEqual([])
     expect(app.problems.get().some((d) => d.code === 'replace.applied')).toBe(false)
     const result = app.compileTab(tab)
     expect(result?.ok).toBe(false)
@@ -1459,7 +850,6 @@ describe('legacy documents against a native backend', () => {
     for (const [index, tab] of app.tabs.get().entries()) {
       expect(tab.store.doc).toEqual(documents[index])
       expect(tab.store.canUndo).toBe(false)
-      expect(app.scanTabReplacements(tab)).toEqual([])
     }
   })
 

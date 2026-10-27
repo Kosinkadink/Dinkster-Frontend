@@ -70,33 +70,18 @@ test('imports, lowers, and executes the official Pixal3D and TRELLIS.2 workflow'
     const tab = app.activeTab()!
     app.setTabTarget(tab.id, backend.id)
     const registry = backend.registry.get()!
-    const replacements = (app as unknown as {
-      scanTabReplacements(value: unknown): readonly {
-        sourceType: string
-        terminalType: string
-        safe: boolean
-        diagnostics: readonly unknown[]
-      }[]
-    }).scanTabReplacements(tab)
     return {
       failures,
       nodeCount: Object.keys(tab.store.doc.graphs['g0']!.nodes).length,
       unresolvedTypes: ['GetMeshInfo', 'ImageCropToMask', 'MoGeInference'].filter((type) => !registry.schemas.has(type)),
       registryDiagnostics: registry.diagnostics,
       schemaProblems: app.problems.get().filter((problem) => problem.code.startsWith('schema.')),
-      pendingReplacements: replacements.map((item) => ({
-        sourceType: item.sourceType,
-        terminalType: item.terminalType,
-        safe: item.safe,
-        diagnostics: item.diagnostics,
-      })),
     }
   }, workflow)
   expect(imported.failures).toEqual([])
   expect(imported.nodeCount).toBe(64)
   expect(imported.registryDiagnostics).toEqual([])
   expect(imported.unresolvedTypes, JSON.stringify(imported.schemaProblems)).toEqual([])
-  expect(imported.pendingReplacements).toEqual([])
 
   await expect.poll(() => page.evaluate((names) => {
     const nodes = window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes

@@ -378,7 +378,6 @@ test('native alias import is canonical before badges, save/reopen, and submissio
     const tab = app.activeTab()!
     app.setTabTarget(tab.id, backend.id)
     const first = tab.store.doc
-    const scans = (app as unknown as { scanTabReplacements(value: unknown): readonly unknown[] }).scanTabReplacements(tab)
     const exported = (app as unknown as { exportDocument(id: string): unknown }).exportDocument(tab.id)!
     const reopenFailures = app.openDocument(JSON.parse(JSON.stringify(exported)), 'SD1.5 reopened')
     const reopened = app.activeTab()!
@@ -408,7 +407,6 @@ test('native alias import is canonical before badges, save/reopen, and submissio
     return {
       failures,
       reopenFailures,
-      scans,
       first,
       reopened: reopenedDocument,
       badgeIds: Object.values(badges).flatMap((rows) => rows.map((badge) => badge.id)),
@@ -418,7 +416,6 @@ test('native alias import is canonical before badges, save/reopen, and submissio
 
   expect(imported.failures).toEqual([])
   expect(imported.reopenFailures).toEqual([])
-  expect(imported.scans).toEqual([])
   const graph = imported.first.graphs['g0']!
   expect(Object.values(graph.nodes).map((node) => node.type)).toEqual([
     'dinkster.load_checkpoint',

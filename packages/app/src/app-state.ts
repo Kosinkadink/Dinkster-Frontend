@@ -23,7 +23,6 @@ import {
   coreMenuContributions,
   createMenuRegistry,
   createSearchRegistry,
-  createReplacementRegistry,
   createSignal,
   createSurfaceRegistry,
   effectiveOccurrenceTopology,
@@ -71,9 +70,7 @@ import {
   randomNumericValue,
   stepNumericValue,
   subgraphDefIdOf,
-  replacementInvocation,
   resetMenuContributions,
-  scanReplacements,
   schemaForEditorRole,
   scopeClosure,
   resolvePreviewPolicy,
@@ -108,10 +105,6 @@ import {
   type Occurrence,
   type NormalizedEvent,
   type ReadonlySignal,
-  type ReplacementRegistry,
-  type ReplacementRule,
-  type ReplacementScanItem,
-  type ReplacementSchemaResolver,
   type RuntimeErrorDetail,
   type SelectionExecutionAnalysis,
   type SelectorChoice,
@@ -1695,19 +1688,11 @@ interface PersistedTabs {
   readonly workspaceOperationWatermarks?: Readonly<Record<string, number>>
   /** Covered slots stay in storage because deleting one can race a newer stage for the same lineage. */
   readonly documentCandidateStages?: Readonly<Record<string, string>>
-  /**
-   * `stock` marks a still-pristine app-shipped seed tab (see stockPending):
-   * it survives reloads so a seed that ran unmigrated on a V1 backend keeps
-   * its silent-baseline-migration entitlement when a later session targets a
-   * native backend. Persisted ONLY while the tab is unedited; absent
-   * otherwise.
-   */
   readonly tabs: readonly {
     readonly title: string
     readonly doc: unknown
     readonly documentRevision?: number
     readonly documentDirty?: true
-    readonly stock?: true
     /** Center-region editor kind; absent = graph (pre-2.4 snapshots). */
     readonly editorKind?: string
     /** Browser-local editor position; never sent to the workspace authority. */
@@ -1740,7 +1725,7 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
         : {}),
       tabs: parsed.tabs
         .filter(
-          (t): t is { title: string; doc: unknown; documentRevision?: unknown; documentDirty?: unknown; stock?: unknown; editorKind?: unknown; viewState?: unknown } =>
+          (t): t is { title: string; doc: unknown; documentRevision?: unknown; documentDirty?: unknown; editorKind?: unknown; viewState?: unknown } =>
             typeof t === 'object' && t !== null && typeof (t as { title?: unknown }).title === 'string',
         )
         .map((t) => {
@@ -1752,7 +1737,6 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
               ? { documentRevision: t.documentRevision }
               : {}),
             ...(t.documentDirty === true ? { documentDirty: true as const } : {}),
-            ...(t.stock === true ? { stock: true as const } : {}),
             ...(typeof t.editorKind === 'string' && t.editorKind.length > 0 && !isSessionOnlyEditorKind(t.editorKind)
               ? { editorKind: t.editorKind }
               : {}),
@@ -3277,10 +3261,6 @@ export class AppState {
       if (entry.viewState === undefined) tabViewStates.delete(tab.id)
       else tabViewStates.set(tab.id, entry.viewState)
       this.documentPersistenceRevisions.set(tab.id, entry.documentRevision ?? 0)
-      // A persisted still-pristine seed keeps its silent-migration
-      // entitlement (see stockPending): the flag was only written while the
-      // tab was unedited.
-      if (entry.stock === true) this.stockPending.add(tab.id)
       // Tab ids are lineages, and every id-keyed surface (dirty set, watchers,
       // links, active id) assumes ids are unique. Normal flow guarantees that
       // (openDocument replaces same-lineage tabs), so duplicates here mean a
@@ -3303,9 +3283,6 @@ export class AppState {
           if (!loaded.document) continue
           const tab = this.makeTab(loaded.document, title)
           tabs.push(tab)
-          // Stock content the app itself shipped: its upgrade to the backend's
-          // canonical types is baseline normalization, not user-visible churn.
-          this.stockPending.add(tab.id)
         }
       }
     }
@@ -3314,17 +3291,16 @@ export class AppState {
     this.dirtyTabs.set(new Set(tabs.filter((tab) => !tab.execution).map((tab) => tab.id)))
     const active = persisted !== undefined && tabs.some((t) => t.id === persisted.active) ? persisted.active : (tabs[0]?.id ?? '')
     this.activeTabId.set(active)
-    // Seed tabs open before any backend has schemas; upgrade them (and any
-    // other pending tab) when a registry arrives or refreshes.
+    // Seed tabs open before schemas arrive; defer schema-dependent processing.
     for (const tab of tabs) {
-      this.upgradePending.add(tab.id)
+      this.schemaDiagnosticsPending.add(tab.id)
       this.legacyBooleanPending.add(tab.id)
     }
     this.backendsTick.subscribe(() => {
       this.selectExtensionWorld()
       this.pruneExtensionWorlds()
-      this.drainLegacyBooleans() // before replacements: same open boundary
-      this.drainUpgrades()
+      this.drainLegacyBooleans()
+      this.drainSchemaDiagnostics()
     })
     // Mirror tab, document, and active-tab changes back into storage.
     this.tabs.subscribe(() => {
@@ -3496,7 +3472,6 @@ export class AppState {
       title: tab.title,
       document: tab.store.doc,
       ...(tab.editorKind !== GRAPH_EDITOR_KIND && !isSessionOnlyEditorKind(tab.editorKind) ? { editorKind: tab.editorKind } : {}),
-      ...(this.stockPending.has(tab.id) && tab.store.revision === 0 ? { stock: true as const } : {}),
     }))
   }
 
@@ -3513,13 +3488,12 @@ export class AppState {
     const updates = after.filter((tab) => {
       const old = oldById.get(tab.id)
       return old !== undefined && (
-        old.title !== tab.title || old.editorKind !== tab.editorKind || old.stock !== tab.stock
+        old.title !== tab.title || old.editorKind !== tab.editorKind
       )
-    }).map(({ id, title, editorKind, stock }) => ({
+    }).map(({ id, title, editorKind }) => ({
       id,
       title,
       editorKind: editorKind ?? null,
-      stock: stock === true,
     }))
     const order = after.map((tab) => tab.id)
     const oldOrder = before.map((tab) => tab.id)
@@ -3626,8 +3600,6 @@ export class AppState {
             tab = { ...tab, title: record.title, editorKind }
           }
         }
-        if (record.stock === true) this.stockPending.add(record.id)
-        else this.stockPending.delete(record.id)
         nextLive.push(tab)
       }
       const retained = new Set(snapshot.tabs.map((tab) => tab.id))
@@ -3931,10 +3903,6 @@ export class AppState {
             doc: t.store.doc as unknown,
             documentRevision: this.documentPersistenceRevisions.get(t.id) ?? 0,
             ...(this.documentPersistenceDirty.has(t.id) ? { documentDirty: true as const } : {}),
-            // Stock provenance survives ONLY while pristine: an edited seed
-            // must never regain silent-migration status after a reload resets
-            // its revision counter.
-            ...(this.stockPending.has(t.id) && t.store.revision === 0 ? { stock: true as const } : {}),
             ...(t.editorKind !== GRAPH_EDITOR_KIND && !isSessionOnlyEditorKind(t.editorKind) ? { editorKind: t.editorKind } : {}),
             ...(viewState === undefined ? {} : { viewState }),
           }
@@ -4581,50 +4549,13 @@ export class AppState {
       : this.extensionWorlds.get(registry!.connection)?.get(digest)?.widgets ?? this.widgetRegistry
   }
 
-  // -- Deprecation + replacement --------------------------------------------
+  // -- Schema arrival -------------------------------------------------------
+
+  /** Tabs awaiting diagnostics from their target backend's first registry. */
+  private readonly schemaDiagnosticsPending = new Set<string>()
 
   /**
-   * When true, nothing is upgraded automatically: openDocument surfaces every
-   * migratable node for review instead of applying safe plans (debug aid).
-   */
-  readonly reviewReplacements: Signal<boolean> = createSignal(false)
-
-  /** Explicit rules registered by packs/extensions. */
-  private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
-  private extraRulesVersion = 0
-  /** Per-SchemaRegistry rule cache. Weak: a refreshed/replaced registry's
-   * entry must not pin the old registry (or its rules) alive. */
-  private readonly replacementRegistries = new WeakMap<
-    SchemaRegistry,
-    { registry: ReplacementRegistry; version: number }
-  >()
-  /**
-   * Tabs awaiting their first upgrade pass. A tab is upgraded exactly once,
-   * as soon as BOTH the tab and its target backend's schemas exist - seed
-   * tabs and documents opened before /object_info arrives are picked up by
-   * the backendsTick subscription instead of being missed forever.
-   * Retargeting a tab later does NOT re-run auto-apply (mutating a document
-   * because the user switched backends would surprise); the deprecation
-   * badge flow covers whatever the new backend's rules can migrate.
-   */
-  private readonly upgradePending = new Set<string>()
-
-  /**
-   * Stock seed tabs whose FIRST upgrade pass is silent baseline
-   * normalization. The shipped seed workflows are authored in portable
-   * legacy V1 form (bare class types, positional 'out{i}' ports) so they
-   * run as-is on V1 ComfyUI backends. Explicit replacement rules may
-   * normalize stock content; alias metadata supplies no rules. The user never authored the
-   * legacy form, so that migration must look born-this-way: no
-   * 'replace.applied' Problems entry and no undo step back to a state the
-   * user never saw. Consumed by upgradeOnOpen; only honored while the tab
-   * is still pristine (revision 0) - once the user edits, the loud
-   * reviewable path applies as for any document.
-   */
-  private readonly stockPending = new Set<string>()
-
-  /**
-   * Tabs awaiting a legacy-boolean normalization pass. Unlike upgradePending
+   * Tabs awaiting a legacy-boolean normalization pass. Unlike schema diagnostics
    * this RE-ARMS on retarget: which schemas interpret the document is the
    * tab's target backend, and a document opened while targeting one backend
    * (where its types may not even resolve) can be pointed at another whose
@@ -4651,185 +4582,19 @@ export class AppState {
     }
   }
 
-  /**
-   * Register a replacement rule from a pack/extension (the 'pack' layer; the
-   * 'core' layer holds explicitly registered lower-precedence rules). Malformed
-   * rules are rejected with diagnostics and land in Problems.
-   */
-  registerReplacementRule(layer: 'pack' | 'core', rule: ReplacementRule): readonly Diagnostic[] {
-    const probe = createReplacementRegistry()
-    const diags = probe.register(layer, rule)
-    if (diags.length > 0) {
-      this.reportProblems(GLOBAL_PROBLEMS_OWNER, diags)
-      return diags
-    }
-    this.extraRules.push({ layer, rule })
-    this.extraRulesVersion++
-    return []
-  }
-
-  /**
-   * Explicit pack/core rules for a backend registry, rebuilt when registrations
-   * change. Schema payloads never publish executable rules.
-   */
-  private replacementRegistryFor(reg: SchemaRegistry): ReplacementRegistry {
-    const cached = this.replacementRegistries.get(reg)
-    if (cached && cached.version === this.extraRulesVersion) return cached.registry
-    const registry = createReplacementRegistry()
-    const diags: Diagnostic[] = []
-    for (const { layer, rule } of this.extraRules) diags.push(...registry.register(layer, rule))
-    this.reportProblems(GLOBAL_PROBLEMS_OWNER, diags)
-    this.replacementRegistries.set(reg, { registry, version: this.extraRulesVersion })
-    return registry
-  }
-
-  /**
-   * Every node in a tab's document a rule can migrate (planned against the
-   * tab's target backend). Frozen tabs are snapshots: never scanned.
-   */
-  scanTabReplacements(tab: Tab): readonly ReplacementScanItem[] {
-    if (tab.execution) return []
-    const reg = this.registryForTab(tab)
-    if (!reg) return []
-    const resolve: ReplacementSchemaResolver = (type) => reg.resolve(type)
-    return scanReplacements(tab.store.doc, this.replacementRegistryFor(reg), resolve)
-  }
-
-  /**
-   * Apply planned scan items to a tab: one dispatch (batched when several),
-   * one undo step. Returns false when nothing was planned or dispatch failed.
-   */
-  applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): boolean {
-    const invocation = replacementInvocation(items)
-    if (!invocation) return false
-    return this.dispatchTo(tab, invocation).ok
-  }
-
-  /**
-   * Run the once-per-tab upgrade pass for every pending tab whose target
-   * backend has schemas. Called on document open (immediate when schemas are
-   * already here) and on every backendsTick (deferred arrival/refresh).
-   */
-  private drainUpgrades(): void {
-    if (this.upgradePending.size === 0) return
+  /** Report once when both the document and its target schemas are available. */
+  private drainSchemaDiagnostics(): void {
+    if (this.schemaDiagnosticsPending.size === 0) return
     for (const tab of this.tabs.get()) {
-      if (!this.upgradePending.has(tab.id)) continue
+      if (!this.schemaDiagnosticsPending.has(tab.id)) continue
       if (tab.execution) {
-        this.upgradePending.delete(tab.id) // frozen snapshots never upgrade
+        this.schemaDiagnosticsPending.delete(tab.id)
         continue
       }
       if (!this.registryForTab(tab)) continue // still waiting for schemas
-      this.upgradePending.delete(tab.id)
-      this.upgradeOnOpen(tab)
-    }
-  }
-
-  /**
-   * The upgrade pass for one tab (open time, possibly deferred until its
-   * backend's schemas arrive): auto-apply SAFE plans (lossless, warning
-   * free) unless review mode is on. Best-effort migration fallbacks always
-   * apply because their archived historical state needs no user decision.
-   * Everything else lands in Problems so the badge/review flow can take over.
-   */
-  private upgradeOnOpen(tab: Tab): void {
-    this.reportEnvironmentDrift(tab)
-    this.reportUnresolvedTypes(tab)
-    const items = this.scanTabReplacements(tab)
-    // A pass that engaged nothing (e.g. a stock seed on a V1 backend, where
-    // it resolves natively) keeps stock provenance: the entitlement to a
-    // silent migration must survive until a backend actually claims it.
-    if (items.length === 0) return
-    const stockPristine = this.stockPending.has(tab.id) && tab.store.revision === 0
-    this.stockPending.delete(tab.id) // engaged: silent or loud, provenance is spent
-    const review = this.reviewReplacements.get()
-    const firstHop = (item: ReplacementScanItem): ReplacementScanItem => {
-      const hop = item.hops[0]!
-      return {
-        ...item,
-        hops: [hop],
-        terminalType: hop.plan.to,
-        status: 'terminal',
-        rule: hop.rule,
-        plan: hop.plan,
-        diagnostics: hop.diagnostics,
-        safe: hop.diagnostics.every((entry) => entry.severity === 'info'),
-      }
-    }
-    const nodeKey = (item: ReplacementScanItem): string => JSON.stringify([item.graphId, item.nodeId])
-    const appliedMigrations: ReplacementScanItem[] = []
-    const failedMigrationNodes = new Set<string>()
-    const failedFallbackNodes = new Set<string>()
-    let remainingItems = items
-    for (;;) {
-      const candidate = remainingItems.find((item) =>
-        item.hops.some((hop) => hop.rule.migration !== undefined) &&
-        (review
-          ? item.hops[0]?.plan.migrationFallback === true
-          : item.hops.some((hop, index) =>
-              hop.plan.migrationFallback === true &&
-              item.hops.slice(0, index).every((prefix) =>
-                prefix.diagnostics.every((entry) => entry.severity === 'info')),
-            ) || item.safe) &&
-        !failedMigrationNodes.has(nodeKey(item)),
-      )
-      if (candidate === undefined) break
-      const step = firstHop(candidate)
-      if (!this.applyReplacements(tab, [step])) {
-        failedMigrationNodes.add(nodeKey(candidate))
-        if (step.plan?.migrationFallback === true) failedFallbackNodes.add(nodeKey(candidate))
-        continue
-      }
-      appliedMigrations.push(step)
-      remainingItems = this.scanTabReplacements(tab)
-    }
-    remainingItems = remainingItems.filter((item) =>
-      !(failedFallbackNodes.has(nodeKey(item)) && item.hops[0]?.plan.migrationFallback === true),
-    )
-    const migrationSucceeded = failedMigrationNodes.size === 0
-
-    const ordinaryAuto = review
-      ? []
-      : remainingItems.filter((item) =>
-          !failedMigrationNodes.has(nodeKey(item)) &&
-          item.safe,
-        )
-    const ordinarySucceeded = ordinaryAuto.length === 0 || this.applyReplacements(tab, ordinaryAuto)
-    const rest = ordinarySucceeded
-      ? remainingItems.filter((item) => !ordinaryAuto.includes(item))
-      : remainingItems
-    // Stock content stays silent only when every engaged replacement was
-    // applied safely. Migration hops run separately so plans that share old
-    // graph state cannot invalidate and roll back one another.
-    const silentEligible = stockPristine && !review && migrationSucceeded && ordinarySucceeded && rest.length === 0
-    const applied = [
-      ...appliedMigrations,
-      ...(ordinarySucceeded ? ordinaryAuto : []),
-    ]
-    if (applied.length > 0) {
-      if (silentEligible) {
-        // Baseline normalization of app-shipped content (see stockPending):
-        // the migrated document IS the document; no churn, no undo step.
-        tab.store.clearHistory()
-      } else {
-        this.reportProblems(tab.id, [
-          ...applied.flatMap((item) => item.diagnostics.filter((entry) => entry.severity === 'info')),
-          diag('info', 'command', 'replace.applied', `applied ${applied.length} replacement step(s) automatically`),
-        ])
-      }
-    }
-    if (rest.length > 0) {
-      this.reportProblems(tab.id,
-        rest.map((i) =>
-          diag(
-            'warning',
-            'command',
-            'replace.review',
-            i.plan
-              ? `node '${i.nodeId}' (${i.sourceType}) can be upgraded to '${i.terminalType}'${i.hops.length > 1 ? ` (${i.hops.length} steps)` : ''} - review via its badge`
-              : `node '${i.nodeId}' (${i.sourceType}) has replacement rules but none apply: ${i.diagnostics.map((d) => d.message).join('; ')}`,
-          ),
-        ),
-      )
+      this.schemaDiagnosticsPending.delete(tab.id)
+      this.reportEnvironmentDrift(tab)
+      this.reportUnresolvedTypes(tab)
     }
   }
 
@@ -4837,7 +4602,7 @@ export class AppState {
    * A node type the target backend cannot resolve renders as a red error
    * shell - correct on canvas, but silently: nothing else says WHY a
    * workflow is dead or that queueing will refuse. Report every unresolved
-   * type once at the same boundary as the upgrade pass, so "all my nodes
+   * type once when schemas arrive, so "all my nodes
    * are red" always has a matching Problems entry naming the types and the
    * backend that lacks them. Subgraph-derived '#' types resolve locally and
    * are never reported.
@@ -4986,12 +4751,6 @@ export class AppState {
     // legacy-boolean pass (idempotent; see legacyBooleanPending). The tick
     // below drains it once the target's registry is available.
     this.legacyBooleanPending.add(tabId)
-    // Exception to the no-rearm-on-retarget rule, for STOCK-PRISTINE tabs
-    // only: a seed that ran unmigrated on a V1 backend (its pass engaged
-    // nothing, so provenance was kept) must still get its silent baseline
-    // migration when the user points it at a native backend. User-edited
-    // documents keep the badge/review flow.
-    if (this.stockPending.has(tabId) && tab.store.revision === 0) this.upgradePending.add(tabId)
     this.backendsTick.update((v) => v + 1)
   }
 
@@ -5729,8 +5488,7 @@ export class AppState {
     this.dropProblems(id) // its diagnostics may not outlive the tab
     this.followLatestExecution(id) // drop view state; no leak for reused ids
     this.dropTabTarget(id)
-    this.upgradePending.delete(id)
-    this.stockPending.delete(id)
+    this.schemaDiagnosticsPending.delete(id)
     this.legacyBooleanPending.delete(id)
     // comparisonCompiles / sourceDocCache / hashCache are WeakMaps keyed by
     // the Tab object itself: dropping the tab drops its cache entries.
@@ -6267,10 +6025,10 @@ export class AppState {
     this.templateGalleryOpen.set(false)
     this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
     this.activeTabId.set(tab.id)
-    this.upgradePending.add(tab.id)
+    this.schemaDiagnosticsPending.add(tab.id)
     this.legacyBooleanPending.add(tab.id)
     this.drainLegacyBooleans() // immediate when schemas are already loaded
-    this.drainUpgrades()
+    this.drainSchemaDiagnostics()
     if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
     return []
   }

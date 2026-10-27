@@ -9,8 +9,10 @@ as missing; a carrier catalog does not make them executable.
 Historical alias and group snapshots also supply no post-open replacement
 rules, source schemas, or asset lookup authority. Schema discovery ignores
 embedded replacement-rule payloads, including constructed registries; the
-normalized schema model exposes no executable rules. Explicitly registered rules
-retain their own upgrade flow; deprecation pointers are display metadata only.
+normalized schema model exposes no executable rules. The application exposes no
+replacement registration, scan, or apply API and performs no automatic graph
+upgrade. Schema-arrival diagnostics and legacy boolean normalization remain;
+deprecation pointers are display metadata only.
 Deprecation badges show messages, version notes, and name-only successor
 guidance. They expose no replacement plans, rule diagnostics, or apply action;
 opening a badge does not mutate the graph.

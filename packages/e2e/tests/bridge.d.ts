@@ -348,8 +348,6 @@ interface DinksterTestBridge {
     reportProblems(owner: string, diagnostics: readonly unknown[]): void
     /** Drop every diagnostic held by one owner (badge lifecycle specs). */
     clearProblems(owner: string): void
-    /** Pack-layer deprecation/replacement rule; diagnostics on rejection. */
-    registerReplacementRule(layer: 'pack' | 'core', rule: unknown): readonly unknown[]
     /** Pack manifest installation + per-contribution gating (section 11). */
     extensions: {
       register(
