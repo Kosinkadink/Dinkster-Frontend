@@ -9,6 +9,9 @@ async function prepare(page: Page): Promise<void> {
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.backends.get()[0]?.schemaState.get().status,
+  )).toBe('ready')
 }
 
 async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
