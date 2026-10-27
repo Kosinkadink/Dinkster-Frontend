@@ -1063,6 +1063,8 @@
   "problems.action.dismiss": "关闭",
   "problems.migration.title": "工作流已升级",
   "problems.migration.apply": "应用替换",
+  "problems.migration.undo": "撤销升级",
+  "problems.migration.undoHint": "一步撤销所有升级。如果此按钮不可用，请先撤销后续编辑。",
   "problems.queueRefused": "工作流未加入队列",
   "problems.severityCounts": "错误：{errors}；警告：{warnings}；信息：{info}",
   "problems.compat.advisory": "建议",

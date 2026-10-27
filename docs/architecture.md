@@ -148,8 +148,11 @@ accepting it; caller-supplied case metadata cannot override that selection.
 Recoverable archives retain the original source state; apply-time guards use the exact
 intermediate state and still reject unrelated edits.
 Problems shows one dismissable session-only notice listing upgraded nodes and
-warnings; each node line navigates to its occurrence. Saving or closing the tab
-clears the notice, and it is never written into the workflow. Upgraded nodes
+warnings; each node line navigates to its occurrence. Its **Undo upgrades**
+action reverses the entire migration batch as one step and dismisses the
+notice. It is disabled while later edits occupy the undo stack; undoing those
+edits makes it available again, so it never undoes unrelated work.
+Saving or closing the tab clears the notice, and it is never written into the workflow. Upgraded nodes
 look ordinary. Schema-arrival diagnostics and legacy boolean normalization are independent.
 
 The status bar's **Review upgrades** toggle opts out of automatic migration

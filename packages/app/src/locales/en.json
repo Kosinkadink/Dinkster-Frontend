@@ -1061,6 +1061,8 @@
   "problems.action.dismiss": "Dismiss",
   "problems.migration.title": "Workflow upgraded",
   "problems.migration.apply": "Apply Replacement",
+  "problems.migration.undo": "Undo upgrades",
+  "problems.migration.undoHint": "Undo all upgrades as one step. Undo later edits first if this is disabled.",
   "problems.queueRefused": "Workflow not queued",
   "problems.severityCounts": "Errors: {errors}; warnings: {warnings}; info: {info}",
   "problems.compat.advisory": "advisory",

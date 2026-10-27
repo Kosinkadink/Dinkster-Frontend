@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { Diagnostic } from '@dinkster/core'
 import type { CompatSkip, PackInferenceUnavailable } from '@dinkster/client'
 import { currentGraphId, diagnosticFocusTarget, type AppState, type MigrationNotice } from './app-state.js'
@@ -6,7 +6,9 @@ import { groupProblemDiagnostics, problemDisplay, type ProblemGroup } from './pr
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
+import { ProductActionFooter } from './ProductForm.js'
 import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
+import { useSignal } from './solid-adapter.js'
 
 export interface ProblemsDisclosure {
   readonly expanded: (key: string) => boolean
@@ -61,6 +63,21 @@ export interface ProblemsPanelProps {
 
 export function ProblemsPanel(props: ProblemsPanelProps) {
   const message = useAppMessage()
+  const tabs = useSignal(props.app.tabs)
+  const [undoTick, setUndoTick] = createSignal(0)
+  createEffect(() => {
+    const owner = props.migrationNotice?.()?.owner
+    const tab = tabs().find((candidate) => candidate.id === owner)
+    if (tab === undefined) return
+    // Shared sessions publish optimistic documents before updating undo history.
+    const unsubscribe = tab.store.document.subscribe(() => queueMicrotask(() => setUndoTick((tick) => tick + 1)))
+    onCleanup(unsubscribe)
+  })
+  const canUndoNotice = (): boolean => {
+    undoTick()
+    const owner = props.migrationNotice?.()?.owner
+    return owner !== undefined && props.app.canUndoMigrationNotice(owner)
+  }
   const inferenceUnavailable = (): readonly PackInferenceUnavailable[] => {
     return props.packInferenceUnavailable?.() ?? []
   }
@@ -96,10 +113,6 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
             <div class="problems-group-header">
               <span class="problems-group-title">{message('problems.migration.title')}</span>
               <span class="problems-group-count">{notice().entries.length}</span>
-              <ProductButton variant="ghost" size="compact"
-                onClick={() => props.app.dismissMigrationNotice(notice().owner)}>
-                {message('problems.action.dismiss')}
-              </ProductButton>
             </div>
             <div class="problems-group-items">
               <For each={notice().entries}>{(entry) => (
@@ -114,6 +127,18 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                 </div>
               )}</For>
             </div>
+            <ProductActionFooter>
+              <ProductButton variant="ghost" size="compact"
+                disabled={!canUndoNotice()}
+                title={message('problems.migration.undoHint')}
+                onClick={() => props.app.undoMigrationNotice(notice().owner)}>
+                {message('problems.migration.undo')}
+              </ProductButton>
+              <ProductButton variant="ghost" size="compact"
+                onClick={() => props.app.dismissMigrationNotice(notice().owner)}>
+                {message('problems.action.dismiss')}
+              </ProductButton>
+            </ProductActionFooter>
           </section>
         )}</Show>
         <For each={groups()}>

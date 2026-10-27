@@ -34,6 +34,7 @@ import {
   diag,
   createLocalSession,
   connectSharedSession,
+  type HistorySnapshotRecord,
   type DocumentSession,
   type SharedDocumentSession,
   type CollabSessionDescriptor,
@@ -1383,6 +1384,7 @@ export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
 export interface MigrationNotice {
   readonly owner: string
   readonly entries: readonly OwnedDiagnostic[]
+  readonly undoRecord: HistorySnapshotRecord
 }
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
@@ -4604,6 +4606,22 @@ export class AppState {
     return invocation !== undefined && this.dispatchTo(tab, invocation).ok
   }
 
+  canUndoMigrationNotice(tabId: string): boolean {
+    const notice = this.migrationNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined || !tab.store.canUndo) return false
+    return canonicalJson(tab.store.historySnapshot().undo.at(-1)) === canonicalJson(notice.undoRecord)
+  }
+
+  undoMigrationNotice(tabId: string): boolean {
+    if (!this.canUndoMigrationNotice(tabId)) return false
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)!
+    if (!tab.store.undo()) return false
+    reconcileGraphNavigation(tab)
+    this.dismissMigrationNotice(tabId)
+    return true
+  }
+
   dismissMigrationNotice(tabId: string): void {
     if (!this.migrationNotices.get().has(tabId)) return
     this.migrationNotices.update((current) => {
@@ -4638,7 +4656,8 @@ export class AppState {
         owner: tab.id,
       }
     })
-    this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries }))
+    const undoRecord = tab.store.historySnapshot().undo.at(-1)!
+    this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
   }
 
   /** Tabs awaiting diagnostics from their target backend's first registry. */

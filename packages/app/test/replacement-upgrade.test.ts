@@ -84,6 +84,33 @@ describe('native open-time replacement', () => {
     expect(tab.store.canUndo).toBe(false)
   })
 
+  it('undoes the upgrade batch from its notice without undoing later edits', () => {
+    const app = new AppState()
+    loadSchemas(app)
+    const original = document()
+    app.openDocument(original, 'Historical document')
+    const tab = app.activeTab()!
+    expect(app.canUndoMigrationNotice(tab.id)).toBe(true)
+    expect(tab.store.dispatch({ command: 'node.move', params: {
+      graphId: 'g0', positions: { first: { x: 280, y: 190 } },
+    } }).ok).toBe(true)
+    const edited = tab.store.doc
+    expect(app.canUndoMigrationNotice(tab.id)).toBe(false)
+    expect(app.undoMigrationNotice(tab.id)).toBe(false)
+    expect(tab.store.doc).toBe(edited)
+    expect(tab.store.undo()).toBe(true)
+    expect(app.canUndoMigrationNotice(tab.id)).toBe(true)
+    expect(app.undoMigrationNotice(tab.id)).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual({ oldAmount: 11 })
+    expect(tab.store.doc.graphs.g0!.nodes.second!.values).toEqual({ oldAmount: 29 })
+    expect(tab.store.doc.graphs.g0!.links.lost).toEqual(original.graphs.g0.links.lost)
+    expect(tab.store.canUndo).toBe(false)
+    expect(app.migrationNotices.get().has(tab.id)).toBe(false)
+    expect(app.undoMigrationNotice(tab.id)).toBe(false)
+    expect(tab.store.redo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual({ amount: 11 })
+  })
+
   it('clears the transient notice on tab close', () => {
     const app = new AppState()
     loadSchemas(app)
