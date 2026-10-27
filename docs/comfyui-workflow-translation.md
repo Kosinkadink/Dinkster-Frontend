@@ -90,14 +90,12 @@ mounts and an explicit default-output choice, and commits only a mount string
 or null. Missing saved mount ids remain visible as unavailable, not silently
 replaced with the first writable mount. Prefix editing is independent.
 
-Positional and keyed static COMBO widgets normalize a finite numeric literal
-to its canonical string only when that exact string is a declared option.
-An exact numeric option in a legacy schema takes precedence. A legacy string
-that exactly matches one unique structured option label is stored as that
-option's canonical value; an already canonical value still takes precedence.
-Ambiguous labels, padded spellings, and unmatched values are not coerced, so
-invalid choices remain available for normal validation. Normalized values
-survive native save/reopen. Legacy tuple display labels remain unchanged.
+Positional and keyed static COMBO widgets preserve strings, booleans, and
+finite numbers exactly through import, editing, native save/reopen, and
+compilation. Numeric 8 differs from string "8", and true differs from 1.
+Display labels never rewrite stored values; unmatched values remain available
+for ordinary validation. Dynamic branch and input-family keys remain strings,
+and MULTI_COMBO retains its string-only option and value contract.
 
 ComfyUI `Note` and `MarkdownNote` records translate directly to Dinkster's
 frontend-only Note and Markdown Note kinds. Text, title, position, size, and
