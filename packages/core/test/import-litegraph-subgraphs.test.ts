@@ -179,6 +179,49 @@ describe('LiteGraph subgraphs', () => {
     expect(compiled.n9!.inputs.value).toEqual(['n1.n2', 0])
   })
 
+  it('preserves input boundary reroute fanout and occurrence-specific upstream drivers', () => {
+    const def = { ...definition(), nodes: [
+      { ...relay(), inputs: [{ name: 'value', widget: { name: 'value' }, link: 3 }] },
+      { ...relay(2), inputs: [{ name: 'value', widget: { name: 'value' }, link: 4 }] },
+      { id: 3, type: 'Reroute', pos: [110, 210], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
+      { id: 4, type: 'Reroute', pos: [310, 410], inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
+    ], links: [link(1, -10, 0, 3, 0), link(2, 3, 0, 4, 0),
+      link(3, 4, 0, 1, 0), link(4, 3, 0, 2, 0), link(5, 2, 0, -20, 0)] }
+    const sourceA = { ...relay(7), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [37] }
+    const sourceB = { ...relay(8), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [53] }
+    const doc = imported({ nodes: [sourceA, sourceB,
+      { ...instance(10), inputs: [{ name: 'value', link: 10 }] },
+      { ...instance(20), inputs: [{ name: 'value', link: 20 }] },
+    ], links: [link(10, 7, 0, 10, 0), link(20, 8, 0, 20, 0)], definitions: { subgraphs: [def] } })
+    expect(Object.keys(doc.graphs.inner!.nodes)).toEqual(['n1', 'n2'])
+    expect(Object.keys(doc.graphs.inner!.reroutes)).toEqual(['r3', 'r4'])
+    expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: { reroute: 'r3' }, to: { reroute: 'r4' } },
+      { from: { reroute: 'r4' }, to: { node: 'n1', port: 'value' } },
+      { from: { reroute: 'r3' }, to: { node: 'n2', port: 'value' } },
+    ])
+    expect(doc.view.graphs.inner!.reroutes).toEqual({
+      r3: { position: { x: 110, y: 210 } }, r4: { position: { x: 310, y: 410 } },
+    })
+    expect(Object.values(doc.graphs.g0!.links).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: { node: 'n7', port: 'result' }, to: { node: 'n10', port: 'in' } },
+      { from: { node: 'n8', port: 'result' }, to: { node: 'n20', port: 'in' } },
+    ])
+    const before = JSON.stringify(doc)
+    const compiled = prompt(doc)
+    expect(compiled.n7!.inputs.value).toBe(37)
+    expect(compiled.n8!.inputs.value).toBe(53)
+    for (const innerNode of ['n1', 'n2']) {
+      expect(compiled[`n10.${innerNode}`]!.inputs.value).toEqual(['n7', 0])
+      expect(compiled[`n20.${innerNode}`]!.inputs.value).toEqual(['n8', 0])
+    }
+    expect(Object.keys(compiled).sort()).toEqual(['n10.n1', 'n10.n2', 'n20.n1', 'n20.n2', 'n7', 'n8'])
+    expect(JSON.stringify(doc)).toBe(before)
+    const reopened = loadDocument(JSON.parse(before)).document!
+    expect(reopened).toEqual(doc)
+    expect(prompt(reopened)).toEqual(compiled)
+  })
+
   it('refuses an output reroute cycle without choosing a producer', () => {
     const def = { ...definition(), nodes: [relay(),
       { id: 2, type: 'Reroute', inputs: [{ name: '', link: 3 }], outputs: [{ name: '' }] },
