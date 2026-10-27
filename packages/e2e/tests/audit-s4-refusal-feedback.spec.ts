@@ -9,6 +9,9 @@ async function prepare(page: Page): Promise<void> {
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.backends.get()[0]?.schemaState.get().status,
+  )).toBe('ready')
 }
 
 async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
@@ -225,12 +228,14 @@ test('repeated family-forwarding fan-out refusal stays one Problem and flashes e
       await expect(page.getByTestId('gesture-refusal-toast')).toBeHidden()
     }
   }
-  const problem = page.locator('.problem').filter({ has: page.locator('code', { hasText: 'boundary.bindKind' }) })
-  await expect(problem).toHaveCount(1)
-  await expect(problem.locator('summary')).not.toContainText('boundary.bindKind')
-  await openRailPanel(page, 'Problems')
-  await problem.locator('summary').click()
-  await expect(problem.locator('code')).toBeVisible()
   expect(toastVisible).toEqual([true, true])
   await expect(page.getByTestId('gesture-refusal-toast')).toContainText('boundary.bindKind')
+  await openRailPanel(page, 'Problems')
+  const problem = page.getByTestId('problems-panel').locator('details.problem').filter({
+    has: page.getByText('boundary.bindKind', { exact: true }),
+  })
+  await expect(problem).toHaveCount(1)
+  await expect(problem.locator('summary')).toContainText('family forwarding cannot fan out')
+  await problem.locator('summary').click()
+  await expect(problem.locator('.problem-detail code')).toHaveText('boundary.bindKind')
 })

@@ -211,7 +211,7 @@ describe('fast pull-request and full validation workflows', () => {
       "{ name: 'parallel 4/6', project: 'parallel-safe', shard: '--shard=4/6' },",
       "{ name: 'parallel 5/6', project: 'parallel-safe', shard: '--shard=5/6' },",
       "{ name: 'parallel 6/6', project: 'parallel-safe', shard: '--shard=6/6' },",
-      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true },",
+      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2' },",
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
       "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '' },",
@@ -327,7 +327,7 @@ describe('fast pull-request and full validation workflows', () => {
     const installVulkan = hostedSteps.find(
       (step) => step.name === 'Install software Vulkan for hosted rendering',
     )!
-    expect(installVulkan.if).toBe('matrix.vulkan')
+    expect(installVulkan.if).toBeUndefined()
     expect(installVulkan.run).toContain(
       'sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers',
     )
@@ -472,7 +472,6 @@ describe('fast pull-request and full validation workflows', () => {
       'audit-tap-boundary-live.spec.ts',
       'audit-widget-parity-live.spec.ts',
       'fixture-discovery.spec.ts',
-      'import-legacy.spec.ts',
       'midgraph-preview-live.spec.ts',
       'native-catalog-decode.spec.ts',
       'native-catalog-presentation.spec.ts',
@@ -484,6 +483,13 @@ describe('fast pull-request and full validation workflows', () => {
       'wire43-input-family-combo.spec.ts',
     ]) {
       expect(nativeWithoutV1Specs).toContain(`'${spec}'`)
+    }
+    for (const spec of [
+      'import-legacy.spec.ts',
+      'link-drop.spec.ts',
+      'palette-filters.spec.ts',
+    ]) {
+      expect(nativeWithoutV1Specs).not.toContain(`'${spec}'`)
     }
     expect(baseConfig.match(/'output-mount-live\.spec\.ts'/g)).toHaveLength(2)
     expect(baseConfig.match(/'pack-assets-settings\.spec\.ts'/g)).toHaveLength(
