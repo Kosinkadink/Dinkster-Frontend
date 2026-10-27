@@ -1758,7 +1758,7 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
       nodes: { n0: { id: 'n0', type: 'ComboNode', values: {} } },
       boundary: { inputs: [{ id: 'mode', binds: { kind: 'port', node: 'n0', port: 'mode' } }], outputs: [] },
     }), resolve)
-    expect(result.diagnostics).toEqual([{ severity: 'warning', origin: 'schema', code: 'boundary.selectorOnly', message: 'gE.mode: selector forwarding does not include branch inputs' }])
+    expect(result.diagnostics).toEqual([{ severity: 'warning', origin: 'schema', code: 'boundary.selectorOnly', message: 'gE.mode: selector forwarding does not include branch inputs', refs: [{ graphId: 'gE', portId: 'mode', direction: 'input' }] }])
     const input = result.schema?.items[0]
     expect(input?.kind).toBe('input')
     if (input?.kind !== 'input') return
