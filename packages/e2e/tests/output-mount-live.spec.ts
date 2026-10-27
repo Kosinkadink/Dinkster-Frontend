@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
@@ -17,7 +17,14 @@ if (!nativeFrontend)
 test.use({ baseURL: nativeFrontend, viewport: { width: 1600, height: 900 } });
 const frontendRoot = resolve(import.meta.dirname, "../../..");
 const library = resolve(frontendRoot, ".ci/native-library");
+const defaultOutput = resolve(library, "output");
 const alternateOutput = resolve(library, "renders");
+
+async function clearComfyUiPngs(directory: string): Promise<void> {
+  for (const name of await readdir(directory)) {
+    if (/^ComfyUI_\d+\.png$/.test(name)) await unlink(resolve(directory, name));
+  }
+}
 
 function tinyPng(): Buffer {
   const crc = (buffer: Buffer): number => {
@@ -123,7 +130,10 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   request,
 }) => {
   await mkdir(evidenceGroupDir("issue-145"), { recursive: true });
+  await mkdir(defaultOutput, { recursive: true });
   await mkdir(alternateOutput, { recursive: true });
+  await clearComfyUiPngs(defaultOutput);
+  await clearComfyUiPngs(alternateOutput);
   const added = await request.post(`${backend}/api/mounts`, {
     data: { id: "renders", path: alternateOutput, mode: "readwrite" },
   });
@@ -170,9 +180,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await expect(page.getByTestId("outputs-panel")).toContainText(
     "mounts/output/ComfyUI_00001.png",
   );
-  expect(await readdir(resolve(library, "output"))).toContain(
-    "ComfyUI_00001.png",
-  );
+  expect(await readdir(defaultOutput)).toContain("ComfyUI_00001.png");
   await page.screenshot({
     path: evidencePath("issue-145", "default-output.png"),
     fullPage: true,

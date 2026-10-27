@@ -40,18 +40,23 @@ test.beforeEach(async ({ page }) => {
   test.skip(!(served !== null && 'dev.gallery.sockets' in served),
     `native backend at ${NATIVE_BACKEND} lacks dev.gallery.* - serve the dinkster-nodes-dev pack (Dinkster >= 33a1345)`)
 
+  await page.route('/api/settings', (route) => route.fulfill({ json: {
+    features: { templates: { enabled: true } }, categories: { granted: [], available: [] }, settings: {},
+  } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await addNativeBackend(page)
 
   // Open the backend-shipped template through the production Library flow.
-  await page.getByTestId('library-toggle').click()
+  const library = page.getByTestId('library-overlay')
+  if (!await library.isVisible()) await page.getByTestId('library-toggle').click()
+  await expect(library).toBeVisible()
   await selectSource(page, 'templates')
-  await page.getByTestId('collection-search').fill('gallery')
-  await expect(page.getByTestId('collection-entry').first()).toContainText('Widget & Socket Gallery')
-  await page.getByTestId('collection-entry').first().click()
-  await page.locator('[data-testid=collection-action][data-action=open]').click()
-  await expect(page.getByTestId('library-overlay')).not.toBeVisible()
+  await library.getByTestId('collection-search').fill('gallery')
+  await expect(library.getByTestId('collection-entry').first()).toContainText('Widget & Socket Gallery')
+  await library.getByTestId('collection-entry').first().click()
+  await library.locator('[data-testid=collection-action][data-action=open]').click()
+  await expect(library).not.toBeVisible()
 
   // openTemplate targets the freshly opened tab at the library backend
   // itself, so no manual tab-target step here.
