@@ -45,7 +45,7 @@ describe('Dinkster schema wire', () => {
     }
   })
 
-  it('ignores historical replacement rules without losing ordinary schema metadata', () => {
+  it('decodes native replacement rules without applying them during ComfyUI import', () => {
     const wire = {
       outputNode: true,
       deprecation: { message: 'Use the current node', replacement: 'CurrentNode' },
@@ -58,10 +58,28 @@ describe('Dinkster schema wire', () => {
     expect(result.schema).toMatchObject({
       type: 'AuthoredNode', deprecation: wire.deprecation, searchVisibility: 'deprecated',
     })
-    expect(result.schema).not.toHaveProperty('replacements')
+    expect(result.schema?.replacements).toEqual(wire.replacements)
     const imported = importLitegraph({ nodes: [{ id: 1, type: 'AuthoredNode', widgets_values: [19] }], links: [] },
       (type) => type === 'AuthoredNode' ? result.schema : undefined)
     expect(imported.document!.graphs.g0!.nodes.n1).toMatchObject({ type: 'AuthoredNode', values: { value: 19 } })
+  })
+
+  it('keeps current nodes available when migration advice is malformed', () => {
+    const valid = { from: 'OldNode', cases: [{ to: 'CurrentNode' }] }
+    for (const replacements of [false, [null, valid, { from: 'OldNode', cases: [] }]]) {
+      const result = parseDinksterSchema('CurrentNode', {
+        interface: [{ role: 'input', id: 'value', type: concrete('INT'), default: 7 }],
+        replacements,
+      })
+      expect(result.schema?.type).toBe('CurrentNode')
+      expect(inputsOf(result.schema!)[0]?.widget?.default).toBe(7)
+      expect(result.schema?.replacements).toEqual(Array.isArray(replacements) ? [valid] : undefined)
+      expect(result.diagnostics.map(({ severity, code }) => ({ severity, code }))).toEqual(
+        Array.from({ length: Array.isArray(replacements) ? 2 : 1 }, () => ({
+          severity: 'warning', code: 'schema.dinkster.badReplacements',
+        })),
+      )
+    }
   })
 
   it('preserves mixed COMBO scalar identity through defaults, import, and compile', () => {

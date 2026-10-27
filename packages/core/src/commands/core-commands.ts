@@ -35,6 +35,7 @@ import { createTransactionBuilder, executeCommand, type CommandDefinition, type 
 import { BOUNDARY_COMMANDS } from './boundary-commands.js'
 import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
 import { DYNAMIC_COMMANDS } from './dynamic-commands.js'
+import { REPLACE_COMMANDS } from './replace-commands.js'
 import { CLIPBOARD_COMMANDS } from '../clipboard.js'
 import { SURFACE_COMMANDS } from './surface-commands.js'
 import { EXPOSED_COMMANDS } from './exposed-commands.js'
@@ -3279,6 +3280,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   ...BOUNDARY_COMMANDS,
   ...SUBGRAPH_COMMANDS,
   ...SURFACE_COMMANDS,
+  ...REPLACE_COMMANDS,
   ...CLIPBOARD_COMMANDS,
   ...EXPOSED_COMMANDS,
   ...EXPOSED_PREVIEW_COMMANDS,

@@ -126,14 +126,17 @@ Unknown constructs produce an explicit **unsupported-node** state (rendered as a
 
 **The critical property: this normalized NodeSchema is the ONLY interface description in the whole system.** Backend nodes normalize into it, and subgraph definitions *derive* one from their boundary (section 4). Everything downstream - elaboration, type solving, rendering, promotion, compilation, app-mode bindings - consumes NodeSchema and never asks "is this a real node or a subgraph?". That is what makes "anything that works on a node works on a subgraph" true by construction instead of by bug-fixing.
 
-**Deprecation is informational, not executable migration.** The native schema
-wire carries `deprecation: { message, since?, replacement? }` and
-`searchVisibility`. Historical `replacements` payloads are ignored, including
-metadata attached to constructed registries. Core exposes no replacement rule
-registry, planner, scanner or graph-replacement command. Import preserves
-authored node identities, values and topology; missing classes and invalid ports
-remain diagnostics rather than triggering helper insertion or rewiring.
-Schema-arrival diagnostics and legacy boolean normalization are independent.
+**Deprecation and native migration rules are distinct.** The native schema wire
+carries `deprecation: { message, since?, replacement? }`, `searchVisibility`, and
+successor-declared `replacements`. Core registers validated rules at the schema
+layer and exposes the existing planner, scanner, and atomic `node.replace`
+command. Malformed rule advice produces warnings without hiding the current
+node. Rules can describe same-type interface migrations as well as successor
+types. Alias metadata does not synthesize migration rules. The ComfyUI importer
+preserves authored classes and topology; its class/version widget upgrade table
+is separate from native document migrations.
+The app currently presents deprecation metadata without invoking these core
+rules. Schema-arrival diagnostics and legacy boolean normalization are independent.
 
 Deprecation badges show the message and name-only successor guidance, without
 an upgrade-review toggle, plan preview or apply control. Successor pointers
@@ -577,7 +580,7 @@ The old split - a litegraph-shaped "workflow format" with positional `widgets_va
 
 **Translation, not dual support.** Old formats are import-only:
 
-- litegraph 0.4/1.0 workflows (including `definitions.subgraphs`, reroutes-in-`extra`, floating links): translated on open. Positional `widgets_values` are mapped to IDs using the node schema's declared widget order - the same fragile mapping the old frontend does implicitly on every load, performed here exactly once, with diagnostics when the current schema's widget count/order disagrees. Native schema resolution accepts only exact registered node IDs, not historical alias metadata; native wire replacement advice is ignored. The application does not register, scan, or apply replacement rules during import or schema refresh. Pack alias/group snapshots supply no schemas, replacement rules or atomic cohort. Authored classes absent from the ordinary registry stay unresolved and diagnosed rather than becoming carrier nodes. Top-level materialized Autogrow families preserve authored suffixes, order, values, controllers, links, and net sinks through family-aware rules. See `docs/comfyui-workflow-translation.md`.
+- litegraph 0.4/1.0 workflows (including `definitions.subgraphs`, reroutes-in-`extra`, floating links): translated on open. Positional `widgets_values` are mapped to IDs using the node schema's declared widget order - the same fragile mapping the old frontend does implicitly on every load, performed here exactly once, with diagnostics when the current schema's widget count/order disagrees. Native schema resolution accepts only exact registered node IDs, not historical alias metadata. Native migration rules decode independently of this import path. Pack alias/group snapshots supply no schemas, replacement rules or atomic cohort. Authored classes absent from the ordinary registry stay unresolved and diagnosed rather than becoming carrier nodes. Top-level materialized Autogrow families preserve authored suffixes, order, values, controllers, links, and net sinks through family-aware rules. See `docs/comfyui-workflow-translation.md`.
 - API-format JSON: also importable - it already has IDs; layout is synthesized by auto-layout.
 - KJNodes Set/Get pairs pattern-matched into named nets during import (best-effort).
 - Legacy frontend PrimitiveNode -> value source (section 5b): value + controller state carried over as declared state, fan-out links as ordinary topology. Never-connected primitives with no adopted widget drop with a warning diagnostic. (Backend PrimitiveInt/Float/... nodes import as the ordinary compute nodes they are.)

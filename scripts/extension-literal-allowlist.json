@@ -539,7 +539,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2716,
+      "line": 2717,
       "column": 37,
       "symbol": "widgetType:string",
       "issue": 122
@@ -547,7 +547,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2728,
+      "line": 2729,
       "column": 9,
       "symbol": "widgetType:string",
       "issue": 122
@@ -595,7 +595,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1207,
+      "line": 1209,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -603,7 +603,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 360,
+      "line": 362,
       "column": 7,
       "symbol": "widgetType:FLOAT",
       "issue": 507
@@ -611,7 +611,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 373,
+      "line": 375,
       "column": 7,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -619,7 +619,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1075,
+      "line": 1079,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -627,7 +627,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1078,
+      "line": 1082,
       "column": 3,
       "symbol": "widgetType:ASSET",
       "issue": 122

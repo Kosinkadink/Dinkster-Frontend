@@ -18,12 +18,12 @@ retained fan-out noodles continue from that dot to their authored destinations.
 Flattening refuses these attachments rather than dropping their
 topology. Mixed direct and junction boundary deliveries remain unsupported.
 Historical alias and group snapshots also supply no post-open replacement
-rules, source schemas, or asset lookup authority. Schema discovery ignores
-embedded replacement-rule payloads, including constructed registries; the
-normalized schema model exposes no executable rules. The application exposes no
-replacement registration, scan, or apply API and performs no automatic graph
-upgrade. Schema-arrival diagnostics and legacy boolean normalization remain;
-deprecation pointers are display metadata only.
+rules, source schemas, or asset lookup authority. Successor-declared native
+`replacements` decode into the normalized schema model. Core provides its
+generic rule registry, planner, scanner, and atomic replacement command; no
+alias-generated rules are registered. The application currently performs no
+automatic graph upgrade. Schema-arrival diagnostics and legacy boolean
+normalization remain; deprecation pointers alone do not authorize graph edits.
 Deprecation badges show messages, version notes, and name-only successor
 guidance. They expose no replacement plans, rule diagnostics, or apply action;
 opening a badge does not mutate the graph.
@@ -40,8 +40,7 @@ The importer accepts only the ordinary schema resolver and the optional
 class/version widget upgrade table; there is no group-collapse or source-snapshot
 predicate. Family members use the declared schema scope, with prefix members
 assigned persisted identities in authored input order.
-The core has no pack alias/group catalog parser, group-collapse command or
-replacement rule registry/planner/scanner/command.
+The core has no pack alias/group catalog parser or group-collapse command.
 Schema aliases do not synthesize document migrations or positional output
 rewrites. Opening a saved native document preserves its authored node and port
 identities; invalid ports remain compile diagnostics rather than being guessed.

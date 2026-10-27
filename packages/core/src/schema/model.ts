@@ -12,6 +12,8 @@
  * symmetrically, including dynamic families.
  */
 
+import type { ReplacementRule } from '../replace/model.js'
+
 export type SchemaSource = 'v3' | 'v1' | 'subgraph'
 
 // ---------------------------------------------------------------------------
@@ -985,6 +987,8 @@ export interface NodeSchema {
   readonly deprecated?: boolean
   /** Structured deprecation (message/since/replacement pointer). */
   readonly deprecation?: DeprecationInfo
+  /** Rules shipped by the successor; source node schemas need not be served. */
+  readonly replacements?: readonly ReplacementRule[]
   /** Explicit search demotion; omitted = normal. See searchVisibilityOf. */
   readonly searchVisibility?: SearchVisibility
   readonly experimental?: boolean

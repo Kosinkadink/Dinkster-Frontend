@@ -7,6 +7,7 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
+import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
 import { canonicalTypeIdOf } from './model.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'
@@ -165,6 +166,7 @@ export interface DinksterWireSchema {
   readonly occupies?: unknown
   readonly ioBound?: unknown
   readonly deprecation?: unknown
+  readonly replacements?: unknown
   readonly searchVisibility?: unknown
   readonly searchTerms?: unknown
   /** Optional document-time branch selector. */
@@ -1930,6 +1932,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     }
     const idempotent = wire.idempotent !== false
     const deprecation = decodeDeprecation(nodeType, wire.deprecation, diags)
+    const replacements = decodeReplacements(nodeType, wire.replacements, diags)
     const searchVisibility = decodeSearchVisibility(nodeType, wire.searchVisibility, diags)
     const searchTerms = Array.isArray(wire.searchTerms) && wire.searchTerms.every((term) => typeof term === 'string') ? ([...wire.searchTerms] as string[]) : []
     const aliases = Array.isArray(wire.aliases) ? wire.aliases.filter((alias): alias is string => typeof alias === 'string' && alias !== '') : []
@@ -1952,6 +1955,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ...(wire.mayExpandGraph === true ? { mayExpandGraph: true } : {}),
       ...(wire.hasDocs === true ? { hasDocs: true } : {}),
       ...(deprecation !== undefined ? { deprecation } : {}),
+      ...(replacements !== undefined ? { replacements } : {}),
       ...(searchVisibility !== undefined ? { searchVisibility } : {}),
       searchTerms,
       ...(aliases.length > 0 ? { aliases } : {}),
@@ -2416,6 +2420,21 @@ function decodeSearchVisibility(nodeType: string, wire: unknown, diags: Diagnost
   if (typeof wire === 'string' && SEARCH_VISIBILITIES.has(wire)) return wire as SearchVisibility
   diags.push(diag('warning', 'schema', 'schema.dinkster.badSearchVisibility', `${nodeType}: unknown searchVisibility '${String(wire)}'; treating as normal`))
   return undefined
+}
+
+/** Malformed migration advice must not hide an otherwise valid current node. */
+function decodeReplacements(nodeType: string, wire: unknown, diags: Diagnostic[]): readonly ReplacementRule[] | undefined {
+  if (wire === undefined) return undefined
+  if (!Array.isArray(wire)) {
+    diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements is not an array; ignoring`))
+    return undefined
+  }
+  const rules: ReplacementRule[] = []
+  for (const [i, rule] of wire.entries()) {
+    if (isReplacementRule(rule)) rules.push(rule)
+    else diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements[${i}] is malformed; skipping that rule`))
+  }
+  return rules.length > 0 ? rules : undefined
 }
 
 // ---------------------------------------------------------------------------

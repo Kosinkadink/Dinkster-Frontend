@@ -31,10 +31,10 @@ const schemaOf = (golden: typeof vocabulary, type: string): NodeSchema => {
 }
 
 describe('native schema metadata goldens', () => {
-  it('native schema decoding ignores historical rules', () => {
+  it('preserves successor-declared migration rules', () => {
     for (const golden of [vocabulary, chain, combo]) {
       for (const wire of golden.raw) {
-        expect(golden.schemas.get(wire.nodeType)).not.toHaveProperty('replacements')
+        expect(golden.schemas.get(wire.nodeType)?.replacements).toEqual(wire.replacements)
       }
     }
   })
@@ -128,7 +128,7 @@ describe('native schema metadata goldens', () => {
     const b = schemaOf(chain, 'fixture.chain-b')
     expect(b.deprecation?.replacement).toBe('fixture.chain-c')
     expect(searchVisibilityOf(b)).toBe('hidden')
-    expect(b).not.toHaveProperty('replacements')
+    expect(b.replacements).toEqual(chain.raw.find((wire) => wire.nodeType === b.type)?.replacements)
     const c = schemaOf(chain, 'fixture.chain-c')
     expect(c.deprecation).toBeUndefined()
     expect(searchVisibilityOf(c)).toBe('normal')
