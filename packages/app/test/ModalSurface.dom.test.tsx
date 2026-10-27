@@ -773,12 +773,30 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
+  it('keeps a staged source name across file browsing and restricts files to the VAE union', async () => {
+    const selection = { widgetType: 'ASSET', kind: 'model/vae', selection: true, options: {} } as const
+    const scalar = unresolvedAssetEditor({}, 'pixel_space', { kind: 'concrete', name: 'COMBO' }, selection)
+    await vi.waitFor(() => expect(scalar.root.querySelector('[data-entry="taesd"]')).not.toBeNull())
+    expect(scalar.root.textContent).not.toContain('Browse files')
+    scalar.unmount()
+    const mounted = unresolvedAssetEditor({}, 'pixel_space', { kind: 'union', names: ['COMBO', 'ASSET'] }, selection)
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-entry="taesd"]')).not.toBeNull())
+    mounted.root.querySelector<HTMLElement>('[data-entry="taesd"]')!.click()
+    const button = (text: string) => [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === text)!
+    button('Browse files').click()
+    button('Back to source options').click()
+    button('Use selection').click()
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({ command: 'node.setValue', params: { value: 'taesd' } })
+    mounted.unmount()
+  })
+
   it('reopens an existing selection file descriptor through the ordinary file picker and leaves it unchanged on cancel', async () => {
     const initial = {
       digest: `blake3:${'d'.repeat(64)}`, name: 'vae.safetensors', size: 32,
       mediaType: 'application/x-safetensors', virtualPath: 'vae/vae.safetensors',
     }
-    const mounted = unresolvedAssetEditor({}, initial, undefined, {
+    const mounted = unresolvedAssetEditor({}, initial, { kind: 'union', names: ['COMBO', 'ASSET'] }, {
       widgetType: 'ASSET', kind: 'model/vae', selection: true, options: {},
     })
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-apply"]')).not.toBeNull())

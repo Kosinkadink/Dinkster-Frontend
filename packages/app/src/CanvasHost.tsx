@@ -4238,7 +4238,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const value = node.node.values[row.valueKey]
           if (value === undefined) continue
           const where = `${node.id}.${row.valueKey}`
-          if (row.spec.widgetType === 'ASSET' && row.spec.selection === true && typeof value === 'string') continue
+          if (row.spec.selection === true && typeof value === 'string') continue
           if (row.spec.widgetType === 'ASSET' && typeof value === 'string') {
             out.push(unresolvedAssetImportDiagnostic({
               graphId: scene.graphId,

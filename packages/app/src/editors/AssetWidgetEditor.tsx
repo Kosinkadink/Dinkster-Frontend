@@ -989,7 +989,12 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
   const kind = () => typeof props.ed.spec?.kind === 'string' && props.ed.spec.kind !== '' ? props.ed.spec.kind : mediaKindForAccept(accept())
   const vocabulary = () => kind()?.startsWith('model/') === true ? MODEL_ASSET_VOCABULARY : kind() === 'data/latent' ? LATENT_ASSET_VOCABULARY : GENERIC_ASSET_VOCABULARY
   const [dismissBlocked, setDismissBlocked] = createSolidSignal(false)
-  const [browseFiles, setBrowseFiles] = createSolidSignal(isAssetRef(props.ed.initial))
+  const fileSelectionAllowed = () => kind() === 'model/vae' && props.ed.declaredType?.kind === 'union' &&
+    props.ed.declaredType.names.includes('ASSET')
+  const initialFiles = props.ed.spec?.selection !== true || (fileSelectionAllowed() && isAssetRef(props.ed.initial))
+  const [browseFiles, setBrowseFiles] = createSolidSignal(initialFiles)
+  const [filesVisited, setFilesVisited] = createSolidSignal(initialFiles)
+  const [sourceVisited, setSourceVisited] = createSolidSignal(!initialFiles)
   let requestClose: (close: () => void) => void = (close) => close()
   const Implementation: Component<WidgetEditorImplementationProps> = (implementationProps) => {
     const backend = props.app.backendForTab(props.ed.tab)
@@ -997,27 +1002,30 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
       createEffect(() => setDismissBlocked(blocked()))
     }
     return (
-      <Show when={props.ed.spec?.selection === true && !browseFiles()} fallback={<>
+      <>
+      <Show when={filesVisited()}><div hidden={!browseFiles()}>
         <Show when={props.ed.spec?.selection === true}>
-          <ProductButton onClick={() => setBrowseFiles(false)}>Back to source options</ProductButton>
+          <ProductButton onClick={() => { setSourceVisited(true); setBrowseFiles(false) }}>Back to source options</ProductButton>
         </Show>
         <AssetEditorImplementation
           {...implementationProps}
           setDismissBlocked={bindDismissBlocked}
           setRequestClose={(handler) => { requestClose = handler }}
         />
-      </>}>
+      </div></Show>
+      <Show when={sourceVisited()}><div hidden={browseFiles()}>
         <Show when={backend.protocol === 'dinkster' ? backend.connection : undefined} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
           {(connection) =>
           <AssetSelectionEditor
             connection={connection()}
             kind={kind()!} initial={props.ed.initial}
             commit={implementationProps.commitValue} close={implementationProps.close}
-            browseFiles={kind() === 'model/vae' ? () => setBrowseFiles(true) : undefined}
+            browseFiles={fileSelectionAllowed() ? () => { setFilesVisited(true); setBrowseFiles(true) } : undefined}
           />
           }
         </Show>
-      </Show>
+      </div></Show>
+      </>
     )
   }
   return (

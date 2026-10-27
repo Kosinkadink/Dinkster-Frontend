@@ -73,7 +73,10 @@ pairs, read-only directories, and file-free literals. Refresh re-reads current
 grants; an unavailable staged name cannot be applied. Cancel preserves the
 stored value. VAE's Browse files action opens the existing model-file picker
 for an explicit file descriptor, and reopening a stored descriptor keeps that
-file picker. No upload or arbitrary-path entry is offered for source options.
+file picker. This action requires the COMBO/ASSET union; scalar COMBO sockets
+offer source names only. Switching picker modes preserves each mode's staged
+choice without committing it. No upload or arbitrary-path entry is offered
+for source options.
 
 ## Primitive list inputs
 
