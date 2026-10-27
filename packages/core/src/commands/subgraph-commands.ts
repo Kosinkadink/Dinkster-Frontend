@@ -17,7 +17,7 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { isForwardingBinding, MAX_DYNAMIC_STATE_DEPTH, type BoundaryBinding, type BoundaryItem, type BoundaryRouteLeg, type ControllerMode, type DynamicPortState, type GraphDef, type GraphViewState, type GroupViewState, type Json, type JsonObject, type LinkData, type NamedNetData, type NodeData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SelectorData, type SuppressedDelivery, type ValueSourceData, type WorkflowDocument } from '../format/document.js'
+import { isForwardingBinding, isNodeBoundaryBinding, MAX_DYNAMIC_STATE_DEPTH, type BoundaryBinding, type BoundaryItem, type BoundaryRouteLeg, type ControllerMode, type DynamicPortState, type GraphDef, type GraphViewState, type GroupViewState, type Json, type JsonObject, type LinkData, type NamedNetData, type NodeData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SelectorData, type SuppressedDelivery, type ValueSourceData, type WorkflowDocument } from '../format/document.js'
 import { validateGraphDefShape, validateGraphViewShape } from '../format/validate.js'
 import { actorCursorOf, asDynamicMemberId, asGraphDefId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId, asSelectorCandidateId, asSelectorId, asValueSourceId, formatAllocatedId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, occurrenceKey, portRefKey, sameEndpoint, type LinkEndpoint, type OccurrenceRef, type PortRef, type WidgetTapRef } from '../ids.js'
 import { EXPOSED_EXT_KEY, parseExposedEntry } from '../format/exposed.js'
@@ -132,7 +132,7 @@ function occurrenceEndpointIntersectsSelection(
   }
   if (endpoint.kind === 'body') return topologyBody === graphId && endpointSelected(endpoint.endpoint)
   return occurrenceRefIntersectsNodes(doc, endpoint.occurrence, graphId, nodes) ||
-    endpoint.route.some((leg) => leg.graph === graphId && leg.binding.kind !== 'unbound' && nodes.has(leg.binding.node))
+    endpoint.route.some((leg) => leg.graph === graphId && isNodeBoundaryBinding(leg.binding) && nodes.has(leg.binding.node))
 }
 
 function extractionIntersectsOccurrenceTopology(
@@ -160,7 +160,7 @@ function extractionIntersectsOccurrenceTopology(
         const net = doc.graphs[topology.bodyGraph]?.nets[suppression.netId]
         if (selectedNodes.has(suppression.to.node) || (net !== undefined && selectedNodes.has(net.source.node))) return true
       } else if (suppression.kind === 'projectedLeg') {
-        if (suppression.route.some((leg) => leg.graph === graphId && leg.binding.kind !== 'unbound' && selectedNodes.has(leg.binding.node))) return true
+        if (suppression.route.some((leg) => leg.graph === graphId && isNodeBoundaryBinding(leg.binding) && selectedNodes.has(leg.binding.node))) return true
         const deliveryGraph = doc.graphs[suppression.delivery.graph]
         if (deliveryGraph?.id !== graphId) continue
         if (suppression.delivery.kind === 'link') {
@@ -234,7 +234,7 @@ function remapEndpoint(endpoint: LinkEndpoint, ids: ExtractIdMaps): LinkEndpoint
 }
 
 function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, string>, rerouteIds?: ReadonlyMap<string, string>): BoundaryBinding {
-  if (binding.kind === 'unbound') return binding
+  if (!isNodeBoundaryBinding(binding)) return binding
   const node = nodeIds.get(binding.node)
   if (node === undefined) throw new Error(`subgraph.extract: no node map for '${binding.node}'`)
   if (binding.kind === 'port' && binding.viaReroute !== undefined) {

@@ -538,6 +538,10 @@ export interface UnboundBoundaryBinding {
 
 export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding | UnboundBoundaryBinding
 
+/** Whether a boundary endpoint is addressed by node identity. */
+export const isNodeBoundaryBinding = (binding: BoundaryBinding): binding is PortBoundaryBinding | WidgetTapBoundaryBinding =>
+  binding.kind === 'port' || binding.kind === 'family' || binding.kind === 'slot' || binding.kind === 'dynamicCombo' || binding.kind === 'widgetTap'
+
 export const isSubtreeBinding = (binding: BoundaryBinding): binding is PortBoundaryBinding & { readonly kind: 'slot' | 'dynamicCombo' } =>
   binding.kind === 'slot' || binding.kind === 'dynamicCombo'
 

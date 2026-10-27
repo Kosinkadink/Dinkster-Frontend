@@ -1,4 +1,4 @@
-import { boundaryBindingKey, resolveDynamicAddress, type BoundaryRouteLeg, type GraphDef, type GraphViewState, type Json, type LinkData, type NodeData, type OccurrenceTopology, type ParentDeliveryIdentity, type WorkflowDocument } from './format/document.js'
+import { boundaryBindingKey, isNodeBoundaryBinding, resolveDynamicAddress, type BoundaryRouteLeg, type GraphDef, type GraphViewState, type Json, type LinkData, type NodeData, type OccurrenceTopology, type ParentDeliveryIdentity, type WorkflowDocument } from './format/document.js'
 import { validateClipboardRecords, validateDocumentShape, validateGraphDefShape, validateGraphViewShape, validateOccurrenceTopologyShape } from './format/validate.js'
 import { groupAllocationFloor } from './group-alloc.js'
 import { actorCursorOf, formatAllocatedId, isPortEndpoint, isRerouteRef, isValidActorId, isWidgetTapRef, occurrenceKey, sameOccurrenceRef, samePortRef, type LinkEndpoint, type OccurrenceRef, type PortRef } from './ids.js'
@@ -294,7 +294,7 @@ function definitionOccurrenceReferencesClosed(
         boundaryBindingKey(binding) === boundaryBindingKey(leg.binding))
       if (matchingBindings.length !== 1) return false
       const binding = matchingBindings[0]!
-      if (binding.kind === 'unbound') return false
+      if (!isNodeBoundaryBinding(binding)) return false
       const targetNode = graph.nodes[binding.node]
       if (targetNode === undefined ||
           binding.kind !== 'widgetTap' && resolveDynamicAddress(binding, targetNode.dynamic).kind === 'missing') return false

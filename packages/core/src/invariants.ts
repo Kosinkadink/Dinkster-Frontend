@@ -37,6 +37,7 @@
 import { diag, type Diagnostic } from './diagnostics.js'
 import {
   boundaryBindingKey,
+  isNodeBoundaryBinding,
   isSubtreeBinding,
   regionContractShapeProblems,
   resolveDynamicAddress,
@@ -158,7 +159,7 @@ function routeContainsNul(route: readonly BoundaryRouteLeg[]): boolean {
   return route.some((leg) =>
     containsNul(leg.graph) ||
     containsNul(leg.boundaryId) ||
-    (leg.binding.kind !== 'unbound' && (containsNul(leg.binding.node) ||
+    (isNodeBoundaryBinding(leg.binding) && (containsNul(leg.binding.node) ||
     (leg.binding.kind === 'widgetTap'
       ? containsNul(leg.binding.tap)
       : containsNul(leg.binding.port) ||
@@ -227,7 +228,7 @@ function routeMatchesOwnerChain(
     if (bindingMatches.length !== 1)
       return false
     const binding = bindingMatches[0]!
-    if (binding.kind === 'unbound') return false
+    if (!isNodeBoundaryBinding(binding)) return false
     if (binding.viaReroute !== undefined &&
         (side !== 'to' || offset + 1 !== route.length || graph.reroutes[binding.viaReroute] === undefined))
       return false
@@ -781,7 +782,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
             }
             boundaryReroutes.add(b.viaReroute)
           }
-          if (!nodeExists(b.node)) {
+          if (isNodeBoundaryBinding(b) && !nodeExists(b.node)) {
             diags.push(
               diag('error', 'invariant', 'doc.boundary.dangling', where(`boundary ${side.slice(0, -1)} '${item.id}' binds missing node '${b.node}'`)),
             )

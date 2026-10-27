@@ -20,7 +20,7 @@
 
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import { type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
-import { PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
+import { isNodeBoundaryBinding, PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
 import { NET_VIEWS_EXT_KEY, removeNetViewPositions, updateNetViewPositions, type NetViewGeometry, type NetViewPosition } from '../format/net-views.js'
 import { canonicalTypeIdOf, inputsOf, isImageAssetInput, outputCountInputsOf, outputsOf, type CountBoundOutputAutogrowSpec, type NodeSchema } from '../schema/model.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
@@ -500,11 +500,11 @@ function deleteCascade(
       let changed = false
       const kept: BoundaryItem[] = []
       for (const item of items) {
-        if (item.binds.kind !== 'unbound' && removed.has(item.binds.node)) {
+        if (isNodeBoundaryBinding(item.binds) && removed.has(item.binds.node)) {
           changed = true
           continue
         }
-        const also = item.alsoBinds?.filter((a) => a.kind === 'unbound' || !removed.has(a.node))
+        const also = item.alsoBinds?.filter((a) => !isNodeBoundaryBinding(a) || !removed.has(a.node))
         if (item.alsoBinds !== undefined && also !== undefined && also.length !== item.alsoBinds.length) {
           changed = true
           const { alsoBinds: _drop, ...rest } = item
