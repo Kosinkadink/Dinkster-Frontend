@@ -168,7 +168,7 @@ async function retainRoundTrip(
   await writeFile(evidencePath, JSON.stringify({
     evidenceKind: 'executed-browser-save-reload-import', backendRuntimeExecuted: false,
     contractFixture: contract.provenance, fixtureOnlyNodeTypes: ['test.video', 'test.video.edit'],
-    operation: name === 'save-video-v3' ? 'automatic on-open migration' : 'VIDEO_EDIT Apply',
+    operation: 'VIDEO_EDIT Apply',
     before, afterApply, afterSaveReload, afterImport, featureSubset,
     compiledNodeInputs, submittedRequest: submitted, measured,
   }, null, 2) + '\n')
@@ -699,7 +699,7 @@ test(liveTestTitle, async ({ page, request }, info) => {
   await info.attach('video-edit-native-live.json', { path: evidencePath, contentType: 'application/json' })
 })
 
-test('SaveVideo v3 persists the migrated dynamic format as a static input', async ({ page }, info) => {
+test('historical SaveVideo rule payloads preserve authored graphs without helper insertion', async ({ page }) => {
   await openDocument(page, 'trim')
   const before = {
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-video-v3-migration', root: 'g0',
@@ -712,22 +712,17 @@ test('SaveVideo v3 persists the migrated dynamic format as a static input', asyn
     view: { graphs: {} },
   }
   expect(await page.evaluate((document) => window.__dinksterTest!.app.openDocument(document, 'Historical Save Video'), before)).toEqual([])
-  const expected = {
-    target: { mount: 'comfy-output', prefix: 'saved-editor' },
-    format: 'webm_vp9',
-    crf: 31,
-    container: 'auto',
-    codec: 'auto',
-    profile: 'auto',
-    audio_layout: 'preserve',
-    trim_to_audio: false,
-    metadata: '{}',
-  }
-  expect(await valuesOf(page)).toEqual(expected)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.edit!.dynamic?.format)).toBeUndefined()
-  const compiledNodeInputs = await retainRoundTrip(page, info, 'save-video-v3', before, expected, [])
-  const [assembleId, assemble] = Object.entries(compiledNodeInputs).find(([, node]) => node.nodeType === 'dinkster.video.assemble')!
-  expect(assemble.inputs).toEqual({ images: { $link: { node: 'source', output: 'images' } }, fps: 4, bit_depth: '10', color_space: 'sRGB' })
-  expect(compiledNodeInputs.edit!.inputs).toEqual({ ...expected, video: { $link: { node: assembleId, output: 'video' } } })
-  expect(compiledNodeInputs.edit).not.toHaveProperty('slotVariants')
+  const result = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const compiled = app.compileTab(tab)
+    return {
+      graphs: tab.store.doc.graphs,
+      compileOk: compiled?.ok,
+      diagnostics: compiled && !compiled.ok ? compiled.diagnostics : [],
+    }
+  })
+  expect(result.graphs).toEqual(before.graphs)
+  expect(result.compileOk).toBe(false)
+  expect(result.diagnostics.length).toBeGreaterThan(0)
 })
