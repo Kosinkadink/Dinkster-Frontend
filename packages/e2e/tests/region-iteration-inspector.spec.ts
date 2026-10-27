@@ -1,6 +1,5 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AppState } from '../../app/src/app-state.js'
 import { expect, openRailPanel, test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_REGION_INSPECTOR_PROOF_DIR']
@@ -141,8 +140,8 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   await selects.nth(1).selectOption({ label: 'No-output step' })
   await expect(inspector).toContainText('This body node has no inspectable outputs.')
   await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as AppState
-    app.tabs.set([...app.tabs.get()])
+    const tabs = window.__dinksterTest!.app.tabs
+    ;(tabs as typeof tabs & { set(value: ReturnType<typeof tabs.get>): void }).set([...tabs.get()])
   })
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
