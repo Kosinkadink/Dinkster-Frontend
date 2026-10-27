@@ -1669,6 +1669,9 @@ const subgraphFlatten: CommandDefinition = {
     }
     const boundaryInputs = new Map(body.boundary.inputs.map((item) => [item.id, item]))
     const boundaryOutputs = new Map(body.boundary.outputs.map((item) => [item.id, item]))
+    if (body.boundary.inputs.some((item) => item.binds.viaReroute !== undefined)) {
+      return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.flatten: junction boundary attachments require junction-preserving delivery remapping', graphId, instancePath, nodeId)]
+    }
     if ([...body.boundary.inputs, ...body.boundary.outputs].some((item) =>
       item.ext !== undefined && Object.keys(item.ext).length > 0)) {
       return [lifecycleError('subgraph.flatten.boundaryExtensionUnsupported', 'subgraph.flatten: body boundary extension state has no flattened owner', graphId, instancePath, nodeId)]

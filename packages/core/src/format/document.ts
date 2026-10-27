@@ -486,6 +486,8 @@ export interface PortBoundaryBinding {
   readonly port: PortId
   readonly tap?: never
   readonly members?: readonly DynamicMemberId[]
+  /** Input-only junction attachment; node/port remains the schema authority. */
+  readonly viaReroute?: RerouteId
   /**
    * Slot-selective forwarding ('family' bindings only, hazard F10): the
    * template slot paths the derived family exposes. Absent = the whole
@@ -518,6 +520,7 @@ export interface WidgetTapBoundaryBinding {
   readonly port?: never
   readonly members?: never
   readonly slots?: never
+  readonly viaReroute?: never
 }
 
 export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding
@@ -637,6 +640,7 @@ const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
         binding.port,
         binding.members ?? [],
         binding.slots === undefined ? null : [...binding.slots].sort(),
+        ...(binding.viaReroute !== undefined ? [binding.viaReroute] : []),
       ]
 
 /**

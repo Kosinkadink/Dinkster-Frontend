@@ -105,6 +105,7 @@ const boundaryBinding = {
         kind: { enum: ['port', 'family', 'slot', 'dynamicCombo'] },
         node: { type: 'string', minLength: 1 },
         port: { type: 'string', minLength: 1 },
+        viaReroute: { type: 'string', minLength: 1 },
         members: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
         slots: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1, pattern: '^[^.]+(\\.[^.]+)*$' } },
       },
@@ -114,6 +115,7 @@ const boundaryBinding = {
         required: ['kind'],
       },
       then: { not: { required: ['slots'] } },
+      allOf: [{ if: { required: ['viaReroute'] }, then: { properties: { kind: { const: 'port' } } } }],
     },
     {
       type: 'object',
@@ -123,7 +125,7 @@ const boundaryBinding = {
         node: { type: 'string', minLength: 1 },
         tap: { type: 'string', minLength: 1 },
       },
-      not: { anyOf: [{ required: ['port'] }, { required: ['members'] }, { required: ['slots'] }] },
+      not: { anyOf: [{ required: ['port'] }, { required: ['members'] }, { required: ['slots'] }, { required: ['viaReroute'] }] },
     },
   ],
 } as const
@@ -143,6 +145,10 @@ const boundaryItem = {
     ext: { $ref: '#/$defs/extData' },
   },
   allOf: [
+    {
+      if: { properties: { binds: { required: ['viaReroute'] } }, required: ['binds'] },
+      then: { not: { required: ['alsoBinds'] } },
+    },
     {
       if: {
         properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'slot', 'dynamicCombo'] } }, required: ['kind'] } },
@@ -190,6 +196,7 @@ const boundaryItem = {
             items: {
               $ref: '#/$defs/boundaryBinding',
               properties: { kind: { const: 'port' } },
+              not: { required: ['viaReroute'] },
               required: ['kind'],
             },
           },
@@ -664,6 +671,7 @@ export const WORKFLOW_SCHEMA = {
                 allOf: [
                   { $ref: '#/$defs/boundaryItem' },
                   { not: { required: ['alsoBinds'] } },
+                  { properties: { binds: { not: { required: ['viaReroute'] } } } },
                   { properties: { binds: { properties: { kind: { enum: ['port', 'family', 'widgetTap'] } } } } },
                 ],
               },

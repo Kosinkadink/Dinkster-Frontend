@@ -72,7 +72,7 @@ import {
   type SelectorCandidateId,
 } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
-import { buildRerouteIndex, rerouteDriverOf, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
+import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
 import { matchBypassInput, type BypassCandidate } from './bypass.js'
 import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
@@ -907,6 +907,7 @@ function compileImpl(
       // drop out (their local edge is dead) while the edge stays alive for
       // the rest. With zero live targets the singular statuses collapse so
       // callers keep the existing dead-edge policy.
+      if (item.binds.viaReroute !== undefined) return []
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
       const targets: ResolvedInput[] = []
       let sawMuted = false
@@ -1393,6 +1394,13 @@ function compileImpl(
             viaFor?.(at.defId).reroutes.add(endpoint.reroute)
             const driver = rerouteDriverOf(def, endpoint.reroute, index)
             if (driver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: at.path, defId: at.defId, endpoint: driver.from } }] }
+            const boundary = def.boundary?.inputs.find((item) => item.binds.viaReroute === endpoint.reroute)
+            if (boundary && at.path.length > 0) {
+              const parentPath = at.path.slice(0, -1)
+              const parent = occCtxByPath.get(pathKey(parentPath))
+              const input = parent && driverOfInput(parentPath, parent.defId, at.path[at.path.length - 1]!, { port: boundary.id as PortRef['port'] })
+              if (input) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: input.path, defId: input.defId, endpoint: input.endpoint } }] }
+            }
             if (selectedProjection === 'exact') sink.push(diag('warning', 'compile', 'compile.reroute.undriven', `reroute '${endpoint.reroute}' in graph '${at.defId}' has no driver; route omitted`))
             return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `reroute '${endpoint.reroute}' is undriven` } }] }
           }
@@ -1693,7 +1701,10 @@ function compileImpl(
         for (const projected of connected) {
           const match = matchBoundaryItem(child.boundary.inputs, projected.address)
           if (!match.ok || match.item.binds.kind !== 'port') continue
-          for (const binding of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
+          const bindings = match.item.binds.viaReroute === undefined
+            ? [match.item.binds, ...(match.item.alsoBinds ?? [])]
+            : (rerouteInputTargets(child, match.item.binds.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
+          for (const binding of bindings) {
             if (binding.kind === 'widgetTap') continue
             const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding }]
             if (routeIsSuppressed(childPath, projected.delivery, route)) continue
@@ -1783,7 +1794,10 @@ function compileImpl(
       // and alsoBinds alike) - targets must never diverge under one
       // boundary value.
       let ownerPriority = 0
-      for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
+      const targets = item.binds.viaReroute === undefined
+        ? [item.binds, ...(item.alsoBinds ?? [])]
+        : (rerouteInputTargets(child, item.binds.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
+      for (const b of targets) {
         if (b.kind === 'widgetTap') continue
         const targets = resolveInputPort(childPath, childId, b)
         // Muted/bypassed inner targets compile nothing; a promoted value for

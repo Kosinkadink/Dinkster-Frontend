@@ -1,6 +1,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { occurrenceKey, type NodeId } from '../ids.js'
 import { checkDocument } from '../invariants.js'
+import { rerouteInputTargets } from '../reroute.js'
 import { deriveBoundarySchema } from '../schema/derive-boundary.js'
 import { inputsOf, outputsOf, type NodeSchema, type TypeExpr } from '../schema/model.js'
 import type { BoundaryBinding, BoundaryItem, GraphDef, Json, JsonObject, OccurrenceTopology, WorkflowDocument } from './document.js'
@@ -446,7 +447,17 @@ export function importLitegraphSubgraphs(
       const ends = side === 'inputs'
         ? links.filter((link) => nodeEnd(link.from, `n${def.inputNode}`) && (link.from as any).port === `i${index}`).map((link) => link.to)
         : links.filter((link) => nodeEnd(link.to, `n${def.outputNode}`) && (link.to as any).port === `o${index}`).map((link) => link.from)
-      const bindings = ends.map((end) => bind(side === 'outputs' ? terminalOutput(end) : end))
+      const bindings = ends.map((end) => {
+        if (side === 'inputs' && 'reroute' in end) {
+          const targets = rerouteInputTargets(nativeBody, end.reroute)
+          return targets?.length ? { kind: 'port' as const, ...targets[0]!, viaReroute: end.reroute } : undefined
+        }
+        return bind(side === 'outputs' ? terminalOutput(end) : end)
+      })
+      if (bindings.length > 1 && bindings.some((binding) => binding?.viaReroute !== undefined)) {
+        unsupported = true
+        return []
+      }
       if (!bindings.length || bindings.some((item) => !item) || (side === 'outputs' && bindings.length !== 1)) {
         const authored = authoredBindings(side, index)
         if (!authored.length || (side === 'outputs' && authored.length !== 1)) {

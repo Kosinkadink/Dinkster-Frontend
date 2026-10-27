@@ -42,6 +42,7 @@ import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.
 import { isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type RegionContract } from '../format/document.js'
 import { isPortEndpoint, portAddressKey, type DynamicMemberId, type PortId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
+import { rerouteInputTargets } from '../reroute.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { DEFAULT_ELAB_BUDGET } from './elaborate.js'
 import { outputDescriptorAssetOf, outputDescriptorValueOf, parseOutputDescriptors } from './output-descriptors.js'
@@ -406,20 +407,41 @@ export function familyStateAt(
  * no error occurred (partial schemas would let bad instances propagate).
  */
 export function deriveBoundarySchema(
-  def: GraphDef,
+  graph: GraphDef,
   resolve: SchemaResolver,
   region?: RegionContract,
   resolveNode: (node: NodeData) => NodeSchema | undefined = (node) => resolve(node.type),
 ): DeriveResult {
   const diags: Diagnostic[] = []
   const fail = (code: string, msg: string): void => {
-    diags.push(diag('error', 'schema', code, `[${def.id}] ${msg}`))
+    diags.push(diag('error', 'schema', code, `[${graph.id}] ${msg}`))
   }
 
-  if (!def.boundary) {
+  if (!graph.boundary) {
     fail('boundary.missing', `graph definition has no boundary (root graphs cannot be instanced)`)
     return { diagnostics: diags }
   }
+
+  const inputs = graph.boundary.inputs.map((item): BoundaryItem => {
+    const binding = item.binds
+    if (binding.viaReroute === undefined) return item
+    const targets = rerouteInputTargets(graph, binding.viaReroute)
+    if (binding.kind !== 'port' || item.alsoBinds !== undefined || !targets?.length ||
+        !targets.some((target) => target.node === binding.node && portAddressKey(target.port, target.members) === portAddressKey(binding.port, binding.members)) ||
+        Object.values(graph.links).some((link) => 'reroute' in link.to && link.to.reroute === binding.viaReroute)) {
+      fail('boundary.reroute', `boundary input '${item.id}' has an invalid or internally driven junction attachment`)
+      return item
+    }
+    const { viaReroute: _via, ...primary } = binding
+    const additional = targets.filter((target) => target.node !== binding.node || portAddressKey(target.port, target.members) !== portAddressKey(binding.port, binding.members))
+    return { ...item, binds: primary, ...(additional.length ? { alsoBinds: additional.map((target) => ({ kind: 'port' as const, ...target })) } : {}) }
+  })
+  if (diags.length) return { diagnostics: diags }
+  if (graph.boundary.outputs.some((item) => item.binds.viaReroute !== undefined)) {
+    fail('boundary.rerouteSide', 'junction attachments are input-side only')
+    return { diagnostics: diags }
+  }
+  const def = { ...graph, boundary: { ...graph.boundary, inputs } }
 
   const items: InterfaceItem[] = []
   const seenIds = new Set<string>()

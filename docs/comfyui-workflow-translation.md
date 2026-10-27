@@ -6,6 +6,12 @@ catalog snapshots, collapse matched node groups into native carriers, or build
 an alias review cohort. Authored nodes and topology remain in the imported
 document. Classes absent from the registry remain unresolved and are reported
 as missing; a carrier catalog does not make them executable.
+Subgraph inputs can attach to authored reroute junctions. Their port binding
+identifies the schema authority while `viaReroute` identifies the actual input
+attachment; downstream fan-out is derived from the retained links. Compilation
+traces each occurrence's parent input without deleting reroutes or bypassing
+their links. Flattening refuses these attachments rather than dropping their
+topology. Mixed direct and junction boundary deliveries remain unsupported.
 Historical alias and group snapshots also supply no post-open replacement
 rules, source schemas, or asset lookup authority. Schema discovery ignores
 embedded replacement-rule payloads, including constructed registries; the

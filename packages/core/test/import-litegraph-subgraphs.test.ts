@@ -143,15 +143,18 @@ describe('LiteGraph subgraphs', () => {
     expect(result.document!.graphs['inner']!.nodes.n1!.type).toBe('Relay')
   })
 
-  it('fails instead of returning a lossy document for an unrepresentable structural boundary', () => {
+  it('preserves nested input junction boundaries without inlining shared definitions', () => {
     const outer = { ...definition('outer'), nodes: [instance(1), { id: 2, type: 'Reroute',
       inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] }],
     links: [link(1, -10, 0, 2, 0), link(2, 2, 0, 1, 0), link(3, 1, 0, -20, 0)] }
     const raw = { nodes: [instance(1, 'outer'), instance(2, 'outer', 31)], links: [], definitions: { subgraphs: [outer, definition()] } }
     const result = importLitegraph(raw as unknown as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
-      .toEqual(['import.subgraphs.boundaryUnsupported'])
+    expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(Object.keys(result.document!.graphs).sort()).toEqual(['g0', 'inner', 'outer'])
+    expect(result.document!.graphs.outer!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'in', viaReroute: 'r2' })
+    expect(Object.values(result.document!.graphs.outer!.links)).toEqual([
+      expect.objectContaining({ from: { reroute: 'r2' }, to: { node: 'n1', port: 'in' } }),
+    ])
     expect(result.diagnostics.map((item) => item.code)).not.toContain('import.subgraphs.inlined')
   })
 

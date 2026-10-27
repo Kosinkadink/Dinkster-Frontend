@@ -272,6 +272,16 @@ function resolveOccurrenceEndpoint(
       finalEndpoint = { node: match.binding.node, tap: match.binding.tap }
       continue
     }
+    if (match.binding.viaReroute !== undefined) {
+      if (side !== 'to' || legIndex !== endpoint.route.length - 1 || !at.bodyGraph.reroutes[match.binding.viaReroute]) {
+        diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `junction route leg '${leg.boundaryId}' must terminate an input route`))
+        return undefined
+      }
+      finalGraph = at.bodyGraph
+      finalPath = at.bodyPath
+      finalEndpoint = { reroute: match.binding.viaReroute }
+      continue
+    }
     let ref: PortRef
     if (isForwardingBinding(match.binding)) {
       const view = occurrenceDynamicView(document, resolver, occurrence.instancePath)
