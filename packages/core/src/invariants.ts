@@ -764,6 +764,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
   if (def.boundary) {
     const boundaryIds = new Set<string>()
     const boundaryReroutes = new Set<string>()
+    const boundaryValueSourceInputs = new Set<string>()
     for (const side of ['inputs', 'outputs'] as const) {
       for (const item of def.boundary[side]) {
         if (boundaryIds.has(item.id)) {
@@ -778,6 +779,10 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
           if (b.kind === 'valueSource') {
             if (!def.valueSources?.[b.valueSource]) diags.push(diag('error', 'invariant', 'doc.boundary.dangling', where(`boundary '${item.id}' binds missing value source '${b.valueSource}'`)))
             if (item.alsoBinds !== undefined || side === 'outputs' && item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.valueSource', where(`value source boundary '${item.id}' cannot fan out or promote an output`)))
+            if (side === 'inputs') {
+              if (boundaryValueSourceInputs.has(b.valueSource)) diags.push(diag('error', 'invariant', 'doc.boundary.valueSourceConflict', where(`multiple input boundaries bind value source '${b.valueSource}'`)))
+              boundaryValueSourceInputs.add(b.valueSource)
+            }
             continue
           }
           if (b.viaReroute !== undefined) {

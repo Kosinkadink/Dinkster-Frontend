@@ -884,9 +884,16 @@ export function deriveBoundarySchema(
     }
   }
 
+  const valueSourceInputs = new Map<string, string>()
   for (const item of def.boundary.inputs) {
     if (!checkId(item)) continue
     if (item.binds.kind === 'valueSource') {
+      const previous = valueSourceInputs.get(item.binds.valueSource)
+      if (previous !== undefined) {
+        fail('boundary.valueSourceConflict', `boundary inputs '${previous}' and '${item.id}' both bind value source '${item.binds.valueSource}'`)
+        continue
+      }
+      valueSourceInputs.set(item.binds.valueSource, item.id)
       const source = def.valueSources?.[item.binds.valueSource]
       if (!source) {
         fail('boundary.danglingValueSource', `boundary input '${item.id}' binds missing value source '${item.binds.valueSource}'`)

@@ -90,7 +90,9 @@ authored interface type independently of the stored literal. Proxy values and
 controller modes are retained on each instance; a missing value uses the shared
 definition's literal, while an explicit null remains null. Compilation reads
 occurrence-local overrides without modifying the definition. A connected proxy
-input takes precedence over the instance's stored literal. Deleting the value
+input takes precedence over the instance's stored literal. Each value source
+can have only one input boundary slot; duplicate targets are rejected rather
+than choosing a driver or literal by declaration order. Deleting the value
 source removes its boundary slots in the same undoable transaction.
 
 Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point

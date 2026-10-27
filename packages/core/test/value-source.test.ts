@@ -18,6 +18,7 @@ import { semanticHashOf } from '../src/compile/hash.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { GraphDef, JsonObject, ValueSourceData, WorkflowDocument } from '../src/format/document.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
+import { loadDocument } from '../src/format/migrate.js'
 import { checkDocument } from '../src/invariants.js'
 import {
   asConnectionId,
@@ -30,6 +31,7 @@ import {
   asValueSourceId,
 } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
+import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import {
   effectiveValueSourceSpec,
   pinnedSpecOf,
@@ -673,6 +675,34 @@ describe('compile lowering', () => {
     if (!result.ok) return
     expect(result.artifact.prompt['i1.inner']!.inputs['steps']).toBe(12)
     expect(result.artifact.prompt['i2.inner']!.inputs['steps']).toBe(12)
+  })
+
+  it.each([false, true])('rejects competing boundary inputs for one value source (reversed: %s)', (reversed) => {
+    const inputs = ['first', 'second'].map((id) => ({ id, promoted: true,
+      binds: { kind: 'valueSource' as const, valueSource: asValueSourceId('v1'),
+        type: { kind: 'concrete' as const, name: 'INT' } },
+    }))
+    const sub = graph({ id: 'sub', nodes: { inner: node('inner') },
+      valueSources: { v1: source('v1', 7) },
+      links: { l1: { id: asLinkId('l1'), from: vsrc('v1'), to: port('inner', 'steps') } },
+      boundary: { inputs: reversed ? [...inputs].reverse() : inputs, outputs: [] },
+    })
+    const d = doc({
+      g0: graph({ id: 'g0', nodes: {
+        i1: { ...node('i1', '#sub'), values: { first: 11, second: 29 } },
+      }, valueSources: { v2: source('v2', 53) },
+      links: { l2: { id: asLinkId('l2'), from: vsrc('v2'), to: port('i1', 'second') } } }),
+      sub,
+    })
+    const derived = deriveBoundarySchema(sub, resolve)
+    expect(derived.schema).toBeUndefined()
+    expect(codesOf(derived.diagnostics)).toContain('boundary.valueSourceConflict')
+    const loaded = loadDocument(d)
+    expect(loaded.document).toBeUndefined()
+    expect(codesOf(loaded.diagnostics)).toContain('doc.boundary.valueSourceConflict')
+    const valid = { ...sub, boundary: { inputs: [inputs[0]!], outputs: inputs.map((item) => ({ id: `out-${item.id}`, binds: item.binds })) } }
+    expect(deriveBoundarySchema(valid, resolve).schema).toBeDefined()
+    expect(checkDocument(doc({ sub: valid }, 'sub'))).toEqual([])
   })
 
   it('errors on missing value sources and links targeting one (malformed docs)', () => {
