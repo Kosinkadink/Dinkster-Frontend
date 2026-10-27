@@ -74,6 +74,19 @@ import type { ReplacementScanItem } from './scan.js'
 
 export const REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY = 'dinkster.replacementMigration'
 
+/** Copied families depend on both stored state and the complete incoming topology. */
+export const replacementSourceStateHash = (graph: GraphDef, node: NodeData): string =>
+  fnv1a64(canonicalJson({
+    node,
+    links: Object.fromEntries(Object.entries(graph.links).filter(([, link]) =>
+      isPortEndpoint(link.to) && link.to.node === node.id,
+    )),
+    nets: Object.fromEntries(Object.entries(graph.nets).flatMap(([id, net]) => {
+      const sinks = net.sinks.filter((sink) => sink.node === node.id)
+      return sinks.length === 0 ? [] : [[id, { ...net, sinks }]]
+    })),
+  }))
+
 export interface NodeReplacePlan {
   readonly graphId: string
   readonly nodeId: string
@@ -89,6 +102,8 @@ export interface NodeReplacePlan {
   readonly dynamic?: Readonly<Record<string, DynamicPortState>>
   /** Stored source count literals that copied output families depend on. */
   readonly sourceCountGuards?: Readonly<Record<string, Json>>
+  /** Source node and incoming topology read by copied input-family mappings. */
+  readonly sourceStateGuard?: string
   /** Exact target schemas used to validate selected dynamic constructs. */
   readonly targetSchemaGuards?: ReadonlyArray<{
     readonly nodeId: string
@@ -1026,7 +1041,7 @@ function planReplacementForCase(
     targetAddress: TargetAddress
     targetFamily: Wire15InputFamily
     members: readonly string[]
-    sourceFamily?: Wire15InputFamily
+    sourceFamily?: { readonly id: string; readonly inputs: readonly string[]; readonly memberPort?: string }
   }>()
   for (const [targetFamilyId, mapping] of Object.entries(matched.inputFamilies ?? {})) {
     const familyAddress = targetAddress(targetFamilyId)
@@ -1045,12 +1060,35 @@ function planReplacementForCase(
     }
 
     let members: readonly string[]
-    let sourceFamily: Wire15InputFamily | undefined
+    let sourceFamily: { readonly id: string; readonly inputs: readonly string[]; readonly memberPort?: string } | undefined
     let sourceFamilyState: DynamicPortState | undefined
     if (mapping.kind === 'copy') {
-      sourceFamily = sourceSchema === undefined
+      const declaredFamily = sourceSchema === undefined
         ? undefined
         : wire15InputFamily(sourceSchema, mapping.sourceFamily)
+      const historical = mapping.sourceTemplate
+      if (historical !== undefined && sourceSchema !== undefined && (
+        declaredFamily === undefined ||
+        declaredFamily.template.length !== historical.inputs.length ||
+        declaredFamily.template.some((input) => !historical.inputs.includes(input.id)) ||
+        declaredFamily.memberPort !== historical.memberPort
+      )) {
+        errors.push(diag(
+          'error',
+          'replace.source.familyTemplate',
+          `replace: historical template for '${mapping.sourceFamily}' disagrees with the available predecessor`,
+        ))
+        continue
+      }
+      sourceFamily = historical !== undefined
+        ? { id: mapping.sourceFamily, ...historical }
+        : declaredFamily === undefined
+          ? undefined
+          : {
+              id: declaredFamily.id,
+              inputs: declaredFamily.template.map((input) => input.id),
+              ...(declaredFamily.memberPort !== undefined ? { memberPort: declaredFamily.memberPort } : {}),
+            }
       if (sourceFamily === undefined) {
         errors.push(
           diag(
@@ -1490,9 +1528,10 @@ function planReplacementForCase(
           }
         }
         applyFamilyMember(familyAddress, targetFamily, member, copied.inputs, (source) => {
-          const sourceSlot = sourceFamily!.template.find((candidate) => candidate.id === source.input)
-          if (sourceSlot !== undefined)
-            return wire15FamilyInputPath(sourceFamily!, member, source.input)
+          if (sourceFamily!.inputs.includes(source.input)) {
+            const memberPath = joinValuePath(sourceFamily!.id, member)
+            return sourceFamily!.inputs.length === 1 ? memberPath : joinValuePath(memberPath, source.input)
+          }
           errors.push(
             diag(
               'error',
@@ -2227,6 +2266,9 @@ function planReplacementForCase(
       values,
       ...(Object.keys(dynamic).length > 0 ? { dynamic } : {}),
       ...(Object.keys(sourceCountGuards).length > 0 ? { sourceCountGuards } : {}),
+      ...(Object.values(matched.inputFamilies ?? {}).some((mapping) => mapping.kind === 'copy')
+        ? { sourceStateGuard: replacementSourceStateHash(def, node) }
+        : {}),
       ...(hasTargetChoiceState ? { targetSchemaGuards } : {}),
       ...(Object.keys(controllers).length > 0 ? { controllers } : {}),
       ...(migrationArchive !== undefined ? { migrationArchive } : {}),

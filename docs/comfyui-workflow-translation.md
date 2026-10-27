@@ -35,7 +35,16 @@ input. The target schema admits the canonical ordered members; linked,
 invalid or out-of-range counts refuse planning, and later count or endpoint
 changes invalidate the plan. When present, the predecessor schema also
 validates the source family and its count input. Input-family copies still
-require the source template layout.
+require the source template layout: a copy rule may declare
+`sourceTemplate: {inputs: [all historical template-local IDs], memberPort?: "flat.port"}`
+when the predecessor schema is absent. The full ordered list distinguishes
+single-input members from grouped paths even if only one input is mapped.
+`memberPort` explicitly identifies a flat-prefix port with member IDs and is
+valid only for a single-input template. An available predecessor must agree
+with this declaration; same-type migrations instead use the authored
+historical template, not the current schema. Omitted declarations retain
+schema-based planning. Copies preserve stored member order and controller
+modes, and refuse application after the source node or incoming topology changes.
 The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses
 only exact registered node IDs; historical node alias metadata is not a lookup

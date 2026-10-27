@@ -76,6 +76,11 @@ export type InputFamilyMapping =
   | {
       readonly kind: 'copy'
       readonly sourceFamily: string
+      /** Full historical template, independent of the current source schema. */
+      readonly sourceTemplate?: {
+        readonly inputs: readonly string[]
+        readonly memberPort?: string
+      }
       /** Target template-local input id -> source template-local mapping. */
       readonly inputs: Readonly<Record<string, MappingSource>>
     }
@@ -225,6 +230,23 @@ const isDynamicPath = (value: string): boolean =>
 const isInputFamilyMapping = (v: unknown): v is InputFamilyMapping => {
   if (!isObj(v)) return false
   if (v.kind === 'copy') {
+    if (v.sourceTemplate !== undefined) {
+      const template = v.sourceTemplate
+      if (
+        !isObj(template) ||
+        Object.keys(template).some((key) => key !== 'inputs' && key !== 'memberPort') ||
+        !Array.isArray(template.inputs) || template.inputs.length === 0 ||
+        template.inputs.some((id) => typeof id !== 'string' || !STRUCTURAL_ID.test(id)) ||
+        new Set(template.inputs).size !== template.inputs.length ||
+        (template.memberPort !== undefined &&
+          (typeof template.memberPort !== 'string' || !isDynamicPath(template.memberPort) || template.inputs.length !== 1)) ||
+        !isObj(v.inputs)
+      ) return false
+      const inputs = template.inputs
+      if (Object.values(v.inputs).some((mapping) =>
+        !isMapping(mapping) || (mapping.kind !== 'constant' && !inputs.includes(mapping.input)),
+      )) return false
+    }
     return (
       typeof v.sourceFamily === 'string' &&
       STRUCTURAL_ID.test(v.sourceFamily) &&
@@ -234,6 +256,7 @@ const isInputFamilyMapping = (v: unknown): v is InputFamilyMapping => {
     )
   }
   if (v.kind === 'members') {
+    if (v.sourceTemplate !== undefined) return false
     if (!Array.isArray(v.members) || v.members.length === 0) return false
     const suffixes = new Set<string>()
     for (const member of v.members) {
