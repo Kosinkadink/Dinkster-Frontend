@@ -89,7 +89,6 @@ test("the browser template gallery grants a read-only model mount and the asset 
   page,
   request,
 }) => {
-  test.skip(true, 'template gallery visibility failure tracked in Kosinkadink/comfy-vibe-station#539')
   test.setTimeout(120_000);
 
   // Isolated fixture folder under the frontend .ci test area, written
@@ -134,8 +133,8 @@ test("the browser template gallery grants a read-only model mount and the asset 
     );
     await expect(page.getByTestId("status-bar")).toContainText("connected");
 
-    // An empty workflow shows the template gallery on its own, and with
-    // zero mounts it explains folder granting and offers the typed form.
+    await page.getByRole("button", { name: "Browse starter templates" }).click();
+    // With zero mounts the gallery explains folder granting and offers the typed form.
     const gallery = page.getByTestId("template-gallery");
     await expect(gallery).toBeVisible({ timeout: 15_000 });
     const mountsSection = gallery.locator(".template-gallery-mounts");
