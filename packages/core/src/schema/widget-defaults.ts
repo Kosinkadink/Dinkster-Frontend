@@ -126,7 +126,7 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'ASSET':
       // Multi-select (list-declared) asset inputs store ARRAYS of refs;
       // a non-empty all-ref array is as submittable as a single ref.
-      return isAssetRefValue(d) || (Array.isArray(d) && d.length > 0 && d.every(isAssetRefValue))
+      return (widget.selection === true && typeof d === 'string') || isAssetRefValue(d) || (Array.isArray(d) && d.length > 0 && d.every(isAssetRefValue))
     case 'SAVE_TARGET':
       return isSaveTargetValue(d)
     default:

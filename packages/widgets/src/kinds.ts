@@ -551,7 +551,7 @@ export const isAssetRefList = (v: unknown): v is readonly AssetRef[] =>
 export const assetKind: WidgetKind<Json> = {
   type: 'ASSET',
   valueSchema: { version: 1, validate: (v: unknown): v is Json => v === null || isAssetRef(v) || isAssetRefList(v) },
-  defaultValue: (spec) => isAssetRef(spec.default) || isAssetRefList(spec.default) ? spec.default as unknown as Json : null,
+  defaultValue: (spec) => (spec.selection === true && typeof spec.default === 'string') || isAssetRef(spec.default) || isAssetRefList(spec.default) ? spec.default as unknown as Json : null,
   validate: () => [],
   defaultView: () => 'core.asset',
 }
@@ -882,12 +882,13 @@ export const assetView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.asset', 'ASSET'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    const text = isAssetRef(value)
+    const sourceName = spec.selection === true && typeof value === 'string'
+    const text = sourceName ? value : isAssetRef(value)
       ? value.name
       : isAssetRefList(value) && value.length > 0
         ? value.length === 1 ? value[0]!.name : `${value.length} assets`
         : 'no asset'
-    const populated = isAssetRef(value) || (isAssetRefList(value) && value.length > 0)
+    const populated = sourceName || isAssetRef(value) || (isAssetRefList(value) && value.length > 0)
     compactRow(ctx, label, text, state, 'widget.edit', !populated)
   },
 }
