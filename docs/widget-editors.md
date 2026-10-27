@@ -67,6 +67,14 @@ arm as COMBO for a source name or ASSET for an existing file descriptor;
 directory COMBO values stay unchanged. The server revalidates current grants
 at execution.
 
+The selection dialog uses the shared searchable CollectionPanel and stages
+one original source name. Its right rail distinguishes files, same-root
+pairs, read-only directories, and file-free literals. Refresh re-reads current
+grants; an unavailable staged name cannot be applied. Cancel preserves the
+stored value. VAE's Browse files action opens the existing model-file picker
+for an explicit file descriptor, and reopening a stored descriptor keeps that
+file picker. No upload or arbitrary-path entry is offered for source options.
+
 ## Primitive list inputs
 
 One-level list<STRING>, list<INT>, and list<FLOAT> inputs retain their array

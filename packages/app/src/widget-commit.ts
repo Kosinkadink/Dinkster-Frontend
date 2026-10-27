@@ -83,6 +83,7 @@ export function widgetCommitError(
   spec: WidgetSpec,
 ): string | undefined {
   if (kind === undefined) return undefined
+  if (spec.widgetType === 'ASSET' && spec.selection === true && typeof value === 'string') return undefined
   if (!kind.valueSchema.validate(value)) return `Not a valid ${spec.widgetType} value.`
   // MULTI_COMBO vocabulary diagnostics are presentation-only: static OOV
   // values remain authoritative and editable rather than blocking commits.
