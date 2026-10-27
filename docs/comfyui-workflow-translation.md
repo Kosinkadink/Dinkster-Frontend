@@ -159,9 +159,10 @@ chains refuse import rather than guessing a source. Input boundaries through
 reroutes retain their junction attachment and internal fan-out links.
 
 Input boundaries attached to materialized native family members use the exact
-elaborated member address, including grouped template input suffixes. Only
-members retained in the node's dynamic state resolve; absent members do not
-create ports or helper nodes. Native save/reopen preserves these bindings.
+elaborated member address, including grouped template input suffixes and nested
+members beneath ordinary outer families. Only members retained in the node's
+dynamic state resolve; absent members do not create ports or helper nodes.
+Native save/reopen preserves these bindings.
 
 Modern instance widget arrays follow promoted-input order without implicit
 seed-controller entries. Legacy `proxyWidgets` references promote matching

@@ -365,8 +365,7 @@ export function resolveBoundaryRoute(
     visit([it], '', 0, [], it.kind, it)
   }
 
-  if (binding.kind === 'port' && dynamic !== undefined &&
-      inputsOf(schema).some((input) => input.dynamic?.materialization === 'wire15')) {
+  if (binding.kind === 'port' && dynamic !== undefined) {
     const elaborated = elaborateInterface(schema, { values: (values ?? {}) as NodeData['values'], dynamic }, undefined, { promoteGhosts: false })
     if (!elaborated.diagnostics.some((item) => item.severity === 'error')) {
       for (const input of elabInputsOf(elaborated)) {

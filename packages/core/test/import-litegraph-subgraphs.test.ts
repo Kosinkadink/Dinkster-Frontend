@@ -5,8 +5,9 @@ import { importLitegraph } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { Json, JsonObject, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId } from '../src/ids.js'
-import { planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
+import { classifyFlattenBoundaryRoute, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
+import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
 const schema: NodeSchema = {
@@ -421,6 +422,45 @@ describe('LiteGraph subgraphs', () => {
     } }, resolver)
     expect(missingMember.schema).toBeUndefined()
     expect(missingMember.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+  })
+
+  it('resolves nested materialized members beneath an ordinary outer family', () => {
+    const family: NodeSchema = { ...schema, type: 'NestedFamily', items: [
+      { kind: 'input', id: 'outer', type: { kind: 'wildcard' }, optional: false,
+        dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'row', min: 1, max: 1 }, template: [
+          { kind: 'input', id: 'inner', type: { kind: 'wildcard' }, optional: false,
+            dynamic: { kind: 'autogrow', materialization: 'wire15',
+              naming: { kind: 'prefix', prefix: 'sub', min: 1, max: 4 },
+              template: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'INT' }, optional: false }] } },
+        ] } }, schema.items[1]!,
+    ] }
+    const resolver = (type: string) => type === family.type ? family : resolve(type)
+    const base = imported({ nodes: [{ ...instance(1), inputs: [{ name: 'value' }], widgets_values: [] },
+      { id: 3, type: 'PrimitiveNode', widgets_values: [29], outputs: [{ name: 'INT' }] }],
+      links: [[3, 3, 0, 1, 0, 'INT']], definitions: { subgraphs: [definition()] } })
+    const inner = base.graphs.inner!
+    const doc = { ...base, graphs: { ...base.graphs, inner: { ...inner,
+      nodes: { n1: { ...inner.nodes.n1!, type: family.type, values: {}, dynamic: {
+        outer: { members: ['m3'], seq: 4, memberState: { m3: { 'outer.inner': { members: ['m2'], seq: 3 } } } },
+      } } },
+      boundary: { ...inner.boundary!, inputs: [{ id: 'in', binds: {
+        kind: 'port', node: 'n1', port: 'outer.inner.m2', members: ['m3'],
+      } }] },
+    } } } as unknown as WorkflowDocument
+    const body = doc.graphs.inner!
+    const elaborated = elaborateInterface(family, body.nodes.n1!, undefined, { promoteGhosts: false })
+    expect(elaborated.diagnostics).toEqual([])
+    expect(elabInputsOf(elaborated).filter((input) => input.apiName !== undefined).map((input) => input.address))
+      .toEqual([{ port: 'outer.inner.m2', members: ['m3'] }])
+    expect(deriveBoundarySchema(body, resolver).diagnostics).toEqual([])
+    expect(prompt(doc, resolver)['n1.n1']!.inputs).toEqual({ 'outer.inner.m2': 29 })
+    const reopened = loadDocument(JSON.parse(JSON.stringify(doc))).document!
+    expect(prompt(reopened, resolver)).toEqual(prompt(doc, resolver))
+    expect(classifyFlattenBoundaryRoute(body, body.boundary!.inputs[0]!, resolver, 'input')).toBe('family')
+    const missingMember = { ...body, nodes: { n1: { ...body.nodes.n1!, dynamic: {
+      outer: { members: ['m3'], seq: 4, memberState: { m3: { 'outer.inner': { members: ['m1'], seq: 3 } } } },
+    } } } } as unknown as typeof body
+    expect(deriveBoundarySchema(missingMember, resolver).schema).toBeUndefined()
   })
 
   it.each([2, 4])('reports mode %s when its structural producer cannot be preserved', (mode) => {
