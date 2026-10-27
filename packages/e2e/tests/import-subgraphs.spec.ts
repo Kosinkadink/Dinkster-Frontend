@@ -42,7 +42,7 @@ async function expectSchemasReady(page: Page): Promise<void> {
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
 }
 
-test('draws an imported input boundary into its retained reroute fanout', async ({ page }, testInfo) => {
+test('draws and extracts an imported input boundary with its retained reroute fanout', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 1 }, packs: {},
@@ -86,6 +86,34 @@ test('draws an imported input boundary into its retained reroute fanout', async 
   expect(scene.reroutes).toEqual([{ id: 'r3', x: 170, y: 180 }, { id: 'r4', x: 310, y: 180 }])
   const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   expect(after).toEqual(before)
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+a')
+  const graphCount = await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)
+  await page.keyboard.press('Control+Shift+E')
+  await expect.poll(() => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)).toBe(graphCount + 1)
+  const extracted = await page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    const body = doc.graphs['junction-body']!
+    const occurrence = Object.values(body.nodes)[0]!
+    const nested = doc.graphs[occurrence.type.slice(1)]!
+    return { occurrence: occurrence.id, boundary: nested.boundary, reroutes: Object.keys(nested.reroutes), links: Object.keys(nested.links) }
+  })
+  expect(extracted.reroutes).toHaveLength(2)
+  expect(extracted.links).toHaveLength(3)
+  expect(extracted.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: extracted.reroutes[0] })
+  await enterInstance(page, extracted.occurrence)
+  await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 500, y: 350, scale: 1 }))
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
+  await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-extracted.png') })
+  const exported = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  const reopened = await page.evaluate((doc) => {
+    const app = window.__dinksterTest!.app
+    const failures = app.openDocument(doc, 'Extracted fanout')
+    return { failures, exported: app.exportDocument(app.activeTab()!.id) }
+  }, exported)
+  expect(reopened.failures).toEqual([])
+  expect(reopened.exported).toEqual(exported)
 })
 
 test.beforeEach(async ({ page }) => {

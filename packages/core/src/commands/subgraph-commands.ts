@@ -233,9 +233,14 @@ function remapEndpoint(endpoint: LinkEndpoint, ids: ExtractIdMaps): LinkEndpoint
   return { selector: asSelectorId(selector), candidate: asSelectorCandidateId(candidate) }
 }
 
-function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, string>): BoundaryBinding {
+function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, string>, rerouteIds?: ReadonlyMap<string, string>): BoundaryBinding {
   const node = nodeIds.get(binding.node)
   if (node === undefined) throw new Error(`subgraph.extract: no node map for '${binding.node}'`)
+  if (binding.kind === 'port' && binding.viaReroute !== undefined) {
+    const reroute = rerouteIds?.get(binding.viaReroute)
+    if (reroute === undefined) throw new Error(`subgraph.extract: no reroute map for '${binding.viaReroute}'`)
+    return { ...binding, node: asNodeId(node), viaReroute: asRerouteId(reroute) }
+  }
   return { ...binding, node: asNodeId(node) }
 }
 
@@ -365,15 +370,15 @@ function translatedPosition(
 
 function remapNestedItem(
   cut: BoundaryCut,
-  nodeIds: ReadonlyMap<string, string>,
+  ids: ExtractIdMaps,
   id: string,
 ): BoundaryItem {
   const nested = cut.nestedItem
   if (nested === undefined) throw new Error(`subgraph.extract: boundary '${cut.itemId}' has no nested item`)
   return {
     id,
-    binds: remapBinding(nested.binds, nodeIds),
-    ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, nodeIds)) } : {}),
+    binds: remapBinding(nested.binds, ids.nodes, ids.reroutes),
+    ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes)) } : {}),
     ...(nested.promoted === true ? { promoted: true } : {}),
     ...(nested.displayName !== undefined ? { displayName: nested.displayName } : {}),
   }
@@ -748,7 +753,7 @@ const subgraphExtract: CommandDefinition = {
     }))
     for (const cut of enclosingInputs) {
       const itemId = inputIdByBoundary.get(cut.itemId)!
-      innerBoundaryInputs.push(remapNestedItem(cut, nodeIds, itemId))
+      innerBoundaryInputs.push(remapNestedItem(cut, idMaps, itemId))
     }
     const innerBoundaryOutputs: BoundaryItem[] = audit.outputs.map((cut, index) => ({
       id: outputNames[index]!.id,
@@ -757,7 +762,7 @@ const subgraphExtract: CommandDefinition = {
         : { kind: 'port', ...remapPort(cut.source, nodeIds) },
     }))
     for (const cut of enclosingFamilyOutputs) {
-      innerBoundaryOutputs.push(remapNestedItem(cut, nodeIds, outputIdByBoundary.get(cut.itemId)!))
+      innerBoundaryOutputs.push(remapNestedItem(cut, idMaps, outputIdByBoundary.get(cut.itemId)!))
     }
 
     const parentLinks: Record<string, LinkData> = { ...parent.links }

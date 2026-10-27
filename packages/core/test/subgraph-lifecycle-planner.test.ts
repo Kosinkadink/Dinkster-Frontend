@@ -1077,6 +1077,61 @@ describe('subgraph.extract L3 command', () => {
 })
 
 describe('subgraph.extract L4 structural and view completion', () => {
+  it('moves an enclosing junction boundary with its complete fanout and refuses split ownership atomically', () => {
+    const initial = document(graph({
+      nodes: {
+        inside: { id: 'inside' as never, type: 'BodyNode', values: {} },
+        inside2: { id: 'inside2' as never, type: 'BodyNode', values: {} },
+      },
+      reroutes: { junction: { id: 'junction' as never } },
+      links: {
+        left: link('left', { reroute: 'junction' as never }, port('inside', 'in')),
+        right: link('right', { reroute: 'junction' as never }, port('inside2', 'other')),
+      },
+      boundary: {
+        inputs: [{ id: 'in', binds: { kind: 'port', ...port('inside', 'in'), viaReroute: 'junction' as never } }],
+        outputs: [],
+      },
+    })) as MutableDocument
+    initial.view.graphs.root.reroutes = { junction: { position: { x: -30, y: 45 } } }
+    delete initial.view.graphs.root.nodes.outside
+    const geometry = [
+      { id: 'inside', kind: 'node', x: 10, y: 20, width: 100, height: 50 },
+      { id: 'inside2', kind: 'node', x: 40, y: 80, width: 140, height: 80 },
+      { id: 'junction', kind: 'reroute', x: -30, y: 45, width: 0, height: 0 },
+    ]
+    const splitSelections: LifecycleSelectionInput[] = [{ nodeIds: ['inside'] }, { nodeIds: ['inside2'], rerouteIds: ['junction'] }]
+    for (const selection of splitSelections) {
+      const session = createLocalSession(initial, coreCommandRegistry())
+      const before = JSON.stringify(session.doc)
+      const outcome = session.dispatch(l4ExtractInvocation(initial, selection, geometry.filter((item) =>
+        item.kind === 'node' ? selection.nodeIds?.includes(item.id) : selection.rerouteIds?.includes(item.id))))
+      expect(outcome.ok).toBe(false)
+      if (!outcome.ok) expect(outcome.diagnostics.map((entry) => entry.code)).toContain('subgraph.extract.structuralCutUnsupported')
+      expect(JSON.stringify(session.doc)).toBe(before)
+    }
+
+    const session = createLocalSession(initial, coreCommandRegistry())
+    const outcome = session.dispatch(l4ExtractInvocation(initial, { nodeIds: ['inside', 'inside2'], rerouteIds: ['junction'] }, geometry))
+    expect(outcome.ok, JSON.stringify(outcome)).toBe(true)
+    const nested = session.doc.graphs.g0!
+    expect(nested.boundary?.inputs).toEqual([{ id: 'in', binds: { kind: 'port', ...port('n0', 'in'), viaReroute: 'r2' } }])
+    expect(nested.links).toEqual({
+      l3: link('l3', { reroute: 'r2' as never }, port('n0', 'in')),
+      l4: link('l4', { reroute: 'r2' as never }, port('n1', 'other')),
+    })
+    expect(session.doc.graphs.root!.boundary?.inputs).toEqual([{ id: 'in', binds: { kind: 'port', ...port('n20', 'in') } }])
+    expect(Object.keys(session.doc.graphs.root!.reroutes)).toEqual([])
+    const view = session.doc.view.graphs.g0!
+    expect(view.reroutes!.r2!.position.x - view.nodes.n0!.position!.x).toBe(-40)
+    expect(view.reroutes!.r2!.position.y - view.nodes.n1!.position!.y).toBe(-35)
+    expect(checkDocument(session.doc)).toEqual([])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual({ ...initial, graphs: { root: { ...initial.graphs.root, nextOrdinal: 21 } } })
+    expect(session.redo()).toBe(true)
+    expect(session.doc.graphs.g0).toEqual(nested)
+  })
+
   it('coexists across nets, reroutes, taps, value sources, selectors, wire-15 members, nested occurrences, groups, modes, and view state', () => {
     const initial = document(graph({
       nodes: {

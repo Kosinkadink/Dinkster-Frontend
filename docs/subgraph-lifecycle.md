@@ -28,6 +28,13 @@ group does not move the group.
 
 After success, the new occurrence is the active selection.
 
+An input boundary attached to a reroute moves with that junction and its
+complete selected fanout. Extraction remaps the boundary attachment while
+retaining every internal link and relative position. A selection that splits
+the junction from its schema-authority node or cuts a reroute link refuses
+without changing the document. One-level flatten still refuses junction
+boundary attachments rather than bypassing the authored reroutes.
+
 ## Flatten one level
 
 Select exactly one subgraph occurrence. Use **Flatten Subgraph One Level**
