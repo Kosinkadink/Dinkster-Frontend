@@ -16,9 +16,9 @@ const nodesPayload = JSON.parse(
 const payloadWithTransform = structuredClone(nodesPayload) as unknown as {
   nodes: Record<string, unknown>
 }
-payloadWithTransform.nodes['comfy.ImageInvert'] = {
+payloadWithTransform.nodes['ImageInvert'] = {
   schemaVersion: 1,
-  nodeType: 'comfy.ImageInvert',
+  nodeType: 'ImageInvert',
   version: 1,
   displayName: 'Image Invert',
   category: 'comfy/image',
@@ -28,13 +28,13 @@ payloadWithTransform.nodes['comfy.ImageInvert'] = {
     { role: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] }, required: true },
     { role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
   ],
-  aliases: ['ImageInvert'],
+  aliases: [],
   pack: 'comfy',
   signature: 'test-image-invert',
 }
-payloadWithTransform.nodes['comfy.MultiPreview'] = {
+payloadWithTransform.nodes['MultiPreview'] = {
   schemaVersion: 1,
-  nodeType: 'comfy.MultiPreview',
+  nodeType: 'MultiPreview',
   version: 1,
   displayName: 'Multi Preview',
   category: 'comfy/image',
@@ -44,7 +44,7 @@ payloadWithTransform.nodes['comfy.MultiPreview'] = {
     { role: 'input', id: 'main', type: { kind: 'concrete', types: ['comfy.IMAGE'] }, required: true },
     { role: 'input', id: 'side', type: { kind: 'concrete', types: ['comfy.IMAGE'] }, required: true },
   ],
-  aliases: ['MultiPreview'],
+  aliases: [],
   outputNode: true,
   pack: 'comfy',
   signature: 'test-multi-preview',
