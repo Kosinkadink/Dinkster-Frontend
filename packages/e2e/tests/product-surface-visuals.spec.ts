@@ -1072,8 +1072,8 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       const dispose = render(() => BadgePopover({
         anchor: { x: 32, y: 96, nodeId: 'source', badge: { id: badge, glyph: '!', color: '#f00' } },
         errors: () => [], nodeLogs: () => [], problems: () => [],
-        subgraphInfo: () => undefined, replacementInfo: () => undefined,
-        onOpenSubgraph: () => {}, onApplyReplacement: () => {}, onClose: () => {},
+        subgraphInfo: () => undefined, deprecationInfo: () => undefined,
+        onOpenSubgraph: () => {}, onClose: () => {},
         onDismissError: () => { host.dataset['action'] = 'dismiss' },
         onOpenExecutionLog: () => { host.dataset['action'] = 'log' },
       }), host)

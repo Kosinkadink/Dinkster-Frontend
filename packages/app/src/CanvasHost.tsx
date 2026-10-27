@@ -109,7 +109,6 @@ import {
   type NodeSchema,
   type PackBlueprintDescriptor,
   type CompanionSourceMap,
-  type ReplacementScanItem,
   type ResolvedGeometryItem,
   type ViewBookmark,
   type WidgetSpec,
@@ -144,7 +143,7 @@ import { canvasMenuContext, menuTargetOf, mirrorCapabilityOf, previewCapabilityO
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
-import { replacementBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
+import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
@@ -1842,9 +1841,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // Anchored in canvas-pane CSS px; content resolves lazily at render.
   const [badgePopover, setBadgePopover] = createSolidSignal<BadgeAnchor | undefined>(undefined)
 
-  // Replacement scan items for the CURRENT graph, keyed by node id. Rebuilt
-  // by the badges effect; read lazily by the deprecation badge popover.
-  let replaceItems = new Map<string, ReplacementScanItem>()
   /** Current graph's document problem content, keyed independently of runtime errors. */
   let nodeProblems: NodeProblemMap = {}
 
@@ -3182,12 +3178,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const info = subgraphInfoFor(nodeId)
           if (info) tooltip = { summary: `Subgraph: ${info.name}`, detail: [`definition ${info.defId}`, `${info.nodeCount} nodes (shared)`] }
         } else if (badgeId === 'core.deprecated') {
-          const info = replacementInfoFor(nodeId)
+          const info = deprecationInfoFor(nodeId)
           if (info) tooltip = {
             summary: info.deprecation?.message ?? `Deprecated: ${info.type}`,
             detail: [
               ...(info.deprecation?.since ? [`since ${info.deprecation.since}`] : []),
-              ...(info.item?.terminalType ? [`Replace with '${info.item.terminalType}'`] : info.pointer ? [`Successor: '${info.pointer.terminal}'`] : []),
+              ...(info.pointer ? [`Successor: '${info.pointer.terminal}'`] : []),
             ],
           }
         } else if (badgeId.startsWith('core.problem.')) {
@@ -4351,9 +4347,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         frozen,
         exactProducer,
         retainedRuntimeIds: retained?.retainedRuntimeIds,
-        // Deprecation/replacement: live tabs only (frozen snapshots are
-        // read-only history - upgrading them would falsify the record).
-        replacements: frozen ? [] : props.app.scanTabReplacements(tab),
         nodeProblems,
         ...(() => {
           const dismissed = exec === undefined ? undefined : dismissedErrorNodes().get(exec.key)
@@ -4492,7 +4485,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
 
       renderer.setSelectorResolutions(model.selectorResolutions)
-      replaceItems = model.replaceItems
       const decorations = applyNodeDecorations({
         scene,
         documentId: String(tab.store.doc.lineage),
@@ -5942,8 +5934,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
 
   // Badge popover content: reactive wrappers binding the framework-free
-  // badge-info resolvers to host state (active tab, per-graph scan items,
-  // backend advisory problem feed). Presentation lives in BadgePopover.tsx.
+  // badge-info resolvers to document and registry state.
+  // Presentation lives in BadgePopover.tsx.
   const subgraphInfoFor = (nodeId: string) => {
     const tab = activeTab()
     return tab ? subgraphBadgeInfo(tab.store.doc, currentGraphId(tab), nodeId) : undefined
@@ -5956,25 +5948,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (info && tab) pushGraph(tab, info.defId, nodeId)
   }
 
-  /** Deprecation badge popover content (scan item is per-graph, may be absent). */
-  const replacementInfoFor = (nodeId: string) => {
+  /** Deprecation messages and name-only successor guidance. */
+  const deprecationInfoFor = (nodeId: string) => {
     const tab = activeTab()
     if (!tab) return undefined
-    return replacementBadgeInfo({
+    return deprecationBadgeInfo({
       doc: tab.store.doc,
       graphId: currentGraphId(tab),
       nodeId,
       resolve: props.app.registryForTab(tab)?.resolve,
-      item: replaceItems.get(nodeId),
-      problems: props.app.backendForTab(tab).replacementProblems.get(),
     })
-  }
-
-  const applyReplacementFromPopover = (nodeId: string): void => {
-    const tab = activeTab()
-    const item = replaceItems.get(nodeId)
-    setBadgePopover(undefined)
-    if (tab && item?.plan) props.app.applyReplacements(tab, [item])
   }
 
   const problemMessages = (nodeId: string, kind: NodeProblemKind): readonly string[] => {
@@ -6483,9 +6466,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             onOpenExecutionLog={openExecutionLogForNode}
             problems={problemMessages}
             subgraphInfo={subgraphInfoFor}
-            replacementInfo={replacementInfoFor}
+            deprecationInfo={deprecationInfoFor}
             onOpenSubgraph={openSubgraphFromPopover}
-            onApplyReplacement={applyReplacementFromPopover}
             onClose={() => setBadgePopover(undefined)}
           />
         )}

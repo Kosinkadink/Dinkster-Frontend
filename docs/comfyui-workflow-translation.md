@@ -11,6 +11,9 @@ rules, source schemas, or asset lookup authority. Schema discovery ignores
 embedded replacement-rule payloads, including constructed registries; the
 normalized schema model exposes no executable rules. Explicitly registered rules
 retain their own upgrade flow; deprecation pointers are display metadata only.
+Deprecation badges show messages, version notes, and name-only successor
+guidance. They expose no replacement plans, rule diagnostics, or apply action;
+opening a badge does not mutate the graph.
 The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses
 only exact registered node IDs; historical node alias metadata is not a lookup

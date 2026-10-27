@@ -1,7 +1,7 @@
 /**
  * extension API implementation deprecation/replacement UX: safe plans auto-apply on document open
  * (one undo step), the review toggle holds them for manual approval, and
- * the deprecation badge popover explains + applies plans. The rule arrives
+ * deprecation badges display name-only successor guidance. The rule arrives
  * through the PUBLIC pack registration API on the bridge - the real
  * backend's object_info ships no replacement metadata (that is a Dinkster/V3
  * concern), which is exactly the pack-extension path.
@@ -278,52 +278,34 @@ test('a historical dynamic selection migrates into a current static combo', asyn
     .toHaveAttribute('aria-selected', 'true')
 })
 
-test('review mode holds the plan; the badge popover applies it manually', async ({ page }) => {
-  const { sourceType, targetType } = deprecationIds()
-  await page.getByTestId('review-upgrades-toggle').click()
-  await expect(page.getByTestId('review-upgrades-toggle')).toContainText('on')
-
-  expect(await openDeprecatedDoc(page, { lineage: 'dep-review' })).toEqual([])
-  expect((await rootTypes(page)).old).toBe(sourceType) // held for review
-  await expect(page.getByTestId('problems-panel')).toContainText(`can be upgraded to '${targetType}'`)
-
+test('native deprecation badges show guidance without graph replacement controls', async ({ page }, testInfo) => {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'deprecation-fixture', schemaWire: 1 },
+    nodes: {
+      AuthoredNode: { deprecation: { message: 'Use CurrentNode for new workflows', since: '2.0', replacement: 'CurrentNode' }, interface: [] },
+      CurrentNode: { interface: [] },
+      NoSuccessor: { deprecation: { message: 'This node is deprecated' }, interface: [] },
+    },
+  } }))
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText(/3 node schemas/, { timeout: 30_000 })
+  expect(await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+    nodes: [{ id: 1, type: 'AuthoredNode', pos: [120, 120] }, { id: 2, type: 'NoSuccessor', pos: [450, 120] }], links: [],
+  }, 'Deprecation guidance'))).toEqual([])
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
   await identityViewport(page)
-  const p = await badgePoint(page, 'old')
-  await page.mouse.click(p.x, p.y)
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toBeVisible()
-  await expect(popover).toHaveAttribute('data-badge', 'core.deprecated')
-  await expect(popover.getByTestId('badge-replace-target')).toContainText(`Replace with '${targetType}'`)
-  await expect(popover.getByTestId('badge-replace-target')).toContainText('renamed upstream')
-
-  await popover.getByTestId('badge-apply-replacement').click()
-  await expect(popover).not.toBeVisible()
-  expect((await rootTypes(page)).old).toBe(targetType)
-})
-
-test('a lossy plan never auto-applies; its badge popover shows the warning', async ({ page }) => {
-  const { sourceType, targetType, sinkType } = deprecationIds()
-  expect(await openDeprecatedDoc(page, { lineage: 'dep-lossy', lossy: true })).toEqual([])
-  const types = await rootTypes(page)
-  expect(types.old).toBe(sourceType) // warned plan -> review only
-  expect(types.sink).toBe(sinkType)
-
-  await identityViewport(page)
-  const p = await badgePoint(page, 'old')
-  await page.mouse.click(p.x, p.y)
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toBeVisible()
-  await expect(popover).toHaveAttribute('data-badge', 'core.deprecated')
-  await expect(popover.getByTestId('badge-replace-target')).toBeVisible()
-  await expect(popover).toContainText('warning:')
-
-  // Applying anyway is an explicit, informed choice - and still works.
-  await popover.getByTestId('badge-apply-replacement').click()
-  expect((await rootTypes(page)).old).toBe(targetType)
-  // The unmapped downstream link was dropped, per the plan's warning.
-  const linkCount = await page.evaluate(() => {
-    const tab = window.__dinksterTest!.app.activeTab()!
-    return Object.keys(tab.store.doc.graphs.g0!.links).length
-  })
-  expect(linkCount).toBe(0)
+  for (const [id, text, filename] of [
+    ['n1', "Successor: 'CurrentNode'", 'deprecation-successor.png'],
+    ['n2', 'No successor is declared.', 'deprecation-no-successor.png'],
+  ]) {
+    await page.keyboard.press('Escape')
+    const point = await badgePoint(page, id!)
+    await page.mouse.click(point.x, point.y)
+    const popover = page.getByTestId('badge-popover')
+    await expect(popover).toBeVisible()
+    await expect(popover).toContainText(text!)
+    await expect(popover.getByRole('button')).toHaveCount(0)
+    await popover.screenshot({ path: testInfo.outputPath(filename!) })
+  }
+  expect(await rootTypes(page)).toEqual({ n1: 'AuthoredNode', n2: 'NoSuccessor' })
 })

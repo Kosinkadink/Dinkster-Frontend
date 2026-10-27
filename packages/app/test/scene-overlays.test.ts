@@ -12,7 +12,7 @@ import {
   SUBGRAPH_BADGE,
   type Scene,
 } from '@dinkster/canvas'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeDecorationContribution, type NodeSchema, type PreviewRenderer, type ReplacementScanItem, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeDecorationContribution, type NodeSchema, type PreviewRenderer, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
@@ -71,7 +71,6 @@ const base = {
   instancePath: [] as readonly string[],
   frozen: false,
   exactProducer: undefined,
-  replacements: [] as readonly ReplacementScanItem[],
   resolveSchema: undefined,
   previewRendererFor: previewRegistry.previewRendererFor,
   loader: noLoader,
@@ -1406,7 +1405,7 @@ describe('deriveSceneOverlays', () => {
     expect(m.portProblems).toBe(portProblems)
   })
 
-  it('badges subgraphs, schema deprecations, and replacement-scan hits', () => {
+  it('badges subgraphs and schema deprecations without marking ordinary nodes', () => {
     const m = deriveSceneOverlays({
       ...base,
       scene: scene([
@@ -1415,16 +1414,10 @@ describe('deriveSceneOverlays', () => {
         { id: 'swap', type: 'core.swap' },
       ]),
       resolveSchema: schemaTable({ 'core.old': { deprecation: { message: 'gone' } }, 'core.swap': {} }),
-      replacements: [
-        { graphId: 'g0', nodeId: 'swap' } as unknown as ReplacementScanItem,
-        { graphId: 'other', nodeId: 'old' } as unknown as ReplacementScanItem,
-      ],
     })
     expect(m.badges['s']).toContain(SUBGRAPH_BADGE)
     expect(m.badges['old']).toContain(DEPRECATED_BADGE)
-    expect(m.badges['swap']).toContain(DEPRECATED_BADGE)
-    // replaceItems filters to the CURRENT graph.
-    expect([...m.replaceItems.keys()]).toEqual(['swap'])
+    expect(m.badges['swap']).toBeUndefined()
   })
 
   it('derives linked occurrence counts from the document without storing them', () => {

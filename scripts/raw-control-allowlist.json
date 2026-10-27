@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 171,
+    "rawControl": 170,
     "inlineStyle": 64,
     "cssLiteral": 358
   },
@@ -51,7 +51,7 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/BadgePopover.tsx",
-      "count": 5,
+      "count": 4,
       "issue": 382
     },
     {

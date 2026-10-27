@@ -1,7 +1,7 @@
 /**
  * Scene overlay derivation: everything the renderer layers on top of one
  * installed scene - run states, companion values,
- * selector resolutions, replacement items, badges, previews - derived in one
+ * selector resolutions, badges, previews - derived in one
  * pass from the tab's bound execution and the current view. Framework-free:
  * no reactive state, no renderer; the HOST applies the model and owns
  * scheduling (directly after a scene rebuild, and on execution/preview/
@@ -54,7 +54,6 @@ import {
   type NodeDecoration,
   type NodeDecorationBadge,
   type NodeDecorationContribution,
-  type ReplacementScanItem,
   type ValueDiagnostic,
   type WidgetRegistry,
   type WorkflowDocument,
@@ -258,8 +257,6 @@ export interface SceneOverlayModel {
   readonly ownRuntimeIds: ((nodeId: string) => readonly string[]) | undefined
   /** Recorded selector choices (frozen tabs only); undefined = none. */
   readonly selectorResolutions: Map<string, string> | undefined
-  /** Replacement scan items of the current graph, keyed by node id. */
-  readonly replaceItems: Map<string, ReplacementScanItem>
   readonly badges: Readonly<Record<string, NodeBadge[]>>
   /**
    * Chronological run log records attributed to each scene node in this
@@ -515,8 +512,6 @@ export function deriveSceneOverlays(args: {
   readonly exactProducer: ((runtimeId: string) => boolean) | undefined
   /** Runtime occurrences explicitly retained from older executions. */
   readonly retainedRuntimeIds?: ReadonlySet<string> | undefined
-  /** Replacement scan of the tab's document; pass [] for frozen tabs. */
-  readonly replacements: readonly ReplacementScanItem[]
   /** Current compile + widget/solver diagnostics projected onto this view. */
   readonly nodeProblems?: NodeProblemMap
   /** Nodes whose runtime error badge the user dismissed for THIS run. */
@@ -749,14 +744,6 @@ export function deriveSceneOverlays(args: {
     if (resolutions.size > 0) selectorResolutions = resolutions
   }
 
-  // Deprecation/replacement: the caller scans live tabs only (frozen
-  // snapshots are read-only history - upgrading them would falsify the
-  // record); this pass filters to the current graph.
-  const replaceItems = new Map<string, ReplacementScanItem>()
-  for (const item of args.replacements) {
-    if (item.graphId === gid) replaceItems.set(item.nodeId, item)
-  }
-
   const badges: Record<string, NodeBadge[]> = {}
   for (const n of scene.nodes) {
     const list: NodeBadge[] = []
@@ -809,7 +796,7 @@ export function deriveSceneOverlays(args: {
         count + Object.values(graph.nodes).filter((node) => subgraphDefIdOf(node.type) === defId).length, 0)
       list.push(subgraphBadge(occurrences))
     }
-    else if (replaceItems.has(n.id) || (s !== undefined && isDeprecated(s))) list.push(DEPRECATED_BADGE)
+    else if (s !== undefined && isDeprecated(s)) list.push(DEPRECATED_BADGE)
     const iterationLabel = regionIterationLabels[n.id]
     if (iterationLabel !== undefined) {
       list.push({
@@ -968,7 +955,6 @@ export function deriveSceneOverlays(args: {
     companionSources: derived.sources,
     ownRuntimeIds,
     selectorResolutions,
-    replaceItems,
     badges,
     runLogsByNode,
     runErrorsByNode,

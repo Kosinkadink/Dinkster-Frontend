@@ -36,9 +36,8 @@ function mount(props: {
       nodeLogs={(_nodeId, level) => (props.logs ?? []).filter((entry) => entry.level === level)}
       problems={() => []}
       subgraphInfo={() => undefined}
-      replacementInfo={() => undefined}
+      deprecationInfo={() => undefined}
       onOpenSubgraph={() => {}}
-      onApplyReplacement={() => {}}
       onClose={() => {}}
       {...(props.onDismissError !== undefined ? { onDismissError: props.onDismissError } : {})}
       {...(props.onOpenExecutionLog !== undefined ? { onOpenExecutionLog: props.onOpenExecutionLog } : {})}

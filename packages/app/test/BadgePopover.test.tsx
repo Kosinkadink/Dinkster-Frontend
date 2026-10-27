@@ -23,9 +23,8 @@ const renderPopover = (diagnostic: Diagnostic): string => renderToString(() => (
     nodeLogs={() => []}
     problems={() => []}
     subgraphInfo={() => undefined}
-    replacementInfo={() => undefined}
+    deprecationInfo={() => undefined}
     onOpenSubgraph={() => {}}
-    onApplyReplacement={() => {}}
     onClose={() => {}}
   />
 ))
