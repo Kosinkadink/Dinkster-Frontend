@@ -714,7 +714,9 @@ const dynamicStatesHaveSelection = (
 
 /**
  * Resolve `rule` against one node. Pure: no mutation, no randomness. The
- * result's warnings force review; errors mean no plan at all.
+ * result retains warnings; errors mean no plan at all. Composition can pin
+ * a previously selected case after validating its original plan, even when
+ * a peer has removed the connections that supplied migration evidence.
  */
 export function planReplacement(
   document: WorkflowDocument,
@@ -722,6 +724,7 @@ export function planReplacement(
   nodeId: string,
   rule: ReplacementRule,
   resolve: ReplacementSchemaResolver,
+  selectedCaseIndex?: number,
 ): ReplacementPlanResult {
   const def = document.graphs[graphId]
   const node = def?.nodes[nodeId]
@@ -758,7 +761,7 @@ export function planReplacement(
       binding.kind !== 'widgetTap' && binding.node === nodeId && migrationHistoricalInputs.has(binding.port),
     ),
   )
-  const migrationEvidence = rule.migration?.historicalInputs.some((input) =>
+  const migrationEvidence = (rule.migration !== undefined && selectedCaseIndex !== undefined) || rule.migration?.historicalInputs.some((input) =>
     Object.hasOwn(node.values, input) ||
     node.dynamic?.[input]?.selected !== undefined ||
     Object.hasOwn(node.controllers ?? {}, input) ||
@@ -822,9 +825,9 @@ export function planReplacement(
   }
 
   // First matching case wins; the final case is the universal fallback.
-  let matched: ReplacementCase | undefined
-  let caseIndex = -1
-  for (let i = 0; i < rule.cases.length; i++) {
+  let matched: ReplacementCase | undefined = selectedCaseIndex === undefined ? undefined : rule.cases[selectedCaseIndex]
+  let caseIndex = selectedCaseIndex ?? -1
+  for (let i = 0; selectedCaseIndex === undefined && i < rule.cases.length; i++) {
     const c = rule.cases[i]!
     if (c.when === undefined || evaluatePredicate(c.when, state)) {
       matched = c

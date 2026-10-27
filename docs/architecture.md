@@ -138,8 +138,11 @@ is separate from native document migrations.
 On opening a native document, the app applies all applicable rule plans as one
 undo step, including lossy plans. Opening never waits for migration review.
 Selected rule hops are planned against the preceding hop's result so shared
-link, tap and named-net removals do not leave stale peer plans. Recoverable
-archives retain the original source state; apply-time guards use the exact
+link, tap and named-net removals do not leave stale peer plans. Composition
+validates the original chains first, then preserves each selected case even
+if a peer disconnects its predicate input. Selected same-type migrations keep
+their recovery archives even when a peer removes their only historical link.
+Recoverable archives retain the original source state; apply-time guards use the exact
 intermediate state and still reject unrelated edits.
 Problems shows one dismissable session-only notice listing upgraded nodes and
 warnings; each node line navigates to its occurrence. Saving or closing the tab

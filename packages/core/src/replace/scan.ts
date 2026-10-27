@@ -276,16 +276,26 @@ export function replacementInvocation(
   document: WorkflowDocument,
   resolve: ReplacementSchemaResolver,
 ): CommandInvocation | undefined {
+  // Each scanned chain must still apply independently to the supplied source.
+  // Recomposition must not turn stale reviewed evidence into fresh authority.
+  for (const item of items) {
+    let reviewed = document
+    for (const hop of item.hops) {
+      const tx = createTransactionBuilder(reviewed)
+      const diagnostics = nodeReplaceCommand.run(reviewed, { plan: hop.plan } as unknown as Json, tx, {
+        kind: 'initial', schemaResolverFor: () => (type) => resolve(type, 'target'),
+      })
+      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
+      reviewed = tx.result().doc
+    }
+  }
   let scratch = document
   const invocations: CommandInvocation[] = []
   for (const item of items) {
     for (const hop of item.hops) {
       if (scratch.graphs[item.graphId]?.nodes[item.nodeId]?.type !== hop.plan.from) return undefined
-      const planned = planReplacement(scratch, item.graphId, item.nodeId, hop.rule, resolve)
-      if (planned.plan === undefined) {
-        if (planned.diagnostics.length === 0 && hop.rule.migration !== undefined) continue
-        return undefined
-      }
+      const planned = planReplacement(scratch, item.graphId, item.nodeId, hop.rule, resolve, hop.plan.caseIndex)
+      if (planned.plan === undefined) return undefined
       // Archive the originally reviewed source, but guard against the exact
       // intermediate state that this hop will see inside the atomic batch.
       const plan = hop.plan.migrationArchive !== undefined && planned.plan.migrationArchive !== undefined

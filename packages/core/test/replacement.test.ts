@@ -2911,7 +2911,7 @@ describe('scanReplacements', () => {
     expect(items[0]!.rule).toBe(basicRule)
   })
 
-  it.each(['tap', 'net', 'archive'] as const)('composes %s deletion overlaps in either node order', (connection) => {
+  it.each(['tap', 'net', 'archive', 'archive-link-only', 'archive-net-only'] as const)('composes %s deletion overlaps in either node order', (connection) => {
     const localSchemas: Record<string, NodeSchema> = {
       PreviousProducer: schemaOf('PreviousProducer', [widgetInput('oldAmount', 7), output('out')]),
       Producer: schemaOf('Producer', [widgetInput('amount', 7), output('out')]),
@@ -2919,21 +2919,25 @@ describe('scanReplacements', () => {
     }
     const localResolve = (type: string) => localSchemas[type]
     const producerRule: ReplacementRule = { from: 'PreviousProducer', cases: [{ to: 'Producer', inputs: { amount: { kind: 'copy', input: 'oldAmount' } } }] }
-    const sinkRule: ReplacementRule = connection === 'archive'
+    const archive = connection.startsWith('archive')
+    const evidenceOnly = connection === 'archive-link-only' || connection === 'archive-net-only'
+    const namedNet = connection === 'net' || connection === 'archive-net-only'
+    const sinkRule: ReplacementRule = archive
       ? { from: 'Sink', migration: { historicalInputs: ['oldAmount'] }, cases: [{ to: 'Sink', inputs: { amount: { kind: 'copy', input: 'oldAmount' } } }] }
       : { from: 'PreviousSink', cases: [{ to: 'Sink', inputs: { amount: { kind: 'copy', input: 'oldAmount' } } }] }
     for (const producerFirst of [false, true]) {
       const producer = node('producer', 'PreviousProducer', { oldAmount: 11 })
-      const sink = node('sink', connection === 'archive' ? 'Sink' : 'PreviousSink', { oldAmount: 29 })
+      const sink = node('sink', archive ? 'Sink' : 'PreviousSink', evidenceOnly ? {} : { oldAmount: 29 })
+      const expectedAmount = evidenceOnly ? 3 : 29
       const d = doc({ g0: graph({
         id: 'g0',
         nodes: producerFirst ? { producer, sink } : { sink, producer },
-        links: connection === 'net' ? {} : {
+        links: namedNet ? {} : {
           shared: link('shared', connection === 'tap'
             ? { node: asNodeId('producer'), tap: asPortId('oldAmount') }
-            : port('producer', 'out'), port('sink', connection === 'archive' ? 'oldAmount' : 'discarded')),
+            : port('producer', 'out'), port('sink', archive ? 'oldAmount' : 'discarded')),
         },
-        nets: connection === 'net' ? { shared: net('shared', port('producer', 'out'), [port('sink', 'oldAmount')]) } : {},
+        nets: namedNet ? { shared: net('shared', port('producer', 'out'), [port('sink', 'oldAmount')]) } : {},
       }) })
       const items = scanReplacements(d, registryWith(producerRule, sinkRule), localResolve)
       expect(items, JSON.stringify(items)).toHaveLength(2)
@@ -2946,16 +2950,18 @@ describe('scanReplacements', () => {
       const result = store.dispatch(invocation)
       expect(result.ok, JSON.stringify({ producerFirst, diagnostics: result.diagnostics })).toBe(true)
       expect(store.doc.graphs.g0!.nodes.producer!.values).toEqual({ amount: 11 })
-      expect(store.doc.graphs.g0!.nodes.sink!.values).toEqual({ amount: 29 })
+      expect(store.doc.graphs.g0!.nodes.sink!.values).toEqual({ amount: expectedAmount })
       expect(store.doc.graphs.g0!.links).toEqual({})
       expect(store.doc.graphs.g0!.nets).toEqual({})
-      if (connection === 'archive') {
+      if (archive) {
         expect(store.doc.graphs.g0!.nodes.sink!.ext?.[REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]).toMatchObject({
           node: snapshot.graphs.g0!.nodes.sink,
           links: snapshot.graphs.g0!.links,
+          nets: snapshot.graphs.g0!.nets,
         })
         const changed = structuredClone(d)
         ;(changed.graphs.g0!.nodes.sink!.values as Record<string, Json>).oldAmount = 97
+        expect(replacementInvocation(items, changed, localResolve)).toBeUndefined()
         const stale = new DocumentStore(changed, coreCommandRegistry())
         expect(stale.dispatch(invocation).ok).toBe(false)
         expect(stale.doc).toEqual(changed)
@@ -2964,6 +2970,44 @@ describe('scanReplacements', () => {
       expect(store.undo()).toBe(true)
       expect(store.doc).toEqual(d)
       expect(store.canUndo).toBe(false)
+      expect(store.redo()).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.sink!.values).toEqual({ amount: expectedAmount })
+    }
+  })
+
+  it('preserves selected connected cases and their chains after peer disconnection', () => {
+    const localSchemas: Record<string, NodeSchema> = {
+      Producer: schemaOf('Producer', []),
+      ConnectedSink: schemaOf('ConnectedSink', [widgetInput('amount', 3)]),
+      DisconnectedSink: schemaOf('DisconnectedSink', [widgetInput('amount', 5)]),
+      FinalSink: schemaOf('FinalSink', [widgetInput('amount', 7)]),
+    }
+    const localResolve = (type: string) => localSchemas[type]
+    const rules: ReplacementRule[] = [
+      { from: 'PreviousProducer', cases: [{ to: 'Producer' }] },
+      { from: 'PreviousSink', cases: [
+        { when: { kind: 'inputConnected', input: 'legacy' }, to: 'ConnectedSink', inputs: { amount: { kind: 'constant', value: 29 } } },
+        { to: 'DisconnectedSink', inputs: { amount: { kind: 'constant', value: 97 } } },
+      ] },
+      { from: 'ConnectedSink', cases: [{ to: 'FinalSink', inputs: { amount: { kind: 'copy', input: 'amount' } } }] },
+    ]
+    for (const producerFirst of [false, true]) {
+      const producer = node('producer', 'PreviousProducer')
+      const sink = node('sink', 'PreviousSink')
+      const d = doc({ g0: graph({ id: 'g0', nodes: producerFirst ? { producer, sink } : { sink, producer },
+        links: { shared: link('shared', port('producer', 'out'), port('sink', 'legacy')) },
+      }) })
+      const items = scanReplacements(d, registryWith(...rules), localResolve)
+      expect(items.find((item) => item.nodeId === 'sink')!.hops).toHaveLength(2)
+      const invocation = replacementInvocation(items, d, localResolve)
+      expect(invocation).toBeDefined()
+      const store = new DocumentStore(d, coreCommandRegistry())
+      expect(store.dispatch(invocation!).ok).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.sink).toMatchObject({ type: 'FinalSink', values: { amount: 29 } })
+      expect(store.doc.graphs.g0!.links).toEqual({})
+      expect(store.revision).toBe(1)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(d)
       expect(store.redo()).toBe(true)
       expect(store.doc.graphs.g0!.nodes.sink!.values).toEqual({ amount: 29 })
     }
