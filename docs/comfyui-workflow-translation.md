@@ -29,6 +29,13 @@ ordinary. The status bar's Review upgrades toggle opts out for subsequent
 opens and enables migration badges, plan diagnostics and manual apply.
 Schema-arrival diagnostics and legacy boolean normalization remain;
 deprecation pointers alone do not authorize graph edits.
+Count-bound output-family copies can upgrade an absent predecessor schema:
+the rule must copy a stored literal count unchanged into the target count
+input. The target schema admits the canonical ordered members; linked,
+invalid or out-of-range counts refuse planning, and later count or endpoint
+changes invalidate the plan. When present, the predecessor schema also
+validates the source family and its count input. Input-family copies still
+require the source template layout.
 The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses
 only exact registered node IDs; historical node alias metadata is not a lookup

@@ -1514,7 +1514,7 @@ describe('output family replacement', () => {
     }],
   }
 
-  it('copies ordered output members and atomically preserves links and named nets', () => {
+  it.each([false, true])('copies output members with predecessor schema available=%s and preserves links and nets', (available) => {
     const original = doc({
       g0: graph({
         id: 'g0',
@@ -1530,7 +1530,8 @@ describe('output family replacement', () => {
         },
       }),
     })
-    const planned = planReplacement(original, 'g0', 'old', copyRule, outputResolve)
+    const resolve = (type: string) => type === 'FamilyOutputOld' && !available ? undefined : outputResolve(type)
+    const planned = planReplacement(original, 'g0', 'old', copyRule, resolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.values).toEqual({ quantity: 2 })
     expect(planned.plan?.sourceCountGuards).toEqual({ count: 2 })
@@ -1558,6 +1559,32 @@ describe('output family replacement', () => {
     expect(store.doc).toEqual(original)
     expect(store.redo()).toBe(true)
     expect(store.doc.graphs.g0!.links.linked!.from).toEqual(mport('old', 'items', '0'))
+  })
+
+  it('requires an unchanged, admitted literal count when copying without a predecessor schema', () => {
+    const resolve = (type: string) => type === 'FamilyOutputOld' ? undefined : outputResolve(type)
+    for (const count of [-1, 1.5, '2', 513]) {
+      const original = doc({ g0: graph({
+        id: 'g0', nodes: { old: node('old', 'FamilyOutputOld', { count }) },
+      }) })
+      expect(planReplacement(original, 'g0', 'old', copyRule, resolve).plan).toBeUndefined()
+    }
+    const original = doc({ g0: graph({
+      id: 'g0', nodes: { old: node('old', 'FamilyOutputOld', { count: 0 }) },
+    }) })
+    const planned = planReplacement(original, 'g0', 'old', copyRule, resolve)
+    expect(planned.diagnostics).toEqual([])
+    expect(planned.plan?.values).toEqual({ quantity: 0 })
+    expect(planned.plan?.sourceCountGuards).toEqual({ count: 0 })
+    const transformed: ReplacementRule = {
+      ...copyRule,
+      cases: [{
+        ...copyRule.cases[0]!,
+        inputs: { quantity: { kind: 'constant', value: 0 } },
+      }],
+    }
+    expect(planReplacement(original, 'g0', 'old', transformed, resolve).diagnostics)
+      .toContainEqual(expect.objectContaining({ code: 'replace.outputFamily.countMapping' }))
   })
 
   it('maps ordinary source outputs to explicit canonical target members', () => {
@@ -1646,7 +1673,8 @@ describe('output family replacement', () => {
     expect(staleNetStore.doc).toEqual(staleNet)
   })
 
-  it('fails closed for linked source counts and stale member endpoints', () => {
+  it.each([false, true])('rejects linked counts and stale endpoints with predecessor schema available=%s', (available) => {
+    const resolve = (type: string) => type === 'FamilyOutputOld' && !available ? undefined : outputResolve(type)
     const linkedCount = doc({
       g0: graph({
         id: 'g0',
@@ -1661,7 +1689,7 @@ describe('output family replacement', () => {
         },
       }),
     })
-    const rejected = planReplacement(linkedCount, 'g0', 'old', copyRule, outputResolve)
+    const rejected = planReplacement(linkedCount, 'g0', 'old', copyRule, resolve)
     expect(rejected.plan).toBeUndefined()
     expect(rejected.diagnostics).toContainEqual(expect.objectContaining({
       code: 'replace.source.outputFamilyInvalid',
@@ -1674,7 +1702,7 @@ describe('output family replacement', () => {
         links: { result: link('result', mport('old', 'results', '0'), port('dst', 'in')) },
       }),
     })
-    const plan = planReplacement(original, 'g0', 'old', copyRule, outputResolve).plan!
+    const plan = planReplacement(original, 'g0', 'old', copyRule, resolve).plan!
     expect(plan.sourceCountGuards).toEqual({ count: 2 })
     const baseGraph = original.graphs.g0!
     const stale = {

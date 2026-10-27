@@ -17,8 +17,8 @@
  * document state, so a rule can upgrade a missing-node placeholder. When a
  * source schema is available, locally-enumerated combo values are validated
  * before case selection so a malformed selector cannot fall into a rule's
- * fallback case. Count-bound output-family copies additionally require the
- * source schema because their exact member set must be elaborated.
+ * fallback case. Without a source schema, count-bound output-family copies
+ * use the rule's unchanged count mapping and the target's canonical members.
  */
 
 import { createTransactionBuilder, type CommandInvocation } from '../commands/contract.js'
@@ -1620,7 +1620,7 @@ function planReplacementForCase(
       const sourceFamily = sourceSchema === undefined
         ? undefined
         : countOutputFamily(sourceSchema, mapping.sourceFamily)
-      if (sourceFamily === undefined) {
+      if (sourceSchema !== undefined && sourceFamily === undefined) {
         errors.push(
           diag(
             'error',
@@ -1633,23 +1633,29 @@ function planReplacementForCase(
       if (
         countMapping === undefined ||
         (countMapping.kind !== 'copy' && countMapping.kind !== 'value') ||
-        countMapping.input !== sourceFamily.spec.count.input ||
+        (sourceFamily !== undefined && countMapping.input !== sourceFamily.spec.count.input) ||
         (countMapping.kind === 'value' && countMapping.transform !== undefined)
       ) {
         errors.push(
           diag(
             'error',
             'replace.outputFamily.countMapping',
-            `replace: copied output family '${targetFamilyId}' must copy source count input '${sourceFamily.spec.count.input}' unchanged into '${targetCountInput}'`,
+            `replace: copied output family '${targetFamilyId}' must copy ${sourceFamily === undefined ? 'a source count input' : `source count input '${sourceFamily.spec.count.input}'`} unchanged into '${targetCountInput}'`,
           ),
         )
         continue
       }
-      const elaborated = sourceInterface()
+      const sourceCountInput = countMapping.input
+      const elaborated = sourceSchema === undefined
+        ? elaborateInterface(target, { values, dynamic }, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+        : sourceInterface()
+      const sourceMembers = elaborated?.outputMembers?.[sourceSchema === undefined ? targetFamilyId : mapping.sourceFamily]
       if (
         elaborated === undefined ||
         elaborated.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
-        elaborated.outputMembers?.[mapping.sourceFamily] === undefined
+        sourceMembers === undefined ||
+        isConnected(state, sourceCountInput) ||
+        (sourceSchema === undefined && sourceMembers.length !== node.values[sourceCountInput])
       ) {
         errors.push(
           diag(
@@ -1660,7 +1666,7 @@ function planReplacementForCase(
         )
         continue
       }
-      members = elaborated.outputMembers[mapping.sourceFamily]!
+      members = sourceMembers
       if (sourceFamilyToTarget.has(mapping.sourceFamily)) {
         errors.push(
           diag(
@@ -1675,7 +1681,7 @@ function planReplacementForCase(
         target: { nodeId, port: targetFamilyId, schema: target },
         members: new Set(members),
       })
-      sourceCountGuards[sourceFamily.spec.count.input] = node.values[sourceFamily.spec.count.input]!
+      sourceCountGuards[sourceCountInput] = node.values[sourceCountInput]!
     } else {
       members = mapping.members.map((member) => member.suffix)
       if (
