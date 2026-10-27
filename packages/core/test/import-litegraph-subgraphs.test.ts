@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile/compile.js'
+import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { Json, JsonObject, WorkflowDocument } from '../src/format/document.js'
@@ -143,11 +144,18 @@ describe('LiteGraph subgraphs', () => {
     expect(result.document!.graphs['inner']!.nodes.n1!.type).toBe('Relay')
   })
 
-  it('preserves nested input junction boundaries without inlining shared definitions', () => {
+  it.each([false, true])('preserves nested input junction boundaries without inlining shared definitions (linked: %s)', (linked) => {
     const outer = { ...definition('outer'), nodes: [instance(1), { id: 2, type: 'Reroute',
       inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] }],
     links: [link(1, -10, 0, 2, 0), link(2, 2, 0, 1, 0), link(3, 1, 0, -20, 0)] }
-    const raw = { nodes: [instance(1, 'outer'), instance(2, 'outer', 31)], links: [], definitions: { subgraphs: [outer, definition()] } }
+    const raw = { nodes: [
+      { ...instance(1, 'outer'), inputs: [{ name: 'value', widget: { name: 'value' }, link: linked ? 10 : null }] },
+      { ...instance(2, 'outer', 31), inputs: [{ name: 'value', widget: { name: 'value' }, link: linked ? 20 : null }] },
+      ...(linked ? [
+        { ...relay(7), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [37] },
+        { ...relay(8), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [53] },
+      ] : []),
+    ], links: linked ? [link(10, 7, 0, 1, 0), link(20, 8, 0, 2, 0)] : [], definitions: { subgraphs: [outer, definition()] } }
     const result = importLitegraph(raw as unknown as JsonObject, resolve)
     expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
     expect(Object.keys(result.document!.graphs).sort()).toEqual(['g0', 'inner', 'outer'])
@@ -156,6 +164,11 @@ describe('LiteGraph subgraphs', () => {
       expect.objectContaining({ from: { reroute: 'r2' }, to: { node: 'n1', port: 'in' } }),
     ])
     expect(result.diagnostics.map((item) => item.code)).not.toContain('import.subgraphs.inlined')
+    expect(result.document!.graphs.g0!.nodes.n1!.values).toEqual({ in: 19 })
+    expect(result.document!.graphs.g0!.nodes.n2!.values).toEqual({ in: 31 })
+    const compiled = prompt(result.document!)
+    expect(compiled['n1.n1.n1']!.inputs.value).toEqual(linked ? ['n7', 0] : 19)
+    expect(compiled['n2.n1.n1']!.inputs.value).toEqual(linked ? ['n8', 0] : 31)
   })
 
   it('resolves output reroute chains while preserving unrelated internal links', () => {
@@ -182,7 +195,7 @@ describe('LiteGraph subgraphs', () => {
     expect(compiled.n9!.inputs.value).toEqual(['n1.n2', 0])
   })
 
-  it('preserves input boundary reroute fanout and occurrence-specific upstream drivers', () => {
+  it.each([false, true])('preserves input boundary reroute fanout and occurrence-specific upstream drivers (linked: %s)', (linked) => {
     const def = { ...definition(), nodes: [
       { ...relay(), inputs: [{ name: 'value', widget: { name: 'value' }, link: 3 }] },
       { ...relay(2), inputs: [{ name: 'value', widget: { name: 'value' }, link: 4 }] },
@@ -193,9 +206,9 @@ describe('LiteGraph subgraphs', () => {
     const sourceA = { ...relay(7), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [37] }
     const sourceB = { ...relay(8), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [53] }
     const doc = imported({ nodes: [sourceA, sourceB,
-      { ...instance(10), inputs: [{ name: 'value', link: 10 }] },
-      { ...instance(20), inputs: [{ name: 'value', link: 20 }] },
-    ], links: [link(10, 7, 0, 10, 0), link(20, 8, 0, 20, 0)], definitions: { subgraphs: [def] } })
+      { ...instance(10), inputs: [{ name: 'value', link: linked ? 10 : null }] },
+      { ...instance(20, 'inner', 31), inputs: [{ name: 'value', link: linked ? 20 : null }] },
+    ], links: linked ? [link(10, 7, 0, 10, 0), link(20, 8, 0, 20, 0)] : [], definitions: { subgraphs: [def] } })
     expect(Object.keys(doc.graphs.inner!.nodes)).toEqual(['n1', 'n2'])
     expect(Object.keys(doc.graphs.inner!.reroutes)).toEqual(['r3', 'r4'])
     expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
@@ -206,23 +219,43 @@ describe('LiteGraph subgraphs', () => {
     expect(doc.view.graphs.inner!.reroutes).toEqual({
       r3: { position: { x: 110, y: 210 } }, r4: { position: { x: 310, y: 410 } },
     })
-    expect(Object.values(doc.graphs.g0!.links).map(({ from, to }) => ({ from, to }))).toEqual([
+    expect(Object.values(doc.graphs.g0!.links).map(({ from, to }) => ({ from, to }))).toEqual(linked ? [
       { from: { node: 'n7', port: 'result' }, to: { node: 'n10', port: 'in' } },
       { from: { node: 'n8', port: 'result' }, to: { node: 'n20', port: 'in' } },
-    ])
+    ] : [])
     const before = JSON.stringify(doc)
     const compiled = prompt(doc)
     expect(compiled.n7!.inputs.value).toBe(37)
     expect(compiled.n8!.inputs.value).toBe(53)
     for (const innerNode of ['n1', 'n2']) {
-      expect(compiled[`n10.${innerNode}`]!.inputs.value).toEqual(['n7', 0])
-      expect(compiled[`n20.${innerNode}`]!.inputs.value).toEqual(['n8', 0])
+      expect(compiled[`n10.${innerNode}`]!.inputs.value).toEqual(linked ? ['n7', 0] : 19)
+      expect(compiled[`n20.${innerNode}`]!.inputs.value).toEqual(linked ? ['n8', 0] : 31)
     }
     expect(Object.keys(compiled).sort()).toEqual(['n10.n1', 'n10.n2', 'n20.n1', 'n20.n2', 'n7', 'n8'])
     expect(JSON.stringify(doc)).toBe(before)
     const reopened = loadDocument(JSON.parse(before)).document!
     expect(reopened).toEqual(doc)
     expect(prompt(reopened)).toEqual(compiled)
+    if (linked) {
+      const owner = { instancePath: [], node: doc.graphs.g0!.nodes.n10!.id }
+      const topology = effectiveOccurrenceTopology(doc, resolve, owner)
+      expect(topology.diagnostics).toEqual([])
+      expect(topology.projectedParentLinks).toHaveLength(1)
+      expect(topology.projectedParentLinks[0]!.to.endpoint).toEqual({ reroute: 'r3' })
+      const identity = topology.projectedParentLinks[0]!.identity
+      expect(identity.kind).toBe('parentLeg')
+      if (identity.kind !== 'parentLeg') throw new Error('missing projected parent identity')
+      const suppressed: WorkflowDocument = { ...doc, occurrenceTopologies: {
+        n10: { owner, bodyGraph: doc.graphs.inner!.id, links: {}, nextOrdinal: 0,
+          suppressedDeliveries: [{ kind: 'projectedLeg', delivery: identity.delivery, route: identity.route }] },
+      } }
+      expect(loadDocument(suppressed).document).toEqual(suppressed)
+      const isolated = prompt(suppressed)
+      for (const innerNode of ['n1', 'n2']) {
+        expect(isolated[`n10.${innerNode}`]!.inputs.value).toBe(19)
+        expect(isolated[`n20.${innerNode}`]!.inputs.value).toEqual(['n8', 0])
+      }
+    }
   })
 
   it('refuses an output reroute cycle without choosing a producer', () => {

@@ -571,6 +571,7 @@ function compileImpl(
     readonly delivery?: ParentDeliveryIdentity
   }
   const topologyCache = new Map<string, readonly TopologyConnection[]>()
+  const projectedRerouteDrivers = new Map<string, ReadonlyMap<string, LocatedDriver>>()
   const topologyFor = (path: readonly NodeId[], defId: GraphDefId): readonly TopologyConnection[] => {
     const key = topologyKey(path, defId)
     const cached = topologyCache.get(key)
@@ -596,6 +597,10 @@ function compileImpl(
       const owner: Occurrence = { instancePath: path.slice(0, -1), node: path[path.length - 1]! }
       const effective = effectiveOccurrenceTopology(doc, input.resolve, owner)
       diags.push(...effective.diagnostics)
+      projectedRerouteDrivers.set(key, new Map(effective.projectedParentLinks.flatMap((link) =>
+        link.to.graphId === defId && isRerouteRef(link.to.endpoint)
+          ? [[link.to.endpoint.reroute, { endpoint: link.from.endpoint, path: link.from.instancePath, defId: link.from.graphId }] as const]
+          : [])))
       for (const link of effective.links) {
         const delivery: ParentDeliveryIdentity | undefined = link.identity.kind === 'definition'
           ? { kind: 'link', graph: link.identity.graphId, linkId: link.identity.linkId }
@@ -1394,13 +1399,8 @@ function compileImpl(
             viaFor?.(at.defId).reroutes.add(endpoint.reroute)
             const driver = rerouteDriverOf(def, endpoint.reroute, index)
             if (driver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: at.path, defId: at.defId, endpoint: driver.from } }] }
-            const boundary = def.boundary?.inputs.find((item) => item.binds.viaReroute === endpoint.reroute)
-            if (boundary && at.path.length > 0) {
-              const parentPath = at.path.slice(0, -1)
-              const parent = occCtxByPath.get(pathKey(parentPath))
-              const input = parent && driverOfInput(parentPath, parent.defId, at.path[at.path.length - 1]!, { port: boundary.id as PortRef['port'] })
-              if (input) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: input.path, defId: input.defId, endpoint: input.endpoint } }] }
-            }
+            const projected = projectedRerouteDrivers.get(topologyKey(at.path, at.defId))?.get(endpoint.reroute)
+            if (projected) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', ...projected } }] }
             if (selectedProjection === 'exact') sink.push(diag('warning', 'compile', 'compile.reroute.undriven', `reroute '${endpoint.reroute}' in graph '${at.defId}' has no driver; route omitted`))
             return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `reroute '${endpoint.reroute}' is undriven` } }] }
           }
@@ -1706,7 +1706,7 @@ function compileImpl(
             : (rerouteInputTargets(child, match.item.binds.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
           for (const binding of bindings) {
             if (binding.kind === 'widgetTap') continue
-            const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding }]
+            const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding: match.item.binds.viaReroute === undefined ? binding : match.item.binds }]
             if (routeIsSuppressed(childPath, projected.delivery, route)) continue
             let list = childCtx.extraIn.get(binding.node)
             if (!list) childCtx.extraIn.set(binding.node, (list = []))

@@ -476,7 +476,11 @@ export function importLitegraphSubgraphs(
       const primary = bindings[0]!
       const rawLink = def.raw['links'].find((link: any[]) => link[1] === def.inputNode && link[2] === index)
       const target = rawLink && def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(rawLink[3]))
-      const promoted = side === 'inputs' && Boolean(target?.['inputs']?.[rawLink[4]]?.['widget'])
+      const authority = nativeBody.nodes[primary.node]
+      const authoritySchema = authority && localResolve(authority.type)
+      const promoted = side === 'inputs' && (primary.viaReroute === undefined
+        ? Boolean(target?.['inputs']?.[rawLink[4]]?.['widget'])
+        : authoritySchema !== undefined && inputsOf(authoritySchema).some((input) => input.id === primary.port && input.widget !== undefined))
       return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: primary,
         ...(bindings.length > 1 ? { alsoBinds: bindings.slice(1) as BoundaryBinding[] } : {}),
         ...(promoted ? { promoted: true } : {}),
