@@ -332,11 +332,17 @@ const NUMBER_DISPLAY_MODES: ReadonlySet<string> = new Set(['number', 'slider', '
 
 const WIDGET_REPRESENTATION_ID = /^[A-Za-z0-9_-]+$/
 
-function rejectUnknownWidgetFields(descriptor: Record<string, unknown>, allowed: readonly string[], where: string): void {
+function checkWidgetFields(descriptor: Record<string, unknown>, allowed: readonly string[], where: string, diags?: Diagnostic[]): void {
   const unknown = Object.keys(descriptor)
     .filter((key) => !allowed.includes(key))
     .sort()
-  if (unknown.length > 0) throw new Error(`${where} has unknown fields: ${unknown.join(', ')}`)
+  if (diags === undefined) {
+    if (unknown.length > 0) throw new Error(`${where} has unknown fields: ${unknown.join(', ')}`)
+    return
+  }
+  for (const field of unknown) {
+    diags.push(diag('warning', 'schema', 'schema.widget.unknownField', `${where}: unknown field '${field}'`))
+  }
 }
 
 function validateComboOption(value: unknown, where: string): void {
@@ -345,7 +351,7 @@ function validateComboOption(value: unknown, where: string): void {
     throw new Error(`${where} must be a non-empty string or structured choice`)
   }
   const option = value as Record<string, unknown>
-  rejectUnknownWidgetFields(option, ['value', 'label', 'info', 'folder'], where)
+  checkWidgetFields(option, ['value', 'label', 'info', 'folder'], where)
   if (typeof option['value'] !== 'string' || option['value'] === '') {
     throw new Error(`${where}.value must be a non-empty string`)
   }
@@ -370,7 +376,7 @@ function decodeTextCompletions(value: unknown, where: string): TextCompletionsSp
     throw new Error(`${where} must be an object`)
   }
   const raw = value as Record<string, unknown>
-  rejectUnknownWidgetFields(raw, ['items', 'inputFamilies'], where)
+  checkWidgetFields(raw, ['items', 'inputFamilies'], where)
   const rawItems = raw['items'] ?? []
   const rawFamilies = raw['inputFamilies'] ?? []
   if (!Array.isArray(rawItems)) throw new Error(`${where}.items must be an array`)
@@ -384,7 +390,7 @@ function decodeTextCompletions(value: unknown, where: string): TextCompletionsSp
       throw new Error(`${itemWhere} must be an object`)
     }
     const item = value as Record<string, unknown>
-    rejectUnknownWidgetFields(item, ['value', 'label', 'insertText', 'detail', 'kind'], itemWhere)
+    checkWidgetFields(item, ['value', 'label', 'insertText', 'detail', 'kind'], itemWhere)
     if (typeof item['value'] !== 'string' || item['value'] === '') {
       throw new Error(`${itemWhere}.value must be a non-empty string`)
     }
@@ -412,10 +418,10 @@ function decodeTextCompletions(value: unknown, where: string): TextCompletionsSp
   return { items, inputFamilies: rawFamilies as string[] }
 }
 
-function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, where: string): void {
+function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, where: string, diags: Diagnostic[]): void {
   switch (descriptor['type']) {
     case 'ASSET':
-      rejectUnknownWidgetFields(descriptor, ['type', 'accept', 'kind', 'allowUpload', 'selection'], where)
+      checkWidgetFields(descriptor, ['type', 'accept', 'kind', 'allowUpload', 'selection'], where, diags)
       if (!Array.isArray(descriptor['accept']) || !descriptor['accept'].every((value) => typeof value === 'string' && value !== '')) {
         throw new Error(`${where}.accept must be an array of non-empty strings`)
       }
@@ -434,7 +440,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'SAVE_TARGET':
-      rejectUnknownWidgetFields(descriptor, ['type', 'suffix'], where)
+      checkWidgetFields(descriptor, ['type', 'suffix'], where, diags)
       if (descriptor['suffix'] !== undefined && typeof descriptor['suffix'] !== 'string') {
         throw new Error(`${where}.suffix must be a string`)
       }
@@ -447,7 +453,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'COMBO': {
-      rejectUnknownWidgetFields(descriptor, ['type', 'options', 'remote', 'controlAfterGenerate', 'optionSource'], where)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'controlAfterGenerate', 'optionSource'], where, diags)
       const options = descriptor['options']
       if (options !== undefined) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
@@ -459,7 +465,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote must be an object`)
         }
         const remoteObject = remote as Record<string, unknown>
-        rejectUnknownWidgetFields(remoteObject, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
+        checkWidgetFields(remoteObject, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
         if (typeof remoteObject['route'] !== 'string' || !remoteObject['route'].startsWith('/')) {
           throw new Error(`${where}.remote.route must start with '/'`)
         }
@@ -473,7 +479,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.optionSource must be an object`)
         }
         const source = optionSource as Record<string, unknown>
-        rejectUnknownWidgetFields(source, ['inputFamily'], `${where}.optionSource`)
+        checkWidgetFields(source, ['inputFamily'], `${where}.optionSource`)
         if (typeof source['inputFamily'] !== 'string' || source['inputFamily'] === '') {
           throw new Error(`${where}.optionSource.inputFamily must be a non-empty string`)
         }
@@ -484,7 +490,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       return
     }
     case 'MULTI_COMBO': {
-      rejectUnknownWidgetFields(descriptor, ['type', 'options', 'remote', 'placeholder', 'chip'], where)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'placeholder', 'chip'], where, diags)
       const options = descriptor['options']
       if (options !== undefined) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
@@ -496,7 +502,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote must be an object`)
         }
         const r = remote as Record<string, unknown>
-        rejectUnknownWidgetFields(r, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
+        checkWidgetFields(r, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
         if (typeof r['route'] !== 'string' || !/^\/api\/choices\/[A-Za-z0-9._-]+$/.test(r['route'])) {
           throw new Error(`${where}.remote.route must be /api/choices/{choice_id}`)
         }
@@ -510,7 +516,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       return
     }
     case 'BOOLEAN':
-      rejectUnknownWidgetFields(descriptor, ['type', 'labelOn', 'labelOff'], where)
+      checkWidgetFields(descriptor, ['type', 'labelOn', 'labelOff'], where, diags)
       for (const key of ['labelOn', 'labelOff']) {
         if (descriptor[key] !== undefined && typeof descriptor[key] !== 'string') {
           throw new Error(`${where}.${key} must be a string`)
@@ -521,7 +527,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'NUMBER':
-      rejectUnknownWidgetFields(descriptor, ['type', 'min', 'max', 'step', 'controlAfterGenerate', 'display', 'round'], where)
+      checkWidgetFields(descriptor, ['type', 'min', 'max', 'step', 'controlAfterGenerate', 'display', 'round'], where, diags)
       for (const key of ['min', 'max', 'step']) {
         const value = descriptor[key]
         const finiteNumber = typeof value === 'number' && Number.isFinite(value)
@@ -565,7 +571,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'STRING':
-      rejectUnknownWidgetFields(descriptor, ['type', 'multiline', 'placeholder', 'dynamicPrompts', 'completions'], where)
+      checkWidgetFields(descriptor, ['type', 'multiline', 'placeholder', 'dynamicPrompts', 'completions'], where, diags)
       if (descriptor['multiline'] !== undefined && typeof descriptor['multiline'] !== 'boolean') {
         throw new Error(`${where}.multiline must be a boolean`)
       }
@@ -582,13 +588,13 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where} requires a presentation field`)
       return
     case 'COLOR':
-      rejectUnknownWidgetFields(descriptor, ['type'], where)
+      checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      rejectUnknownWidgetFields(descriptor, ['type'], where)
+      checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'COMPOSITOR':
-      rejectUnknownWidgetFields(descriptor, ['type'], where)
+      checkWidgetFields(descriptor, ['type'], where, diags)
       return
     default:
       if (typeof descriptor['type'] !== 'string' || descriptor['type'] === '') {
@@ -756,7 +762,7 @@ function widgetFor(
     if (descriptor.type === 'REPRESENTATIONS') {
       if (!representationsAllowed) throw new Error(`${nodeType}.${id}: nested widget representations are forbidden`)
       const raw = wire as Record<string, unknown>
-      rejectUnknownWidgetFields(raw, ['type', 'default', 'userSwitchable', 'representations'], `${nodeType}.${id} REPRESENTATIONS widget`)
+      checkWidgetFields(raw, ['type', 'default', 'userSwitchable', 'representations'], `${nodeType}.${id} REPRESENTATIONS widget`, diags)
       if (typeof raw['default'] !== 'string') throw new Error(`${nodeType}.${id}: representation default must be a string`)
       if (typeof raw['userSwitchable'] !== 'boolean') throw new Error(`${nodeType}.${id}: representation userSwitchable must be a boolean`)
       if (!Array.isArray(raw['representations']) || raw['representations'].length === 0) {
@@ -769,7 +775,7 @@ function widgetFor(
           throw new Error(`${nodeType}.${id}: representation ${index} must be an object`)
         }
         const representation = value as Record<string, unknown>
-        rejectUnknownWidgetFields(representation, ['id', 'displayName', 'widget'], `${nodeType}.${id} representation ${index}`)
+        checkWidgetFields(representation, ['id', 'displayName', 'widget'], `${nodeType}.${id} representation ${index}`)
         const representationId = representation['id']
         if (typeof representationId !== 'string' || !WIDGET_REPRESENTATION_ID.test(representationId)) {
           throw new Error(`${nodeType}.${id}: representation ${index} id must match [A-Za-z0-9_-]+`)
@@ -808,7 +814,6 @@ function widgetFor(
         },
       }
     }
-    validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`)
     if (type.kind === 'list' && (descriptor.type === 'STRING' || descriptor.type === 'NUMBER')) {
       if (type.element.kind !== 'concrete') throw new Error(`${nodeType}.${id}: list widget requires a concrete primitive element`)
       // Decode the element through the same scalar binding and precision rules.
@@ -822,6 +827,7 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
+    validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`, diags)
     validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`, forceInput)
     if (descriptor.type === 'ASSET' && Array.isArray(descriptor.accept) && descriptor.accept.every((v) => typeof v === 'string')) {
       let kind: string | undefined
@@ -1229,7 +1235,7 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
       throw new Error(`${nodeType}.${id}.sourceFilename must be an object`)
     }
     const source = entry.sourceFilename as Record<string, unknown>
-    rejectUnknownWidgetFields(source, ['kind', 'category'], `${nodeType}.${id}.sourceFilename`)
+    checkWidgetFields(source, ['kind', 'category'], `${nodeType}.${id}.sourceFilename`)
     if (
       source['kind'] !== 'media/image' &&
       source['kind'] !== 'media/audio' &&

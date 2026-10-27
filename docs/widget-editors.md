@@ -1,5 +1,14 @@
 # Widget compact controls and expanded editors
 
+## Descriptor fields
+
+An unknown field on a known widget descriptor produces a
+`schema.widget.unknownField` warning naming the node, input and field. The
+decoder ignores that field and keeps the node and its supported widget
+settings. Missing required fields and mistyped known fields still reject the
+node with a schema error. Unknown non-empty widget type names remain custom
+pack descriptors, preserving their JSON parameters for widget-kind lookup.
+
 ## Button actions
 
 BUTTON is stateless, with a null default and the `core.button` view. Its
