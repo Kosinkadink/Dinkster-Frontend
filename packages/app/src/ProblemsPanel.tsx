@@ -60,13 +60,14 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
   ])
   const groups = createMemo<readonly ProblemGroup[]>((previous) => {
     const next = groupProblemDiagnostics([...props.diagnostics(), ...packDiagnostics()], props.app.activeTab()?.store.doc)
-    const unchanged = previous.length === next.length && previous.every((group, index) => {
-      const candidate = next[index]
-      return candidate !== undefined && group.key === candidate.key && group.title === candidate.title &&
-        group.severity === candidate.severity && group.diagnostics.length === candidate.diagnostics.length &&
-        group.diagnostics.every((diagnostic, diagnosticIndex) => diagnostic === candidate.diagnostics[diagnosticIndex])
+    return next.map((group) => {
+      const existing = previous.find((candidate) => candidate.key === group.key)
+      return existing !== undefined && existing.title === group.title &&
+        existing.severity === group.severity && existing.diagnostics.length === group.diagnostics.length &&
+        existing.diagnostics.every((diagnostic, index) => diagnostic === group.diagnostics[index])
+        ? existing
+        : group
     })
-    return unchanged ? previous : next
   }, [])
 
   return (

@@ -31,7 +31,8 @@ icon and a single-line producer message naming the thing and its cause. Expandin
 row reveals the diagnostic code and any debug payload or traceback; hovering
 the summary reveals its complete producer message without repeating the row text.
 Clicking an anchored Problems row also navigates to its owner. Section
-disclosure remains independent of row disclosure.
+disclosure remains independent of row disclosure. Updates in another section
+preserve unchanged rows' disclosure and text selection.
 
 When a queue attempt is refused, a Product error toast repeats the Problems
 indicator summary and lists counts by severity. Show Problems opens the

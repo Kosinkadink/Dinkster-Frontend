@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { createSignal as createSolidSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -101,9 +102,9 @@ describe('ProblemsPanel browser interactions', () => {
       'problems.hint.code': '[Diagnosecode: {code}]',
     })
     const panelDiagnostics = createSignal<readonly Diagnostic[]>(diagnostics)
-    const compatSkips = createSignal([{ packId: 'raw-pack', nodeId: 'RawNode', reason: 'raw refusal reason' }])
+    const [compatSkips, setCompatSkips] = createSolidSignal([{ packId: 'raw-pack', nodeId: 'RawNode', reason: 'raw refusal reason' }])
     const shown: Diagnostic[] = []
-    const { root, unmount } = mountPanel((diagnostic) => shown.push(diagnostic), panelDiagnostics.get, compatSkips.get)
+    const { root, unmount } = mountPanel((diagnostic) => shown.push(diagnostic), panelDiagnostics.get, compatSkips)
     const panel = root.querySelector<HTMLElement>('[data-testid="problems-panel"]')!
     const group = root.querySelector<HTMLElement>('.problems-group')!
     const details = root.querySelector<HTMLDetailsElement>('details.problem')!
@@ -130,6 +131,11 @@ describe('ProblemsPanel browser interactions', () => {
     expect(root.querySelector('.runtime-error-hint')).toBe(hint)
     expect(details.open).toBe(true)
     expect(shown).toEqual([])
+
+    setCompatSkips([{ packId: 'updated-pack', nodeId: 'UpdatedNode', reason: 'updated refusal reason' }])
+    expect(root.textContent).toContain('updated refusal reason')
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    expect(root.querySelector('.runtime-error-hint')!.textContent).toContain('Select this complete repair hint')
 
     unmount()
     document.body.replaceChildren()
