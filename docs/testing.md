@@ -97,8 +97,12 @@ gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <
 The dispatch ref selects both the workflow and frontend checkout. Main pushes,
 scheduled runs, called runs, and dispatched runs all use the complete matrix.
 Parallel-safe runs as six shards, backend-serial as two, and native-without-V1
-as three so each job fits the 20-minute main budget. The software Vulkan check
-stays on backend-serial 1/2. All 13 E2E lanes may run concurrently on
+as three so each job fits the 20-minute main budget. Every E2E lane installs
+and checks the software Vulkan driver selected by `VK_DRIVER_FILES`, including
+browser WebGL and native headless rendering. Legacy import, link-drop, and
+palette-filter specs run in parallel-safe, where their V1 fixture exists,
+rather than replaying that fixture against the native-only catalog.
+All 13 E2E lanes may run concurrently on
 GitHub-hosted Linux. The jobs retain their existing assertions and dependency
 pins:
 
