@@ -27,7 +27,7 @@ import { checkDocument } from '../src/invariants.js'
 import { isReplacementRule, type ReplacementRule } from '../src/replace/model.js'
 import { planReplacement, type NodeReplacePlan } from '../src/replace/plan.js'
 import { createReplacementRegistry } from '../src/replace/registry.js'
-import { REPLACEMENT_CHAIN_LIMIT, registerSchemaRules, replacementInvocation, scanReplacements } from '../src/replace/scan.js'
+import { REPLACEMENT_CHAIN_LIMIT, replacementInvocation, scanReplacements } from '../src/replace/scan.js'
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 // ---------------------------------------------------------------------------
@@ -2822,25 +2822,6 @@ describe('node.replace', () => {
 // ---------------------------------------------------------------------------
 // Scan + apply orchestration
 // ---------------------------------------------------------------------------
-
-describe('registerSchemaRules', () => {
-  it('registers schema-shipped rules at the schema layer', () => {
-    const reg = createReplacementRegistry()
-    const successor: NodeSchema = { ...schemas.NewNode!, replacements: [basicRule] }
-    expect(registerSchemaRules(reg, [successor, schemas.RenamedPorts!])).toEqual([])
-    expect(reg.rulesFor('OldNode')).toEqual([basicRule])
-  })
-
-  it('skips malformed shipped rules, naming the shipping schema', () => {
-    const reg = createReplacementRegistry()
-    const bad = { from: 'X', cases: [] } as unknown as ReplacementRule
-    const successor: NodeSchema = { ...schemas.NewNode!, replacements: [bad, basicRule] }
-    const diags = registerSchemaRules(reg, [successor])
-    expect(diags).toHaveLength(1)
-    expect(diags[0]!.message).toContain("schema 'NewNode'")
-    expect(reg.rulesFor('OldNode')).toEqual([basicRule]) // good rule still lands
-  })
-})
 
 describe('scanReplacements', () => {
   function registryWith(...rules: ReplacementRule[]) {

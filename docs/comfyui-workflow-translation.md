@@ -7,8 +7,9 @@ an alias review cohort. Authored nodes and topology remain in the imported
 document. Classes absent from the registry remain unresolved and are reported
 as missing; a carrier catalog does not make them executable.
 Historical alias and group snapshots also supply no post-open replacement
-rules, source schemas, or asset lookup authority. Native schema decoding also
-ignores historical replacement-rule payloads. Explicitly registered rules
+rules, source schemas, or asset lookup authority. Schema discovery ignores
+embedded replacement-rule payloads, including constructed registries; the
+normalized schema model exposes no executable rules. Explicitly registered rules
 retain their own upgrade flow; deprecation pointers are display metadata only.
 The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses

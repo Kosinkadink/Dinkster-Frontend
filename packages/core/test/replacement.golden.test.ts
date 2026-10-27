@@ -121,8 +121,7 @@ describe('vocabulary golden: explicit rules', () => {
   it('native schema decoding ignores historical rules', () => {
     for (const g of [vocabulary, chain, combo]) {
       for (const wire of g.raw) {
-        const decoded = g.schemas.get(String(wire.nodeType))!.replacements
-        expect(decoded).toBeUndefined()
+        expect(g.schemas.get(String(wire.nodeType))).not.toHaveProperty('replacements')
       }
     }
   })
@@ -132,8 +131,8 @@ describe('vocabulary golden: explicit rules', () => {
     expect(rules).toHaveLength(1)
     expect(rules[0]!.from).toBe('fixture.legacy')
     expect(rules[0]!.note).toBe('renamed and re-ranged in fixture pack 2.0')
-    expect(schemaOf(vocabulary, 'fixture.legacy').replacements).toBeUndefined()
-    expect(schemaOf(vocabulary, 'fixture.alternate').replacements).toBeUndefined()
+    expect(schemaOf(vocabulary, 'fixture.legacy')).not.toHaveProperty('replacements')
+    expect(schemaOf(vocabulary, 'fixture.alternate')).not.toHaveProperty('replacements')
   })
 
   it('exercises every predicate kind (always spelled as the omitted-when fallback)', () => {
@@ -347,7 +346,7 @@ describe('chain golden: deprecation + visibility + rules on one schema', () => {
     const b = schemaOf(chain, 'fixture.chain-b')
     expect(b.deprecation?.replacement).toBe('fixture.chain-c')
     expect(searchVisibilityOf(b)).toBe('hidden')
-    expect(b.replacements).toBeUndefined()
+    expect(b).not.toHaveProperty('replacements')
     const c = schemaOf(chain, 'fixture.chain-c')
     expect(c.deprecation).toBeUndefined()
     expect(searchVisibilityOf(c)).toBe('normal')

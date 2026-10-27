@@ -12,8 +12,6 @@
  * symmetrically, including dynamic families.
  */
 
-import type { ReplacementRule } from '../replace/model.js'
-
 export type SchemaSource = 'v3' | 'v1' | 'subgraph'
 
 // ---------------------------------------------------------------------------
@@ -999,13 +997,6 @@ export interface NodeSchema {
    * resolution ignores it and accepts only exact registered node IDs.
    */
   readonly aliases?: readonly string[]
-  /**
-   * Replacement rules this schema SHIPS (usually the successor describing
-   * how to migrate its predecessors - each rule's `from` names the source
-   * type, which need not be this schema). Registered at the 'schema' layer
-   * of the replacement registry; see replace/model.ts.
-   */
-  readonly replacements?: readonly ReplacementRule[]
   /** Hidden inputs the compiler must inject (V1 wire names preserved). */
   readonly hidden?: readonly string[]
   /** Optional server-owned document-time branch selector (schema wire 15). */

@@ -102,7 +102,7 @@ function withChoices(slotVariants: Readonly<Record<string, string>>): Replacemen
 
 describe('wire-28 dynamic replacement targets', () => {
   it('keeps explicit historical choices separate from decoded schemas', () => {
-    expect(resolve('fixture.dynamic-modern')!.replacements).toBeUndefined()
+    expect(resolve('fixture.dynamic-modern')).not.toHaveProperty('replacements')
     expect(rule.cases[0]!.slotVariants).toEqual({
       policy: 'tolerance_color',
       'policy.color_source': 'integer',
@@ -282,7 +282,6 @@ describe('wire-28 dynamic replacement targets', () => {
           inputs: [],
         },
       }],
-      replacements: [],
     }
     const requiredResolve = (type: string): NodeSchema | undefined =>
       type === target.type ? target : resolve(type)
@@ -352,7 +351,6 @@ describe('wire-28 dynamic replacement targets', () => {
           inputs: [],
         },
       }],
-      replacements: [],
     }
     const slotResolve = (type: string): NodeSchema | undefined =>
       type === source.type ? source : resolve(type)
@@ -483,7 +481,6 @@ describe('wire-28 dynamic replacement targets', () => {
           inputs: [{ ...template, id: 'invert' }],
         },
       }],
-      replacements: [],
     }
     const openResolve = (type: string): NodeSchema | undefined =>
       type === target.type ? target : resolve(type)

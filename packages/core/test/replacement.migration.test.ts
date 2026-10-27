@@ -183,7 +183,7 @@ function historicalNetDocument(): WorkflowDocument {
 
 describe('wire-28 same-type stored-workflow migration', () => {
   it('keeps seven guarded historical cases separate from native schemas', () => {
-    expect(schema.replacements).toBeUndefined()
+    expect(schema).not.toHaveProperty('replacements')
     expect(rule.migration?.historicalInputs).toContain('color_source')
     expect(rule.cases).toHaveLength(8)
     expect(rule.cases.slice(0, 7).every((candidate) => candidate.when !== undefined)).toBe(true)

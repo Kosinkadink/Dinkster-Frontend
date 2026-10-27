@@ -93,6 +93,28 @@ const nodeType = (tab: Tab, id: string): string | undefined =>
   tab.store.doc.graphs[tab.store.doc.root]!.nodes[id]?.type
 
 describe('auto-upgrade on open', () => {
+  it('ignores embedded replacement metadata in a constructed registry', () => {
+    expect(app.openDocument(docJson('embedded-rules', {
+      old: { type: 'OldEmpty', values: { width: 768, height: 320 } },
+    }), 'T')).toEqual([])
+    const tab = app.activeTab()!
+    const authored = structuredClone(tab.store.doc)
+    const backend = app.backends.get()[0]!
+    const registry = buildSchemaRegistry(backend.id, objectInfo)
+    const successor = {
+      ...registry.schemas.get('EmptyLatentImage')!,
+      replacements: [renameRule],
+    }
+    backend.registry.set({
+      ...registry,
+      schemas: new Map([...registry.schemas, [successor.type, successor]]),
+    })
+    expect(tab.store.doc).toEqual(authored)
+    expect(tab.store.revision).toBe(0)
+    expect(app.scanTabReplacements(tab)).toEqual([])
+    expect(app.problems.get().some((entry) => entry.code === 'replace.applied')).toBe(false)
+  })
+
   it('applies a safe plan when the document opens after schemas arrived', () => {
     loadSchemas()
     const tab = openWithRule(docJson('lin-a', { old: { type: 'OldEmpty', values: { width: 512 } } }))

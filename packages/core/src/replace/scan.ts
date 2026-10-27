@@ -27,38 +27,12 @@ import { createTransactionBuilder, type CommandInvocation } from '../commands/co
 import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
 import type { Diagnostic } from '../diagnostics.js'
 import type { Json, WorkflowDocument } from '../format/document.js'
-import type { NodeSchema } from '../schema/model.js'
 import type { ReplacementRule } from './model.js'
 import { planReplacement, type NodeReplacePlan, type ReplacementSchemaResolver } from './plan.js'
 import type { ReplacementRegistry } from './registry.js'
 
 /** The one command that applies plans - reused here to scratch-apply hops. */
 const nodeReplaceCommand = REPLACE_COMMANDS.find((c) => c.id === 'node.replace')!
-
-// ---------------------------------------------------------------------------
-// Schema-shipped rule collection
-// ---------------------------------------------------------------------------
-
-/**
- * Register every rule the given schemas ship (NodeSchema.replacements) at
- * the 'schema' layer. Malformed rules are skipped with diagnostics naming
- * the shipping schema; call once per registry when a backend's schemas load.
- */
-export function registerSchemaRules(
-  registry: ReplacementRegistry,
-  schemas: Iterable<NodeSchema>,
-): readonly Diagnostic[] {
-  const diags: Diagnostic[] = []
-  for (const schema of schemas) {
-    for (const rule of schema.replacements ?? []) {
-      const rejected = registry.register('schema', rule)
-      diags.push(
-        ...rejected.map((d) => ({ ...d, message: `${d.message} (shipped by schema '${schema.type}')` })),
-      )
-    }
-  }
-  return diags
-}
 
 // ---------------------------------------------------------------------------
 // Document scan

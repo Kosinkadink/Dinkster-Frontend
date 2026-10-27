@@ -71,7 +71,6 @@ import {
   randomNumericValue,
   stepNumericValue,
   subgraphDefIdOf,
-  registerSchemaRules,
   replacementInvocation,
   resetMenuContributions,
   scanReplacements,
@@ -4590,7 +4589,7 @@ export class AppState {
    */
   readonly reviewReplacements: Signal<boolean> = createSignal(false)
 
-  /** Rules registered by packs/extensions; layered under schema rules. */
+  /** Explicit rules registered by packs/extensions. */
   private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
   private extraRulesVersion = 0
   /** Per-SchemaRegistry rule cache. Weak: a refreshed/replaced registry's
@@ -4670,15 +4669,14 @@ export class AppState {
   }
 
   /**
-   * The replacement registry for one backend's schemas: schema-shipped rules
-   * plus pack/core extras, rebuilt when either changes. Registry identity is
-   * the cache key - a refreshed SchemaRegistry gets fresh rules.
+   * Explicit pack/core rules for a backend registry, rebuilt when registrations
+   * change. Schema payloads never publish executable rules.
    */
   private replacementRegistryFor(reg: SchemaRegistry): ReplacementRegistry {
     const cached = this.replacementRegistries.get(reg)
     if (cached && cached.version === this.extraRulesVersion) return cached.registry
     const registry = createReplacementRegistry()
-    const diags = [...registerSchemaRules(registry, reg.schemas.values())]
+    const diags: Diagnostic[] = []
     for (const { layer, rule } of this.extraRules) diags.push(...registry.register(layer, rule))
     this.reportProblems(GLOBAL_PROBLEMS_OWNER, diags)
     this.replacementRegistries.set(reg, { registry, version: this.extraRulesVersion })
