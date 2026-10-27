@@ -13,6 +13,38 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('keeps hidden DynamicCombo selectors presentation-only through import and compile', () => {
+    for (const hidden of [undefined, false, true]) {
+      const result = parseDinksterSchema('HiddenSelector', {
+        outputNode: true,
+        interface: [{ role: 'dynamicCombo', id: 'codec', hidden, options: [
+          { key: 'auto', inputs: [{ role: 'input', id: 'quality', type: concrete('INT'), default: 7 }] },
+          { key: 'custom', inputs: [{ role: 'input', id: 'quality', type: concrete('INT'), default: 13 }] },
+        ] }],
+      })
+      expect(result.diagnostics).toEqual([])
+      expect(inputsOf(result.schema!)[0]!.hidden).toBe(hidden === true ? true : undefined)
+      const resolve = (type: string) => type === 'HiddenSelector' ? result.schema : undefined
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'HiddenSelector', widgets_values: ['custom', 29] }], links: [] }, resolve)
+      const node = imported.document!.graphs.g0!.nodes.n1!
+      expect(node.dynamic?.codec?.selected).toBe('custom')
+      expect(node.values['codec.quality']).toBe(29)
+      const before = JSON.stringify(imported.document)
+      const compiled = compile({ document: imported.document!, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('hidden-selector'), schemaHash: 'hidden-selector' })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('hidden selector compilation failed')
+      expect(compiled.artifact.prompt.n1!.inputs).toEqual({ codec: 'custom', 'codec.quality': 29 })
+      expect(JSON.stringify(imported.document)).toBe(before)
+    }
+    for (const hidden of [null, 0, 'true', {}]) {
+      const result = parseDinksterSchema('InvalidHiddenSelector', { interface: [
+        { role: 'dynamicCombo', id: 'codec', hidden, options: [{ key: 'auto', inputs: [] }] },
+      ] })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics[0]?.message).toContain('hidden')
+    }
+  })
+
   it('ignores historical replacement rules without losing ordinary schema metadata', () => {
     const wire = {
       outputNode: true,

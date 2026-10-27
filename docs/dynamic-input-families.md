@@ -5,6 +5,12 @@ They can use positional prefixes, fixed names such as `a` through `z`, grouped
 rows with multiple inputs per member, or families nested inside a selected
 mode.
 
+DynamicCombo selectors accept an optional `hidden` presentation flag, defaulting
+to false. A hidden selector has no authoring row or incoming socket; its saved
+selection and active branch values still compile and survive save/reopen.
+Branch inputs retain their own visibility flags: hiding the selector does not
+hide its descendants.
+
 Fresh nodes persist every required minimum member when they are placed. While
 another member is available, the canvas shows one ghost member as the growth
 target. Prefix families place it last, while named families offer the next

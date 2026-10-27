@@ -22,6 +22,7 @@ import {
   documentResolver,
   loadDocument,
   occurrenceDynamicView,
+  parseDinksterSchema,
   type CommandInvocation,
   type InputSpec,
   type MaterializeFrame,
@@ -657,6 +658,33 @@ describe('dynamic layout on plain nodes', () => {
     const branch = rows.find((r) => r.valueKey === 'mode.[a].x')
     expect(branch).toBeDefined()
     expect(branch!.selector).toBeUndefined()
+  })
+
+  it('hides only the DynamicCombo selector while retaining branch rows, sockets, and execution', () => {
+    const schema = parseDinksterSchema('HiddenSelector', {
+      outputNode: true,
+      interface: [{ role: 'dynamicCombo', id: 'codec', hidden: true, options: [
+        { key: 'auto', inputs: [] },
+        { key: 'custom', inputs: [
+          { role: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+          { role: 'input', id: 'internal', type: { kind: 'concrete', types: ['INT'] }, default: 13, hidden: true },
+        ] },
+      ] }],
+    }).schema!
+    const doc = docOf({ g0: { nodes: { m: {
+      type: 'HiddenSelector', values: { 'codec.quality': 29, 'codec.internal': 31 },
+      dynamic: { codec: { selected: 'custom' } },
+    } } } })
+    const before = JSON.stringify(doc)
+    const resolve = (type: string) => type === schema.type ? schema : undefined
+    const scene = buildScene({ document: doc, graphId: 'g0', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    expect(widgetRowsOf(scene, 'm').map((row) => row.inputId)).toEqual(['codec.quality'])
+    expect(pinsOf(scene, 'm', 'in').map((pin) => pin.address.port)).toEqual(['codec.quality'])
+    const result = compile({ document: doc, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('hidden-selector'), schemaHash: 'hidden-selector' })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error('hidden selector compilation failed')
+    expect(result.artifact.prompt.m!.inputs).toEqual({ codec: 'custom', 'codec.quality': 29, 'codec.internal': 31 })
+    expect(JSON.stringify(doc)).toBe(before)
   })
 
   it('renders occurrence selector state and edit ownership', () => {

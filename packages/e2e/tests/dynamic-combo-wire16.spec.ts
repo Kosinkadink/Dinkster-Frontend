@@ -214,3 +214,50 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
     slotVariants: { resize_type: 'scale dimensions' },
   })
 })
+
+test('hidden DynamicCombo selector retains visible branch controls and serialized state', async ({ page }, testInfo) => {
+  const nodes = Object.fromEntries([false, true].map((hidden) => [hidden ? 'HiddenSelector' : 'VisibleSelector', {
+    displayName: hidden ? 'Hidden codec selector' : 'Visible codec selector',
+    category: 'test',
+    interface: [{ role: 'dynamicCombo', id: 'codec', hidden, options: [
+      { key: 'auto', inputs: [] },
+      { key: 'custom', inputs: [{ role: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 7 }] },
+    ] }],
+  }]))
+  await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
+  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { ...nativeTable, nodes } }))
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('HiddenSelector') ?? false,
+  )).toBe(true)
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'hidden-selector', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        visible: { id: 'visible', type: 'VisibleSelector', values: { 'codec.quality': 19 }, dynamic: { codec: { selected: 'custom' } } },
+        hidden: { id: 'hidden', type: 'HiddenSelector', values: { 'codec.quality': 29 }, dynamic: { codec: { selected: 'custom' } } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: {
+        visible: { position: { x: 80, y: 100 } }, hidden: { position: { x: 440, y: 100 } },
+      } } } },
+    }, 'Selector presentation')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const before = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
+  await page.screenshot({ path: testInfo.outputPath('hidden-combo.png') })
+  const presentation = await page.evaluate(() => Object.fromEntries(window.__dinksterTest!.renderer!.getScene().nodes.map((node) => [node.id, {
+    widgets: node.layout.rows.flatMap((row) => row.kind === 'widget' ? [row.inputId] : []),
+    pins: node.layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.address.port),
+  }])))
+  expect(presentation['visible']?.widgets).toEqual(['codec', 'codec.quality'])
+  expect(presentation['hidden']?.widgets).toEqual(['codec.quality'])
+  expect(presentation['hidden']?.pins).toEqual(['codec.quality'])
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.openDocument(JSON.parse(JSON.stringify(app.exportDocument(app.activeTab()!.id))), 'Selector reopened')
+  })
+  const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  expect(after).toEqual(before)
+})
