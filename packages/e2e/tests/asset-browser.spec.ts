@@ -194,6 +194,8 @@ test('lists ready and scanning sources and filters incompatible MIME types', asy
   await expect(page.getByRole('option', { name: /style\.safetensors/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /readme\.txt/ })).toHaveCount(0)
   await selectProductOption(page, page.getByTestId('collection-source-select'), 'mount:indexing')
+  await page.getByRole('option', { name: /^photos/ }).click()
+  await expect(page.getByRole('button', { name: 'photos' })).toBeVisible()
   await expect(page.getByRole('option', { name: /sunset\.png/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /readme\.txt/ })).toHaveCount(0)
 })
