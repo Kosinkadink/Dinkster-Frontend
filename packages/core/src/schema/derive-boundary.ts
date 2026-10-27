@@ -44,7 +44,7 @@ import { isPortEndpoint, portAddressKey, type DynamicMemberId, type PortId } fro
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
-import { DEFAULT_ELAB_BUDGET } from './elaborate.js'
+import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from './elaborate.js'
 import { outputDescriptorAssetOf, outputDescriptorValueOf, parseOutputDescriptors } from './output-descriptors.js'
 import { autogrowBounds, canonicalTypeIdOf, effectiveComboOption, inputsOf, outputCountValueOf, outputSchemaInputsOf, typeExprFromTypeId } from './model.js'
 import { parseSelection, type SelectionTree } from './slot-selection.js'
@@ -253,6 +253,7 @@ export function resolveBoundaryRoute(
   binding: BoundaryBinding,
   expectedSide?: 'input' | 'output',
   values?: Readonly<Record<string, unknown>>,
+  dynamic?: NodeData['dynamic'],
 ): RouteResult {
   if (binding.kind === 'unbound') return { ok: false, code: 'boundary.unboundRoute', message: 'an unattached boundary has no inner route' }
   if (binding.kind === 'widgetTap') {
@@ -362,6 +363,19 @@ export function resolveBoundaryRoute(
       continue
     }
     visit([it], '', 0, [], it.kind, it)
+  }
+
+  if (binding.kind === 'port' && dynamic !== undefined &&
+      inputsOf(schema).some((input) => input.dynamic?.materialization === 'wire15')) {
+    const elaborated = elaborateInterface(schema, { values: (values ?? {}) as NodeData['values'], dynamic }, undefined, { promoteGhosts: false })
+    if (!elaborated.diagnostics.some((item) => item.severity === 'error')) {
+      for (const input of elabInputsOf(elaborated)) {
+        if (input.wire15Materialization !== true || input.origin.kind !== 'member' ||
+            input.apiName === undefined || input.materialize !== undefined ||
+            portAddressKey(input.address.port, input.address.members) !== portAddressKey(binding.port, binding.members)) continue
+        matches.push({ side: 'input', topItem: input.spec, hops: [], terminal: { kind: 'port', slot: input.spec } })
+      }
+    }
   }
 
   const sides = new Set(matches.map((match) => match.side))
@@ -520,7 +534,7 @@ export function deriveBoundarySchema(
       emit('boundary.tapSide', `${describe} uses an output-only widget tap binding`)
       return undefined
     }
-    const result = resolveBoundaryRoute(schema, binds, expectedSide, node.values)
+    const result = resolveBoundaryRoute(schema, binds, expectedSide, node.values, node.dynamic)
     if (!result.ok) {
       emit(result.code, `${describe}: ${result.message}`)
       return undefined

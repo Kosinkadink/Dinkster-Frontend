@@ -494,11 +494,12 @@ export function classifyFlattenBindingRoute(
   binding: BoundaryBinding,
   schema: NodeSchema | undefined,
   expectedSide?: 'input' | 'output',
+  node?: Pick<NodeData, 'values' | 'dynamic'>,
 ): FlattenRouteKind {
   if (binding.kind === 'widgetTap') return expectedSide === 'output' ? 'widgetTap' : 'unresolved'
   if (binding.kind === 'family' || (binding.members?.length ?? 0) > 0) return 'family'
   if (schema === undefined) return 'unresolved'
-  const resolved = resolveBoundaryRoute(schema, binding, expectedSide)
+  const resolved = resolveBoundaryRoute(schema, binding, expectedSide, node?.values, node?.dynamic)
   if (!resolved.ok) return 'unresolved'
   if (resolved.route.terminal.kind === 'family' || resolved.route.hops.some((hop) => hop.kind === 'member')) return 'family'
   if (resolved.route.hops.some((hop) => hop.kind === 'slot' || hop.kind === 'slotVariant')) return 'specialized'
@@ -519,7 +520,7 @@ export function classifyFlattenBoundaryRoute(
   const routes = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding)).map((binding) => {
     if (binding.kind === 'unbound') return 'unresolved'
     const node = body.nodes[binding.node]
-    return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide)
+    return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide, node)
   })
   return routes.includes('specialized') ? 'specialized'
     : routes.includes('family') ? 'family'
@@ -1327,7 +1328,7 @@ function planFlattenState(
         continue
       }
       schemaSnapshot[original.type] = schema
-      const resolved = resolveBoundaryRoute(schema, binding, side)
+      const resolved = resolveBoundaryRoute(schema, binding, side, original.values, original.dynamic)
       if (!resolved.ok) {
         fail('subgraph.flatten.stateUnresolved', resolved.message, side, item.id)
         continue
@@ -1393,7 +1394,7 @@ function planFlattenState(
     if (primaryBinding.kind === 'unbound') continue
     const primaryNode = body.nodes[primaryBinding.node]
     const primarySchema = primaryNode === undefined ? undefined : resolveSchema(primaryNode.type)
-    const primaryRoute = primarySchema === undefined ? undefined : resolveBoundaryRoute(primarySchema, primaryBinding, 'input')
+    const primaryRoute = primarySchema === undefined ? undefined : resolveBoundaryRoute(primarySchema, primaryBinding, 'input', primaryNode?.values, primaryNode?.dynamic)
     const primarySlot = primaryRoute?.ok === true && primaryRoute.route.terminal.kind === 'port' ? primaryRoute.route.terminal.slot : undefined
     const primaryState = nodes.get(primaryBinding.node as string)
     if (primarySlot?.kind !== 'input' || primaryState === undefined || primaryBinding.kind !== 'port') {
