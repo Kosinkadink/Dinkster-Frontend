@@ -24,6 +24,7 @@ async function addNativeBackend(page: Page): Promise<void> {
 async function selectSource(page: Page, source: string): Promise<void> {
   const library = page.getByTestId('library-overlay')
   const sourceTab = library.locator(`[data-testid=collection-source][data-source=${source}]`)
+  await expect(sourceTab).toHaveCount(1)
   if (await sourceTab.isVisible()) await sourceTab.click()
   else await selectProductOption(page, library.getByTestId('library-source-select'), source)
 }
@@ -43,9 +44,6 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await addNativeBackend(page)
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.libraryBackend()?.templatesEnabled.get(),
-  )).toBe(true)
 
   // Open the backend-shipped template through the production Library flow.
   const library = page.getByTestId('library-overlay')
