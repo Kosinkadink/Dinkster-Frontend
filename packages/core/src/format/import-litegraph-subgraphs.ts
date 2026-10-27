@@ -413,6 +413,18 @@ export function importLitegraphSubgraphs(
     def.view = JSON.parse(JSON.stringify(doc.view.graphs['g0']))
     const nativeBody = body as GraphDef
     const links = Object.values(nativeBody.links)
+    const terminalOutput = (end: Mutable): Mutable => {
+      const seen = new Set<string>()
+      while (typeof end['reroute'] === 'string') {
+        const id = end['reroute']
+        if (seen.has(id)) return {}
+        seen.add(id)
+        const drivers = links.filter((link) => (link.to as Mutable)['reroute'] === id)
+        if (drivers.length !== 1) return {}
+        end = drivers[0]!.from
+      }
+      return end
+    }
     const bind = (end: any): BoundaryBinding | undefined =>
       typeof end.node === 'string' && typeof end.port === 'string' && end.node !== `n${def.inputNode}` && end.node !== `n${def.outputNode}`
         ? { kind: 'port', ...end } as BoundaryBinding : undefined
@@ -434,7 +446,7 @@ export function importLitegraphSubgraphs(
       const ends = side === 'inputs'
         ? links.filter((link) => nodeEnd(link.from, `n${def.inputNode}`) && (link.from as any).port === `i${index}`).map((link) => link.to)
         : links.filter((link) => nodeEnd(link.to, `n${def.outputNode}`) && (link.to as any).port === `o${index}`).map((link) => link.from)
-      const bindings = ends.map(bind)
+      const bindings = ends.map((end) => bind(side === 'outputs' ? terminalOutput(end) : end))
       if (!bindings.length || bindings.some((item) => !item) || (side === 'outputs' && bindings.length !== 1)) {
         const authored = authoredBindings(side, index)
         if (!authored.length || (side === 'outputs' && authored.length !== 1)) {

@@ -155,6 +155,53 @@ describe('LiteGraph subgraphs', () => {
     expect(result.diagnostics.map((item) => item.code)).not.toContain('import.subgraphs.inlined')
   })
 
+  it('resolves output reroute chains while preserving unrelated internal links', () => {
+    const def = { ...definition(), nodes: [relay(), relay(2),
+      { id: 3, type: 'Reroute', pos: [100, 200], inputs: [{ name: '', link: 3 }], outputs: [{ name: '' }] },
+      { id: 4, type: 'Reroute', pos: [300, 400], inputs: [{ name: '', link: 4 }], outputs: [{ name: '' }] },
+    ], links: [link(1, -10, 0, 1, 0), link(2, 1, 0, 2, 0),
+      link(3, 2, 0, 3, 0), link(4, 3, 0, 4, 0), link(5, 4, 0, -20, 0)] }
+    const sink = { ...relay(9), inputs: [{ name: 'value', link: 10 }] }
+    const doc = imported({ nodes: [instance(1), sink], links: [link(10, 1, 0, 9, 0)],
+      definitions: { subgraphs: [def] } })
+    expect(doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n2', port: 'result' })
+    expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: { node: 'n1', port: 'result' }, to: { node: 'n2', port: 'value' } },
+      { from: { node: 'n2', port: 'result' }, to: { reroute: 'r3' } },
+      { from: { reroute: 'r3' }, to: { reroute: 'r4' } },
+    ])
+    expect(doc.view.graphs.inner!.reroutes).toEqual({
+      r3: { position: { x: 100, y: 200 } }, r4: { position: { x: 300, y: 400 } },
+    })
+    const compiled = prompt(doc)
+    expect(compiled['n1.n1']!.inputs.value).toBe(19)
+    expect(compiled['n1.n2']!.inputs.value).toEqual(['n1.n1', 0])
+    expect(compiled.n9!.inputs.value).toEqual(['n1.n2', 0])
+  })
+
+  it('refuses an output reroute cycle without choosing a producer', () => {
+    const def = { ...definition(), nodes: [relay(),
+      { id: 2, type: 'Reroute', inputs: [{ name: '', link: 3 }], outputs: [{ name: '' }] },
+      { id: 3, type: 'Reroute', inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
+    ], links: [link(1, -10, 0, 1, 0), link(2, 2, 0, 3, 0), link(3, 3, 0, 2, 0), link(4, 3, 0, -20, 0)] }
+    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    expect(result.document).toBeUndefined()
+    expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+  })
+
+  it.each(['inputs', 'outputs'] as const)('refuses a dangling %s reroute instead of guessing a boundary endpoint', (side) => {
+    const def = { ...definition(), nodes: [relay(),
+      { id: 2, type: 'Reroute', inputs: [{ name: '', link: null }], outputs: [{ name: '' }] },
+    ], links: side === 'inputs'
+      ? [link(1, -10, 0, 2, 0), link(2, 1, 0, -20, 0)]
+      : [link(1, -10, 0, 1, 0), link(2, 2, 0, -20, 0)] }
+    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    expect(result.document).toBeUndefined()
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'error', code: 'import.subgraphs.boundaryUnsupported',
+    }))
+  })
+
   it('migrates legacy proxy widgets without interpreting missing host values as overrides', () => {
     const def = { ...definition(), inputs: [], links: [link(2, 1, 0, -20, 0)] }
     const node = { ...instance(1), inputs: [], properties: { proxyWidgets: [['1', 'value']] }, widgets_values: [] }

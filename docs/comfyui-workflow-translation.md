@@ -135,6 +135,12 @@ Schema-v1 object links and v0.4 tuple links are accepted. Competing definition
 links follow LiteGraph's load rule: prefer the inner input's serialized `link`,
 otherwise retain the first delivery in document order.
 
+Output boundaries trace reroute chains back to their unique producing port,
+retaining the internal reroute vertices, links and positions. Dangling or cyclic
+chains refuse import rather than guessing a source. Input boundaries through
+reroutes remain unsupported: binding directly to their consumers would discard
+the authored internal fan-out links.
+
 Modern instance widget arrays follow promoted-input order without implicit
 seed-controller entries. Legacy `proxyWidgets` references promote matching
 inner widgets; missing host values inherit the definition's saved values.
