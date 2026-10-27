@@ -3998,9 +3998,14 @@ describe('workflow library wire', () => {
 
     const workflowOnly = submitHarness(jobsRoute)
     await workflowOnly.conn.fetchSchemas()
-    const workflowSnapshot = { prompt: {}, extraPnginfo: { workflow: { nodes: [{ id: 9 }] } } }
+    const workflowSnapshot = { extraPnginfo: { workflow: { nodes: [{ id: 9 }] } } }
     expect((await workflowOnly.conn.submit(chainArtifact(), { exportSnapshot: workflowSnapshot })).ok).toBe(true)
     expect(JSON.parse(workflowOnly.requests.find((r) => r.init?.method === 'POST')!.init!.body as string).exportSnapshot).toEqual(workflowSnapshot)
+
+    const emptyOriginal = submitHarness(jobsRoute)
+    await emptyOriginal.conn.fetchSchemas()
+    expect((await emptyOriginal.conn.submit(chainArtifact(), { exportSnapshot: { prompt: {} } })).ok).toBe(true)
+    expect(JSON.parse(emptyOriginal.requests.find((r) => r.init?.method === 'POST')!.init!.body as string).exportSnapshot).toEqual({ prompt: {} })
 
     const plain = submitHarness(jobsRoute)
     await plain.conn.fetchSchemas()

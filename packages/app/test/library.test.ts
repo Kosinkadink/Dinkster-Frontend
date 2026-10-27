@@ -413,8 +413,9 @@ describe('sourceDocument stamp on queue', () => {
       await app.queueSelection(reopened, ['n1'])
       expect(submit).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
         sourceDocument: DIGEST,
-        exportSnapshot: { prompt: prompt ?? {}, extraPnginfo: { workflow: source } },
+        exportSnapshot: { ...(prompt === undefined ? {} : { prompt }), extraPnginfo: { workflow: source } },
       }))
+      if (prompt === undefined) expect(submit.mock.calls.at(-1)![1]!.exportSnapshot).not.toHaveProperty('prompt')
       expect(reopened.store.doc.graphs.g0!.nodes.n1!.values.a).toBe(99)
     }
     expect(submit).toHaveBeenCalledTimes(3)

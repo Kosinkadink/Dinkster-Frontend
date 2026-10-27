@@ -7979,7 +7979,7 @@ export class AppState {
       const hasWorkflow = workspaceRecord(originalWorkflow)
       const hasPrompt = workspaceRecord(originalPrompt)
       const exportSnapshot = hasWorkflow || hasPrompt ? {
-        prompt: hasPrompt ? originalPrompt as JsonObject : {},
+        ...(hasPrompt ? { prompt: originalPrompt as JsonObject } : {}),
         ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
       } : undefined
       const sourceDocument = backend.protocol === 'dinkster'

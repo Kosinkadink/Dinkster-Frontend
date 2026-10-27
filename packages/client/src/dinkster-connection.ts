@@ -2062,9 +2062,9 @@ export class DinksterConnection {
       readonly sourceDocument?: string
       /**
        * Retained original import metadata, not a representation of native
-       * edits. Workflow-only provenance uses an empty prompt object.
+       * edits. An absent original prompt stays absent, distinct from {}.
        */
-      readonly exportSnapshot?: { readonly prompt: JsonObject; readonly extraPnginfo?: JsonObject }
+      readonly exportSnapshot?: { readonly prompt?: JsonObject; readonly extraPnginfo?: JsonObject }
       /**
        * Live sampling preview policy for this run. Sent verbatim as the
        * submit body's `previews` field; servers without preview support
