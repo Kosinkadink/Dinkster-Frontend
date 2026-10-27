@@ -28,6 +28,7 @@ import {
   portRefKey,
   type LinkEndpoint,
   type PortRef,
+  type ValueSourceRef,
   type WidgetTapRef,
 } from '../ids.js'
 import { canonicalJson, sha256Hex } from '../compile/hash.js'
@@ -1872,6 +1873,7 @@ function endpointSelected(endpoint: LinkEndpoint, selection: ReturnType<typeof s
 }
 
 function bindingSelected(binding: BoundaryBinding, selection: ReturnType<typeof selectedSets>): boolean {
+  if (binding.kind === 'valueSource') return selection.valueSources.has(binding.valueSource)
   return isNodeBoundaryBinding(binding) && selection.nodes.has(binding.node)
 }
 
@@ -2053,7 +2055,6 @@ export type CutKind = 'outside' | 'internal' | 'in-cut' | 'out-cut' | 'unreprese
 
 export type ExtractRefusalCode =
   | 'subgraph.extract.structuralCutUnsupported'
-  | 'subgraph.extract.structuralOutputUnsupported'
   | 'subgraph.extract.specializedSlotUnsupported'
   | 'subgraph.lifecycle.boundaryUnresolved'
   | 'subgraph.lifecycle.multiDriver'
@@ -2122,7 +2123,7 @@ export interface InputCutGroup {
 }
 
 export interface OutputCutGroup {
-  readonly source: PortRef | WidgetTapRef
+  readonly source: PortRef | WidgetTapRef | ValueSourceRef
   readonly consumers: readonly LinkEndpoint[]
   readonly netIds: readonly string[]
   readonly boundaryItems: readonly { readonly itemIndex: number; readonly itemId: string }[]
@@ -2170,10 +2171,8 @@ function refusalForLink(
       ? undefined
       : { code: 'subgraph.lifecycle.boundaryUnresolved', source: 'link', id: link.id, endpoint: inner }
   }
-  const code = kind === 'out-cut' && isValueSourceRef(inner)
-    ? 'subgraph.extract.structuralOutputUnsupported'
-    : 'subgraph.extract.structuralCutUnsupported'
-  return { code, source: 'link', id: link.id, endpoint: inner }
+  if (kind === 'out-cut' && isValueSourceRef(inner)) return undefined
+  return { code: 'subgraph.extract.structuralCutUnsupported', source: 'link', id: link.id, endpoint: inner }
 }
 
 const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' | 'valueSource' }>): PortRef => ({
@@ -2182,8 +2181,9 @@ const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | '
   ...(binding.members !== undefined ? { members: binding.members } : {}),
 })
 
-const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef => {
-  if (binding.kind === 'unbound' || binding.kind === 'valueSource') throw new Error('boundary has no node endpoint')
+const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef | ValueSourceRef => {
+  if (binding.kind === 'unbound') throw new Error('unbound boundary has no endpoint')
+  if (binding.kind === 'valueSource') return { valueSource: binding.valueSource }
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
     : bindingAsPort(binding)
@@ -2203,7 +2203,7 @@ export function auditExtractionCuts(
   const refusals: CutRefusal[] = []
   const links: LinkCut[] = []
   const linkInputGroups = new Map<string, { source: InputCutSource; targets: PortRef[] }>()
-  const outputGroups = new Map<string, { source: PortRef | WidgetTapRef; consumers: LinkEndpoint[]; netIds: string[]; boundaryItems: { itemIndex: number; itemId: string }[] }>()
+  const outputGroups = new Map<string, { source: OutputCutGroup['source']; consumers: LinkEndpoint[]; netIds: string[]; boundaryItems: { itemIndex: number; itemId: string }[] }>()
 
   for (const link of Object.values(graph.links).sort((a, b) => compareStrings(a.id, b.id))) {
     const fromInside = endpointSelected(link.from, selected)
@@ -2231,7 +2231,7 @@ export function auditExtractionCuts(
         linkInputGroups.set(key, group)
       }
       group.targets.push(link.to)
-    } else if (kind === 'out-cut' && (isPortEndpoint(link.from) || isWidgetTapRef(link.from))) {
+    } else if (kind === 'out-cut' && (isPortEndpoint(link.from) || isWidgetTapRef(link.from) || isValueSourceRef(link.from))) {
       const key = endpointKey(link.from)
       let group = outputGroups.get(key)
       if (group === undefined) {
@@ -2332,7 +2332,8 @@ export function auditExtractionCuts(
       if (specialized !== undefined) {
         refusal = { code: 'subgraph.extract.specializedSlotUnsupported', source: 'boundary', id: item.id, endpoint: specialized }
         refusals.push(refusal)
-      } else if (item.ext !== undefined && Object.keys(item.ext).length > 0) {
+      } else if ((side === 'inputs' && movedBindings.some((binding) => binding.kind === 'valueSource'))
+        || (item.ext !== undefined && Object.keys(item.ext).length > 0)) {
         refusal = { code: 'subgraph.lifecycle.boundaryUnresolved', source: 'boundary', id: item.id }
         refusals.push(refusal)
       }
@@ -2496,7 +2497,7 @@ export function boundaryNameCandidates(audit: ExtractionCutAudit): readonly Boun
       })),
     ...audit.outputs.map((cut) => ({
       side: 'output' as const,
-      base: isWidgetTapRef(cut.source) ? cut.source.tap : cut.source.port,
+      base: isValueSourceRef(cut.source) ? cut.source.valueSource : isWidgetTapRef(cut.source) ? cut.source.tap : cut.source.port,
       orderKey: `${endpointKey(cut.source)}:${cut.consumers[0] === undefined ? '' : endpointKey(cut.consumers[0])}`,
     })),
     ...audit.boundaries

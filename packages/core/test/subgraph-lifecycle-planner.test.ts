@@ -5,6 +5,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { createLocalSession as createRawLocalSession } from '../src/commands/session.js'
 import { checkDocument } from '../src/invariants.js'
 import { compile } from '../src/compile/compile.js'
+import { loadDocument } from '../src/format/migrate.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import {
   EMPTY_SUBGRAPH_DEFINITION,
@@ -702,6 +703,78 @@ describe('subgraph.extract L3 command', () => {
     })
     expect(session.redo()).toBe(true)
     expect(session.doc.graphs.g0!.boundary!.outputs[0]!.binds).toEqual({ kind: 'widgetTap', node: 'n0', tap: 'value' })
+  })
+
+  it.each([false, true])('extracts literal output fan-out without runtime nodes (authored type: %s)', (authored) => {
+    const initial = document(graph({
+      nodes: {
+        first: { id: 'first' as never, type: 'Sink', values: {} },
+        second: { id: 'second' as never, type: 'Sink', values: {} },
+      },
+      valueSources: { value: { id: 'value' as never, value: 37, controller: 'increment', title: 'Seed', ext: { keep: true } } },
+      links: {
+        lFirst: link('lFirst', { valueSource: 'value' as never }, port('first', 'value')),
+        lSecond: link('lSecond', { valueSource: 'value' as never }, port('second', 'value')),
+      },
+      ...(authored ? { boundary: { inputs: [], outputs: [{ id: 'seed', binds: {
+        kind: 'valueSource' as const, valueSource: 'value' as never, type: { kind: 'concrete' as const, name: 'INT' },
+      } }] } } : {}),
+    }))
+    ;(initial as MutableDocument).view.graphs.root = { nodes: { first: {}, second: {} }, valueSources: { value: { position: { x: 10, y: 20 } } } }
+    const sinkSchema: any = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+    }
+    const resolve = (type: string) => type === 'Sink' ? sinkSchema : undefined
+    const compiled = (doc: WorkflowDocument) => {
+      const result = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? result.artifact.prompt : undefined
+    }
+    const expected = compiled(initial)
+    expect(expected).toEqual({ first: { class_type: 'Sink', inputs: { value: 37 }, outputIds: [] }, second: { class_type: 'Sink', inputs: { value: 37 }, outputIds: [] } })
+    const session = createLocalSession(initial, coreCommandRegistry())
+    const selection = { valueSourceIds: ['value'] }
+    const geometry = [{ id: 'value', kind: 'valueSource', x: 10, y: 20, width: 140, height: 80 }]
+    const invocation = l4ExtractInvocation(initial, selection, geometry)
+    const inputBound = structuredClone(initial) as MutableDocument
+    inputBound.graphs.root.boundary ??= { inputs: [], outputs: [] }
+    inputBound.graphs.root.boundary.inputs.push({ id: 'override', binds: { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } } })
+    const inputSession = createLocalSession(inputBound, coreCommandRegistry())
+    const beforeInput = inputSession.doc
+    const inputResult = inputSession.dispatch(l4ExtractInvocation(inputBound, selection, geometry))
+    expect(inputResult.ok).toBe(false)
+    if (!inputResult.ok) expect(inputResult.diagnostics[0]!.code).toBe('subgraph.lifecycle.boundaryUnresolved')
+    expect(inputSession.doc).toBe(beforeInput)
+    expect(inputSession.canUndo).toBe(false)
+    if (authored) {
+      const conflict = structuredClone(initial) as MutableDocument
+      conflict.graphs.root.boundary.outputs.push({ id: 'other', binds: { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'STRING' } } })
+      expect(verifyLifecycleSelectionPlan(conflict, { graphId: 'root', selection, selectionFingerprint: lifecycleSelectionFingerprint(initial, 'root', selection)! }).stale).toBe(true)
+      const refused = createLocalSession(conflict, coreCommandRegistry())
+      const before = refused.doc
+      const result = refused.dispatch(l4ExtractInvocation(conflict, selection, geometry))
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.diagnostics[0]!.code).toBe('subgraph.lifecycle.boundaryUnresolved')
+      expect(refused.doc).toBe(before)
+      expect(refused.canUndo).toBe(false)
+    }
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    expect(session.doc.graphs.g0!.nodes).toEqual({})
+    expect(session.doc.graphs.g0!.valueSources!.v0).toEqual({ ...initial.graphs.root!.valueSources!.value!, id: 'v0' })
+    expect(session.doc.graphs.g0!.boundary!.outputs).toEqual([{ id: 'value', binds: {
+      kind: 'valueSource', valueSource: 'v0', type: authored ? { kind: 'concrete', name: 'INT' } : { kind: 'wildcard' },
+    } }])
+    if (authored) expect(session.doc.graphs.root!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n20', port: 'value' })
+    expect(compiled(session.doc)).toEqual(expected)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+    expect(reopened.document).toBeDefined()
+    expect(compiled(reopened.document!)).toEqual(expected)
+    expect(session.undo()).toBe(true)
+    expect(compiled(session.doc)).toEqual(expected)
+    expect(session.doc.graphs.root!.valueSources).toEqual(initial.graphs.root!.valueSources)
+    expect(session.redo()).toBe(true)
+    expect(compiled(session.doc)).toEqual(expected)
   })
 
   it('rejects forged widget output evidence without exact trusted schema support', () => {
@@ -1406,13 +1479,23 @@ describe('subgraph.extract L4 structural and view completion', () => {
         { id: 'inside', kind: 'node', x: 0, y: 0, width: 100, height: 60 },
         { id: 'value', kind: 'valueSource', x: 120, y: 0, width: 100, height: 60 },
       ],
-      code: 'subgraph.extract.structuralOutputUnsupported',
+      code: undefined,
+      accepted: true,
     },
-  ])('refuses the whole operation for $name', ({ selection, links, reroutes, geometry, code }) => {
+  ])('handles the whole operation atomically for $name', ({ selection, links, reroutes, geometry, code, accepted }) => {
     const initial = document(graph({ links, reroutes }))
     const session = createLocalSession(initial, coreCommandRegistry())
     const before = session.doc
     const outcome = session.dispatch(l4ExtractInvocation(initial, selection, geometry))
+    if (accepted) {
+      expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+      expect(session.doc.graphs.root!.links.crossing!.from).toEqual(port('n20', 'value'))
+      expect(session.doc.graphs.g0!.boundary!.outputs).toEqual([{ id: 'value', binds: { kind: 'valueSource', valueSource: 'v1', type: { kind: 'wildcard' } } }])
+      expect(checkDocument(session.doc)).toEqual([])
+      expect(session.undo()).toBe(true)
+      expect(session.doc.graphs.root!.valueSources).toEqual(before.graphs.root!.valueSources)
+      return
+    }
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) {
       expect(outcome.diagnostics[0]!.code).toBe(code)
@@ -1555,7 +1638,7 @@ describe('subgraph lifecycle cut matrix', () => {
     { name: 'inner widget tap produces an out-cut', selection: { nodeIds: ['inside'] }, edge: link('l', { node: 'inside' as never, tap: 'widget' as never }, port('outside', 'in')), kind: 'out-cut' },
     { name: 'outer value source is a legal in-cut producer', selection: { nodeIds: ['inside'] }, edge: link('l', { valueSource: 'value' as never }, port('inside', 'in')), kind: 'in-cut' },
     { name: 'selected value source and consumer move internally', selection: { nodeIds: ['inside'], valueSourceIds: ['value'] }, edge: link('l', { valueSource: 'value' as never }, port('inside', 'in')), kind: 'internal' },
-    { name: 'inner value source cannot produce an out-cut', selection: { nodeIds: ['inside'], valueSourceIds: ['value'] }, edge: link('l', { valueSource: 'value' as never }, port('outside', 'in')), kind: 'unrepresentable', code: 'subgraph.extract.structuralOutputUnsupported' },
+    { name: 'inner value source produces an out-cut', selection: { nodeIds: ['inside'], valueSourceIds: ['value'] }, edge: link('l', { valueSource: 'value' as never }, port('outside', 'in')), kind: 'out-cut' },
     { name: 'outer selector output is a legal in-cut producer', selection: { nodeIds: ['inside'] }, edge: link('l', { selector: 'selector' as never }, port('inside', 'in')), kind: 'in-cut' },
     { name: 'selected selector candidate feed moves internally', selection: { nodeIds: ['inside'], selectorIds: ['selector'] }, edge: link('l', port('inside', 'out'), { selector: 'selector' as never, candidate: 'candidate' as never }), kind: 'internal' },
     { name: 'selected selector candidate cannot cross inward', selection: { nodeIds: ['inside'], selectorIds: ['selector'] }, edge: link('l', port('outside', 'out'), { selector: 'selector' as never, candidate: 'candidate' as never }), kind: 'unrepresentable', code: 'subgraph.extract.structuralCutUnsupported' },

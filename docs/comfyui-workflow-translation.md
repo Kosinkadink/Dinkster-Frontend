@@ -95,6 +95,15 @@ can have only one input boundary slot; duplicate targets are rejected rather
 than choosing a driver or literal by declaration order. Deleting the value
 source removes its boundary slots in the same undoable transaction.
 
+Extraction moves selected value sources and their outgoing fan-out into the
+new definition without a runtime producer. Existing authored output types are
+retained; a source with no authored boundary type uses wildcard, never a type
+guessed from its literal. Conflicting authored output types refuse extraction
+atomically. Enclosing boundary bindings and stale-selection fingerprints follow
+the moved source identity, and one undo restores the original graph.
+Extraction of a source targeted by an enclosing input boundary refuses
+atomically; it does not replace occurrence overrides with the source literal.
+
 Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
 constraints. The decoder retains the FLOATS socket and scalar default, min and
 step; it does not replace the runtime type with FLOAT or a primitive list.

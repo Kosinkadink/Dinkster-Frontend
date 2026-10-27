@@ -245,7 +245,8 @@ function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, str
   return { ...binding, node: asNodeId(node) }
 }
 
-function bindingAsEndpoint(binding: BoundaryBinding): PortRef | Extract<LinkEndpoint, { readonly tap: string }> {
+function bindingAsEndpoint(binding: BoundaryBinding): LinkEndpoint {
+  if (binding.kind === 'valueSource') return { valueSource: binding.valueSource }
   if (!isNodeBoundaryBinding(binding)) throw new Error('unbound boundary has no endpoint')
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
@@ -757,12 +758,25 @@ const subgraphExtract: CommandDefinition = {
       const itemId = inputIdByBoundary.get(cut.itemId)!
       innerBoundaryInputs.push(remapNestedItem(cut, idMaps, itemId))
     }
-    const innerBoundaryOutputs: BoundaryItem[] = audit.outputs.map((cut, index) => ({
-      id: outputNames[index]!.id,
-      binds: isWidgetTapRef(cut.source)
-        ? { kind: 'widgetTap', node: asNodeId(nodeIds.get(cut.source.node)!), tap: cut.source.tap }
-        : { kind: 'port', ...remapPort(cut.source, nodeIds) },
-    }))
+    const innerBoundaryOutputs: BoundaryItem[] = []
+    for (const [index, cut] of audit.outputs.entries()) {
+      if (isValueSourceRef(cut.source)) {
+        const authored = cut.boundaryItems.map(({ itemIndex }) => parent.boundary!.outputs[itemIndex]!.binds)
+          .filter((binding) => binding.kind === 'valueSource')
+        const type = authored[0]?.type ?? { kind: 'wildcard' as const }
+        if (authored.some((binding) => canonicalJson(binding.type) !== canonicalJson(type))) {
+          return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.extract: value source output boundary types disagree', graphId, instancePath)]
+        }
+        innerBoundaryOutputs.push({ id: outputNames[index]!.id,
+          binds: { kind: 'valueSource', valueSource: asValueSourceId(valueSourceIds.get(cut.source.valueSource)!), type },
+        })
+      } else innerBoundaryOutputs.push({
+        id: outputNames[index]!.id,
+        binds: isWidgetTapRef(cut.source)
+          ? { kind: 'widgetTap', node: asNodeId(nodeIds.get(cut.source.node)!), tap: cut.source.tap }
+          : { kind: 'port', ...remapPort(cut.source, nodeIds) },
+      })
+    }
     for (const cut of enclosingFamilyOutputs) {
       innerBoundaryOutputs.push(remapNestedItem(cut, idMaps, outputIdByBoundary.get(cut.itemId)!))
     }
