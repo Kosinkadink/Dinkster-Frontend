@@ -1,6 +1,6 @@
 /**
  * Scene-build performance budgets on the synthetic 1k+ node workload, with
- * real parsed schemas. Generous budgets - these catch quadratic blowups in
+ * recorded historical schemas. Generous budgets - these catch quadratic blowups in
  * CI, not micro-regressions. Real frame times are measured by the Playwright
  * perf spec against a live renderer.
  */

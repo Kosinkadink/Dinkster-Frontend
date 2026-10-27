@@ -8,7 +8,7 @@
  * - the prompt side is a well-formed API prompt with resolvable link refs
  * - every class_type exists in the recorded historical schema fixture
  * - runtime ids follow the occurrence-key contract
- * - the subgraph pair's boundary derivation works against REAL parsed
+ * - the subgraph pair's boundary derivation works against recorded historical
  *   schemas, and the promoted value override is consistent across the pair
  */
 import { readFileSync } from 'node:fs'
@@ -83,7 +83,7 @@ describe('exec-subgraph pair pins the flattening contract', () => {
     expect(Object.keys(prompt).sort()).toEqual([innerKey, rootKey].sort())
   })
 
-  it('boundary derivation works against real parsed schemas', () => {
+  it('boundary derivation works against recorded historical schemas', () => {
     const def = doc.graphs['g1'] as GraphDef
     const { schema, diagnostics } = deriveBoundarySchema(def, (t) => schemas.get(t))
     expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
