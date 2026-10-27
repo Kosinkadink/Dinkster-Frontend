@@ -78,6 +78,12 @@ test.beforeEach(async ({ page, request }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
+  // Menus snapshot the worker catalog and close when its initial request completes.
+  await expect.poll(() => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()
+    return tab === undefined ? undefined : app.backendForTab(tab).workerCatalog.get().status
+  })).toBe('ready')
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire17-representations', root: 'g0',
