@@ -194,7 +194,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     .click();
   await page.getByRole("option", { name: "renders" }).click();
   await settings.getByRole("button", { name: "Apply" }).click();
-  await expect(settings).toContainText("Saved");
+  await expect(settings.getByText("Saved", { exact: true })).toBeVisible();
   expect(await readFile(resolve(library, "mounts.toml"), "utf8")).toContain(
     'output-mount = "renders"',
   );
