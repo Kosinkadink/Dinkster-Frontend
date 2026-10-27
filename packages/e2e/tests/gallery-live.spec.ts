@@ -40,12 +40,12 @@ test.beforeEach(async ({ page }) => {
   test.skip(!(served !== null && 'dev.gallery.sockets' in served),
     `native backend at ${NATIVE_BACKEND} lacks dev.gallery.* - serve the dinkster-nodes-dev pack (Dinkster >= 33a1345)`)
 
-  await page.route('/api/settings', (route) => route.fulfill({ json: {
-    features: { templates: { enabled: true } }, categories: { granted: [], available: [] }, settings: {},
-  } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await addNativeBackend(page)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.libraryBackend()?.templatesEnabled.get(),
+  )).toBe(true)
 
   // Open the backend-shipped template through the production Library flow.
   const library = page.getByTestId('library-overlay')
