@@ -29,7 +29,8 @@ The importer accepts only the ordinary schema resolver and the optional
 class/version widget upgrade table; there is no group-collapse or source-snapshot
 predicate. Family members use the declared schema scope, with prefix members
 assigned persisted identities in authored input order.
-The core has no pack alias/group catalog parser or group-collapse command.
+The core has no pack alias/group catalog parser, group-collapse command or
+replacement rule registry/planner/scanner/command.
 Schema aliases do not synthesize document migrations or positional output
 rewrites. Opening a saved native document preserves its authored node and port
 identities; invalid ports remain compile diagnostics rather than being guessed.
@@ -108,18 +109,11 @@ remain Dinkster workflow documents. Notes never enter the executable graph sent
 to a backend. Reroutes remain document constructs and use the topology
 translator.
 
-Replacement rules can map ordinary inputs and outputs, copy one top-level
-Autogrow family to a differently named target family, or address an
-explicit ordered set of target-family members from fixed source inputs.
-Family copy preserves authored suffixes, order, values, controllers, links,
-and named-net sinks. Import reconstructs members from every authored input
-slot, including unlinked slots, before decoding positional or keyed widgets.
-Nested dynamic family templates are rejected for review rather than inferred.
-
-Version migrations can select cases from stored nested DynamicCombo choices.
-Rules may also materialize top-level input families on helper nodes and link
-helper outputs to those explicit members. Standalone input mappings cannot
-override members owned by a family mapping.
+Import reconstructs Autogrow members from every authored input slot, including
+unlinked slots, before decoding positional or keyed widgets. It does not copy
+families to another node type or insert helper nodes. The class/version upgrade
+table changes widget values only; it is not a graph migration
+or a family replacement mechanism.
 
 ComfyUI-KJNodes `SetNode`/`GetNode` pairs and cg-use-everywhere resolved
 connections import as native named nets and compile to the same executable

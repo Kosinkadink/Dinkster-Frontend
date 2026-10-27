@@ -736,8 +736,7 @@ export type InterfaceItem = InputSpec | OutputSpec | SectionSpec
 /**
  * Structured deprecation (Dinkster schema wire v3 additive field). `message` is
  * required author prose; `replacement` is a cheap NAME-ONLY pointer to the
- * successor type - the *how* of migration lives in replacement rules
- * (replace/model.ts), never here. Pointers may CHAIN (A -> B -> C when B is
+ * successor type, never an executable migration. Pointers may CHAIN (A -> B -> C when B is
  * itself deprecated); resolve transitively with `resolveDeprecationPointer`,
  * never by a single hop.
  */

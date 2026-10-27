@@ -1,7 +1,7 @@
 {
   "ceilings": {
     "nodeIdLiteral": 0,
-    "widgetTypeComparison": 90
+    "widgetTypeComparison": 89
   },
   "slack": {
     "nodeIdLiteral": 0,
@@ -539,7 +539,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2717,
+      "line": 2716,
       "column": 37,
       "symbol": "widgetType:string",
       "issue": 122
@@ -547,7 +547,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2729,
+      "line": 2728,
       "column": 9,
       "symbol": "widgetType:string",
       "issue": 122
@@ -594,14 +594,6 @@
     },
     {
       "kind": "widgetTypeComparison",
-      "path": "packages/core/src/replace/plan.ts",
-      "line": 803,
-      "column": 9,
-      "symbol": "widgetType:COMBO",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
       "line": 1207,
       "column": 50,
@@ -627,7 +619,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1076,
+      "line": 1075,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -635,7 +627,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1079,
+      "line": 1078,
       "column": 3,
       "symbol": "widgetType:ASSET",
       "issue": 122

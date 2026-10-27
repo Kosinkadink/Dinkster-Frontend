@@ -642,19 +642,7 @@ describe('occurrence-local link commands', () => {
     expect(store.doc.graphs.body!.links.candidateFeed).toBeDefined()
   })
 
-  it('guards replacement and every definition driver displacement path', () => {
-    const replacement = new DocumentStore(document(), coreCommandRegistry())
-    expect(replacement.dispatch(localConnect(replacement.doc, owner('a')).invocation).ok).toBe(true)
-    const replaced = replacement.dispatch({
-      command: 'node.replace',
-      params: { plan: {
-        graphId: 'body', nodeId: 'sink', from: 'Sink', to: 'Replacement', values: {},
-        inputRewires: [], outputRewires: [], dropLinks: [], netSourceRewires: [], netSinks: [], dropNets: [],
-      } },
-    } as never)
-    expect(replaced.ok).toBe(false)
-    expect(replaced.diagnostics[0]!.code).toBe('occurrence.topology.definitionReferenced')
-
+  it('guards every definition driver displacement path', () => {
     const initial = document()
     delete (initial.graphs.body!.nets as Record<string, unknown>).sharedNet
     ;(initial.graphs.body!.links as any).movable = {
@@ -729,11 +717,6 @@ describe('occurrence-local link commands', () => {
       }
       return initial
     }
-    const replacementPlan = (overrides: Record<string, Json>) => ({
-      graphId: 'root', nodeId: 'linkSource', from: 'Src', to: 'Replacement', values: {},
-      inputRewires: [], outputRewires: [], dropLinks: [], netSourceRewires: [], netSinks: [], dropNets: [],
-      ...overrides,
-    })
     const cases: Array<{
       name: string
       invocation: Record<string, Json>
@@ -743,12 +726,9 @@ describe('occurrence-local link commands', () => {
       { name: 'reroute.insert', invocation: { command: 'reroute.insert', params: { graphId: 'root', linkId: 'targetLink', position: { x: 0, y: 0 } } }, removed: 'targetLink' },
       { name: 'graph.deleteItems link', invocation: { command: 'graph.deleteItems', params: { graphId: 'root', linkIds: ['targetLink'] } }, removed: 'targetLink' },
       { name: 'node.remove cascade', invocation: { command: 'node.remove', params: { graphId: 'root', nodeIds: ['linkSource'] } }, removed: 'targetLink' },
-      { name: 'node.replace dropLinks', invocation: { command: 'node.replace', params: { plan: replacementPlan({ dropLinks: ['targetLink'] }) } }, removed: 'targetLink' },
       { name: 'net.disconnectInput', invocation: { command: 'net.disconnectInput', params: { graphId: 'root', to: { node: 'a', port: 'netInput' } } }, removed: 'targetNet' },
       { name: 'net.remove', invocation: { command: 'net.remove', params: { graphId: 'root', netId: 'targetNet' } }, removed: 'targetNet' },
       { name: 'graph.deleteItems net sink', invocation: { command: 'graph.deleteItems', params: { graphId: 'root', netSinks: [{ node: 'a', port: 'netInput' }] } }, removed: 'targetNet' },
-      { name: 'node.replace netSinks', invocation: { command: 'node.replace', params: { plan: replacementPlan({ netSinks: [{ net: 'targetNet', sinks: [] }] }) } }, removed: 'targetNet' },
-      { name: 'node.replace dropNets', invocation: { command: 'node.replace', params: { plan: replacementPlan({ dropNets: ['targetNet'] }) } }, removed: 'targetNet' },
     ]
 
     for (const testCase of cases) {

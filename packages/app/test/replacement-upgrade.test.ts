@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { DinksterNodesPayload, ReplacementRule } from '@dinkster/core'
+import type { DinksterNodesPayload } from '@dinkster/core'
 import type { ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Tab } from '../src/app-state.js'
@@ -60,8 +60,8 @@ const docJson = (
   meta: { title: lineage },
 })
 
-/** 'OldEmpty' is deprecated/uninstalled; the rule migrates it wholesale. */
-const renameRule: ReplacementRule = {
+/** Historical metadata must not rewrite an authored node. */
+const renameRule = {
   from: 'OldEmpty',
   note: 'renamed',
   cases: [

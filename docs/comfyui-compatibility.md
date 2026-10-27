@@ -47,7 +47,6 @@ The initial native edges and their dispositions are:
 | `core/index.ts -> events/comfy-v1.ts`                           | Removed; exported only by `@dinkster/core/comfy-v1`                |
 | `core/index.ts -> schema/compat.ts`                             | Native type relations live in `schema/type-relations.ts`           |
 | `compile/bypass.ts -> schema/compat.ts`                         | Uses native type compatibility                                     |
-| `replace/plan.ts -> schema/compat.ts`                           | Uses native type compatibility                                     |
 | `schema/derive-boundary.ts -> schema/compat.ts`                 | Uses native type compatibility                                     |
 | `schema/solve.ts -> schema/compat.ts`                           | Uses native type compatibility                                     |
 | `search-filters.ts -> schema/compat.ts`                         | Uses native type compatibility                                     |
