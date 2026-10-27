@@ -134,6 +134,39 @@ describe('auto-upgrade on open', () => {
     expect(nodeType(tab, 'b')).toBe('OldEmpty')
   })
 
+  it('continues an original node past newly allocated helper links in the same undo step', () => {
+    loadSchemas()
+    expect(app.registerReplacementRule('pack', {
+      from: 'OldEmpty',
+      cases: [{
+        to: 'EmptyLatentImage',
+        nodes: { decode: { type: 'VAEDecode' } },
+        links: [{ from: 'out0', to: 'decode:samples' }],
+      }],
+    })).toEqual([])
+    expect(app.registerReplacementRule('pack', {
+      from: 'EmptyLatentImage',
+      cases: [{ to: 'EmptyImage' }],
+    })).toEqual([])
+    expect(app.openDocument(docJson('lin-helper-chain', { old: { type: 'OldEmpty' } }), 'T')).toEqual([])
+    const tab = app.activeTab()!
+    expect(nodeType(tab, 'old')).toBe('EmptyImage')
+    expect(nodeType(tab, 'old:decode')).toBe('VAEDecode')
+    expect(tab.store.doc.graphs.g0!.links).toEqual({})
+    expect(app.scanTabReplacements(tab)).toEqual([])
+    const notices = app.problems.get().filter((entry) => entry.owner === tab.id && entry.code === 'replace.applied')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toMatchObject({
+      message: '1 nodes upgraded on open',
+      data: { upgrades: [{ nodeId: 'old', sourceType: 'OldEmpty', targetType: 'EmptyImage' }] },
+    })
+    expect(tab.store.revision).toBe(1)
+    expect(tab.store.undo()).toBe(true)
+    expect(nodeType(tab, 'old')).toBe('OldEmpty')
+    expect(nodeType(tab, 'old:decode')).toBeUndefined()
+    expect(tab.store.canUndo).toBe(false)
+  })
+
   it('review mode holds even safe plans for badge review', () => {
     loadSchemas()
     app.reviewReplacements.set(true)

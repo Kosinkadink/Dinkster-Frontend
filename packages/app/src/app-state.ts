@@ -77,6 +77,7 @@ import {
   synthesizeAliasRules,
   comfyGroupReplacementInvocation,
   replacementInvocation,
+  REPLACEMENT_CHAIN_LIMIT,
   resetMenuContributions,
   scanReplacements,
   schemaForEditorRole,
@@ -4777,8 +4778,8 @@ export class AppState {
     const tx = createTransactionBuilder(tab.store.doc, tab.store.allocationActor)
     const context = { kind: 'initial' as const, schemaResolverFor: (doc: WorkflowDocument) => documentResolver(doc, targetSchema) }
     const nodeKey = (item: ReplacementScanItem): string => JSON.stringify([item.graphId, item.nodeId])
-    const pending = new Set(items.map(nodeKey))
-    const applied: ReplacementScanItem[] = []
+    const pending = new Map(items.map((item) => [nodeKey(item), REPLACEMENT_CHAIN_LIMIT]))
+    const applied = new Map<string, ReplacementScanItem>()
     const invocations: CommandInvocation[] = []
     let remainingItems = items
     for (;;) {
@@ -4787,8 +4788,13 @@ export class AppState {
         (!review || item.hops[0]?.plan.migrationFallback === true),
       )
       if (candidate === undefined) break
-      pending.delete(nodeKey(candidate))
-      const hops = review ? candidate.hops.slice(0, 1) : candidate.hops
+      const key = nodeKey(candidate)
+      const budget = pending.get(key)!
+      const hops = candidate.hops.slice(0, review ? 1 : budget)
+      pending.delete(key)
+      if (!review && hops.length < budget && candidate.diagnostics.some((entry) => entry.code === 'replace.chain.createdLink')) {
+        pending.set(key, budget - hops.length)
+      }
       for (const hop of hops) {
         const invocation = {
           command: 'node.replace',
@@ -4801,19 +4807,26 @@ export class AppState {
         }
         invocations.push(invocation)
       }
-      applied.push({
+      const previous = applied.get(key)
+      applied.set(key, {
         ...candidate,
-        hops,
+        sourceType: previous?.sourceType ?? candidate.sourceType,
+        hops: [...previous?.hops ?? [], ...hops],
         terminalType: hops[hops.length - 1]!.plan.to,
-        diagnostics: review ? hops.flatMap((hop) => hop.diagnostics) : candidate.diagnostics,
+        safe: (previous?.safe ?? true) && candidate.safe,
+        diagnostics: [
+          ...previous?.diagnostics ?? [],
+          ...(review ? hops.flatMap((hop) => hop.diagnostics) : candidate.diagnostics)
+            .filter((entry) => entry.code !== 'replace.chain.createdLink'),
+        ],
       })
       // Replan shared links against earlier upgrades, using the same commands
-      // as the eventual atomic dispatch. Newly created helpers are not scanned.
+      // as the eventual atomic dispatch. Newly created helpers are not upgraded.
       remainingItems = scanReplacements(tx.current, this.replacementRegistryFor(registry), resolve)
     }
     const rest = remainingItems
-    const silentEligible = stockPristine && !review && applied.every((item) => item.safe) && rest.length === 0
-    if (applied.length > 0) {
+    const silentEligible = stockPristine && !review && [...applied.values()].every((item) => item.safe) && rest.length === 0
+    if (applied.size > 0) {
       if (!this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json }).ok) return
       if (silentEligible) {
         // Baseline normalization of app-shipped content (see stockPending):
@@ -4821,8 +4834,8 @@ export class AppState {
         tab.store.clearHistory()
       } else {
         this.reportProblems(tab.id, [
-          diag('info', 'command', 'replace.applied', `${applied.length} nodes upgraded on open`, {
-            data: { upgrades: applied.map((item) => ({
+          diag('info', 'command', 'replace.applied', `${applied.size} nodes upgraded on open`, {
+            data: { upgrades: [...applied.values()].map((item) => ({
               graphId: item.graphId,
               nodeId: item.nodeId,
               sourceType: item.sourceType,
