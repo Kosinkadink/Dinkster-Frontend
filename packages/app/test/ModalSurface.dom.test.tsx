@@ -714,8 +714,9 @@ describe('ASSET widget modal integration', () => {
 
   const unresolvedAssetEditor = (
     overrides: Partial<AppState> = {},
-    initial = 'models/checkpoints/missing-model.safetensors',
+    initial: WidgetEditorState['initial'] = 'models/checkpoints/missing-model.safetensors',
     declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
+    spec?: WidgetEditorState['spec'],
   ) => {
     const root = document.createElement('div')
     document.body.append(root)
@@ -724,13 +725,14 @@ describe('ASSET widget modal integration', () => {
     const connection = {
       listMounts: vi.fn().mockResolvedValue([]),
       guessAssets: vi.fn().mockResolvedValue([]),
+      listAssetSelections: vi.fn().mockResolvedValue([{ name: 'pixel_space', shape: 'literal' }, { name: 'taesd', shape: 'pair' }]),
     }
     const ed: WidgetEditorState = {
       tab: {} as Tab,
       graphId: 'g0',
       target: { kind: 'input', nodeId: 'n0', valueKey: 'ckpt_name' },
       label: 'Checkpoint',
-      spec: {
+      spec: spec ?? {
         widgetType: 'ASSET',
         kind: 'model/checkpoint',
         options: { accept: ['application/x-safetensors', 'application/octet-stream'] },
@@ -752,6 +754,43 @@ describe('ASSET widget modal integration', () => {
     ), root)
     return { root, close, dispatchTo, connection, ed, unmount }
   }
+
+  it('commits one source name from the native selection dialog without guessing a file', async () => {
+    const mounted = unresolvedAssetEditor({}, 'pixel_space', undefined, {
+      widgetType: 'ASSET', kind: 'model/vae', selection: true, options: {},
+    })
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-entry="taesd"]')).not.toBeNull())
+    mounted.root.querySelector<HTMLElement>('[data-entry="taesd"]')!.click()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Use selection')!
+    apply.click()
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
+      command: 'node.setValue', params: { value: 'taesd' },
+    })
+    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.connection.guessAssets).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it('reopens an existing selection file descriptor through the ordinary file picker and leaves it unchanged on cancel', async () => {
+    const initial = {
+      digest: `blake3:${'d'.repeat(64)}`, name: 'vae.safetensors', size: 32,
+      mediaType: 'application/x-safetensors', virtualPath: 'vae/vae.safetensors',
+    }
+    const mounted = unresolvedAssetEditor({}, initial, undefined, {
+      widgetType: 'ASSET', kind: 'model/vae', selection: true, options: {},
+    })
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-apply"]')).not.toBeNull())
+    expect(mounted.root.querySelector('[data-testid="asset-selection-editor"]')).toBeNull()
+    expect(mounted.root.textContent).toContain('vae.safetensors')
+    expect(mounted.connection.listAssetSelections).not.toHaveBeenCalled()
+    mounted.root.querySelector<HTMLButtonElement>('[aria-label="Close Checkpoint asset editor"]')!.click()
+    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(initial.virtualPath).toBe('vae/vae.safetensors')
+    mounted.unmount()
+  })
 
   it('renders actionable unresolved-import details and an honest disabled download state', async () => {
     const mounted = unresolvedAssetEditor()

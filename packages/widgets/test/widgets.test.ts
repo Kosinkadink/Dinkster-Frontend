@@ -450,6 +450,26 @@ describe('kind semantics', () => {
     expect(kind.defaultView(spec('ASSET'))).toBe('core.asset')
   })
 
+  it('preserves and displays source strings only for explicitly selection-marked ASSET widgets', () => {
+    const r = registry()
+    const kind = r.kind('ASSET')!
+    const view = r.viewsFor('ASSET').find((entry) => entry.id === 'core.asset')!
+    for (const name of ['pixel_space', 'taesd', 'vendor/model']) {
+      const selection: WidgetSpec = { widgetType: 'ASSET', kind: 'model/vae', selection: true, options: {}, default: name }
+      expect(kind.defaultValue(selection)).toBe(name)
+      expect(effectiveWidgetDefault(selection)).toBe(name)
+      expect(kind.defaultValue({ ...selection, selection: false })).toBeNull()
+      expect(effectiveWidgetDefault({ ...selection, selection: false })).toBeUndefined()
+      expect(kind.valueSchema.validate(name)).toBe(false)
+      const { builder, ops } = recordingBuilder()
+      view.drawCompact(builder, name, selection, { focused: false, connected: false, readonly: false })
+      const text = ops.find((op) => op.op === 'text')?.args
+      expect(text?.[2]).toBe(name)
+      expect(text?.[3]).toMatchObject({ role: 'widgetValue' })
+      expect(text?.[3]).not.toHaveProperty('placeholder', true)
+    }
+  })
+
   it('ASSET accepts AssetRef arrays (multi-select on list-of-asset declarations)', () => {
     const kind = registry().kind('ASSET')!
     const asset = {
