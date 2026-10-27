@@ -87,12 +87,16 @@ if (
 )
   throw new Error('hosted E2E ports must differ')
 const nativeBackend = `http://127.0.0.1:${nativePort}`
+process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
+process.env['DINKSTER_E2E_COMFY_BACKEND'] = `http://127.0.0.1:${comfyPort}`
 process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
   `http://127.0.0.1:${nativeFrontendPort}`
 
 export default defineConfig({
   ...baseConfig,
-  ...(stockV1Only ? {} : { globalSetup: './hosted-global-setup.ts' }),
+  globalSetup: stockV1Only
+    ? './hosted-live-vitest-setup.ts'
+    : './hosted-global-setup.ts',
   use: {
     ...baseConfig.use,
     baseURL: `http://127.0.0.1:${stubV1Entry === '1' ? nativeFrontendPort : frontendPort}`,

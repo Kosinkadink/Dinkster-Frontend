@@ -113,6 +113,27 @@ pins:
 | `e2e`         | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                              |
 | `main-status` | Uploads one lane-result JSON artifact and fails unless every selected main lane passed                                                                                                                                                                   |
 
+The stock ComfyUI V1 job also runs 15 live Vitest cases serially, after
+Playwright has started its isolated servers and native composition has settled:
+
+| File | Live cases | Server |
+| --- | ---: | --- |
+| `client/test/live.integration.test.ts` | 2 | Stock ComfyUI V1 |
+| `client/test/collab-live.integration.test.ts` | 1 | Native HTTP/WebSocket |
+| `client/test/loop-templates.live.test.ts` | 1 (five templates) | Native |
+| `client/test/executable-examples.test.ts` | 9 | Native |
+| `app/test/regions-live.integration.test.ts` | 2 | Native |
+
+The hosted global setup uses separate V1 and native `DINKSTER_LIVE_URL`
+invocations; collaboration uses `DINKSTER_COLLAB_LIVE_URL`. Files and workers
+run serially against the workflow-pinned CPU backends. The live-name filter
+excludes the nine offline example compilation cases already covered by the
+unit suite; every selected live case must pass, with the exact live count
+checked from its JSON report. Reports are retained in the `live-vitest`
+artifact. A failed invocation fails the stock job before its browser tests;
+Playwright tears down all owned servers on success or failure. Other matrix
+jobs and fast checks do not repeat this live coverage.
+
 The heavy jobs retain the shared memory-only dependency identity action and
 clean checkouts without persisted credentials. The audit-assets browser starts the
 pinned Dinkster checkout and uses frontend/native ports 15376/15377. Its subgraph
