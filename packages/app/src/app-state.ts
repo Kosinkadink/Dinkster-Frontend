@@ -2911,8 +2911,7 @@ export class AppState {
     /**
      * Protocol for the same-origin default backend, as discovered by the
      * entry point (discoverBackend('') in main.tsx) BEFORE construction.
-     * Defaults to 'v1' so direct unit-test constructions remain stable; main
-     * passes the discovered answer.
+     * Defaults to the native Dinkster protocol.
      */
     readonly defaultProtocol?: BackendProtocol
     /** Injectable collab session transport (tests); defaults to HTTP + WS. */
@@ -3143,7 +3142,7 @@ export class AppState {
       asConnectionId('local'),
       'Local',
       '',
-      options?.defaultProtocol ?? 'v1',
+      options?.defaultProtocol ?? 'dinkster',
     )
     this.backends.set([local])
     this.connection = local.connection
@@ -3948,13 +3947,13 @@ export class AppState {
    * ExecutionStore (refs carry the connection id, so nothing collides), a
    * reconcile pass on every (re)connect, and tick bumps for the shell.
    */
-  private createBackend(id: ConnectionId, label: string, baseUrl: string): Backend & { protocol: 'v1' }
+  private createBackend(id: ConnectionId, label: string, baseUrl: string): Backend & { protocol: 'dinkster' }
   private createBackend(id: ConnectionId, label: string, baseUrl: string, protocol: BackendProtocol): Backend
   private createBackend(
     id: ConnectionId,
     label: string,
     baseUrl: string,
-    protocol: BackendProtocol = 'v1',
+    protocol: BackendProtocol = 'dinkster',
   ): Backend {
     // Each connection needs its own stable client id for both the WS session
     // and submitted prompts. Two URLs can route to the same server.
@@ -4308,7 +4307,7 @@ export class AppState {
     baseUrl: string,
     label?: string,
     start = true,
-    protocol: BackendProtocol = 'v1',
+    protocol: BackendProtocol = 'dinkster',
     persist = true,
   ): Backend | undefined {
     const trimmed = canonicalBackendUrl(baseUrl)

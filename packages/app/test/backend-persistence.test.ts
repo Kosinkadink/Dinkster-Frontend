@@ -105,7 +105,7 @@ describe('backend persistence', () => {
   it('persists removal', () => {
     const app = new AppState()
     const engine = app.addBackend('http://engine:3639', 'Engine', false, 'dinkster')!
-    app.addBackend('http://legacy:8188', 'Legacy', false)
+    app.addBackend('http://legacy:8188', 'Legacy', false, 'v1')
     app.removeBackend(engine.id)
     expect(stored().backends).toEqual([
       { baseUrl: 'http://legacy:8188', label: 'Legacy', protocol: 'v1' },
@@ -131,7 +131,7 @@ describe('backend persistence', () => {
   it('restores persisted backends on construction, protocol intact, not started', () => {
     const first = new AppState()
     first.addBackend('http://engine:3639', 'Engine', false, 'dinkster')
-    first.addBackend('http://legacy:8188', 'Legacy', false)
+    first.addBackend('http://legacy:8188', 'Legacy', false, 'v1')
 
     const second = new AppState()
     const backends = second.backends.get()
@@ -188,7 +188,7 @@ describe('backend persistence', () => {
       // A PATH on this origin is a genuinely different backend and stays.
       expect(app.addBackend('http://test/b2', undefined, false)).toBeDefined()
       expect(stored().backends).toEqual([
-        { baseUrl: 'http://test/b2', label: 'http://test/b2', protocol: 'v1' },
+        { baseUrl: 'http://test/b2', label: 'http://test/b2', protocol: 'dinkster' },
       ])
     } finally {
       delete (globalThis.location as { origin?: string }).origin

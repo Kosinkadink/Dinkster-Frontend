@@ -80,9 +80,9 @@ describe('addBackendByUrl', () => {
 })
 
 describe('defaultProtocol option', () => {
-  it('defaults the same-origin backend to v1 when unset (compatibility)', () => {
+  it('defaults the same-origin backend to native Dinkster when unset', () => {
     const app = new AppState()
-    expect(app.backends.get()[0]!.protocol).toBe('v1')
+    expect(app.backends.get()[0]!.protocol).toBe('dinkster')
   })
 
   it('makes the same-origin default native when discovery said dinkster', () => {

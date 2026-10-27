@@ -6,6 +6,10 @@ implementation. The compatibility entry is `packages/app/src/v1-connection-kind.
 which exposes `@dinkster/client/comfy-v1`; the protocol decoder is exposed from
 `@dinkster/core/comfy-v1`.
 
+AppState construction and protocol-less backend adds default to the native
+Dinkster connection. The legacy connection requires an explicit protocol choice
+or a legacy discovery result; it is never the implicit application default.
+
 ## Supported matrix
 
 The pull-request matrix runs against stock ComfyUI commit
