@@ -15,19 +15,20 @@ nested instances. Parent delivery suppression is occurrence-local and removes
 the effective junction driver without changing a sibling instance.
 The drilled canvas draws the Inputs noodle into the actual junction dot;
 retained fan-out noodles continue from that dot to their authored destinations.
-Flattening refuses these attachments rather than dropping their
-topology. Mixed direct and junction boundary deliveries remain unsupported.
+Flattening and extraction preserve junction identity, geometry and fan-out.
+Mixed direct and junction bindings preserve their authored delivery order.
 Historical alias and group snapshots also supply no post-open replacement
 rules, source schemas, or asset lookup authority. Successor-declared native
 `replacements` decode into the normalized schema model. Core provides its
 generic rule registry, planner, scanner, and atomic replacement command; no
-alias-generated rules are registered. The application currently performs no
-automatic graph upgrade. Schema-arrival diagnostics and legacy boolean
-normalization remain; deprecation pointers alone do not authorize graph edits.
-Deprecation badges show messages, version notes, and name-only successor
-guidance. They expose no replacement plans, rule diagnostics, or apply action;
-opening a badge does not mutate the graph.
-The status bar has no upgrade-review toggle.
+alias-generated rules are registered. Native documents apply applicable
+migrations on open as one undo step, including lossy plans. A dismissable
+Problems notice lists upgraded nodes and warnings, with node navigation;
+it clears on save or tab close and is never persisted. Upgraded nodes look
+ordinary. The status bar's Review upgrades toggle opts out for subsequent
+opens and enables migration badges, plan diagnostics and manual apply.
+Schema-arrival diagnostics and legacy boolean normalization remain;
+deprecation pointers alone do not authorize graph edits.
 The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses
 only exact registered node IDs; historical node alias metadata is not a lookup
@@ -148,8 +149,7 @@ otherwise retain the first delivery in document order.
 Output boundaries trace reroute chains back to their unique producing port,
 retaining the internal reroute vertices, links and positions. Dangling or cyclic
 chains refuse import rather than guessing a source. Input boundaries through
-reroutes remain unsupported: binding directly to their consumers would discard
-the authored internal fan-out links.
+reroutes retain their junction attachment and internal fan-out links.
 
 Modern instance widget arrays follow promoted-input order without implicit
 seed-controller entries. Legacy `proxyWidgets` references promote matching

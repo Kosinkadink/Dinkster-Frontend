@@ -19,6 +19,8 @@ import type { DeprecationBadgeInfo, SubgraphBadgeInfo } from './badge-info.js'
 import type { NodeProblemKind } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProductButton } from './ProductControls.js'
+import { useAppMessage } from './locale.js'
 
 /** Where and on what the popover opened; anchored in canvas-pane CSS px. */
 export interface BadgeAnchor {
@@ -39,8 +41,10 @@ export function BadgePopover(props: {
   subgraphInfo: (nodeId: string) => SubgraphBadgeInfo | undefined
   deprecationInfo: (nodeId: string) => DeprecationBadgeInfo | undefined
   onOpenSubgraph: (nodeId: string) => void
+  onApplyReplacement?: (nodeId: string) => void
   onClose: () => void
 }) {
+  const message = useAppMessage()
   return (
     <div
       class="badge-popover"
@@ -183,6 +187,20 @@ export function BadgePopover(props: {
                   </p>
                 )}
               </Show>
+              <Show when={info().item}>{(item) => (
+                <>
+                  <p class="badge-popover-line" data-testid="badge-replace-target">
+                    {item().sourceType} -&gt; {item().terminalType}
+                  </p>
+                  <For each={item().diagnostics}>{(entry) => <p class="badge-popover-line">{entry.message}</p>}</For>
+                  <Show when={item().hops.length > 0 && props.onApplyReplacement}>
+                    <ProductButton size="compact" data-testid="badge-apply-replacement"
+                      onMouseDown={(event) => { event.preventDefault(); props.onApplyReplacement?.(props.anchor.nodeId) }}>
+                      {message('problems.migration.apply')}
+                    </ProductButton>
+                  </Show>
+                </>
+              )}</Show>
               <Show
                 when={info().pointer}
                 fallback={<p class="badge-popover-line">No successor is declared.</p>}

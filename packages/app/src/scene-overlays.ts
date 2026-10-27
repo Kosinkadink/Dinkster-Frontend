@@ -508,6 +508,9 @@ export function deriveSceneOverlays(args: {
   readonly instancePath: readonly string[] | undefined
   /** Frozen tab: the document is the execution's snapshot. */
   readonly frozen: boolean
+  /** Manual migration badges belong only to the opt-in review mode. */
+  readonly reviewReplacements?: boolean
+  readonly replacementNodes?: ReadonlySet<string> | undefined
   /** Live-tab exactness oracle (liveExactnessFor); undefined = stale. */
   readonly exactProducer: ((runtimeId: string) => boolean) | undefined
   /** Runtime occurrences explicitly retained from older executions. */
@@ -796,7 +799,7 @@ export function deriveSceneOverlays(args: {
         count + Object.values(graph.nodes).filter((node) => subgraphDefIdOf(node.type) === defId).length, 0)
       list.push(subgraphBadge(occurrences))
     }
-    else if (s !== undefined && isDeprecated(s)) list.push(DEPRECATED_BADGE)
+    else if (args.reviewReplacements === true && (args.replacementNodes?.has(n.id) || s !== undefined && isDeprecated(s))) list.push(DEPRECATED_BADGE)
     const iterationLabel = regionIterationLabels[n.id]
     if (iterationLabel !== undefined) {
       list.push({

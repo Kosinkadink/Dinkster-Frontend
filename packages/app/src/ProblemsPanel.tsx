@@ -1,7 +1,7 @@
 import { createMemo, createSignal, For, Show } from 'solid-js'
 import type { Diagnostic } from '@dinkster/core'
 import type { CompatSkip, PackInferenceUnavailable } from '@dinkster/client'
-import { currentGraphId, diagnosticFocusTarget, type AppState } from './app-state.js'
+import { currentGraphId, diagnosticFocusTarget, type AppState, type MigrationNotice } from './app-state.js'
 import { groupProblemDiagnostics, problemDisplay, type ProblemGroup } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage } from './locale.js'
@@ -43,6 +43,7 @@ export interface ProblemsPanelProps {
   readonly app: AppState
   readonly diagnostics: () => readonly Diagnostic[]
   readonly compatSkips: () => readonly CompatSkip[]
+  readonly migrationNotice?: () => MigrationNotice | undefined
   /** Packs whose nodes, routes and events composed but whose declared
    * samplers/schedulers could not bind because no native sampling worker
    * was live; their ids are refused at plan time until a worker connects.
@@ -87,9 +88,34 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
       {/* Problems are owner-scoped: the caller supplies only visible canvases'
           entries plus app-scoped globals and the active execution's errors. */}
       <Show
-        when={groups().length > 0 || props.compatSkips().length > 0 || inferenceUnavailable().length > 0}
+        when={props.migrationNotice?.() !== undefined || groups().length > 0 || props.compatSkips().length > 0 || inferenceUnavailable().length > 0}
         fallback={<ProductEmptyState title={message('problems.empty')} />}
       >
+        <Show when={props.migrationNotice?.()}>{(notice) => (
+          <section class="problems-group" data-testid="migration-notice">
+            <div class="problems-group-header">
+              <span class="problems-group-title">{message('problems.migration.title')}</span>
+              <span class="problems-group-count">{notice().entries.length}</span>
+              <ProductButton variant="ghost" size="compact"
+                onClick={() => props.app.dismissMigrationNotice(notice().owner)}>
+                {message('problems.action.dismiss')}
+              </ProductButton>
+            </div>
+            <div class="problems-group-items">
+              <For each={notice().entries}>{(entry) => (
+                <div class="problem" data-severity={entry.severity}>
+                  <ProductButton variant="ghost" size="compact" disabled={entry.anchor === undefined}
+                    onClick={() => activateProblem(props.app, entry)}>
+                    {entry.message}
+                  </ProductButton>
+                  <For each={entry.data?.warnings as readonly string[] | undefined}>
+                    {(warning) => <p>{warning}</p>}
+                  </For>
+                </div>
+              )}</For>
+            </div>
+          </section>
+        )}</Show>
         <For each={groups()}>
           {(group, index) => {
             const contentId = () => `problems-group-${index()}`

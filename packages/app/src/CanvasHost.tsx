@@ -1438,6 +1438,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
   const problems = useSignal(props.app.problems)
+  const reviewReplacements = useSignal(props.app.reviewReplacements)
   // Scene/widget diagnostics for THIS editor instance. The app-level
   // solveDiagnostics signal mirrors the focused instance only, so an
   // unfocused split sibling keeps its own rail without clobbering the
@@ -4348,6 +4349,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         instancePath: viewInstancePath(tab),
         frozen,
         exactProducer,
+        reviewReplacements: !frozen && reviewReplacements(),
+        replacementNodes: reviewReplacements()
+          ? new Set(props.app.scanTabReplacements(tab).filter((item) => item.graphId === gid).map((item) => item.nodeId))
+          : undefined,
         retainedRuntimeIds: retained?.retainedRuntimeIds,
         nodeProblems,
         ...(() => {
@@ -5954,11 +5959,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const deprecationInfoFor = (nodeId: string) => {
     const tab = activeTab()
     if (!tab) return undefined
+    const item = reviewReplacements() ? props.app.scanTabReplacements(tab).find((candidate) => candidate.graphId === currentGraphId(tab) && candidate.nodeId === nodeId) : undefined
     return deprecationBadgeInfo({
       doc: tab.store.doc,
       graphId: currentGraphId(tab),
       nodeId,
       resolve: props.app.registryForTab(tab)?.resolve,
+      ...(item === undefined ? {} : { item }),
     })
   }
 
@@ -6469,6 +6476,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             problems={problemMessages}
             subgraphInfo={subgraphInfoFor}
             deprecationInfo={deprecationInfoFor}
+            onApplyReplacement={(nodeId) => {
+              const tab = activeTab()
+              if (tab && reviewReplacements()) {
+                const item = props.app.scanTabReplacements(tab).find((item) => item.graphId === currentGraphId(tab) && item.nodeId === nodeId)
+                if (item) props.app.applyReplacements(tab, [item])
+              }
+              setBadgePopover(undefined)
+            }}
             onOpenSubgraph={openSubgraphFromPopover}
             onClose={() => setBadgePopover(undefined)}
           />

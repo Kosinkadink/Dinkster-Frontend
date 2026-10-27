@@ -22,6 +22,7 @@ import {
   coreCommandRegistry,
   coreMenuContributions,
   createMenuRegistry,
+  createReplacementRegistry,
   createSearchRegistry,
   createSignal,
   createSurfaceRegistry,
@@ -68,6 +69,9 @@ import {
   parseOccurrenceKey,
   projectWorkspaceCompileArtifact,
   randomNumericValue,
+  registerSchemaRules,
+  replacementInvocation,
+  scanReplacements,
   stepNumericValue,
   subgraphDefIdOf,
   resetMenuContributions,
@@ -105,6 +109,9 @@ import {
   type Occurrence,
   type NormalizedEvent,
   type ReadonlySignal,
+  type ReplacementRegistry,
+  type ReplacementRule,
+  type ReplacementScanItem,
   type RuntimeErrorDetail,
   type SelectionExecutionAnalysis,
   type SelectorChoice,
@@ -1372,6 +1379,11 @@ export type ProblemOwner = string | symbol
 
 /** A Problems entry: the diagnostic plus the owner it belongs to. */
 export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
+
+export interface MigrationNotice {
+  readonly owner: string
+  readonly entries: readonly OwnedDiagnostic[]
+}
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
   a.owner === b.owner && a.origin === b.origin && a.code === b.code && a.message === b.message
@@ -2756,6 +2768,8 @@ export class AppState {
    */
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
+  /** Session-only open-time migration summaries; never stored in documents. */
+  readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
@@ -4550,6 +4564,81 @@ export class AppState {
 
   // -- Schema arrival -------------------------------------------------------
 
+  readonly reviewReplacements = createSignal(false)
+  private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
+  private extraRulesVersion = 0
+  private readonly replacementRegistries = new WeakMap<SchemaRegistry, { registry: ReplacementRegistry; version: number }>()
+
+  registerReplacementRule(layer: 'pack' | 'core', rule: ReplacementRule): readonly Diagnostic[] {
+    const diagnostics = createReplacementRegistry().register(layer, rule)
+    if (diagnostics.length > 0) {
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
+      return diagnostics
+    }
+    this.extraRules.push({ layer, rule })
+    this.extraRulesVersion++
+    return []
+  }
+
+  private replacementRegistryFor(reg: SchemaRegistry): ReplacementRegistry {
+    const cached = this.replacementRegistries.get(reg)
+    if (cached?.version === this.extraRulesVersion) return cached.registry
+    const registry = createReplacementRegistry()
+    const diagnostics = [...registerSchemaRules(registry, reg.schemas.values())]
+    for (const { layer, rule } of this.extraRules) diagnostics.push(...registry.register(layer, rule))
+    this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
+    this.replacementRegistries.set(reg, { registry, version: this.extraRulesVersion })
+    return registry
+  }
+
+  scanTabReplacements(tab: Tab): readonly ReplacementScanItem[] {
+    const registry = this.registryForTab(tab)
+    return tab.execution || registry === undefined ? []
+      : scanReplacements(tab.store.doc, this.replacementRegistryFor(registry), registry.resolve)
+  }
+
+  applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): boolean {
+    const invocation = replacementInvocation(items)
+    return invocation !== undefined && this.dispatchTo(tab, invocation).ok
+  }
+
+  dismissMigrationNotice(tabId: string): void {
+    if (!this.migrationNotices.get().has(tabId)) return
+    this.migrationNotices.update((current) => {
+      const next = new Map(current)
+      next.delete(tabId)
+      return next
+    })
+  }
+
+  private upgradeOnOpen(tab: Tab): void {
+    if (this.reviewReplacements.get()) return
+    const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
+    if (items.length === 0 || !this.applyReplacements(tab, items)) return
+    // A shared definition has one notice line; navigate through its first
+    // reachable occurrence, not an arbitrary sibling's instance path.
+    const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
+    for (const [graphId, path] of paths) {
+      for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
+        const child = subgraphDefIdOf(node.type)
+        if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+      }
+    }
+    const entries = items.map((item): OwnedDiagnostic => {
+      const instancePath = paths.get(item.graphId)
+      return {
+        ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
+          'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
+            refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
+            ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
+            data: { warnings: item.diagnostics.map((entry) => entry.message) },
+          }),
+        owner: tab.id,
+      }
+    })
+    this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries }))
+  }
+
   /** Tabs awaiting diagnostics from their target backend's first registry. */
   private readonly schemaDiagnosticsPending = new Set<string>()
 
@@ -4593,6 +4682,7 @@ export class AppState {
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.schemaDiagnosticsPending.delete(tab.id)
       this.reportEnvironmentDrift(tab)
+      this.upgradeOnOpen(tab)
       this.reportUnresolvedTypes(tab)
     }
   }
@@ -5480,6 +5570,7 @@ export class AppState {
   }
 
   private cleanupClosedTab(id: string): void {
+    this.dismissMigrationNotice(id)
     if (this.imageEditorTarget.get()?.tabId === id) this.imageEditorTarget.set(undefined)
     if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
@@ -6011,6 +6102,7 @@ export class AppState {
     }
     const tab = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
     if (replacesExisting) this.workspaceReplacements.add(tab)
+    this.dismissMigrationNotice(tab.id)
     // Load/translation warnings belong to the tab they describe: a
     // same-lineage replacement swaps them out; other tabs keep theirs.
     this.replaceProblems(tab.id, loaded.diagnostics)
@@ -6154,6 +6246,7 @@ export class AppState {
       anchor.hidden = true
       document.body.append(anchor)
       anchor.click()
+      this.dismissMigrationNotice(tab.id)
       this.showTransientStatus(`Download started: ${filename}`)
       return true
     } catch (error) {
@@ -6433,7 +6526,10 @@ export class AppState {
       // Clean only when nothing was committed since the uploaded snapshot:
       // an edit made during the awaits keeps the tab dirty.
       const unchanged = tab.store.revision === revision
-      if (unchanged) this.markTabClean(tab.id)
+      if (unchanged) {
+        this.markTabClean(tab.id)
+        this.dismissMigrationNotice(tab.id)
+      }
       const background = this.activeTab()?.id === tab.id ? '' : ` ${tab.title}`
       this.showTransientStatus(unchanged
         ? `Saved${background} to ${backend.label} library`

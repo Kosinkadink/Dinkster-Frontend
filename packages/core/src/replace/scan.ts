@@ -280,9 +280,22 @@ export function replacementInvocation(
   const plans = items.flatMap((i) => i.hops.map((h) => h.plan))
   if (plans.length === 0) return undefined
   if (plans.length === 1) return { command: 'node.replace', params: { plan: plans[0]! } as unknown as Json }
-  const composablePlans = plans.map((plan) =>
-    plan.createdNodes === undefined ? { ...plan, createdNodes: [] } : plan,
-  )
+  // A connection can be discarded by both endpoint owners. Remove it once,
+  // and never rewire a connection another selected migration discards.
+  const droppedLinks = new Set(plans.flatMap((plan) => plan.dropLinks.map((link) => `${plan.graphId}:${link}`)))
+  const removedLinks = new Set<string>()
+  const composablePlans = plans.map((plan) => ({
+    ...plan,
+    createdNodes: plan.createdNodes ?? [],
+    inputRewires: plan.inputRewires.filter((rewire) => !droppedLinks.has(`${plan.graphId}:${rewire.link}`)),
+    outputRewires: plan.outputRewires.filter((rewire) => !droppedLinks.has(`${plan.graphId}:${rewire.link}`)),
+    dropLinks: plan.dropLinks.filter((link) => {
+      const key = `${plan.graphId}:${link}`
+      if (removedLinks.has(key)) return false
+      removedLinks.add(key)
+      return true
+    }),
+  }))
   return {
     command: 'batch',
     params: {

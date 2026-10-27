@@ -135,11 +135,16 @@ node. Rules can describe same-type interface migrations as well as successor
 types. Alias metadata does not synthesize migration rules. The ComfyUI importer
 preserves authored classes and topology; its class/version widget upgrade table
 is separate from native document migrations.
-The app currently presents deprecation metadata without invoking these core
-rules. Schema-arrival diagnostics and legacy boolean normalization are independent.
+On opening a native document, the app applies all applicable rule plans as one
+undo step, including lossy plans. Opening never waits for migration review.
+Problems shows one dismissable session-only notice listing upgraded nodes and
+warnings; each node line navigates to its occurrence. Saving or closing the tab
+clears the notice, and it is never written into the workflow. Upgraded nodes
+look ordinary. Schema-arrival diagnostics and legacy boolean normalization are independent.
 
-Deprecation badges show the message and name-only successor guidance, without
-an upgrade-review toggle, plan preview or apply control. Successor pointers
+The status bar's **Review upgrades** toggle opts out of automatic migration
+for subsequently opened documents. Only this mode shows deprecation badges
+with plan diagnostics and an Apply Replacement control. Successor pointers
 resolve transitively through `resolveDeprecationPointer`; cycles, dangling
 targets and runaway depth produce explicit statuses rather than loops. Pointers
 never authorize a graph edit.

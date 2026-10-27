@@ -449,6 +449,8 @@ export function App(props: {
   const problems = useSignal(app.problems)
   const queueRefusal = useSignal(app.queueRefusal)
   const solveDiagnostics = useSignal(app.solveDiagnostics)
+  const migrationNotices = useSignal(app.migrationNotices)
+  const reviewReplacements = useSignal(app.reviewReplacements)
   const logs = useSignal(app.logs)
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
@@ -1370,14 +1372,16 @@ export function App(props: {
   }
   const problemsIndicator = (): PanelIndicator | undefined => {
     const list = problemDiagnostics()
-    if (list.length === 0) return undefined
+    const notice = migrationNotices().get(activeTabId())
+    if (list.length === 0 && notice === undefined) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : list.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+      : list.some((d) => d.severity === 'warning') || notice?.entries.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+    const count = list.length + (notice === undefined ? 0 : 1)
     return {
-      count: list.length,
+      count,
       severity,
-      label: message('shell.status.problems', { count: list.length, severity }),
+      label: message('shell.status.problems', { count, severity }),
     }
   }
   // Whole-document -> focused navigation: focus the owner on canvas (no
@@ -1517,6 +1521,7 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 60,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
+        migrationNotice={() => migrationNotices().get(activeTabId())}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
         onShowInContext={showProblemInContext} />,
@@ -2938,6 +2943,13 @@ export function App(props: {
             {multiBackend()
               ? message('shell.status.backendsCount', { count: backends().length })
               : message('shell.panel.backends.title')}
+          </ProductButton>
+          <ProductButton variant="ghost" size="compact" class="statusbar-toggle"
+            data-testid="review-upgrades-toggle"
+            aria-label={message('shell.reviewUpgrades.label')}
+            aria-pressed={reviewReplacements()}
+            onClick={() => app.reviewReplacements.update((value) => !value)}>
+            {message('shell.reviewUpgrades.label')}
           </ProductButton>
         </div>
       </footer>

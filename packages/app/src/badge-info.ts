@@ -13,6 +13,7 @@ import {
   subgraphDefIdOf,
   type NodeSchema,
   type ResolvedDeprecationPointer,
+  type ReplacementScanItem,
   type WorkflowDocument,
 } from '@dinkster/core'
 
@@ -41,6 +42,7 @@ export function subgraphBadgeInfo(
 
 export interface DeprecationBadgeInfo {
   readonly type: string
+  readonly item?: ReplacementScanItem
   readonly deprecation: NodeSchema['deprecation']
   /** Name-only successor pointer, resolved transitively (display guidance). */
   readonly pointer: ResolvedDeprecationPointer | undefined
@@ -54,6 +56,7 @@ export function deprecationBadgeInfo(args: {
   readonly graphId: string
   readonly nodeId: string
   readonly resolve: ((type: string) => NodeSchema | undefined) | undefined
+  readonly item?: ReplacementScanItem
 }): DeprecationBadgeInfo | undefined {
   const { doc, graphId, nodeId, resolve } = args
   const type = doc.graphs[graphId]?.nodes[nodeId]?.type
@@ -61,6 +64,7 @@ export function deprecationBadgeInfo(args: {
   const schema = resolve?.(type)
   return {
     type,
+    ...(args.item === undefined ? {} : { item: args.item }),
     deprecation: schema?.deprecation,
     // Name-only successor pointer, resolved transitively (A -> B -> C
     // shows C). Display guidance only, never an executable mapping.

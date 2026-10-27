@@ -1405,9 +1405,11 @@ describe('deriveSceneOverlays', () => {
     expect(m.portProblems).toBe(portProblems)
   })
 
-  it('badges subgraphs and schema deprecations without marking ordinary nodes', () => {
+  it.each([false, true])('shows migration badges only in review mode=%s', (reviewReplacements) => {
     const m = deriveSceneOverlays({
       ...base,
+      reviewReplacements,
+      replacementNodes: new Set(['swap']),
       scene: scene([
         { id: 's', isSubgraph: true, type: '#def' },
         { id: 'old', type: 'core.old' },
@@ -1416,8 +1418,13 @@ describe('deriveSceneOverlays', () => {
       resolveSchema: schemaTable({ 'core.old': { deprecation: { message: 'gone' } }, 'core.swap': {} }),
     })
     expect(m.badges['s']).toContain(SUBGRAPH_BADGE)
-    expect(m.badges['old']).toContain(DEPRECATED_BADGE)
-    expect(m.badges['swap']).toBeUndefined()
+    if (reviewReplacements) {
+      expect(m.badges['old']).toContain(DEPRECATED_BADGE)
+      expect(m.badges['swap']).toContain(DEPRECATED_BADGE)
+    } else {
+      expect(m.badges['old']).toBeUndefined()
+      expect(m.badges['swap']).toBeUndefined()
+    }
   })
 
   it('derives linked occurrence counts from the document without storing them', () => {
