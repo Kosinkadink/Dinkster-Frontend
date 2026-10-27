@@ -791,6 +791,32 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
+  it('keeps an exact staged file descriptor across source-option browsing without committing navigation', async () => {
+    const mounted = catalogAssetEditor('model/vae', { kind: 'union', names: ['COMBO', 'ASSET'] }, 'pixel_space', false)
+    const connection = { ...mounted.connection, listAssetSelections: vi.fn().mockResolvedValue([{ name: 'pixel_space', shape: 'literal' }]) }
+    const app = {
+      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection }),
+      dispatchTo: mounted.dispatchTo, widgetRegistry: { kind: () => undefined },
+    } as unknown as AppState
+    const ed: WidgetEditorState = { ...mounted.ed, spec: { ...mounted.ed.spec!, selection: true } }
+    const unmount = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    const button = (text: string) => [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === text)!
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-entry="pixel_space"]')).not.toBeNull())
+    button('Browse files').click()
+    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
+    const files = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
+    files[1]!.click()
+    button('Back to source options').click()
+    button('Browse files').click()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
+      command: 'node.setValue', params: { value: { digest: mounted.digestB, virtualPath: 'b/shared.safetensors' } },
+    })
+    unmount()
+  })
+
   it('reopens an existing selection file descriptor through the ordinary file picker and leaves it unchanged on cancel', async () => {
     const initial = {
       digest: `blake3:${'d'.repeat(64)}`, name: 'vae.safetensors', size: 32,
