@@ -63,7 +63,7 @@ test('drilled occurrence suffix and ghost sockets use the planner while definiti
         intentions.push(intention)
         return {
           ok: false,
-          diagnostics: [{ severity: 'warning', source: 'command', code: 'occurrence.link.proofRefusal', message: 'Proof planner refused this occurrence mutation.' }],
+          diagnostics: [{ severity: 'warning', origin: 'command', code: 'occurrence.link.proofRefusal', message: 'Proof planner refused this occurrence mutation.' }],
         }
       },
     })

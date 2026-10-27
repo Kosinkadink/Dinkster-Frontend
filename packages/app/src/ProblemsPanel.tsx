@@ -98,7 +98,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                     {(diagnostic) => (
                       <details class="problem" data-severity={diagnostic.severity}
                         data-activatable={diagnostic.anchor !== undefined ? true : undefined}>
-                        <summary onClick={() => activateProblem(props.app, diagnostic)}>
+                        <summary title={diagnostic.message} onClick={() => activateProblem(props.app, diagnostic)}>
                           <span class="problem-severity" aria-label={diagnostic.severity}>
                             {diagnostic.severity === 'error' ? 'x' : diagnostic.severity === 'warning' ? '!' : 'i'}
                           </span>
@@ -106,7 +106,6 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                         </summary>
                         <div class="problem-detail">
                           <code>{diagnostic.code}</code>
-                          <p>{diagnostic.message}</p>
                           <Show when={diagnostic.data}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
                           <Show when={diagnostic.anchor !== undefined}>
                             <ProductButton type="button" variant="secondary" size="compact" class="problem-show-on-canvas"

@@ -156,6 +156,9 @@ describe('ProblemsPanel browser interactions', () => {
     const details = root.querySelectorAll<HTMLDetailsElement>('details.problem')
     const errorSummary = details[0]!.querySelector('summary')!
     const warningSummary = details[1]!.querySelector('summary')!
+    expect(details[0]!.querySelectorAll('.problem-message')).toHaveLength(1)
+    expect(details[0]!.querySelector('.problem-detail')!.textContent).not.toContain(diagnostics[0]!.message)
+    expect(errorSummary.getAttribute('title')).toBe(diagnostics[0]!.message)
     errorSummary.click()
     warningSummary.click()
     expect(details[0]!.open).toBe(true)

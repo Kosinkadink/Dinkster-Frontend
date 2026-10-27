@@ -225,7 +225,11 @@ test('repeated family-forwarding fan-out refusal stays one Problem and flashes e
       await expect(page.getByTestId('gesture-refusal-toast')).toBeHidden()
     }
   }
-  await expect(page.locator('.problem summary', { hasText: 'boundary.bindKind' })).toHaveCount(1)
+  const problem = page.locator('.problem').filter({ has: page.locator('code', { hasText: 'boundary.bindKind' }) })
+  await expect(problem).toHaveCount(1)
+  await expect(problem.locator('summary')).not.toContainText('boundary.bindKind')
+  await problem.locator('summary').click()
+  await expect(problem.locator('code')).toBeVisible()
   expect(toastVisible).toEqual([true, true])
   await expect(page.getByTestId('gesture-refusal-toast')).toContainText('boundary.bindKind')
 })

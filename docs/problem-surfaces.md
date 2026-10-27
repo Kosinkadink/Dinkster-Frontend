@@ -28,8 +28,9 @@ The panel shows only non-empty sections, in this order:
 
 Information notices remain visible. Problems and Focused rows have a severity
 icon and a single-line producer message naming the thing and its cause. Expanding the
-row reveals the diagnostic code, full message and any debug payload or
-traceback. Clicking an anchored Problems row also navigates to its owner. Section
+row reveals the diagnostic code and any debug payload or traceback; hovering
+the summary reveals its complete producer message without repeating the row text.
+Clicking an anchored Problems row also navigates to its owner. Section
 disclosure remains independent of row disclosure.
 
 When a queue attempt is refused, a Product error toast repeats the Problems
