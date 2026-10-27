@@ -5,6 +5,7 @@ import { importLitegraph } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { Json, JsonObject, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId } from '../src/ids.js'
+import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
 const schema: NodeSchema = {
@@ -394,17 +395,88 @@ describe('LiteGraph subgraphs', () => {
       .toEqual(['import.subgraphs.boundaryUnsupported'])
   })
 
-  it('reports primitive proxy instances whose output boundary cannot be preserved', () => {
+  it('preserves disconnected boundary slots before connected slots without shifting deliveries', () => {
+    const def = {
+      ...definition(),
+      inputs: [
+        { id: 'unused-in', name: 'unused', type: 'FLOAT', linkIds: [] },
+        { id: 'in', name: 'value', type: 'INT', linkIds: [1] },
+      ],
+      outputs: [
+        { id: 'unused-out', name: 'unused', type: 'FLOAT', linkIds: [] },
+        { id: 'out', name: 'result', type: 'INT', linkIds: [2] },
+      ],
+      links: [link(1, -10, 1, 1, 0), link(2, 1, 0, -20, 1)],
+    }
+    const host = (id: number, value: number) => ({
+      ...instance(id, 'inner', value),
+      inputs: [{ name: 'unused' }, { name: 'value', widget: { name: 'value' } }],
+      outputs: [{ name: 'unused' }, { name: 'result' }],
+    })
+    const raw = {
+      nodes: [host(1, 11), host(2, 29), relay(3), relay(4)],
+      links: [[1, 1, 1, 3, 0, 'INT'], [2, 2, 1, 4, 0, 'INT']],
+      definitions: { subgraphs: [def] },
+    }
+    const source = JSON.stringify(raw)
+    const doc = imported(raw)
+    expect(JSON.stringify(raw)).toBe(source)
+    const body = doc.graphs.inner!
+    expect(body.boundary!.inputs.map((item) => item.id)).toEqual(['unused-in', 'in'])
+    expect(body.boundary!.outputs.map((item) => item.id)).toEqual(['unused-out', 'out'])
+    const derived = deriveBoundarySchema(body, resolve)
+    expect(derived.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(derived.schema!.items.filter((item) => item.kind === 'input' || item.kind === 'output')
+      .map((item) => [item.kind, item.id, item.type])).toEqual([
+      ['input', 'unused-in', { kind: 'concrete', name: 'FLOAT' }],
+      ['input', 'in', { kind: 'concrete', name: 'INT' }],
+      ['output', 'unused-out', { kind: 'concrete', name: 'FLOAT' }],
+      ['output', 'out', { kind: 'concrete', name: 'INT' }],
+    ])
+    expect(Object.keys(body.nodes)).toEqual(['n1'])
+    expect(body.nodes.n1!.type).toBe('Relay')
+    expect(body.links).toEqual({})
+    expect(doc.graphs.g0!.links.l1).toMatchObject({ from: { node: 'n1', port: 'out' }, to: { node: 'n3', port: 'value' } })
+    expect(doc.graphs.g0!.links.l2).toMatchObject({ from: { node: 'n2', port: 'out' }, to: { node: 'n4', port: 'value' } })
+    const before = JSON.stringify(doc)
+    const compiled = prompt(doc)
+    expect(compiled['n1.n1']!.inputs.value).toBe(11)
+    expect(compiled['n2.n1']!.inputs.value).toBe(29)
+    expect(compiled.n3!.inputs.value).toEqual(['n1.n1', 0])
+    expect(compiled.n4!.inputs.value).toEqual(['n2.n1', 0])
+    expect(JSON.stringify(doc)).toBe(before)
+    expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
+  })
+
+  it('preserves primitive proxy values independently through structural output boundaries', () => {
     const def = { ...definition(), inputs: [], nodes: [
-      { id: 1, type: 'PrimitiveNode', outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
+      { id: 1, type: 'PrimitiveNode', pos: [61, 29], outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
     ], links: [link(2, 1, 0, -20, 0)] }
-    const host = (id: number, value: number) => ({ ...instance(id), inputs: [], widgets_values: [value, 'randomize'],
+    const host = (id: number, value: number, mode: string) => ({ ...instance(id), inputs: [], widgets_values: [value, mode],
       properties: { proxyWidgets: [['1', 'value'], ['1', 'control_after_generate']] } })
-    const result = importLitegraph({ nodes: [host(1, 11), host(2, 29), relay(3), relay(4)],
-      links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 4, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
-      .toEqual(['import.subgraphs.boundaryUnsupported'])
+    const raw = { nodes: [host(1, 11, 'increment'), host(2, 29, 'randomize'), relay(3), relay(4),
+      { ...host(5, 41, 'decrement'), widgets_values: [] }, relay(6)],
+      links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 4, 0, 'INT'], [3, 5, 0, 6, 0, 'INT']], definitions: { subgraphs: [def] } }
+    const source = JSON.stringify(raw)
+    const doc = imported(raw)
+    expect(JSON.stringify(raw)).toBe(source)
+    expect(doc.graphs.inner!.nodes).toEqual({})
+    expect(doc.graphs.inner!.links).toEqual({})
+    expect(doc.graphs.inner!.valueSources).toEqual({ v1: { id: 'v1', value: 7, controller: 'fixed' } })
+    expect(doc.view.graphs.inner!.valueSources!.v1!.position).toEqual({ x: 61, y: 29 })
+    expect(doc.graphs.g0!.nodes.n1!.values).toEqual({ 'proxy-primitive-1': 11 })
+    expect(doc.graphs.g0!.nodes.n2!.values).toEqual({ 'proxy-primitive-1': 29 })
+    expect(doc.graphs.g0!.nodes.n1!.controllers).toEqual({ 'proxy-primitive-1': 'increment' })
+    expect(doc.graphs.g0!.nodes.n2!.controllers).toEqual({ 'proxy-primitive-1': 'randomize' })
+    expect(doc.graphs.g0!.nodes.n5!.values).toEqual({})
+    const before = JSON.stringify(doc)
+    const compiled = prompt(doc)
+    expect(Object.keys(compiled).sort()).toEqual(['n3', 'n4', 'n6'])
+    expect(compiled.n3!.inputs.value).toBe(11)
+    expect(compiled.n4!.inputs.value).toBe(29)
+    expect(compiled.n6!.inputs.value).toBe(7)
+    expect(JSON.stringify(doc)).toBe(before)
+    expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
   })
 
   it.each([['value', '2'], ['1: 2: value', undefined]])('resolves nested legacy widget %s without confusing identical names', (name, sourceId) => {
