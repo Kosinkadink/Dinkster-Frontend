@@ -18,17 +18,10 @@ import type {
   NodeSchema,
   TypeExpr,
 } from '../src/schema/model.js'
-import {
-  parseObjectInfo,
-  type ObjectInfoEntry,
-} from '../src/schema/object-info.js'
+import { historicalSchemas as coreSchemas } from './fixtures/historical-schemas.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const fixtureRoot = join(root, 'test/fixtures/comfyui-generic-loops')
-const objectInfo = JSON.parse(
-  readFileSync(join(root, 'fixtures/object_info.json'), 'utf8'),
-) as Record<string, ObjectInfoEntry>
-const coreSchemas = parseObjectInfo(objectInfo).schemas
 const helperSchemas = new Map<string, NodeSchema>([
   [
     'std.list.range',
@@ -164,9 +157,9 @@ const helperSchemas = new Map<string, NodeSchema>([
     },
   ],
   [
-    'dinkster.value.select',
+    'Issue408LazySwitch',
     {
-      type: 'dinkster.value.select',
+      type: 'Issue408LazySwitch',
       displayName: 'Select Value',
       category: 'test',
       source: 'v3',
@@ -1036,9 +1029,7 @@ const importCorpusWorkflow = (name: string) => {
   const resolve = (type: string): NodeSchema | undefined =>
     type === 'StartLoop'
       ? { ...coreSchemas.get(type)!, mayExpandGraph: true }
-      : type === 'Issue408LazySwitch'
-        ? helperSchemas.get('dinkster.value.select')
-        : (coreSchemas.get(type) ??
+      : (coreSchemas.get(type) ??
           helperSchemas.get(type) ??
           fixtureSchemas.get(type))
   return { workflow, resolve, imported: importLitegraph(workflow, resolve) }
@@ -1568,7 +1559,7 @@ describe('ComfyUI Generic Loops structural import', () => {
     expect(regionsOf(imported.document!)).toHaveLength(2)
   })
 
-  it('lowers the fixed-SHA lazy branch helper to the native selector', () => {
+  it('preserves the authored lazy branch class and selector policy', () => {
     const { resolve, imported } = importCorpusWorkflow('lazy-branch.json')
     expect(
       imported.diagnostics.filter((item) => item.severity === 'error'),
@@ -1576,7 +1567,7 @@ describe('ComfyUI Generic Loops structural import', () => {
     expect(imported.document).toBeDefined()
     const selector = Object.values(imported.document!.graphs)
       .flatMap((graph) => Object.values(graph.nodes))
-      .find((node) => node.type === 'dinkster.value.select')
+      .find((node) => node.type === 'Issue408LazySwitch')
     expect(selector).toBeDefined()
 
     const compiled = compile({
@@ -1601,7 +1592,7 @@ describe('ComfyUI Generic Loops structural import', () => {
     expect(region.region.body.nodes).toEqual(
       expect.objectContaining({
         n4: expect.objectContaining({
-          nodeType: 'dinkster.value.select',
+          nodeType: 'Issue408LazySwitch',
           inputs: {
             condition: { $link: { node: '$region', output: 'is_first' } },
             on_false: { $link: { node: 'n2', output: 'output_0' } },

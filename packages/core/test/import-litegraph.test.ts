@@ -22,14 +22,12 @@ import { checkDocument } from '../src/invariants.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import type { CountBoundOutputAutogrowSpec, InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
 
-const objectInfo = readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>
-const { schemas } = parseObjectInfo(objectInfo)
 const resolve = (type: string) => schemas.get(type)
 const resizeImageMaskSchema = parseDinksterSchema(
   'comfy.ResizeImageMaskNode',

@@ -35,12 +35,11 @@ import {
   wouldCreateRerouteCycle,
 } from '../src/reroute.js'
 import type { NodeSchema, TypeExpr } from '../src/schema/model.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
 
-const { schemas } = parseObjectInfo(readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>)
 const backendResolve = (type: string) => schemas.get(type)
 
 const loadWorkflow = (name: string): WorkflowDocument =>

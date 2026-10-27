@@ -6,19 +6,14 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DinksterNodesPayload } from '@dinkster/core'
-import type { ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { buildDinksterRegistry } from '@dinkster/client'
+import { historicalSchemas } from './historical-schemas.js'
 import { AppState, type Tab } from '../src/app-state.js'
-import { buildSchemaRegistry } from '../src/v1-connection-kind.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const objectInfo = JSON.parse(readFileSync(join(root, 'fixtures/object_info.json'), 'utf8')) as Record<
-  string,
-  ObjectInfoEntry
->
 
 let app: AppState
 
@@ -29,7 +24,13 @@ beforeEach(() => {
 /** Put the fixture schemas on the default backend (fires backendsTick). */
 const loadSchemas = (): void => {
   const backend = app.backends.get()[0]!
-  backend.registry.set(buildSchemaRegistry(backend.id, objectInfo))
+  backend.registry.set({
+    connection: backend.id,
+    hash: 'historical-fixture',
+    schemas: historicalSchemas,
+    diagnostics: [],
+    resolve: (type) => historicalSchemas.get(type),
+  })
 }
 
 /** Minimal native document: one root graph with the given nodes and topology. */
@@ -88,7 +89,8 @@ describe('schema arrival without replacements', () => {
     const tab = app.activeTab()!
     const authored = structuredClone(tab.store.doc)
     const backend = app.backends.get()[0]!
-    const registry = buildSchemaRegistry(backend.id, objectInfo)
+    loadSchemas()
+    const registry = backend.registry.get()!
     const successor = {
       ...registry.schemas.get('EmptyLatentImage')!,
       replacements: [renameRule],
@@ -885,7 +887,13 @@ describe('legacy documents against a native backend', () => {
     try {
       const first = new AppState()
       const firstBackend = first.backends.get()[0]!
-      firstBackend.registry.set(buildSchemaRegistry(firstBackend.id, objectInfo))
+      firstBackend.registry.set({
+        connection: firstBackend.id,
+        hash: 'historical-fixture',
+        schemas: historicalSchemas,
+        diagnostics: [],
+        resolve: (type) => historicalSchemas.get(type),
+      })
       first.flushPersistTabs()
       const second = new AppState()
       const backend = second.backends.get()[0]!

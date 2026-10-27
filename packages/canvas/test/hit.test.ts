@@ -1,6 +1,6 @@
 /**
- * Hit-testing tests against real parsed schemas (the live object_info
- * fixture): pins win over bodies, widget rows resolve, world coords only.
+ * Hit-testing tests against recorded historical schemas: pins win over
+ * bodies, widget rows resolve, world coords only.
  */
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -19,7 +19,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
+import { historicalSchemas as schemas } from './historical-schemas.js'
 import {
   buildScene,
   GROUP_HEADER_HEIGHT,
@@ -37,7 +37,6 @@ import { layoutNode, type TextMeasurer, type WidgetMeasure } from '../src/layout
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
 
-const { schemas } = parseObjectInfo(readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>)
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = (spec) =>
   spec.options['multiline'] === true ? { viewId: 'core.text', rows: 2 } : { viewId: 'core.line', rows: 1 }

@@ -1,6 +1,6 @@
 /**
- * Scene building tests against REAL parsed schemas (the live object_info
- * fixture) and the golden workflows - including subgraph instances rendered
+ * Scene building tests against recorded schemas and golden workflows,
+ * including subgraph instances rendered
  * through their boundary-derived schema, exactly like backend nodes.
  */
 import { readFileSync } from 'node:fs'
@@ -23,7 +23,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
+import { historicalSchemas as schemas } from './historical-schemas.js'
 import {
   buildScene,
   boundaryNodesInGroup,
@@ -52,7 +52,6 @@ import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
 
-const { schemas } = parseObjectInfo(readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>)
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = (spec) =>
   spec.options['multiline'] === true ? { viewId: 'core.text', rows: 2 } : { viewId: 'core.line', rows: 1 }

@@ -10,9 +10,6 @@
  *   4. legacy PrimitiveNodes import as value sources; backend Primitive*
  *      compute nodes are untouched
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
@@ -32,7 +29,7 @@ import {
   asRerouteId,
   asValueSourceId,
 } from '../src/ids.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import {
   effectiveValueSourceSpec,
   pinnedSpecOf,
@@ -40,10 +37,6 @@ import {
   valueSourceLinksOf,
 } from '../src/value-source.js'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
-
-const { schemas } = parseObjectInfo(readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>)
 const resolve = (type: string) => schemas.get(type)
 
 const codesOf = (d: readonly Diagnostic[]) => d.map((x) => x.code)

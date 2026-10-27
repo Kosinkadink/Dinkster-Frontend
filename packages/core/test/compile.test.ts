@@ -12,7 +12,7 @@ import type { ExecutionScope } from '../src/compile/artifact.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
@@ -20,8 +20,6 @@ import { coreVirtualNodeKind } from '../src/virtual-node.js'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
 
-const objectInfo = readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>
-const { schemas } = parseObjectInfo(objectInfo)
 const backendResolve = (type: string) => schemas.get(type)
 
 const loadWorkflow = (name: string): WorkflowDocument =>

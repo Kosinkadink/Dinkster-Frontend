@@ -6,7 +6,7 @@
  *
  * - the workflow side loads clean
  * - the prompt side is a well-formed API prompt with resolvable link refs
- * - every class_type exists in the real object_info fixture
+ * - every class_type exists in the recorded historical schema fixture
  * - runtime ids follow the occurrence-key contract
  * - the subgraph pair's boundary derivation works against REAL parsed
  *   schemas, and the promoted value override is consistent across the pair
@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 import type { Prompt } from '../src/compile/artifact.js'
 import type { GraphDef, JsonObject } from '../src/format/document.js'
 import { loadDocument, detectFormat } from '../src/format/migrate.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { inputsOf, outputsOf } from '../src/schema/model.js'
 import { occurrenceKey, asNodeId } from '../src/ids.js'
@@ -28,9 +28,6 @@ const readJson = (rel: string): unknown =>
   JSON.parse(readFileSync(join(root, rel), 'utf8'))
 
 const PAIRS = ['exec-basic', 'exec-subgraph'] as const
-
-const objectInfo = readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>
-const { schemas } = parseObjectInfo(objectInfo)
 
 describe.each(PAIRS)('prompt pair %s', (name) => {
   const workflow = readJson(`fixtures/workflows/${name}.json`)
@@ -59,7 +56,7 @@ describe.each(PAIRS)('prompt pair %s', (name) => {
     }
   })
 
-  it('every class_type exists in the real object_info fixture', () => {
+  it('every class_type exists in the recorded historical schema fixture', () => {
     for (const node of Object.values(prompt)) {
       expect(schemas.has(node.class_type), node.class_type).toBe(true)
     }

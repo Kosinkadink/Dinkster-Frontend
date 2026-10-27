@@ -1,7 +1,7 @@
 /**
  * Environment stamping orchestration: exportDocument writes a FRESH stamp
  * from the tab's live registry (used packs + used node-type signatures);
- * frozen tabs export their snapshot verbatim; a V1/absent registry
+ * frozen tabs export their snapshot verbatim; an unstamped/absent registry
  * PRESERVES an existing stamp instead of erasing it; and opening a stamped
  * document surfaces drift diagnostics exactly once, even across repeated
  * backend ticks.
@@ -16,10 +16,9 @@ import {
   type DinksterNodesPayload,
   type ExecutionRef,
 } from '@dinkster/core'
-import type { ObjectInfoEntry } from '@dinkster/core/comfy-v1'
 import { buildDinksterRegistry } from '@dinkster/client'
+import { historicalSchemas } from './historical-schemas.js'
 import { AppState, type Tab } from '../src/app-state.js'
-import { buildSchemaRegistry } from '../src/v1-connection-kind.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -28,9 +27,6 @@ const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const FRONTEND_VERSION = (
   JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')) as { version: string }
 ).version
-const objectInfo = JSON.parse(
-  readFileSync(join(appRoot, '../core/fixtures/object_info.json'), 'utf8'),
-) as Record<string, ObjectInfoEntry>
 
 /** A Dinkster /api/nodes payload with the full environment surface (5b58c53). */
 const nodesPayload: DinksterNodesPayload = {
@@ -57,6 +53,17 @@ let app: AppState
 beforeEach(() => {
   app = new AppState()
 })
+
+const loadUnstampedSchemas = (): void => {
+  const backend = app.backends.get()[0]!
+  backend.registry.set({
+    connection: backend.id,
+    hash: 'historical-fixture',
+    schemas: historicalSchemas,
+    diagnostics: [],
+    resolve: (type) => historicalSchemas.get(type),
+  })
+}
 
 /** Put the Dinkster payload on the default backend (fires backendsTick). */
 const loadDinksterSchemas = (): void => {
@@ -123,9 +130,8 @@ describe('exportDocument', () => {
     expect(out.environment?.packs['gone.pack']).toBeUndefined()
   })
 
-  it('PRESERVES an existing stamp when the registry cannot stamp (V1 backend)', () => {
-    const backend = app.backends.get()[0]!
-    backend.registry.set(buildSchemaRegistry(backend.id, objectInfo)) // V1: no signatures
+  it('PRESERVES an existing stamp when the registry has no signatures', () => {
+    loadUnstampedSchemas()
     const stamp = {
       packs: { core: { version: '1.0.0' } },
       nodes: { KSampler: { pack: 'core', signature: 'sig-old' } },
@@ -143,7 +149,7 @@ describe('exportDocument', () => {
 
   it('frozen execution tabs export their snapshot verbatim - history is never restamped', () => {
     const backend = app.backends.get()[0]!
-    backend.registry.set(buildSchemaRegistry(backend.id, objectInfo))
+    loadUnstampedSchemas()
     const tab = open(docJson('lin-frozen', ['KSampler']))
     const result = app.compileTab(tab)
     if (!result?.ok) throw new Error('fixture compile failed')
