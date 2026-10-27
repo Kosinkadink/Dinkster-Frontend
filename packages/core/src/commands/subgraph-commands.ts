@@ -246,7 +246,7 @@ function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, str
 }
 
 function bindingAsEndpoint(binding: BoundaryBinding): PortRef | Extract<LinkEndpoint, { readonly tap: string }> {
-  if (binding.kind === 'unbound') throw new Error('unbound boundary has no endpoint')
+  if (!isNodeBoundaryBinding(binding)) throw new Error('unbound boundary has no endpoint')
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
     : { node: binding.node, port: binding.port, ...(binding.members !== undefined ? { members: binding.members } : {}) }
@@ -1060,7 +1060,7 @@ function flattenBoundaryTargets(
 }
 
 function portFromBinding(binding: BoundaryBinding): PortRef {
-  if (binding.kind === 'widgetTap' || binding.kind === 'unbound') throw new Error('boundary binding is not a port')
+  if (!isNodeBoundaryBinding(binding) || binding.kind === 'widgetTap') throw new Error('boundary binding is not a port')
   return {
     node: binding.node,
     port: binding.port,
@@ -1396,7 +1396,7 @@ function stagedFlattenIdentitiesContainNul(
   }
   for (const item of [...(staged.boundary?.inputs ?? []), ...(staged.boundary?.outputs ?? [])]) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-      if (binding.kind !== 'unbound' && sourceNodeByClone.has(binding.node) && binding.members?.some(hasNul) === true) return true
+      if (isNodeBoundaryBinding(binding) && sourceNodeByClone.has(binding.node) && binding.members?.some(hasNul) === true) return true
     }
   }
   return false
@@ -1494,7 +1494,7 @@ function validateFlattenDispatch(
   const boundAuthoredTypes = new Set(Object.values(body.nodes).map((node) => node.type))
   for (const item of [...body.boundary.inputs, ...body.boundary.outputs]) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-      if (binding.kind === 'unbound') continue
+      if (!isNodeBoundaryBinding(binding)) continue
       const authoredType = body.nodes[binding.node]?.type
       if (authoredType !== undefined) boundAuthoredTypes.add(authoredType)
     }
@@ -1540,7 +1540,7 @@ function validateFlattenDispatch(
     const route = routes.get(JSON.stringify([side, item.id]))
     if (route === 'plain' || route === 'plainWidget' || route === 'combo' || route === 'specialized') {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-        if (binding.kind === 'unbound') continue
+        if (!isNodeBoundaryBinding(binding)) continue
         const authoredType = body.nodes[binding.node]?.type
         if (authoredType === undefined || !Object.hasOwn(snapshot, authoredType)) {
           return [err('params.invalid', 'subgraph.flatten: boundary route requires a missing authored schema')]
@@ -1948,7 +1948,7 @@ const subgraphFlatten: CommandDefinition = {
         from = endpointFromBinding(targets[0]!)
       } else if (isWidgetTapRef(from) && from.node === nodeId) {
         const target = targetsFor('input', boundaryInputs.get(from.tap)!, { port: from.tap })?.[0]
-        if (target === undefined || target.kind === 'widgetTap' || target.kind === 'unbound') {
+        if (target === undefined || !isNodeBoundaryBinding(target) || target.kind === 'widgetTap') {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: tap '${from.tap}' has no materialized target`, graphId, instancePath, nodeId)]
         }
         from = { node: target.node, tap: target.port }

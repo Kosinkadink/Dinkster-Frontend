@@ -1,6 +1,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   isForwardingBinding,
+  isNodeBoundaryBinding,
   boundaryBindingKey,
   boundaryRouteKey,
   suppressedDeliveryKey,
@@ -282,7 +283,7 @@ function resolveOccurrenceEndpoint(
       finalEndpoint = { reroute: match.binding.viaReroute }
       continue
     }
-    if (match.binding.kind === 'unbound') return undefined
+    if (!isNodeBoundaryBinding(match.binding)) return undefined
     let ref: PortRef
     if (isForwardingBinding(match.binding)) {
       const view = occurrenceDynamicView(document, resolver, occurrence.instancePath)

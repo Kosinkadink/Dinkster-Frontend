@@ -327,8 +327,8 @@ interface ResolvedOutput {
   readonly runtimeId: string
   readonly outputIndex: number
 }
-interface ResolvedWidgetTap {
-  readonly widgetTap: {
+interface ResolvedStructuralSource {
+  readonly structuralSource: {
     readonly path: readonly NodeId[]
     readonly defId: string
     readonly endpoint: LinkEndpoint
@@ -982,7 +982,7 @@ function compileImpl(
     delivery?: ParentDeliveryIdentity,
     boundaryRoute: readonly BoundaryRouteLeg[] = [],
     openRegion?: string,
-  ): ResolvedOutput | ResolvedWidgetTap | 'muted' | { readonly bypass: BypassAt } | undefined {
+  ): ResolvedOutput | ResolvedStructuralSource | 'muted' | { readonly bypass: BypassAt } | undefined {
     const def = graphOf(defId)
     if (ref.node === DINKSTER_REGION_PSEUDO_NODE) {
       sink.push(diag('error', 'compile', 'compile.region.invalidIndex', `'$region.${ref.port}' is available only as the immediate region index source`))
@@ -1046,7 +1046,7 @@ function compileImpl(
           return undefined
         }
         return {
-          widgetTap: {
+          structuralSource: {
             path: childPath,
             defId: childId,
             endpoint: { node: item.binds.node, tap: item.binds.tap },
@@ -1455,8 +1455,8 @@ function compileImpl(
           if (!resolved) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `producer endpoint ${JSON.stringify(endpoint)} cannot deliver` } }] }
           return 'bypass' in resolved
             ? { steps: [{ kind: 'recurse', at: { kind: 'bypass', bypass: resolved.bypass } }] }
-            : 'widgetTap' in resolved
-              ? { steps: [{ kind: 'recurse', at: { kind: 'endpoint', ...resolved.widgetTap } }] }
+            : 'structuralSource' in resolved
+              ? { steps: [{ kind: 'recurse', at: { kind: 'endpoint', ...resolved.structuralSource } }] }
             : { steps: [{ kind: 'terminal', terminal: { kind: 'output', src: resolved } }] }
         }
         const bypass = at.bypass
@@ -2172,13 +2172,13 @@ function compileImpl(
         let src: ResolvedOutput | undefined
         let baked: { readonly value: Json; readonly typeId?: string } | undefined
         const routedRandomSelectors = new Set<string>()
-        if (structuralSrc && !('bypass' in structuralSrc) && !('widgetTap' in structuralSrc)) {
+        if (structuralSrc && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc)) {
           src = structuralSrc
         } else {
           const routeStart: RouteAt = structuralSrc
             ? 'bypass' in structuralSrc
               ? { kind: 'bypass', bypass: structuralSrc.bypass }
-              : { kind: 'endpoint', ...structuralSrc.widgetTap }
+              : { kind: 'endpoint', ...structuralSrc.structuralSource }
             : { kind: 'endpoint', path, defId, endpoint: c.from }
           const viaFor = (routeDefId: string): TraceVia => ({
             reroutes: new Set(),
@@ -2769,8 +2769,8 @@ function compileImpl(
     if (source === 'muted') return fail('is driven by a muted occurrence')
     const resolved = 'bypass' in source
       ? projectRoute({ kind: 'bypass', bypass: source.bypass }, 'exact', diags)
-      : 'widgetTap' in source
-        ? projectRoute({ kind: 'endpoint', ...source.widgetTap }, 'exact', diags)
+      : 'structuralSource' in source
+        ? projectRoute({ kind: 'endpoint', ...source.structuralSource }, 'exact', diags)
         : [{ kind: 'output' as const, src: source }]
     const outputs = resolved.filter((terminal): terminal is Extract<BypassTrace, { readonly kind: 'output' }> => terminal.kind === 'output')
     if (outputs.length !== 1 || resolved.length !== 1) return fail('does not resolve to exactly one body output')

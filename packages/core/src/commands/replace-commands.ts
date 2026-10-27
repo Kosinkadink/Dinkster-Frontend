@@ -21,7 +21,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
-import { MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
+import { isNodeBoundaryBinding, MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition } from './contract.js'
@@ -741,10 +741,10 @@ const nodeReplace: CommandDefinition = {
         let binds = item.binds
         const alsoBinds = item.alsoBinds !== undefined ? [...item.alsoBinds] : undefined
         for (const r of mine) {
-          if (r.alsoIndex === undefined && binds.kind !== 'widgetTap' && binds.kind !== 'unbound') binds = { ...binds, port: asPortId(r.port) }
+          if (r.alsoIndex === undefined && isNodeBoundaryBinding(binds) && binds.kind !== 'widgetTap') binds = { ...binds, port: asPortId(r.port) }
           else if (r.alsoIndex !== undefined && alsoBinds?.[r.alsoIndex] !== undefined) {
             const current = alsoBinds[r.alsoIndex]!
-            if (current.kind !== 'widgetTap' && current.kind !== 'unbound') alsoBinds[r.alsoIndex] = { ...current, port: asPortId(r.port) }
+            if (isNodeBoundaryBinding(current) && current.kind !== 'widgetTap') alsoBinds[r.alsoIndex] = { ...current, port: asPortId(r.port) }
           }
         }
         return { ...item, binds, ...(alsoBinds !== undefined ? { alsoBinds } : {}) }

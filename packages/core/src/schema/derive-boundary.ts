@@ -39,7 +39,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.js'
-import { isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type PortBoundaryBinding, type RegionContract } from '../format/document.js'
+import { isNodeBoundaryBinding, isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type PortBoundaryBinding, type RegionContract } from '../format/document.js'
 import { isPortEndpoint, portAddressKey, type DynamicMemberId, type PortId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
@@ -515,7 +515,7 @@ export function deriveBoundarySchema(
     expectedSide: 'input' | 'output',
     silent = false,
   ): { node: NodeData; route: BoundaryRoute } | undefined => {
-    if (binds.kind === 'unbound') return undefined
+    if (!isNodeBoundaryBinding(binds)) return undefined
     const cached = routeCache.get(binds)?.[expectedSide]
     if (cached != null) return cached
     const emit = silent ? () => {} : fail
@@ -589,7 +589,7 @@ export function deriveBoundarySchema(
   ]
   for (const { item, side } of allBoundaryItems) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-      if (binding.kind === 'widgetTap') continue
+      if (!isNodeBoundaryBinding(binding) || binding.kind === 'widgetTap') continue
       const resolved = routeForBinding(binding, `boundary item '${item.id}' ownership target`, side, true)
       if (!resolved) continue
       const scopedKey = (path: string, hops: readonly RouteHop[]): string =>
@@ -834,7 +834,7 @@ export function deriveBoundarySchema(
     node: NodeData,
     spec: CountBoundOutputAutogrowSpec,
   ): CountBoundOutputAutogrowSpec['count'] | undefined => {
-    if (boundaryOutput.binds.kind === 'unbound') return undefined
+    if (!isNodeBoundaryBinding(boundaryOutput.binds)) return undefined
     const countBinding: BoundaryBinding = {
       kind: 'port',
       node: boundaryOutput.binds.node,
