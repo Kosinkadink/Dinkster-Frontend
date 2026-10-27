@@ -42,6 +42,52 @@ async function expectSchemasReady(page: Page): Promise<void> {
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
 }
 
+test('draws an imported input boundary into its retained reroute fanout', async ({ page }, testInfo) => {
+  await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 1 }, packs: {},
+    nodes: { Relay: { displayName: 'Relay', category: 'test', interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
+    ] } },
+  } }))
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('Relay') ?? false)).toBe(true)
+  const failures = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+    nodes: [{ id: 10, type: 'junction-body', pos: [100, 100],
+      inputs: [{ name: 'value', widget: { name: 'value' } }], outputs: [{ name: 'result' }], widgets_values: [19] }], links: [],
+    definitions: { subgraphs: [{ id: 'junction-body', name: 'Junction fanout', version: 1,
+      inputs: [{ id: 'in', name: 'value', type: 'INT', linkIds: [1] }],
+      outputs: [{ id: 'out', name: 'result', type: 'INT', linkIds: [5] }],
+      nodes: [
+        { id: 1, type: 'Relay', pos: [420, 80], inputs: [{ name: 'value', widget: { name: 'value' }, link: 3 }], outputs: [{ name: 'result' }], widgets_values: [7] },
+        { id: 2, type: 'Relay', pos: [420, 320], inputs: [{ name: 'value', widget: { name: 'value' }, link: 4 }], outputs: [{ name: 'result' }], widgets_values: [11] },
+        { id: 3, type: 'Reroute', pos: [170, 180], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
+        { id: 4, type: 'Reroute', pos: [310, 180], inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
+      ],
+      links: [[1, -10, 0, 3, 0, 'INT'], [2, 3, 0, 4, 0, 'INT'], [3, 4, 0, 1, 0, 'INT'],
+        [4, 3, 0, 2, 0, 'INT'], [5, 2, 0, -20, 0, 'INT']],
+    }] },
+  }, 'Junction fanout'))
+  expect(failures).toEqual([])
+  const before = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  await enterInstance(page, 'n10')
+  await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(2)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 150, y: 100, scale: 1 }))
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
+  await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-boundary.png') })
+  const scene = await page.evaluate(() => {
+    const scene = window.__dinksterTest!.renderer!.getScene()
+    return { links: scene.links.map(({ id, from, to }) => ({ id, from, to })),
+      reroutes: scene.reroutes.map(({ id, x, y }) => ({ id, x, y })) }
+  })
+  expect(scene.links.find((link) => link.id === 'boundary:inputs:in')?.to).toEqual({ kind: 'reroute', reroute: 'r3' })
+  expect(scene.links.filter((link) => link.from.kind === 'reroute')).toHaveLength(3)
+  expect(scene.reroutes).toEqual([{ id: 'r3', x: 170, y: 180 }, { id: 'r4', x: 310, y: 180 }])
+  const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  expect(after).toEqual(before)
+})
+
 test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: schemas }))

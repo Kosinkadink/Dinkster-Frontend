@@ -13,6 +13,8 @@ traces each occurrence's parent input without deleting reroutes or bypassing
 their links. Widget promotion follows the downstream schema input, including
 nested instances. Parent delivery suppression is occurrence-local and removes
 the effective junction driver without changing a sibling instance.
+The drilled canvas draws the Inputs noodle into the actual junction dot;
+retained fan-out noodles continue from that dot to their authored destinations.
 Flattening refuses these attachments rather than dropping their
 topology. Mixed direct and junction boundary deliveries remain unsupported.
 Historical alias and group snapshots also supply no post-open replacement

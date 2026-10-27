@@ -15,6 +15,7 @@ import {
   asNetId,
   asNodeId,
   asPortId,
+  asRerouteId,
   asSelectorCandidateId,
   asSelectorId,
   documentResolver,
@@ -1914,6 +1915,42 @@ describe('boundary pseudo-nodes', () => {
       expect(n0.layout.pins.some((p) => p.direction === 'in' && p.portId === port)).toBe(true)
     }
     expect(bLinks[0]!.y2).not.toBe(bLinks[1]!.y2)
+  })
+
+  it.each([false, true])('anchors a junction boundary at the retained reroute rather than the schema-authority port (linked: %s)', (linked) => {
+    const original = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!
+    const body = original.graphs.g1!
+    const r = asRerouteId('junction')
+    const doc: WorkflowDocument = { ...original, graphs: { ...original.graphs,
+      g0: { ...original.graphs.g0!,
+        nodes: { ...original.graphs.g0!.nodes, source: { id: asNodeId('source'), type: 'IntegerSource', values: {} } },
+        links: { ...original.graphs.g0!.links, ...(linked ? { drive: { id: asLinkId('drive'),
+          from: { node: asNodeId('source'), port: asPortId('number') }, to: { node: asNodeId('n0'), port: asPortId('color') } } } : {}) },
+      }, g1: { ...body,
+      reroutes: { junction: { id: r } },
+      links: { feed: { id: asLinkId('feed'), from: { reroute: r }, to: { node: asNodeId('n0'), port: asPortId('color') } } },
+      boundary: { ...body.boundary!, inputs: [{ ...body.boundary!.inputs[0]!, binds: {
+        kind: 'port', node: asNodeId('n0'), port: asPortId('color'), viaReroute: r,
+      } }] },
+    } }, view: { ...original.view, graphs: { ...original.view.graphs, g1: {
+      ...original.view.graphs.g1!, reroutes: { junction: { position: { x: -80, y: 95 } } },
+    } } } }
+    const integerSource: NodeSchema = { type: 'IntegerSource', displayName: 'Integer source', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
+    const before = JSON.stringify(doc)
+    for (const occurrence of [undefined, { owner: { instancePath: [], node: asNodeId('n0') }, plannerAvailable: true }]) {
+      const scene = buildScene({ document: doc, graphId: 'g1', resolve: documentResolver(doc, (type) => type === 'IntegerSource' ? integerSource : schemas.get(type)),
+        tokens: defaultTokens, measure, widgetMeasure, ...(occurrence ? { occurrence } : {}) })
+      const binding = scene.links.find((link) => link.id === 'boundary:inputs:color')!
+      expect(binding.to).toEqual({ kind: 'reroute', reroute: 'junction' })
+      expect([binding.x2, binding.y2]).toEqual([-80, 95])
+      expect(binding.effectiveIdentity?.kind).toBe(linked && occurrence ? 'parentLeg' : undefined)
+      expect(scene.links.find((link) => link.id === 'feed')).toMatchObject({
+        from: { kind: 'reroute', reroute: 'junction' }, to: { kind: 'port', node: 'n0', port: 'color' },
+      })
+      expect(scene.reroutes.map((reroute) => reroute.id)).toEqual(['junction'])
+    }
+    expect(JSON.stringify(doc)).toBe(before)
   })
 
   it('saved view positions win over defaults, per side', () => {

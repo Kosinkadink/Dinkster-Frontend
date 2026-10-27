@@ -1990,7 +1990,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
     }
 
-    // Binding noodles. 'port' and 'widgetTap' bind at the exact inner pin;
+    // Junction attachments bind at the retained dot, not their schema authority.
+    // Other 'port' and 'widgetTap' bindings bind at the exact inner pin;
     // 'family' binds anchor at the family's first pin (template-slot paths reserve
     // dots, so prefix-matching binds.port here is grammar-safe - boundary
     // item ids are never split). Fallback: the node's header edge.
@@ -2005,7 +2006,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     const innerAnchor = (
       binds: BoundaryItem['binds'],
       direction: 'in' | 'out',
-    ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' }> } | undefined => {
+    ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' }> } | undefined => {
+      if (binds.viaReroute !== undefined) {
+        const reroute = direction === 'in' ? rerouteById.get(binds.viaReroute) : undefined
+        return reroute && { x: reroute.x, y: reroute.y, end: { kind: 'reroute', reroute: reroute.id } }
+      }
       const node = byId.get(binds.node)
       if (!node) return undefined
       const edgeX = direction === 'out' ? node.x + node.layout.width : node.x
@@ -2050,7 +2055,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const projectedAnchors = (
       direction: 'in' | 'out', item: BoundaryItem, binding: BoundaryItem['binds'],
     ): readonly {
-      readonly anchor: NonNullable<ReturnType<typeof endPoint>> & { readonly end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' }> }
+      readonly anchor: NonNullable<ReturnType<typeof endPoint>> & { readonly end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' }> }
       readonly identities: readonly EffectiveLinkIdentity[]
     }[] => {
       const grouped = new Map<string, { endpoint: LinkEndpoint; identities: EffectiveLinkIdentity[] }>()
@@ -2061,7 +2066,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         if (
           leg?.boundaryId !== item.id || boundaryBindingKey(leg.binding) !== boundaryBindingKey(binding) ||
           resolved.graphId !== def.id ||
-          (direction === 'in' && !isPortEndpoint(resolved.endpoint)) ||
+          (direction === 'in' && !isPortEndpoint(resolved.endpoint) && !isRerouteRef(resolved.endpoint)) ||
           (direction === 'out' && !isPortEndpoint(resolved.endpoint) && !isWidgetTapRef(resolved.endpoint))
         ) continue
         const key = JSON.stringify(resolved.endpoint)
@@ -2071,7 +2076,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
       return [...grouped.values()].flatMap((group) => {
         const anchor = endPoint(group.endpoint, direction)
-        return anchor?.end.kind === 'port' || anchor?.end.kind === 'widgetTap'
+        return anchor?.end.kind === 'port' || anchor?.end.kind === 'widgetTap' || anchor?.end.kind === 'reroute'
           ? [{ anchor: { ...anchor, end: anchor.end }, identities: group.identities }]
           : []
       })
