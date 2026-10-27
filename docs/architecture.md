@@ -154,7 +154,8 @@ look ordinary. Schema-arrival diagnostics and legacy boolean normalization are i
 
 The status bar's **Review upgrades** toggle opts out of automatic migration
 for subsequently opened documents. Only this mode shows deprecation badges
-with plan diagnostics and an Apply Replacement control. Successor pointers
+with each migration hop's author note, plan diagnostics and an Apply
+Replacement control. Successor pointers
 resolve transitively through `resolveDeprecationPointer`; cycles, dangling
 targets and runaway depth produce explicit statuses rather than loops. Pointers
 never authorize a graph edit.

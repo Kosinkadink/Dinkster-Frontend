@@ -192,6 +192,9 @@ export function BadgePopover(props: {
                   <p class="badge-popover-line" data-testid="badge-replace-target">
                     {item().sourceType} -&gt; {item().terminalType}
                   </p>
+                  <For each={item().hops}>{(hop) => (
+                    <Show when={hop.rule.note}>{(note) => <p class="badge-popover-line">{note()}</p>}</Show>
+                  )}</For>
                   <For each={item().diagnostics}>{(entry) => <p class="badge-popover-line">{entry.message}</p>}</For>
                   <Show when={item().hops.length > 0 && props.onApplyReplacement}>
                     <ProductButton size="compact" data-testid="badge-apply-replacement"
