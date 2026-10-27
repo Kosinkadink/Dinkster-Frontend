@@ -458,8 +458,9 @@ describe('kind semantics', () => {
       const selection: WidgetSpec = { widgetType: 'ASSET', kind: 'model/vae', selection: true, options: {}, default: name }
       expect(kind.defaultValue(selection)).toBe(name)
       expect(effectiveWidgetDefault(selection)).toBe(name)
-      expect(kind.defaultValue({ ...selection, selection: false })).toBeNull()
-      expect(effectiveWidgetDefault({ ...selection, selection: false })).toBeUndefined()
+      const ordinary: WidgetSpec = { widgetType: 'ASSET', kind: 'model/vae', options: {}, default: name }
+      expect(kind.defaultValue(ordinary)).toBeNull()
+      expect(effectiveWidgetDefault(ordinary)).toBeUndefined()
       expect(kind.valueSchema.validate(name)).toBe(false)
       const { builder, ops } = recordingBuilder()
       view.drawCompact(builder, name, selection, { focused: false, connected: false, readonly: false })
