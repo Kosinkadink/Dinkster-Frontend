@@ -9,6 +9,8 @@ import type { DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalSchemas } from './historical-schemas.js'
 import { AppState, type Tab } from '../src/app-state.js'
+import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
+import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -19,6 +21,10 @@ let app: AppState
 
 beforeEach(() => {
   app = new AppState()
+  const blank = app.activeTab()!
+  app.openDocument(seedBasic, 'Basic')
+  app.openDocument(seedSubgraph, 'Subgraph')
+  app.closeTab(blank.id)
 })
 
 /** Put the fixture schemas on the default backend (fires backendsTick). */
@@ -886,6 +892,9 @@ describe('legacy documents against a native backend', () => {
     } as Storage
     try {
       const first = new AppState()
+      const blank = first.activeTab()!
+      first.openDocument(seedBasic, 'Basic')
+      first.closeTab(blank.id)
       const firstBackend = first.backends.get()[0]!
       firstBackend.registry.set({
         connection: firstBackend.id,

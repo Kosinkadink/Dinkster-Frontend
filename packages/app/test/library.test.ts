@@ -194,7 +194,9 @@ describe('saveWorkflow', () => {
   })
 
   it('v1 backends explain that the targeted backend cannot save', async () => {
-    const tab = app.activeTab()! // seed tab on the default v1 backend
+    const legacy = app.addBackend('http://legacy:8188', 'Legacy', false, 'v1')!
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, legacy.id)
     expect(await app.saveWorkflow(tab.id)).toBe(false)
     expect(app.problems.get()).toEqual([])
     expect(app.transientStatus.get()).toContain('Save requires a Dinkster backend')

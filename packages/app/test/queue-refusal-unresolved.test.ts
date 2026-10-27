@@ -6,23 +6,19 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import type { DinksterNodesPayload } from '@dinkster/core'
-import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
+import { historicalRegistry } from './historical-schemas.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const here = dirname(fileURLToPath(import.meta.url))
-const nodesPayload = JSON.parse(
-  readFileSync(join(here, '../../core/fixtures/dinkster-nodes-comfy.json'), 'utf8'),
-) as DinksterNodesPayload
 const workflowText = readFileSync(join(here, 'fixtures/unresolved-output-dependency.json'), 'utf8')
 
 describe('queueing a loaded workflow whose output depends on an unresolved node', () => {
   it('refuses with one diagnostic per unresolved node explaining the refusal', async () => {
     const app = new AppState()
     const backend = app.backends.get()[0]!
-    backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
+    backend.registry.set(historicalRegistry(backend.id))
     const submit = vi.fn()
     ;(backend.connection as unknown as { submit: unknown }).submit = submit
 
