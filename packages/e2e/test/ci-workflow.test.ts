@@ -53,6 +53,10 @@ const hostedConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.hosted.config.ts'),
   'utf8',
 )
+const liveVitestSetup = await readFile(
+  resolve(root, 'packages/e2e/hosted-live-vitest-setup.ts'),
+  'utf8',
+)
 const extensionContractConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.extension-contract.config.ts'),
   'utf8',
@@ -356,6 +360,32 @@ describe('fast pull-request and full validation workflows', () => {
     expect(statusScript).toContain('main-validation-status.json')
     expect(statusScript).toContain('test "$CI_RESULT" = success')
     expect(statusScript).toContain('test "$E2E_RESULT" = success')
+  })
+
+  it('runs live Vitest once inside the stock lane server lifetime', () => {
+    expect(hostedConfig).toContain(
+      "globalSetup: stockV1Only\n    ? './hosted-live-vitest-setup.ts'\n    : './hosted-global-setup.ts'",
+    )
+    expect(liveVitestSetup).toContain('await waitForNativeComposition()')
+    for (const file of [
+      'test/live.integration.test.ts',
+      'test/collab-live.integration.test.ts',
+      'test/loop-templates.live.test.ts',
+      'test/executable-examples.test.ts',
+      'test/regions-live.integration.test.ts',
+    ])
+      expect(liveVitestSetup.split(`'${file}'`)).toHaveLength(2)
+    expect(liveVitestSetup).toContain('DINKSTER_LIVE_URL: suite.backend')
+    expect(liveVitestSetup).toContain('DINKSTER_COLLAB_LIVE_URL: native')
+    expect(liveVitestSetup).toContain("'--maxWorkers=1'")
+    expect(liveVitestSetup).toContain("'--no-file-parallelism'")
+    expect(liveVitestSetup).toContain("'--testNamePattern=^live '")
+    expect(script).not.toContain('hosted-live-vitest')
+    const reports = full.jobs['e2e-suite']!.steps!.find(
+      (step) => step.name === 'Retain live Vitest results',
+    )!
+    expect(reports.if).toBe("always() && matrix.name == 'stock ComfyUI V1'")
+    expect(reports.with?.['path']).toBe('.ci/live-vitest/*.json')
   })
 
   it('retains clean checkouts, ref selection, read-only credentials and isolated browser ports', () => {

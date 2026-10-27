@@ -227,6 +227,14 @@ jobs:
           DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
           DINKSTER_E2E_PORT: "15420"
           DINKSTER_E2E_NATIVE_PORT: "15421"
+      - name: Retain live Vitest results
+        if: always() && matrix.name == 'stock ComfyUI V1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-vitest
+          path: .ci/live-vitest/*.json
+          retention-days: 7
+          if-no-files-found: warn
       - name: Retain browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
