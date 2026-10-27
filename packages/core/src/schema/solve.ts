@@ -438,7 +438,7 @@ export function solveGraphTypes(
         // The node elaborated but this port does not currently exist
         // (inactive branch, removed member, renamed schema port).
         diagnostics.push(
-          diag('info', 'schema', 'solve.portMissing', `[${def.id}] ${sourceLabel(source)} references port '${missing.port}'${missing.members !== undefined ? ` member '${missing.members.join('.')}'` : ''} on node '${missing.node}', which is not currently elaborated`, {
+          diag('info', 'schema', 'solve.portMissing', `${missing.node}.${elabKeyOf(missing)}: connected port is unavailable`, {
             anchor: source.kind === 'link' ? { link: source.id, port: missing } : { port: missing },
           }),
         )
@@ -454,7 +454,7 @@ export function solveGraphTypes(
     const toKey = elabKeyOf({ port: to.port, ...(to.members !== undefined ? { members: to.members } : {}) })
     if (fromSide === 'output' && optionalOutputs.get(from.node)?.has(fromKey) && failInputs.get(to.node)?.has(toKey)) {
       diagnostics.push(
-        diag('warning', 'schema', 'solve.maybeAbsent', `[${def.id}] ${sourceLabel(source)}: input '${to.port}' on node '${to.node}' declares onAbsent='fail' but is driven by optional output '${from.port}' of node '${from.node}', which may produce no value at runtime`, {
+        diag('warning', 'schema', 'solve.maybeAbsent', `${to.node}.${to.port}: required value comes from optional output ${from.node}.${from.port}`, {
           anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
         }),
       )
@@ -631,7 +631,7 @@ export function solveGraphTypes(
           // Mixed-cardinality union with no matching members left: mismatch.
           setVerdict(source, 'mismatch')
           diagnostics.push(
-            diag('warning', 'schema', 'solve.linkMismatch', `[${def.id}] ${sourceLabel(source)}: no ${structured.kind}-typed candidate can feed input '${to.port}' on node '${to.node}'`, {
+            diag('warning', 'schema', 'solve.linkMismatch', `${to.node}.${to.port}: no ${structured.kind}-typed candidate matches this input`, {
               anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
             }),
           )
@@ -655,7 +655,7 @@ export function solveGraphTypes(
     }
     setVerdict(source, 'mismatch')
     diagnostics.push(
-      diag('warning', 'schema', 'solve.linkMismatch', `[${def.id}] ${sourceLabel(source)}: output type '${a.join(',')}' cannot feed input type '${b.join(',')}' ('${to.port}' on node '${to.node}')`, {
+      diag('warning', 'schema', 'solve.linkMismatch', `${to.node}.${to.port}: ${a.join(',')} cannot feed ${b.join(',')}`, {
         anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
       }),
     )
@@ -693,14 +693,8 @@ export function solveGraphTypes(
     const toType = typeAt(projected.to, 'input')
     if (toType === undefined) {
       if (portTypes.has(projected.to.node)) {
-        const source: EdgeSource = {
-          kind: 'projectedInput',
-          index,
-          to: projected.to,
-          ...(projected.label === undefined ? {} : { label: projected.label }),
-        }
         diagnostics.push(
-          diag('info', 'schema', 'solve.portMissing', `[${def.id}] ${sourceLabel(source)} references port '${projected.to.port}'${projected.to.members !== undefined ? ` member '${projected.to.members.join('.')}'` : ''} on node '${projected.to.node}', which is not currently elaborated`, {
+          diag('info', 'schema', 'solve.portMissing', `${projected.to.node}.${elabKeyOf(projected.to)}: connected port is unavailable`, {
             anchor: { port: projected.to },
           }),
         )
@@ -762,13 +756,11 @@ export function solveGraphTypes(
     const firstProjected = root.sources.find((s): s is Extract<EdgeSource, { kind: 'projectedInput' }> => s.kind === 'projectedInput')
     const firstSlotBinding = root.slotBindings[0]
     const subject = root.owner.kind === 'node'
-      ? `type variable '${root.owner.templateId}' on node '${root.owner.node}'`
-      : `projected variable '${root.owner.templateId}' at input '${root.owner.to.port}' on node '${root.owner.to.node}'`
+      ? `${root.owner.node}.${root.owner.templateId}`
+      : `${root.owner.to.node}.${root.owner.to.port}`
     const message = firstSlotBinding !== undefined
-      ? `[${def.id}] ${subject} conflicts with stored DynamicSlot '${firstSlotBinding.ref.port}' variant '${firstSlotBinding.variant}'${root.sources.length > 0 ? ` and ${root.sources.length} connection(s); conflicting links are marked` : ''}`
-      : firstProjected === undefined
-      ? `[${def.id}] ${subject} has no type satisfying all ${root.sources.length} connections; conflicting links are marked`
-      : `[${def.id}] ${subject} has no type satisfying all ${root.sources.length} constraints at input '${firstProjected.to.port}' on node '${firstProjected.to.node}' from ${sourceLabel(firstProjected)}`
+      ? `${subject}: connected types conflict with selected variant '${firstSlotBinding.variant}'`
+      : `${subject}: connected types have no common match`
     diagnostics.push(
       diag('warning', 'schema', 'solve.varConflict', message, {
         ...(firstLink ? { anchor: { link: firstLink.id } } : firstProjected ? { anchor: { port: firstProjected.to } } : firstSlotBinding ? { anchor: { port: firstSlotBinding.ref } } : {}),
@@ -797,7 +789,7 @@ export function solveGraphTypes(
       if (declared === undefined) continue
       const solved = substitute(declared, trace.ref.node)
       if (!isKnown(solved) || typesCompatible(solved, slot.selectedType)) continue
-      diagnostics.push(diag('warning', 'schema', 'solve.slot.staleSpecialization', `[${def.id}] DynamicSlot '${slot.ref.port}' on node '${slot.node}' has a selected variant incompatible with producer '${trace.ref.port}' on node '${trace.ref.node}'`, {
+      diagnostics.push(diag('warning', 'schema', 'solve.slot.staleSpecialization', `${slot.node}.${slot.ref.port}: slot variant is incompatible with ${trace.ref.node}.${trace.ref.port}`, {
         anchor: { port: slot.ref },
       }))
     }

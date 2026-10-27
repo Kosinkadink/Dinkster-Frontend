@@ -6,13 +6,31 @@ view is always narrow, and the indicator is always visible.
 
 | Surface | Where | Shows |
 | --- | --- | --- |
-| Problems tab | right rail (`problems` panel) | Every current problem, grouped per node, with Show on canvas and Show in Focused navigation. |
+| Problems tab | right rail (`problems` panel) | Every current problem, grouped by user action, with anchored navigation. |
 | Focused tab | right rail (`context` panel) | The focused entity's details and ONLY the problems belonging to that context. |
 | Problem indicator | Problems tab label, right-rail toggle | Count plus worst severity whenever document problems exist; absent at zero. |
 
 All three read the same composed diagnostics list (solver diagnostics,
 owner-scoped live problems, and the active execution's artifact diagnostics
 and errors), so their counts can never disagree.
+
+## Problems sections
+
+The panel shows only non-empty sections, in this order:
+
+1. **Execution**: runtime failures and validation rejects.
+2. **This workflow**: compile, document consistency, and environment problems.
+3. **Upgraded on open**: import notices; dismissable, never persisted, and
+   cleared when the workflow is saved or its tab closes.
+4. **Packs and backend**: schema, extension, command, compatibility and
+   unavailable inference problems.
+5. **Collaboration**: shared-session problems.
+
+Information notices remain visible. Problems and Focused rows have a severity
+icon and a single-line producer message naming the thing and its cause. Expanding the
+row reveals the diagnostic code, full message and any debug payload or
+traceback. Clicking an anchored Problems row also navigates to its owner. Section
+disclosure remains independent of row disclosure.
 
 When a queue attempt is refused, a Product error toast repeats the Problems
 indicator summary and lists counts by severity. Show Problems opens the
@@ -29,8 +47,8 @@ A pack that declared samplers or schedulers but composed with no native
 sampling worker live keeps its nodes, routes and events and reports its
 inference surface as unavailable. `/api/diagnostics` carries one
 `packInferenceUnavailable` entry per such pack (reason plus the refused
-provider ids), and the Problems tab shows a "Pack inference unavailable"
-advisory group listing each pack, its reason and its provider ids. The group
+provider ids), and the Problems tab shows each pack and its reason under
+Packs and backend, with provider ids in the expanded detail. The notice
 is advisory: those ids are refused when a plan references them, and the
 advisory disappears once the pack composes with a live worker.
 
@@ -77,11 +95,12 @@ context by anchor and ref facts alone:
 
 ## Navigation
 
-Problems rows with an owning context (an occurrence or port anchor) offer
+Problems rows with an owning context (an occurrence, port or link anchor) offer
 two actions:
 
 - **Show on canvas** - the existing anchored navigation: restores the owning
-  graph view, selects the node, and centers the camera.
+  graph view, selects the node or link, and centers the camera. Link-only
+  anchors resolve in the current graph, including the current subgraph instance.
 - **Show in Focused** - does the same focus, then activates the Focused tab,
   which now shows the owner and its problems.
 
@@ -90,16 +109,15 @@ panel), never the document.
 
 ## Localization boundary
 
-The Problems and Focused headings, context-kind labels, empty states, counts,
-navigation actions, entity and endpoint wrappers, compatibility advisory
+The Problems and Focused headings, section names, context-kind labels, empty states, counts,
+navigation actions, entity and endpoint wrappers,
 chrome, and diagnostic-code accessible label follow the active locale while
 the panels remain mounted. Locale changes preserve disclosure, selection,
 focus targets, context and row identity, active document and graph navigation,
 and never refresh schemas, diagnostics, execution, or values. Workflow, graph,
 tab, widget, node, group, and endpoint names and ids remain raw source data, as
-do diagnostic group titles, severities, codes, messages, hints, suggestions,
-tracebacks, compatibility pack/node ids, and refusal reasons. The generated
-General group remains outside this static-chrome boundary.
+do diagnostic severities, codes, messages, hints, suggestions,
+tracebacks, compatibility pack/node ids, and refusal reasons.
 
 ## Indicator
 

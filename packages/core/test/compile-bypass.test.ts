@@ -246,8 +246,8 @@ describe('bypass passthrough basics', () => {
     expect(muted.artifact.prompt['sink']!.inputs['items.live']).toBeUndefined()
     const warning = muted.artifact.diagnostics.find((diagnostic) =>
       diagnostic.code === 'compile.bypass.structuralRouteDropped')
-    expect(warning?.message).toContain("input 'items.dead' at index 0")
-    expect(warning?.message).toContain("producer 'dead' is muted or in an inactive occurrence")
+    expect(warning?.message).toBe('relay.items.dead: selected bypass route has no value')
+    expect(warning?.data).toMatchObject({ inputIndex: 0, reason: "producer 'dead' is muted or in an inactive occurrence" })
     expect(warning?.anchor?.occurrence).toEqual({ instancePath: [], node: 'relay' })
   })
 
@@ -271,8 +271,8 @@ describe('bypass passthrough basics', () => {
       diagnostic.code === 'compile.bypass.structuralRouteDropped')
     expect(warnings).toHaveLength(1)
     expect(warnings[0]!.anchor?.occurrence).toEqual({ instancePath: [], node: 'downstream' })
-    expect(warnings[0]!.message).toContain('through [downstream, upstream]')
-    expect(warnings[0]!.message).toContain("producer 'dead' is muted or in an inactive occurrence")
+    expect(warnings[0]!.data?.['route']).toEqual(['downstream', 'upstream'])
+    expect(warnings[0]!.data?.['reason']).toBe("producer 'dead' is muted or in an inactive occurrence")
     expect(result.artifact.prompt['sink']!.inputs['items.result']).toBeUndefined()
   })
 
@@ -592,8 +592,8 @@ describe('bypass and subgraphs', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     const unrouted = result.artifact.diagnostics.find((d) => d.code === 'compile.bypass.unrouted')
-    expect(unrouted?.message).toContain("'s'")
-    expect(unrouted?.message).toContain("'image'")
+    expect(unrouted?.anchor?.occurrence).toEqual({ instancePath: [], node: 's' })
+    expect(unrouted?.message).toBe('#sub.image: bypass has no matching driven input')
     expect(result.artifact.prompt['k']!.inputs['in']).toBeUndefined()
   })
 
@@ -835,7 +835,8 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     expect(result.artifact.prompt['left.sink']!.inputs['items.result']).toEqual(['leftFirst', 0])
     expect(result.artifact.prompt['right.sink']!.inputs['items.result']).toBeUndefined()
     const warning = result.artifact.diagnostics.find((d) => d.code === 'compile.bypass.structuralRouteDropped')
-    expect(warning?.message).toContain("input 'items.first' at index 0")
+    expect(warning?.message).toBe('relay.items.first: selected bypass route has no value')
+    expect(warning?.data?.['inputIndex']).toBe(0)
     expect(warning?.message).not.toContain('items.second')
     expect(result.artifact.prompt['right.sink']!.inputs['items.second']).toBeUndefined()
   })

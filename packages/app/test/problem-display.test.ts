@@ -5,6 +5,7 @@ import {
   asNodeId,
   asPortId,
   diag,
+  type DiagnosticOrigin,
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
@@ -97,60 +98,68 @@ describe('problemDisplay', () => {
 })
 
 describe('groupProblemDiagnostics', () => {
-  it('groups by primary node ref and computes each group maximum severity', () => {
+  it('maps every origin to the five ordered user actions, including information notices', () => {
+    const expected = {
+      runtime: 'execution', validation: 'execution',
+      compile: 'workflow', invariant: 'workflow', environment: 'workflow',
+      import: 'upgrade', schema: 'packs', extension: 'packs', command: 'packs', collab: 'collaboration',
+    } satisfies Record<DiagnosticOrigin, string>
+    const origins = Object.keys(expected) as DiagnosticOrigin[]
+    for (const origin of origins) {
+      expect(groupProblemDiagnostics([diag('info', origin, 'test', 'Notice')])[0]?.title).toBe(expected[origin])
+    }
+    const groups = groupProblemDiagnostics(origins.reverse().map((origin) => diag('info', origin, origin, 'Notice')))
+    expect(groups.map((group) => group.title)).toEqual(['execution', 'workflow', 'upgrade', 'packs', 'collaboration'])
+    expect(groups.every((group) => group.severity === 'info')).toBe(true)
+    expect(groupProblemDiagnostics([])).toEqual([])
+  })
+
+  it('groups command diagnostics in Packs and backend and computes maximum severity', () => {
     const first = diag('info', 'command', 'first', 'first', { refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }] })
     const second = diag('error', 'command', 'second', 'second', { refs: [
       { graphId: 'g0', nodeId: 'n5-a1b2', portId: 'model' },
       { graphId: 'g0', nodeId: 'n6-c3d4' },
     ] })
-    const groups = groupProblemDiagnostics([first, second], document('My sampler'), registry)
+    const groups = groupProblemDiagnostics([first, second], document('My sampler'))
 
     expect(groups).toHaveLength(1)
-    expect(groups[0]?.title).toBe('Node "My sampler" (n5-a1b2)')
+    expect(groups[0]?.title).toBe('packs')
     expect(groups[0]?.severity).toBe('error')
     expect(groups[0]?.diagnostics).toEqual([first, second])
   })
 
-  it('retains first-appearance node order and puts unanchored diagnostics in General last', () => {
+  it('preserves source order within a section regardless of anchors', () => {
     const generalFirst = diag('warning', 'command', 'general', 'general')
     const other = diag('info', 'command', 'other', 'other', { refs: [{ graphId: 'g0', nodeId: 'n6-c3d4' }] })
     const first = diag('warning', 'command', 'first', 'first', { refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }] })
     const otherAgain = diag('error', 'command', 'other-again', 'other again', { refs: [{ graphId: 'g0', nodeId: 'n6-c3d4' }] })
-    const groups = groupProblemDiagnostics([generalFirst, other, first, otherAgain], document('My sampler'), registry)
+    const groups = groupProblemDiagnostics([generalFirst, other, first, otherAgain], document('My sampler'))
 
-    expect(groups.map((group) => group.title)).toEqual([
-      'Node "Other sampler" (n6-c3d4)',
-      'Node "My sampler" (n5-a1b2)',
-      'General',
-    ])
+    expect(groups.map((group) => group.title)).toEqual(['packs'])
     expect(groups.map((group) => group.diagnostics.map((entry) => entry.code))).toEqual([
-      ['other', 'other-again'],
-      ['first'],
-      ['general'],
+      ['general', 'other', 'first', 'other-again'],
     ])
-    expect(groups.map((group) => group.severity)).toEqual(['error', 'warning', 'warning'])
+    expect(groups.map((group) => group.severity)).toEqual(['error'])
   })
 
-  it('scopes identical node and General keys to document lineage', () => {
+  it('scopes disclosure keys to document lineage', () => {
     const anchored = diag('error', 'command', 'anchored', 'anchored', {
       refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }],
     })
     const general = diag('info', 'command', 'general', 'general')
-    const first = groupProblemDiagnostics([anchored, general], document(undefined, 'lineage-a'), registry)
-    const second = groupProblemDiagnostics([anchored, general], document(undefined, 'lineage-b'), registry)
+    const first = groupProblemDiagnostics([anchored, general], document(undefined, 'lineage-a'))
+    const second = groupProblemDiagnostics([anchored, general], document(undefined, 'lineage-b'))
 
     expect(first.map((group) => group.key)).toEqual([
-      JSON.stringify(['node', 'lineage-a', 'g0', 'n5-a1b2']),
-      JSON.stringify(['general', 'lineage-a']),
+      JSON.stringify(['packs', 'lineage-a']),
     ])
     expect(second.map((group) => group.key)).toEqual([
-      JSON.stringify(['node', 'lineage-b', 'g0', 'n5-a1b2']),
-      JSON.stringify(['general', 'lineage-b']),
+      JSON.stringify(['packs', 'lineage-b']),
     ])
     expect(second.map((group) => group.key)).not.toEqual(first.map((group) => group.key))
   })
 
-  it('groups anchor-only missing inputs under the friendly node title', () => {
+  it('groups anchor-only missing inputs in This workflow', () => {
     const missing = diag('warning', 'compile', 'compile.input.missing', "'Sampler' required input 'model' has no value or connection", {
       blocksExecution: true,
       anchor: {
@@ -158,48 +167,48 @@ describe('groupProblemDiagnostics', () => {
         port: { node: asNodeId('n5-a1b2'), port: asPortId('model') },
       },
     })
-    const groups = groupProblemDiagnostics([missing], document('My sampler'), registry)
+    const groups = groupProblemDiagnostics([missing], document('My sampler'))
 
     expect(groups).toHaveLength(1)
-    expect(groups[0]?.title).toBe('Node "My sampler" (n5-a1b2)')
-    expect(groups[0]?.key).toBe(JSON.stringify(['node', 'lineage', 'g0', 'n5-a1b2']))
+    expect(groups[0]?.title).toBe('workflow')
+    expect(groups[0]?.key).toBe(JSON.stringify(['workflow', 'lineage']))
     expect(groups[0]?.diagnostics).toEqual([missing])
   })
 
-  it('coalesces ref-based and anchor-only diagnostics for the same node', () => {
+  it('separates execution and workflow diagnostics even for the same node', () => {
     const referenced = diag('error', 'validation', 'validation.node', 'invalid', {
       refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }],
     })
     const anchored = diag('warning', 'compile', 'compile.input.missing', 'missing', {
       anchor: { occurrence: { instancePath: [], node: asNodeId('n5-a1b2') } },
     })
-    const groups = groupProblemDiagnostics([referenced, anchored], document(), registry)
+    const groups = groupProblemDiagnostics([referenced, anchored], document())
 
-    expect(groups).toHaveLength(1)
-    expect(groups[0]?.diagnostics).toEqual([referenced, anchored])
+    expect(groups).toHaveLength(2)
+    expect(groups.map((group) => group.diagnostics)).toEqual([[referenced], [anchored]])
     expect(groups[0]?.severity).toBe('error')
   })
 
-  it('resolves occurrence paths to the anchored node in its subgraph', () => {
+  it('retains subgraph occurrence anchors in Execution', () => {
     const anchored = diag('error', 'runtime', 'runtime.validation', 'invalid at runtime', {
       anchor: { occurrence: { instancePath: [asNodeId('instance')], node: asNodeId('nested') } },
     })
-    const groups = groupProblemDiagnostics([anchored], subgraphDocument(), registry)
+    const groups = groupProblemDiagnostics([anchored], subgraphDocument())
 
-    expect(groups[0]?.title).toBe('Node "Nested sampler" (nested)')
-    expect(groups[0]?.key).toBe(JSON.stringify(['node', 'lineage', 'inner', 'nested']))
+    expect(groups[0]?.title).toBe('execution')
+    expect(groups[0]?.diagnostics).toEqual([anchored])
   })
 
-  it('qualifies port-only anchors with the active graph instead of scanning duplicate node ids', () => {
+  it('retains port-only anchors in Packs and backend', () => {
     const portOnly = diag('warning', 'schema', 'port.warning', 'warning', {
       anchor: { port: { node: asNodeId('nested'), port: asPortId('model') } },
     })
     const groups = groupProblemDiagnostics(
-      [portOnly], subgraphDocument(), registry, { graphId: 'inner' },
+      [portOnly], subgraphDocument(),
     )
 
-    expect(groups[0]?.title).toBe('Node "Nested sampler" (nested)')
-    expect(groups[0]?.key).toBe(JSON.stringify(['node', 'lineage', 'inner', 'nested']))
+    expect(groups[0]?.title).toBe('packs')
+    expect(groups[0]?.diagnostics).toEqual([portOnly])
   })
 
   it('keeps a structured ref primary when its occurrence anchor identifies another node', () => {
@@ -207,18 +216,18 @@ describe('groupProblemDiagnostics', () => {
       refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }],
       anchor: { occurrence: { instancePath: [asNodeId('instance')], node: asNodeId('nested') } },
     })
-    const groups = groupProblemDiagnostics([conflicted], subgraphDocument(), registry)
+    const groups = groupProblemDiagnostics([conflicted], subgraphDocument())
 
-    expect(groups[0]?.title).toBe('Node "Root sampler" (n5-a1b2)')
-    expect(groups[0]?.key).toBe(JSON.stringify(['node', 'lineage', 'g0', 'n5-a1b2']))
+    expect(groups[0]?.title).toBe('execution')
+    expect(groups[0]?.diagnostics).toEqual([conflicted])
   })
 
-  it('falls back to General for a stale occurrence anchor', () => {
+  it('keeps a stale occurrence anchor in its origin section', () => {
     const stale = diag('warning', 'compile', 'compile.input.missing', 'missing', {
       anchor: { occurrence: { instancePath: [], node: asNodeId('gone') } },
     })
 
-    expect(groupProblemDiagnostics([stale], document(), registry).map((group) => group.title)).toEqual(['General'])
+    expect(groupProblemDiagnostics([stale], document()).map((group) => group.title)).toEqual(['workflow'])
   })
 })
 
@@ -326,13 +335,13 @@ describe('deriveNodeProblems', () => {
       },
     })
     const diagnostics = composeCanvasProblemDiagnostics({ owned: [warning], scene: [], execution: [runtime] })
-    const groups = groupProblemDiagnostics(diagnostics, document(), registry)
+    const groups = groupProblemDiagnostics(diagnostics, document())
     const projection = deriveProblemProjection({
       document: document(), graphId: 'g0', instancePath: [], diagnostics,
     })
 
-    expect(groups).toHaveLength(1)
-    expect(groups[0]?.diagnostics).toEqual(diagnostics)
+    expect(groups).toHaveLength(2)
+    expect(groups.map((group) => group.diagnostics)).toEqual([[runtime], [warning]])
     expect(groups[0]?.severity).toBe('error')
     expect(projection.nodes['n5-a1b2']?.map((model) => model.kind)).toEqual(['error', 'blocking-warning'])
     expect(projection.ports['n5-a1b2']?.['model']).toBe('error')
@@ -353,12 +362,12 @@ describe('deriveNodeProblems', () => {
       },
     })
     const diagnostics = composeCanvasProblemDiagnostics({ owned: [warning], scene: [], execution: [runtime] })
-    const groups = groupProblemDiagnostics(diagnostics, document(), registry)
+    const groups = groupProblemDiagnostics(diagnostics, document())
     const projection = deriveProblemProjection({
       document: document(), graphId: 'g0', instancePath: [], diagnostics,
     })
 
-    expect(groups.map((group) => group.diagnostics)).toEqual([[warning], [runtime]])
+    expect(groups.map((group) => group.diagnostics)).toEqual([[runtime], [warning]])
     expect(projection.nodes['n5-a1b2']?.[0]?.diagnostics).toEqual([warning])
     expect(projection.nodes['n6-c3d4']?.[0]?.diagnostics).toEqual([runtime])
     expect(projection.ports).toEqual({

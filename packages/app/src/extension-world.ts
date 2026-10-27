@@ -128,7 +128,7 @@ export class ExtensionWorld {
         contributions: entry.contributions.filter((contribution) => {
           if ((CONTRIBUTION_CATEGORIES as readonly string[]).includes(contribution.kind)) return true
           this.record(diag('warning', 'extension', 'extension.contribution-kind-skipped',
-            `pack '${pack.id}' entry '${entry.id}' contribution '${contribution.id}' uses unimplemented or unknown kind '${contribution.kind}'; skipped`))
+            `${pack.id}/${contribution.id}: unsupported contribution kind '${contribution.kind}'`))
           return false
         }),
       }))

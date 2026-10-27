@@ -300,11 +300,11 @@ function parseDynamic(
       // verbatim (dependents lower construct-local; keys are never wire id
       // segments).
       if (!/^[A-Za-z0-9_-]+$/.test(key)) {
-        diags.push(diag('warning', 'schema', 'schema.slot.badVariantKey', `${nodeType}.${id}: variant key '${key}' violates the backend key grammar ([A-Za-z0-9_-]+); variant dropped`))
+        diags.push(diag('warning', 'schema', 'schema.slot.badVariantKey', `${nodeType}.${id}: variant key '${key}' must contain only letters, digits, '_' or '-'`))
         continue
       }
       if (keys.has(key)) {
-        diags.push(diag('warning', 'schema', 'schema.slot.duplicateVariantKey', `${nodeType}.${id}: duplicate variant key '${key}'; variant dropped`))
+        diags.push(diag('warning', 'schema', 'schema.slot.duplicateVariantKey', `${nodeType}.${id}: duplicate variant key '${key}'`))
         continue
       }
       keys.add(key)

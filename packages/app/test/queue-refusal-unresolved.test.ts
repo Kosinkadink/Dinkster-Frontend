@@ -32,12 +32,10 @@ describe('queueing a loaded workflow whose output depends on an unresolved node'
     })).toBe(true)
     const tab = app.activeTab()!
 
-    // Open-time behavior is unchanged: the unresolved type is reported once
-    // with the exclusion explanation.
+    // Open-time and refused-queue messages name the missing type and backend.
     const openTime = app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType')
     expect(openTime).toHaveLength(1)
-    expect(openTime[0]!.message).toContain("'comfy.Morphology'")
-    expect(openTime[0]!.message).toContain('excluded from execution')
+    expect(openTime[0]!.message).toBe(`comfy.Morphology: not available on backend ${backend.label}`)
 
     await app.queue(tab)
     expect(submit).not.toHaveBeenCalled()
@@ -45,9 +43,7 @@ describe('queueing a loaded workflow whose output depends on an unresolved node'
     const unknown = app.problems.get().filter((problem) => problem.code === 'compile.schema.unknown')
     expect(unknown).toHaveLength(1)
     expect(unknown[0]!.severity).toBe('error')
-    expect(unknown[0]!.message).toContain("node 'n1' of type 'comfy.Morphology'")
-    expect(unknown[0]!.message).toContain('does not resolve on backend')
-    expect(unknown[0]!.message).toContain('excluded from execution')
-    expect(unknown[0]!.message).toContain('cannot be queued')
+    expect(unknown[0]!.message).toBe(`comfy.Morphology: not available on backend ${backend.label}`)
+    expect(unknown[0]!.anchor?.occurrence).toEqual({ instancePath: [], node: 'n1' })
   })
 })

@@ -115,7 +115,7 @@ export function sanitizeEnvironment(raw: unknown): {
       'warning',
       'environment',
       'env.stamp-malformed',
-      `document carries a malformed environment stamp; dropped: ${dropped.join(', ')} (advisory only - the workflow loads normally)`,
+      `Workflow environment: malformed ${dropped.join(', ')}`,
     ),
   ]
   if (!isObj(raw)) {

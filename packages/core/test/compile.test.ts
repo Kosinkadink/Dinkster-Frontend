@@ -1809,7 +1809,7 @@ describe('dynamic interfaces', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     const d = result.diagnostics.find((c) => c.code === 'compile.slot.missingVariant')
-    expect(d?.message).toContain("unknown variant 'gone'")
+    expect(d?.message).toBe("SpecializedSlot.slot: unknown slot variant 'gone'")
   })
 
   it('rejects a connected variant-bearing DynamicSlot without a stored choice', () => {
@@ -2208,7 +2208,7 @@ describe('dynamic interfaces', () => {
     if (!result.ok) return
     const codes = result.artifact.diagnostics.map((d) => d.code)
     expect(codes).toEqual(['compile.value.unknownInput'])
-    expect(result.artifact.diagnostics[0]!.message).toContain("'bogus'")
+    expect(result.artifact.diagnostics[0]!.message).toBe('Modal.bogus: stored value has no matching input')
   })
 
   it('links to unknown members are errors, not silent prompt keys', () => {

@@ -1620,7 +1620,7 @@ export function planReplacement(
           diag(
             'error',
             'replace.outputFamily.countMapping',
-            `replace: copied output family '${targetFamilyId}' must copy source count input '${sourceFamily.spec.count.input}' unchanged into '${targetCountInput}'`,
+            `Output family '${targetFamilyId}': count '${targetCountInput}' must copy '${sourceFamily.spec.count.input}' unchanged`,
           ),
         )
         continue
@@ -1761,7 +1761,7 @@ export function planReplacement(
         diag(
           'error',
           'replace.target.outputFamilyInvalid',
-          `replace: target '${plannedTarget.schema.type}' output families cannot be elaborated from the planned count values and connections`,
+          `${plannedTarget.schema.type}: output families have invalid counts or connections`,
         ),
       )
     }
@@ -1796,14 +1796,14 @@ export function planReplacement(
     const label = alsoIndex === undefined ? `boundary ${side} '${itemId}'` : `boundary ${side} '${itemId}' alsoBinds[${alsoIndex}]`
     if (b.kind !== 'port' || b.members !== undefined) {
       errors.push(
-        diag('error', 'replace.boundary.dynamic', `replace: ${label} binds a dynamic family/member of '${nodeId}'; replacement drops dynamic state, detach the binding first`),
+        diag('error', 'replace.boundary.dynamic', `${label}: replacement cannot map the dynamic binding to '${nodeId}'`),
       )
       return
     }
     const to = side === 'input' ? connectionMoves.get(b.port) : sourceToTarget.get(b.port)
     if (to === undefined) {
       errors.push(
-        diag('error', 'replace.boundary.unmapped', `replace: ${label} binds '${nodeId}.${b.port}' but the rule has no ${side} mapping for that port; extend the rule or detach the binding`),
+        diag('error', 'replace.boundary.unmapped', `${label}: '${nodeId}.${b.port}' has no replacement ${side} mapping`),
       )
       return
     }

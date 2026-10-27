@@ -96,9 +96,7 @@ describe('ProblemsPanel browser interactions', () => {
       'shell.panel.problems.title': '[Probleme]',
       'problems.action.showInFocused': '[Im Fokus zeigen]',
       'problems.action.showOnCanvas': '[Auf Leinwand zeigen]',
-      'problems.compat.advisory': '[HINWEIS]',
-      'problems.compat.description': '[Nicht in den Katalog aufgenommen.]',
-      'problems.compat.title': '[Kompatibilitatssprunge]',
+      'problems.section.packs': '[Pakete und Backend]',
       'problems.empty': '[Keine Probleme.]',
       'problems.hint.code': '[Diagnosecode: {code}]',
     })
@@ -118,10 +116,7 @@ describe('ProblemsPanel browser interactions', () => {
     expect(root.querySelector('h2')!.textContent).toBe('[Probleme]')
     expect(root.querySelector<HTMLButtonElement>('.problem-show-on-canvas')!.textContent).toBe('[Auf Leinwand zeigen]')
     expect(root.querySelector<HTMLButtonElement>('.problem-show-in-context')!.textContent).toBe('[Im Fokus zeigen]')
-    expect(root.querySelector<HTMLElement>('.compat-skips-group')!.getAttribute('aria-label')).toBe('[Kompatibilitatssprunge]')
-    expect(root.querySelector<HTMLElement>('.compat-skips-group .problems-group-title')!.textContent).toBe('[Kompatibilitatssprunge]')
-    expect(root.querySelector<HTMLElement>('.compat-skips-group .problems-group-severity')!.textContent).toBe('[HINWEIS]')
-    expect(root.querySelector<HTMLElement>('.compat-skips-explanation')!.textContent).toBe('[Nicht in den Katalog aufgenommen.]')
+    expect(root.querySelector<HTMLElement>('[data-section="packs"] .problems-group-title')!.textContent).toBe('[Pakete und Backend]')
     expect(root.querySelector<HTMLElement>('.runtime-error-hint-code')!.getAttribute('aria-label')).toBe('[Diagnosecode: repair]')
     expect(root.querySelector<HTMLElement>('.runtime-error-hint-code')!.getAttribute('data-tooltip-label')).toBe('[Diagnosecode: repair]')
     expect(root.textContent).toContain('runtime.exploded')
@@ -148,7 +143,7 @@ describe('ProblemsPanel browser interactions', () => {
     empty.unmount()
   })
 
-  it('keeps group and diagnostic disclosure native and separates canvas activation', () => {
+  it('keeps disclosure native and navigates when anchored rows are clicked', () => {
     const { diagnosticFocus, root, unmount } = mountPanel()
     const groupButtons = root.querySelectorAll<HTMLButtonElement>('.problems-group-header')
     expect(groupButtons).toHaveLength(2)
@@ -166,13 +161,13 @@ describe('ProblemsPanel browser interactions', () => {
     expect(details[0]!.open).toBe(true)
     expect(details[1]!.open).toBe(true)
     expect(details[1]!.textContent).toContain('Nested warning guidance.')
-    expect(diagnosticFocus.get()).toBeUndefined()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: diagnostics[1]!.anchor })
 
     errorSummary.click()
     warningSummary.click()
     expect(details[0]!.open).toBe(false)
     expect(details[1]!.open).toBe(false)
-    expect(diagnosticFocus.get()).toBeUndefined()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: diagnostics[1]!.anchor })
 
     errorSummary.click()
     details[0]!.querySelector<HTMLButtonElement>('.problem-show-on-canvas')!.click()
@@ -220,7 +215,7 @@ describe('ProblemsPanel browser interactions', () => {
     expect([selectStart, pointerDown, pointerMove, pointerUp].every((event) => !event.defaultPrevented)).toBe(true)
     expect(selection.toString()).toBe(selected)
     expect(details.open).toBe(true)
-    expect(diagnosticFocus.get()).toBeUndefined()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: diagnostics[0]!.anchor })
 
     let canvasCopies = 0
     const routeCanvasCopy = (event: KeyboardEvent): void => {

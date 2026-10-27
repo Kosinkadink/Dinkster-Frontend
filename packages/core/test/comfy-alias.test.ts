@@ -151,7 +151,7 @@ describe('ComfyUI alias registry wire', () => {
     expect(result.diagnostics[0]).toMatchObject({
       severity: 'warning', code: 'schema.comfyRegistry.sourceRevision',
     })
-    expect(result.diagnostics[0]?.message).toContain(revision)
+    expect(result.diagnostics[0]?.data?.['revision']).toBe(revision)
     expect(result.catalog.records[0]?.source.revision).toBe(revision)
   })
 

@@ -1578,7 +1578,7 @@ describe('solver verdicts on scene edges', () => {
     const bad = scene.links.find((l) => l.id === 'bad')!
     expect(bad.mismatch).toBe(true)
     expect(bad.diagnostics).toEqual([
-      expect.objectContaining({ code: 'solve.linkMismatch', message: expect.stringContaining("output type 'IMAGE'") }),
+      expect.objectContaining({ code: 'solve.linkMismatch', message: 'c1.in: IMAGE cannot feed LATENT' }),
     ])
     const good = scene.links.find((l) => l.id === 'good')!
     expect(good.mismatch).toBeUndefined()
@@ -1607,7 +1607,7 @@ describe('solver verdicts on scene edges', () => {
     for (const link of links) {
       expect(link.mismatch).toBe(true)
       expect(link.diagnostics).toEqual([
-        expect.objectContaining({ code: 'solve.varConflict', message: expect.stringContaining('has no type satisfying') }),
+        expect.objectContaining({ code: 'solve.varConflict', message: 'sw.T: connected types have no common match' }),
       ])
     }
   })

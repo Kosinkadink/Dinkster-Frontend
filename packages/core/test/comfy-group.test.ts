@@ -244,7 +244,7 @@ describe('ComfyUI exact-group registry wire', () => {
     expect(result.diagnostics[0]).toMatchObject({
       severity: 'warning', code: 'schema.comfyRegistry.sourceRevision',
     })
-    expect(result.diagnostics[0]?.message).toContain('c67885b1')
+    expect(result.diagnostics[0]?.data?.['revision']).toBe('c67885b1')
   })
 
   it('rejects disconnected patterns, missing provenance, and registry collisions', () => {

@@ -297,11 +297,11 @@ describe('auto-upgrade on open', () => {
     }))
     expect(app.problems.get()).toContainEqual(expect.objectContaining({
       code: 'replace.review',
-      message: expect.stringContaining("node 'old'"),
+      message: expect.stringContaining('old (OldEmpty):'),
     }))
     expect(app.problems.get()).not.toContainEqual(expect.objectContaining({
       code: 'replace.review',
-      message: expect.stringContaining("node 'image'"),
+      message: expect.stringContaining('image ('),
     }))
   })
 
@@ -332,7 +332,7 @@ describe('auto-upgrade on open', () => {
     expect(tab.store.doc.graphs.g0!.nodes.image!.ext?.['dinkster.replacementMigration']).toBeDefined()
     expect(app.problems.get()).toContainEqual(expect.objectContaining({
       code: 'replace.review',
-      message: expect.stringContaining("node 'image' (EmptyLatentImage) can be upgraded to 'EmptyImage'"),
+      message: 'image (EmptyLatentImage): upgrade to EmptyImage needs review',
     }))
   })
 
@@ -377,7 +377,7 @@ describe('auto-upgrade on open', () => {
     expect(tab.store.doc.graphs.g0!.links.latent).toBeDefined()
     expect(app.problems.get()).toContainEqual(expect.objectContaining({
       code: 'replace.review',
-      message: expect.stringContaining("node 'image' (EmptyLatentImage) can be upgraded to 'EmptyImage'"),
+      message: 'image (EmptyLatentImage): upgrade to EmptyImage needs review',
     }))
   })
 
@@ -1022,7 +1022,7 @@ describe('dynamic output replacement integration', () => {
     expect(tab.store.revision).toBe(0)
     expect(app.problems.get()).toContainEqual(expect.objectContaining({
       code: 'replace.review',
-      message: expect.stringContaining("node 'old'"),
+      message: expect.stringContaining('old (fixture.chain-old):'),
     }))
   })
 
@@ -1164,7 +1164,7 @@ describe('legacy documents against a native backend', () => {
     })
     expect(tab.store.doc.view.graphs.g0!.nodes.n2!.position).toEqual({ x: 300, y: 50 })
     expect(app.problems.get().find((problem) => problem.code === 'import.comfyAlias.confidence.op')?.message)
-      .toContain('total=1; confidence exact=0, parametric=0, equivalent=0, grouped=1')
+      .toBe('ComfyUI op mappings: 1 (exact=0, parametric=0, equivalent=0, grouped=1)')
     expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType')).toBe(false)
 
     const translated = structuredClone(tab.store.doc)
@@ -1319,9 +1319,12 @@ describe('legacy documents against a native backend', () => {
     expect(tab.store.doc.graphs.g0!.nodes.n1!.values.width).toBe(64)
     expect(tab.store.doc.graphs.g0!.nodes.n2!.values.width).toBe(32)
     expect(app.problems.get().find((problem) => problem.code === 'import.comfyAlias.confidence.op')?.message)
-      .toContain('total=1; confidence exact=1, parametric=0, equivalent=0, grouped=0')
-    expect(app.problems.get().find((problem) => problem.code === 'import.comfyAlias.confidence.family')?.message)
-      .toContain('total=1; confidence exact=0, parametric=1, equivalent=0, grouped=0; family providers available=0, unavailable=1, unknown=0; FamilyImage:unavailable')
+      .toBe('ComfyUI op mappings: 1 (exact=1, parametric=0, equivalent=0, grouped=0)')
+    expect(app.problems.get().find((problem) => problem.code === 'import.comfyAlias.confidence.family'))
+      .toMatchObject({
+        message: 'ComfyUI family mappings: 1 (exact=0, parametric=1, equivalent=0, grouped=0)',
+        data: { familyProviders: 'available=0, unavailable=1, unknown=0', families: ['FamilyImage:unavailable'] },
+      })
   })
 
   it('holds every maintained alias when one item needs review', () => {
@@ -1518,11 +1521,9 @@ describe('unresolved-type reporting', () => {
     ).toEqual([])
     const found = app.problems.get().find((d) => d.code === 'schema.unresolvedType')
     expect(found).toBeDefined()
-    expect(found!.message).toContain("'NoSuchNode'")
-    expect(found!.message).toContain('2 node(s)')
+    expect(found!.message).toBe(`NoSuchNode (2): not available on backend ${app.backends.get()[0]!.label}`)
     // Unresolved nodes are excluded from the executed closure (see compile's
     // unknown-schema demotion); the warning must not claim the workflow cannot run.
-    expect(found!.message).toContain('excluded from execution')
     expect(found!.message).not.toContain('cannot run')
   })
 

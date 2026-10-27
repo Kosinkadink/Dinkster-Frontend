@@ -209,22 +209,6 @@
   user-select: none;
 }
 
-.compat-skips-header {
-  cursor: default;
-}
-
-.compat-skips-explanation {
-  margin: 6px 8px;
-  color: #aaa;
-  font-size: 12px;
-}
-
-.compat-skip-reason {
-  margin-top: 3px;
-  color: #bbb;
-  overflow-wrap: anywhere;
-}
-
 .problem {
   margin: 4px 0;
   padding: 4px 6px;
@@ -243,9 +227,48 @@
 }
 
 .problem summary {
+  display: flex;
+  align-items: center;
+  gap: var(--dinkster-space-8);
   cursor: pointer;
+  min-width: 0;
+}
+
+.problem summary::after {
+  content: '>';
+  margin-left: auto;
+}
+
+.problem[open] summary::after {
+  content: 'v';
+}
+
+.problem-severity {
+  flex: none;
+  width: var(--dinkster-space-16);
+  text-align: center;
+  color: var(--dinkster-info-foreground);
+  font-weight: var(--dinkster-weight-semibold);
+}
+
+.problem[data-severity='error'] .problem-severity { color: var(--dinkster-danger-foreground); }
+.problem[data-severity='warning'] .problem-severity { color: var(--dinkster-warning-foreground); }
+
+.problem-message {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problem-detail {
+  margin-top: var(--dinkster-space-8);
+  color: var(--dinkster-text-secondary);
   overflow-wrap: anywhere;
-  word-break: break-word;
+}
+
+.problem-detail pre {
+  white-space: pre-wrap;
 }
 
 .problem-show-on-canvas,
@@ -597,4 +620,3 @@
 .engine-chip.composing {
   color: #64b5f6;
 }
-
