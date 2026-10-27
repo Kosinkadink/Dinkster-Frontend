@@ -13,6 +13,25 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('ignores historical replacement rules without losing ordinary schema metadata', () => {
+    const wire = {
+      outputNode: true,
+      deprecation: { message: 'Use the current node', replacement: 'CurrentNode' },
+      searchVisibility: 'deprecated',
+      interface: [{ role: 'input', id: 'value', type: concrete('INT'), default: 7 }],
+      replacements: [{ from: 'AuthoredNode', cases: [{ to: 'OtherNode' }] }],
+    }
+    const result = parseDinksterSchema('AuthoredNode', wire)
+    expect(result.diagnostics).toEqual([])
+    expect(result.schema).toMatchObject({
+      type: 'AuthoredNode', deprecation: wire.deprecation, searchVisibility: 'deprecated',
+    })
+    expect(result.schema).not.toHaveProperty('replacements')
+    const imported = importLitegraph({ nodes: [{ id: 1, type: 'AuthoredNode', widgets_values: [19] }], links: [] },
+      (type) => type === 'AuthoredNode' ? result.schema : undefined)
+    expect(imported.document!.graphs.g0!.nodes.n1).toMatchObject({ type: 'AuthoredNode', values: { value: 19 } })
+  })
+
   it('preserves mixed COMBO scalar identity through defaults, import, and compile', () => {
     const values = ['auto', 8, 10, '8', true, 1, false, 1.25, ''] as const
     for (const value of values) {

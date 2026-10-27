@@ -7,7 +7,6 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
 import { canonicalTypeIdOf } from './model.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'
@@ -168,7 +167,6 @@ export interface DinksterWireSchema {
   readonly deprecation?: unknown
   readonly searchVisibility?: unknown
   readonly searchTerms?: unknown
-  readonly replacements?: unknown
   /** Optional document-time branch selector. */
   readonly selector?: unknown
   /** Host-attached pack attribution (not part of the schema wire proper). */
@@ -1931,7 +1929,6 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     const idempotent = wire.idempotent !== false
     const deprecation = decodeDeprecation(nodeType, wire.deprecation, diags)
     const searchVisibility = decodeSearchVisibility(nodeType, wire.searchVisibility, diags)
-    const replacements = decodeReplacements(nodeType, wire.replacements, diags)
     const searchTerms = Array.isArray(wire.searchTerms) && wire.searchTerms.every((term) => typeof term === 'string') ? ([...wire.searchTerms] as string[]) : []
     const aliases = Array.isArray(wire.aliases) ? wire.aliases.filter((alias): alias is string => typeof alias === 'string' && alias !== '') : []
     const executionArms = Array.isArray(wire.executionArms)
@@ -1956,7 +1953,6 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ...(searchVisibility !== undefined ? { searchVisibility } : {}),
       searchTerms,
       ...(aliases.length > 0 ? { aliases } : {}),
-      ...(replacements !== undefined ? { replacements } : {}),
       ext: {
         dinkster: {
           version: typeof wire.version === 'number' ? wire.version : 1,
@@ -2405,41 +2401,6 @@ function decodeDeprecation(nodeType: string, wire: unknown, diags: Diagnostic[])
     ...(typeof w.since === 'string' && w.since !== '' ? { since: w.since } : {}),
     ...(replacement !== undefined ? { replacement } : {}),
   }
-}
-
-/**
- * Decode the optional replacement-rule list. The backend mirrors our
- * ReplacementRule vocabulary field-for-field (commit 9a36a72) and validates
- * at registration, so a malformed entry here is a smuggled wire - warn and
- * skip that RULE (not the node, and not the whole list: migration advice is
- * additive metadata). isReplacementRule is the same validator the registry
- * itself applies, so nothing invalid can reach planning either way.
- */
-function decodeReplacements(nodeType: string, wire: unknown, diags: Diagnostic[]): readonly ReplacementRule[] | undefined {
-  if (wire === undefined) return undefined
-  if (!Array.isArray(wire)) {
-    diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements is not an array; ignoring`))
-    return undefined
-  }
-  const rules: ReplacementRule[] = []
-  for (const [i, rule] of wire.entries()) {
-    if (isReplacementRule(rule)) rules.push(rule)
-    else diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements[${i}] is malformed; skipping that rule`))
-  }
-  return rules.length > 0 ? rules : undefined
-}
-
-function replacementUsesSlotVariants(wire: unknown): boolean {
-  if (!Array.isArray(wire)) return false
-  return wire.some((rule) => {
-    if (typeof rule !== 'object' || rule === null || !Array.isArray((rule as { cases?: unknown }).cases)) return false
-    return (rule as { cases: unknown[] }).cases.some((candidate) => typeof candidate === 'object' && candidate !== null && 'slotVariants' in candidate)
-  })
-}
-
-function replacementUsesMigration(wire: unknown): boolean {
-  if (!Array.isArray(wire)) return false
-  return wire.some((rule) => typeof rule === 'object' && rule !== null && 'migration' in rule)
 }
 
 /**

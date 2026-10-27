@@ -5,11 +5,8 @@
  * scripts/generate_replacement_goldens.py there, drift-locked backend-side
  * by tests/test_goldens.py).
  *
- * Contract under test: the backend mirrors our ReplacementRule vocabulary
- * field-for-field, so encoder-authored rules must (a) decode with zero
- * diagnostics, (b) survive normalization BYTE-FOR-BYTE (rules are closed
- * declarative data - the decoder validates, never rewrites), and (c) drive
- * the real planner/scanner/command pipeline end to end: predicates match,
+ * Historical rules are registered explicitly, not decoded from native schemas.
+ * They drive the planner/scanner/command pipeline end to end: predicates match,
  * transforms compute, chains hop sequentially, one dispatch = one undo.
  */
 import { readFileSync } from 'node:fs'
@@ -22,7 +19,7 @@ import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js
 import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
 import type { MappingSource, ReplacementPredicate, ReplacementRule } from '../src/replace/model.js'
 import { createReplacementRegistry } from '../src/replace/registry.js'
-import { registerSchemaRules, replacementInvocation, scanReplacements } from '../src/replace/scan.js'
+import { replacementInvocation, scanReplacements } from '../src/replace/scan.js'
 import { resolveDeprecationPointer } from '../src/schema/deprecation.js'
 import {
   parseDinksterNodes,
@@ -38,10 +35,10 @@ import {
 // ---------------------------------------------------------------------------
 
 const here = dirname(fileURLToPath(import.meta.url))
-const loadGolden = (name: string): { raw: readonly DinksterWireSchema[]; schemas: ReadonlyMap<string, NodeSchema> } => {
+const loadGolden = (name: string): { raw: readonly (DinksterWireSchema & { replacements?: readonly ReplacementRule[] })[]; schemas: ReadonlyMap<string, NodeSchema> } => {
   const raw = (
     JSON.parse(readFileSync(join(here, `../fixtures/replacements/${name}.json`), 'utf8')) as {
-      schemas: (DinksterWireSchema & { nodeType: string })[]
+      schemas: (DinksterWireSchema & { nodeType: string; replacements?: readonly ReplacementRule[] })[]
     }
   ).schemas
   const { schemas, diagnostics } = parseDinksterNodes({
@@ -100,10 +97,14 @@ const node = (id: string, type: string, values: Record<string, Json> = {}) => ({
 
 const link = (id: string, from: object, to: object) => ({ id: asLinkId(id), from, to }) as GraphDef['links'][string]
 
-/** Registry seeded with every rule the golden's schemas ship. */
+const rulesOf = (g: typeof vocabulary, type: string) =>
+  g.raw.find((wire) => wire.nodeType === type)?.replacements ?? []
+
+/** Register historical fixture rules independently of native schema decoding. */
 function registryOf(g: typeof vocabulary) {
   const registry = createReplacementRegistry()
-  expect(registerSchemaRules(registry, g.schemas.values())).toEqual([])
+  for (const wire of g.raw) for (const rule of wire.replacements ?? [])
+    expect(registry.register('core', rule)).toEqual([])
   return registry
 }
 
@@ -116,19 +117,18 @@ const resolveIn =
 // vocabulary.json: every predicate/mapping/transform variant, one rule
 // ---------------------------------------------------------------------------
 
-describe('vocabulary golden: decode', () => {
-  it('rules survive frontend normalization byte-for-byte', () => {
+describe('vocabulary golden: explicit rules', () => {
+  it('native schema decoding ignores historical rules', () => {
     for (const g of [vocabulary, chain, combo]) {
       for (const wire of g.raw) {
         const decoded = g.schemas.get(String(wire.nodeType))!.replacements
-        if (wire.replacements === undefined) expect(decoded).toBeUndefined()
-        else expect(decoded).toEqual(wire.replacements)
+        expect(decoded).toBeUndefined()
       }
     }
   })
 
   it('the carrier is the successor; the rule self-describes its predecessor', () => {
-    const rules = schemaOf(vocabulary, 'fixture.modern').replacements!
+    const rules = rulesOf(vocabulary, 'fixture.modern')
     expect(rules).toHaveLength(1)
     expect(rules[0]!.from).toBe('fixture.legacy')
     expect(rules[0]!.note).toBe('renamed and re-ranged in fixture pack 2.0')
@@ -137,7 +137,7 @@ describe('vocabulary golden: decode', () => {
   })
 
   it('exercises every predicate kind (always spelled as the omitted-when fallback)', () => {
-    const rule = schemaOf(vocabulary, 'fixture.modern').replacements![0]!
+    const rule = rulesOf(vocabulary, 'fixture.modern')[0]!
     const kinds = new Set<string>()
     const walk = (p: ReplacementPredicate): void => {
       kinds.add(p.kind)
@@ -151,7 +151,7 @@ describe('vocabulary golden: decode', () => {
   })
 
   it('exercises every mapping kind and both transforms, offset present and omitted', () => {
-    const rule = schemaOf(vocabulary, 'fixture.modern').replacements![0]!
+    const rule = rulesOf(vocabulary, 'fixture.modern')[0]!
     const mappings = rule.cases.flatMap((c) => Object.values(c.inputs ?? {}))
     const byKind = (kind: MappingSource['kind']) => mappings.filter((m) => m.kind === kind)
     expect(byKind('copy').length).toBeGreaterThan(0)
@@ -164,7 +164,7 @@ describe('vocabulary golden: decode', () => {
   })
 
   it('preserves guarded multi-successor fan-out: case.to is not constrained to the carrier', () => {
-    const rule = schemaOf(vocabulary, 'fixture.modern').replacements![0]!
+    const rule = rulesOf(vocabulary, 'fixture.modern')[0]!
     expect(rule.cases.map((c) => c.to)).toEqual(['fixture.modern', 'fixture.alternate', 'fixture.modern'])
   })
 })
@@ -347,7 +347,7 @@ describe('chain golden: deprecation + visibility + rules on one schema', () => {
     const b = schemaOf(chain, 'fixture.chain-b')
     expect(b.deprecation?.replacement).toBe('fixture.chain-c')
     expect(searchVisibilityOf(b)).toBe('hidden')
-    expect(b.replacements).toHaveLength(1)
+    expect(b.replacements).toBeUndefined()
     const c = schemaOf(chain, 'fixture.chain-c')
     expect(c.deprecation).toBeUndefined()
     expect(searchVisibilityOf(c)).toBe('normal')

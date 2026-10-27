@@ -899,6 +899,9 @@ describe('dynamic output replacement integration', () => {
   it('applies a DynamicSlot replacement whose producer schema is missing', () => {
     const backend = app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, dynamicTargetPayload())
+    const rules = dynamicTargetFixture.schemas.flatMap((schema) =>
+      (schema.replacements as readonly ReplacementRule[] | undefined) ?? [])
+    for (const rule of rules) expect(app.registerReplacementRule('pack', rule)).toEqual([])
     const schemas = new Map(registry.schemas)
     const producer = schemas.get('fixture.mask-source')!
     schemas.delete(producer.type)

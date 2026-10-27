@@ -17,7 +17,7 @@ import { parseDinksterNodes, type DinksterWireSchema, type InputSpec, type NodeS
 const fixture = JSON.parse(readFileSync(
   new URL('../fixtures/replacements/dynamic-target.json', import.meta.url),
   'utf8',
-)) as { schemas: (DinksterWireSchema & { nodeType: string })[] }
+)) as { schemas: (DinksterWireSchema & { nodeType: string; replacements?: readonly ReplacementRule[] })[] }
 
 const decoded = parseDinksterNodes({
   schemaVersion: 1,
@@ -26,8 +26,7 @@ const decoded = parseDinksterNodes({
 expect(decoded.diagnostics).toEqual([])
 
 const resolve = (type: string): NodeSchema | undefined => decoded.schemas.get(type)
-const rule = resolve('fixture.dynamic-modern')!.replacements![0]!
-const rawRule = (fixture.schemas.find(
+const rule = (fixture.schemas.find(
   (schema) => schema.nodeType === 'fixture.dynamic-modern',
 )!.replacements as readonly ReplacementRule[])[0]!
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
@@ -102,8 +101,8 @@ function withChoices(slotVariants: Readonly<Record<string, string>>): Replacemen
 }
 
 describe('wire-28 dynamic replacement targets', () => {
-  it('decodes the focused fixture and preserves its authored choices', () => {
-    expect(rule).toEqual(rawRule)
+  it('keeps explicit historical choices separate from decoded schemas', () => {
+    expect(resolve('fixture.dynamic-modern')!.replacements).toBeUndefined()
     expect(rule.cases[0]!.slotVariants).toEqual({
       policy: 'tolerance_color',
       'policy.color_source': 'integer',

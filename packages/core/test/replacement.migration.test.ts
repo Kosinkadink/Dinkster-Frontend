@@ -20,7 +20,7 @@ import { parseDinksterNodes, type DinksterWireSchema, type InputSpec, type NodeS
 const fixture = JSON.parse(readFileSync(
   new URL('../fixtures/replacements/same-type-migration.json', import.meta.url),
   'utf8',
-)) as DinksterWireSchema & { nodeType: string }
+)) as DinksterWireSchema & { nodeType: string; replacements: readonly ReplacementRule[] }
 
 const decoded = parseDinksterNodes({
   schemaVersion: 1,
@@ -29,7 +29,7 @@ const decoded = parseDinksterNodes({
 expect(decoded.diagnostics).toEqual([])
 
 const schema = decoded.schemas.get(fixture.nodeType)!
-const rule = schema.replacements![0]!
+const rule = fixture.replacements[0]!
 const resolve = (type: string): NodeSchema | undefined => decoded.schemas.get(type)
 const registry = createReplacementRegistry()
 expect(registry.register('schema', rule)).toEqual([])
@@ -182,8 +182,8 @@ function historicalNetDocument(): WorkflowDocument {
 }
 
 describe('wire-28 same-type stored-workflow migration', () => {
-  it('decodes seven guarded ImageToMask cases plus the default fallback', () => {
-    expect(rule).toEqual((fixture.replacements as typeof schema.replacements)![0])
+  it('keeps seven guarded historical cases separate from native schemas', () => {
+    expect(schema.replacements).toBeUndefined()
     expect(rule.migration?.historicalInputs).toContain('color_source')
     expect(rule.cases).toHaveLength(8)
     expect(rule.cases.slice(0, 7).every((candidate) => candidate.when !== undefined)).toBe(true)
@@ -976,7 +976,7 @@ describe('published Save Video v3 migration', () => {
   const videoFixture = JSON.parse(readFileSync(
     new URL('../fixtures/replacements/save-video-v3-wire38.json', import.meta.url),
     'utf8',
-  )) as DinksterWireSchema & { nodeType: string }
+  )) as DinksterWireSchema & { nodeType: string; replacements: readonly ReplacementRule[] }
   const decodedVideo = parseDinksterNodes({
     schemaVersion: 1,
     nodes: { [videoFixture.nodeType]: videoFixture },
@@ -1010,7 +1010,7 @@ describe('published Save Video v3 migration', () => {
     },
   }
   const resolveVideo = (type: string): NodeSchema | undefined => schemas[type]
-  const videoRule = schemas['dinkster.save_video']!.replacements![0]!
+  const videoRule = videoFixture.replacements[0]!
 
   function videoDocument(values: Record<string, Json> = {}): WorkflowDocument {
     return {
