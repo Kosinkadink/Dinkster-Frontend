@@ -1,7 +1,7 @@
 /**
- * extension API implementation deprecation/replacement UX: safe plans auto-apply on document open
- * (one undo step), the review toggle holds them for manual approval, and
- * the deprecation badge popover explains + applies plans. The rule arrives
+ * Replacement UX: applicable plans auto-apply on document open in one undo
+ * step, with a Problems notice instead of a migration badge. Opt-in review
+ * keeps manual badge approval. The rule arrives
  * through the PUBLIC pack registration API on the bridge - the real
  * backend's object_info ships no replacement metadata (that is a Dinkster/V3
  * concern), which is exactly the pack-extension path.
@@ -44,7 +44,7 @@ const deprecationIds = (): DeprecationIds => {
       targetType: nativeCatalog.emptyMinimaxH3Av.type,
       sourceOutput: nativeCatalog.emptyLatent.outputs[0],
       sinkType: nativeCatalog.vaeDecode.type,
-      targetBatchInput: 'frame_count',
+      targetBatchInput: 'length',
     }
   }
   return {
@@ -168,7 +168,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 })
 
-test('a safe plan auto-applies on open as one undoable step', async ({ page }) => {
+test('a safe plan auto-applies with a navigable notice and one undoable step', async ({ page }, testInfo) => {
   const { sourceType, targetType } = deprecationIds()
   expect(await openDeprecatedDoc(page, { lineage: 'dep-auto' })).toEqual([])
   expect((await rootTypes(page)).old).toBe(targetType)
@@ -178,7 +178,14 @@ test('a safe plan auto-applies on open as one undoable step', async ({ page }) =
     return tab.store.doc.graphs.g0!.nodes.old!.values.width
   })
   expect(width).toBe(512)
-  await expect(page.getByTestId('problems-panel')).toContainText('applied 1 replacement step(s) automatically')
+  const notice = page.getByTestId('migration-notice')
+  await expect(notice).toHaveCount(1)
+  await expect(notice).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getBadges().old ?? []))
+    .toEqual([])
+  await notice.getByRole('button', { name: `old: ${sourceType} -> ${targetType}`, exact: true }).click()
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  await page.screenshot({ path: testInfo.outputPath('safe-migration-notice.png'), animations: 'disabled' })
   // ONE undo restores the deprecated node exactly.
   await page.evaluate(() => void window.__dinksterTest!.app.activeTab()!.store.undo())
   expect((await rootTypes(page)).old).toBe(sourceType)
@@ -301,29 +308,31 @@ test('review mode holds the plan; the badge popover applies it manually', async 
   expect((await rootTypes(page)).old).toBe(targetType)
 })
 
-test('a lossy plan never auto-applies; its badge popover shows the warning', async ({ page }) => {
-  const { sourceType, targetType, sinkType } = deprecationIds()
+test('a lossy plan auto-applies with warnings in the notice and ordinary nodes', async ({ page }, testInfo) => {
+  const { sourceType, targetType, sinkType, sourceOutput } = deprecationIds()
   expect(await openDeprecatedDoc(page, { lineage: 'dep-lossy', lossy: true })).toEqual([])
   const types = await rootTypes(page)
-  expect(types.old).toBe(sourceType) // warned plan -> review only
+  expect(types.old).toBe(targetType)
   expect(types.sink).toBe(sinkType)
 
-  await identityViewport(page)
-  const p = await badgePoint(page, 'old')
-  await page.mouse.click(p.x, p.y)
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toBeVisible()
-  await expect(popover).toHaveAttribute('data-badge', 'core.deprecated')
-  await expect(popover.getByTestId('badge-replace-target')).toBeVisible()
-  await expect(popover).toContainText('warning:')
-
-  // Applying anyway is an explicit, informed choice - and still works.
-  await popover.getByTestId('badge-apply-replacement').click()
-  expect((await rootTypes(page)).old).toBe(targetType)
+  const notice = page.getByTestId('migration-notice')
+  await expect(notice).toHaveCount(1)
+  await expect(notice).toContainText('link')
+  await expect(notice).toContainText('l0')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getBadges().old ?? []))
+    .toEqual([])
+  await notice.getByRole('button', { name: `old: ${sourceType} -> ${targetType}`, exact: true }).click()
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  await expect(page.getByTestId('badge-popover')).not.toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('lossy-migration-notice.png'), animations: 'disabled' })
   // The unmapped downstream link was dropped, per the plan's warning.
   const linkCount = await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     return Object.keys(tab.store.doc.graphs.g0!.links).length
   })
   expect(linkCount).toBe(0)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  expect((await rootTypes(page)).old).toBe(sourceType)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links.l0))
+    .toMatchObject({ from: { node: 'old', port: sourceOutput }, to: { node: 'sink', port: 'samples' } })
 })

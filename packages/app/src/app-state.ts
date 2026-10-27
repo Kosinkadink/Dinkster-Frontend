@@ -26,6 +26,7 @@ import {
   createReplacementRegistry,
   createSignal,
   createSurfaceRegistry,
+  createTransactionBuilder,
   effectiveOccurrenceTopology,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
@@ -41,6 +42,7 @@ import {
   emptyGates,
   environmentDrift,
   executionKey,
+  executeCommand,
   ExtensionHost,
   type ExtensionHostOptions,
   type ExtensionEditorKind,
@@ -4601,7 +4603,7 @@ export class AppState {
 
   /**
    * When true, nothing is upgraded automatically: openDocument surfaces every
-   * migratable node for review instead of applying safe plans (debug aid).
+   * ordinary replacement for review instead of applying it (debug aid).
    */
   readonly reviewReplacements: Signal<boolean> = createSignal(false)
 
@@ -4753,10 +4755,9 @@ export class AppState {
 
   /**
    * The upgrade pass for one tab (open time, possibly deferred until its
-   * backend's schemas arrive): auto-apply SAFE plans (lossless, warning
-   * free) unless review mode is on. Best-effort migration fallbacks always
-   * apply because their archived historical state needs no user decision.
-   * Everything else lands in Problems so the badge/review flow can take over.
+   * backend's schemas arrive). Applicable plans, including warned plans,
+   * apply in one undoable batch. Review mode holds ordinary replacements;
+   * best-effort migration fallbacks still archive historical state.
    */
   private upgradeOnOpen(tab: Tab): void {
     this.reportEnvironmentDrift(tab)
@@ -4769,85 +4770,66 @@ export class AppState {
     const stockPristine = this.stockPending.has(tab.id) && tab.store.revision === 0
     this.stockPending.delete(tab.id) // engaged: silent or loud, provenance is spent
     const review = this.reviewReplacements.get()
-    const firstHop = (item: ReplacementScanItem): ReplacementScanItem => {
-      const hop = item.hops[0]!
-      return {
-        ...item,
-        hops: [hop],
-        terminalType: hop.plan.to,
-        status: 'terminal',
-        rule: hop.rule,
-        plan: hop.plan,
-        diagnostics: hop.diagnostics,
-        safe: hop.diagnostics.every((entry) => entry.severity === 'info'),
-      }
-    }
+    const registry = this.registryForTab(tab)!
+    const resolve: ReplacementSchemaResolver = (type, role) => this.replacementSchemaOf(registry, type, role)
+    const targetSchema = (type: string) => resolve(type, 'target')
+    const commands = coreCommandRegistry([], targetSchema)
+    const tx = createTransactionBuilder(tab.store.doc, tab.store.allocationActor)
+    const context = { kind: 'initial' as const, schemaResolverFor: (doc: WorkflowDocument) => documentResolver(doc, targetSchema) }
     const nodeKey = (item: ReplacementScanItem): string => JSON.stringify([item.graphId, item.nodeId])
-    const appliedMigrations: ReplacementScanItem[] = []
-    const failedMigrationNodes = new Set<string>()
-    const failedFallbackNodes = new Set<string>()
+    const pending = new Set(items.map(nodeKey))
+    const applied: ReplacementScanItem[] = []
+    const invocations: CommandInvocation[] = []
     let remainingItems = items
     for (;;) {
       const candidate = remainingItems.find((item) =>
-        item.hops.some((hop) => hop.rule.migration !== undefined) &&
-        (review
-          ? item.hops[0]?.plan.migrationFallback === true
-          : item.hops.some((hop, index) =>
-              hop.plan.migrationFallback === true &&
-              item.hops.slice(0, index).every((prefix) =>
-                prefix.diagnostics.every((entry) => entry.severity === 'info')),
-            ) || item.safe) &&
-        !failedMigrationNodes.has(nodeKey(item)),
+        pending.has(nodeKey(item)) && item.hops.length > 0 &&
+        (!review || item.hops[0]?.plan.migrationFallback === true),
       )
       if (candidate === undefined) break
-      const step = firstHop(candidate)
-      if (!this.applyReplacements(tab, [step])) {
-        failedMigrationNodes.add(nodeKey(candidate))
-        if (step.plan?.migrationFallback === true) failedFallbackNodes.add(nodeKey(candidate))
-        continue
+      pending.delete(nodeKey(candidate))
+      const hops = review ? candidate.hops.slice(0, 1) : candidate.hops
+      for (const hop of hops) {
+        const invocation = {
+          command: 'node.replace',
+          params: { plan: { ...hop.plan, createdNodes: hop.plan.createdNodes ?? [] } } as unknown as Json,
+        }
+        const diagnostics = executeCommand(commands.get(invocation.command)!, tx.current, invocation.params, tx, context)
+        if (diagnostics.some((entry) => entry.severity === 'error')) {
+          this.reportProblems(tab.id, diagnostics)
+          return
+        }
+        invocations.push(invocation)
       }
-      appliedMigrations.push(step)
-      remainingItems = this.scanTabReplacements(tab)
+      applied.push({
+        ...candidate,
+        hops,
+        terminalType: hops[hops.length - 1]!.plan.to,
+        diagnostics: review ? hops.flatMap((hop) => hop.diagnostics) : candidate.diagnostics,
+      })
+      // Replan shared links against earlier upgrades, using the same commands
+      // as the eventual atomic dispatch. Newly created helpers are not scanned.
+      remainingItems = scanReplacements(tx.current, this.replacementRegistryFor(registry), resolve)
     }
-    remainingItems = remainingItems.filter((item) =>
-      !(failedFallbackNodes.has(nodeKey(item)) && item.hops[0]?.plan.migrationFallback === true),
-    )
-    const migrationSucceeded = failedMigrationNodes.size === 0
-
-    const maintainedItems = remainingItems.filter((item) => {
-      const registry = this.registryForTab(tab)
-      return registry?.comfyAliases?.recordsBySourceType.has(item.sourceType) === true ||
-        registry?.comfyGroups?.recordsByGroupType.has(item.sourceType) === true
-    })
-    const maintainedCohortSafe = maintainedItems.every((item) => item.safe)
-    const ordinaryAuto = review
-      ? []
-      : remainingItems.filter((item) =>
-          !failedMigrationNodes.has(nodeKey(item)) &&
-          item.safe &&
-          (maintainedCohortSafe || !maintainedItems.includes(item)),
-        )
-    const ordinarySucceeded = ordinaryAuto.length === 0 || this.applyReplacements(tab, ordinaryAuto)
-    const rest = ordinarySucceeded
-      ? remainingItems.filter((item) => !ordinaryAuto.includes(item))
-      : remainingItems
-    // Stock content stays silent only when every engaged replacement was
-    // applied safely. Migration hops run separately so plans that share old
-    // graph state cannot invalidate and roll back one another.
-    const silentEligible = stockPristine && !review && migrationSucceeded && ordinarySucceeded && rest.length === 0
-    const applied = [
-      ...appliedMigrations,
-      ...(ordinarySucceeded ? ordinaryAuto : []),
-    ]
+    const rest = remainingItems
+    const silentEligible = stockPristine && !review && applied.every((item) => item.safe) && rest.length === 0
     if (applied.length > 0) {
+      if (!this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json }).ok) return
       if (silentEligible) {
         // Baseline normalization of app-shipped content (see stockPending):
         // the migrated document IS the document; no churn, no undo step.
         tab.store.clearHistory()
       } else {
         this.reportProblems(tab.id, [
-          ...applied.flatMap((item) => item.diagnostics.filter((entry) => entry.severity === 'info')),
-          diag('info', 'command', 'replace.applied', `applied ${applied.length} replacement step(s) automatically`),
+          diag('info', 'command', 'replace.applied', `${applied.length} nodes upgraded on open`, {
+            data: { upgrades: applied.map((item) => ({
+              graphId: item.graphId,
+              nodeId: item.nodeId,
+              sourceType: item.sourceType,
+              targetType: item.terminalType,
+              diagnostics: item.diagnostics,
+            })) },
+          }),
         ])
       }
     }

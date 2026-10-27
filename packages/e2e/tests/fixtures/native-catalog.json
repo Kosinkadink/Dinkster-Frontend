@@ -1,20 +1,20 @@
 {
-  "_provenance": "Semantic expectations derived once from the dinkster-serve dev-pack catalog (packages/dinkster-nodes-dev/dinkster-pack.toml) at Dinkster fb4b9d23703fdb2612a2689543fc9cbdf1112b6e, wire /api/nodes, 2026-09-28. Refreshing this file is a reviewed diff; tests must never read the live catalog to build semantic expectations. Readiness counts follow the served catalog, not this snapshot.",
+  "_provenance": "Node identities and ports derived from dinkster-nodes-comfy declarations at Dinkster e8caaf1dccf1eacc284257265bee55ffccef27fd, 2026-10-27. Import-subgraph expectations retain the dinkster-serve dev-pack catalog at fb4b9d23703fdb2612a2689543fc9cbdf1112b6e, 2026-09-28. Refreshing this file is a reviewed diff; tests must never read the live catalog to build semantic expectations. Readiness counts follow the served catalog, not this snapshot.",
   "emptyLatent": {
-    "type": "dinkster.empty_latent_image",
+    "type": "EmptyLatentImage",
     "alias": "EmptyLatentImage",
     "inputs": ["width", "height", "batch_size"],
-    "outputs": ["latent"]
+    "outputs": ["LATENT"]
   },
   "emptyMinimaxH3Av": {
-    "type": "dinkster.empty_minimax_h3_av",
-    "inputs": ["width", "height", "frame_count"],
-    "outputs": ["latent"]
+    "type": "EmptyMiniMaxH3LatentAV",
+    "inputs": ["width", "height", "length"],
+    "outputs": ["LATENT"]
   },
   "vaeDecode": {
-    "type": "dinkster.vae_decode",
+    "type": "VAEDecode",
     "inputs": ["samples", "vae"],
-    "outputs": ["image"]
+    "outputs": ["IMAGE"]
   },
   "importSubgraphs": {
     "image_netayume_lumina_t2i.json": {
