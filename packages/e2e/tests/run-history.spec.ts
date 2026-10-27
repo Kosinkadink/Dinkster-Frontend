@@ -56,6 +56,12 @@ async function openGradientDoc(page: Page): Promise<void> {
       (tab.store.status as { get(): string }).get() === 'live' &&
       tab.store.doc.lineage === 'run-history-e2e'
   })).toBe(true)
+  // Opening a menu snapshots the worker catalog; its initial load invalidates that snapshot.
+  await expect.poll(() => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()
+    return tab === undefined ? undefined : app.backendForTab(tab).workerCatalog.get().status
+  })).toBe('ready')
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.renderer!.getScene().nodes
