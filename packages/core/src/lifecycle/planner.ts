@@ -2332,8 +2332,7 @@ export function auditExtractionCuts(
       if (specialized !== undefined) {
         refusal = { code: 'subgraph.extract.specializedSlotUnsupported', source: 'boundary', id: item.id, endpoint: specialized }
         refusals.push(refusal)
-      } else if ((side === 'inputs' && movedBindings.some((binding) => binding.kind === 'valueSource'))
-        || (item.ext !== undefined && Object.keys(item.ext).length > 0)) {
+      } else if (item.ext !== undefined && Object.keys(item.ext).length > 0) {
         refusal = { code: 'subgraph.lifecycle.boundaryUnresolved', source: 'boundary', id: item.id }
         refusals.push(refusal)
       }

@@ -233,7 +233,12 @@ function remapEndpoint(endpoint: LinkEndpoint, ids: ExtractIdMaps): LinkEndpoint
   return { selector: asSelectorId(selector), candidate: asSelectorCandidateId(candidate) }
 }
 
-function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, string>, rerouteIds?: ReadonlyMap<string, string>): BoundaryBinding {
+function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, string>, rerouteIds?: ReadonlyMap<string, string>, valueSourceIds?: ReadonlyMap<string, string>): BoundaryBinding {
+  if (binding.kind === 'valueSource' && valueSourceIds !== undefined) {
+    const valueSource = valueSourceIds.get(binding.valueSource)
+    if (valueSource === undefined) throw new Error(`subgraph.extract: no value-source map for '${binding.valueSource}'`)
+    return { ...binding, valueSource: asValueSourceId(valueSource) }
+  }
   if (!isNodeBoundaryBinding(binding)) return binding
   const node = nodeIds.get(binding.node)
   if (node === undefined) throw new Error(`subgraph.extract: no node map for '${binding.node}'`)
@@ -380,8 +385,8 @@ function remapNestedItem(
   if (nested === undefined) throw new Error(`subgraph.extract: boundary '${cut.itemId}' has no nested item`)
   return {
     id,
-    binds: remapBinding(nested.binds, ids.nodes, ids.reroutes),
-    ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes)) } : {}),
+    binds: remapBinding(nested.binds, ids.nodes, ids.reroutes, ids.valueSources),
+    ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes, ids.valueSources)) } : {}),
     ...(nested.promoted === true ? { promoted: true } : {}),
     ...(nested.displayName !== undefined ? { displayName: nested.displayName } : {}),
   }

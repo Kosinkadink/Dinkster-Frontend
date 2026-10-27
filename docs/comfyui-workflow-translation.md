@@ -101,8 +101,11 @@ retained; a source with no authored boundary type uses wildcard, never a type
 guessed from its literal. Conflicting authored output types refuse extraction
 atomically. Enclosing boundary bindings and stale-selection fingerprints follow
 the moved source identity, and one undo restores the original graph.
-Extraction of a source targeted by an enclosing input boundary refuses
-atomically; it does not replace occurrence overrides with the source literal.
+Enclosing input boundaries follow the moved source into the new definition.
+Nested instance values override the inner literal independently per occurrence;
+an outer instance value wins over an inner one, and a connected driver wins
+over either stored value. Native reopen and extraction undo/redo retain that
+precedence without rewriting the shared definition's values.
 
 Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
 constraints. The decoder retains the FLOATS socket and scalar default, min and

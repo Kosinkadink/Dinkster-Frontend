@@ -317,12 +317,17 @@ const hasSyntheticAncestor = (ancestry?: readonly { readonly synthetic?: boolean
 const isDynamicScopedValueKey = (key: string): boolean =>
   key.includes('#') || key.includes('.')
 
-interface ResolvedInput {
+interface ResolvedNodeInput {
   readonly runtimeId: string
   /** Elaborated key (= spec.id): the FlatNode.inputs staging key. */
   readonly elabKey: string
   readonly input: ElaboratedInput
 }
+type ResolvedInput = ResolvedNodeInput | {
+  readonly valueSource: string
+  readonly path: readonly NodeId[]
+}
+const isNodeInput = (input: ResolvedInput): input is ResolvedNodeInput => 'runtimeId' in input
 interface ResolvedOutput {
   readonly runtimeId: string
   readonly outputIndex: number
@@ -413,7 +418,7 @@ function compileImpl(
   /** runtimeId -> inputId -> effective controller sources, outside-in. */
   const controllerSources = new Map<string, Map<string, ControllerSource[]>>()
   const recordControllerSource = (
-    target: ResolvedInput,
+    target: ResolvedNodeInput,
     graph: GraphDefId,
     occurrence: Occurrence,
     input: ElaboratedInput,
@@ -436,7 +441,7 @@ function compileImpl(
   const graphOccurrences: { defId: GraphDefId; path: readonly NodeId[] }[] = []
   const liveness = new LivenessDerivation()
   const selectorOverrides = new Map<string, SelectorCandidateId>()
-  const recordSuccessfulDelivery = (target: ResolvedInput): void => {
+  const recordSuccessfulDelivery = (target: ResolvedNodeInput): void => {
     liveness.recordSuccessfulDestination(target.runtimeId, target.input.address)
   }
 
@@ -920,7 +925,14 @@ function compileImpl(
       let sawMuted = false
       let sawBypassed = false
       for (const b of bindings) {
-        if (b.kind === 'unbound' || b.kind === 'valueSource') continue
+        if (b.kind === 'unbound') continue
+        if (b.kind === 'valueSource') {
+          const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: b }]
+          if (!routeIsSuppressed([...path, node.id], delivery, route)) {
+            targets.push({ valueSource: b.valueSource, path: [...path, node.id] })
+          }
+          continue
+        }
         // Junction deliveries lower through their retained internal links.
         if (b.viaReroute !== undefined) continue
         if (b.kind === 'widgetTap') {
@@ -1798,6 +1810,11 @@ function compileImpl(
     const parentElab = parentSchema ? elabAt(parentCtx, node, parentSchema) : undefined
     const ownerOccurrence: Occurrence = { instancePath: parentCtx.path, node: node.id }
     const record = (target: ResolvedInput, v: Json): void => {
+      if (!isNodeInput(target)) {
+        const ctx = occCtxByPath.get(pathKey(target.path))
+        if (ctx && !ctx.sourceValues.has(target.valueSource)) ctx.sourceValues.set(target.valueSource, v)
+        return
+      }
       let byInput = overrides.get(target.runtimeId)
       if (!byInput) overrides.set(target.runtimeId, (byInput = new Map()))
       if (!byInput.has(target.elabKey)) byInput.set(target.elabKey, v)
@@ -1805,10 +1822,8 @@ function compileImpl(
     let hasFamilyItem = false
     for (const item of child.boundary.inputs) {
       if (item.binds.kind === 'valueSource') {
-        const inherited = overrides.get(occurrenceKey({ instancePath: parentCtx.path, node: node.id }))
-        const value = inherited?.has(item.id) ? inherited.get(item.id) : node.values[item.id]
-        const childCtx = occCtxByPath.get(pathKey(childPath))
-        if (value !== undefined && childCtx && !childCtx.sourceValues.has(item.binds.valueSource)) childCtx.sourceValues.set(item.binds.valueSource, value)
+        const value = node.values[item.id]
+        if (value !== undefined) record({ valueSource: item.binds.valueSource, path: childPath }, value)
         continue
       }
       if (item.binds.kind !== 'port') {
@@ -1836,7 +1851,7 @@ function compileImpl(
         // them is dormant (bypass forwards connections, never widget values).
         if (!targets || targets === 'muted' || targets === 'bypassed') continue
         for (const target of targets) {
-          if (ownerInput !== undefined) {
+          if (ownerInput !== undefined && isNodeInput(target)) {
             recordControllerSource(target, parentCtx.defId, ownerOccurrence, ownerInput, ownerPriority)
           }
           if (v !== undefined) record(target, v)
@@ -1871,7 +1886,7 @@ function compileImpl(
       const targets = resolveInputPort(parentCtx.path, parentCtx.defId, ref)
       if (!targets || targets === 'muted' || targets === 'bypassed') continue
       for (const [ownerPriority, target] of targets.entries()) {
-        recordControllerSource(target, parentCtx.defId, ownerOccurrence, input, ownerPriority)
+        if (isNodeInput(target)) recordControllerSource(target, parentCtx.defId, ownerOccurrence, input, ownerPriority)
         if (v !== undefined) record(target, v)
       }
     }
@@ -2001,10 +2016,10 @@ function compileImpl(
     nodeId: NodeId,
     inputId: string,
     sink: Diagnostic[] = diags,
-  ): readonly ResolvedInput[] | 'muted' | undefined => {
+  ): readonly ResolvedNodeInput[] | 'muted' | undefined => {
     const ref: PortRef = { node: nodeId, port: inputId as PortRef['port'] }
     const resolved = resolveInputPort(path, defId, ref, sink)
-    if (resolved !== 'bypassed') return resolved
+    if (resolved !== 'bypassed') return resolved === undefined || resolved === 'muted' ? resolved : resolved.filter(isNodeInput)
     // Bypass changes dataflow only. The bypassed node itself is absent from
     // `flat`, so recover its occurrence-aware elaborated input directly and
     // use the same staged-value precedence below.
@@ -2075,7 +2090,7 @@ function compileImpl(
       const scratch: Diagnostic[] = []
       const dsts = resolveInputPort(path, defId, to, scratch, delivery)
       const live = dsts !== undefined && dsts !== 'muted' && dsts !== 'bypassed'
-        ? dsts.filter((d) => flat.has(d.runtimeId))
+        ? dsts.filter(isNodeInput).filter((d) => flat.has(d.runtimeId))
         : []
       for (const destination of live) {
         let byInput = wouldRunInputEdges.get(destination.runtimeId)
@@ -2176,13 +2191,14 @@ function compileImpl(
       if (dsts === 'bypassed') continue
       // An unresolved producer is fatal only if one of these consumers
       // executes; record them before the scratch diagnostics surface.
-      if (Array.isArray(dsts)) attachUnknownSchemaDependents(scratch, dsts.map((destination) => destination.runtimeId))
+      if (Array.isArray(dsts)) attachUnknownSchemaDependents(scratch, dsts.filter(isNodeInput).map((destination) => destination.runtimeId))
       diags.push(...scratch)
       // Ordinary port sources were resolved above so malformed source
       // diagnostics are emitted once per connection, not once per fanout
       // destination. Transparent endpoints still route per final consumer.
       if (!dsts || (isPortEndpoint(c.from) && !structuralSrc && regionIndexRef === undefined)) continue
       for (const dst of dsts) {
+        if (!isNodeInput(dst)) continue
         if (regionIndexRef !== undefined) {
           const consumer = flat.get(dst.runtimeId)
           if (!consumer) continue
@@ -2312,6 +2328,7 @@ function compileImpl(
       )
       if (!targets || targets === 'muted' || targets === 'bypassed') continue
       for (const target of targets) {
+        if (!isNodeInput(target)) continue
         const bodyNode = flat.get(target.runtimeId)
         if (!bodyNode) continue
         if (bodyNode.elab.outputCountInputs.has(target.input.address.port)) {

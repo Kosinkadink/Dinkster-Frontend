@@ -739,13 +739,24 @@ describe('subgraph.extract L3 command', () => {
     const inputBound = structuredClone(initial) as MutableDocument
     inputBound.graphs.root.boundary ??= { inputs: [], outputs: [] }
     inputBound.graphs.root.boundary.inputs.push({ id: 'override', binds: { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } } })
-    const inputSession = createLocalSession(inputBound, coreCommandRegistry())
-    const beforeInput = inputSession.doc
-    const inputResult = inputSession.dispatch(l4ExtractInvocation(inputBound, selection, geometry))
-    expect(inputResult.ok).toBe(false)
-    if (!inputResult.ok) expect(inputResult.diagnostics[0]!.code).toBe('subgraph.lifecycle.boundaryUnresolved')
-    expect(inputSession.doc).toBe(beforeInput)
-    expect(inputSession.canUndo).toBe(false)
+    inputBound.graphs.host = { id: 'host', name: 'Host', nextOrdinal: 20, nodes: {
+      i1: { id: 'i1', type: '#root', values: { override: 11 } },
+      i2: { id: 'i2', type: '#root', values: { override: 29 } },
+    }, links: {}, nets: {}, reroutes: {} }
+    const inputSession = createLocalSession({ ...inputBound, root: 'host' as never }, coreCommandRegistry())
+    const beforeInput = compiled(inputSession.doc)
+    expect(Object.values(beforeInput!).map((node) => node.inputs.value)).toEqual([11, 11, 29, 29])
+    const inputResult = inputSession.dispatch(l4ExtractInvocation(inputSession.doc, selection, geometry, 'root', ['i1']))
+    expect(inputResult.ok, JSON.stringify(!inputResult.ok && inputResult.diagnostics)).toBe(true)
+    expect(compiled(inputSession.doc)).toEqual(beforeInput)
+    expect(checkDocument(inputSession.doc)).toEqual([])
+    const inputReopened = loadDocument(JSON.parse(JSON.stringify(inputSession.doc)))
+    expect(inputReopened.document).toBeDefined()
+    expect(compiled(inputReopened.document!)).toEqual(beforeInput)
+    expect(inputSession.undo()).toBe(true)
+    expect(compiled(inputSession.doc)).toEqual(beforeInput)
+    expect(inputSession.redo()).toBe(true)
+    expect(compiled(inputSession.doc)).toEqual(beforeInput)
     if (authored) {
       const conflict = structuredClone(initial) as MutableDocument
       conflict.graphs.root.boundary.outputs.push({ id: 'other', binds: { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'STRING' } } })

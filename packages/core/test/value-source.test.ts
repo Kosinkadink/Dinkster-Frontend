@@ -677,6 +677,48 @@ describe('compile lowering', () => {
     expect(result.artifact.prompt['i2.inner']!.inputs['steps']).toBe(12)
   })
 
+  it('forwards nested source inputs per occurrence with connected-driver precedence', () => {
+    const type = { kind: 'concrete' as const, name: 'INT' }
+    const d = doc({
+      g0: graph({ id: 'g0', nodes: {
+        i1: { ...node('i1', '#outer'), values: { seed: 11 } },
+        i2: { ...node('i2', '#outer'), values: { seed: 29 } },
+        i3: node('i3', '#outer'),
+        i4: { ...node('i4', '#outer'), values: { seed: null } },
+        i5: { ...node('i5', '#outer'), values: { seed: 41 } },
+        n1: node('n1'), n2: node('n2'), n3: node('n3'), n4: node('n4'), n5: node('n5'),
+      }, valueSources: { v2: source('v2', 53) }, links: {
+        l1: { id: asLinkId('l1'), from: port('i1', 'out'), to: port('n1', 'steps') },
+        l2: { id: asLinkId('l2'), from: port('i2', 'out'), to: port('n2', 'steps') },
+        l3: { id: asLinkId('l3'), from: port('i3', 'out'), to: port('n3', 'steps') },
+        l4: { id: asLinkId('l4'), from: port('i4', 'out'), to: port('n4', 'steps') },
+        l5: { id: asLinkId('l5'), from: port('i5', 'out'), to: port('n5', 'steps') },
+        l6: { id: asLinkId('l6'), from: vsrc('v2'), to: port('i5', 'seed') },
+      } }),
+      outer: graph({ id: 'outer', nodes: { inner: { ...node('inner', '#leaf'), values: { local: 17 } } },
+        boundary: { inputs: [{ id: 'seed', promoted: true, binds: { kind: 'port', ...port('inner', 'local') } }],
+          outputs: [{ id: 'out', binds: { kind: 'port', ...port('inner', 'out') } }] },
+      }),
+      leaf: graph({ id: 'leaf', nodes: {}, valueSources: { v1: source('v1', 7) },
+        boundary: { inputs: [{ id: 'local', promoted: true, binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type } }],
+          outputs: [{ id: 'out', binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type } }] },
+      }),
+    })
+    expect(checkDocument(d)).toEqual([])
+    const before = JSON.stringify(d)
+    const compiled = compile(compileInput(d))
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) return
+    expect(Object.keys(compiled.artifact.prompt).sort()).toEqual(['n1', 'n2', 'n3', 'n4', 'n5'])
+    expect(['n1', 'n2', 'n3', 'n4', 'n5'].map((id) => compiled.artifact.prompt[id]!.inputs.steps)).toEqual([11, 29, 17, null, 53])
+    expect(JSON.stringify(d)).toBe(before)
+    const reopened = loadDocument(JSON.parse(before))
+    expect(reopened.document).toBeDefined()
+    const again = compile(compileInput(reopened.document!))
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.artifact.prompt).toEqual(compiled.artifact.prompt)
+  })
+
   it.each([false, true])('rejects competing boundary inputs for one value source (reversed: %s)', (reversed) => {
     const inputs = ['first', 'second'].map((id) => ({ id, promoted: true,
       binds: { kind: 'valueSource' as const, valueSource: asValueSourceId('v1'),
