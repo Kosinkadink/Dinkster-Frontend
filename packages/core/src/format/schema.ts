@@ -684,7 +684,7 @@ export const WORKFLOW_SCHEMA = {
                   { $ref: '#/$defs/boundaryItem' },
                   { not: { required: ['alsoBinds'] } },
                   { properties: { binds: { not: { required: ['viaReroute'] } } } },
-                  { properties: { binds: { properties: { kind: { enum: ['port', 'family', 'widgetTap'] } } } } },
+                  { properties: { binds: { properties: { kind: { enum: ['port', 'family', 'widgetTap', 'unbound'] } } } } },
                 ],
               },
             },

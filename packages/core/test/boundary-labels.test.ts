@@ -33,6 +33,11 @@ describe('generated boundary labels', () => {
     const custom = item('masks_m4', 'masks_m4', 'Foreground mask')
     expect(defaultBoundaryLabels([custom]).get(custom.id)).toBe('Mask')
   })
+
+  it('names unattached slots from their stable interface ids', () => {
+    const unattached: BoundaryItem = { id: 'unused_input', binds: { kind: 'unbound', type: { kind: 'concrete', name: 'FLOAT' } } }
+    expect(defaultBoundaryLabels([unattached]).get(unattached.id)).toBe('Unused input')
+  })
 })
 
 describe('region boundary labels', () => {

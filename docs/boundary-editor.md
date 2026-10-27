@@ -10,6 +10,8 @@ type and ordered position as `unbound` bindings. They do not create body
 nodes, inner wires, or promoted widgets. An unattached output has no producer;
 connecting it cannot fabricate an execution value. Flattening a definition
 with unattached slots is refused until its interface can be resolved.
+The panel identifies these slots as **No internal endpoint** and disables
+their **Show** action; connected slots retain their ordinary focus action.
 
 Outside a subgraph, the panel shows a ProductEmptyState prompt instead of a
 blank area. An Open action is available for each subgraph occurrence on the

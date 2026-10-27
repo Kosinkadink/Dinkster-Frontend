@@ -513,13 +513,16 @@ export function BoundaryPanel(props: { app: AppState }) {
                       <div class="boundary-binding-copy">
                         <span class="boundary-field-label">Canvas destination</span>
                         <code class="boundary-bind">
-                          {item.binds.node}.{item.binds.kind === 'widgetTap' ? item.binds.tap : item.binds.port}
+                          {item.binds.kind === 'unbound'
+                            ? message('boundaryPanel.unbound')
+                            : `${item.binds.node}.${item.binds.kind === 'widgetTap' ? item.binds.tap : item.binds.port}`}
                         </code>
                       </div>
                       <button
                         type="button"
                         class="boundary-focus-action"
                         data-testid="boundary-show-on-canvas"
+                        disabled={item.binds.kind === 'unbound'}
                         aria-label={`Show ${itemName(side, item)} destination on canvas`}
                         onClick={() => showOnCanvas(item)}
                       >

@@ -1380,6 +1380,7 @@
   "boundaryPanel.empty.inputs": "No workflow inputs are exposed.",
   "boundaryPanel.empty.outputs": "No workflow outputs are exposed.",
   "boundaryPanel.aria.editor": "Boundary editor",
+  "boundaryPanel.unbound": "No internal endpoint",
   "shell.panel.controlSurfaces.title": "Control surfaces",
   "shell.panel.customizeLayout.description": "Choose visible shell regions",
   "shell.panel.customizeLayout.title": "Customize Layout",

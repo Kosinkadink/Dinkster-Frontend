@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 const schemas = readJson('../../core/fixtures/object_info.json')
@@ -41,6 +41,58 @@ async function expectSchemasReady(page: Page): Promise<void> {
   expect(schemaCount).toBeGreaterThan(0)
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
 }
+
+test('retains unattached typed boundary slots without phantom destinations', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1400 })
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'unbound-scene-test', schemaWire: 1 }, packs: {},
+    nodes: { Relay: { displayName: 'Relay', category: 'test', interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
+    ] } },
+  } }))
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('Relay') ?? false)).toBe(true)
+  const failures = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+    nodes: [{ id: 10, type: 'unbound-body', pos: [100, 100],
+      inputs: [{ name: 'unused' }, { name: 'value', widget: { name: 'value' } }],
+      outputs: [{ name: 'unused' }, { name: 'result' }], widgets_values: [19] }], links: [],
+    definitions: { subgraphs: [{ id: 'unbound-body', name: 'Unattached slots', version: 1,
+      inputs: [{ id: 'unused-in', name: 'unused input', type: 'FLOAT', linkIds: [] }, { id: 'in', name: 'value', type: 'INT', linkIds: [1] }],
+      outputs: [{ id: 'unused-out', name: 'unused output', type: 'FLOAT', linkIds: [] }, { id: 'out', name: 'result', type: 'INT', linkIds: [2] }],
+      nodes: [{ id: 1, type: 'Relay', pos: [420, 180], inputs: [{ name: 'value', widget: { name: 'value' }, link: 1 }], outputs: [{ name: 'result' }], widgets_values: [7] }],
+      links: [[1, -10, 1, 1, 0, 'INT'], [2, 1, 0, -20, 1, 'INT']],
+    }] },
+  }, 'Unattached slots'))
+  expect(failures).toEqual([])
+  const before = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  await enterInstance(page, 'n10')
+  await openRailPanel(page, 'Boundary')
+  const panel = page.getByTestId('boundary-panel')
+  await expect(panel).toBeVisible()
+  await expect(panel.getByText('No internal endpoint', { exact: true })).toHaveCount(2)
+  const focus = panel.getByTestId('boundary-show-on-canvas')
+  await expect(focus).toHaveCount(4)
+  await expect(focus.nth(0)).toBeDisabled()
+  await expect(focus.nth(1)).toBeEnabled()
+  await expect(focus.nth(2)).toBeDisabled()
+  await expect(focus.nth(3)).toBeEnabled()
+  await expect(panel).not.toContainText('undefined')
+  await page.screenshot({ path: testInfo.outputPath('unattached-boundary.png'), animations: 'disabled' })
+  const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  expect(after).toEqual(before)
+  await page.evaluate((document) => {
+    const app = window.__dinksterTest!.app
+    const failures = app.openDocument(document, 'Reopened unattached slots')
+    if (failures.length) throw new Error(JSON.stringify(failures))
+  }, after)
+  await enterInstance(page, 'n10')
+  await expect(panel.getByText('No internal endpoint', { exact: true })).toHaveCount(2)
+  expect(errors).toEqual([])
+})
 
 test('draws, rebinds, and extracts an imported input boundary with mixed direct and reroute fanout', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

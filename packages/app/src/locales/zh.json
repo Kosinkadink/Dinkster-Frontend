@@ -1380,6 +1380,7 @@
   "boundaryPanel.empty.inputs": "未公开工作流输入。",
   "boundaryPanel.empty.outputs": "未公开工作流输出。",
   "boundaryPanel.aria.editor": "边界编辑器",
+  "boundaryPanel.unbound": "无内部端点",
   "shell.panel.controlSurfaces.title": "控制表面",
   "shell.panel.customizeLayout.description": "选择可见的壳区域",
   "shell.panel.customizeLayout.title": "自定义布局",
