@@ -183,7 +183,7 @@ export function ContextPanel(props: {
             </div>
             <Show when={selectedRegion(current)} keyed>
               {(occurrence) => <Show when={props.execution?.()?.key} keyed>
-                {() => {
+                {(_executionKey) => {
                   const registry = props.app.registryForTab(current.tab)
                   return registry === undefined
                     ? undefined
