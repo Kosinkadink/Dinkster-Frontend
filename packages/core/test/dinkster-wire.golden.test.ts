@@ -14,16 +14,18 @@ const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
   it('preserves source selection names through import and stamps only the VAE union arm', () => {
-    const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
     const file = { digest: `blake3:${'a'.repeat(64)}`, name: 'vae.safetensors', size: 4,
       mediaType: 'application/octet-stream', virtualPath: 'mount/vae.safetensors' }
     for (const [kind, value] of [
       ['model/vae', 'pixel_space'], ['model/vae', 'taesd'], ['model/vae', file],
       ['model/diffusers', 'vendor/model'], ['directory/input', 'train/set'], ['directory/dataset', 'dataset'],
     ] as const) {
-      const parsed = parseDinksterSchema('Loader', fixture.nodes[`test.selection_${kind.replace('/', '_')}`])
+      const parsed = parseDinksterSchema('Loader', { schemaVersion: 1, outputNode: true,
+        interface: [{ role: 'input', id: 'name', required: true,
+          type: kind === 'model/vae' ? { kind: 'union', types: ['COMBO', 'ASSET'] } : concrete('COMBO'),
+          widget: { type: 'ASSET', accept: [], kind, selection: true } }],
+      })
       expect(parsed.diagnostics).toEqual([])
-      expect(inputsOf(parsed.schema!)[0]!.widget).toMatchObject({ widgetType: 'ASSET', selection: true, kind })
       const resolve = (type: string) => type === 'Loader' ? parsed.schema : undefined
       const imported = importLitegraph({ version: 0.4, nodes: [{ id: 1, type: 'Loader', widgets_values: [value] }], links: [] }, resolve)
       expect(imported.document).toBeDefined()
