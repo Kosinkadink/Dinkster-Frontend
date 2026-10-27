@@ -23,7 +23,7 @@
  * earlier writes).
  */
 
-import { createTransactionBuilder, type CommandInvocation } from '../commands/contract.js'
+import { createTransactionBuilder } from '../commands/contract.js'
 import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
 import type { Diagnostic } from '../diagnostics.js'
 import type { Json, WorkflowDocument } from '../format/document.js'
@@ -31,6 +31,8 @@ import type { NodeSchema } from '../schema/model.js'
 import type { ReplacementRule } from './model.js'
 import { planReplacement, type NodeReplacePlan, type ReplacementSchemaResolver } from './plan.js'
 import type { ReplacementRegistry } from './registry.js'
+
+export { replacementInvocation } from './plan.js'
 
 /** The one command that applies plans - reused here to scratch-apply hops. */
 const nodeReplaceCommand = REPLACE_COMMANDS.find((c) => c.id === 'node.replace')!
@@ -257,64 +259,4 @@ export function scanReplacements(
     }
   }
   return items
-}
-
-// ---------------------------------------------------------------------------
-// Apply
-// ---------------------------------------------------------------------------
-
-/**
- * Compose selected rule hops against the evolving document, using the same
- * planner and command as the scan. Peer migrations can remove shared links
- * or nets and change archive evidence, so independently scanned plans cannot
- * be concatenated. Only selected hops run; newly created helper nodes are not
- * scanned. The final dispatch remains atomic and has one undo step.
- * Items without hops are ignored; a blocked item contributes its planned prefix.
- */
-export function replacementInvocation(
-  items: readonly ReplacementScanItem[],
-  document: WorkflowDocument,
-  resolve: ReplacementSchemaResolver,
-): CommandInvocation | undefined {
-  // Each scanned chain must still apply independently to the supplied source.
-  // Recomposition must not turn stale reviewed evidence into fresh authority.
-  for (const item of items) {
-    let reviewed = document
-    for (const hop of item.hops) {
-      const tx = createTransactionBuilder(reviewed)
-      const diagnostics = nodeReplaceCommand.run(reviewed, { plan: hop.plan } as unknown as Json, tx, {
-        kind: 'initial', schemaResolverFor: () => (type) => resolve(type, 'target'),
-      })
-      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
-      reviewed = tx.result().doc
-    }
-  }
-  let scratch = document
-  const invocations: CommandInvocation[] = []
-  for (const item of items) {
-    for (const hop of item.hops) {
-      if (scratch.graphs[item.graphId]?.nodes[item.nodeId]?.type !== hop.plan.from) return undefined
-      const planned = planReplacement(scratch, item.graphId, item.nodeId, hop.rule, resolve, hop.plan.caseIndex)
-      if (planned.plan === undefined) return undefined
-      // Archive the originally reviewed source, but guard against the exact
-      // intermediate state that this hop will see inside the atomic batch.
-      const plan = hop.plan.migrationArchive !== undefined && planned.plan.migrationArchive !== undefined
-        ? { ...planned.plan, migrationArchive: hop.plan.migrationArchive, migrationGuard: planned.plan.migrationArchive }
-        : planned.plan
-      const params = { plan } as unknown as Json
-      const tx = createTransactionBuilder(scratch)
-      const diagnostics = nodeReplaceCommand.run(scratch, params, tx, {
-        kind: 'initial', schemaResolverFor: () => (type) => resolve(type, 'target'),
-      })
-      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
-      scratch = tx.result().doc
-      invocations.push({ command: 'node.replace', params })
-    }
-  }
-  if (invocations.length === 0) return undefined
-  if (invocations.length === 1) return invocations[0]
-  return {
-    command: 'batch',
-    params: { invocations } as unknown as Json,
-  }
 }

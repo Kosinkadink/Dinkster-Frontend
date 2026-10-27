@@ -142,6 +142,9 @@ link, tap and named-net removals do not leave stale peer plans. Composition
 validates the original chains first, then preserves each selected case even
 if a peer disconnects its predicate input. Selected same-type migrations keep
 their recovery archives even when a peer removes their only historical link.
+The public planner always evaluates predicates and historical evidence. Case
+pinning is private to composition, which recomputes each original plan before
+accepting it; caller-supplied case metadata cannot override that selection.
 Recoverable archives retain the original source state; apply-time guards use the exact
 intermediate state and still reject unrelated edits.
 Problems shows one dismissable session-only notice listing upgraded nodes and

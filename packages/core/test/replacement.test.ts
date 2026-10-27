@@ -536,6 +536,15 @@ describe('planReplacement guards', () => {
     expect(planReplacement(bare, 'g0', 'old', guardedRule, resolve).plan?.caseIndex).toBe(2)
   })
 
+  it('does not accept a public case override or invent same-type migration evidence', () => {
+    const bare = doc({ g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode') } }) })
+    expect(Reflect.apply(planReplacement, undefined, [bare, 'g0', 'old', guardedRule, resolve, 0]).plan?.caseIndex).toBe(2)
+    const migration: ReplacementRule = {
+      from: 'OldNode', migration: { historicalInputs: ['legacy'] }, cases: [{ to: 'OldNode' }],
+    }
+    expect(Reflect.apply(planReplacement, undefined, [bare, 'g0', 'old', migration, resolve, 0]).plan).toBeUndefined()
+  })
+
   it('valueEquals, not, all, any compose over document state', () => {
     const rule: ReplacementRule = {
       from: 'OldNode',
@@ -2999,6 +3008,10 @@ describe('scanReplacements', () => {
       }) })
       const items = scanReplacements(d, registryWith(...rules), localResolve)
       expect(items.find((item) => item.nodeId === 'sink')!.hops).toHaveLength(2)
+      const forged = items.map((item) => item.nodeId !== 'sink' ? item : {
+        ...item, hops: [{ ...item.hops[0]!, plan: { ...item.hops[0]!.plan, caseIndex: 1 } }],
+      })
+      expect(replacementInvocation(forged, d, localResolve)).toBeUndefined()
       const invocation = replacementInvocation(items, d, localResolve)
       expect(invocation).toBeDefined()
       const store = new DocumentStore(d, coreCommandRegistry())

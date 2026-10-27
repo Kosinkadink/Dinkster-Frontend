@@ -21,6 +21,8 @@
  * source schema because their exact member set must be elaborated.
  */
 
+import { createTransactionBuilder, type CommandInvocation } from '../commands/contract.js'
+import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
 import type { Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import type { BoundaryBinding, DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
@@ -64,6 +66,7 @@ import type {
   ReplacementPredicate,
   ReplacementRule,
 } from './model.js'
+import type { ReplacementScanItem } from './scan.js'
 
 // ---------------------------------------------------------------------------
 // Plan shape (command params for node.replace - plain Json by construction)
@@ -714,11 +717,21 @@ const dynamicStatesHaveSelection = (
 
 /**
  * Resolve `rule` against one node. Pure: no mutation, no randomness. The
- * result retains warnings; errors mean no plan at all. Composition can pin
- * a previously selected case after validating its original plan, even when
- * a peer has removed the connections that supplied migration evidence.
+ * result retains warnings; errors mean no plan at all. Case selection and
+ * historical migration evidence always come from the supplied document.
  */
 export function planReplacement(
+  document: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  rule: ReplacementRule,
+  resolve: ReplacementSchemaResolver,
+): ReplacementPlanResult {
+  return planReplacementForCase(document, graphId, nodeId, rule, resolve)
+}
+
+/** Only validated batch composition may retain a previously selected case. */
+function planReplacementForCase(
   document: WorkflowDocument,
   graphId: string,
   nodeId: string,
@@ -2230,5 +2243,64 @@ export function planReplacement(
       ...(matched.links !== undefined ? { links: internalLinks } : {}),
     },
     diagnostics,
+  }
+}
+
+/**
+ * Compose selected rule hops against the evolving document, using the same
+ * planner and command as the scan. Peer migrations can remove shared links
+ * or nets and change archive evidence, so independently scanned plans cannot
+ * be concatenated. Only selected hops run; newly created helper nodes are not
+ * scanned. The final dispatch remains atomic and has one undo step.
+ * Items without hops are ignored; a blocked item contributes its planned prefix.
+ */
+export function replacementInvocation(
+  items: readonly ReplacementScanItem[],
+  document: WorkflowDocument,
+  resolve: ReplacementSchemaResolver,
+): CommandInvocation | undefined {
+  const nodeReplaceCommand = REPLACE_COMMANDS.find((command) => command.id === 'node.replace')!
+  // Each scanned chain must still apply independently to the supplied source.
+  // Recomposition must not turn stale reviewed evidence into fresh authority.
+  for (const item of items) {
+    let reviewed = document
+    for (const hop of item.hops) {
+      const selected = planReplacement(reviewed, item.graphId, item.nodeId, hop.rule, resolve)
+      if (selected.plan === undefined || canonicalJson(selected.plan as unknown as Json) !== canonicalJson(hop.plan as unknown as Json)) return undefined
+      const tx = createTransactionBuilder(reviewed)
+      const diagnostics = nodeReplaceCommand.run(reviewed, { plan: hop.plan } as unknown as Json, tx, {
+        kind: 'initial', schemaResolverFor: () => (type) => resolve(type, 'target'),
+      })
+      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
+      reviewed = tx.result().doc
+    }
+  }
+  let scratch = document
+  const invocations: CommandInvocation[] = []
+  for (const item of items) {
+    for (const hop of item.hops) {
+      if (scratch.graphs[item.graphId]?.nodes[item.nodeId]?.type !== hop.plan.from) return undefined
+      const planned = planReplacementForCase(scratch, item.graphId, item.nodeId, hop.rule, resolve, hop.plan.caseIndex)
+      if (planned.plan === undefined) return undefined
+      // Archive the originally reviewed source, but guard against the exact
+      // intermediate state that this hop will see inside the atomic batch.
+      const plan = hop.plan.migrationArchive !== undefined && planned.plan.migrationArchive !== undefined
+        ? { ...planned.plan, migrationArchive: hop.plan.migrationArchive, migrationGuard: planned.plan.migrationArchive }
+        : planned.plan
+      const params = { plan } as unknown as Json
+      const tx = createTransactionBuilder(scratch)
+      const diagnostics = nodeReplaceCommand.run(scratch, params, tx, {
+        kind: 'initial', schemaResolverFor: () => (type) => resolve(type, 'target'),
+      })
+      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
+      scratch = tx.result().doc
+      invocations.push({ command: 'node.replace', params })
+    }
+  }
+  if (invocations.length === 0) return undefined
+  if (invocations.length === 1) return invocations[0]
+  return {
+    command: 'batch',
+    params: { invocations } as unknown as Json,
   }
 }
