@@ -1,4 +1,4 @@
-import { defaultValuesOf, type AssetRef, type CommandInvocation, type Json, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { defaultValuesOf, type AssetRef, type CommandInvocation, type Json, type JsonObject, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { readLatentMetadata, type LatentMetadata } from './latent-metadata.js'
 
 const MAX_FILE_BYTES = 64 * 1024 * 1024
@@ -11,7 +11,7 @@ const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10] as const
 
 export type FileDropClassification =
   | { readonly kind: 'workflow'; readonly document: unknown }
-  | { readonly kind: 'image'; readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; readonly embeddedWorkflow?: unknown }
+  | { readonly kind: 'image'; readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; readonly embeddedWorkflow?: unknown; readonly embeddedPrompt?: JsonObject }
   | { readonly kind: 'latent'; readonly metadata: LatentMetadata }
   | { readonly kind: 'rejected'; readonly code: string; readonly message: string }
 
@@ -87,10 +87,11 @@ export function watchFileDropGraphOwner(p: {
   }
 }
 
-const pngWorkflow = (bytes: Uint8Array): { readonly ok: true; readonly workflow?: unknown } | { readonly ok: false; readonly message: string } => {
+const pngWorkflow = (bytes: Uint8Array): { readonly ok: true; readonly workflow?: unknown; readonly prompt?: JsonObject } | { readonly ok: false; readonly message: string } => {
   let offset: number = PNG_SIGNATURE.length
   let chunks = 0
   let workflow: unknown | undefined
+  let prompt: JsonObject | undefined
   let sawHeader = false
   let sawImageData = false
   while (offset < bytes.length) {
@@ -120,14 +121,17 @@ const pngWorkflow = (bytes: Uint8Array): { readonly ok: true; readonly workflow?
     } else if (type === 'IHDR') return { ok: false, message: 'PNG contains more than one IHDR chunk' }
     if (type === 'IDAT') sawImageData = true
     let workflowBytes: Uint8Array | undefined
+    let keyword: string | undefined
     if (type === 'tEXt') {
       const separator = data.indexOf(0)
-      if (separator >= 0 && new TextDecoder().decode(data.subarray(0, separator)) === 'workflow') {
+      keyword = separator < 0 ? undefined : new TextDecoder().decode(data.subarray(0, separator))
+      if (keyword === 'workflow' || keyword === 'prompt') {
         workflowBytes = data.subarray(separator + 1)
       }
     } else if (type === 'iTXt') {
       const keywordEnd = data.indexOf(0)
-      if (keywordEnd >= 0 && new TextDecoder().decode(data.subarray(0, keywordEnd)) === 'workflow') {
+      keyword = keywordEnd < 0 ? undefined : new TextDecoder().decode(data.subarray(0, keywordEnd))
+      if (keyword === 'workflow' || keyword === 'prompt') {
         if (keywordEnd + 3 > data.length) return { ok: false, message: 'PNG workflow text is malformed' }
         const compressed = data[keywordEnd + 1]
         const compressionMethod = data[keywordEnd + 2]
@@ -147,18 +151,23 @@ const pngWorkflow = (bytes: Uint8Array): { readonly ok: true; readonly workflow?
       }
     }
     if (workflowBytes !== undefined) {
-      if (workflowBytes.byteLength > MAX_WORKFLOW_BYTES) return { ok: false, message: 'PNG workflow text exceeds the safe size limit' }
-      if (workflow !== undefined) return { ok: false, message: 'PNG contains more than one workflow text entry' }
+      if (workflowBytes.byteLength > MAX_WORKFLOW_BYTES) return { ok: false, message: `PNG ${keyword} text exceeds the safe size limit` }
+      if (keyword === 'workflow' ? workflow !== undefined : prompt !== undefined) return { ok: false, message: `PNG contains more than one ${keyword} text entry` }
       try {
-        workflow = decodeJson(workflowBytes)
+        const decoded = decodeJson(workflowBytes)
+        if (keyword === 'workflow') workflow = decoded
+        else {
+          if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) return { ok: false, message: 'PNG prompt must be a JSON object' }
+          prompt = decoded as JsonObject
+        }
       } catch {
-        return { ok: false, message: 'PNG workflow text is not valid UTF-8 JSON' }
+        return { ok: false, message: `PNG ${keyword} text is not valid UTF-8 JSON` }
       }
     }
     offset = end
     if (type === 'IEND') {
       if (length !== 0 || offset !== bytes.length || !sawHeader || !sawImageData) return { ok: false, message: 'PNG has an invalid IEND or no image data' }
-      return { ok: true, ...(workflow !== undefined ? { workflow } : {}) }
+      return { ok: true, ...(workflow !== undefined ? { workflow } : {}), ...(prompt !== undefined ? { prompt } : {}) }
     }
   }
   return { ok: false, message: 'PNG is missing its IEND chunk' }
@@ -185,7 +194,7 @@ const CLASSIFIERS: readonly Classifier[] = [
       if (!startsWith(bytes, PNG_SIGNATURE)) return undefined
       const metadata = pngWorkflow(bytes)
       return metadata.ok
-        ? { kind: 'image', mediaType: 'image/png', ...(metadata.workflow !== undefined ? { embeddedWorkflow: metadata.workflow } : {}) }
+        ? { kind: 'image', mediaType: 'image/png', ...(metadata.workflow !== undefined ? { embeddedWorkflow: metadata.workflow } : {}), ...(metadata.prompt !== undefined ? { embeddedPrompt: metadata.prompt } : {}) }
         : rejected('fileDrop.invalidPngMetadata', metadata.message)
     },
   },

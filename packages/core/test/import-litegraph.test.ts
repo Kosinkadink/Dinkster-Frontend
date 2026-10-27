@@ -228,6 +228,17 @@ const sd15Workflow = (): JsonObject => workflow(
 // -- basics -------------------------------------------------------------------
 
 describe('basic translation', () => {
+  it('retains an owned original workflow across native export and reopen', () => {
+    const source = basicPair()
+    const expected = JSON.parse(JSON.stringify(source)) as JsonObject
+    const imported = importLitegraph(source, resolve)
+    expect(imported.document!.ext?.['importer.comfyWorkflow']).toEqual(expected)
+    ;(source as Record<string, unknown>)['extra'] = { changed: true }
+    const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
+    expect(reopened.document!.ext?.['importer.comfyWorkflow']).toEqual(expected)
+    expect(Object.isFrozen(imported.document!.ext?.['importer.comfyWorkflow'])).toBe(true)
+  })
+
   it('refuses a custom resolver substituting another class schema', () => {
     const input = workflow([
       lgNode(1, 'AuthoredSource', { outputs: [{ name: 'IMAGE' }] }),

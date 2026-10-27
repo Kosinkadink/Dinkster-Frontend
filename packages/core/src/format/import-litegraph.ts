@@ -605,9 +605,12 @@ export function importLitegraph(
   }, (graph, localResolve, definitions) =>
     importLitegraphGraph(graph, localResolve, definitions, upgrades))
   if (!result.document) return result
-  return { ...result, document: Object.freeze({ ...result.document,
+  const retained = ownJson({ ...result.document,
     lineage: `lg-${fnv1a(JSON.stringify(ingress.value))}` as WorkflowDocument['lineage'],
-  }) }
+    ext: { ...result.document.ext, 'importer.comfyWorkflow': ingress.value },
+  })
+  if (!retained.ok) return { diagnostics: [...result.diagnostics, imp('error', 'import.notJson', `workflow provenance rejected: ${retained.reason}`)] }
+  return { ...result, document: retained.value as unknown as WorkflowDocument }
 }
 
 export interface ImportedAssetLiteral {

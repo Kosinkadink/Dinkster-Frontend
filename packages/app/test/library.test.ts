@@ -390,6 +390,41 @@ describe('openFromLibrary', () => {
 })
 
 describe('sourceDocument stamp on queue', () => {
+  it('submits retained import provenance unchanged after native edits and export/reopen', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
+      ok: true, execution: { connection: backend.id, prompt: asPromptId('original-test') },
+    })
+    const source = {
+      version: 0.4, nodes: [{ id: 1, type: 'std.math.add_ints', pos: [0, 0],
+        widgets_values: [3, 4], inputs: [], outputs: [{ name: 'sum', type: 'INT', links: [] }] }], links: [],
+    }
+    const originalPrompt = { 'old-7': { class_type: 'Original', inputs: { seed: 17 } } }
+    for (const prompt of [undefined, originalPrompt, {}]) {
+      const opened = await app.importWorkflowFile({ name: 'original.json', text: async () => JSON.stringify(source) }, () => true, prompt)
+      expect(opened, app.transientStatus.get()).toBe(true)
+      const imported = app.activeTab()!
+      expect(app.dispatchTo(imported, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 99 } }).ok).toBe(true)
+      const saved = JSON.parse(JSON.stringify(app.exportDocument(imported.id)))
+      expect(app.openDocument(saved, 'Reopened')).toEqual([])
+      const reopened = app.activeTab()!
+      app.setTabTarget(reopened.id, backend.id)
+      await app.queueSelection(reopened, ['n1'])
+      expect(submit).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        sourceDocument: DIGEST,
+        exportSnapshot: { prompt: prompt ?? {}, extraPnginfo: { workflow: source } },
+      }))
+      expect(reopened.store.doc.graphs.g0!.nodes.n1!.values.a).toBe(99)
+    }
+    expect(submit).toHaveBeenCalledTimes(3)
+    expect(app.openDocument(CHAIN_DOC, 'No import provenance')).toEqual([])
+    const plain = app.activeTab()!
+    app.setTabTarget(plain.id, backend.id)
+    await app.queueSelection(plain, ['n1'])
+    expect(submit.mock.calls.at(-1)![1]).not.toHaveProperty('exportSnapshot')
+  })
+
   it('stamps submissions and uploads once per unchanged document', async () => {
     const { backend, tab } = nativeSetup()
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)

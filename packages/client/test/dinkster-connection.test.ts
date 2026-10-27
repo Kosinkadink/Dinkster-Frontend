@@ -3981,7 +3981,7 @@ describe('workflow library wire', () => {
     })
   })
 
-  it('submit stamps sourceDocument when provided, omits it otherwise', async () => {
+  it('submit preserves original export metadata separately from sourceDocument and compiled prompt', async () => {
     const jobsRoute = (url: string, init?: RequestInit): Response | undefined =>
       nodesRoute(url) ??
       (url.endsWith('/api/jobs') && init?.method === 'POST'
@@ -3990,15 +3990,24 @@ describe('workflow library wire', () => {
 
     const stamped = submitHarness(jobsRoute)
     await stamped.conn.fetchSchemas()
-    expect((await stamped.conn.submit(chainArtifact(), { sourceDocument: DIGEST })).ok).toBe(true)
+    const exportSnapshot = { prompt: { 'original-7': { class_type: 'Original', inputs: { seed: 17 } } }, extraPnginfo: { workflow: { nodes: [] } } }
+    expect((await stamped.conn.submit(chainArtifact(), { sourceDocument: DIGEST, exportSnapshot })).ok).toBe(true)
     const post = stamped.requests.find((r) => r.init?.method === 'POST')!
     expect((JSON.parse(post.init!.body as string) as Record<string, unknown>)['sourceDocument']).toBe(DIGEST)
+    expect(JSON.parse(post.init!.body as string).exportSnapshot).toEqual(exportSnapshot)
+
+    const workflowOnly = submitHarness(jobsRoute)
+    await workflowOnly.conn.fetchSchemas()
+    const workflowSnapshot = { prompt: {}, extraPnginfo: { workflow: { nodes: [{ id: 9 }] } } }
+    expect((await workflowOnly.conn.submit(chainArtifact(), { exportSnapshot: workflowSnapshot })).ok).toBe(true)
+    expect(JSON.parse(workflowOnly.requests.find((r) => r.init?.method === 'POST')!.init!.body as string).exportSnapshot).toEqual(workflowSnapshot)
 
     const plain = submitHarness(jobsRoute)
     await plain.conn.fetchSchemas()
     expect((await plain.conn.submit(chainArtifact())).ok).toBe(true)
     const plainPost = plain.requests.find((r) => r.init?.method === 'POST')!
     expect('sourceDocument' in (JSON.parse(plainPost.init!.body as string) as Record<string, unknown>)).toBe(false)
+    expect(JSON.parse(plainPost.init!.body as string)).not.toHaveProperty('exportSnapshot')
   })
 
   it('submit carries the previews policy when provided, omits it otherwise', async () => {

@@ -6090,7 +6090,7 @@ export class AppState {
    * on failure; on success, non-fatal translation warnings land in the
    * problems panel for review.
    */
-  openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false): readonly Diagnostic[] {
+  openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject): readonly Diagnostic[] {
     const legacy = detectFormat(json) === 'litegraph-workflow'
     const digestHints = legacy ? legacyAssetDigestHints(json) : []
     // A legacy document is translated through the schemas of the backend it
@@ -6111,6 +6111,19 @@ export class AppState {
       return loaded.diagnostics
     }
     let document = loaded.document
+    if (originalPrompt !== undefined) {
+      if (!workspaceRecord(originalPrompt)) {
+        const diagnostics = [diag('error', 'import', 'import.prompt.invalid', 'original PNG prompt must be a JSON object')]
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
+        return diagnostics
+      }
+      const retained = loadDocument({ ...document, ext: { ...document.ext, 'importer.comfyPrompt': originalPrompt } })
+      if (!retained.document) {
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, retained.diagnostics)
+        return retained.diagnostics
+      }
+      document = retained.document
+    }
     if (forkOnCollision && this.tabs.get().some((tab) => !tab.execution && tab.id === document.lineage)) {
       let lineage: LineageId
       do lineage = asLineageId(`${document.lineage}-import-${Date.now()}-${++newWorkflowOrdinal}`)
@@ -6293,12 +6306,12 @@ export class AppState {
    * ingress also detects full LiteGraph/ComfyUI workflows and imports them
    * through the schema-aware legacy translator.
    */
-  async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true): Promise<boolean> {
+  async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true, originalPrompt?: JsonObject): Promise<boolean> {
     try {
       const title = file.name.replace(/\.json$/i, '') || 'Imported workflow'
       const text = await file.text()
       if (!stillOwned()) return false
-      const diagnostics = this.openDocument(JSON.parse(text) as unknown, title, undefined, true)
+      const diagnostics = this.openDocument(JSON.parse(text) as unknown, title, undefined, true, originalPrompt)
       if (diagnostics.length > 0) {
         this.showTransientStatus(`Could not import ${file.name}: invalid workflow document`)
         return false
@@ -7961,6 +7974,14 @@ export class AppState {
       // producing document (environment stamp inside) as a content-addressed
       // asset, so history can answer "which document made this run".
       const backend = this.backendForTab(tab)
+      const originalWorkflow = result.artifact.snapshot.ext?.['importer.comfyWorkflow']
+      const originalPrompt = result.artifact.snapshot.ext?.['importer.comfyPrompt']
+      const hasWorkflow = workspaceRecord(originalWorkflow)
+      const hasPrompt = workspaceRecord(originalPrompt)
+      const exportSnapshot = hasWorkflow || hasPrompt ? {
+        prompt: hasPrompt ? originalPrompt as JsonObject : {},
+        ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
+      } : undefined
       const sourceDocument = backend.protocol === 'dinkster'
         ? await this.sourceDocumentFor(tab, backend)
         : undefined
@@ -7983,6 +8004,7 @@ export class AppState {
         backend.protocol === 'dinkster'
           ? await backend.connection.submit(result.artifact, {
               ...sourceDocument,
+              ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
               ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
               // Overrides come from the artifact snapshot (the exact document
               // that compiled), layered global < workflow < node.

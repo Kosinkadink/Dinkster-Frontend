@@ -5245,7 +5245,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         props.app.reportProblems(tab.id, [diag('warning', 'import', code, message)])
         presentFileDropResult({ state: 'error', title, detail: message })
       }
-      const openWorkflow = async (document: unknown): Promise<void> => {
+      const openWorkflow = async (document: unknown, originalPrompt?: JsonObject): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         setFileDropSurface({
           state: 'inspecting',
@@ -5253,7 +5253,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           detail: 'Validating the dropped workflow before opening it.',
           cancelable: true,
         })
-        await props.app.importWorkflowFile({ name: `${origin === 'drop' ? 'dropped' : 'pasted'}-workflow.json`, text: async () => JSON.stringify(document) }, ownerLive)
+        await props.app.importWorkflowFile({ name: `${origin === 'drop' ? 'dropped' : 'pasted'}-workflow.json`, text: async () => JSON.stringify(document) }, ownerLive, originalPrompt)
         finish()
       }
       const loadLatent = async (metadata: LatentMetadata): Promise<void> => {
@@ -5381,7 +5381,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const cancel = (): void => { choice.run(finish) }
           setEmbeddedDropChoice({
             loadImage: () => { choice.run(() => { void loadImage(classification.mediaType) }) },
-            openWorkflow: () => { choice.run(() => { void openWorkflow(classification.embeddedWorkflow) }) },
+            openWorkflow: () => { choice.run(() => { void openWorkflow(classification.embeddedWorkflow, classification.embeddedPrompt) }) },
             cancel,
             valid: ownerLive,
           })

@@ -2061,6 +2061,11 @@ export class DinksterConnection {
        */
       readonly sourceDocument?: string
       /**
+       * Retained original import metadata, not a representation of native
+       * edits. Workflow-only provenance uses an empty prompt object.
+       */
+      readonly exportSnapshot?: { readonly prompt: JsonObject; readonly extraPnginfo?: JsonObject }
+      /**
        * Live sampling preview policy for this run. Sent verbatim as the
        * submit body's `previews` field; servers without preview support
        * ignore it. Omitted, the server applies its own default. `nodes`
@@ -2158,6 +2163,7 @@ export class DinksterConnection {
       targets,
       graph: graph as unknown as Json,
       ...(options?.sourceDocument !== undefined ? { sourceDocument: options.sourceDocument } : {}),
+      ...(options?.exportSnapshot !== undefined ? { exportSnapshot: options.exportSnapshot } : {}),
       ...(options?.previews !== undefined ? { previews: options.previews } : {}),
       ...(placementNodeIds.length > 0 ? { placement } : {}),
     }

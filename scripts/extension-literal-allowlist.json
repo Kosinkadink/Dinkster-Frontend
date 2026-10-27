@@ -83,7 +83,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6156,
+      "line": 6169,
       "column": 38,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -307,7 +307,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/file-drop.ts",
-      "line": 232,
+      "line": 241,
       "column": 60,
       "symbol": "widgetType:ASSET",
       "issue": 122

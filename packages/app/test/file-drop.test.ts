@@ -60,6 +60,25 @@ describe('safe file-drop classification', () => {
     })
   })
 
+  it('retains the actual PNG prompt independently of workflow metadata', async () => {
+    for (const type of ['tEXt', 'iTXt']) {
+      const text = (key: string, value: string) => chunk(type, new TextEncoder().encode(
+        `${key}\0${type === 'iTXt' ? '\0\0\0\0' : ''}${value}`,
+      ))
+      await expect(classifyDroppedFile(file(png(
+        text('workflow', '{"nodes":[]}'), text('prompt', '{"7":{"class_type":"Original","inputs":{"seed":17}}}'),
+      )))).resolves.toEqual({
+        kind: 'image', mediaType: 'image/png', embeddedWorkflow: { nodes: [] },
+        embeddedPrompt: { '7': { class_type: 'Original', inputs: { seed: 17 } } },
+      })
+      await expect(classifyDroppedFile(file(png(text('prompt', '{}'))))).resolves.toEqual({
+        kind: 'image', mediaType: 'image/png', embeddedPrompt: {},
+      })
+      await expect(classifyDroppedFile(file(png(text('prompt', '[]'))))).resolves.toMatchObject({ kind: 'rejected' })
+      await expect(classifyDroppedFile(file(png(text('prompt', '{}'), text('prompt', '{}'))))).resolves.toMatchObject({ kind: 'rejected' })
+    }
+  })
+
   it('fails closed for malformed embedded workflow JSON and malformed PNG chunks', async () => {
     await expect(classifyDroppedFile(file(png(chunk('tEXt', new TextEncoder().encode('workflow\0{')))))).resolves.toMatchObject({ kind: 'rejected', code: 'fileDrop.invalidPngMetadata' })
     await expect(classifyDroppedFile(file(Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0])))).resolves.toMatchObject({ kind: 'rejected', code: 'fileDrop.invalidPngMetadata' })
