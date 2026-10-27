@@ -1032,7 +1032,7 @@ describe('promptToDinksterGraph', () => {
       expect(result.ok).toBe(false)
       if (result.ok) throw new Error('unreachable')
       expect(result.diagnostics[0]?.code).toBe('submit.unresolvedLink')
-      expect(result.diagnostics[0]?.message).toContain('compiler outputIds')
+      expect(result.diagnostics[0]?.message).toBe(`sink.a: std.math.add_ints has no output #${index}`)
     },
   )
 
