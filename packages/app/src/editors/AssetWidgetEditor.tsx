@@ -1003,7 +1003,7 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
     }
     return (
       <>
-      <Show when={filesVisited()}><div hidden={!browseFiles()}>
+      <Show when={filesVisited()}><div class="asset-editor-mode" hidden={!browseFiles()}>
         <Show when={props.ed.spec?.selection === true}>
           <ProductButton onClick={() => { setSourceVisited(true); setBrowseFiles(false) }}>Back to source options</ProductButton>
         </Show>
@@ -1013,7 +1013,7 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
           setRequestClose={(handler) => { requestClose = handler }}
         />
       </div></Show>
-      <Show when={sourceVisited()}><div hidden={browseFiles()}>
+      <Show when={sourceVisited()}><div class="asset-editor-mode" hidden={browseFiles()}>
         <Show when={backend.protocol === 'dinkster' ? backend.connection : undefined} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
           {(connection) =>
           <AssetSelectionEditor
