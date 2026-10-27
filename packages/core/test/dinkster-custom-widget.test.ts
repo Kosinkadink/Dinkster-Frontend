@@ -42,9 +42,12 @@ describe('pack-declared custom widget descriptors', () => {
   })
 
   it('rejects a custom descriptor without a non-empty type', () => {
-    for (const type of ['', 7, null]) {
+    for (const type of [undefined, '', 7, null]) {
       const result = parseDinksterNodes(catalog({ type, minimum: 1 }))
       expect(result.schemas.size).toBe(0)
+      expect(result.diagnostics).toEqual([expect.objectContaining({
+        severity: 'error', origin: 'schema', code: 'schema.parse.threw',
+      })])
       expect(result.diagnostics[0]?.message).toContain('type must be a non-empty string')
     }
   })
