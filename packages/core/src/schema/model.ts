@@ -284,6 +284,8 @@ export interface WidgetDescriptorSpec {
   readonly kind?: string
   /** Source media inputs may acquire bytes through the bounded media ingest route. */
   readonly allowUpload?: true
+  /** Source-named file, pair, directory or file-free option under exact grants. */
+  readonly selection?: true
   readonly default?: unknown
   /** Controller slot (control_after_generate / control_after_refresh). */
   readonly controller?: 'after_generate' | 'after_refresh'

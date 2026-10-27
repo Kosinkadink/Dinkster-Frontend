@@ -415,7 +415,7 @@ function decodeTextCompletions(value: unknown, where: string): TextCompletionsSp
 function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, where: string): void {
   switch (descriptor['type']) {
     case 'ASSET':
-      rejectUnknownWidgetFields(descriptor, ['type', 'accept', 'kind', 'allowUpload'], where)
+      rejectUnknownWidgetFields(descriptor, ['type', 'accept', 'kind', 'allowUpload', 'selection'], where)
       if (!Array.isArray(descriptor['accept']) || !descriptor['accept'].every((value) => typeof value === 'string' && value !== '')) {
         throw new Error(`${where}.accept must be an array of non-empty strings`)
       }
@@ -424,6 +424,13 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       if (descriptor['allowUpload'] !== undefined && typeof descriptor['allowUpload'] !== 'boolean') {
         throw new Error(`${where}.allowUpload must be a boolean`)
+      }
+      if (descriptor['selection'] !== undefined && typeof descriptor['selection'] !== 'boolean') {
+        throw new Error(`${where}.selection must be a boolean`)
+      }
+      if (descriptor['selection'] === true &&
+        (!['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(String(descriptor['kind'])) || descriptor['allowUpload'] === true)) {
+        throw new Error(`${where}.selection requires a supported exact kind and forbids upload`)
       }
       return
     case 'SAVE_TARGET':
@@ -665,6 +672,12 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       if (socket !== 'SAVE_TARGET') throw new Error(`${where} requires a concrete SAVE_TARGET input`)
       return
     case 'ASSET':
+      if (descriptor['selection'] === true) {
+        if (socket === 'COMBO') return
+        if (descriptor['kind'] === 'model/vae' && type.kind === 'union' &&
+          type.names.length === 2 && type.names.includes('COMBO') && type.names.includes('ASSET')) return
+        throw new Error(`${where}.selection requires scalar COMBO or the model/vae COMBO/ASSET union`)
+      }
       if (type.kind === 'concrete') return
       if (descriptor['allowUpload'] === true && type.kind === 'list' && type.element.kind === 'concrete' && type.element.name === 'ASSET') return
       if (type.kind === 'asset') {
@@ -722,6 +735,7 @@ function widgetFor(
       suffix?: unknown
       kind?: unknown
       allowUpload?: unknown
+      selection?: unknown
       options?: unknown
       remote?: unknown
       labelOn?: unknown
@@ -825,6 +839,7 @@ function widgetFor(
         options: { accept: [...descriptor.accept] },
         ...(kind !== undefined ? { kind } : {}),
         ...(descriptor.allowUpload === true ? { allowUpload: true } : {}),
+        ...(descriptor.selection === true ? { selection: true } : {}),
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }

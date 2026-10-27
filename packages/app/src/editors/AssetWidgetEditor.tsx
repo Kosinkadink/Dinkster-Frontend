@@ -24,6 +24,8 @@ import { Icon } from '../Icon.js'
 import { assetGuessCandidateToRef } from '../dialog-requests.js'
 import { SearchState } from '../SearchSurface.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { ProductButton } from '../ProductControls.js'
+import { AssetSelectionEditor } from './AssetSelectionEditor.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -143,7 +145,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [logicalModels, setLogicalModels] = createSolidSignal<readonly LogicalModel[] | undefined>(undefined)
   const [logicalModelsError, setLogicalModelsError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false)
-  const unresolvedAsset = typeof ed.initial === 'string' ? ed.initial : undefined
+  const unresolvedAsset = ed.spec?.selection !== true && typeof ed.initial === 'string' ? ed.initial : undefined
   const [assetMatchCandidates, setAssetMatchCandidates] = createSolidSignal<readonly AssetGuessCandidate[]>([])
   const [assetMatchPending, setAssetMatchPending] = createSolidSignal(false)
   const [assetMatchError, setAssetMatchError] = createSolidSignal<string | undefined>(undefined)
@@ -987,17 +989,43 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
   const kind = () => typeof props.ed.spec?.kind === 'string' && props.ed.spec.kind !== '' ? props.ed.spec.kind : mediaKindForAccept(accept())
   const vocabulary = () => kind()?.startsWith('model/') === true ? MODEL_ASSET_VOCABULARY : kind() === 'data/latent' ? LATENT_ASSET_VOCABULARY : GENERIC_ASSET_VOCABULARY
   const [dismissBlocked, setDismissBlocked] = createSolidSignal(false)
+  const fileSelectionAllowed = () => kind() === 'model/vae' && props.ed.declaredType?.kind === 'union' &&
+    props.ed.declaredType.names.includes('ASSET')
+  const initialFiles = props.ed.spec?.selection !== true || (fileSelectionAllowed() && isAssetRef(props.ed.initial))
+  const [browseFiles, setBrowseFiles] = createSolidSignal(initialFiles)
+  const [filesVisited, setFilesVisited] = createSolidSignal(initialFiles)
+  const [sourceVisited, setSourceVisited] = createSolidSignal(!initialFiles)
   let requestClose: (close: () => void) => void = (close) => close()
   const Implementation: Component<WidgetEditorImplementationProps> = (implementationProps) => {
+    const backend = props.app.backendForTab(props.ed.tab)
     const bindDismissBlocked = (blocked: () => boolean): void => {
       createEffect(() => setDismissBlocked(blocked()))
     }
     return (
-      <AssetEditorImplementation
-        {...implementationProps}
-        setDismissBlocked={bindDismissBlocked}
-        setRequestClose={(handler) => { requestClose = handler }}
-      />
+      <>
+      <Show when={filesVisited()}><div class="asset-editor-mode" hidden={!browseFiles()}>
+        <Show when={props.ed.spec?.selection === true}>
+          <ProductButton onClick={() => { setSourceVisited(true); setBrowseFiles(false) }}>Back to source options</ProductButton>
+        </Show>
+        <AssetEditorImplementation
+          {...implementationProps}
+          setDismissBlocked={bindDismissBlocked}
+          setRequestClose={(handler) => { requestClose = handler }}
+        />
+      </div></Show>
+      <Show when={sourceVisited()}><div class="asset-editor-mode" hidden={browseFiles()}>
+        <Show when={backend.protocol === 'dinkster' ? backend.connection : undefined} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
+          {(connection) =>
+          <AssetSelectionEditor
+            connection={connection()}
+            kind={kind()!} initial={props.ed.initial}
+            commit={implementationProps.commitValue} close={implementationProps.close}
+            browseFiles={fileSelectionAllowed() ? () => { setFilesVisited(true); setBrowseFiles(true) } : undefined}
+          />
+          }
+        </Show>
+      </div></Show>
+      </>
     )
   }
   return (
@@ -1009,7 +1037,7 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
         displayType: kind() === 'data/latent' && props.ed.label.toLowerCase().includes('latent') ? 'asset' : vocabulary().modalType,
         dismissBlocked,
         onRequestClose: (close) => requestClose(close),
-        help: <>{kind()?.startsWith('model/') === true ? `Browse models for ${props.ed.label}.` : `Browse or upload ${withArticle(vocabulary().singular)}${kind() === 'data/latent' ? '.' : ` for ${props.ed.label}.`}`} {' '}Cancel or close leaves the stored value unchanged.</>,
+        help: <>{props.ed.spec?.selection === true ? `Choose a source option for ${props.ed.label}.` : kind()?.startsWith('model/') === true ? `Browse models for ${props.ed.label}.` : `Browse or upload ${withArticle(vocabulary().singular)}${kind() === 'data/latent' ? '.' : ` for ${props.ed.label}.`}`} {' '}Cancel or close leaves the stored value unchanged.</>,
       }}
     />
   )

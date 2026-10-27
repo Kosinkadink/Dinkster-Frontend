@@ -51,6 +51,33 @@ FLOATS, list wrappers and mixed FLOATS unions are not numeric editor domains.
 COLOR widgets accept concrete COLOR or STRING inputs without rewriting the
 socket or stored hexadecimal value. Named representations obey the same rules.
 
+## Source-named asset selections
+
+An ASSET descriptor with `selection: true` preserves source option names for
+exact kinds `model/vae`, `model/diffusers`, `directory/input`, and
+`directory/dataset`. Its socket stays scalar COMBO, or the VAE-only
+COMBO/ASSET union. Upload is not allowed in this mode. Ordinary ASSET
+descriptors keep their existing file-reference contract.
+
+The editing connection reads current names and shapes from
+`GET /api/assets/selections?kind=...`. Responses contain no host roots.
+Import retains these strings rather than matching a pair, directory, or
+file-free option to a catalog file. Compilation stamps the selected union
+arm as COMBO for a source name or ASSET for an existing file descriptor;
+directory COMBO values stay unchanged. The server revalidates current grants
+at execution.
+
+The selection dialog uses the shared searchable CollectionPanel and stages
+one original source name. Its right rail distinguishes files, same-root
+pairs, read-only directories, and file-free literals. Refresh re-reads current
+grants; an unavailable staged name cannot be applied. Cancel preserves the
+stored value. VAE's Browse files action opens the existing model-file picker
+for an explicit file descriptor, and reopening a stored descriptor keeps that
+file picker. This action requires the COMBO/ASSET union; scalar COMBO sockets
+offer source names only. Switching picker modes preserves each mode's staged
+choice without committing it. No upload or arbitrary-path entry is offered
+for source options.
+
 ## Primitive list inputs
 
 One-level list<STRING>, list<INT>, and list<FLOAT> inputs retain their array
