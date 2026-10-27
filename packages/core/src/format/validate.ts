@@ -173,7 +173,6 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
   }
   if (primaryBinding?.['viaReroute'] !== undefined) {
     if (side !== 'inputs') c.fail(`${path}.binds.viaReroute`, 'junction attachments are input-side only')
-    if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'junction fan-out is defined by graph links')
   }
   if (primaryBinding?.['kind'] === 'slot' || primaryBinding?.['kind'] === 'dynamicCombo') {
     if (side === 'outputs') c.fail(`${path}.binds.kind`, 'conditional constructs are input-side only')
@@ -205,9 +204,6 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
       if (primaryKey !== undefined) seen.add(primaryKey)
       alsoBinds.forEach((b, i) => {
         checkBoundaryBinding(c, b, `${path}.alsoBinds[${i}]`)
-        if (typeof b === 'object' && b !== null && (b as Record<string, unknown>)['viaReroute'] !== undefined) {
-          c.fail(`${path}.alsoBinds[${i}]`, 'junction attachments must be primary bindings')
-        }
         if (typeof b === 'object' && b !== null && (b as Record<string, unknown>)['kind'] !== primaryKind) {
           c.fail(`${path}.alsoBinds[${i}]`, `must match primary binding kind '${String(primaryKind)}'`)
         }

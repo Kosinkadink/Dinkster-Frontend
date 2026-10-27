@@ -454,10 +454,6 @@ export function importLitegraphSubgraphs(
         }
         return bind(side === 'outputs' ? terminalOutput(end) : end)
       })
-      if (bindings.length > 1 && bindings.some((binding) => binding?.viaReroute !== undefined)) {
-        unsupported = true
-        return []
-      }
       if (!bindings.length || bindings.some((item) => !item) || (side === 'outputs' && bindings.length !== 1)) {
         const authored = authoredBindings(side, index)
         if (!authored.length || (side === 'outputs' && authored.length !== 1)) {

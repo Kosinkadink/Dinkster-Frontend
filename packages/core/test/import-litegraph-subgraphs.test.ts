@@ -258,6 +258,61 @@ describe('LiteGraph subgraphs', () => {
     }
   })
 
+  it.each([false, true])('preserves mixed direct and junction input fanout in authored order (direct first: %s)', (directFirst) => {
+    const def = { ...definition(), nodes: [relay(), relay(2), relay(5),
+      { id: 3, type: 'Reroute', pos: [110, 210], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
+      { id: 4, type: 'Reroute', pos: [310, 410], inputs: [{ name: '', link: 4 }], outputs: [{ name: '' }] },
+    ], links: [
+      ...(directFirst ? [link(6, -10, 0, 5, 0)] : []),
+      link(1, -10, 0, 3, 0), link(2, 3, 0, 1, 0),
+      link(4, -10, 0, 4, 0), link(5, 4, 0, 2, 0),
+      ...(!directFirst ? [link(6, -10, 0, 5, 0)] : []), link(7, 2, 0, -20, 0),
+    ] }
+    const doc = imported({ nodes: [
+      { ...relay(7), inputs: [{ name: 'value', link: null }], widgets_values: [37] },
+      { ...instance(10), inputs: [{ name: 'value', link: 10 }] }, instance(20, 'inner', 31),
+    ], links: [link(10, 7, 0, 10, 0)], definitions: { subgraphs: [def] } })
+    const direct = { kind: 'port', node: 'n5', port: 'value' }
+    const junctions = [
+      { kind: 'port', node: 'n1', port: 'value', viaReroute: 'r3' },
+      { kind: 'port', node: 'n2', port: 'value', viaReroute: 'r4' },
+    ]
+    const item = doc.graphs.inner!.boundary!.inputs[0]!
+    expect([item.binds, ...(item.alsoBinds ?? [])]).toEqual(directFirst ? [direct, ...junctions] : [...junctions, direct])
+    expect(Object.keys(doc.graphs.inner!.nodes)).toEqual(['n1', 'n2', 'n5'])
+    expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: { reroute: 'r3' }, to: { node: 'n1', port: 'value' } },
+      { from: { reroute: 'r4' }, to: { node: 'n2', port: 'value' } },
+    ])
+    expect(doc.view.graphs.inner!.reroutes).toEqual({ r3: { position: { x: 110, y: 210 } }, r4: { position: { x: 310, y: 410 } } })
+    const before = JSON.stringify(doc)
+    const compiled = prompt(doc)
+    for (const node of ['n1', 'n2', 'n5']) {
+      expect(compiled[`n10.${node}`]!.inputs.value).toEqual(['n7', 0])
+      expect(compiled[`n20.${node}`]!.inputs.value).toBe(31)
+    }
+    const owner = { instancePath: [], node: doc.graphs.g0!.nodes.n10!.id }
+    const topology = effectiveOccurrenceTopology(doc, resolve, owner)
+    expect(topology.diagnostics).toEqual([])
+    expect(topology.projectedParentLinks.map((link) => link.to.endpoint)).toEqual(directFirst
+      ? [expect.objectContaining({ node: 'n5', port: 'value' }), { reroute: 'r3' }, { reroute: 'r4' }]
+      : [{ reroute: 'r3' }, { reroute: 'r4' }, expect.objectContaining({ node: 'n5', port: 'value' })])
+    const identity = topology.projectedParentLinks.find((link) => 'reroute' in link.to.endpoint && link.to.endpoint.reroute === 'r4')!.identity
+    if (identity.kind !== 'parentLeg') throw new Error('missing projected parent identity')
+    const suppressed: WorkflowDocument = { ...doc, occurrenceTopologies: {
+      n10: { owner, bodyGraph: doc.graphs.inner!.id, links: {}, nextOrdinal: 0,
+        suppressedDeliveries: [{ kind: 'projectedLeg', delivery: identity.delivery, route: identity.route }] },
+    } }
+    expect(loadDocument(suppressed).document).toEqual(suppressed)
+    const isolated = prompt(suppressed)
+    expect(isolated['n10.n1']!.inputs.value).toEqual(['n7', 0])
+    expect(isolated['n10.n2']!.inputs.value).toBe(19)
+    expect(isolated['n10.n5']!.inputs.value).toEqual(['n7', 0])
+    for (const node of ['n1', 'n2', 'n5']) expect(isolated[`n20.${node}`]!.inputs.value).toBe(31)
+    expect(JSON.stringify(doc)).toBe(before)
+    expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
+  })
+
   it('refuses an output reroute cycle without choosing a producer', () => {
     const def = { ...definition(), nodes: [relay(),
       { id: 2, type: 'Reroute', inputs: [{ name: '', link: 3 }], outputs: [{ name: '' }] },

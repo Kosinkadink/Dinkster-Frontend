@@ -31,7 +31,7 @@ function agree(json: unknown): { schemaValid: boolean; validatorValid: boolean }
 }
 
 describe('JSON Schema <-> runtime validator agreement', () => {
-  it('accepts a primary input junction attachment and rejects incompatible shapes', () => {
+  it('accepts mixed input junction attachments and rejects incompatible shapes', () => {
     const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { inputs: unknown[]; outputs: unknown[] } }> }
     const boundary = Object.values(fixture.graphs).find((graph) => graph.boundary)!.boundary!
     const binds = { kind: 'port', node: 'n0', port: 'seed', viaReroute: 'r1' }
@@ -39,13 +39,21 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     boundary.inputs = [item]
     boundary.outputs = []
     expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+    for (const mixed of [
+      { ...item, alsoBinds: [{ kind: 'port', node: 'n1', port: 'seed' }] },
+      { ...item, binds: { kind: 'port', node: 'n1', port: 'seed' }, alsoBinds: [binds] },
+      { ...item, alsoBinds: [{ ...binds, node: 'n1', viaReroute: 'r2' }] },
+    ]) {
+      boundary.inputs = [mixed]
+      expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+    }
     for (const invalid of [
       { ...item, binds: { ...binds, viaReroute: '' } },
       { ...item, binds: { ...binds, viaReroute: 1 } },
       { ...item, binds: { ...binds, kind: 'family' } },
       { ...item, binds: { kind: 'widgetTap', node: 'n0', tap: 'seed', viaReroute: 'r1' } },
-      { ...item, alsoBinds: [{ kind: 'port', node: 'n1', port: 'seed' }] },
-      { ...item, binds: { kind: 'port', node: 'n1', port: 'seed' }, alsoBinds: [binds] },
+      { ...item, alsoBinds: [{ ...binds, node: 'n1', viaReroute: '' }] },
+      { ...item, alsoBinds: [{ ...binds, node: 'n1', kind: 'family' }] },
     ]) {
       boundary.inputs = [invalid]
       expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })

@@ -1674,7 +1674,7 @@ const subgraphFlatten: CommandDefinition = {
     }
     const boundaryInputs = new Map(body.boundary.inputs.map((item) => [item.id, item]))
     const boundaryOutputs = new Map(body.boundary.outputs.map((item) => [item.id, item]))
-    if (body.boundary.inputs.some((item) => item.binds.viaReroute !== undefined)) {
+    if (body.boundary.inputs.some((item) => [item.binds, ...(item.alsoBinds ?? [])].some((binding) => binding.viaReroute !== undefined))) {
       return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.flatten: junction boundary attachments require junction-preserving delivery remapping', graphId, instancePath, nodeId)]
     }
     if ([...body.boundary.inputs, ...body.boundary.outputs].some((item) =>

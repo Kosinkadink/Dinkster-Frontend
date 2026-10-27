@@ -770,7 +770,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
         boundaryIds.add(item.id)
         for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
           if (b.viaReroute !== undefined) {
-            if (side !== 'inputs' || b.kind !== 'port' || b !== item.binds || item.alsoBinds !== undefined ||
+            if (side !== 'inputs' || b.kind !== 'port' ||
                 def.reroutes[b.viaReroute] === undefined || drivenReroutes.has(b.viaReroute) || boundaryReroutes.has(b.viaReroute)) {
               diags.push(diag('error', 'invariant', 'doc.boundary.rerouteInvalid', where(`boundary '${item.id}' has an invalid or multiply driven junction attachment`)))
             }

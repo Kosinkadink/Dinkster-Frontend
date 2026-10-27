@@ -40,6 +40,10 @@ The `boundary.addItem` and `boundary.setBinding` commands accept an explicit
 `node` and `port` identify schema authority. Rebinding keeps the authored
 reroute links untouched; repeating the same binding is a no-op. Junction
 attachments cannot be output bindings, widget taps, or conditional forwarding.
+An input may fan out to both direct ports and retained junctions through
+`alsoBinds`, in authored order. Each junction keeps its own links and schema
+authority; suppressing one occurrence delivery does not suppress the other
+bindings or other occurrences.
 
 ## Flatten one level
 

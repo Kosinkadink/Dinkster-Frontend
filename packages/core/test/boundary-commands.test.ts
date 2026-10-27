@@ -313,6 +313,19 @@ describe('boundary item lifecycle commands', () => {
     expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds.viaReroute).toBe('first')
     expect(store.redo()).toBe(true)
     expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds.viaReroute).toBe('second')
+    const additional = { graphId: 'sub', itemId: 'junction', node: 'n1', port: 'left', viaReroute: 'first' }
+    for (const viaReroute of ['', 7]) {
+      const before = JSON.stringify(store.doc)
+      expect(store.dispatch({ command: 'boundary.addBinding', params: { ...additional, viaReroute } }).ok).toBe(false)
+      expect(JSON.stringify(store.doc)).toBe(before)
+    }
+    expect(store.dispatch({ command: 'boundary.addBinding', params: additional }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.alsoBinds).toEqual([{ kind: 'port', node: 'n1', port: 'left', viaReroute: 'first' }])
+    expect(store.doc.graphs.sub!.links).toEqual(authoredLinks)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.alsoBinds).toBeUndefined()
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.alsoBinds?.[0]?.viaReroute).toBe('first')
     const before = JSON.stringify(store.doc)
     for (const invalid of [
       { ...replacement, viaReroute: '' },

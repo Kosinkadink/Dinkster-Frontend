@@ -912,12 +912,14 @@ function compileImpl(
       // drop out (their local edge is dead) while the edge stays alive for
       // the rest. With zero live targets the singular statuses collapse so
       // callers keep the existing dead-edge policy.
-      if (item.binds.viaReroute !== undefined) return []
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
+      if (bindings.every((binding) => binding.viaReroute !== undefined)) return []
       const targets: ResolvedInput[] = []
       let sawMuted = false
       let sawBypassed = false
       for (const b of bindings) {
+        // Junction deliveries lower through their retained internal links.
+        if (b.viaReroute !== undefined) continue
         if (b.kind === 'widgetTap') {
           sink.push(diag('error', 'compile', 'compile.boundary.invalidInputBinding', `subgraph '${childId}' boundary input '${item.id}' cannot bind an output-only widget tap`, { anchor: anchorOf(path, node.id) }))
           continue
@@ -1701,20 +1703,22 @@ function compileImpl(
         for (const projected of connected) {
           const match = matchBoundaryItem(child.boundary.inputs, projected.address)
           if (!match.ok || match.item.binds.kind !== 'port') continue
-          const bindings = match.item.binds.viaReroute === undefined
-            ? [match.item.binds, ...(match.item.alsoBinds ?? [])]
-            : (rerouteInputTargets(child, match.item.binds.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
-          for (const binding of bindings) {
-            if (binding.kind === 'widgetTap') continue
-            const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding: match.item.binds.viaReroute === undefined ? binding : match.item.binds }]
-            if (routeIsSuppressed(childPath, projected.delivery, route)) continue
-            let list = childCtx.extraIn.get(binding.node)
-            if (!list) childCtx.extraIn.set(binding.node, (list = []))
-            list.push({
-              address: { port: binding.port, ...(binding.members ? { members: binding.members } : {}) },
-              ...(projected.delivery ? { delivery: projected.delivery } : {}),
-              route,
-            })
+          for (const source of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
+            const bindings = source.viaReroute === undefined
+              ? [source]
+              : (rerouteInputTargets(child, source.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
+            for (const binding of bindings) {
+              if (binding.kind === 'widgetTap') continue
+              const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding: source }]
+              if (routeIsSuppressed(childPath, projected.delivery, route)) continue
+              let list = childCtx.extraIn.get(binding.node)
+              if (!list) childCtx.extraIn.set(binding.node, (list = []))
+              list.push({
+                address: { port: binding.port, ...(binding.members ? { members: binding.members } : {}) },
+                ...(projected.delivery ? { delivery: projected.delivery } : {}),
+                route,
+              })
+            }
           }
         }
         if (node.region === undefined) pendingPromotions.push({ parentCtx: ctx, node, childId: asGraphDefId(childId) })
@@ -1794,9 +1798,9 @@ function compileImpl(
       // and alsoBinds alike) - targets must never diverge under one
       // boundary value.
       let ownerPriority = 0
-      const targets = item.binds.viaReroute === undefined
-        ? [item.binds, ...(item.alsoBinds ?? [])]
-        : (rerouteInputTargets(child, item.binds.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
+      const targets = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => binding.viaReroute === undefined
+        ? [binding]
+        : (rerouteInputTargets(child, binding.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target })))
       for (const b of targets) {
         if (b.kind === 'widgetTap') continue
         const targets = resolveInputPort(childPath, childId, b)

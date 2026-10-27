@@ -555,7 +555,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/compile/compile.ts",
-      "line": 1867,
+      "line": 1871,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122

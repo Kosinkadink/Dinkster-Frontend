@@ -42,7 +42,7 @@ async function expectSchemasReady(page: Page): Promise<void> {
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
 }
 
-test('draws, rebinds, and extracts an imported input boundary with its retained reroute fanout', async ({ page }, testInfo) => {
+test('draws, rebinds, and extracts an imported input boundary with mixed direct and reroute fanout', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 1 }, packs: {},
@@ -57,24 +57,25 @@ test('draws, rebinds, and extracts an imported input boundary with its retained 
     nodes: [{ id: 10, type: 'junction-body', pos: [100, 100],
       inputs: [{ name: 'value', widget: { name: 'value' } }], outputs: [{ name: 'result' }], widgets_values: [19] }], links: [],
     definitions: { subgraphs: [{ id: 'junction-body', name: 'Junction fanout', version: 1,
-      inputs: [{ id: 'in', name: 'value', type: 'INT', linkIds: [1] }],
+      inputs: [{ id: 'in', name: 'value', type: 'INT', linkIds: [1, 6] }],
       outputs: [{ id: 'out', name: 'result', type: 'INT', linkIds: [5] }],
       nodes: [
         { id: 1, type: 'Relay', pos: [420, 80], inputs: [{ name: 'value', widget: { name: 'value' }, link: 3 }], outputs: [{ name: 'result' }], widgets_values: [7] },
         { id: 2, type: 'Relay', pos: [420, 320], inputs: [{ name: 'value', widget: { name: 'value' }, link: 4 }], outputs: [{ name: 'result' }], widgets_values: [11] },
         { id: 3, type: 'Reroute', pos: [170, 180], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
         { id: 4, type: 'Reroute', pos: [310, 180], inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
+        { id: 5, type: 'Relay', pos: [700, 460], inputs: [{ name: 'value', widget: { name: 'value' }, link: 6 }], outputs: [{ name: 'result' }], widgets_values: [13] },
       ],
       links: [[1, -10, 0, 3, 0, 'INT'], [2, 3, 0, 4, 0, 'INT'], [3, 4, 0, 1, 0, 'INT'],
-        [4, 3, 0, 2, 0, 'INT'], [5, 2, 0, -20, 0, 'INT']],
+        [4, 3, 0, 2, 0, 'INT'], [5, 2, 0, -20, 0, 'INT'], [6, -10, 0, 5, 0, 'INT']],
     }] },
   }, 'Junction fanout'))
   expect(failures).toEqual([])
   const before = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   await enterInstance(page, 'n10')
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(2)
-  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 150, y: 100, scale: 1 }))
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
   await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-boundary.png') })
   const scene = await page.evaluate(() => {
     const scene = window.__dinksterTest!.renderer!.getScene()
@@ -82,6 +83,7 @@ test('draws, rebinds, and extracts an imported input boundary with its retained 
       reroutes: scene.reroutes.map(({ id, x, y }) => ({ id, x, y })) }
   })
   expect(scene.links.find((link) => link.id === 'boundary:inputs:in')?.to).toEqual({ kind: 'reroute', reroute: 'r3' })
+  expect(scene.links.find((link) => link.id === 'boundary:inputs:in:1')?.to).toEqual({ kind: 'port', node: 'n5', port: 'value' })
   expect(scene.links.filter((link) => link.from.kind === 'reroute')).toHaveLength(3)
   expect(scene.reroutes).toEqual([{ id: 'r3', x: 170, y: 180 }, { id: 'r4', x: 310, y: 180 }])
   const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
@@ -122,10 +124,11 @@ test('draws, rebinds, and extracts an imported input boundary with its retained 
   expect(extracted.reroutes).toHaveLength(2)
   expect(extracted.links).toHaveLength(3)
   expect(extracted.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: extracted.reroutes[0] })
+  expect(extracted.boundary!.inputs[0]).toMatchObject({ alsoBinds: [{ kind: 'port' }] })
   await enterInstance(page, extracted.occurrence)
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
-  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 500, y: 350, scale: 1 }))
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
   await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-extracted.png') })
   const exported = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   const reopened = await page.evaluate((doc) => {

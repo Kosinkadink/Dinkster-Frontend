@@ -423,18 +423,23 @@ export function deriveBoundarySchema(
   }
 
   const inputs = graph.boundary.inputs.map((item): BoundaryItem => {
-    const binding = item.binds
-    if (binding.viaReroute === undefined) return item
-    const targets = rerouteInputTargets(graph, binding.viaReroute)
-    if (binding.kind !== 'port' || item.alsoBinds !== undefined || !targets?.length ||
-        !targets.some((target) => target.node === binding.node && portAddressKey(target.port, target.members) === portAddressKey(binding.port, binding.members)) ||
-        Object.values(graph.links).some((link) => 'reroute' in link.to && link.to.reroute === binding.viaReroute)) {
-      fail('boundary.reroute', `boundary input '${item.id}' has an invalid or internally driven junction attachment`)
-      return item
-    }
-    const { viaReroute: _via, ...primary } = binding
-    const additional = targets.filter((target) => target.node !== binding.node || portAddressKey(target.port, target.members) !== portAddressKey(binding.port, binding.members))
-    return { ...item, binds: primary, ...(additional.length ? { alsoBinds: additional.map((target) => ({ kind: 'port' as const, ...target })) } : {}) }
+    const bindings = [item.binds, ...(item.alsoBinds ?? [])]
+    if (bindings.every((binding) => binding.viaReroute === undefined)) return item
+    const expanded = bindings.flatMap((binding): BoundaryBinding[] => {
+      if (binding.viaReroute === undefined) return [binding]
+      const targets = rerouteInputTargets(graph, binding.viaReroute)
+      if (binding.kind !== 'port' || !targets?.length ||
+          !targets.some((target) => target.node === binding.node && portAddressKey(target.port, target.members) === portAddressKey(binding.port, binding.members)) ||
+          Object.values(graph.links).some((link) => 'reroute' in link.to && link.to.reroute === binding.viaReroute)) {
+        fail('boundary.reroute', `boundary input '${item.id}' has an invalid or internally driven junction attachment`)
+        return []
+      }
+      const { viaReroute: _via, ...authority } = binding
+      return [authority, ...targets.filter((target) => target.node !== binding.node || portAddressKey(target.port, target.members) !== portAddressKey(binding.port, binding.members))
+        .map((target) => ({ kind: 'port' as const, ...target }))]
+    })
+    const { alsoBinds: _also, ...single } = item
+    return { ...single, binds: expanded[0] ?? item.binds, ...(expanded.length > 1 ? { alsoBinds: expanded.slice(1) } : {}) }
   })
   if (diags.length) return { diagnostics: diags }
   if (graph.boundary.outputs.some((item) => item.binds.viaReroute !== undefined)) {

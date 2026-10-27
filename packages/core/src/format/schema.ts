@@ -146,10 +146,6 @@ const boundaryItem = {
   },
   allOf: [
     {
-      if: { properties: { binds: { required: ['viaReroute'] } }, required: ['binds'] },
-      then: { not: { required: ['alsoBinds'] } },
-    },
-    {
       if: {
         properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'slot', 'dynamicCombo'] } }, required: ['kind'] } },
         required: ['binds'],
@@ -196,7 +192,6 @@ const boundaryItem = {
             items: {
               $ref: '#/$defs/boundaryBinding',
               properties: { kind: { const: 'port' } },
-              not: { required: ['viaReroute'] },
               required: ['kind'],
             },
           },

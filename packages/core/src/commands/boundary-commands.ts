@@ -274,7 +274,8 @@ const boundaryAddBinding: CommandDefinition = {
           `boundary.addBinding: inner input '${params.node}/${params.port}'${members ? ` member '${members.join('.')}'` : ''} is already bound by a boundary input`,
         ),
       ]
-    const entry = { kind: 'port', node: params.node, port: params.port, ...(members !== undefined ? { members } : {}) }
+    const entry = bindingFromParams(params, 'inputs')
+    if (entry?.kind !== 'port') return [err('params.invalid', 'boundary.addBinding: params must identify an input port binding')]
     tx.set(
       ['graphs', params.graphId as string, 'boundary', 'inputs', found.index, 'alsoBinds'],
       [...(found.item.alsoBinds ?? []), entry] as unknown as Json,

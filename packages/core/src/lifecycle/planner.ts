@@ -2285,8 +2285,8 @@ export function auditExtractionCuts(
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
       const movedBindings = bindings.filter((binding) => selected.nodes.has(binding.node))
       const retainedBindings = bindings.filter((binding) => !selected.nodes.has(binding.node))
-      if (item.binds.kind === 'port' && item.binds.viaReroute !== undefined &&
-          selected.nodes.has(item.binds.node) !== selected.reroutes.has(item.binds.viaReroute)) {
+      if (bindings.some((binding) => binding.viaReroute !== undefined &&
+          selected.nodes.has(binding.node) !== selected.reroutes.has(binding.viaReroute))) {
         const refusal: CutRefusal = { code: 'subgraph.extract.structuralCutUnsupported', source: 'boundary', id: item.id }
         refusals.push(refusal)
         boundaries.push({
