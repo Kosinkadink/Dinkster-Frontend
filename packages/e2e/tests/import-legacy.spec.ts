@@ -286,8 +286,6 @@ const sd15AliasWorkflow = {
 }
 
 test('translates a legacy litegraph workflow into the native format', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await page.route('/object_info', (route) => route.fulfill({ json: legacyObjectInfo }))
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })

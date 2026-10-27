@@ -129,8 +129,6 @@ nativeTest.beforeEach(async ({ page, request }, testInfo) => {
 })
 
 test('node-body hover snaps the noodle and release connects the ranked input', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   // First free the fixture input, then make a fresh output drag to its body.
   await drag(page, await pinPoint(page, 'n1', 'in', 'images'), EMPTY)
   const from = await pinPoint(page, 'n0', 'out', 'out0')
@@ -243,8 +241,6 @@ nativeTest('quantized socket-lane boundaries refuse body autosnap while the inte
 
 for (const terminalEvent of ['pointercancel', 'lostpointercapture'] as const) {
   test(`${terminalEvent} over a valid input commits once and ignores the late pointerup`, async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
     // Written as a browser regression for macOS/Safari release traces. The
     // synthetic terminal event exercises controller policy; physical Mac
     // validation must still prove the browser emits the expected sequence.
@@ -275,8 +271,6 @@ for (const terminalEvent of ['pointercancel', 'lostpointercapture'] as const) {
 }
 
 test('pointermove with buttons zero over a valid input commits once and ignores the late pointerup', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await drag(page, await pinPoint(page, 'n1', 'in', 'images'), EMPTY)
   const from = await pinPoint(page, 'n0', 'out', 'out0')
   const to = await pinPoint(page, 'n1', 'in', 'images')
@@ -303,8 +297,6 @@ test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/c
 })
 
 test('mouse pointercancel over empty after a rewire drag disconnects', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const from = await pinPoint(page, 'n1', 'in', 'images')
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -321,8 +313,6 @@ test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/c
 })
 
 test('node-body drop replaces an occupied compatible input', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   // The fixture's n1.images is occupied. Dropping the same producer on the
   // body exercises the occupied fallback and link.connect replacement path.
   await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), await nodeBodyPoint(page, 'n1'))
@@ -335,16 +325,12 @@ test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/c
 })
 
 test('incompatible node-body drop cancels without opening the palette', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), await nodeBodyPoint(page, 'n0'))
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   expect(Object.keys((await activeDoc(page)).graphs['g0']!.links)).toHaveLength(1)
 })
 
 test('output noodle dropped on empty opens input-compatible search; Escape cancels clean', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   // n0 (EmptyImage) out0 is IMAGE: the palette must seek IMAGE inputs.
   await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), EMPTY)
   const palette = page.getByTestId('node-palette')
@@ -418,8 +404,6 @@ nativeTest('native typed Autogrow families filter in both directions and generic
 })
 
 test('backdrop pointerdown cancels a link-drop ghost without creating a link or panning', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), EMPTY)
   await expect(page.getByTestId('node-palette')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().ghostLink)).toBeDefined()
@@ -440,8 +424,6 @@ test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/c
 })
 
 test('picking a node inserts it and connects the dangling end - ONE undo step', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const previousIds = Object.keys((await activeDoc(page)).graphs.g0!.nodes)
   await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), EMPTY)
   await page.getByTestId('palette-search').fill('preview image')
@@ -471,8 +453,6 @@ test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/c
 })
 
 test('rewire dropped on empty still disconnects (no palette); a free input then seeks outputs', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const previousIds = Object.keys((await activeDoc(page)).graphs.g0!.nodes)
   // n1.images is CONNECTED: grabbing it is a rewire; empty drop = disconnect.
   await drag(page, await pinPoint(page, 'n1', 'in', 'images'), EMPTY)
@@ -508,8 +488,6 @@ test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/c
 })
 
 test('dropped noodle stays visible while the palette is browsed; clears on Escape and commit', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const from = await pinPoint(page, 'n0', 'out', 'out0')
   await drag(page, from, EMPTY)
   await expect(page.getByTestId('node-palette')).toBeVisible()
@@ -549,8 +527,6 @@ test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/c
 })
 
 test('subgraphs participate through their boundary-derived schema', async ({ page }) => {
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await page.getByTestId('tab-bar').locator('.tab', { hasText: 'Subgraph' }).click()
   await identityViewport(page)
   const previousIds = Object.keys((await activeDoc(page)).graphs.g0!.nodes)
