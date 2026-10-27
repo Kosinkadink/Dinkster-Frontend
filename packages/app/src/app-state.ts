@@ -6112,15 +6112,15 @@ export class AppState {
     }
     let document = loaded.document
     if (originalPrompt !== undefined) {
-      if (!workspaceRecord(originalPrompt)) {
-        const diagnostics = [diag('error', 'import', 'import.prompt.invalid', 'original PNG prompt must be a JSON object')]
-        this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
-        return diagnostics
-      }
       const retained = loadDocument({ ...document, ext: { ...document.ext, 'importer.comfyPrompt': originalPrompt } })
       if (!retained.document) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, retained.diagnostics)
         return retained.diagnostics
+      }
+      if (!workspaceRecord(retained.document.ext?.['importer.comfyPrompt'])) {
+        const diagnostics = [diag('error', 'import', 'import.prompt.invalid', 'original PNG prompt must be a JSON object')]
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
+        return diagnostics
       }
       document = retained.document
     }

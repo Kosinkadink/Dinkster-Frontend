@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { asPromptId, type DinksterNodesPayload } from '@dinkster/core'
+import { asPromptId, type DinksterNodesPayload, type JsonObject } from '@dinkster/core'
 import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -390,6 +390,19 @@ describe('openFromLibrary', () => {
 })
 
 describe('sourceDocument stamp on queue', () => {
+  it('rejects hostile or non-object original prompts without replacing the live tab', () => {
+    const { tab } = nativeSetup()
+    const accessor = vi.fn(() => { throw new Error('accessor ran') })
+    const getter = Object.defineProperty({}, 'value', { enumerable: true, get: accessor })
+    const hostile = new Proxy({}, { getPrototypeOf: () => { throw new Error('prototype trap') } })
+    for (const prompt of [hostile, getter, null, [], 17]) {
+      const diagnostics = app.openDocument(CHAIN_DOC, 'Untrusted prompt', undefined, false, prompt as JsonObject)
+      expect(diagnostics.some((item) => item.severity === 'error')).toBe(true)
+      expect(app.activeTab()).toBe(tab)
+    }
+    expect(accessor).not.toHaveBeenCalled()
+  })
+
   it('submits retained import provenance unchanged after native edits and export/reopen', async () => {
     const { backend } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
