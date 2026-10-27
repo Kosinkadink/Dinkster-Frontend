@@ -75,8 +75,6 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('edits a guided remote-worker profile across a mounted locale change', async ({ page, request }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await page.goto('/')
   await page.getByTestId('desktop-management-button').click()
   const section = page.locator('.desktop-management-section').filter({ has: page.locator('.desktop-worker-list') })
@@ -88,7 +86,7 @@ test('edits a guided remote-worker profile across a mounted locale change', asyn
   await expect(section.getByRole('heading', { name: 'Edit render-box' })).toBeVisible()
   await expect(section.getByLabel(/^Profile name/)).toBeDisabled()
   await expect(section.getByLabel(/^Token file/)).toHaveValue('C:\\ProgramData\\Dinkster\\render-box.token')
-  await expect(section.getByLabel('Node routing policy')).toHaveValue('allowlist')
+  await expect(section.getByLabel('Node routing policy')).toHaveAttribute('data-selected-id', 'allowlist')
   await expect(section.getByLabel('Allowed node types')).toHaveValue('')
   await expect(section).toContainText('An empty list allows no node types')
   await expect(section).toContainText('token contents never enter the renderer')
