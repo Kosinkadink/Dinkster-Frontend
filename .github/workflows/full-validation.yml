@@ -41,7 +41,7 @@ jobs:
               { name: 'parallel 4/6', project: 'parallel-safe', shard: '--shard=4/6' },
               { name: 'parallel 5/6', project: 'parallel-safe', shard: '--shard=5/6' },
               { name: 'parallel 6/6', project: 'parallel-safe', shard: '--shard=6/6' },
-              { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true },
+              { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2' },
               { name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },
               { name: 'performance', project: 'performance', shard: '' },
               { name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '' },
@@ -202,12 +202,10 @@ jobs:
           CUDA_VISIBLE_DEVICES: ""
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - name: Install software Vulkan for hosted rendering
-        if: matrix.vulkan
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers
       - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
-        if: matrix.vulkan
       - name: Replay recorded stock ComfyUI fixtures
         if: matrix.name == 'stock ComfyUI V1'
         run: pnpm --filter @dinkster/core exec vitest run test/object-info.golden.test.ts test/events.golden.test.ts
