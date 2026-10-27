@@ -17,20 +17,20 @@ const schemaFor = (options: readonly Json[], widgetType = 'COMBO'): NodeSchema =
 })
 
 const cases: { name: string; value: Json; options: Json[]; expected: Json; widgetType?: string }[] = [
-  { name: 'declared eight', value: 8, options: ['auto', '8', '10'], expected: '8' },
-  { name: 'declared ten', value: 10, options: ['auto', '8', '10'], expected: '10' },
-  { name: 'declared negative', value: -8, options: ['-8', '8'], expected: '-8' },
-  { name: 'declared fraction', value: 8.5, options: ['8.5'], expected: '8.5' },
+  { name: 'declared eight stays numeric', value: 8, options: ['auto', '8', '10'], expected: 8 },
+  { name: 'declared ten stays numeric', value: 10, options: ['auto', '8', '10'], expected: 10 },
+  { name: 'declared negative stays numeric', value: -8, options: ['-8', '8'], expected: -8 },
+  { name: 'declared fraction stays numeric', value: 8.5, options: ['8.5'], expected: 8.5 },
   { name: 'unmatched negative', value: -8, options: ['8', '10'], expected: -8 },
   { name: 'unmatched number', value: 12, options: ['8', '10'], expected: 12 },
   { name: 'padded spelling', value: 8, options: ['08'], expected: 8 },
   { name: 'decimal spelling', value: 8, options: ['8.0'], expected: 8 },
   { name: 'presentation label only', value: 8, options: [{ value: 'other', label: '8' }], expected: 8 },
-  { name: 'structured choice', value: 8, options: [{ value: '8', label: 'Eight' }], expected: '8' },
-  { name: 'legacy tuple', value: 8, options: [['8', 'Eight']], expected: '8' },
+  { name: 'structured choice stays numeric', value: 8, options: [{ value: '8', label: 'Eight' }], expected: 8 },
+  { name: 'legacy tuple stays numeric', value: 8, options: [['8', 'Eight']], expected: 8 },
   { name: 'numeric choice', value: 8, options: [8, 10], expected: 8 },
   { name: 'numeric and string choices', value: 8, options: [8, '8'], expected: 8 },
-  { name: 'structured display label', value: 'euler', options: [{ value: 'dinkster.euler', label: 'euler' }], expected: 'dinkster.euler' },
+  { name: 'structured display label stays literal', value: 'euler', options: [{ value: 'dinkster.euler', label: 'euler' }], expected: 'euler' },
   { name: 'canonical structured value', value: 'dinkster.euler', options: [{ value: 'dinkster.euler', label: 'euler' }], expected: 'dinkster.euler' },
   { name: 'ambiguous display label', value: 'euler', options: [{ value: 'dinkster.euler', label: 'euler' }, { value: 'other.euler', label: 'euler' }], expected: 'euler' },
   { name: 'canonical value before display label', value: 'normal', options: [{ value: 'dinkster.normal', label: 'normal' }, { value: 'normal', label: 'Normal' }], expected: 'normal' },
@@ -42,7 +42,7 @@ const cases: { name: string; value: Json; options: Json[]; expected: Json; widge
 ]
 
 for (const keyed of [false, true]) {
-  describe(`${keyed ? 'keyed' : 'positional'} legacy static COMBO normalization`, () => {
+  describe(`${keyed ? 'keyed' : 'positional'} static COMBO scalar preservation`, () => {
     it.each(cases)('$name', ({ value, options, expected, widgetType }) => {
       const schema = schemaFor(options, widgetType)
       const imported = importLitegraph({
