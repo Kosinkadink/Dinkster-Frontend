@@ -230,8 +230,12 @@ beforeEach(() => vi.stubGlobal('sessionStorage', undefined))
 afterEach(() => vi.unstubAllGlobals())
 
 const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
-  const app = new AppState({ collabTransport: server.transport })
-  if (withBackend) app.addBackend('http://collab', 'collab', false, 'dinkster')
+  const app = new AppState({ collabTransport: server.transport, defaultProtocol: withBackend ? 'dinkster' : 'v1' })
+  if (withBackend) {
+    const backend = app.backends.get().find((candidate) => candidate.baseUrl === 'http://collab') ??
+      app.addBackend('http://collab', 'collab', false, 'dinkster')!
+    app.setTabTarget(activeTab(app).id, backend.id)
+  }
   return app
 }
 
@@ -463,6 +467,7 @@ describe('share', () => {
   it('commits a shared palette link-drop batch against the predicted node id and selects it', async () => {
     const server = new FakeCollabServer()
     const app = makeApp(server)
+    expect(app.openDocument(structuredClone(seedBasic), 'Link-drop source')).toEqual([])
     expect(await app.shareActiveTab()).toBeUndefined()
     const tab = activeTab(app)
     const graphId = tab.store.doc.root
@@ -1189,6 +1194,7 @@ describe('lifecycle races', () => {
   it('shares the complete App View layout and rebases concurrent layout edits', async () => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)
+    expect(appA.openDocument(structuredClone(seedBasic), 'App View source')).toEqual([])
     const hold = { held: false, buffer: [] as (() => void)[] }
     const appB = new AppState({
       collabTransport: {
@@ -1367,6 +1373,11 @@ describe('reload rejoin', () => {
 
   beforeEach(() => {
     g.localStorage = fakeStorage()
+    g.localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1,
+      active: seedBasic.lineage,
+      tabs: [{ title: 'Basic', doc: seedBasic }, { title: 'Subgraph', doc: seedSubgraph }],
+    }))
   })
 
   afterEach(() => {
