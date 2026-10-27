@@ -32,8 +32,11 @@ An input boundary attached to a reroute moves with that junction and its
 complete selected fanout. Extraction remaps the boundary attachment while
 retaining every internal link and relative position. A selection that splits
 the junction from its schema-authority node or cuts a reroute link refuses
-without changing the document. One-level flatten still refuses junction
-boundary attachments rather than bypassing the authored reroutes.
+without changing the document. One-level flatten retains junctions and their
+fanout, redirects incoming links to the copied dots, and copies promoted
+values to every downstream consumer. Named-net deliveries to junctions become
+ordinary links because named-net sinks are ports; other net sinks remain nets.
+Enclosing input boundaries retain their remapped junction attachments.
 
 The `boundary.addItem` and `boundary.setBinding` commands accept an explicit
 `viaReroute` on input-side port bindings. It identifies the attachment while

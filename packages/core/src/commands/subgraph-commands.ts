@@ -1049,11 +1049,12 @@ const subgraphExtract: CommandDefinition = {
 function flattenBoundaryTargets(
   item: BoundaryItem,
   nodeIds: ReadonlyMap<string, string>,
+  rerouteIds: ReadonlyMap<string, string>,
 ): readonly BoundaryBinding[] | undefined {
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
   if (bindings.some((binding) => isForwardingBinding(binding) ||
     binding.kind === 'port' && (binding.members?.length ?? 0) > 0)) return undefined
-  return bindings.map((binding) => remapBinding(binding, nodeIds))
+  return bindings.map((binding) => remapBinding(binding, nodeIds, rerouteIds))
 }
 
 function portFromBinding(binding: BoundaryBinding): PortRef {
@@ -1068,7 +1069,9 @@ function portFromBinding(binding: BoundaryBinding): PortRef {
 function endpointFromBinding(binding: BoundaryBinding): LinkEndpoint {
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
-    : portFromBinding(binding)
+    : binding.kind === 'port' && binding.viaReroute !== undefined
+      ? { reroute: binding.viaReroute }
+      : portFromBinding(binding)
 }
 
 function flattenRoutePlanFromJson(
@@ -1182,11 +1185,13 @@ function flattenStatePlanFromJson(
     entry.kind === 'widgetTap'
       ? exactKeys(entry, ['kind', 'node', 'tap']) && typeof entry.node === 'string' &&
         typeof entry.tap === 'string' && entry.tap.length > 0
-      : exactKeys(entry, ['kind', 'node', 'port'], ['members', 'slots']) &&
+      : exactKeys(entry, ['kind', 'node', 'port'], ['members', 'slots', 'viaReroute']) &&
         (entry.kind === 'port' || entry.kind === 'family') && typeof entry.node === 'string' &&
         typeof entry.port === 'string' && entry.port.length > 0 &&
         (entry.members === undefined || strings(entry.members)) &&
-        (entry.slots === undefined || entry.kind === 'family' && strings(entry.slots))
+        (entry.slots === undefined || entry.kind === 'family' && strings(entry.slots)) &&
+        (entry.viaReroute === undefined || entry.kind === 'port' && entry.members === undefined &&
+          typeof entry.viaReroute === 'string' && entry.viaReroute.length > 0)
   )
   const scopeStep = (entry: Json | undefined): boolean => isObj(entry) &&
     exactKeys(entry, ['construct', 'member', 'storage']) && typeof entry.construct === 'string' && entry.construct.length > 0 &&
@@ -1674,9 +1679,6 @@ const subgraphFlatten: CommandDefinition = {
     }
     const boundaryInputs = new Map(body.boundary.inputs.map((item) => [item.id, item]))
     const boundaryOutputs = new Map(body.boundary.outputs.map((item) => [item.id, item]))
-    if (body.boundary.inputs.some((item) => [item.binds, ...(item.alsoBinds ?? [])].some((binding) => binding.viaReroute !== undefined))) {
-      return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.flatten: junction boundary attachments require junction-preserving delivery remapping', graphId, instancePath, nodeId)]
-    }
     if ([...body.boundary.inputs, ...body.boundary.outputs].some((item) =>
       item.ext !== undefined && Object.keys(item.ext).length > 0)) {
       return [lifecycleError('subgraph.flatten.boundaryExtensionUnsupported', 'subgraph.flatten: body boundary extension state has no flattened owner', graphId, instancePath, nodeId)]
@@ -1792,13 +1794,18 @@ const subgraphFlatten: CommandDefinition = {
       const match = matchBoundaryItem(body.boundary!.inputs, link.to)
       return count + (match.ok ? Math.max(0, match.item.alsoBinds?.length ?? 0) : 0)
     }, 0) : 0
+    const netJunctionDeliveries = occurrencePlan === undefined ? Object.values(parent.nets).flatMap((net) =>
+      net.sinks.filter((sink) => sink.node === nodeId).flatMap((sink) => {
+        const match = matchBoundaryItem(body.boundary!.inputs, sink)
+        return match.ok ? [match.item.binds, ...(match.item.alsoBinds ?? [])].filter((binding) => binding.kind === 'port' && binding.viaReroute !== undefined) : []
+      })).length : 0
     const materializedDeliveryCount = occurrencePlan?.links.length ??
       (Object.keys(body.links).length + Object.keys(body.nets).length)
     const projectedDeliveryCount = occurrencePlan?.projectedParentLinks.length ?? 0
     const requiredIds = Object.keys(body.nodes).length + Object.keys(body.reroutes).length +
       Object.keys(body.valueSources ?? {}).length + Object.keys(body.selectors ?? {}).length +
       Object.values(body.selectors ?? {}).reduce((sum, selector) => sum + selector.candidates.length, 0) +
-      materializedDeliveryCount + projectedDeliveryCount + additionalDeliveries
+      materializedDeliveryCount + projectedDeliveryCount + additionalDeliveries + netJunctionDeliveries
     const allocationStart = tx.actor === undefined ? parent.nextOrdinal : actorCursorOf(parent.actorCursors, tx.actor)
     if (!Number.isSafeInteger(allocationStart + requiredIds) || allocationStart + requiredIds > Number.MAX_SAFE_INTEGER) {
       return [lifecycleError('subgraph.lifecycle.idExhausted', 'subgraph.flatten: parent graph id space is exhausted', graphId, instancePath, nodeId)]
@@ -1856,7 +1863,7 @@ const subgraphFlatten: CommandDefinition = {
       address: { readonly port: string; readonly members?: readonly string[] },
     ): readonly BoundaryBinding[] | undefined => {
       const route = routePlan.get(JSON.stringify([side, item.id]))
-      if (route !== 'family') return flattenBoundaryTargets(item, nodeIds)
+      if (route !== 'family') return flattenBoundaryTargets(item, nodeIds, rerouteIds)
       const mapped = materializedAddresses.get(JSON.stringify([side, item.id, {
         port: address.port,
         ...(address.members !== undefined ? { members: address.members } : {}),
@@ -1948,13 +1955,13 @@ const subgraphFlatten: CommandDefinition = {
         if (targets === undefined || targets.length === 0) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: input '${link.to.port}' has no materialized target`, graphId, instancePath, nodeId, link.to)]
         }
-        links[id] = { ...link, from, to: portFromBinding(targets[0]!) }
+        links[id] = { ...link, from, to: endpointFromBinding(targets[0]!) }
         for (const [index, target] of targets.slice(1).entries()) {
           const deliveryId = deliveryIds.get(JSON.stringify([link.id, index]))
           if (deliveryId === undefined) {
             return [lifecycleError('subgraph.lifecycle.idExhausted', `subgraph.flatten: input '${link.to.port}' has no allocated fan-out delivery`, graphId, instancePath, nodeId, link.to)]
           }
-          links[deliveryId] = { ...link, id: asLinkId(deliveryId), from, to: portFromBinding(target) }
+          links[deliveryId] = { ...link, id: asLinkId(deliveryId), from, to: endpointFromBinding(target) }
         }
       } else {
         links[id] = { ...link, from }
@@ -2028,7 +2035,14 @@ const subgraphFlatten: CommandDefinition = {
           if (targets === undefined) {
             return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net sink '${sink.port}' has no materialized target`, graphId, instancePath, nodeId, sink)]
           }
-          const expanded = targets.map((target) => portFromBinding(target))
+          const expanded: PortRef[] = []
+          for (const target of targets) {
+            const endpoint = endpointFromBinding(target)
+            if (isRerouteRef(endpoint)) {
+              const deliveryId = allocator.mint('l')
+              links[deliveryId] = { id: asLinkId(deliveryId), from: source, to: endpoint }
+            } else expanded.push(portFromBinding(target))
+          }
           sinks.push(...expanded)
           netSinkRemap.set(occurrenceSinkKey(id, sink), expanded)
         }
@@ -2068,7 +2082,7 @@ const subgraphFlatten: CommandDefinition = {
             entry.side === side && entry.itemIndex === itemIndex && entry.itemId === item.id &&
             entry.bindingIndex === bindingIndex && canonicalJson(entry.before) === canonicalJson(target))
           if (rewrite === undefined) return undefined
-          expanded.push(...rewrite.after.map((binding) => remapBinding(binding, nodeIds)))
+          expanded.push(...rewrite.after.map((binding) => remapBinding(binding, nodeIds, rerouteIds)))
         }
         if (expanded.length === 0) return undefined
         const { alsoBinds: _oldAlsoBinds, ...rest } = item

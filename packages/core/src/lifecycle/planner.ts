@@ -38,6 +38,7 @@ import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { matchBoundaryItem } from '../compile/crossing.js'
 import { parseSelection, type SelectionTree } from '../schema/slot-selection.js'
+import { rerouteInputTargets } from '../reroute.js'
 
 export const LIFECYCLE_PLAN_VERSION = 'subgraph-lifecycle-plan-v2'
 
@@ -515,7 +516,7 @@ export function classifyFlattenBoundaryRoute(
   resolveSchema: SchemaResolver,
   expectedSide?: 'input' | 'output',
 ): FlattenRouteKind {
-  const routes = [item.binds, ...(item.alsoBinds ?? [])].map((binding) => {
+  const routes = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding)).map((binding) => {
     const node = body.nodes[binding.node]
     return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide)
   })
@@ -524,6 +525,11 @@ export function classifyFlattenBoundaryRoute(
       : routes.includes('combo') ? 'combo'
         : routes.includes('unresolved') ? 'unresolved'
           : routes[0] ?? 'unresolved'
+}
+
+function flattenBindingTargets(body: GraphDef, binding: BoundaryBinding): readonly BoundaryBinding[] {
+  if (binding.kind !== 'port' || binding.viaReroute === undefined) return [binding]
+  return (rerouteInputTargets(body, binding.viaReroute) ?? []).map((target) => ({ kind: 'port', ...target }))
 }
 
 export function planFlattenBoundaryRoutes(
@@ -1306,7 +1312,7 @@ function planFlattenState(
       fail('subgraph.flatten.stateUnresolved', `boundary '${item.id}' has no unique schema interpretation`, side, item.id)
       continue
     }
-    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))) {
       const original = body.nodes[binding.node]
       const schema = original === undefined ? undefined : resolveSchema(original.type)
       const target = original === undefined ? undefined : nodes.get(original.id as string)
@@ -1376,8 +1382,8 @@ function planFlattenState(
   const familyInputIds = new Set(boundaryPlan.filter((route) => route.side === 'input' && route.route === 'family').map((route) => route.id))
   for (const item of body.boundary?.inputs ?? []) {
     if (item.promoted !== true || familyInputIds.has(item.id)) continue
-    const targets = [item.binds, ...(item.alsoBinds ?? [])]
-    const primaryBinding = targets[0]!
+    const targets = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))
+    const primaryBinding = item.binds
     const primaryNode = body.nodes[primaryBinding.node]
     const primarySchema = primaryNode === undefined ? undefined : resolveSchema(primaryNode.type)
     const primaryRoute = primarySchema === undefined ? undefined : resolveBoundaryRoute(primarySchema, primaryBinding, 'input')

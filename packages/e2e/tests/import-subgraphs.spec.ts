@@ -130,6 +130,31 @@ test('draws, rebinds, and extracts an imported input boundary with mixed direct 
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
   await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
   await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-extracted.png') })
+  await page.getByTestId('graph-breadcrumb').getByRole('button').nth(1).click()
+  await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(2)
+  const flattenPoint = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes[0]!
+    renderer.setViewport({ x: 300 - node.x, y: 200 - node.y, scale: 1 })
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: canvas.left + 300 + node.layout.width / 2, y: canvas.top + 200 + node.layout.headerHeight / 2 }
+  })
+  await page.mouse.click(flattenPoint.x, flattenPoint.y)
+  await page.keyboard.press('Control+Shift+F')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(3)
+  const flattened = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const doc = app.activeTab()!.store.doc
+    const body = doc.graphs['junction-body']!
+    return { nodes: Object.values(body.nodes).map((node) => ({ type: node.type, value: node.values.value })),
+      reroutes: Object.keys(body.reroutes), links: Object.values(body.links), boundary: body.boundary }
+  })
+  expect(flattened.nodes).toEqual(Array.from({ length: 3 }, () => ({ type: 'Relay', value: 7 })))
+  expect(flattened.reroutes).toHaveLength(2)
+  expect(flattened.links).toHaveLength(3)
+  expect(flattened.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: flattened.reroutes[0] })
+  await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
+  await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-flattened.png') })
   const exported = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   const reopened = await page.evaluate((doc) => {
     const app = window.__dinksterTest!.app

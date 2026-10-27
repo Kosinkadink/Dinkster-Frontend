@@ -2037,6 +2037,89 @@ const refreshFlattenSchemaDigest = (invocation: any): void => {
 }
 
 describe('subgraph.flatten trusted-dispatch authorization', () => {
+  it.each([[false, false], [true, false], [false, true], [true, true]])('preserves junction fanout, enclosing bindings and values while flattening (linked=%s, overlay=%s)', (linked, overlay) => {
+    const initial = flattenDocument()
+    initial.graphs.body.nodes.a.type = 'BodyNode'
+    initial.graphs.body.boundary!.inputs[0]!.binds = { kind: 'port', node: 'a' as never, port: 'in' as never, viaReroute: 'reroute' as never }
+    delete initial.graphs.body.boundary!.inputs[0]!.alsoBinds
+    initial.graphs.body.boundary!.inputs[1]!.binds = { kind: 'port', node: 'a' as never, port: 'netIn' as never, viaReroute: 'netJunction' as never }
+    delete initial.graphs.body.boundary!.inputs[1]!.alsoBinds
+    initial.graphs.body.reroutes.netJunction = { id: 'netJunction' as never }
+    initial.graphs.body.links.fanA = link('fanA', { reroute: 'reroute' as never }, port('a', 'in'))
+    initial.graphs.body.links.fanB = link('fanB', { reroute: 'reroute' as never }, port('b', 'other'))
+    initial.graphs.body.links.netFanA = link('netFanA', { reroute: 'netJunction' as never }, port('a', 'netIn'))
+    initial.graphs.body.links.netFanB = link('netFanB', { reroute: 'netJunction' as never }, port('b', 'netOther'))
+    initial.graphs.root.nodes.occurrence.values = { input: 23 }
+    initial.graphs.root.nodes.survivor.values = { input: 47 }
+    delete initial.graphs.root.links.tap
+    initial.graphs.root.boundary!.inputs = []
+    if (!linked) {
+      delete initial.graphs.root.links.incoming
+      delete initial.graphs.root.nets.incomingNet
+      initial.graphs.root.boundary!.inputs = [{ id: 'outerInput', binds: { kind: 'port', node: 'occurrence' as never, port: 'input' as never } }]
+    }
+    if (overlay) initial.occurrenceTopologies = {
+      occurrence: { owner: { instancePath: [], node: 'occurrence' as never }, bodyGraph: 'body' as never, links: {}, nextOrdinal: 1 },
+    }
+    const resolver = (type: string) => type === 'BodyNode'
+      ? { ...flattenSchemas.BodyNode, items: flattenSchemas.BodyNode.items.map((item: any) => item.kind === 'input' && ['in', 'other'].includes(item.id)
+        ? { ...item, widget: { widgetType: 'INT', options: { default: 5 } } } : item) }
+      : ['Source', 'Consumer', 'Outer'].includes(type) ? flattenSchema(type, [
+        ...['in', 'tap', 'net', 'after', 'before', 'after2'].map((id) => ({ kind: 'input', id, optional: true, type: { kind: 'concrete', name: 'X' } })),
+        ...['out', 'net'].map((id) => ({ kind: 'output', id, type: { kind: 'concrete', name: 'X' } })),
+      ]) : flattenResolver(type)
+    const compiledBefore = compile({ document: initial, revision: 0, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('junction-before'), schemaHash: 'junction' })
+    expect(compiledBefore.ok, JSON.stringify(!compiledBefore.ok && compiledBefore.diagnostics)).toBe(true)
+    const invocation = flattenInvocation(initial)
+    Object.assign(invocation.params, planFlattenBoundaryRoutes(initial.graphs.body, resolver, initial.graphs.root.nodes.occurrence, initial.graphs.root))
+    invocation.params.resolvedGeometry.body.push({ id: 'netJunction', kind: 'reroute', x: 90, y: 70, width: 0, height: 0 })
+    refreshFlattenFingerprint(initial, invocation)
+    if (overlay) invocation.params.selectionFingerprint = lifecycleFlattenFingerprint(initial, 'root', 'occurrence', {
+      boundaryPlan: invocation.params.boundaryPlan, statePlan: invocation.params.statePlan,
+      schemaPlanDigest: invocation.params.schemaPlanDigest,
+      occurrenceTopologyPlan: invocation.params.occurrenceTopologyPlan,
+      occurrenceTopologyPlanDigest: invocation.params.occurrenceTopologyPlanDigest,
+    })
+    const session = trustedFlattenSession(initial, resolver)
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    const root = session.doc.graphs.root!
+    const junction = Object.values(root.links).find((entry) => 'port' in entry.to && entry.to.node === 'n100' && entry.to.port === 'in')!.from
+    const netJunction = Object.values(root.links).find((entry) => 'port' in entry.to && entry.to.node === 'n100' && entry.to.port === 'netIn')!.from
+    expect(junction).toHaveProperty('reroute')
+    expect(netJunction).toHaveProperty('reroute')
+    expect(Object.values(root.links).filter((entry) => JSON.stringify(entry.from) === JSON.stringify(junction))).toHaveLength(2)
+    expect(root.nodes.n100!.values.in).toBe(23)
+    expect(root.nodes.n101!.values.other).toBe(23)
+    expect(root.nodes.survivor!.values.input).toBe(47)
+    const compiledAfter = compile({ document: session.doc, revision: 1, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('junction-after'), schemaHash: 'junction' })
+    expect(compiledAfter.ok, JSON.stringify(!compiledAfter.ok && compiledAfter.diagnostics)).toBe(true)
+    if (compiledBefore.ok && compiledAfter.ok) {
+      expect(compiledBefore.artifact.prompt['occurrence.a']!.inputs.in).toEqual(linked ? ['source', 0] : 23)
+      expect(compiledBefore.artifact.prompt['occurrence.b']!.inputs.other).toEqual(linked ? ['source', 0] : 23)
+      expect(compiledAfter.artifact.prompt.n100!.inputs.in).toEqual(linked ? ['source', 0] : 23)
+      expect(compiledAfter.artifact.prompt.n101!.inputs.other).toEqual(linked ? ['source', 0] : 23)
+      expect(compiledAfter.artifact.prompt['survivor.a']!.inputs.in).toBe(47)
+      expect(compiledAfter.artifact.prompt.n100!.inputs.netIn).toEqual(linked ? ['source', 1] : undefined)
+      expect(compiledAfter.artifact.prompt.n101!.inputs.netOther).toEqual(linked ? ['source', 1] : undefined)
+    }
+    if (linked) {
+      expect(Object.values(root.links).find((entry) => 'port' in entry.from && entry.from.node === 'source' && entry.from.port === 'out')?.to).toEqual(junction)
+      expect(Object.values(root.links).find((entry) => 'port' in entry.from && entry.from.node === 'source' && entry.from.port === 'net')?.to).toEqual(netJunction)
+      expect(root.nets.incomingNet!.sinks).toEqual([port('outer', 'net')])
+    } else expect(root.boundary!.inputs[0]!.binds).toMatchObject({ node: 'n100', port: 'in', viaReroute: (junction as { reroute: string }).reroute })
+    expect(checkDocument(session.doc).filter((entry) => entry.severity === 'error')).toEqual([])
+    const after = JSON.stringify(session.doc)
+    expect(session.undo()).toBe(true)
+    expect(session.doc.graphs.root!.nodes).toEqual(initial.graphs.root.nodes)
+    expect(session.doc.graphs.root!.links).toEqual(initial.graphs.root.links)
+    expect(session.doc.graphs.root!.nets).toEqual(initial.graphs.root.nets)
+    expect(session.doc.graphs.root!.boundary).toEqual(initial.graphs.root.boundary)
+    expect(session.doc.graphs.body).toEqual(initial.graphs.body)
+    expect(session.redo()).toBe(true)
+    expect(JSON.stringify(session.doc)).toBe(after)
+  })
+
   it('T6 matching live success', () => {
     const initial = flattenDocument()
     const outcome = trustedFlattenSession(initial).dispatch(flattenInvocation(initial))
