@@ -516,7 +516,7 @@ export function comfyGroupCatalogFromDinksterWire(
         'error',
         'schema',
         'schema.comfyGroup.collision',
-        `ComfyUI group '${record.id}' from pack '${record.ownerPack}' collides with an installed group registry; it will not resolve`,
+        `${record.ownerPack}/${record.id}: ComfyUI group conflicts with an installed group`,
       ))
       continue
     }

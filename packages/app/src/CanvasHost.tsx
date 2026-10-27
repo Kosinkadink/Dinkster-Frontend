@@ -410,8 +410,11 @@ export function unresolvedAssetImportDiagnostic(args: {
     'error',
     'schema',
     'widget.ASSET.unresolvedImport',
-    `${where}: imported asset "${args.requested}" is unresolved (file "${basename}", expected kind "${args.expectedKind ?? 'unspecified'}")`,
-    { refs: [{ graphId: args.graphId, nodeId: args.nodeId, portId: args.inputId, valueKey: args.valueKey, direction: 'input' }] },
+    `${where}: imported file "${basename}" is unavailable`,
+    {
+      refs: [{ graphId: args.graphId, nodeId: args.nodeId, portId: args.inputId, valueKey: args.valueKey, direction: 'input' }],
+      data: { requested: args.requested, expectedKind: args.expectedKind ?? 'unspecified' },
+    },
   )
 }
 
@@ -774,7 +777,7 @@ export function flattenSubgraphThroughBridge(args: {
   try {
     args.selectNodes(Object.keys(outcome.doc.graphs[args.graphId]?.nodes ?? {}).filter((id) => !before.has(id)))
   } catch (error) {
-    args.report(diag('error', 'command', 'subgraph.lifecycle.selectionUpdateFailed', `subgraph.flatten: document committed but result selection failed: ${error instanceof Error ? error.message : String(error)}`))
+    args.report(diag('error', 'command', 'subgraph.lifecycle.selectionUpdateFailed', `Flattened subgraph selection: ${error instanceof Error ? error.message : String(error)}`))
   }
   return true
 }

@@ -511,7 +511,7 @@ describe('MatchType resolution', () => {
     expect(solved.diagnostics).toEqual([
       expect.objectContaining({
         code: 'solve.varConflict',
-        message: expect.stringMatching(/type variable 'target'.*input 'in'.*node 'target'.*parent input/),
+        message: 'target.target: connected types have no common match',
         anchor: { port: to },
         data: { edges: ['parent input'] },
       }),
@@ -773,7 +773,8 @@ describe('MatchType resolution', () => {
     expect(s.linkVerdicts.get('l0' as never)).toBe('unknown')
     expect(s.resolutionOf(n('g'), 'T')).toEqual({ kind: 'unconstrained' }) // no constraint leaked
     const missing = s.diagnostics.find((d) => d.code === 'solve.portMissing')
-    expect(missing?.message).toContain("member 'm0.g0'")
+    expect(missing?.message).toBe('g.inputs.item#m0#g0: connected port is unavailable')
+    expect(missing?.anchor?.port?.members).toEqual(['m0', 'g0'])
   })
 
   it('solves through a recursively elaborated nested address (autogrow-in-autogrow)', () => {
@@ -1185,7 +1186,7 @@ describe('dynamicSlot MatchType binding', () => {
     expect(solved.diagnostics).toEqual([
       expect.objectContaining({
         code: 'solve.varConflict',
-        message: expect.stringContaining("stored DynamicSlot 'source' variant 'mask'"),
+        message: "matched.T: connected types conflict with selected variant 'mask'",
         anchor: { port: { node: 'matched', port: 'source' } },
         data: { edges: [], slotSelections: ['matched/source=mask'] },
       }),

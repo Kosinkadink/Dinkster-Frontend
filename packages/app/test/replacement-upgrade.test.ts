@@ -1518,11 +1518,9 @@ describe('unresolved-type reporting', () => {
     ).toEqual([])
     const found = app.problems.get().find((d) => d.code === 'schema.unresolvedType')
     expect(found).toBeDefined()
-    expect(found!.message).toContain("'NoSuchNode'")
-    expect(found!.message).toContain('2 node(s)')
+    expect(found!.message).toBe(`NoSuchNode (2): not available on backend ${app.backends.get()[0]!.label}`)
     // Unresolved nodes are excluded from the executed closure (see compile's
     // unknown-schema demotion); the warning must not claim the workflow cannot run.
-    expect(found!.message).toContain('excluded from execution')
     expect(found!.message).not.toContain('cannot run')
   })
 

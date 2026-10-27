@@ -180,7 +180,7 @@ export function comfyAliasCatalogFromDinksterWire(
         'error',
         'schema',
         'schema.comfyAlias.collision',
-        `ComfyUI alias '${record.id}' from pack '${record.ownerPack}' collides with an installed alias registry; it will not resolve`,
+        `${record.ownerPack}/${record.id}: ComfyUI alias conflicts with an installed alias`,
       ))
       continue
     }
@@ -202,7 +202,8 @@ export function comfyAliasCatalogFromDinksterWire(
       'warning',
       'schema',
       'schema.comfyAlias.classCollision',
-      `ComfyUI class '${nodeClass}' is claimed by ${claims.map((record) => `'${record.id}'`).join(' and ')}; it will not resolve`,
+      `ComfyUI class ${nodeClass}: multiple aliases claim this class`,
+      { data: { claims: claims.map((record) => record.id) } },
     ))
   }
   return {

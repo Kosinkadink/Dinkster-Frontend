@@ -4859,8 +4859,8 @@ export class AppState {
             'command',
             'replace.review',
             i.plan
-              ? `node '${i.nodeId}' (${i.sourceType}) can be upgraded to '${i.terminalType}'${i.hops.length > 1 ? ` (${i.hops.length} steps)` : ''} - review via its badge`
-              : `node '${i.nodeId}' (${i.sourceType}) has replacement rules but none apply: ${i.diagnostics.map((d) => d.message).join('; ')}`,
+              ? `${i.nodeId} (${i.sourceType}): upgrade to ${i.terminalType} needs review`
+              : `${i.nodeId} (${i.sourceType}): no replacement rule applies`,
           ),
         ),
       )
@@ -6013,7 +6013,8 @@ export class AppState {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
-            `a concurrent edit dropped your '${conflict.invocation.command}': ${conflict.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no longer applicable'}`)),
+            `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
+            { data: { diagnostics: conflict.diagnostics } })),
         onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
       })
     } catch (e) {
@@ -7082,7 +7083,8 @@ export class AppState {
           'info',
           'import',
           `import.comfyAlias.confidence.${mappingKind}`,
-          `ComfyUI ${mappingKind}-level mappings: total=${records.length}; confidence ${confidence}${familyAvailability.length > 0 ? `; family providers ${availabilityCounts}; ${familyAvailability.join(', ')}` : ''}`,
+          `ComfyUI ${mappingKind} mappings: ${records.length} (${confidence})`,
+          { data: { familyProviders: availabilityCounts, families: familyAvailability } },
         ))
       }
       return diagnostics
@@ -7127,8 +7129,8 @@ export class AppState {
         'import',
         'import.comfyGroup.review',
         review
-          ? `ComfyUI node group '${item.sourceType}' was left unchanged for replacement review`
-          : `ComfyUI node group '${item.sourceType}' was left unchanged because native replacement was not lossless: ${item.diagnostics.map((entry) => entry.message).join('; ')}`,
+          ? `${item.sourceType}: native replacement needs review`
+          : `${item.sourceType}: native replacement loses workflow data`,
       ))
     if (selectedIds.size === 0) {
       return {
@@ -8140,14 +8142,7 @@ export class AppState {
     if (invocation) this.dispatchTo(tab, invocation)
   }
 
-  /**
-   * A refused queue replaces the open-time Problems entries (including the
-   * schema.unresolvedType explanation) with the raw compile diagnostics, so
-   * the fatal unresolved-node entries must explain the refusal themselves:
-   * which node the requested run depends on, that its type does not resolve
-   * on this backend, and that unresolved nodes are excluded from execution.
-   * Core stays queue-agnostic; the wording lives here.
-   */
+  /** Include the selected backend in unresolved-node queue diagnostics. */
   private queueRefusalDiagnostics(tab: Tab, diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
     const backend = this.backendForTab(tab)
     return diagnostics.map((diagnostic) => {
@@ -8155,10 +8150,9 @@ export class AppState {
       const nodeType = diagnostic.data?.['nodeType']
       const occurrence = diagnostic.anchor?.occurrence
       if (typeof nodeType !== 'string' || occurrence === undefined) return diagnostic
-      const node = [...occurrence.instancePath, occurrence.node].join('.')
       return {
         ...diagnostic,
-        message: `not queued: the requested output(s) depend on node '${node}' of type '${nodeType}', which does not resolve on backend '${backend.label}' - unresolved nodes are excluded from execution, so a run that depends on one cannot be queued`,
+        message: `${nodeType}: not available on backend ${backend.label}`,
       }
     })
   }
@@ -8295,7 +8289,7 @@ export class AppState {
         'error',
         'compile',
         'compile.scope.inactiveSelection',
-        `selected node${missingRequired.length === 1 ? '' : 's'} ${missingRequired.map((id) => `'${id}'`).join(', ')} did not survive executable branch lowering`,
+        `Selected nodes ${missingRequired.join(', ')}: no executable branch remains`,
       )])
       return
     }

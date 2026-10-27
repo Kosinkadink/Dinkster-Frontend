@@ -83,7 +83,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6343,
+      "line": 6344,
       "column": 38,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -171,7 +171,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4242,
+      "line": 4245,
       "column": 15,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -179,7 +179,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4728,
+      "line": 4731,
       "column": 27,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -187,7 +187,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4824,
+      "line": 4827,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -195,7 +195,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4907,
+      "line": 4910,
       "column": 36,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -203,7 +203,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4924,
+      "line": 4927,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -211,7 +211,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 6720,
+      "line": 6723,
       "column": 19,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -555,7 +555,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/compile/compile.ts",
-      "line": 1853,
+      "line": 1856,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
