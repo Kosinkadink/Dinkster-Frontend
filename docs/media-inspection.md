@@ -19,6 +19,8 @@ values use the shared application catalog. An open inspector follows mounted
 locale changes without another descriptor or rendition request. Runtime and
 output IDs, type IDs, fingerprints, metadata values, refusal reasons and errors
 remain untranslated.
+Publishing diagnostics or execution progress with the same output inventory
+preserves mounted inspector disclosures and their open state.
 
 Image output thumbnails, the output viewer, canvas previews and App View use a
 checkerboard behind transparent pixels. The background is presentation-only and

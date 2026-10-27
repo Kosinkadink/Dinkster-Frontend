@@ -68,6 +68,8 @@ async function installMockBackend(page: Page, requests: Request[]): Promise<void
         { id: 'input', mode: 'read', state: 'ready' },
         { id: 'shared', mode: 'readwrite', state: 'ready' },
         { id: 'indexing', mode: 'read', state: 'scanning' },
+        { id: 'queued', mode: 'read', state: 'pending' },
+        { id: 'failed', mode: 'read', state: 'failed' },
       ] } })
       return
     }
@@ -183,14 +185,18 @@ test.beforeEach(async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'asset')?.layout.rows.some((item) => item.kind === 'widget' && item.inputId === 'image'))).toBe(true)
 })
 
-test('lists only ready readable sources and filters incompatible MIME types', async ({ page }) => {
-  test.skip(true, 'source readiness failure tracked in Kosinkadink/comfy-vibe-station#539')
+test('lists ready and scanning sources and filters incompatible MIME types', async ({ page }) => {
   await openAsset(page)
   await page.getByTestId('collection-source-select').click()
-  await expect(page.getByRole('listbox', { name: 'Source' }).getByRole('option')).toHaveText(['input', 'shared'])
+  await expect(page.getByRole('listbox', { name: 'Source' }).getByRole('option')).toHaveText(['input', 'shared', 'indexing'])
   await page.keyboard.press('Escape')
   await expect(page.getByRole('option', { name: /sunset\.png/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /style\.safetensors/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /readme\.txt/ })).toHaveCount(0)
+  await selectProductOption(page, page.getByTestId('collection-source-select'), 'mount:indexing')
+  await page.getByRole('option', { name: /^photos/ }).click()
+  await expect(page.getByRole('button', { name: 'photos' })).toBeVisible()
+  await expect(page.getByRole('option', { name: /sunset\.png/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /readme\.txt/ })).toHaveCount(0)
 })
 

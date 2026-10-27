@@ -382,7 +382,6 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
 })
 
 test('image editor inserts and reopens one graph-native mask paint node', async ({ page }) => {
-  test.skip(true, 'mask paint reopening failure tracked in Kosinkadink/comfy-vibe-station#539')
   let uploadCount = 0
   await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: PNG }))
   await page.route('**/api/assets', (route) => {
@@ -398,7 +397,7 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
     })
     app.registerSchemas([
       {
-        type: 'dinkster.load_image', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
+        type: 'dinkster.load_image', editorRole: 'image-source', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
         items: [
           { kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
           { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
@@ -406,7 +405,7 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
         ],
       },
       {
-        type: 'dinkster.mask.paint', displayName: 'Paint Mask', category: 'test', source: 'v3', isOutputNode: false,
+        type: 'dinkster.mask.paint', editorRole: 'mask-paint', displayName: 'Paint Mask', category: 'test', source: 'v3', isOutputNode: false,
         items: [
           { kind: 'input', id: 'source', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
           { kind: 'input', id: 'operations', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: { multiline: true } } },
