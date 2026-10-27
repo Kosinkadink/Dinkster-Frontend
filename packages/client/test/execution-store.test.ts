@@ -1,38 +1,31 @@
 /**
- * ExecutionStore replay tests: the five recorded live streams are the oracle.
- * Each fixture's messages flow through BackendConnection.ingest (the real
- * normalizer) into the store; assertions check terminal state per scenario.
+ * ExecutionStore replay tests: five recorded normalized event streams pin
+ * the store's terminal state per scenario without a protocol adapter.
  */
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { DinksterNormalizer, asConnectionId, asPromptId } from '@dinkster/core'
-import type { RawMessage } from '@dinkster/core/comfy-v1'
+import { DinksterNormalizer, asConnectionId, asPromptId, type NormalizedEvent } from '@dinkster/core'
 import { ExecutionStore } from '../src/index.js'
-import { BackendConnection } from '../src/comfy-v1.js'
 
-const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../../core/fixtures/events')
+const fixtures = JSON.parse(readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'fixtures/recorded-store-events.json'), 'utf8',
+)) as Record<string, StreamFixture>
 
 interface StreamFixture {
   readonly scenario: string
   readonly submits: readonly { status: number; body: Record<string, unknown> }[]
-  readonly messages: readonly ({ t: number } & RawMessage)[]
+  readonly events: readonly NormalizedEvent[]
 }
 
 const readStream = (name: string): StreamFixture =>
-  JSON.parse(readFileSync(join(fixtures, `${name}.json`), 'utf8')) as StreamFixture
+  structuredClone(fixtures[name]!)
 
 function replay(name: string): { store: ExecutionStore; fixture: StreamFixture } {
   const fixture = readStream(name)
   const store = new ExecutionStore()
-  const conn = new BackendConnection({
-    id: asConnectionId('c0'),
-    baseUrl: 'http://test',
-    clientId: 'test',
-  })
-  conn.onEvent((e) => store.apply(e))
-  for (const msg of fixture.messages) conn.ingest(msg)
+  for (const event of fixture.events) store.apply(event)
   return { store, fixture }
 }
 
@@ -725,7 +718,7 @@ describe('recorded stream replay', () => {
   })
 
   it('register after events (fast/cached run) merges, never clobbers state', () => {
-    // WS events can outrun the /prompt HTTP response: replay the whole
+    // Events can outrun the submission HTTP response: replay the whole
     // stream FIRST, then register. Event-derived state must survive.
     const { store, fixture } = replay('success')
     const ref = { connection: asConnectionId('c0'), prompt: asPromptId(promptIdOf(fixture)) }
@@ -899,11 +892,9 @@ describe('recorded stream replay', () => {
   it('executions signal publishes immutable snapshots', () => {
     const fixture = readStream('success')
     const store = new ExecutionStore()
-    const conn = new BackendConnection({ id: asConnectionId('c0'), baseUrl: 'http://test', clientId: 't' })
-    conn.onEvent((e) => store.apply(e))
     const seen: ReadonlyMap<string, unknown>[] = []
     store.executions.subscribe((m) => seen.push(m))
-    for (const msg of fixture.messages) conn.ingest(msg)
+    for (const event of fixture.events) store.apply(event)
     expect(seen.length).toBeGreaterThan(1)
     expect(new Set(seen).size).toBe(seen.length) // every publish is a fresh map
   })
