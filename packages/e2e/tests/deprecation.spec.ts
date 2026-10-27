@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 const objectInfo = JSON.parse(readFileSync(
   fileURLToPath(new URL('../../core/fixtures/object_info.json', import.meta.url)),
@@ -178,17 +178,70 @@ test('a safe plan auto-applies with a navigable notice and one undoable step', a
     return tab.store.doc.graphs.g0!.nodes.old!.values.width
   })
   expect(width).toBe(512)
+  await openRailPanel(page, 'Problems')
   const notice = page.getByTestId('migration-notice')
   await expect(notice).toHaveCount(1)
   await expect(notice).toBeVisible()
+  await expect(notice).toContainText('Workflow upgraded')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getBadges().old ?? []))
     .toEqual([])
   await notice.getByRole('button', { name: `old: ${sourceType} -> ${targetType}`, exact: true }).click()
-  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.controller!.getSelection()])).toEqual(['old'])
   await page.screenshot({ path: testInfo.outputPath('safe-migration-notice.png'), animations: 'disabled' })
   // ONE undo restores the deprecated node exactly.
   await page.evaluate(() => void window.__dinksterTest!.app.activeTab()!.store.undo())
   expect((await rootTypes(page)).old).toBe(sourceType)
+  const authored = await page.evaluate(() => JSON.parse(JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc)))
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
+  const exported = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    return JSON.parse(JSON.stringify(app.exportDocument(app.activeTab()!.id)!))
+  })
+  expect(JSON.stringify(exported)).not.toContain('replace.applied')
+  expect(JSON.stringify(exported)).not.toContain('Workflow upgraded')
+  await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await expect(notice).toHaveCount(0)
+  expect(await page.evaluate((doc) => window.__dinksterTest!.app.openDocument(doc, 'Migrated copy'), exported)).toEqual([])
+  expect((await rootTypes(page)).old).toBe(targetType)
+  await expect(notice).toHaveCount(0)
+
+  expect(await page.evaluate((doc) => window.__dinksterTest!.app.openDocument(doc, 'Save migrated copy'), authored)).toEqual([])
+  await expect(notice).toBeVisible()
+  let savedDocument = exported
+  if (inAuditLane()) {
+    const saved = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/library'
+      && response.request().method() === 'POST')
+    expect(await page.evaluate(() => {
+      const app = window.__dinksterTest!.app as NonNullable<typeof window.__dinksterTest>['app'] & {
+        saveWorkflow(id: string): Promise<boolean>
+      }
+      return app.saveWorkflow(app.activeTab()!.id)
+    })).toBe(true)
+    const record = await (await saved).json() as { digest: string }
+    const bytes = await page.request.get(`/api/assets/${encodeURIComponent(record.digest)}`)
+    expect(bytes.ok()).toBe(true)
+    savedDocument = await bytes.json()
+    expect(JSON.stringify(savedDocument)).not.toContain('replace.applied')
+    expect(JSON.stringify(savedDocument)).not.toContain('Workflow upgraded')
+  } else {
+    const download = page.waitForEvent('download')
+    expect(await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      return app.exportWorkflow(app.activeTab()!.id)
+    })).toBe(true)
+    await download
+  }
+  await expect(notice).toHaveCount(0)
+  expect(await page.evaluate((doc) => window.__dinksterTest!.app.openDocument(doc, 'Saved copy reopened'), savedDocument)).toEqual([])
+  expect((await rootTypes(page)).old).toBe(targetType)
+  await expect(notice).toHaveCount(0)
+
+  expect(await page.evaluate((doc) => window.__dinksterTest!.app.openDocument(doc, 'Close migrated copy'), authored)).toEqual([])
+  await expect(notice).toBeVisible()
+  await page.locator('.tab.active').hover()
+  await page.locator('.tab.active').getByTestId('tab-close').click()
+  expect(await page.evaluate((doc) => window.__dinksterTest!.app.openDocument(doc, 'Closed copy reopened'), exported)).toEqual([])
+  await expect(notice).toHaveCount(0)
 })
 
 test('a historical dynamic selection migrates into a current static combo', async ({ page }, testInfo) => {
@@ -288,11 +341,11 @@ test('a historical dynamic selection migrates into a current static combo', asyn
 test('review mode holds the plan; the badge popover applies it manually', async ({ page }) => {
   const { sourceType, targetType } = deprecationIds()
   await page.getByTestId('review-upgrades-toggle').click()
-  await expect(page.getByTestId('review-upgrades-toggle')).toContainText('on')
+  await expect(page.getByTestId('review-upgrades-toggle')).toHaveAttribute('aria-pressed', 'true')
 
   expect(await openDeprecatedDoc(page, { lineage: 'dep-review' })).toEqual([])
   expect((await rootTypes(page)).old).toBe(sourceType) // held for review
-  await expect(page.getByTestId('problems-panel')).toContainText(`can be upgraded to '${targetType}'`)
+  await expect(page.getByTestId('migration-notice')).toHaveCount(0)
 
   await identityViewport(page)
   const p = await badgePoint(page, 'old')
@@ -300,8 +353,8 @@ test('review mode holds the plan; the badge popover applies it manually', async 
   const popover = page.getByTestId('badge-popover')
   await expect(popover).toBeVisible()
   await expect(popover).toHaveAttribute('data-badge', 'core.deprecated')
-  await expect(popover.getByTestId('badge-replace-target')).toContainText(`Replace with '${targetType}'`)
-  await expect(popover.getByTestId('badge-replace-target')).toContainText('renamed upstream')
+  await expect(popover.getByTestId('badge-replace-target')).toHaveText(`${sourceType} -> ${targetType}`)
+  await expect(popover).toContainText('renamed upstream')
 
   await popover.getByTestId('badge-apply-replacement').click()
   await expect(popover).not.toBeVisible()
@@ -315,14 +368,14 @@ test('a lossy plan auto-applies with warnings in the notice and ordinary nodes',
   expect(types.old).toBe(targetType)
   expect(types.sink).toBe(sinkType)
 
+  await openRailPanel(page, 'Problems')
   const notice = page.getByTestId('migration-notice')
   await expect(notice).toHaveCount(1)
-  await expect(notice).toContainText('link')
-  await expect(notice).toContainText('l0')
+  await expect(notice.locator('p')).toContainText(`downstream connections of '${sourceOutput}' have no mapping and will be removed`)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getBadges().old ?? []))
     .toEqual([])
   await notice.getByRole('button', { name: `old: ${sourceType} -> ${targetType}`, exact: true }).click()
-  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.controller!.getSelection()])).toEqual(['old'])
   await expect(page.getByTestId('badge-popover')).not.toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('lossy-migration-notice.png'), animations: 'disabled' })
   // The unmapped downstream link was dropped, per the plan's warning.
