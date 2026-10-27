@@ -4899,7 +4899,7 @@ export class AppState {
           'warning',
           'schema',
           'schema.unresolvedType',
-          `'${tab.title}': ${count} node(s) of type '${type}' do not resolve on backend '${backend.label}' - they render with a red hue and thick border (values and links preserved) and are excluded from execution; queueing is blocked when the requested run depends on one`,
+          `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
         ),
       ),
     )
@@ -5507,6 +5507,7 @@ export class AppState {
   }
 
   private markTabClean(tabId: string): void {
+    this.dismissImportProblems(tabId)
     if (!this.dirtyTabs.get().has(tabId)) return
     this.dirtyTabs.update((ids) => {
       const next = new Set(ids)
@@ -5530,6 +5531,10 @@ export class AppState {
 
   clearProblems(owner: ProblemOwner): void {
     this.problems.update((problems) => problems.filter((problem) => problem.owner !== owner))
+  }
+
+  dismissImportProblems(tabId: string = this.activeTabId.get()): void {
+    this.problems.update((problems) => problems.filter((problem) => problem.owner !== tabId || problem.origin !== 'import'))
   }
 
   reportNodeDecorationResult(id: string, error?: unknown): void {
@@ -6449,6 +6454,7 @@ export class AppState {
       anchor.hidden = true
       document.body.append(anchor)
       anchor.click()
+      this.dismissImportProblems(tabId)
       this.showTransientStatus(`Download started: ${filename}`)
       return true
     } catch (error) {
