@@ -903,6 +903,11 @@ export interface MissingAsset {
   readonly packagedFrom?: readonly string[]
 }
 
+export interface AssetSelectionOption {
+  readonly name: string
+  readonly shape: 'file' | 'pair' | 'directory' | 'literal'
+}
+
 export interface MountDescriptor {
   readonly id: string
   /**
@@ -2677,6 +2682,31 @@ export class DinksterConnection {
 
   async listMounts(): Promise<readonly MountDescriptor[]> {
     return (await this.fetchMountSettings()).mounts
+  }
+
+  async listAssetSelections(kind: string, signal?: AbortSignal): Promise<readonly AssetSelectionOption[]> {
+    if (!['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(kind)) {
+      throw new Error('Unsupported asset selection kind')
+    }
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind })}`, signal === undefined ? undefined : { signal })
+    if (!res.ok) throw new Error(`GET asset selections failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed asset selections')
+    const body = payload as Record<string, unknown>
+    if (Object.keys(body).some((key) => key !== 'kind' && key !== 'options') || body['kind'] !== kind || !Array.isArray(body['options'])) {
+      throw new Error('Malformed asset selections')
+    }
+    const names = new Set<string>()
+    return body['options'].map((value: unknown) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Malformed asset selection option')
+      const option = value as Record<string, unknown>
+      const shapes = kind === 'model/vae' ? ['file', 'pair', 'literal'] : ['directory']
+      if (Object.keys(option).some((key) => key !== 'name' && key !== 'shape') ||
+        typeof option['name'] !== 'string' || option['name'] === '' || names.has(option['name']) ||
+        typeof option['shape'] !== 'string' || !shapes.includes(option['shape'])) throw new Error('Malformed asset selection option')
+      names.add(option['name'])
+      return { name: option['name'], shape: option['shape'] as AssetSelectionOption['shape'] }
+    })
   }
 
   async selectOutputMount(id: string): Promise<void> {

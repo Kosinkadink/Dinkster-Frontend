@@ -6335,7 +6335,7 @@ export class AppState {
       const schema = registry.comfyAliases?.sourceSchemas.get(node.type) ?? registry.resolve(node.type)
       if (!schema) continue
       for (const item of schema.items) {
-        if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET') continue
+        if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
         const value = node.values[item.id]
         if (typeof value === 'string') refs.push({ graphId, nodeId: node.id, inputId: item.id, name: value })
       }

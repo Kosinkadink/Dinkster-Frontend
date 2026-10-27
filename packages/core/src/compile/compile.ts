@@ -1851,6 +1851,11 @@ function compileImpl(
    */
   const assetSourceTypeOf = (input: ElaboratedInput, value: Json): string | undefined => {
     if (input.spec.widget?.widgetType !== 'ASSET') return undefined
+    if (input.spec.widget.selection === true && input.spec.type.kind === 'union') {
+      if (typeof value === 'string') return 'COMBO'
+      if (isAssetRefValue(value)) return 'ASSET'
+      return undefined
+    }
     const dstTypeId = canonicalTypeIdOf(input.spec.type)
     if (dstTypeId === undefined || isAssetRefDestinationTypeId(dstTypeId)) return undefined
     if (isAssetRefValue(value)) return assetTypeId(dstTypeId)

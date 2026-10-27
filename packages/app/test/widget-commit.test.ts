@@ -9,10 +9,17 @@
 
 import { describe, expect, it } from 'vitest'
 import type { Json, WidgetKind, WidgetSpec } from '@dinkster/core'
-import { colorKind, intKind, listKind } from '@dinkster/widgets'
+import { assetKind, colorKind, intKind, listKind } from '@dinkster/widgets'
 import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../src/widget-commit.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}): WidgetSpec => ({ widgetType, options })
+
+it('admits source names only for explicitly selection-marked ASSET widgets', () => {
+  const ordinary = spec('ASSET')
+  expect(widgetCommitError(assetKind, 'pixel_space', ordinary)).toBe('Not a valid ASSET value.')
+  expect(widgetCommitError(assetKind, 'pixel_space', { ...ordinary, selection: true })).toBeUndefined()
+  expect(widgetCommitError(assetKind, { path: '/host/file' }, { ...ordinary, selection: true })).toBe('Not a valid ASSET value.')
+})
 
 describe('resolveTextCommit', () => {
   it('returns none when the editor did not change the open value', () => {

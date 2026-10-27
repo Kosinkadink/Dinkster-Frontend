@@ -140,6 +140,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   await selects.nth(1).selectOption({ label: 'No-output step' })
   await expect(inspector).toContainText('This body node has no inspectable outputs.')
   await page.evaluate(() => {
+    const tabs = window.__dinksterTest!.app.tabs
+    ;(tabs as typeof tabs & { set(value: ReturnType<typeof tabs.get>): void }).set([...tabs.get()])
+  })
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const execution = [...app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'region-inspector-run')!
     app.store.apply({

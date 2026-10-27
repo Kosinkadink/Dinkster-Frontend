@@ -1050,7 +1050,7 @@ export function resolveImportedAssetLiterals(
       if (!schema) return [nodeId, node]
       let values: Record<string, Json> | undefined
       for (const item of schema.items) {
-        if (item.kind !== 'input' || !isAssetWidgetInput(item)) continue
+        if (item.kind !== 'input' || !isAssetWidgetInput(item) || item.widget?.selection === true) continue
         const value = node.values[item.id]
         if (typeof value !== 'string') continue
         const asset = assetForName(value)
@@ -1072,7 +1072,7 @@ export function resolveImportedAssetLiterals(
         const node = nodes[target.node]
         const schema = node === undefined ? undefined : resolve(node.type)
         const input = schema?.items.find((item) => item.kind === 'input' && item.id === target.port)
-        return input?.kind === 'input' && isAssetWidgetInput(input)
+        return input?.kind === 'input' && isAssetWidgetInput(input) && input.widget?.selection !== true
           ? [{ nodeId: target.node, inputId: target.port }]
           : []
       })
