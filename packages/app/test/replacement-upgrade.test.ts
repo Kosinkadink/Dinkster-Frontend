@@ -1,7 +1,7 @@
 /**
  * Deprecation/replacement orchestration: the once-per-tab upgrade pass.
- * Applicable plans auto-apply on document open, with warnings retained in
- * one Problems notice. Review mode holds ordinary
+ * Safe (lossless, warning-free) plans auto-apply on document open; lossy
+ * plans land in Problems for badge review. Review mode holds ordinary safe
  * plans, while best-effort migration fallbacks remain automatic.
  * The pass is DEFERRED when a document opens before its backend's schemas
  * arrive - the backendsTick subscription picks the tab up later instead of
@@ -134,39 +134,6 @@ describe('auto-upgrade on open', () => {
     expect(nodeType(tab, 'b')).toBe('OldEmpty')
   })
 
-  it('continues an original node past newly allocated helper links in the same undo step', () => {
-    loadSchemas()
-    expect(app.registerReplacementRule('pack', {
-      from: 'OldEmpty',
-      cases: [{
-        to: 'EmptyLatentImage',
-        nodes: { decode: { type: 'VAEDecode' } },
-        links: [{ from: 'out0', to: 'decode:samples' }],
-      }],
-    })).toEqual([])
-    expect(app.registerReplacementRule('pack', {
-      from: 'EmptyLatentImage',
-      cases: [{ to: 'EmptyImage' }],
-    })).toEqual([])
-    expect(app.openDocument(docJson('lin-helper-chain', { old: { type: 'OldEmpty' } }), 'T')).toEqual([])
-    const tab = app.activeTab()!
-    expect(nodeType(tab, 'old')).toBe('EmptyImage')
-    expect(nodeType(tab, 'old:decode')).toBe('VAEDecode')
-    expect(tab.store.doc.graphs.g0!.links).toEqual({})
-    expect(app.scanTabReplacements(tab)).toEqual([])
-    const notices = app.problems.get().filter((entry) => entry.owner === tab.id && entry.code === 'replace.applied')
-    expect(notices).toHaveLength(1)
-    expect(notices[0]).toMatchObject({
-      message: '1 nodes upgraded on open',
-      data: { upgrades: [{ nodeId: 'old', sourceType: 'OldEmpty', targetType: 'EmptyImage' }] },
-    })
-    expect(tab.store.revision).toBe(1)
-    expect(tab.store.undo()).toBe(true)
-    expect(nodeType(tab, 'old')).toBe('OldEmpty')
-    expect(nodeType(tab, 'old:decode')).toBeUndefined()
-    expect(tab.store.canUndo).toBe(false)
-  })
-
   it('review mode holds even safe plans for badge review', () => {
     loadSchemas()
     app.reviewReplacements.set(true)
@@ -180,44 +147,24 @@ describe('auto-upgrade on open', () => {
     expect(nodeType(tab, 'old')).toBe('EmptyLatentImage')
   })
 
-  it('auto-applies lossy plans with a warning notice and one undo for every upgraded node', () => {
+  it('a lossy plan is never auto-applied and lands in Problems', () => {
     loadSchemas()
+    // Downstream link on an output the rule does not map -> dropped-link
+    // warning -> not safe.
     const lossy: ReplacementRule = { from: 'OldEmpty', cases: [{ to: 'EmptyLatentImage' }] }
     expect(app.registerReplacementRule('pack', lossy)).toEqual([])
     const json = docJson(
       'lin-f',
-      { old: { type: 'OldEmpty' }, other: { type: 'OldEmpty' }, sink: { type: 'VAEDecode' } },
+      { old: { type: 'OldEmpty' }, sink: { type: 'VAEDecode' } },
       { l0: { id: 'l0', from: { node: 'old', port: 'samples' }, to: { node: 'sink', port: 'samples' } } },
     )
     expect(app.openDocument(json, 'T')).toEqual([])
     const tab = app.activeTab()!
-    expect(nodeType(tab, 'old')).toBe('EmptyLatentImage')
-    expect(nodeType(tab, 'other')).toBe('EmptyLatentImage')
-    expect(tab.store.doc.graphs.g0!.links).toEqual({})
-    expect(tab.store.revision).toBe(1)
-    const notices = app.problems.get().filter((entry) => entry.owner === tab.id && entry.code === 'replace.applied')
-    expect(notices).toHaveLength(1)
-    expect(notices[0]).toMatchObject({
-      severity: 'info',
-      message: '2 nodes upgraded on open',
-      data: { upgrades: [
-        { graphId: 'g0', nodeId: 'old', sourceType: 'OldEmpty', targetType: 'EmptyLatentImage',
-          diagnostics: expect.arrayContaining([expect.objectContaining({ severity: 'warning' })]) },
-        { graphId: 'g0', nodeId: 'other', sourceType: 'OldEmpty', targetType: 'EmptyLatentImage' },
-      ] },
-    })
-    expect(notices[0]!.anchor).toBeUndefined()
-    expect(notices[0]!.refs).toBeUndefined()
-    expect(app.problems.get().some((entry) => entry.code === 'replace.review')).toBe(false)
-    expect(app.problems.get().some((entry) => entry.severity === 'warning' && entry.origin === 'command')).toBe(false)
-    expect(JSON.stringify(tab.store.doc)).not.toContain('upgraded on open')
-    expect(tab.store.undo()).toBe(true)
     expect(nodeType(tab, 'old')).toBe('OldEmpty')
-    expect(nodeType(tab, 'other')).toBe('OldEmpty')
-    expect(tab.store.doc.graphs.g0!.links.l0).toMatchObject({
-      from: { node: 'old', port: 'samples' }, to: { node: 'sink', port: 'samples' },
-    })
-    expect(tab.store.canUndo).toBe(false)
+    expect(app.problems.get().some((d) => d.code === 'replace.review')).toBe(true)
+    const items = app.scanTabReplacements(tab)
+    expect(items[0]!.safe).toBe(false)
+    expect(items[0]!.plan).toBeDefined()
   })
 
   it('frozen tabs are never scanned or upgraded', () => {
@@ -316,12 +263,7 @@ describe('auto-upgrade on open', () => {
     })
     expect(tab.store.doc.graphs.g0!.links.droppedLink).toBeUndefined()
     expect(tab.store.doc.graphs.g0!.nets.droppedNet).toBeUndefined()
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'replace.applied',
-      data: { upgrades: [expect.objectContaining({
-        diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'replace.migration.archived' })]),
-      })] },
-    }))
+    expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'replace.migration.archived' }))
     expect(app.problems.get()).not.toContainEqual(expect.objectContaining({ code: 'replace.review' }))
     expect(app.scanTabReplacements(tab)).toEqual([])
   })
@@ -351,10 +293,7 @@ describe('auto-upgrade on open', () => {
       node: { values: { legacy_selector: 'invalid' } },
     })
     expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'replace.applied',
-      data: { upgrades: [expect.objectContaining({
-        diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'replace.migration.archived' })]),
-      })] },
+      code: 'replace.migration.archived',
     }))
     expect(app.problems.get()).toContainEqual(expect.objectContaining({
       code: 'replace.review',
@@ -397,7 +336,7 @@ describe('auto-upgrade on open', () => {
     }))
   })
 
-  it('applies a leading fallback and its lossy follow-up in one undo step', () => {
+  it('applies a leading fallback even when its ordinary follow-up needs review', () => {
     loadSchemas()
     const migration: ReplacementRule = {
       from: 'EmptyLatentImage',
@@ -433,21 +372,13 @@ describe('auto-upgrade on open', () => {
     ), 'T')).toEqual([])
     const tab = app.activeTab()!
 
-    expect(nodeType(tab, 'image')).toBe('EmptyImage')
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values).not.toHaveProperty('legacy_selector')
-    expect(tab.store.doc.graphs.g0!.links.latent).toBeUndefined()
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'replace.applied',
-      data: { upgrades: [expect.objectContaining({
-        sourceType: 'EmptyLatentImage', targetType: 'EmptyImage',
-        diagnostics: expect.arrayContaining([expect.objectContaining({ severity: 'warning' })]),
-      })] },
-    }))
-    expect(tab.store.revision).toBe(1)
-    expect(tab.store.undo()).toBe(true)
     expect(nodeType(tab, 'image')).toBe('EmptyLatentImage')
-    expect(tab.store.doc.graphs.g0!.nodes.image!.values).toEqual({ legacy_selector: 'invalid' })
+    expect(tab.store.doc.graphs.g0!.nodes.image!.values).not.toHaveProperty('legacy_selector')
     expect(tab.store.doc.graphs.g0!.links.latent).toBeDefined()
+    expect(app.problems.get()).toContainEqual(expect.objectContaining({
+      code: 'replace.review',
+      message: expect.stringContaining("node 'image' (EmptyLatentImage) can be upgraded to 'EmptyImage'"),
+    }))
   })
 
   it('holds unknown-selector fallbacks that share historical runtime state', () => {
@@ -1393,7 +1324,7 @@ describe('legacy documents against a native backend', () => {
       .toContain('total=1; confidence exact=0, parametric=1, equivalent=0, grouped=0; family providers available=0, unavailable=1, unknown=0; FamilyImage:unavailable')
   })
 
-  it('upgrades safe and lossy maintained aliases together with one undo', () => {
+  it('holds every maintained alias when one item needs review', () => {
     const payload = maintainedAliasPayload([
       { nodeClass: 'EmptyImage', sourceType: 'comfy.LegacyEmptyImage' },
       {
@@ -1427,15 +1358,10 @@ describe('legacy documents against a native backend', () => {
     }
     expect(app.openDocument(litegraph, 'Atomic aliases')).toEqual([])
     const tab = app.activeTab()!
-    expect(nodeType(tab, 'n1')).toBe('comfy.EmptyImage')
-    expect(nodeType(tab, 'n2')).toBe('comfy.EmptyImage')
-    expect(app.problems.get().filter((problem) => problem.code === 'replace.review')).toHaveLength(0)
-    expect(app.problems.get().filter((problem) => problem.code === 'replace.applied')).toHaveLength(1)
-    expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType')).toBe(false)
-    expect(tab.store.undo()).toBe(true)
     expect(nodeType(tab, 'n1')).toBe('comfy.LegacyEmptyImage')
     expect(nodeType(tab, 'n2')).toBe('comfy.UnsafeImage')
-    expect(Object.keys(tab.store.doc.graphs.g0!.links)).toHaveLength(1)
+    expect(app.problems.get().filter((problem) => problem.code === 'replace.review')).toHaveLength(2)
+    expect(app.problems.get().some((problem) => problem.code === 'schema.unresolvedType')).toBe(false)
   })
 
   it('canonicalizes LiteGraph aliases before replacement scanning', () => {
