@@ -513,6 +513,12 @@ function checkOccurrenceTopology(c: ShapeChecker, v: unknown, path: string): voi
   c.optExt(v['ext'], `${path}.ext`)
 }
 
+export function validateBoundaryBindingShape(json: unknown): readonly Diagnostic[] {
+  const c = new ShapeChecker()
+  checkBoundaryBinding(c, json, '$.boundaryBinding')
+  return c.diags
+}
+
 export function validateOccurrenceTopologyShape(json: unknown): readonly Diagnostic[] {
   const c = new ShapeChecker()
   checkOccurrenceTopology(c, json, '$.occurrenceTopology')

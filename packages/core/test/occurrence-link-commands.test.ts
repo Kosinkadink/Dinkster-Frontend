@@ -6,8 +6,9 @@ import { createTransactionBuilder, executeCommand } from '../src/commands/contra
 import { occurrenceLinkPlanDigest, planOccurrenceLinkCommand } from '../src/commands/occurrence-link-commands.js'
 import { planOccurrenceLinkMutation, type OccurrenceLinkIntention } from '../src/commands/occurrence-planner.js'
 import { DocumentStore } from '../src/commands/store.js'
+import { loadDocument } from '../src/format/migrate.js'
 import type { BoundaryItem, Json, NodeData, OccurrenceLinkEndpoint, WorkflowDocument } from '../src/format/document.js'
-import { asConnectionId, asGraphDefId, asLineageId, asNodeId, asPortId, occurrenceKey, type OccurrenceRef } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asNodeId, asPortId, asValueSourceId, occurrenceKey, type OccurrenceRef } from '../src/ids.js'
 import type { NodeSchema } from '../src/schema/model.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 
@@ -21,6 +22,11 @@ const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema =
 const schemas: Record<string, NodeSchema> = {
   Src: schema('Src', [], ['out']),
   Sink: schema('Sink', ['in', 'other'], []),
+  NumberSink: {
+    ...schema('NumberSink', [], []), isOutputNode: true,
+    items: [{ kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false,
+      widget: { widgetType: 'INT', options: {}, default: 0 } }],
+  },
   FamilySink: {
     ...schema('FamilySink', [], []),
     items: [{
@@ -144,6 +150,74 @@ function localConnect(doc: WorkflowDocument, target: OccurrenceRef, from = direc
 }
 
 describe('occurrence-local link commands', () => {
+  it.each([false, true])('connects a literal output route with nested=%s without changing sibling occurrences', (nested) => {
+    const base = document(nested)
+    const target = nested ? owner('inner', ['outer']) : owner('a')
+    const sourceBinding = { kind: 'valueSource' as const, valueSource: asValueSourceId('v0'), type: { kind: 'concrete' as const, name: 'INT' } }
+    const initial: WorkflowDocument = {
+      ...base,
+      graphs: {
+        ...base.graphs,
+        body: {
+          ...base.graphs.body!,
+          nodes: { sink: { id: asNodeId('sink'), type: 'NumberSink', values: { in: 3 } } },
+          links: {}, nets: {},
+          valueSources: { v0: { id: asValueSourceId('v0'), value: 23 } },
+          boundary: { inputs: [], outputs: [{ id: 'feed', binds: sourceBinding }] },
+        },
+      },
+    }
+    const from: OccurrenceLinkEndpoint = {
+      kind: 'boundary', occurrence: nested ? owner('outer') : target,
+      address: { port: asPortId(nested ? 'outerFeed' : 'feed') },
+      route: [
+        ...(nested ? [{ graph: asGraphDefId('mid'), boundaryId: 'outerFeed', binding: binding('inner', 'feed') }] : []),
+        { graph: asGraphDefId('body'), boundaryId: 'feed', binding: sourceBinding },
+      ],
+    }
+    for (const badBinding of [
+      { ...sourceBinding, valueSource: asValueSourceId('missing') },
+      { ...sourceBinding, type: { kind: 'concrete' as const, name: 'FLOAT' } },
+    ]) {
+      const badFrom = { ...from, route: [...from.route.slice(0, -1), { graph: asGraphDefId('body'), boundaryId: 'feed', binding: badBinding }] }
+      expect(planOccurrenceLinkMutation(initial, resolve, {
+        kind: 'connect', owner: target, bodyGraph: 'body', from: badFrom, to: body({ node: 'sink', port: 'in' }),
+      }).ok).toBe(false)
+    }
+    const inputOnly: WorkflowDocument = {
+      ...initial, graphs: { ...initial.graphs, body: { ...initial.graphs.body!, boundary: { inputs: [{ id: 'feed', binds: sourceBinding }], outputs: [] } } },
+    }
+    const inputRoute: OccurrenceLinkEndpoint = {
+      kind: 'boundary', occurrence: target, address: { port: asPortId('feed') },
+      route: [{ graph: asGraphDefId('body'), boundaryId: 'feed', binding: sourceBinding }],
+    }
+    expect(planOccurrenceLinkMutation(inputOnly, resolve, {
+      kind: 'connect', owner: target, bodyGraph: 'body', from: body({ valueSource: 'v0' }), to: inputRoute,
+    }).ok).toBe(false)
+    const store = new DocumentStore(initial, coreCommandRegistry())
+    expect(store.dispatch(localConnect(store.doc, target, from).invocation).ok).toBe(true)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc)))
+    expect(reopened.document, JSON.stringify(reopened.diagnostics)).toEqual(store.doc)
+    const result = compile({
+      document: reopened.document!, revision: 1, resolve, scope: { kind: 'full' },
+      connection: asConnectionId('test'), schemaHash: 'test',
+    })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (result.ok) {
+      const id = nested ? 'outer.inner.sink' : 'a.sink'
+      expect(result.artifact.prompt[id]!.inputs.in).toBe(23)
+      expect(Object.keys(result.artifact.prompt).sort()).toEqual(nested ? [id] : ['a.sink', 'b.sink'])
+      if (!nested) expect(result.artifact.prompt['b.sink']!.inputs.in).toBe(3)
+    }
+    expect(store.doc.graphs.body).toEqual(initial.graphs.body)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links).toEqual({})
+    expect(store.redo()).toBe(true)
+    expect(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links.l0!.from).toEqual(from)
+    const missingSource = { ...store.doc, graphs: { ...store.doc.graphs, body: { ...store.doc.graphs.body!, valueSources: {} } } }
+    expect(loadDocument(missingSource).document).toBeUndefined()
+  })
+
   it.each([
     'occurrence.link.connect',
     'occurrence.link.disconnect',

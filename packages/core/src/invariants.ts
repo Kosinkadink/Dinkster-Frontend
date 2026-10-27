@@ -159,6 +159,7 @@ function routeContainsNul(route: readonly BoundaryRouteLeg[]): boolean {
   return route.some((leg) =>
     containsNul(leg.graph) ||
     containsNul(leg.boundaryId) ||
+    (leg.binding.kind === 'valueSource' && containsNul(leg.binding.valueSource)) ||
     (isNodeBoundaryBinding(leg.binding) && (containsNul(leg.binding.node) ||
     (leg.binding.kind === 'widgetTap'
       ? containsNul(leg.binding.tap)
@@ -228,6 +229,11 @@ function routeMatchesOwnerChain(
     if (bindingMatches.length !== 1)
       return false
     const binding = bindingMatches[0]!
+    if (binding.kind === 'valueSource') {
+      if (side !== 'from' || offset + 1 !== route.length || graph.valueSources?.[binding.valueSource] === undefined)
+        return false
+      continue
+    }
     if (!isNodeBoundaryBinding(binding)) return false
     if (binding.viaReroute !== undefined &&
         (side !== 'to' || offset + 1 !== route.length || graph.reroutes[binding.viaReroute] === undefined))

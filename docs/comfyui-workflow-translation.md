@@ -107,6 +107,12 @@ an outer instance value wins over an inner one, and a connected driver wins
 over either stored value. Native reopen and extraction undo/redo retain that
 precedence without rewriting the shared definition's values.
 
+Occurrence-local links can use a value-source output boundary directly or
+through enclosing forwarding boundaries. The route retains the authored source
+identity and type, terminates at the existing source, and remains scoped to its
+occurrence through save/reopen and undo/redo. Input promotion still carries
+values, not consuming links: a value source cannot be a local link target.
+
 Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
 constraints. The decoder retains the FLOATS socket and scalar default, min and
 step; it does not replace the runtime type with FLOAT or a primitive list.

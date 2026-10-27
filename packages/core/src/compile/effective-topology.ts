@@ -263,6 +263,17 @@ function resolveOccurrenceEndpoint(
       return undefined
     }
     const match = matches[0]!
+    if (match.binding.kind === 'valueSource') {
+      if (side !== 'from' || legIndex !== endpoint.route.length - 1 ||
+          at.bodyGraph.valueSources?.[match.binding.valueSource] === undefined) {
+        diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `value source route leg '${leg.boundaryId}' must terminate an output route at an existing source`))
+        return undefined
+      }
+      finalGraph = at.bodyGraph
+      finalPath = at.bodyPath
+      finalEndpoint = { valueSource: match.binding.valueSource }
+      continue
+    }
     if (match.binding.kind === 'widgetTap') {
       if (side !== 'from' || legIndex !== endpoint.route.length - 1) {
         diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `widget tap route leg '${leg.boundaryId}' must terminate an output route`))
@@ -357,6 +368,8 @@ function projectedEndpoints(
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
   const out: { endpoint: ResolvedOccurrenceEndpoint; route: readonly BoundaryRouteLeg[] }[] = []
   for (const binding of bindings) {
+    // Promoted literals receive values through compilation, not consuming links.
+    if (side === 'to' && binding.kind === 'valueSource') continue
     const route = [{ graph: at.bodyGraph.id, boundaryId: item.id, binding }]
     const occurrenceEndpoint: OccurrenceLinkEndpoint = {
       kind: 'boundary', occurrence: owner,
