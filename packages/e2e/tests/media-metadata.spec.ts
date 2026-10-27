@@ -19,8 +19,6 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('inspects every media kind through the owning value API without mutating the graph or values', async ({ page, request }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   let socket: WebSocketRoute | undefined
   const backendRequests: string[] = []
   page.on('request', (request) => {
@@ -81,6 +79,8 @@ test('inspects every media kind through the owning value API without mutating th
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   await page.getByTestId('outputs-panel').screenshot({ path: testInfo.outputPath('media-output-inspection.png') })
   await expect.poll(() => socket !== undefined).toBe(true)
+  const videoInspector = page.locator('.media-value-inspector').filter({ has: page.locator('summary', { hasText: 'Inspect media / video' }) })
+  await videoInspector.evaluate((element) => { element.setAttribute('data-mounted-identity', 'video-inspector') })
   const receipt = JSON.stringify({ type: 'value_diagnostics', jobId: 'media-metadata-run', nodeId: 'media', detail: { diagnostics: [
       { code: 'alpha_dropped', nodeId: 'media', outputId: 'image', inputId: 'rgba' },
       { code: 'alpha_dropped', nodeId: 'media', outputId: 'image', inputIds: ['rgba'] },
@@ -100,9 +100,9 @@ test('inspects every media kind through the owning value API without mutating th
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getBadges()['media']?.map((badge) => badge.id))).toEqual(['core.media.alpha_dropped.media.image', 'core.media.mask_polarity_mismatch.media.mask'])
   await diagnostics.screenshot({ path: testInfo.outputPath('media-diagnostics.png') })
   await page.screenshot({ path: testInfo.outputPath('media-warning-badges.png') })
-  const videoInspector = page.locator('.media-value-inspector').filter({ has: page.locator('summary', { hasText: 'Inspect media / video' }) })
+  await expect(videoInspector).toHaveAttribute('data-mounted-identity', 'video-inspector')
+  await expect(videoInspector).toHaveAttribute('open', '')
   const summary = videoInspector.locator('summary')
-  await videoInspector.evaluate((element) => { element.setAttribute('data-mounted-identity', 'video-inspector') })
   await summary.evaluate((element) => { element.setAttribute('data-mounted-identity', 'video-summary') })
   await diagnostics.evaluate((element) => { element.setAttribute('data-mounted-identity', 'diagnostics') })
   await diagnostics.locator('dl').nth(0).evaluate((element) => { element.setAttribute('data-mounted-identity', 'diagnostic-row') })
