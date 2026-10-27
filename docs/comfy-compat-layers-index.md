@@ -19,6 +19,7 @@ The importer remains responsible for positional workflow inputs and versioned pe
 | `docs/comfyui-workflow-translation.md` | 213 | Documents comfyui workflow translation; shared documentation is edited rather than wholly removed. |
 | `docs/rework-queue.md` | 132 | Documents rework queue; shared documentation is edited rather than wholly removed. |
 | `packages/app/src/app-state.ts` | 8726 | Implements app state in the layer or its shared caller. |
+| `packages/app/src/editors/SaveTargetWidgetEditor.tsx` | 96 | Presents the combined prefix and mount target replaced by separate native inputs. |
 | `packages/app/test/replacement-upgrade.test.ts` | 1545 | Tests replacement upgrade.ts; preserve assertions for surviving behavior when removing exclusive layer tests. |
 | `packages/client/src/connection-contract.ts` | 83 | Implements connection contract in the layer or its shared caller. |
 | `packages/client/src/dinkster-connection.ts` | 3383 | Implements dinkster connection in the layer or its shared caller. |
@@ -82,15 +83,19 @@ The importer remains responsible for positional workflow inputs and versioned pe
 | `packages/core/test/typed-assets.test.ts` | 864 | Tests typed assets.ts; preserve assertions for surviving behavior when removing exclusive layer tests. |
 | `packages/core/test/value-source.test.ts` | 836 | Tests value source.ts; preserve assertions for surviving behavior when removing exclusive layer tests. |
 | `packages/core/test/widget-tap.test.ts` | 567 | Tests widget tap.ts; preserve assertions for surviving behavior when removing exclusive layer tests. |
+| `packages/e2e/fixtures/video-edit-contract.json` | 711 | Historical video editor schema fixture including SaveVideo migration rules; retain unrelated editor contracts. |
 | `packages/e2e/test/ci-workflow.test.ts` | 560 | Tests ci workflow.ts; preserve assertions for surviving behavior when removing exclusive layer tests. |
 | `packages/e2e/tests/import-legacy.spec.ts` | 723 | Implements import legacy.spec in the layer or its shared caller. |
 | `packages/e2e/tests/product-surface-visuals.spec.ts-snapshots/badge-replacement-empty-1440.png` | 363 | Implements badge replacement empty 1440 in the layer or its shared caller. |
 | `packages/e2e/tests/product-surface-visuals.spec.ts-snapshots/badge-replacement-empty-900.png` | 417 | Implements badge replacement empty 900 in the layer or its shared caller. |
+| `packages/e2e/tests/save-target.spec.ts` | 209 | Tests the removed combined target editor; separate prefix and mount controls retain their own coverage. |
+| `packages/e2e/tests/save-video-dynamic-native.spec.ts` | 368 | Tests historical SaveVideo schema-rule migration, helper insertion and link rewriting. |
 | `packages/e2e/tests/trellis2-official-workflow-live.spec.ts` | 173 | Implements trellis2 official workflow live.spec in the layer or its shared caller. |
+| `packages/e2e/tests/video-edit.spec.ts` | 733 | Tests video editors and historical SaveVideo migration; preserve ordinary editor and execution coverage. |
 | `scripts/check-v1-boundary.mjs` | 354 | Generates or checks check v1 boundary. |
 | `scripts/check-v1-boundary.test.mjs` | 177 | Tests check v1 boundary.mjs; preserve assertions for surviving behavior when removing exclusive layer tests. |
 | `scripts/ci-fast.mjs` | 80 | Generates or checks ci fast. |
 | `scripts/comfy-subgraph-coverage.mjs` | 82 | Generates or checks comfy subgraph coverage. |
 | `scripts/extension-literal-allowlist.json` | 748 | Committed schema, alias or group data consumed by the layer registry. |
 
-Total: 82 tracked files; whole-file counts include shared integrations.
+Total: 87 tracked files; whole-file counts include shared integrations.
