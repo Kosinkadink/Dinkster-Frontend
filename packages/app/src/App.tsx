@@ -3072,7 +3072,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
       }
     }
     return { media: [...media].sort(), layers: [...layers].sort() }
-  })
+  }, undefined, { equals: (previous, next) => canonicalJson(previous) === canonicalJson(next) })
   const mediaValueGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly identities: string[] }>()
     for (const identity of outputIdentities().media) {
