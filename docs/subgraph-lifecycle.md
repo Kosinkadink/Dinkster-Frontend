@@ -35,6 +35,12 @@ the junction from its schema-authority node or cuts a reroute link refuses
 without changing the document. One-level flatten still refuses junction
 boundary attachments rather than bypassing the authored reroutes.
 
+The `boundary.addItem` and `boundary.setBinding` commands accept an explicit
+`viaReroute` on input-side port bindings. It identifies the attachment while
+`node` and `port` identify schema authority. Rebinding keeps the authored
+reroute links untouched; repeating the same binding is a no-op. Junction
+attachments cannot be output bindings, widget taps, or conditional forwarding.
+
 ## Flatten one level
 
 Select exactly one subgraph occurrence. Use **Flatten Subgraph One Level**

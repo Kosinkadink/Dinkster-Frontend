@@ -42,7 +42,7 @@ async function expectSchemasReady(page: Page): Promise<void> {
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
 }
 
-test('draws and extracts an imported input boundary with its retained reroute fanout', async ({ page }, testInfo) => {
+test('draws, rebinds, and extracts an imported input boundary with its retained reroute fanout', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 1 }, packs: {},
@@ -86,6 +86,27 @@ test('draws and extracts an imported input boundary with its retained reroute fa
   expect(scene.reroutes).toEqual([{ id: 'r3', x: 170, y: 180 }, { id: 'r4', x: 310, y: 180 }])
   const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   expect(after).toEqual(before)
+  const rebound = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const rebind = (node: string) => app.dispatchTo(tab, { command: 'boundary.setBinding', params: {
+      graphId: 'junction-body', side: 'inputs', itemId: 'in', node, port: 'value', viaReroute: 'r3',
+    } })
+    const outcome = rebind('n2')
+    const binding = tab.store.doc.graphs['junction-body']!.boundary!.inputs[0]!.binds
+    const restore = rebind('n1')
+    const revision = tab.store.revision
+    const unchanged = rebind('n1')
+    return { ok: outcome.ok && restore.ok && unchanged.ok, binding,
+      unchangedRevision: tab.store.revision === revision, exported: app.exportDocument(tab.id) }
+  })
+  expect(rebound.ok).toBe(true)
+  expect(rebound.binding).toEqual({ kind: 'port', node: 'n2', port: 'value', viaReroute: 'r3' })
+  expect(rebound.unchangedRevision).toBe(true)
+  expect(rebound.exported).toEqual(before)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().links
+    .find((link) => link.id === 'boundary:inputs:in')?.to)).toEqual({ kind: 'reroute', reroute: 'r3' })
+  await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-rebound.png') })
   await page.getByTestId('graph-canvas').focus()
   await page.keyboard.press('Control+a')
   const graphCount = await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)

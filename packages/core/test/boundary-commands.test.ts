@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asNodeId, asPortId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -287,6 +287,48 @@ describe('boundary commands in a batch', () => {
 // ---------------------------------------------------------------------------
 
 describe('boundary item lifecycle commands', () => {
+  it('preserves explicit junction attachments through add, rebind, undo, and redo', () => {
+    const initial = subDoc([])
+    const sub = initial.graphs.sub!
+    const store = makeStore({ ...initial, graphs: { ...initial.graphs, sub: {
+      ...sub,
+      reroutes: { first: { id: asRerouteId('first') }, second: { id: asRerouteId('second') } },
+      links: {
+        firstLeg: { id: 'firstLeg' as never, from: { reroute: asRerouteId('first') }, to: { node: asNodeId('n1'), port: asPortId('left') } },
+        secondLeg: { id: 'secondLeg' as never, from: { reroute: asRerouteId('second') }, to: { node: asNodeId('n1'), port: asPortId('right') } },
+      },
+    } } })
+    const authoredLinks = store.doc.graphs.sub!.links
+    const params = { graphId: 'sub', side: 'inputs', itemId: 'junction', node: 'n1', port: 'left', viaReroute: 'first' }
+    expect(store.dispatch({ command: 'boundary.addItem', params }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'left', viaReroute: 'first' })
+    const revision = store.revision
+    expect(store.dispatch({ command: 'boundary.setBinding', params }).ok).toBe(true)
+    expect(store.revision).toBe(revision)
+    const replacement = { ...params, port: 'right', viaReroute: 'second' }
+    expect(store.dispatch({ command: 'boundary.setBinding', params: replacement }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'right', viaReroute: 'second' })
+    expect(store.doc.graphs.sub!.links).toEqual(authoredLinks)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds.viaReroute).toBe('first')
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds.viaReroute).toBe('second')
+    const before = JSON.stringify(store.doc)
+    for (const invalid of [
+      { ...replacement, viaReroute: '' },
+      { ...replacement, viaReroute: 7 },
+      { ...replacement, side: 'outputs' },
+      { ...replacement, bindingKind: 'slot' },
+      { ...replacement, bindingKind: 'dynamicCombo' },
+      { graphId: 'sub', side: 'outputs', itemId: 'junction', node: 'n1', tap: 'right', viaReroute: 'second' },
+    ]) {
+      const outcome = store.dispatch({ command: 'boundary.setBinding', params: invalid as unknown as Json })
+      expect(outcome.ok).toBe(false)
+      if (!outcome.ok) expect(outcome.diagnostics[0]!.code).toBe('params.invalid')
+      expect(JSON.stringify(store.doc)).toBe(before)
+    }
+  })
+
   it('adds, re-points, unbinds, and restores an output-side widget tap atomically', () => {
     const store = makeStore(subDoc([], [portItem('out')]))
     const add = store.dispatch({
