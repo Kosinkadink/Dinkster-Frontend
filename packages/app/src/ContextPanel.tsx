@@ -10,7 +10,7 @@
  */
 import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
-import { asNodeId, isPortEndpoint, isRerouteRef, isValueSourceRef, isWidgetTapRef, type Diagnostic, type Occurrence, type WorkflowDocument } from '@dinkster/core'
+import { asNodeId, isPortEndpoint, isRerouteRef, isValueSourceRef, isWidgetTapRef, occurrenceKey, type Diagnostic, type Occurrence, type WorkflowDocument } from '@dinkster/core'
 import { currentGraphId, viewInstancePath, type AppState, type Tab } from './app-state.js'
 import { activateProblem } from './ProblemsPanel.js'
 import { problemDisplay } from './problem-display.js'
@@ -135,6 +135,15 @@ export function ContextPanel(props: {
       : { instancePath: current.instancePath.map(asNodeId), node: asNodeId(nodeId) }
   }
 
+  const inspectionKey = createMemo(() => {
+    const current = view()
+    const occurrence = current === undefined ? undefined : selectedRegion(current)
+    const execution = props.execution?.()
+    return current === undefined || occurrence === undefined || execution === undefined
+      ? undefined
+      : JSON.stringify([current.tab.id, occurrenceKey(occurrence), execution.key])
+  })
+
   const contextDetails = (current: ContextView) => {
     const { context, doc, graphId } = current
     switch (context.kind) {
@@ -174,28 +183,26 @@ export function ContextPanel(props: {
   return (
     <section class="rail-section context-panel" data-testid="context-panel" data-native-text-scope>
       <h2>{message('contextPanel.title')}</h2>
-      <Show when={view()} keyed fallback={<ProductEmptyState title={message('contextPanel.empty.document')} />}>
+      <Show when={view()} fallback={<ProductEmptyState title={message('contextPanel.empty.document')} />}>
         {(current) => (
           <>
-            <div class="context-summary" data-testid="context-summary" data-context-kind={current.context.kind}>
-              <strong class="context-kind">{message(CONTEXT_KIND_TITLES[current.context.kind])}</strong>
-              {contextDetails(current)}
+            <div class="context-summary" data-testid="context-summary" data-context-kind={current().context.kind}>
+              <strong class="context-kind">{message(CONTEXT_KIND_TITLES[current().context.kind])}</strong>
+              {contextDetails(current())}
             </div>
-            <Show when={selectedRegion(current)} keyed>
-              {(occurrence) => <Show when={props.execution?.()?.key} keyed>
-                {(_executionKey) => {
-                  const registry = props.app.registryForTab(current.tab)
-                  return registry === undefined
-                    ? undefined
-                    : <RegionIterationInspector
-                        execution={props.execution!()!}
-                        regionOccurrence={occurrence}
-                        document={current.doc}
-                        resolveSchema={registry.resolve}
-                        values={props.values?.(props.execution!()!)}
-                      />
-                }}
-              </Show>}
+            <Show when={inspectionKey()} keyed>
+              {(_inspectionKey) => {
+                const registry = props.app.registryForTab(current().tab)
+                return registry === undefined
+                  ? undefined
+                  : <RegionIterationInspector
+                      execution={props.execution!()!}
+                      regionOccurrence={selectedRegion(current())!}
+                      document={current().doc}
+                      resolveSchema={registry.resolve}
+                      values={props.values?.(props.execution!()!)}
+                    />
+              }}
             </Show>
             <h3 class="context-problems-title">
               {message('contextPanel.problems.title')}
@@ -211,7 +218,7 @@ export function ContextPanel(props: {
                       data-activatable={hasOwningContext(diagnostic) ? true : undefined}
                     >
                       <summary>
-                        [{diagnostic.severity}] {diagnostic.code}: {problemDisplay(diagnostic, current.doc, registry())}
+                        [{diagnostic.severity}] {diagnostic.code}: {problemDisplay(diagnostic, current().doc, registry())}
                       </summary>
                       <Show when={hasOwningContext(diagnostic)}>
                         <button
