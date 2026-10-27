@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 async function prepare(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
@@ -228,7 +228,14 @@ test('repeated family-forwarding fan-out refusal stays one Problem and flashes e
       await expect(page.getByTestId('gesture-refusal-toast')).toBeHidden()
     }
   }
-  await expect(page.locator('.problem summary', { hasText: 'boundary.bindKind' })).toHaveCount(1)
   expect(toastVisible).toEqual([true, true])
   await expect(page.getByTestId('gesture-refusal-toast')).toContainText('boundary.bindKind')
+  await openRailPanel(page, 'Problems')
+  const problem = page.getByTestId('problems-panel').locator('details.problem').filter({
+    has: page.getByText('boundary.bindKind', { exact: true }),
+  })
+  await expect(problem).toHaveCount(1)
+  await expect(problem.locator('summary')).toContainText('family forwarding cannot fan out')
+  await problem.locator('summary').click()
+  await expect(problem.locator('.problem-detail code')).toHaveText('boundary.bindKind')
 })
