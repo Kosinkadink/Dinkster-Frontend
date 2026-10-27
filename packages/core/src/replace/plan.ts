@@ -1070,7 +1070,7 @@ function planReplacementForCase(
       if (historical !== undefined && sourceSchema !== undefined && (
         declaredFamily === undefined ||
         declaredFamily.template.length !== historical.inputs.length ||
-        declaredFamily.template.some((input) => !historical.inputs.includes(input.id)) ||
+        declaredFamily.template.some((input, index) => input.id !== historical.inputs[index]) ||
         declaredFamily.memberPort !== historical.memberPort
       )) {
         errors.push(diag(

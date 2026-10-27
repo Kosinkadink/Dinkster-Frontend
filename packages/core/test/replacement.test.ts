@@ -1354,14 +1354,18 @@ describe('input family replacement', () => {
         expect(stale.doc).toEqual(changed)
       }
       if (predecessor === 'available') {
-        const mismatched: ReplacementRule = { ...rule, cases: [{
-          to: 'FamilyNew', inputFamilies: { values: {
-            kind: 'copy', sourceFamily: 'operands', sourceTemplate: { inputs: ['right'] },
-            inputs: { value: { kind: 'copy', input: 'right' } },
-          } },
-        }] }
-        expect(planReplacement(original, 'g0', 'old', mismatched, resolve).diagnostics)
-          .toContainEqual(expect.objectContaining({ code: 'replace.source.familyTemplate' }))
+        for (const inputs of [['right'], ['right', 'left']]) {
+          const mismatched: ReplacementRule = { ...rule, cases: [{
+            to: 'FamilyNew', inputFamilies: { values: {
+              kind: 'copy', sourceFamily: 'operands', sourceTemplate: { inputs },
+              inputs: { value: { kind: 'copy', input: 'right' } },
+            } },
+          }] }
+          const refused = planReplacement(original, 'g0', 'old', mismatched, resolve)
+          expect(refused.plan).toBeUndefined()
+          expect(refused.diagnostics)
+            .toContainEqual(expect.objectContaining({ code: 'replace.source.familyTemplate' }))
+        }
       }
     },
   )
