@@ -539,7 +539,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2717,
+      "line": 2718,
       "column": 37,
       "symbol": "widgetType:string",
       "issue": 122
@@ -547,7 +547,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2729,
+      "line": 2730,
       "column": 9,
       "symbol": "widgetType:string",
       "issue": 122
@@ -555,7 +555,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/compile/compile.ts",
-      "line": 1873,
+      "line": 1899,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122

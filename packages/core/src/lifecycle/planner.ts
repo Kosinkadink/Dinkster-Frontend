@@ -633,7 +633,7 @@ interface FamilyMaterializationContext {
   readonly familyScopes: FlattenFamilyScopeMap[]
   readonly targetFamilySpecs: Map<string, AutogrowSpec>
   readonly entries: Map<string, FlattenAddressMapEntry>
-  readonly binding: Exclude<BoundaryBinding, { kind: 'unbound' }>
+  readonly binding: Extract<BoundaryBinding, { node: string }>
   readonly bindingIndex: number
   readonly fail: (code: FlattenStateRefusalCode, message: string, address?: FlattenPortAddress) => void
   readonly budget: { memberCount: number; itemCount: number }
@@ -1505,7 +1505,7 @@ function planFlattenState(
             const composed: BoundaryBinding[] = []
             for (const target of mappedTargets) {
               const targetBinding = childBindings[target.bindingIndex]
-              const targetNode = targetBinding === undefined || targetBinding.kind === 'unbound' ? undefined : body.nodes[targetBinding.node]
+              const targetNode = targetBinding === undefined || !isNodeBoundaryBinding(targetBinding) ? undefined : body.nodes[targetBinding.node]
               const targetSchema = targetNode === undefined ? undefined : resolveSchema(targetNode.type)
               const targetRoute = targetSchema === undefined || targetBinding === undefined
                 ? undefined
@@ -2176,14 +2176,14 @@ function refusalForLink(
   return { code, source: 'link', id: link.id, endpoint: inner }
 }
 
-const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' }>): PortRef => ({
+const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' | 'valueSource' }>): PortRef => ({
   node: binding.node,
   port: binding.port,
   ...(binding.members !== undefined ? { members: binding.members } : {}),
 })
 
 const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef => {
-  if (binding.kind === 'unbound') throw new Error('unbound boundary has no endpoint')
+  if (binding.kind === 'unbound' || binding.kind === 'valueSource') throw new Error('boundary has no node endpoint')
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
     : bindingAsPort(binding)

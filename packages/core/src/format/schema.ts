@@ -99,6 +99,11 @@ const widgetTapRef = {
 const boundaryBinding = {
   oneOf: [
     {
+      type: 'object', required: ['kind', 'valueSource', 'type'],
+      properties: { kind: { const: 'valueSource' }, valueSource: { type: 'string', minLength: 1 }, type: { $ref: '#/$defs/typeExpr' } },
+      not: { anyOf: ['node', 'port', 'tap', 'members', 'slots', 'viaReroute'].map((field) => ({ required: [field] })) },
+    },
+    {
       type: 'object', required: ['kind', 'type'],
       properties: { kind: { const: 'unbound' }, type: { $ref: '#/$defs/typeExpr' } },
       not: { anyOf: ['node', 'port', 'tap', 'members', 'slots', 'viaReroute'].map((field) => ({ required: [field] })) },
@@ -150,6 +155,13 @@ const boundaryItem = {
     ext: { $ref: '#/$defs/extData' },
   },
   allOf: [
+    {
+      if: {
+        properties: { binds: { type: 'object', properties: { kind: { const: 'valueSource' } }, required: ['kind'] } },
+        required: ['binds'],
+      },
+      then: { not: { required: ['alsoBinds'] } },
+    },
     {
       if: {
         properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'slot', 'dynamicCombo', 'unbound'] } }, required: ['kind'] } },

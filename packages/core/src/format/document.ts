@@ -536,7 +536,20 @@ export interface UnboundBoundaryBinding {
   readonly viaReroute?: never
 }
 
-export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding | UnboundBoundaryBinding
+/** A literal producer exposed without introducing a runtime node. */
+export interface ValueSourceBoundaryBinding {
+  readonly kind: 'valueSource'
+  readonly valueSource: ValueSourceId
+  readonly type: TypeExpr
+  readonly node?: never
+  readonly port?: never
+  readonly tap?: never
+  readonly members?: never
+  readonly slots?: never
+  readonly viaReroute?: never
+}
+
+export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding | ValueSourceBoundaryBinding | UnboundBoundaryBinding
 
 export type NodeBoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding
 
@@ -653,6 +666,8 @@ export interface OccurrenceTopology {
 const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
   binding.kind === 'unbound'
     ? [binding.kind, binding.type as unknown as Json]
+    : binding.kind === 'valueSource'
+    ? [binding.kind, binding.valueSource, binding.type as unknown as Json]
     : binding.kind === 'widgetTap'
     ? [binding.kind, binding.node, binding.tap]
     : [

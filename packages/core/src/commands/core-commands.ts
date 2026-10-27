@@ -500,7 +500,8 @@ function deleteCascade(
       let changed = false
       const kept: BoundaryItem[] = []
       for (const item of items) {
-        if (isNodeBoundaryBinding(item.binds) && removed.has(item.binds.node)) {
+        if (isNodeBoundaryBinding(item.binds) && removed.has(item.binds.node) ||
+            item.binds.kind === 'valueSource' && removedValueSources.has(item.binds.valueSource)) {
           changed = true
           continue
         }

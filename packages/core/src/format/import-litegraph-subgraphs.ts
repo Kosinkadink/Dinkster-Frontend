@@ -326,6 +326,11 @@ export function importLitegraphSubgraphs(
       const def = [...definitions.values()].find((candidate) => candidate.schema?.type === node['type'])
       if (!def) continue
       const source = raw['nodes'].find((candidate: Mutable) => `n${candidate?.['id']}` === id)
+      for (const slot of def.raw['inputs']) {
+        if (slot['proxyPrimitive'] !== undefined && Object.hasOwn(source['widgets_values'], slot['id'])) {
+          node['values'][slot['id']] = source['widgets_values'][slot['id']]
+        }
+      }
       node['controllers'] = { ...node['controllers'], ...preparedControllers.get(source) }
       node['ext'] = { ...node['ext'], 'importer.subgraphWidgets': {
         values: source['properties']['dinkster.rawWidgets'], proxies: source['properties']['proxyWidgets'] ?? [],
@@ -430,9 +435,11 @@ export function importLitegraphSubgraphs(
       }
       return end
     }
-    const bind = (end: any): Exclude<BoundaryBinding, { kind: 'unbound' }> | undefined =>
-      typeof end.node === 'string' && typeof end.port === 'string' && end.node !== `n${def.inputNode}` && end.node !== `n${def.outputNode}`
-        ? { kind: 'port', ...end } : undefined
+    const bind = (end: any, type: ReturnType<typeof importedSlotType>): Exclude<BoundaryBinding, { kind: 'unbound' }> | undefined =>
+      typeof end.valueSource === 'string' && nativeBody.valueSources?.[end.valueSource]
+        ? { kind: 'valueSource', valueSource: end.valueSource, type }
+        : typeof end.node === 'string' && typeof end.port === 'string' && end.node !== `n${def.inputNode}` && end.node !== `n${def.outputNode}`
+          ? { kind: 'port', ...end } : undefined
     const authoredBindings = (side: 'inputs' | 'outputs', index: number): BoundaryBinding[] =>
       def.raw['links'].flatMap((link: any[]) => {
         const nodeIndex = side === 'inputs' ? 3 : 1
@@ -448,6 +455,12 @@ export function importLitegraphSubgraphs(
       })
     let unsupported = false
     const boundary = (side: 'inputs' | 'outputs'): BoundaryItem[] => def.raw[side].flatMap((slot: Mutable, index: number) => {
+      if (side === 'inputs' && slot['proxyPrimitive'] !== undefined) {
+        const valueSource = `v${slot['proxyPrimitive']}` as NonNullable<GraphDef['valueSources']>[string]['id']
+        if (!nativeBody.valueSources?.[valueSource]) { unsupported = true; return [] }
+        return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'],
+          binds: { kind: 'valueSource', valueSource, type: importedSlotType(slot['type']) }, promoted: true }]
+      }
       const hasAuthoredLink = def.raw['links'].some((link: any[]) => side === 'inputs'
         ? link[1] === def.inputNode && link[2] === index
         : link[3] === def.outputNode && link[4] === index)
@@ -460,7 +473,7 @@ export function importLitegraphSubgraphs(
           const targets = rerouteInputTargets(nativeBody, end.reroute)
           return targets?.length ? { kind: 'port' as const, ...targets[0]!, viaReroute: end.reroute } : undefined
         }
-        return bind(side === 'outputs' ? terminalOutput(end) : end)
+        return bind(side === 'outputs' ? terminalOutput(end) : end, importedSlotType(slot['type']))
       })
       if (!bindings.length || bindings.some((item) => !item) || (side === 'outputs' && bindings.length !== 1)) {
         const authored = authoredBindings(side, index)
@@ -478,6 +491,7 @@ export function importLitegraphSubgraphs(
         }]
       }
       const primary = bindings[0]!
+      if (primary.kind === 'valueSource') return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: primary }]
       const rawLink = def.raw['links'].find((link: any[]) => link[1] === def.inputNode && link[2] === index)
       const target = rawLink && def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(rawLink[3]))
       const authority = nativeBody.nodes[primary.node]

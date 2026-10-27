@@ -7383,7 +7383,7 @@ export class AppState {
         const child = tab.store.doc.graphs[childId]
         if (!child) return
         const childPath = [...path, asNodeId(id)]
-        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' ? [] : [item.binds.node]) ?? [])
+        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' || item.binds.kind === 'valueSource' ? [] : [item.binds.node]) ?? [])
         for (const inner of Object.values(child.nodes)) if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
         for (const childTarget of [...childTargets].sort()) visit(childId, childPath, childTarget)
       }

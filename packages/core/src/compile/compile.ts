@@ -332,6 +332,7 @@ interface ResolvedStructuralSource {
     readonly path: readonly NodeId[]
     readonly defId: string
     readonly endpoint: LinkEndpoint
+    readonly typeId?: string
   }
 }
 /**
@@ -521,6 +522,7 @@ function compileImpl(
     /** nodeId -> values that determine an occurrence-local elaborated interface. */
     readonly values: Map<NodeId, Readonly<Record<string, Json>>>
     readonly controllers: Map<NodeId, NonNullable<NodeData['controllers']>>
+    readonly sourceValues: Map<string, Json>
     /** nodeId -> input/output addresses projected through crossings from outer graphs. */
     readonly extraIn: Map<NodeId, ProjectedAddress[]>
     readonly extraOut: Map<NodeId, ProjectedAddress[]>
@@ -532,7 +534,7 @@ function compileImpl(
   const topologyKey = (path: readonly NodeId[], defId: string): string => JSON.stringify([defId, path])
   const occCtxByPath = new Map<string, OccCtx>()
   const newOccCtx = (defId: GraphDefId, path: readonly NodeId[]): OccCtx => {
-    const ctx: OccCtx = { defId, path, overlays: new Map(), values: new Map(), controllers: new Map(), extraIn: new Map(), extraOut: new Map() }
+    const ctx: OccCtx = { defId, path, overlays: new Map(), values: new Map(), controllers: new Map(), sourceValues: new Map(), extraIn: new Map(), extraOut: new Map() }
     occCtxByPath.set(pathKey(path), ctx)
     return ctx
   }
@@ -918,7 +920,7 @@ function compileImpl(
       let sawMuted = false
       let sawBypassed = false
       for (const b of bindings) {
-        if (b.kind === 'unbound') continue
+        if (b.kind === 'unbound' || b.kind === 'valueSource') continue
         // Junction deliveries lower through their retained internal links.
         if (b.viaReroute !== undefined) continue
         if (b.kind === 'widgetTap') {
@@ -1032,6 +1034,14 @@ function compileImpl(
       }
       const item = match.item
       if (item.binds.kind === 'unbound') return undefined
+      if (item.binds.kind === 'valueSource') {
+        const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
+        if (routeIsSuppressed([...path, node.id], delivery, route)) return undefined
+        const typeId = canonicalTypeIdOf(item.binds.type)
+        return { structuralSource: { path: [...path, node.id], defId: childId, endpoint: { valueSource: item.binds.valueSource },
+          ...(typeId !== undefined ? { typeId } : {}),
+        } }
+      }
       if (item.binds.kind === 'widgetTap') {
         const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
         if (routeIsSuppressed([...path, node.id], delivery, route)) return undefined
@@ -1320,7 +1330,7 @@ function compileImpl(
 
   type RouteAt =
     | { readonly kind: 'bypass'; readonly bypass: BypassAt }
-    | { readonly kind: 'endpoint'; readonly path: readonly NodeId[]; readonly defId: string; readonly endpoint: LinkEndpoint }
+    | { readonly kind: 'endpoint'; readonly path: readonly NodeId[]; readonly defId: string; readonly endpoint: LinkEndpoint; readonly typeId?: string }
 
   interface SelectedBypassHop {
     readonly at: BypassAt
@@ -1442,13 +1452,22 @@ function compileImpl(
             return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId } }] }
           }
           if (isValueSourceRef(endpoint)) {
-            viaFor?.(at.defId).valueSources.add(endpoint.valueSource)
+            const ctx = occCtxByPath.get(pathKey(at.path))
+            const parentPath = at.path.slice(0, -1)
+            const parent = at.path.length > 0 ? occCtxByPath.get(pathKey(parentPath)) : undefined
+            const boundary = def.boundary?.inputs.find((item) => item.binds.kind === 'valueSource' && item.binds.valueSource === endpoint.valueSource)
+            if (parent && boundary) {
+              const driver = driverOfInput(parentPath, parent.defId, at.path[at.path.length - 1]!, { port: boundary.id })
+              if (driver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', ...driver } }] }
+            }
+            if (!ctx?.sourceValues.has(endpoint.valueSource)) viaFor?.(at.defId).valueSources.add(endpoint.valueSource)
             const source = def.valueSources?.[endpoint.valueSource]
             if (!source) {
               if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.valueSource.missing', `route in graph '${at.defId}' references missing value source '${endpoint.valueSource}'`))
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `value source '${endpoint.valueSource}' is missing` } }] }
             }
-            return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: source.value } }] }
+            const value = ctx?.sourceValues.has(endpoint.valueSource) ? ctx.sourceValues.get(endpoint.valueSource)! : source.value
+            return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value, ...(at.typeId !== undefined ? { typeId: at.typeId } : {}) } }] }
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
           if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence` } }] }
@@ -1710,7 +1729,7 @@ function compileImpl(
               ? [source]
               : (rerouteInputTargets(child, source.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
             for (const binding of bindings) {
-              if (binding.kind === 'widgetTap' || binding.kind === 'unbound') continue
+              if (binding.kind === 'widgetTap' || binding.kind === 'unbound' || binding.kind === 'valueSource') continue
               const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding: source }]
               if (routeIsSuppressed(childPath, projected.delivery, route)) continue
               let list = childCtx.extraIn.get(binding.node)
@@ -1785,6 +1804,13 @@ function compileImpl(
     }
     let hasFamilyItem = false
     for (const item of child.boundary.inputs) {
+      if (item.binds.kind === 'valueSource') {
+        const inherited = overrides.get(occurrenceKey({ instancePath: parentCtx.path, node: node.id }))
+        const value = inherited?.has(item.id) ? inherited.get(item.id) : node.values[item.id]
+        const childCtx = occCtxByPath.get(pathKey(childPath))
+        if (value !== undefined && childCtx && !childCtx.sourceValues.has(item.binds.valueSource)) childCtx.sourceValues.set(item.binds.valueSource, value)
+        continue
+      }
       if (item.binds.kind !== 'port') {
         hasFamilyItem = true
         continue
@@ -1804,7 +1830,7 @@ function compileImpl(
         ? [binding]
         : (rerouteInputTargets(child, binding.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target })))
       for (const b of targets) {
-        if (b.kind === 'widgetTap' || b.kind === 'unbound') continue
+        if (b.kind === 'widgetTap' || b.kind === 'unbound' || b.kind === 'valueSource') continue
         const targets = resolveInputPort(childPath, childId, b)
         // Muted/bypassed inner targets compile nothing; a promoted value for
         // them is dormant (bypass forwards connections, never widget values).

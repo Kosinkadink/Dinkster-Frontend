@@ -136,10 +136,11 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   const binding = v as Record<string, unknown>
   const kind = binding['kind']
-  if (kind === 'unbound') {
+  if (kind === 'unbound' || kind === 'valueSource') {
+    if (kind === 'valueSource') c.str(binding['valueSource'], `${path}.valueSource`, { nonEmpty: true })
     checkTypeExpr(c, binding['type'], `${path}.type`)
     for (const field of ['node', 'port', 'tap', 'members', 'slots', 'viaReroute']) {
-      if (binding[field] !== undefined) c.fail(`${path}.${field}`, "invalid on kind 'unbound'")
+      if (binding[field] !== undefined) c.fail(`${path}.${field}`, `invalid on kind '${kind}'`)
     }
     return
   }
@@ -209,6 +210,10 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'an unattached boundary cannot fan out')
     if (v['promoted'] !== undefined) c.fail(`${path}.promoted`, 'an unattached boundary has no widget to promote')
   }
+  if (primaryBinding?.['kind'] === 'valueSource') {
+    if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'a value source boundary cannot fan out')
+    if (side === 'outputs' && v['promoted'] !== undefined) c.fail(`${path}.promoted`, 'a value source output cannot promote a widget')
+  }
   if (primaryBinding?.['kind'] === 'widgetTap' && side === 'inputs') {
     c.fail(`${path}.binds.kind`, "kind 'widgetTap' is output-side only")
   }
@@ -263,9 +268,10 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     v['promoted'] !== undefined &&
     typeof binds === 'object' &&
     binds !== null &&
-    (binds as Record<string, unknown>)['kind'] !== 'port'
+    (binds as Record<string, unknown>)['kind'] !== 'port' &&
+    (binds as Record<string, unknown>)['kind'] !== 'valueSource'
   ) {
-    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port')
+    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port or value source')
   }
   c.optExt(v['ext'], `${path}.ext`)
 }

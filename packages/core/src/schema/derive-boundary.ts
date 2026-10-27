@@ -43,6 +43,7 @@ import { isNodeBoundaryBinding, isSubtreeBinding, type BoundaryBinding, type Bou
 import { isPortEndpoint, portAddressKey, type DynamicMemberId, type PortId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
+import { effectiveValueSourceSpec } from '../value-source.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from './elaborate.js'
 import { outputDescriptorAssetOf, outputDescriptorValueOf, parseOutputDescriptors } from './output-descriptors.js'
@@ -255,7 +256,7 @@ export function resolveBoundaryRoute(
   values?: Readonly<Record<string, unknown>>,
   dynamic?: NodeData['dynamic'],
 ): RouteResult {
-  if (binding.kind === 'unbound') return { ok: false, code: 'boundary.unboundRoute', message: 'an unattached boundary has no inner route' }
+  if (binding.kind === 'unbound' || binding.kind === 'valueSource') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
   if (binding.kind === 'widgetTap') {
     return {
       ok: false,
@@ -885,6 +886,19 @@ export function deriveBoundarySchema(
 
   for (const item of def.boundary.inputs) {
     if (!checkId(item)) continue
+    if (item.binds.kind === 'valueSource') {
+      const source = def.valueSources?.[item.binds.valueSource]
+      if (!source) {
+        fail('boundary.danglingValueSource', `boundary input '${item.id}' binds missing value source '${item.binds.valueSource}'`)
+        continue
+      }
+      const effective = effectiveValueSourceSpec(def, source, resolve)
+      items.push({ kind: 'input', id: item.id, type: item.binds.type, optional: true,
+        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
+        ...(item.promoted === true && effective.spec !== undefined ? { widget: effective.spec } : {}),
+      })
+      continue
+    }
     if (item.binds.kind === 'unbound') {
       items.push({ kind: 'input', id: item.id, ...(item.displayName !== undefined ? { displayName: item.displayName } : {}), type: item.binds.type, optional: true })
       continue
@@ -1164,6 +1178,16 @@ export function deriveBoundarySchema(
 
   for (const item of def.boundary.outputs) {
     if (!checkId(item)) continue
+    if (item.binds.kind === 'valueSource') {
+      if (!def.valueSources?.[item.binds.valueSource]) {
+        fail('boundary.danglingValueSource', `boundary output '${item.id}' binds missing value source '${item.binds.valueSource}'`)
+        continue
+      }
+      items.push({ kind: 'output', id: item.id, type: item.binds.type,
+        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
+      })
+      continue
+    }
     if (item.binds.kind === 'unbound') {
       items.push({ kind: 'output', id: item.id, ...(item.displayName !== undefined ? { displayName: item.displayName } : {}), type: item.binds.type })
       continue

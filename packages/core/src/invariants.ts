@@ -775,6 +775,11 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
             if (item.alsoBinds !== undefined || item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.unbound', where(`unattached boundary '${item.id}' cannot fan out or promote a widget`)))
             continue
           }
+          if (b.kind === 'valueSource') {
+            if (!def.valueSources?.[b.valueSource]) diags.push(diag('error', 'invariant', 'doc.boundary.dangling', where(`boundary '${item.id}' binds missing value source '${b.valueSource}'`)))
+            if (item.alsoBinds !== undefined || side === 'outputs' && item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.valueSource', where(`value source boundary '${item.id}' cannot fan out or promote an output`)))
+            continue
+          }
           if (b.viaReroute !== undefined) {
             if (side !== 'inputs' || b.kind !== 'port' ||
                 def.reroutes[b.viaReroute] === undefined || drivenReroutes.has(b.viaReroute) || boundaryReroutes.has(b.viaReroute)) {

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
 import { compile } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { Json, JsonObject, WorkflowDocument } from '../src/format/document.js'
-import { asConnectionId } from '../src/ids.js'
+import { asConnectionId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
 import { classifyFlattenBoundaryRoute, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
@@ -478,15 +480,14 @@ describe('LiteGraph subgraphs', () => {
       .toBe('refused')
   })
 
-  it.each([2, 4])('reports mode %s when its structural producer cannot be preserved', (mode) => {
+  it.each([2, 4])('preserves mode %s without executing a structural producer', (mode) => {
     const def = { ...definition(), nodes: [{ id: 1, type: 'PrimitiveNode', widgets_values: [7], outputs: [{ name: 'INT' }] }],
       inputs: [], links: [link(2, 1, 0, -20, 0)] }
-    const target = { ...relay(2), inputs: [{ name: 'value', widget: { name: 'value' }, link: 1 }] }
-    const result = importLitegraph({ nodes: [{ ...instance(1), inputs: [], widgets_values: [], mode }, target],
-      links: [[1, 1, 0, 2, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
-      .toEqual(['import.subgraphs.boundaryUnsupported'])
+    const target = { ...relay(2), inputs: [{ name: 'value', widget: { name: 'value' }, link: 1 }], widgets_values: [53] }
+    const doc = imported({ nodes: [{ ...instance(1), inputs: [], widgets_values: [], mode }, target],
+      links: [[1, 1, 0, 2, 0, 'INT']], definitions: { subgraphs: [def] } })
+    expect(doc.graphs.g0!.nodes.n1!.mode).toBe(mode === 2 ? 'muted' : 'bypassed')
+    expect(prompt(doc)).toEqual({ n2: expect.objectContaining({ inputs: { value: 53 } }) })
   })
 
   it('preserves disconnected boundary slots before connected slots without shifting deliveries', () => {
@@ -546,11 +547,11 @@ describe('LiteGraph subgraphs', () => {
     const def = { ...definition(), inputs: [], nodes: [
       { id: 1, type: 'PrimitiveNode', pos: [61, 29], outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
     ], links: [link(2, 1, 0, -20, 0)] }
-    const host = (id: number, value: number, mode: string) => ({ ...instance(id), inputs: [], widgets_values: [value, mode],
+    const host = (id: number, value: Json, mode: string) => ({ ...instance(id), inputs: [], widgets_values: [value, mode],
       properties: { proxyWidgets: [['1', 'value'], ['1', 'control_after_generate']] } })
     const raw = { nodes: [host(1, 11, 'increment'), host(2, 29, 'randomize'), relay(3), relay(4),
-      { ...host(5, 41, 'decrement'), widgets_values: [] }, relay(6)],
-      links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 4, 0, 'INT'], [3, 5, 0, 6, 0, 'INT']], definitions: { subgraphs: [def] } }
+      { ...host(5, 41, 'decrement'), widgets_values: [] }, relay(6), host(7, null, 'fixed'), relay(8)],
+      links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 4, 0, 'INT'], [3, 5, 0, 6, 0, 'INT'], [4, 7, 0, 8, 0, 'INT']], definitions: { subgraphs: [def] } }
     const source = JSON.stringify(raw)
     const doc = imported(raw)
     expect(JSON.stringify(raw)).toBe(source)
@@ -565,12 +566,28 @@ describe('LiteGraph subgraphs', () => {
     expect(doc.graphs.g0!.nodes.n5!.values).toEqual({})
     const before = JSON.stringify(doc)
     const compiled = prompt(doc)
-    expect(Object.keys(compiled).sort()).toEqual(['n3', 'n4', 'n6'])
+    expect(Object.keys(compiled).sort()).toEqual(['n3', 'n4', 'n6', 'n8'])
     expect(compiled.n3!.inputs.value).toBe(11)
     expect(compiled.n4!.inputs.value).toBe(29)
     expect(compiled.n6!.inputs.value).toBe(7)
+    expect(compiled.n8!.inputs.value).toBeNull()
     expect(JSON.stringify(doc)).toBe(before)
     expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
+    const store = new DocumentStore(doc, coreCommandRegistry())
+    const linked = JSON.parse(before) as WorkflowDocument
+    const root = linked.graphs.g0!
+    const driven = { ...linked, graphs: { ...linked.graphs, g0: { ...root,
+      nodes: { ...root.nodes, n9: { ...root.nodes.n3!, id: asNodeId('n9'), values: { value: 53 } } },
+      links: { ...root.links, l9: { id: asLinkId('l9'),
+        from: { node: asNodeId('n9'), port: asPortId('result') },
+        to: { node: asNodeId('n1'), port: asPortId('proxy-primitive-1') } } },
+    } } }
+    expect(prompt(driven).n3!.inputs.value).toEqual(['n9', 0])
+    expect(store.dispatch({ command: 'valueSource.remove', params: { graphId: 'inner', valueSourceIds: ['v1'] } }).ok).toBe(true)
+    expect(store.doc.graphs.inner!.boundary).toEqual({ inputs: [], outputs: [] })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.inner).toEqual(doc.graphs.inner)
+    expect(prompt(store.doc)).toEqual(compiled)
   })
 
   it.each([['value', '2'], ['1: 2: value', undefined]])('resolves nested legacy widget %s without confusing identical names', (name, sourceId) => {

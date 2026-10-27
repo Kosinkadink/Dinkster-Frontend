@@ -84,6 +84,15 @@ nodes, change class identities, or rewrite links. Missing or unmatched versions
 use the ordinary import path. Root nodes and subgraph definitions use the same
 table. These source versions are not the workflow format's `version` field.
 
+Primitive producers inside imported subgraphs remain first-class value sources,
+not runtime helper nodes. Native `valueSource` boundary bindings retain the
+authored interface type independently of the stored literal. Proxy values and
+controller modes are retained on each instance; a missing value uses the shared
+definition's literal, while an explicit null remains null. Compilation reads
+occurrence-local overrides without modifying the definition. A connected proxy
+input takes precedence over the instance's stored literal. Deleting the value
+source removes its boundary slots in the same undoable transaction.
+
 Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
 constraints. The decoder retains the FLOATS socket and scalar default, min and
 step; it does not replace the runtime type with FLOAT or a primitive list.
