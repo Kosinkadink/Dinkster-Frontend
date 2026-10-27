@@ -457,10 +457,25 @@ describe('LiteGraph subgraphs', () => {
     const reopened = loadDocument(JSON.parse(JSON.stringify(doc))).document!
     expect(prompt(reopened, resolver)).toEqual(prompt(doc, resolver))
     expect(classifyFlattenBoundaryRoute(body, body.boundary!.inputs[0]!, resolver, 'input')).toBe('family')
+    const flattenPlan = planFlattenBoundaryRoutes(body, resolver, doc.graphs.g0!.nodes.n1!, doc.graphs.g0!)
+    expect(flattenPlan.boundaryPlan).toEqual([
+      { side: 'input', id: 'in', route: 'family' },
+      { side: 'output', id: 'out', route: 'plain' },
+    ])
+    expect(flattenPlan.statePlan.status, JSON.stringify(flattenPlan.statePlan)).toBe('ready')
+    if (flattenPlan.statePlan.status === 'ready') {
+      expect(flattenPlan.statePlan.addresses).toMatchObject([{
+        side: 'input', boundaryId: 'in', before: { port: 'in' }, uses: ['endpoint'],
+        targets: [{ binding: { kind: 'port', node: 'n1', port: 'outer.inner.m2', members: ['m3'] } }],
+      }])
+      expect(flattenPlan.statePlan.nodes[0]!.dynamic).toEqual(body.nodes.n1!.dynamic)
+    }
     const missingMember = { ...body, nodes: { n1: { ...body.nodes.n1!, dynamic: {
       outer: { members: ['m3'], seq: 4, memberState: { m3: { 'outer.inner': { members: ['m1'], seq: 3 } } } },
     } } } } as unknown as typeof body
     expect(deriveBoundarySchema(missingMember, resolver).schema).toBeUndefined()
+    expect(planFlattenBoundaryRoutes(missingMember, resolver, doc.graphs.g0!.nodes.n1!, doc.graphs.g0!).statePlan.status)
+      .toBe('refused')
   })
 
   it.each([2, 4])('reports mode %s when its structural producer cannot be preserved', (mode) => {

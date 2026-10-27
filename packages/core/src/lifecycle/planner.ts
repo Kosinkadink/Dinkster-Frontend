@@ -1157,7 +1157,7 @@ function planFlattenState(
         if (binding.kind === 'unbound') return false
         const node = body.nodes[binding.node]
         const schema = node === undefined ? undefined : resolveSchema(node.type)
-        const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side)
+        const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side, node?.values, node?.dynamic)
         return resolved?.ok === true && resolved.route.terminal.kind === 'family' && resolved.route.terminal.spec.naming.kind === 'native'
       })
       const familyHasEvidence = Object.hasOwn(occurrence.dynamic ?? {}, item.id) ||
@@ -1181,9 +1181,8 @@ function planFlattenState(
           const original = body.nodes[binding.node]
           const target = original === undefined ? undefined : nodes.get(original.id as string)
           const schema = original === undefined ? undefined : resolveSchema(original.type)
-          const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side)
-          if (original === undefined || target === undefined || resolved?.ok !== true || resolved.route.terminal.kind !== 'port' ||
-              memberHopsOf(resolved.route.hops).length === 0) {
+          const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side, original?.values, original?.dynamic)
+          if (original === undefined || target === undefined || resolved?.ok !== true || resolved.route.terminal.kind !== 'port') {
             fail('subgraph.flatten.stateUnresolved', `boundary '${item.id}' has an unresolved concrete member target`, side, item.id)
             continue
           }
@@ -1239,7 +1238,7 @@ function planFlattenState(
         const original = body.nodes[binding.node]
         const target = original === undefined ? undefined : nodes.get(original.id as string)
         const schema = original === undefined ? undefined : resolveSchema(original.type)
-        const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side)
+        const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side, original?.values, original?.dynamic)
         if (original === undefined || target === undefined || schema === undefined || resolved?.ok !== true || resolved.route.terminal.kind !== 'family') {
           fail('subgraph.flatten.stateUnresolved', `boundary '${item.id}' has an unresolved family target`, side, item.id)
           continue
