@@ -14,6 +14,7 @@ retain their own upgrade flow; deprecation pointers are display metadata only.
 Deprecation badges show messages, version notes, and name-only successor
 guidance. They expose no replacement plans, rule diagnostics, or apply action;
 opening a badge does not mutate the graph.
+The status bar has no upgrade-review toggle.
 The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses
 only exact registered node IDs; historical node alias metadata is not a lookup

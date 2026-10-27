@@ -501,7 +501,6 @@ export function App(props: {
     return app.hostUiContributions.list('status.trailing')
   }
   const tabTargets = useSignal(app.tabTargets)
-  const reviewReplacements = useSignal(app.reviewReplacements)
   // DockLayout owns membership, order, active tab, and open state for all
   // three zones. ShellLayout owns their pixel sizes and bar visibility.
   const dockLayoutState = useSignal(app.dock.state)
@@ -2939,16 +2938,6 @@ export function App(props: {
             {multiBackend()
               ? message('shell.status.backendsCount', { count: backends().length })
               : message('shell.panel.backends.title')}
-          </ProductButton>
-          <ProductButton variant="ghost" size="compact"
-            class="statusbar-toggle"
-            data-testid="review-upgrades-toggle"
-            data-tooltip-label={message('shell.reviewUpgrades.tooltip')}
-            aria-label={message('shell.reviewUpgrades.ariaLabel', { state: message(reviewReplacements() ? 'shell.state.on' : 'shell.state.off') })}
-            aria-pressed={reviewReplacements()}
-            onClick={() => app.reviewReplacements.update((v) => !v)}
-          >
-            {message('shell.reviewUpgrades.label', { state: message(reviewReplacements() ? 'shell.state.on' : 'shell.state.off') })}
           </ProductButton>
         </div>
       </footer>

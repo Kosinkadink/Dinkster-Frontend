@@ -131,7 +131,7 @@ test('shell, App View, and runtime settings update from the active locale catalo
   await expect(page.getByTestId('app-view-arrange-toggle')).toContainText('Arrange')
   await expect(page.getByTestId('app-view-empty')).toContainText('Nothing is exposed yet.')
   await expect(page.getByTestId('backends-toggle')).toContainText('Backends')
-  await expect(page.getByTestId('review-upgrades-toggle')).toContainText('Review upgrades: off')
+  await expect(page.getByTestId('status-bar').getByRole('button', { name: /Review upgrades/ })).toHaveCount(0)
   await page.getByTestId('dinkster-menu-button').click()
   await expect(page.locator('[data-item-id="workflow.open"]')).toContainText('Open workflow library')
   await page.screenshot({ path: evidencePath('issue-457', 'host-i18n-app-view-en.png'), fullPage: true })
@@ -174,8 +174,6 @@ test('shell, App View, and runtime settings update from the active locale catalo
       'shell.panel.memory.title': '[RAM]',
       'shell.panel.outputs.title': '[Out]',
       'shell.panel.settings.title': '[Cfg]',
-      'shell.reviewUpgrades.label': '[Prufe Aktualisierungen: {state}]',
-      'shell.state.off': '[aus]',
       'shell.toggle.leftPanel': '[Linken Bereich umschalten]',
     })
     setLocale('de-DE')
@@ -188,7 +186,6 @@ test('shell, App View, and runtime settings update from the active locale catalo
   await expect(page.getByTestId('projects-button')).toHaveAttribute('aria-label', '[Projects-DE]')
   await expect(page.getByTestId('library-toggle')).toContainText('[Lib]')
   await expect(page.getByTestId('backends-toggle')).toContainText('[Srv]')
-  await expect(page.getByTestId('review-upgrades-toggle')).toContainText('[Prufe Aktualisierungen: [aus]]')
   await expect(page.getByTestId('app-view-arrange-toggle')).toContainText('[Anordnen und gestalten]')
   await expect(page.getByTestId('app-view-empty')).toContainText('[Noch keine Steuerelemente freigegeben.]')
   await expect(page.getByTestId('dinkster-menu-button')).toHaveAttribute('aria-expanded', 'false')
