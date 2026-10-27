@@ -257,6 +257,7 @@ test('execution-time output arity is refused until count is a pre-execution lite
   const boundaryDiagnostic = page.locator('[data-testid=boundary-diag][data-code="boundary.countBoundOutputInvalid"]')
   await expect(boundaryDiagnostic).toBeVisible()
   await expect(boundaryDiagnostic).toContainText("runtimeArity.pictures: count input 'count' requires an integer in 0..4")
+  if (proofDir) await page.getByTestId('boundary-panel').screenshot({ path: join(proofDir, 'boundary-count-warning.png') })
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

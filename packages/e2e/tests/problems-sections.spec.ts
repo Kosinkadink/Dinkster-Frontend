@@ -51,6 +51,9 @@ test('Problems presents five ordered sections with one-line rows and debug-only 
   }
   await rows.first().click()
   await expect(panel.locator('details.problem').first().locator('.problem-detail')).toContainText('runtime.failed')
+  await expect(rows.first()).toHaveAttribute('title', 'Sampler: model memory is exhausted')
+  await expect(panel.getByText('Sampler: model memory is exhausted', { exact: true })).toHaveCount(1)
+  await panel.screenshot({ path: evidencePath('problems-sections', 'expanded-detail.png'), animations: 'disabled' })
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   await panel.getByRole('button', { name: 'Dismiss', exact: true }).click()
   await expect(panel.locator('.problems-group-title')).toHaveText([

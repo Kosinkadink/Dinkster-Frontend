@@ -163,7 +163,7 @@ describe('ProblemsPanel', () => {
       <ProblemsPanel app={app} diagnostics={() => [anchored]} compatSkips={() => []} />
     ))
     const detail = withoutSsrHydration(html)
-    const summary = detail.match(/<summary>[\s\S]*?<\/summary>/)?.[0]
+    const summary = detail.match(/<summary\b[^>]*>[\s\S]*?<\/summary>/)?.[0]
     expect(summary).toContain('preview exploded')
     expect(summary).toContain('aria-label="error"')
     expect(summary).not.toContain('runtime.exploded')
