@@ -4185,11 +4185,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       if (focusPlan && graphId === focusPlan.graphStack[focusPlan.graphStack.length - 1]) {
         const node = scene.nodes.find((candidate) => candidate.id === focusPlan.nodeId)
+        const link = scene.links.find((candidate) => candidate.id === focusPlan.linkId)
         if (node) {
           controller.setSelection([node.id])
           camera.animateTo(viewportCenteredOnNode(
             renderer.getViewport(),
             { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+            { width: canvasEl.clientWidth, height: canvasEl.clientHeight },
+          ))
+        } else if (link) {
+          controller.setSelection([], [link.id])
+          camera.animateTo(viewportCenteredOnNode(
+            renderer.getViewport(),
+            { x: (link.x1 + link.x2) / 2, y: (link.y1 + link.y2) / 2, width: 0, height: 0 },
             { width: canvasEl.clientWidth, height: canvasEl.clientHeight },
           ))
         }

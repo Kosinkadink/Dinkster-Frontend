@@ -164,13 +164,14 @@ describe('problems ownership', () => {
     const a = open('lin-a')
     const b = open('lin-b')
     app.reportProblems(a.id, [diag('error', 'compile', 'a.problem', 'A')])
-    app.reportProblems(b.id, [diag('error', 'compile', 'b.problem', 'B')])
+    app.reportProblems(b.id, [diag('error', 'compile', 'b.problem', 'B'), diag('info', 'import', 'import.notice', 'B: saved seed format is upgraded')])
     app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'schema', 'global.problem', 'G')])
     app.closeTab(b.id)
     const codes = app.problems.get().map((d) => d.code)
     expect(codes).toContain('a.problem')
     expect(codes).toContain('global.problem')
     expect(codes).not.toContain('b.problem')
+    expect(codes).not.toContain('import.notice')
   })
 
   it('replacing a document (same lineage) replaces its diagnostics, not others\'', () => {

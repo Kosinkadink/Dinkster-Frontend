@@ -26,10 +26,10 @@ The panel shows only non-empty sections, in this order:
    unavailable inference problems.
 5. **Collaboration**: shared-session problems.
 
-Information notices remain visible. Each row has a severity icon and a
-single-line producer message naming the thing and its cause. Expanding the
+Information notices remain visible. Problems and Focused rows have a severity
+icon and a single-line producer message naming the thing and its cause. Expanding the
 row reveals the diagnostic code, full message and any debug payload or
-traceback. Clicking an anchored row also navigates to its owner. Section
+traceback. Clicking an anchored Problems row also navigates to its owner. Section
 disclosure remains independent of row disclosure.
 
 When a queue attempt is refused, a Product error toast repeats the Problems
@@ -95,11 +95,12 @@ context by anchor and ref facts alone:
 
 ## Navigation
 
-Problems rows with an owning context (an occurrence or port anchor) offer
+Problems rows with an owning context (an occurrence, port or link anchor) offer
 two actions:
 
 - **Show on canvas** - the existing anchored navigation: restores the owning
-  graph view, selects the node, and centers the camera.
+  graph view, selects the node or link, and centers the camera. Link-only
+  anchors resolve in the current graph, including the current subgraph instance.
 - **Show in Focused** - does the same focus, then activates the Focused tab,
   which now shows the owner and its problems.
 

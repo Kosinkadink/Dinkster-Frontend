@@ -1494,7 +1494,8 @@ export function viewInstancePath(tab: Tab): readonly string[] | undefined {
 export interface DiagnosticFocusPlan {
   readonly graphStack: readonly string[]
   readonly instancePath: readonly string[]
-  readonly nodeId: string
+  readonly nodeId?: string
+  readonly linkId?: string
 }
 
 /**
@@ -1511,7 +1512,21 @@ export function diagnosticFocusPlan(
   const occurrence = anchor?.occurrence ?? (anchor?.port
     ? { instancePath: portInstancePath.map(asNodeId), node: anchor.port.node }
     : undefined)
-  if (!occurrence) return undefined
+  if (!occurrence) {
+    if (anchor?.link === undefined) return undefined
+    const graphStack: string[] = [doc.root]
+    for (const instance of portInstancePath) {
+      const graph = doc.graphs[graphStack[graphStack.length - 1]!]
+      const node = graph?.nodes[instance]
+      const child = node && subgraphDefIdOf(node.type)
+      if (child === undefined || doc.graphs[child] === undefined) return undefined
+      graphStack.push(child)
+    }
+    const graph = doc.graphs[graphStack[graphStack.length - 1]!]
+    return graph?.links?.[anchor.link] === undefined ? undefined : {
+      graphStack, instancePath: [...portInstancePath], linkId: anchor.link,
+    }
+  }
   const resolved = resolveNodeOccurrence(doc, occurrence)
   return resolved === undefined
     ? undefined

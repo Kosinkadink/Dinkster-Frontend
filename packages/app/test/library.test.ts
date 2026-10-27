@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { asPromptId, type DinksterNodesPayload } from '@dinkster/core'
+import { asPromptId, diag, type DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -109,7 +109,14 @@ describe('saveWorkflow', () => {
       .spyOn(backend.connection, 'patchLibraryRecord')
       .mockResolvedValue({ ok: true, record: record({ digest: DIGEST2, revision: 2 }) })
 
+    app.reportProblems(tab.id, [
+      diag('info', 'import', 'import.notice', 'Sampler: saved seed format is upgraded'),
+      diag('warning', 'schema', 'schema.notice', 'Sampler: backend schema is unavailable'),
+    ])
+
     expect(await app.saveWorkflow(tab.id)).toBe(true)
+    expect(app.problems.get().some((entry) => entry.code === 'import.notice')).toBe(false)
+    expect(app.problems.get().some((entry) => entry.code === 'schema.notice')).toBe(true)
     expect(app.isTabDirty(tab.id)).toBe(false)
     expect(app.transientStatus.get()).toBe('Saved to Native library')
     // The uploaded bytes are the tab's own document (stamping is advisory
@@ -119,6 +126,7 @@ describe('saveWorkflow', () => {
     const uploaded = JSON.parse(uploadedBody as string) as Record<string, unknown>
     expect(uploaded['format']).toBe('dinkster-workflow')
     expect(uploaded['lineage']).toBe('lineage-library-test')
+    expect(uploadedBody).not.toContain('import.notice')
     expect(create).toHaveBeenCalledWith({
       scope: LIBRARY_SCOPE,
       name: 'Chain',
@@ -187,8 +195,10 @@ describe('saveWorkflow', () => {
 
   it('failures land in Problems and return false', async () => {
     const { backend, tab } = nativeSetup()
+    app.reportProblems(tab.id, [diag('info', 'import', 'import.notice', 'Sampler: saved seed format is upgraded')])
     vi.spyOn(backend.connection, 'uploadAsset').mockRejectedValue(new Error('boom'))
     expect(await app.saveWorkflow(tab.id)).toBe(false)
+    expect(app.problems.get().some((entry) => entry.code === 'import.notice')).toBe(true)
     expect(app.problems.get().some((d) => d.code === 'library.saveFailed')).toBe(true)
     expect(app.transientStatus.get()).toBe('Save failed on Native: boom')
   })
