@@ -293,5 +293,5 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
   await page.mouse.move(point.x, point.y)
   const tooltip = page.getByTestId('app-tooltip')
   await expect(tooltip).toContainText('Type mismatch', { timeout: 1_500 })
-  await expect(tooltip).toContainText(/output type 'IMAGE'.*input type 'LATENT'/)
+  await expect(tooltip).toContainText('target.input: IMAGE cannot feed LATENT')
 })

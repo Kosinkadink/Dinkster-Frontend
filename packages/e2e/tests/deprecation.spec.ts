@@ -285,7 +285,7 @@ test('review mode holds the plan; the badge popover applies it manually', async 
 
   expect(await openDeprecatedDoc(page, { lineage: 'dep-review' })).toEqual([])
   expect((await rootTypes(page)).old).toBe(sourceType) // held for review
-  await expect(page.getByTestId('problems-panel')).toContainText(`can be upgraded to '${targetType}'`)
+  await expect(page.getByTestId('problems-panel')).toContainText(`old (${sourceType}): upgrade to ${targetType} needs review`)
 
   await identityViewport(page)
   const p = await badgePoint(page, 'old')

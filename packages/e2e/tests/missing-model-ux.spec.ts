@@ -79,7 +79,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
     return app.solveDiagnostics.get().map(({ code, severity, message }) => ({ code, severity, message }))
   })).toContainEqual({
     code: 'widget.ASSET.unresolvedImport', severity: 'error',
-    message: expect.stringContaining(REQUESTED),
+    message: 'n1.model: imported file "audit-definitely-missing-model.safetensors" is unavailable',
   })
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as { solveDiagnostics: { get(): ReadonlyArray<{ code: string; message: string }> } }

@@ -217,7 +217,7 @@ export function ContextPanel(props: {
                       data-severity={diagnostic.severity}
                       data-activatable={hasOwningContext(diagnostic) ? true : undefined}
                     >
-                      <summary>
+                      <summary title={diagnostic.message}>
                         <span class="problem-severity" aria-label={diagnostic.severity}>
                           {diagnostic.severity === 'error' ? 'x' : diagnostic.severity === 'warning' ? '!' : 'i'}
                         </span>
@@ -225,7 +225,6 @@ export function ContextPanel(props: {
                       </summary>
                       <div class="problem-detail">
                         <code>{diagnostic.code}</code>
-                        <p>{diagnostic.message}</p>
                         <Show when={hasOwningContext(diagnostic)}>
                           <button
                             type="button"

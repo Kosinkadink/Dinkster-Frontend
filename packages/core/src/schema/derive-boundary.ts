@@ -803,6 +803,7 @@ export function deriveBoundarySchema(
         'schema',
         'boundary.countBoundOutputInvalid',
         `${def.id}.${boundaryOutput.id}: count input '${spec.count.input}' is linked inside the definition`,
+        { refs: [{ graphId: def.id, portId: boundaryOutput.id, direction: 'output' }] },
       ))
       return undefined
     }
@@ -827,6 +828,7 @@ export function deriveBoundarySchema(
         promoted === undefined
           ? `${def.id}.${boundaryOutput.id}: count input '${spec.count.input}' requires an integer in ${min}..${effectiveMax}`
           : `${def.id}.${boundaryOutput.id}: promoted count '${promoted.id}' requires an integer in ${min}..${effectiveMax}`,
+        { refs: [{ graphId: def.id, portId: boundaryOutput.id, direction: 'output' }] },
       ))
       if (promoted === undefined) return undefined
     }
@@ -973,7 +975,9 @@ export function deriveBoundarySchema(
           ...(selected !== undefined ? { defaultOption: selected } : {}),
         },
       })
-      diags.push(diag('warning', 'schema', 'boundary.selectorOnly', `${def.id}.${item.id}: selector forwarding does not include branch inputs`))
+      diags.push(diag('warning', 'schema', 'boundary.selectorOnly', `${def.id}.${item.id}: selector forwarding does not include branch inputs`, {
+        refs: [{ graphId: def.id, portId: item.id, direction: 'input' }],
+      }))
       continue
     }
     if (inner.dynamic?.kind === 'dynamicSlot') {
