@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile/compile.js'
-import { importLitegraph } from '../src/format/import-litegraph.js'
+import { importLitegraph, resolveImportedAssetLiterals } from '../src/format/import-litegraph.js'
 import { asConnectionId } from '../src/ids.js'
 import {
   DINKSTER_SCHEMA_WIRE_VERSION,
@@ -13,6 +13,60 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('preserves source selection names through import and stamps only the VAE union arm', () => {
+    const file = { digest: `blake3:${'a'.repeat(64)}`, name: 'vae.safetensors', size: 4,
+      mediaType: 'application/octet-stream', virtualPath: 'mount/vae.safetensors' }
+    for (const [kind, value] of [
+      ['model/vae', 'pixel_space'], ['model/vae', 'taesd'], ['model/vae', file],
+      ['model/diffusers', 'vendor/model'], ['directory/input', 'train/set'], ['directory/dataset', 'dataset'],
+    ] as const) {
+      const parsed = parseDinksterSchema('Loader', { schemaVersion: 1, outputNode: true,
+        interface: [{ role: 'input', id: 'name', required: true,
+          type: kind === 'model/vae' ? { kind: 'union', types: ['COMBO', 'ASSET'] } : concrete('COMBO'),
+          widget: { type: 'ASSET', accept: [], kind, selection: true } }],
+      })
+      expect(parsed.diagnostics).toEqual([])
+      const resolve = (type: string) => type === 'Loader' ? parsed.schema : undefined
+      const imported = importLitegraph({ version: 0.4, nodes: [{ id: 1, type: 'Loader', widgets_values: [value] }], links: [] }, resolve)
+      expect(imported.document).toBeDefined()
+      const preserved = resolveImportedAssetLiterals(imported.document!, resolve, () => file)
+      expect(preserved.unresolved).toEqual([])
+      const compiled = compile({ document: preserved.document, revision: 1, resolve, scope: { kind: 'full' },
+        connection: asConnectionId('selection'), schemaHash: 'selection', graphFeatures: ['typedLiteral'] })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('selection compilation failed')
+      expect(compiled.artifact.prompt.n1!.inputs['name']).toEqual(kind === 'model/vae'
+        ? { $typed: { type: typeof value === 'string' ? 'COMBO' : 'ASSET', value } } : value)
+    }
+  })
+
+  it('admits source selections only on the declared exact-kind scalar sockets', () => {
+    const widget = { type: 'ASSET', accept: [], selection: true, kind: 'model/vae' }
+    const union = { kind: 'union', types: ['COMBO', 'ASSET'] }
+    const decode = (type: unknown, descriptor: unknown) => parseDinksterSchema('Selection', {
+      interface: [{ role: 'input', id: 'name', type, required: true, widget: descriptor }],
+    })
+    for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
+      const parsed = decode(concrete('COMBO'), { ...widget, kind })
+      expect(parsed.diagnostics).toEqual([])
+      expect(inputsOf(parsed.schema!)[0]!.widget).toMatchObject({ selection: true, kind })
+    }
+    expect(decode(union, widget).schema).toBeDefined()
+    for (const [type, descriptor] of [
+      [union, { ...widget, kind: 'model/diffusers' }],
+      [concrete('ASSET'), widget],
+      [concrete('STRING'), widget],
+      [{ kind: 'list', element: concrete('COMBO') }, widget],
+      [{ kind: 'union', types: ['COMBO', 'ASSET', 'STRING'] }, widget],
+      [concrete('COMBO'), { ...widget, kind: 'model/text-encoder' }],
+      [concrete('COMBO'), { ...widget, allowUpload: true }],
+      [concrete('COMBO'), { ...widget, selection: 'true' }],
+    ]) expect(decode(type, descriptor).schema).toBeUndefined()
+    const ordinary = decode(concrete('ASSET'), { ...widget, selection: false })
+    expect(ordinary.diagnostics).toEqual([])
+    expect(inputsOf(ordinary.schema!)[0]!.widget?.selection).toBeUndefined()
+  })
+
   it('preserves forced FLOATS numeric presentation without widening other socket domains', () => {
     const widget = { type: 'NUMBER', min: -1, step: 0.001 }
     const representations = { type: 'REPRESENTATIONS', default: 'number', userSwitchable: false,

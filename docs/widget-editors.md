@@ -51,6 +51,22 @@ FLOATS, list wrappers and mixed FLOATS unions are not numeric editor domains.
 COLOR widgets accept concrete COLOR or STRING inputs without rewriting the
 socket or stored hexadecimal value. Named representations obey the same rules.
 
+## Source-named asset selections
+
+An ASSET descriptor with `selection: true` preserves source option names for
+exact kinds `model/vae`, `model/diffusers`, `directory/input`, and
+`directory/dataset`. Its socket stays scalar COMBO, or the VAE-only
+COMBO/ASSET union. Upload is not allowed in this mode. Ordinary ASSET
+descriptors keep their existing file-reference contract.
+
+The editing connection reads current names and shapes from
+`GET /api/assets/selections?kind=...`. Responses contain no host roots.
+Import retains these strings rather than matching a pair, directory, or
+file-free option to a catalog file. Compilation stamps the selected union
+arm as COMBO for a source name or ASSET for an existing file descriptor;
+directory COMBO values stay unchanged. The server revalidates current grants
+at execution.
+
 ## Primitive list inputs
 
 One-level list<STRING>, list<INT>, and list<FLOAT> inputs retain their array
