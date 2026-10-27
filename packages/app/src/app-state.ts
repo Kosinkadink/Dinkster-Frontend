@@ -4598,7 +4598,9 @@ export class AppState {
   }
 
   applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): boolean {
-    const invocation = replacementInvocation(items)
+    const registry = this.registryForTab(tab)
+    if (registry === undefined) return false
+    const invocation = replacementInvocation(items, tab.store.doc, registry.resolve)
     return invocation !== undefined && this.dispatchTo(tab, invocation).ok
   }
 

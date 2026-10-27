@@ -137,6 +137,10 @@ preserves authored classes and topology; its class/version widget upgrade table
 is separate from native document migrations.
 On opening a native document, the app applies all applicable rule plans as one
 undo step, including lossy plans. Opening never waits for migration review.
+Selected rule hops are planned against the preceding hop's result so shared
+link, tap and named-net removals do not leave stale peer plans. Recoverable
+archives retain the original source state; apply-time guards use the exact
+intermediate state and still reject unrelated edits.
 Problems shows one dismissable session-only notice listing upgraded nodes and
 warnings; each node line navigates to its occurrence. Saving or closing the tab
 clears the notice, and it is never written into the workflow. Upgraded nodes

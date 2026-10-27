@@ -358,7 +358,7 @@ describe('wire-28 same-type stored-workflow migration', () => {
     const items = scanReplacements(before, registry, resolve)
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ status: 'terminal', safe: true, terminalType: 'dinkster.image.to_mask' })
-    const invocation = replacementInvocation(items)!
+    const invocation = replacementInvocation(items, before, resolve)!
     const store = replacementStore(before)
     const appliedResult = store.dispatch(invocation)
     expect(appliedResult.diagnostics).toEqual([])
@@ -568,7 +568,7 @@ describe('wire-28 same-type stored-workflow migration', () => {
     const items = scanReplacements(before, registry, resolve)
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ status: 'blocked', safe: false, hops: [] })
-    expect(replacementInvocation(items)).toBeUndefined()
+    expect(replacementInvocation(items, before, resolve)).toBeUndefined()
     expect(before).toEqual(snapshot)
   })
 
@@ -695,7 +695,7 @@ describe('wire-28 same-type stored-workflow migration', () => {
     const planned = planReplacement(before, 'g0', 'mask', rule, resolve)
     expect(planned.plan).toBeUndefined()
     expect(planned.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error' }))
-    expect(replacementInvocation(scanReplacements(before, registry, resolve))).toBeUndefined()
+    expect(replacementInvocation(scanReplacements(before, registry, resolve), before, resolve)).toBeUndefined()
     expect(before).toEqual(snapshot)
   })
 
@@ -814,7 +814,7 @@ describe('wire-28 same-type stored-workflow migration', () => {
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ status: 'terminal', safe: true })
     const store = replacementStore(before)
-    expect(store.dispatch(replacementInvocation(items)!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, before, resolve)!).ok).toBe(true)
     const archive = store.doc.graphs.g0!.nodes.mask!.ext?.[REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]
     expect(archive).toMatchObject({
       version: 1,
@@ -956,7 +956,7 @@ describe('wire-28 same-type stored-workflow migration', () => {
       .toBe(true)
 
     const store = replacementStore(before)
-    expect(store.dispatch(replacementInvocation(items)!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, before, resolve)!).ok).toBe(true)
     expect(store.doc.graphs.g0!.nets.n_color!.sinks).toEqual([
       port('mask', 'policy.color_source.color_value'),
       port('mask2', 'policy.color_source.color_value'),
@@ -1161,7 +1161,7 @@ describe('published Save Video v3 migration', () => {
       expect(items).toHaveLength(1)
       expect(items[0]).toMatchObject({ safe: true, status: 'terminal' })
       const store = replacementStore(before, resolveVideo)
-      const result = store.dispatch(replacementInvocation(items)!)
+      const result = store.dispatch(replacementInvocation(items, before, resolveVideo)!)
       expect(result.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
       expect(result.ok).toBe(true)
       const after = store.doc

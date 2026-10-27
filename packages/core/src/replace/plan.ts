@@ -10,8 +10,8 @@
  * impossible ordinary mappings produce ERROR diagnostics and no plan. A
  * migration's authored universal fallback may instead choose its default and
  * archive displaced historical state. Other lossy-but-possible outcomes (a
- * connection no mapping consumes) produce WARNINGS: the plan exists but must
- * drop to review instead of auto-applying.
+ * connection no mapping consumes) produce warnings; the app retains those
+ * in the migration notice even when applying without review.
  *
  * Ordinary static mappings do not require the SOURCE schema: they read only
  * document state, so a rule can upgrade a missing-node placeholder. When a
@@ -96,6 +96,8 @@ export interface NodeReplacePlan {
   readonly controllers?: Readonly<Record<string, string>>
   /** Recoverable source snapshot for best-effort same-type migrations. */
   readonly migrationArchive?: JsonObject
+  /** Apply-time evidence after earlier selected migrations; not persisted. */
+  readonly migrationGuard?: JsonObject
   /** An unmatched same-type migration case that must auto-apply best effort. */
   readonly migrationFallback?: true
   /** Links whose `to` moves to a target input id (same node). */

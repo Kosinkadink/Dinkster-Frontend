@@ -1,8 +1,8 @@
 /**
  * Replacement orchestration: document scan + apply helpers over the rule
  * registry and planner. Pure functions - the app decides WHEN to scan
- * (document open, schemas loaded) and WHICH plans to dispatch (auto-apply
- * safe plans by default; a review toggle drops everything to review).
+ * (document open, schemas loaded) and WHICH plans to dispatch. The app
+ * auto-applies applicable migrations unless review mode is selected.
  *
  * Rules CHAIN: A's rule migrates to B, and B is itself migrated by another
  * rule to C. A hop can transform values and move links, so a chain is never
@@ -238,9 +238,9 @@ function planChain(
  * Find every node a registry rule can migrate and plan its full chain.
  * Subgraph instances ('#...') are never scanned: their schema is derived,
  * not deprecated. Deterministic: graphs and nodes in document iteration
- * order. Chains are planned per node against the ORIGINAL document - nodes
- * are independent (each chain only ever rewrites its own node), so plans
- * from one scan compose in a single batch.
+ * order. Chains are planned per node against the original document for
+ * review. replacementInvocation composes the selected rule hops against
+ * intermediate document states before producing one atomic batch.
  */
 export function scanReplacements(
   document: WorkflowDocument,
@@ -264,42 +264,47 @@ export function scanReplacements(
 // ---------------------------------------------------------------------------
 
 /**
- * Build the dispatch for a set of scan items: one `node.replace` invocation
- * per planned HOP in chain order, batched when there are several (one
- * revision, one undo step, all-or-nothing - the batch command runs each
- * sub-invocation against the working copy, so hop N's staleness guard sees
- * hop N-1's type change). Batched plans use node-owned net sink updates so
- * independently planned nodes cannot restore one another's stale endpoints.
- * Items without hops are ignored; a blocked item
- * contributes its planned prefix - filter with `safe` upstream to implement
- * "apply without review".
+ * Compose selected rule hops against the evolving document, using the same
+ * planner and command as the scan. Peer migrations can remove shared links
+ * or nets and change archive evidence, so independently scanned plans cannot
+ * be concatenated. Only selected hops run; newly created helper nodes are not
+ * scanned. The final dispatch remains atomic and has one undo step.
+ * Items without hops are ignored; a blocked item contributes its planned prefix.
  */
 export function replacementInvocation(
   items: readonly ReplacementScanItem[],
+  document: WorkflowDocument,
+  resolve: ReplacementSchemaResolver,
 ): CommandInvocation | undefined {
-  const plans = items.flatMap((i) => i.hops.map((h) => h.plan))
-  if (plans.length === 0) return undefined
-  if (plans.length === 1) return { command: 'node.replace', params: { plan: plans[0]! } as unknown as Json }
-  // A connection can be discarded by both endpoint owners. Remove it once,
-  // and never rewire a connection another selected migration discards.
-  const droppedLinks = new Set(plans.flatMap((plan) => plan.dropLinks.map((link) => `${plan.graphId}:${link}`)))
-  const removedLinks = new Set<string>()
-  const composablePlans = plans.map((plan) => ({
-    ...plan,
-    createdNodes: plan.createdNodes ?? [],
-    inputRewires: plan.inputRewires.filter((rewire) => !droppedLinks.has(`${plan.graphId}:${rewire.link}`)),
-    outputRewires: plan.outputRewires.filter((rewire) => !droppedLinks.has(`${plan.graphId}:${rewire.link}`)),
-    dropLinks: plan.dropLinks.filter((link) => {
-      const key = `${plan.graphId}:${link}`
-      if (removedLinks.has(key)) return false
-      removedLinks.add(key)
-      return true
-    }),
-  }))
+  let scratch = document
+  const invocations: CommandInvocation[] = []
+  for (const item of items) {
+    for (const hop of item.hops) {
+      if (scratch.graphs[item.graphId]?.nodes[item.nodeId]?.type !== hop.plan.from) return undefined
+      const planned = planReplacement(scratch, item.graphId, item.nodeId, hop.rule, resolve)
+      if (planned.plan === undefined) {
+        if (planned.diagnostics.length === 0 && hop.rule.migration !== undefined) continue
+        return undefined
+      }
+      // Archive the originally reviewed source, but guard against the exact
+      // intermediate state that this hop will see inside the atomic batch.
+      const plan = hop.plan.migrationArchive !== undefined && planned.plan.migrationArchive !== undefined
+        ? { ...planned.plan, migrationArchive: hop.plan.migrationArchive, migrationGuard: planned.plan.migrationArchive }
+        : planned.plan
+      const params = { plan } as unknown as Json
+      const tx = createTransactionBuilder(scratch)
+      const diagnostics = nodeReplaceCommand.run(scratch, params, tx, {
+        kind: 'initial', schemaResolverFor: () => (type) => resolve(type, 'target'),
+      })
+      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
+      scratch = tx.result().doc
+      invocations.push({ command: 'node.replace', params })
+    }
+  }
+  if (invocations.length === 0) return undefined
+  if (invocations.length === 1) return invocations[0]
   return {
     command: 'batch',
-    params: {
-      invocations: composablePlans.map((plan) => ({ command: 'node.replace', params: { plan } })),
-    } as unknown as Json,
+    params: { invocations } as unknown as Json,
   }
 }

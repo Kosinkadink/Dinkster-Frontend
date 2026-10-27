@@ -286,7 +286,7 @@ describe('vocabulary golden: planning against real documents', () => {
     expect(item.safe).toBe(true)
 
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation([item])!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation([item], d, resolve)!).ok).toBe(true)
     const after = store.doc.graphs.g0!
     expect(after.nodes.old!.type).toBe('fixture.modern')
     // copy moved the image connection; link moved frames; outputs rewired.
@@ -386,7 +386,7 @@ describe('chain golden: deprecation + visibility + rules on one schema', () => {
     expect(item.safe).toBe(true)
 
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation([item])!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation([item], d, resolve)!).ok).toBe(true)
     expect(store.revision).toBe(1) // both hops, one revision
     const n = store.doc.graphs.g0!.nodes.n!
     expect(n.type).toBe('fixture.chain-c')

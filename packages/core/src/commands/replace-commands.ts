@@ -279,6 +279,7 @@ const nodeReplace: CommandDefinition = {
       (planHasDynamicSelection && p.targetSchemaGuards === undefined) ||
       (p.controllers !== undefined && !isObj(p.controllers)) ||
       (p.migrationArchive !== undefined && !isMigrationArchive(p.migrationArchive)) ||
+      (p.migrationGuard !== undefined && (!isMigrationArchive(p.migrationGuard) || p.migrationArchive === undefined)) ||
       (p.migrationArchive !== undefined && p.createdNodes === undefined) ||
       (p.migrationFallback !== undefined && p.migrationFallback !== true) ||
       (p.migrationFallback === true && p.migrationArchive === undefined) ||
@@ -318,9 +319,9 @@ const nodeReplace: CommandDefinition = {
       }
     }
 
-    const migrationArchive = p.migrationArchive === undefined
+    const migrationArchive = (p.migrationGuard ?? p.migrationArchive) === undefined
       ? undefined
-      : p.migrationArchive as JsonObject & {
+      : (p.migrationGuard ?? p.migrationArchive) as JsonObject & {
           historicalInputs: string[]
           node: JsonObject
           links: JsonObject
@@ -608,7 +609,7 @@ const nodeReplace: CommandDefinition = {
     if (migrationArchive !== undefined) {
       tx.set(['graphs', graphId, 'nodes', p.nodeId, 'ext'], {
         ...(node.ext ?? {}),
-        [REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]: migrationArchive,
+        [REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]: p.migrationArchive!,
       })
     }
 
