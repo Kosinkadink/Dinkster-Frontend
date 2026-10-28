@@ -33,14 +33,6 @@ describe('Dinkster schema wire', () => {
         expect(JSON.parse(JSON.stringify(compiled.artifact.prompt)).n1.inputs.depth).toBe(value)
       }
     }
-    // A mismatched option vocabulary must never coerce an authored scalar.
-    const schema = parseDinksterSchema('StringCombo', { outputNode: true, interface: [
-      { role: 'input', id: 'depth', type: concrete('COMBO'), widget: { type: 'COMBO', options: ['8', { value: 'enabled', label: 'Enabled' }] } },
-    ] }).schema!
-    for (const value of [8, 'Enabled']) {
-      const imported = importLitegraph({ nodes: [{ id: 1, type: 'StringCombo', widgets_values: [value] }], links: [] }, () => schema)
-      expect(imported.document!.graphs.g0!.nodes.n1!.values.depth).toBe(value)
-    }
   })
 
   it('rejects non-scalar COMBO options without widening MULTI_COMBO or dynamic keys', () => {

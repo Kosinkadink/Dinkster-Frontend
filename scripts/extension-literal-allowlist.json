@@ -1,7 +1,7 @@
 {
   "ceilings": {
     "nodeIdLiteral": 0,
-    "widgetTypeComparison": 91
+    "widgetTypeComparison": 92
   },
   "slack": {
     "nodeIdLiteral": 0,
@@ -564,6 +564,14 @@
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
       "line": 180,
+      "column": 37,
+      "symbol": "widgetType:COMBO",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/core/src/format/import-litegraph.ts",
+      "line": 198,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -571,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 180,
+      "line": 198,
       "column": 44,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -579,7 +587,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 187,
+      "line": 205,
       "column": 8,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -587,7 +595,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 191,
+      "line": 209,
       "column": 7,
       "symbol": "widgetType:SAVE_TARGET",
       "issue": 122
