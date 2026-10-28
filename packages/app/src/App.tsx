@@ -3051,7 +3051,6 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     setLoaded(new Set<string>())
   })
   const images = () => executedImageInventory(props.execution, {
-    viewUrlForExecution: (ref, file) => props.app.viewUrlForExecution(ref, file),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
   })
   const imageGroups = createMemo(() => {

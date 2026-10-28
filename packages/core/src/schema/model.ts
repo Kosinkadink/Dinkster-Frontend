@@ -1,8 +1,7 @@
 /**
  * Normalized NodeSchema model. V3 is the semantic target.
  *
- * Raw /object_info entries (V1-shaped, with V3 data embedded - see
- * object-info.ts) are parsed ONCE into this model; nothing downstream ever
+ * Native catalog entries are parsed once into this model; nothing downstream
  * touches raw schema JSON. Subgraph definition boundaries derive this exact
  * same model, which is what makes "anything that works on a node works on a
  * subgraph" true by construction.

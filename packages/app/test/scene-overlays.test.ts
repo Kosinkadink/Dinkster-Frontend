@@ -422,8 +422,8 @@ describe('executed image paging overlay', () => {
 
   it('uses the page key/index only for a finished executed-image source', () => {
     const images = [
-      { key: 'a', runtimeId: 'n1', outputId: 'images', descriptorIndex: 0, url: '/a', kind: 'v1' as const, mediaType: 'image (legacy descriptor)', name: 'a.png' },
-      { key: 'b', runtimeId: 'n1', outputId: 'images', descriptorIndex: 1, url: '/b', kind: 'v1' as const, mediaType: 'image (legacy descriptor)', name: 'b.png' },
+      { key: 'a', runtimeId: 'n1', outputId: 'images', descriptorIndex: 0, url: '/a', kind: 'asset' as const, mediaType: 'image/png', name: 'a.png' },
+      { key: 'b', runtimeId: 'n1', outputId: 'images', descriptorIndex: 1, url: '/b', kind: 'asset' as const, mediaType: 'image/png', name: 'b.png' },
     ]
     const source: PreviewSource = {
       key: 'b', runtimeId: 'n1', output: { index: 1, count: 2 },

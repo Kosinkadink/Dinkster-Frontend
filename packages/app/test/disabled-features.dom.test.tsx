@@ -16,7 +16,7 @@ afterEach(() => {
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {
-  const app = new AppState({ defaultProtocol: 'dinkster' })
+  const app = new AppState()
   const backend = app.backends.get()[0]!
   const host = document.createElement('div')
   document.body.append(host)

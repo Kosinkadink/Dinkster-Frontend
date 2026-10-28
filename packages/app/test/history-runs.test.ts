@@ -294,7 +294,8 @@ describe('runsSource', () => {
   })
 
   it('renders the empty state when no native backend is active', async () => {
-    const app = new AppState({ defaultProtocol: 'v1' })
+    const app = new AppState()
+    app.backends.set([])
     expect(await runsSource(app).page({ query: '', limit: 24 })).toEqual({ items: [], total: 0 })
   })
 })

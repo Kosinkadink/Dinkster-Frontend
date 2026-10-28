@@ -36,7 +36,6 @@ const exec = (over: {
 
 const loader = (over?: { onDecoded?: () => void; renderModel3dPoster?: (src: string) => Promise<{ image: CanvasImageSource; width: number; height: number }> }) =>
   createPreviewLoader({
-    viewUrlForExecution: (_ref, file) => `http://backend/view?f=${file.filename}&sf=${file.subfolder ?? ''}&t=${file.type ?? ''}`,
     assetUrlForExecution: (_ref, digest) => `http://backend/api/assets/${digest}`,
     assetUrlForInput: (digest) => `http://backend/api/assets/${digest}`,
     fetchRecordedOutput: async () => new Response(new Uint8Array([1, 2, 3])),
@@ -47,6 +46,11 @@ const loader = (over?: { onDecoded?: () => void; renderModel3dPoster?: (src: str
 const preview = (): NodePreview => ({ image: {} as CanvasImageSource, width: 1, height: 1 })
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
+
+const outputImage = (name: string) => ({
+  typeId: 'ASSET', fingerprint: `blake3:${'d'.repeat(64)}`,
+  meta: { digest: `blake3:${'d'.repeat(64)}`, mediaType: 'image/png', name },
+})
 
 describe('sourceFor', () => {
   it('ignores runtime ids outside the occurrence mapping', () => {
@@ -301,7 +305,7 @@ describe('sourceFor', () => {
   it('a RUNNING node prefers its live frame over an output image', () => {
     const e = exec({
       previews: { n1: { payload: new Blob(['f']), timestamp: 5 } },
-      outputs: { n1: { images: [{ filename: 'out.png' }] } },
+      outputs: { n1: { images: outputImage('out.png') } },
     })
     expect(loader().sourceFor(e, ['n1'], true)?.key).toMatch(/^frame:k1:n1:5:\d+$/)
   })
@@ -309,24 +313,24 @@ describe('sourceFor', () => {
   it('a finished node prefers the output image, routed through the execution backend', () => {
     const e = exec({
       previews: { n1: { payload: new Blob(['f']), timestamp: 5 } },
-      outputs: { n1: { images: [{ filename: 'out.png', subfolder: 'sub', type: 'output' }] } },
+      outputs: { n1: { images: outputImage('out.png') } },
     })
-    expect(loader().sourceFor(e, ['n1'], false)?.key).toBe('recorded:img:http://backend/view?f=out.png&sf=sub&t=output:name:out.png')
+    expect(loader().sourceFor(e, ['n1'], false)?.key).toContain(`http://backend/api/assets/blake3:${'d'.repeat(64)}`)
   })
 
   it('selects any finished output page and carries its real index/count', () => {
     const e = exec({
-      outputs: { n1: { images: [{ filename: 'first.png' }, { filename: 'second.png' }, { filename: 'third.png' }] } },
+      outputs: { n1: { images: { typeId: 'list<ASSET>', elements: ['first.png', 'second.png', 'third.png'].map(outputImage) } } },
     })
     const source = loader().sourceFor(e, ['n1'], false, 1)
-    expect(source?.key).toBe('recorded:img:http://backend/view?f=second.png&sf=&t=:name:second.png')
+    expect(source?.key).toContain('second.png')
     expect(source?.output).toEqual({ index: 1, count: 3 })
   })
 
   it('clamps a stale finished output page when the inventory shrinks', () => {
-    const e = exec({ outputs: { n1: { images: [{ filename: 'only.png' }] } } })
+    const e = exec({ outputs: { n1: { images: outputImage('only.png') } } })
     const source = loader().sourceFor(e, ['n1'], false, 7)
-    expect(source?.key).toBe('recorded:img:http://backend/view?f=only.png&sf=&t=:name:only.png')
+    expect(source?.key).toContain('only.png')
     expect(source?.output).toEqual({ index: 0, count: 1 })
   })
 
@@ -413,7 +417,6 @@ describe('sourceFor', () => {
     const url = `https://outputs.example/api/assets/${digest}`
     const fetchRecordedOutput = vi.fn(async () => new Response(new Uint8Array([7, 8, 9])))
     const l = createPreviewLoader({
-      viewUrlForExecution: () => '',
       assetUrlForExecution: () => url,
       assetUrlForInput: () => undefined,
       fetchRecordedOutput,
@@ -589,7 +592,6 @@ describe('sourceFor', () => {
       key: `${connection}:p1`,
     })
     const l = createPreviewLoader({
-      viewUrlForExecution: () => '',
       assetUrlForExecution: (ref, value) => `http://${ref.connection}/api/assets/${value}`,
       assetUrlForInput: () => undefined,
       fetchRecordedOutput: async () => new Response(new Uint8Array([1, 2, 3])),
@@ -618,7 +620,7 @@ describe('sourceFor', () => {
   it('uses a pass-through image instead of downloading a saved original WebM', async () => {
     const digest = `blake3:${'9'.repeat(64)}`
     const execution = exec({
-      outputs: { save: { images: [{ filename: 'pass-through.png' }] } },
+      outputs: { save: { images: outputImage('pass-through.png') } },
       artifacts: [{
         nodeId: 'save',
         digest,
@@ -631,12 +633,12 @@ describe('sourceFor', () => {
     const l = loader()
     const source = l.sourceFor(execution, ['save'], false)!
     expect(source).toMatchObject({
-      key: 'recorded:img:http://backend/view?f=pass-through.png&sf=&t=:name:pass-through.png',
+      key: expect.stringContaining(`http://backend/api/assets/blake3:${'d'.repeat(64)}`),
       runtimeId: 'save',
     })
   })
 
-  it('a v1 output image wins over a native asset on the same node', () => {
+  it('ignores legacy file descriptors beside a native asset on the same node', () => {
     const digest = `blake3:${'c'.repeat(64)}`
     const e = exec({
       outputs: {
@@ -646,7 +648,7 @@ describe('sourceFor', () => {
         },
       },
     })
-    expect(loader().sourceFor(e, ['n1'], false)?.key).toBe('recorded:img:http://backend/view?f=out.png&sf=&t=:name:out.png')
+    expect(loader().sourceFor(e, ['n1'], false)?.key).toContain(`http://backend/api/assets/${digest}`)
   })
 
   it('FR12 a same-timestamp replacement frame gets a new cache identity', () => {
@@ -718,7 +720,6 @@ describe('resolve', () => {
     const digest = `blake3:${'f'.repeat(64)}`
     let backend = 'backend-a'
     const l = createPreviewLoader({
-      viewUrlForExecution: () => '',
       assetUrlForExecution: () => '',
       assetUrlForInput: (value) => `http://${backend}/api/assets/${value}`,
       onDecoded: () => {},

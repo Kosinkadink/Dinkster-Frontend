@@ -193,16 +193,6 @@ describe('saveWorkflow', () => {
     expect(app.transientStatus.get()).toBe('Save failed on Native: boom')
   })
 
-  it('v1 backends explain that the targeted backend cannot save', async () => {
-    const legacy = app.addBackend('http://legacy:8188', 'Legacy', false, 'v1')!
-    const tab = app.activeTab()!
-    app.setTabTarget(tab.id, legacy.id)
-    expect(await app.saveWorkflow(tab.id)).toBe(false)
-    expect(app.problems.get()).toEqual([])
-    expect(app.transientStatus.get()).toContain('Save requires a Dinkster backend')
-    expect(app.transientStatus.get()).toContain('uses the ComfyUI protocol')
-  })
-
   it('AP2: an edit made while the save is in flight keeps the tab dirty', async () => {
     const { backend, tab } = nativeSetup()
     let release!: (digest: string) => void

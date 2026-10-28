@@ -115,7 +115,6 @@ jobs:
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
       - run: pnpm exec prettier --check --single-quote --no-semi scripts/ci-fast.mjs packages/e2e/test/ci-workflow.test.ts
       - run: pnpm check:extension-literals
-      - run: pnpm check:v1-boundary
       - run: pnpm typecheck
       - run: pnpm check:ui-strings
       - run: pnpm test
@@ -208,9 +207,6 @@ jobs:
           sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers
       - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
         if: matrix.vulkan
-      - name: Replay recorded stock ComfyUI fixtures
-        if: matrix.name == 'stock ComfyUI V1'
-        run: pnpm --filter @dinkster/core exec vitest run test/object-info.golden.test.ts test/events.golden.test.ts
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}
         env:
           # Match the software Vulkan driver available on CPU-only runners.

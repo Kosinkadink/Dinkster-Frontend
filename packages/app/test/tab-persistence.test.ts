@@ -52,11 +52,11 @@ const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
   it('rechecks workspace revision inside the cross-window commit lock', async () => {
-    const seed = new AppState({ defaultProtocol: 'dinkster' })
+    const seed = new AppState()
     flush()
     const first = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as Record<string, unknown>
     g.localStorage!.setItem(TABS_KEY, JSON.stringify({ ...first, workspaceRevision: 1 }))
-    const stale = new AppState({ defaultProtocol: 'dinkster' })
+    const stale = new AppState()
     flush()
     const newer = {
       ...JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as Record<string, unknown>,
@@ -93,7 +93,7 @@ describe('open-tab persistence', () => {
 
   it('starts native mode with one schema-independent blank workflow', () => {
     g.localStorage!.removeItem(TABS_KEY)
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     expect(app.tabs.get().map((tab) => tab.title)).toEqual(['Untitled'])
     const tab = app.activeTab()!
     expect(Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)).toEqual([])
@@ -343,7 +343,7 @@ describe('open-tab persistence', () => {
 
   it('falls back to a blank workflow for a corrupt native snapshot', () => {
     g.localStorage!.setItem(TABS_KEY, '{not json')
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
     const tab = app.activeTab()!
     expect(Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)).toEqual([])

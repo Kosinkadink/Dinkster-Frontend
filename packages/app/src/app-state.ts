@@ -155,11 +155,6 @@ import {
   type WorkerInfo,
 } from '@dinkster/client'
 import {
-  BackendConnection,
-  reconcileExecutions,
-  v1ViewUrl,
-} from './v1-connection-kind.js'
-import {
   createTextWidgetEditorExtensionRegistry,
   createWidgetRegistry,
   LiveEmbeddingAndLoraInventoryProvider,
@@ -2072,8 +2067,7 @@ function decodePersistedBackends(raw: string | null): readonly PersistedBackend[
         typeof (b as { baseUrl?: unknown }).baseUrl === 'string' &&
         (b as { baseUrl?: unknown }).baseUrl !== '' &&
         typeof (b as { label?: unknown }).label === 'string' &&
-        ((b as { protocol?: unknown }).protocol === 'v1' ||
-          (b as { protocol?: unknown }).protocol === 'dinkster'),
+        (b as { protocol?: unknown }).protocol === 'dinkster',
     )
   } catch {
     return undefined
@@ -2224,15 +2218,7 @@ class CollabSessionEndedDuringJoinError extends Error {
   }
 }
 
-/**
- * Which wire protocol a backend speaks: 'v1' is a ComfyUI server
- * (/object_info, /prompt, /ws), 'dinkster' is a native Dinkster server
- * (/api/nodes, /api/jobs, /api/events). Chosen when the backend is added;
- * both normalize into the SAME event/model pipeline, so protocol never
- * leaks past the connection layer - the app dispatches on it only where
- * the protocols genuinely differ (reconcile, output hydration, /view).
- */
-export type BackendProtocol = 'v1' | 'dinkster'
+export type BackendProtocol = 'dinkster'
 
 export type WorkerCatalogState =
   | { readonly status: 'unsupported' }
@@ -2254,25 +2240,25 @@ interface BackendBase {
     | { readonly status: 'error'; readonly message: string }
   >
   /**
-   * The server's advisory replacement-rule diagnostics (native backends;
-   * always [] on v1). Fetched alongside the registry so the deprecation UX
+   * The server's advisory replacement-rule diagnostics.
+   * Fetched alongside the registry so the deprecation UX
    * can explain a rule that cannot plan against this environment.
    */
   readonly replacementProblems: Signal<readonly ReplacementProblem[]>
   /** ComfyUI compatibility nodes omitted from the native catalog, with the
-   * server's verbatim advisory reason. Always [] on v1 backends. */
+   * server's verbatim advisory reason. */
   readonly compatSkips: Signal<readonly CompatSkip[]>
   /** Packs whose inference entries degraded (no native sampling worker was
    * live at composition). Always [] when no backend reports the surface. */
   readonly packInferenceUnavailable: Signal<readonly PackInferenceUnavailable[]>
-  /** Request the latest native advisory snapshot; a no-op on v1 backends. */
+  /** Request the latest native advisory snapshot. */
   readonly refreshDiagnostics: () => void
   readonly scopedClient: RefreshableScopedClient
   /** Clear remote-choice authority after a schema/server generation change. */
   readonly invalidateRemoteChoices: () => void
   /**
    * Last /supervisor/status answer (native backends behind a supervisor).
-   * undefined = no supervisor known (standalone dinkster-serve, v1, or not
+   * undefined = no supervisor known (standalone dinkster-serve or not
    * probed yet). Drives the "Dinkster is starting" shell affordance instead of
    * a connection-failure render (supervisor Ask 1).
    */
@@ -2292,13 +2278,9 @@ interface BackendBase {
  * other backends' - packs/versions differ per server), and ITS scoped client
  * (remote combos differ per server). Executions carry (connectionId, prompt),
  * so the shared ExecutionStore needs no per-backend partitioning.
- * A discriminated union on `protocol`: the common surface (connect,
- * fetchSchemas, submit, onEvent, status) is identical on both connection
- * types; narrowing is only needed for protocol-specific calls.
+ * Connections use the native schema, submission, and event contracts.
  */
-export type Backend =
-  | (BackendBase & { readonly protocol: 'v1'; readonly connection: BackendConnection })
-  | (BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection })
+export type Backend = BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection }
 
 /** A live socket alone does not make the backend's required HTTP metadata usable. */
 export function backendConnectionStatus(backend: Backend): ConnectionStatus {
@@ -2935,11 +2917,6 @@ export class AppState {
   private readonly collabRejoinPending = new Map<string, PersistedCollabMembership>()
 
   constructor(options?: {
-    /**
-     * Explicit protocol override for the same-origin default backend.
-     * Production startup uses the native Dinkster default.
-     */
-    readonly defaultProtocol?: BackendProtocol
     /** Injectable collab session transport (tests); defaults to HTTP + WS. */
     readonly collabTransport?: CollabTransport
     /** Injectable same-workspace execution event channel (tests). */
@@ -3168,7 +3145,6 @@ export class AppState {
       asConnectionId('local'),
       'Local',
       '',
-      options?.defaultProtocol ?? 'dinkster',
     )
     this.backends.set([local])
     this.connection = local.connection
@@ -3986,7 +3962,7 @@ export class AppState {
     const clientId = `${this.backendClientId}:${id}`
     // Path-relative base urls (dev proxy) need the ws url built from the page
     // origin; absolute ones derive it from their own scheme+host.
-    const wsPath = protocol === 'dinkster' ? '/api/events' : '/ws'
+    const wsPath = '/api/events'
     const wsUrl = baseUrl.startsWith('http')
       ? `${baseUrl.replace(/^http/, 'ws')}${wsPath}?clientId=${encodeURIComponent(clientId)}`
       : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${baseUrl}${wsPath}?clientId=${encodeURIComponent(clientId)}`
@@ -4034,7 +4010,7 @@ export class AppState {
     // missed terminal events are replayed, vanished runs marked lost.
     // Initial connect: empty store, no-op.
     const wire = (
-      connection: BackendConnection | DinksterConnection,
+      connection: DinksterConnection,
       reconcile: () => Promise<void>,
       refreshForEpoch?: (epoch: number) => void,
       onStatusChange?: (status: ConnectionStatus) => void,
@@ -4114,7 +4090,7 @@ export class AppState {
       ]
       return () => unsubs.forEach((u) => u())
     }
-    if (protocol === 'dinkster') {
+    {
       const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl })
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       // Epoch-gated registry refresh (schema_changed / composition_complete
@@ -4311,17 +4287,6 @@ export class AppState {
       }
       return nativeBackend
     }
-    const connection = new BackendConnection({ id, baseUrl, clientId, wsUrl })
-    const disposeConnection = wire(connection, () => reconcileExecutions(connection, this.store))
-    return {
-      ...base,
-      protocol,
-      connection,
-      dispose: () => {
-        disposeConnection()
-        scopedClient.dispose()
-      },
-    }
   }
 
   /**
@@ -4506,29 +4471,9 @@ export class AppState {
   }
 
   /**
-   * /view URL for an execution's output/preview file, routed through the
-   * execution's OWN backend - never the active tab's. Removed backends stay
-   * resolvable (retired entry); the default is a last-resort fallback only.
-   */
-  viewUrlForExecution(
-    ref: ExecutionRef,
-    file: { filename: string; subfolder?: string; type?: string },
-  ): string {
-    const backend =
-      this.backendFor(ref.connection) ??
-      this.retiredBackends.get(ref.connection) ??
-      this.backends.get()[0]!
-    // /view is a V1 endpoint, but only V1 executions carry V1 file refs, so
-    // a native backend's base here is unreachable in practice; the URL stays
-    // well-formed either way.
-    return v1ViewUrl(backend.baseUrl, file)
-  }
-
-  /**
    * GET /api/assets/{digest} URL for an execution's content-addressed output,
    * routed through the execution's OWN backend - never the active tab's.
-   * Same retirement rules as viewUrlForExecution: a removed backend's
-   * historical outputs stay resolvable.
+   * A removed backend's historical outputs stay resolvable.
    */
   assetUrlForExecution(ref: ExecutionRef, digest: string): string {
     const backend =
@@ -8019,9 +7964,7 @@ export class AppState {
         ...(hasPrompt ? { prompt: originalPrompt as JsonObject } : {}),
         ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
       } : undefined
-      const sourceDocument = backend.protocol === 'dinkster'
-        ? await this.sourceDocumentFor(tab, backend)
-        : undefined
+      const sourceDocument = await this.sourceDocumentFor(tab, backend)
       if (lease.signal.aborted) return
       // The advisory source-document upload is an await between compile and
       // POST. If the document changed there, re-run only the conservative
@@ -8037,22 +7980,19 @@ export class AppState {
         result.artifact.diagnostics,
       )) return
       lease.markPosted()
-      const submitted =
-        backend.protocol === 'dinkster'
-          ? await backend.connection.submit(result.artifact, {
-              ...sourceDocument,
-              ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
-              ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
-              // Overrides come from the artifact snapshot (the exact document
-              // that compiled), layered global < workflow < node.
-              previews: resolvePreviewPolicy(
-                result.artifact.snapshot,
-                result.artifact.provenance,
-                this.settings.get<PreviewMode>('execution.previews'),
-                this.settings.get<PreviewAnimation>('execution.previewAnimation'),
-              ),
-            })
-          : await backend.connection.submit(result.artifact)
+      const submitted = await backend.connection.submit(result.artifact, {
+        ...sourceDocument,
+        ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
+        ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
+        // Overrides come from the artifact snapshot (the exact document
+        // that compiled), layered global < workflow < node.
+        previews: resolvePreviewPolicy(
+          result.artifact.snapshot,
+          result.artifact.provenance,
+          this.settings.get<PreviewMode>('execution.previews'),
+          this.settings.get<PreviewAnimation>('execution.previewAnimation'),
+        ),
+      })
       if (this.disposed) return
       if (!submitted.ok) {
         if ('assetsMissing' in submitted && 'retryWithAssets' in submitted) {
@@ -8218,12 +8158,7 @@ export class AppState {
       const backend = this.backendFor(state.ref.connection)
       if (!backend) continue
       this.hydrated.add(state.key)
-      // Protocol dispatch: V1 outputs live in /history; native output
-      // descriptors ride the retained job record. Same store shape either way.
-      const fetched =
-        backend.protocol === 'dinkster'
-          ? backend.connection.fetchJobOutputs(state.ref.prompt)
-          : backend.connection.fetchHistoryOutputs(state.ref.prompt)
+      const fetched = backend.connection.fetchJobOutputs(state.ref.prompt)
       void fetched
         .then((outputs) => {
           if (Object.keys(outputs).length > 0) this.store.hydrateOutputs(state.ref, outputs)

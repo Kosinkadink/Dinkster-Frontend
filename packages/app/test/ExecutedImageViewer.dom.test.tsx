@@ -18,7 +18,7 @@ afterEach(() => {
 })
 
 const images: ExecutedImage[] = [
-  { key: 'a', runtimeId: 'node-1', outputId: 'images', descriptorIndex: 0, url: '/a.png', name: 'a.png', kind: 'v1', mediaType: 'image (legacy descriptor)', subfolder: 'long/output/path', fileType: 'output' },
+  { key: 'a', runtimeId: 'node-1', outputId: 'images', descriptorIndex: 0, url: '/a.png', name: 'a.png', kind: 'asset', mediaType: 'image/png', virtualPath: 'mounts/output/long/output/path/a.png' },
   { key: 'b', runtimeId: 'node-2', outputId: 'image', descriptorIndex: 0, url: '/b.png', digest: `blake3:${'b'.repeat(64)}`, virtualPath: 'mounts/output/ComfyUI_00001.png', kind: 'asset', mediaType: 'image/png' },
 ]
 
@@ -111,7 +111,6 @@ describe('ExecutedImageViewer', () => {
     const facts = mounted.root.querySelector('.output-facts')?.textContent ?? ''
     expect(facts).toContain('node-1')
     expect(facts).toContain('images')
-    expect(facts).toContain('Legacy output file')
     expect(facts).toContain('long/output/path')
     mounted.root.querySelector('img')!.dispatchEvent(new Event('load'))
     expect(mounted.root.querySelector('.output-facts')?.textContent).toContain('Available')

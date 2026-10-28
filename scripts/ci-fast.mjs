@@ -27,7 +27,6 @@ for (const args of [
   ['check:extension-literals'],
   ['check:raw-controls'],
   ['check:ui-strings'],
-  ['check:v1-boundary'],
   ['typecheck'],
   [
     '--filter',
@@ -38,8 +37,6 @@ for (const args of [
     'test/format.schema.test.ts',
     'test/dinkster-graph.test.ts',
     'test/dinkster-inline-value.test.ts',
-    'test/object-info.golden.test.ts',
-    'test/events.golden.test.ts',
   ],
   [
     '--filter',
@@ -66,7 +63,6 @@ for (const args of [
     'scripts/check-raw-controls.test.mjs',
     'scripts/check-ui-strings.test.mjs',
     'scripts/check-path-case.test.mjs',
-    'scripts/check-v1-boundary.test.mjs',
   ],
 ]) {
   const env = { ...process.env }

@@ -576,15 +576,14 @@ describe('backend protocols', () => {
     })
   })
 
-  it('a native backend resolves tabs and viewUrlForExecution stays total', () => {
+  it('a native backend resolves tabs and routes asset URLs', () => {
     const b = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (!b) throw new Error('addBackend rejected')
     app.setTabTarget(basic.id, b.id)
     expect(app.backendForTab(basic)).toBe(b)
-    // /view is V1-only, but URL construction must stay total for any ref.
     const ref: ExecutionRef = { connection: b.id, prompt: asPromptId('j1') }
-    expect(app.viewUrlForExecution(ref, { filename: 'x.png' })).toBe(
-      'http://native:8000/view?filename=x.png&subfolder=&type=output',
+    expect(app.assetUrlForExecution(ref, 'blake3:00')).toBe(
+      'http://native:8000/api/assets/blake3%3A00',
     )
   })
 
@@ -679,24 +678,6 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
-  const file = { filename: 'x.png' }
-
-  it('viewUrlForExecution uses the execution backend, not the default', () => {
-    const b = addOffline('http://other:8188')
-    const onB: ExecutionRef = { connection: b.id, prompt: asPromptId('p1') }
-    expect(app.viewUrlForExecution(onB, file)).toContain('http://other:8188/view')
-    const onDefault: ExecutionRef = { connection: app.connection.id, prompt: asPromptId('p2') }
-    expect(app.viewUrlForExecution(onDefault, file)).not.toContain('http://other:8188')
-  })
-
-  it('a REMOVED backend still resolves its historical executions', () => {
-    const b = addOffline('http://other:8188')
-    const ref = foreignRun(String(b.id), 'p1')
-    app.removeBackend(b.id)
-    expect(app.store.get(ref)).toBeDefined() // history survives removal
-    expect(app.viewUrlForExecution(ref, file)).toContain('http://other:8188/view')
-  })
-
   it('assetUrlForExecution uses the execution backend, not the default', () => {
     const b = addOffline('http://other:8188')
     const digest = 'blake3:' + 'ab'.repeat(32)

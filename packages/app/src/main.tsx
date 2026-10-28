@@ -103,10 +103,7 @@ async function bootstrap(): Promise<void> {
     }
   }
   hideBoot()
-  const legacyFixture = import.meta.env.DEV &&
-    import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1' &&
-    window.__dinksterTestDefaultProtocol === 'v1'
-  app = new AppState(legacyFixture ? { defaultProtocol: 'v1' } : undefined)
+  app = new AppState()
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
   await app.enableWorkspaceAuthority()
   const desktopWindow = desktop

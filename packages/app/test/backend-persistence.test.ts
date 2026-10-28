@@ -70,9 +70,9 @@ const storageChange = (
 }
 
 describe('backend-list rebase', () => {
-  const a = { baseUrl: 'http://a:1', label: 'A', protocol: 'v1' } as const
+  const a = { baseUrl: 'http://a:1', label: 'A', protocol: 'dinkster' } as const
   const b = { baseUrl: 'http://b:2', label: 'B', protocol: 'dinkster' } as const
-  const c = { baseUrl: 'http://c:3', label: 'C', protocol: 'v1' } as const
+  const c = { baseUrl: 'http://c:3', label: 'C', protocol: 'dinkster' } as const
 
   it('derives adds, removes, and keeps by canonical backend identity', () => {
     expect(rebaseBackendLists([a, b], [b, c])).toEqual({
@@ -95,26 +95,26 @@ describe('backend persistence', () => {
     expect(stored().backends).toEqual([
       { baseUrl: 'http://engine:3639', label: 'Engine', protocol: 'dinkster' },
     ])
-    app.addBackend('http://legacy:8188', undefined, false, 'v1')
+    app.addBackend('http://second:8188', undefined, false)
     expect(stored().backends).toEqual([
       { baseUrl: 'http://engine:3639', label: 'Engine', protocol: 'dinkster' },
-      { baseUrl: 'http://legacy:8188', label: 'http://legacy:8188', protocol: 'v1' },
+      { baseUrl: 'http://second:8188', label: 'http://second:8188', protocol: 'dinkster' },
     ])
   })
 
   it('persists removal', () => {
     const app = new AppState()
     const engine = app.addBackend('http://engine:3639', 'Engine', false, 'dinkster')!
-    app.addBackend('http://legacy:8188', 'Legacy', false, 'v1')
+    app.addBackend('http://second:8188', 'Second', false)
     app.removeBackend(engine.id)
     expect(stored().backends).toEqual([
-      { baseUrl: 'http://legacy:8188', label: 'Legacy', protocol: 'v1' },
+      { baseUrl: 'http://second:8188', label: 'Second', protocol: 'dinkster' },
     ])
   })
 
   it('rebases local writes over unseen external edits already in storage', () => {
     const app = new AppState()
-    const external = { baseUrl: 'http://external:8188', label: 'External', protocol: 'v1' } as const
+    const external = { baseUrl: 'http://external:8188', label: 'External', protocol: 'dinkster' } as const
     globalThis.localStorage.setItem(KEY, envelope([external]))
 
     const local = app.addBackend('http://local:3639', 'Local', false, 'dinkster')!
@@ -131,7 +131,7 @@ describe('backend persistence', () => {
   it('restores persisted backends on construction, protocol intact, not started', () => {
     const first = new AppState()
     first.addBackend('http://engine:3639', 'Engine', false, 'dinkster')
-    first.addBackend('http://legacy:8188', 'Legacy', false, 'v1')
+    first.addBackend('http://second:8188', 'Second', false)
 
     const second = new AppState()
     const backends = second.backends.get()
@@ -143,9 +143,9 @@ describe('backend persistence', () => {
       protocol: 'dinkster',
     })
     expect(backends[2]).toMatchObject({
-      baseUrl: 'http://legacy:8188',
-      label: 'Legacy',
-      protocol: 'v1',
+      baseUrl: 'http://second:8188',
+      label: 'Second',
+      protocol: 'dinkster',
     })
     expect(backends[1]!.connection.status.get()).toBe('disconnected')
   })
@@ -164,6 +164,7 @@ describe('backend persistence', () => {
         v: 1,
         backends: [
           { baseUrl: '', label: 'shadow', protocol: 'v1' },
+          { baseUrl: 'http://legacy:8188', label: 'Legacy', protocol: 'v1' },
           { baseUrl: 'http://ok:3639', label: 'OK', protocol: 'dinkster' },
           { baseUrl: 'http://bad:1', label: 'bad', protocol: 'other' },
           'garbage',

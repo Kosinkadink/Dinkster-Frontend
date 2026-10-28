@@ -152,17 +152,13 @@ describe('fast pull-request and full validation workflows', () => {
     ])
     expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
-    expect(script).toContain("['check:v1-boundary']")
     expect(script).toContain("['typecheck']")
-    expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")
     expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.ts/g)).toEqual([
       'test/format.schema.test.ts',
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
-      'test/object-info.golden.test.ts',
-      'test/events.golden.test.ts',
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
@@ -306,7 +302,6 @@ describe('fast pull-request and full validation workflows', () => {
       'pnpm exec prettier --check --single-quote --no-semi scripts/ci-fast.mjs packages/e2e/test/ci-workflow.test.ts',
     )
     expect(mainCommands).toContain('pnpm check:extension-literals')
-    expect(mainCommands).toContain('pnpm check:v1-boundary')
     expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
     expect(full.jobs['e2e-suite']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true'",
@@ -446,20 +441,11 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_PORT: '15420',
           DINKSTER_E2E_NATIVE_PORT: '15421',
         })
-        const recordedFixtures = steps.find(
-          (step) => step.name === 'Replay recorded stock ComfyUI fixtures',
-        )!
-        expect(recordedFixtures.if).toBe("matrix.name == 'stock ComfyUI V1'")
-        expect(recordedFixtures.run).toContain(
-          'test/object-info.golden.test.ts',
-        )
-        expect(recordedFixtures.run).toContain('test/events.golden.test.ts')
       }
     }
     expect(appMain).not.toContain('discoverBackend')
-    expect(appMain).toContain(
-      "new AppState(legacyFixture ? { defaultProtocol: 'v1' } : undefined)",
-    )
+    expect(appMain).toContain('new AppState()')
+    expect(appMain).not.toContain('legacyFixture')
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(baseConfig).toContain("name: 'v1-compatibility'")

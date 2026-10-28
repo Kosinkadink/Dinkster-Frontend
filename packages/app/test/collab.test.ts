@@ -230,7 +230,7 @@ beforeEach(() => vi.stubGlobal('sessionStorage', undefined))
 afterEach(() => vi.unstubAllGlobals())
 
 const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
-  const app = new AppState({ collabTransport: server.transport, defaultProtocol: withBackend ? 'dinkster' : 'v1' })
+  const app = new AppState({ collabTransport: server.transport })
   if (withBackend) {
     const backend = app.backends.get().find((candidate) => candidate.baseUrl === 'http://collab') ??
       app.addBackend('http://collab', 'collab', false, 'dinkster')!
@@ -546,6 +546,7 @@ describe('share', () => {
   it('refuses without a dinkster backend and leaves the tab untouched', async () => {
     const server = new FakeCollabServer()
     const app = makeApp(server, false)
+    app.backends.set([])
     const before = activeTab(app)
     const err = await app.shareActiveTab()
     expect(err).toMatch(/no Dinkster backend/)

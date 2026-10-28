@@ -2,8 +2,7 @@
  * URL-only backend add + native-first default: addBackendByUrl adds with
  * the DISCOVERED protocol (no manual choice), refuses unreachable/
  * unrecognized URLs with named problems instead of dead
- * rows, and the constructor's defaultProtocol option makes the same-origin
- * default native when main's discovery says so.
+ * rows. The same-origin default always uses the native connection.
  */
 import { describe, expect, it } from 'vitest'
 import { discoverBackend, type BackendDiscovery } from '@dinkster/client'
@@ -84,14 +83,14 @@ describe('addBackendByUrl', () => {
   })
 })
 
-describe('defaultProtocol option', () => {
+describe('native default', () => {
   it('defaults the same-origin backend to native Dinkster when unset', () => {
     const app = new AppState()
     expect(app.backends.get()[0]!.protocol).toBe('dinkster')
   })
 
-  it('makes the same-origin default native when discovery said dinkster', () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+  it('gives the same-origin default its local identity', () => {
+    const app = new AppState()
     const local = app.backends.get()[0]!
     expect(local.protocol).toBe('dinkster')
     expect(local.id).toBe('local')

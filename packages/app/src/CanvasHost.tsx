@@ -2137,7 +2137,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // from peekCandidatesFor (host state: companion sources + occurrences).
   const [previewTick, setPreviewTick] = createSolidSignal(0)
   const previewLoader = createPreviewLoader({
-    viewUrlForExecution: (ref, file) => props.app.viewUrlForExecution(ref, file),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
