@@ -143,6 +143,7 @@ interface DinksterBridgeTab {
               title?: string
               virtual?: true
               values: Record<string, unknown>
+              controllers?: Record<string, string>
               dynamic?: Record<string, {
                 selected?: string
                 members?: readonly string[]
