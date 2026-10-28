@@ -25,3 +25,20 @@ compatibility.
 Importer fixture and browser tests check conversion, persistence, diagnostics,
 and native submission. Synthetic catalogs in those tests are contract fixtures,
 not runtime parity evidence for a particular backend or model family.
+
+## Removed-layer acceptance exceptions
+
+The source search for removed compatibility layers in
+[issue 511, criterion 6](https://github.com/Kosinkadink/comfy-vibe-station/issues/511)
+permits references in layer index documents, the importer upgrade-rule table,
+and exactly these unchanged historical audit files:
+
+- `docs/archive/feature-coverage-audit.md`
+- `docs/archive/frontend-extension-rfc.md`
+- `docs/archive/widget-inventory-audit.md`
+- `docs/archive/wire15-proposal.md`
+
+No other archive path is exempt. Active documents and package source must not
+retain removed-layer references. Acceptance publishes the full raw search output
+at the frozen head on the issue, classifying every retained historical line and
+every removed active match; a filtered zero-match result is insufficient.
