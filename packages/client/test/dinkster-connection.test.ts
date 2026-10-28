@@ -3409,6 +3409,20 @@ describe('websocket', () => {
     expect(events[0]).toMatchObject({ kind: 'schemaChanged', connection: C0, epoch: 4 })
   })
 
+  it('invalidates folder snapshots on mount pings without emitting asset or execution data', () => {
+    const { conn, ws, events } = connected()
+    let changes = 0
+    const unsubscribe = conn.onMountsChanged(() => { changes++ })
+    ws.onopen?.({})
+    ws.onmessage?.({ data: JSON.stringify({ type: 'mounts_changed' }) })
+    expect(changes).toBe(1)
+    expect(events).toEqual([])
+    unsubscribe()
+    ws.onmessage?.({ data: JSON.stringify({ type: 'mounts_changed' }) })
+    expect(changes).toBe(1)
+    conn.disconnect()
+  })
+
   it('decodes self-describing binary frames into attributed previews', () => {
     const { ws, events } = connected()
     ws.onopen?.({})

@@ -1,6 +1,7 @@
-import { createSignal, Show } from 'solid-js'
+import { createEffect, createSignal, on, onCleanup, Show } from 'solid-js'
 import type { MountDescriptor, MountGrantOptions } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
+import { desktopBridge } from './desktop-bridge.js'
 import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductField } from './ProductForm.js'
@@ -14,13 +15,12 @@ type StatusMessage = { readonly key: string } | { readonly raw: string }
 
 /**
  * Folder grant form shared by the desktop management dialog and the
- * browser template gallery. Desktop hosts pass `chooseDirectory` to use the
- * native folder picker; browser hosts omit it and the server filesystem path
- * is typed because browser directory pickers cannot reveal a server path.
+ * browser template gallery. Only a shell-reported capability enables the native
+ * picker; otherwise the operator types a path on the backend machine.
  */
 export function MountFolderForm(props: {
   readonly connection: MountFolderConnection
-  readonly chooseDirectory?: () => Promise<string | undefined>
+  readonly backendUrl?: string
   readonly onGranted?: () => void
 }) {
   const message = useAppMessage()
@@ -31,6 +31,26 @@ export function MountFolderForm(props: {
   const [shared, setShared] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
   const [status, setStatus] = createSignal<StatusMessage>()
+  const [nativeChoice, setNativeChoice] = createSignal(false)
+  let generation = 0
+  createEffect(on(() => [props.backendUrl, props.connection] as const, ([url]) => {
+    const bridge = desktopBridge()
+    let active = true
+    setNativeChoice(false)
+    setMountPath('')
+    setMountId('')
+    setMode('read')
+    setKind('')
+    setShared(false)
+    setStatus(undefined)
+    setBusy(false)
+    generation++
+    onCleanup(() => { active = false; generation++ })
+    if (url === undefined || !bridge?.fileCapabilities) return
+    void bridge.fileCapabilities(new URL(url || '/', window.location.href).href).then((capabilities) => {
+      if (active) setNativeChoice(capabilities.nativeFolderChoice)
+    }).catch(() => undefined)
+  }))
 
   const enterPath = (next: string): void => {
     setMountPath(next)
@@ -39,29 +59,38 @@ export function MountFolderForm(props: {
   }
 
   const choose = async (): Promise<void> => {
+    const url = props.backendUrl
+    if (!nativeChoice() || url === undefined) return
+    const request = generation
+    setBusy(true)
+    setStatus(undefined)
     try {
-      const path = await props.chooseDirectory?.()
-      if (path) enterPath(path)
+      const path = await desktopBridge()!.chooseDirectory(new URL(url || '/', window.location.href).href)
+      if (request === generation && path) enterPath(path)
     } catch (error) {
-      setStatus({ raw: error instanceof Error ? error.message : String(error) })
+      if (request === generation) setStatus({ raw: error instanceof Error ? error.message : String(error) })
+    } finally {
+      if (request === generation) setBusy(false)
     }
   }
 
   const addMount = async (): Promise<void> => {
     const path = mountPath().trim()
-    if (!mountId().trim() || !path) return
+    if (busy() || !mountId().trim() || !path) return
+    const request = generation
     setBusy(true)
     setStatus(undefined)
     try {
       await props.connection.addMount(mountId().trim(), path, mode(), { project: activeProjectId(), shared: shared(), kind: kind().trim() })
+      if (request !== generation) return
       setMountPath('')
       setMountId('')
       setStatus({ key: 'desktopManagement.folders.granted' })
       props.onGranted?.()
     } catch (error) {
-      setStatus({ raw: error instanceof Error ? error.message : String(error) })
+      if (request === generation) setStatus({ raw: error instanceof Error ? error.message : String(error) })
     } finally {
-      setBusy(false)
+      if (request === generation) setBusy(false)
     }
   }
 
@@ -85,7 +114,7 @@ export function MountFolderForm(props: {
         <label class="project-folder-shared"><ProductCheckbox checked={shared()} disabled={busy()} ariaLabel={message('projectFolders.shared')} onChange={setShared} />{message('projectFolders.shared')}</label>
         <p>{message('projectFolders.projectOnly')}</p>
       </div>
-      <Show when={props.chooseDirectory !== undefined} fallback={
+      <Show when={nativeChoice()} fallback={
         <form class="desktop-mount-form desktop-mount-form-typed" onSubmit={(event) => { event.preventDefault(); void addMount() }}>
           <label for="desktop-mount-path">{message('importAssetResolution.fact.path')}</label>
           <ProductTextInput id="desktop-mount-path" value={mountPath()} onInput={(event) => enterPath(event.currentTarget.value)} required />

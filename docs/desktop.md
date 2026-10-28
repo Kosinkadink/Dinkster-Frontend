@@ -147,15 +147,27 @@ folder available to other projects. Purpose accepts a namespaced kind such as
 it does not copy them into the library. Network paths must already be mounted
 on the backend machine; the form does not store network credentials.
 
+Native folder choice is offered only when the Desktop shell reports
+`fileCapabilities(backendUrl).nativeFolderChoice` for the current connection.
+The empty same-origin connection URL resolves to the window's web host URL;
+the renderer does not infer native access from a local-looking address.
+Picker cancellation leaves the form unchanged; picker errors are displayed.
+Native output reveal is unavailable: mount roots alone do not authorize an
+exact asset file. Operator locations are display facts, not file permissions.
+
 Open Assets -> Folders or the backend's Settings card to manage project folders.
 Top-to-bottom is preference order. Drag rows or use the keyboard-accessible Move
 up and Move down buttons. Stop using removes this project's association, never
 files or another project's grant. A selected output requires a writable
 replacement before removal. Retry / rescan refreshes a reconnected drive.
 Order, membership and output selection persist on the server, independently for
-each project window. Physical paths require operator access and stay out of
-shareable asset records. Pending sandbox changes say Restart required and show
-the still-active output; they do not rebind live grants. Server policy can
+each project window. Switching connections clears unsaved folder choices and
+loads the new server's settings; late saves or errors from the previous
+connection do not overwrite the current form. Physical paths require operator
+access and stay out of shareable asset records. Pending sandbox changes say
+Restart required and show the still-active output; server grants pending removal
+are listed separately and remain live until restart. Saving configuration does
+not rebind live grants. Server policy can
 disable folder changes without hiding the configured folders.
 
 ### Remote worker machines

@@ -144,7 +144,7 @@ function BackendCard(props: {
 
       <Show when={props.backend.protocol === 'dinkster' ? props.backend : undefined}>
         {(native) => <>
-          <ProjectFolderSettings connection={native().connection} backendLabel={props.backend.label} />
+          <ProjectFolderSettings connection={native().connection} backendUrl={native().baseUrl} backendLabel={props.backend.label} />
           <OutputMountSettings connection={native().connection} />
           <RuntimeSettingsPanel connection={native().connection} backendLabel={props.backend.label} />
           <AgentPermissionsPanel connection={native().connection} backendLabel={props.backend.label} />

@@ -100,7 +100,7 @@
   ],
   "AssetsBody.tsx": [
     "text:() const [mounts, setMounts] = createSignal",
-    "text:() const [retryTick, setRetryTick] = createSignal(0) const [sourceFailures, setSourceFailures] = createSignal",
+    "text:() const [retryTick, setRetryTick] = createSignal(0) const [foldersOpen, setFoldersOpen] = createSignal(false) const [sourceFailures, setSourceFailures] = createSignal",
     "text:([]) const [discoveryError, setDiscoveryError] = createSignal",
     "text:= 1024 && unit",
     "text:if (state.kind === 'error') return",
@@ -410,8 +410,8 @@
     "text:() const [removingWorker, setRemovingWorker] = createSignal",
     "text:() const [workerName, setWorkerName] = createSignal('') const [workerEndpoint, setWorkerEndpoint] = createSignal('') const [workerTokenFile, setWorkerTokenFile] = createSignal('') const [workerTokenFileGrant, setWorkerTokenFileGrant] = createSignal",
     "text:() const [workerTlsCaFile, setWorkerTlsCaFile] = createSignal('') const [workerTlsCaFileGrant, setWorkerTlsCaFileGrant] = createSignal",
+    "text:([]) const [mountChangesAllowed, setMountChangesAllowed] = createSignal(false) const [workers, setWorkers] = createSignal",
     "text:([]) const [workerFormOpen, setWorkerFormOpen] = createSignal(false) const [editingWorker, setEditingWorker] = createSignal",
-    "text:([]) const [workers, setWorkers] = createSignal",
     "text:, successKey?: string): Promise",
     "text:= 1024 && unit",
     "text:Promise",
@@ -632,8 +632,7 @@
     "text:Rendering 3D preview..."
   ],
   "MountFolderForm.tsx": [
-    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal",
-    "text:Promise"
+    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal"
   ],
   "NodePalette.tsx": [
     "text:() const duplicates = new Set",
@@ -690,7 +689,6 @@
     "text:() const [busy, setBusy] = createSignal(false) const [error, setError] = createSignal('') const [locationError, setLocationError] = createSignal('') const [removing, setRemoving] = createSignal",
     "text:() const [locations, setLocations] = createSignal",
     "text:): Promise",
-    "text:Promise",
     "text:Promise",
     "text:busy() || settings()?.mountChangesAllowed !== true return"
   ],

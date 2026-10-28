@@ -99,8 +99,8 @@ export interface DinksterDesktopBridge {
   selectEngine(commit: string, variant: DesktopEngineAccelerator): Promise<void>
   checkForUpdates(): Promise<void>
   installUpdate(): Promise<void>
-  chooseDirectory(): Promise<string | undefined>
-  revealFile(path: string): Promise<void>
+  fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean }>
+  chooseDirectory(backendUrl: string): Promise<string | undefined>
   exportSnapshot(): Promise<string | undefined>
   importSnapshot(): Promise<unknown | undefined>
   systemCheck(): Promise<DesktopSystemCheck>

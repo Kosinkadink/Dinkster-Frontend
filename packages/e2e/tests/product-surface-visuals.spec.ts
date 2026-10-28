@@ -925,6 +925,11 @@ test('Template gallery presents loading error retry and empty search states', as
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
+      if (state === 'folder-form') {
+        const grant = gallery.getByRole('button', { name: 'Grant folder', exact: true })
+        await grant.scrollIntoViewIfNeeded()
+        await expect(grant).toBeInViewport({ ratio: 1 })
+      }
       await page.mouse.move(0, 0)
       await screenshot(page, `gallery-${state}-${width}`)
     }

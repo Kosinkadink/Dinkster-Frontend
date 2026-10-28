@@ -55,7 +55,6 @@ import type { VideoPreferences } from './video-preview.js'
 import { AudioTransport } from './AudioTransport.js'
 import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
-import { canRevealOutput, revealExecutedImage } from './output-file.js'
 import { placeFloatingSurface } from './floating-surface.js'
 import {
   defaultValuesOf,
@@ -6183,13 +6182,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                     {...(current().download === undefined ? {} : { download: current().download })}
                     {...(current().output.images[current().output.index]?.virtualPath === undefined ? {} : {
                       virtualPath: current().output.images[current().output.index]!.virtualPath,
-                      ...(canRevealOutput() ? { onReveal: () => {
-                        const tab = activeTab()
-                        const execution = tab === undefined ? undefined : props.app.executionForTab(tab)
-                        const backend = execution === undefined ? undefined : props.app.backendFor(execution.ref.connection)
-                        const image = current().output.images[current().output.index]
-                        if (backend?.protocol === 'dinkster' && image !== undefined) void revealExecutedImage(backend.connection, image)
-                      } } : {}),
                     })}
                     rect={rect()}
                     canvas={canvasEl}
@@ -6212,12 +6204,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           batch={viewer.preview.output.batch}
           initialIndex={viewer.preview.output.index}
           provenance={viewer.provenance}
-          {...(canRevealOutput() ? { onReveal: (image) => {
-            const tab = activeTab()
-            const execution = tab === undefined ? undefined : props.app.executionForTab(tab)
-            const backend = execution === undefined ? undefined : props.app.backendFor(execution.ref.connection)
-            if (backend?.protocol === 'dinkster') void revealExecutedImage(backend.connection, image)
-          } } : {})}
           onRequestClose={closeOutputViewer}
         />}
       </Show>

@@ -1612,6 +1612,7 @@ export class DinksterConnection {
   private readonly problemListeners = new Set<(problem: Diagnostic) => void>()
   private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
+  private readonly mountListeners = new Set<() => void>()
   private readonly socket: ReconnectingSocket
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
@@ -1728,11 +1729,21 @@ export class DinksterConnection {
     return () => this.memoryListeners.delete(listener)
   }
 
+  /** Mount notifications invalidate the project snapshot, never carry host paths. */
+  onMountsChanged(listener: () => void): () => void {
+    this.mountListeners.add(listener)
+    return () => this.mountListeners.delete(listener)
+  }
+
   private emit(events: readonly NormalizedEvent[]): void {
     for (const e of events) for (const l of [...this.listeners]) l(e)
   }
 
   private emitRaw(raw: DinksterRawMessage, live: boolean): void {
+    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'mounts_changed') {
+      for (const listener of [...this.mountListeners]) listener()
+      return
+    }
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
     const events = this.normalizer.normalize(raw)
     this.emit(events)

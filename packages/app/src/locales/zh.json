@@ -12,6 +12,7 @@
   "projectFolders.loading": "Loading folders...",
   "projectFolders.disabled": "Folder changes are disabled by server policy or your operator permissions.",
   "projectFolders.restart": "Restart required for pending folder changes. Active output: {output}. Existing live grants remain in use until restart.",
+  "projectFolders.pendingRemovals": "Server grants pending removal: {folders}. They remain active until restart. No files will be deleted.",
   "projectFolders.none": "None",
   "projectFolders.locationsUnavailable": "Physical location unavailable (operator access required).",
   "projectFolders.anyKind": "Any kind",

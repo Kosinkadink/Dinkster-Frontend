@@ -25,7 +25,7 @@
 }
 .project-folder-list li {
   padding: 12px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--dinkster-border-subtle);
 }
 .project-folder-facts {
   display: grid;
@@ -50,7 +50,25 @@
   margin-top: 16px;
 }
 .asset-project-folders {
+  flex: none;
+  min-width: 0;
   padding: 8px;
   max-height: 70vh;
   overflow: auto;
+}
+.assets-panel {
+  flex-direction: column;
+}
+.project-folder-settings {
+  min-width: 0;
+}
+.project-folder-settings .runtime-settings-toolbar {
+  flex-wrap: wrap;
+}
+.project-folder-settings .runtime-settings-toolbar > div {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+.project-folder-settings .runtime-settings-body {
+  padding-bottom: var(--dinkster-space-16);
 }

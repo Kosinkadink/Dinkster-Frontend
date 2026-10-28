@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, MountLocations, MountSettings } from '@dinkster/client'
 import { MountFolderForm } from './MountFolderForm.js'
 import { ProductButton } from './ProductControls.js'
@@ -7,9 +7,9 @@ import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
 
 export function ProjectFolderSettings(props: {
-  readonly connection: Pick<DinksterConnection, 'fetchMountSettings' | 'fetchMountLocations' | 'updateProjectFolders' | 'addMount' | 'retryMount'>
+  readonly connection: Pick<DinksterConnection, 'fetchMountSettings' | 'fetchMountLocations' | 'updateProjectFolders' | 'addMount' | 'retryMount' | 'onMountsChanged'>
   readonly backendLabel: string
-  readonly chooseDirectory?: () => Promise<string | undefined>
+  readonly backendUrl?: string
   readonly onChanged?: () => void
 }) {
   const message = useAppMessage()
@@ -22,6 +22,7 @@ export function ProjectFolderSettings(props: {
   const [replacement, setReplacement] = createSignal('')
   let dragged: string | undefined
   let generation = 0
+  let connectionGeneration = 0
   onCleanup(() => { generation++ })
 
   const load = async (): Promise<void> => {
@@ -45,19 +46,31 @@ export function ProjectFolderSettings(props: {
       if (request === generation) setError(cause instanceof Error ? cause.message : String(cause))
     }
   }
-  createEffect(() => { props.connection; void load() })
+  createEffect(() => {
+    const connection = props.connection
+    connectionGeneration++
+    setBusy(false)
+    setSettings(undefined)
+    setLocations(undefined)
+    setRemoving(undefined)
+    onCleanup(connection.onMountsChanged(() => { void load() }))
+    onCleanup(() => { generation++; connectionGeneration++ })
+    untrack(() => { void load() })
+  })
   const perform = async (action: () => Promise<void>): Promise<void> => {
     if (busy()) return
+    const request = connectionGeneration
     setBusy(true)
     setError('')
     try {
       await action()
+      if (request !== connectionGeneration) return
       setRemoving(undefined)
       await load()
-      props.onChanged?.()
+      if (request === connectionGeneration) props.onChanged?.()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    } finally { setBusy(false) }
+      if (request === connectionGeneration) setError(cause instanceof Error ? cause.message : String(cause))
+    } finally { if (request === connectionGeneration) setBusy(false) }
   }
   const ids = (): string[] => settings()?.mounts.map((mount) => mount.id) ?? []
   const move = (id: string, index: number): void => {
@@ -86,10 +99,11 @@ export function ProjectFolderSettings(props: {
         <ProductButton type="button" disabled={busy()} onClick={() => void load()}>{message('projectFolders.refresh')}</ProductButton>
       </div>
       <Show when={error()}><ProductNotice tone="error">{error()}</ProductNotice></Show>
-      <Show when={settings()} fallback={<p>{message('projectFolders.loading')}</p>}>
+      <Show when={settings()} fallback={<Show when={!error()}><p>{message('projectFolders.loading')}</p></Show>}>
         {(current) => <>
           <Show when={!current().mountChangesAllowed}><ProductNotice tone="warning">{message('projectFolders.disabled')}</ProductNotice></Show>
           <Show when={current().restartRequired}><ProductNotice tone="warning">{message('projectFolders.restart', { output: current().activeOutputMount ?? message('projectFolders.none') })}</ProductNotice></Show>
+          <Show when={current().pendingRemovals?.length}><ProductNotice tone="warning">{message('projectFolders.pendingRemovals', { folders: current().pendingRemovals!.join(', ') })}</ProductNotice></Show>
           <Show when={locationError()}><ProductNotice tone="info">{locationError()}</ProductNotice></Show>
           <ol class="project-folder-list">
             <For each={current().mounts}>{(mount, index) => <li
@@ -126,7 +140,7 @@ export function ProjectFolderSettings(props: {
               <ProductButton type="button" variant="danger" disabled={disabled() || (id() === current().outputMount && !replacement())} onClick={remove}>{message('projectFolders.confirmRemove')}</ProductButton>
             </div>
           </div>}</Show>
-          <Show when={current().mountChangesAllowed}><MountFolderForm connection={props.connection} {...(props.chooseDirectory ? { chooseDirectory: props.chooseDirectory } : {})} onGranted={() => { void load(); props.onChanged?.() }} /></Show>
+          <Show when={current().mountChangesAllowed}><MountFolderForm connection={props.connection} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onGranted={() => { void load(); props.onChanged?.() }} /></Show>
         </>}
       </Show>
     </div>
