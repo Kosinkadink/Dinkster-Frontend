@@ -1679,7 +1679,7 @@ function planReplacementForCase(
           diag(
             'error',
             'replace.outputFamily.countMapping',
-            `Output family '${targetFamilyId}': count '${targetCountInput}' must copy ${sourceFamily === undefined ? 'a source count input' : `'${sourceFamily.spec.count.input}'`} unchanged`,
+            `Output family '${targetFamilyId}': '${targetCountInput}' must copy the source count unchanged`,
           ),
         )
         continue

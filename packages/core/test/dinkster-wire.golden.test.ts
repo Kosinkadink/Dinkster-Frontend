@@ -314,7 +314,6 @@ describe('Dinkster schema wire', () => {
     const prefix = { role: 'input', id: 'prefix', type: concrete('STRING') }
     const mount = { role: 'input', id: 'mount', type: concrete('STRING'), required: false, widget: { type: 'MOUNT' }, adjacentTo: 'prefix' }
     for (const invalid of [
-      { ...mount, widget: { type: 'MOUNT', options: ['archive'] } },
       { ...mount, type: concrete('INT') },
       ...['', 'missing', 'mount', null, 4].map((adjacentTo) => ({ ...mount, adjacentTo })),
     ]) {
@@ -378,6 +377,16 @@ describe('Dinkster schema wire', () => {
         message: `Example.value ${type === 'REPRESENTATIONS' ? 'REPRESENTATIONS ' : ''}widget: unknown field 'futureHint'`,
       }])
     }
+    const mount = { role: 'input', id: 'mount', type: concrete('STRING'), widget: { type: 'MOUNT' } }
+    const clean = parseDinksterSchema('SaveFixture', { interface: [mount] })
+    const future = parseDinksterSchema('SaveFixture', { interface: [
+      { ...mount, widget: { ...mount.widget, options: ['archive'] } },
+    ] })
+    expect(future.schema).toEqual(clean.schema)
+    expect(future.diagnostics).toEqual([expect.objectContaining({
+      severity: 'warning', code: 'schema.widget.unknownField',
+      message: "SaveFixture.mount widget: unknown field 'options'",
+    })])
   })
 
   it('keeps missing and mistyped known widget fields as unresolved schema errors', () => {

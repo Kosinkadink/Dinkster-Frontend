@@ -1122,9 +1122,9 @@ function widgetFor(
         )
       }
     }
-    if (descriptor.type === 'COLOR') {
+    if (descriptor.type === 'COLOR' || descriptor.type === 'MOUNT') {
       return {
-        widgetType: 'COLOR',
+        widgetType: descriptor.type,
         options: {},
         ...(dflt !== undefined ? { default: dflt } : {}),
       }

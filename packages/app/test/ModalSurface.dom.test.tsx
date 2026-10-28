@@ -4,7 +4,7 @@ import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetDtoV1WireContract, CandidateV1 } from '@dinkster/client'
-import { registerCatalog, setLocale } from '@dinkster/core'
+import { createSignal as createCoreSignal, registerCatalog, setLocale } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
@@ -743,7 +743,8 @@ describe('ASSET widget modal integration', () => {
       initial,
     }
     const app = {
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection }),
+      backendsTick: createCoreSignal(0),
+      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection, scopedClient: { remoteChoiceAuthority: () => 0 } }),
       dispatchTo,
       widgetRegistry: { kind: () => undefined },
       widgetRegistryForTab: () => app.widgetRegistry,
@@ -795,7 +796,8 @@ describe('ASSET widget modal integration', () => {
     const mounted = catalogAssetEditor('model/vae', { kind: 'union', names: ['COMBO', 'ASSET'] }, 'pixel_space', false)
     const connection = { ...mounted.connection, listAssetSelections: vi.fn().mockResolvedValue([{ name: 'pixel_space', shape: 'literal' }]) }
     const app = {
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection }),
+      backendsTick: createCoreSignal(0),
+      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection, scopedClient: { remoteChoiceAuthority: () => 0 } }),
       dispatchTo: mounted.dispatchTo, widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const ed: WidgetEditorState = { ...mounted.ed, spec: { ...mounted.ed.spec!, selection: true } }

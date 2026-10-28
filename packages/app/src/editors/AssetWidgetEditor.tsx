@@ -996,9 +996,12 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
   const [browseFiles, setBrowseFiles] = createSolidSignal(initialFiles)
   const [filesVisited, setFilesVisited] = createSolidSignal(initialFiles)
   const [sourceVisited, setSourceVisited] = createSolidSignal(!initialFiles)
-  const [backendTick, setBackendTick] = createSolidSignal(props.app.backendsTick.get())
-  const unsubscribe = props.app.backendsTick.subscribe(setBackendTick)
-  onCleanup(unsubscribe)
+  const [backendTick, setBackendTick] = createSolidSignal(0)
+  if (props.ed.spec?.selection === true) {
+    setBackendTick(props.app.backendsTick.get())
+    const unsubscribe = props.app.backendsTick.subscribe(setBackendTick)
+    onCleanup(unsubscribe)
+  }
   const sourceBackend = createMemo(() => {
     backendTick()
     return props.app.backendForTab(props.ed.tab)

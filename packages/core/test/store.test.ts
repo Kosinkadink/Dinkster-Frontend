@@ -183,19 +183,11 @@ describe('DocumentStore.dispatch', () => {
   it('rejects unknown commands', () => {
     const store = makeStore()
     const before = store.doc
-    for (const invocation of [
-      { command: 'nope', params: {} },
-      { command: 'node.replace', params: { plan: {
-        graphId: 'g0', nodeId: 'n1', from: 'KSampler', to: 'OtherNode', values: {},
-        inputRewires: [], outputRewires: [], dropLinks: [], netSourceRewires: [], netSinks: [], dropNets: [],
-      } } },
-    ]) {
-      const out = store.dispatch(invocation)
-      expect(out.ok).toBe(false)
-      if (!out.ok) expect(out.diagnostics[0]!.code).toBe('command.unknown')
-      expect(store.revision).toBe(0)
-      expect(store.doc).toBe(before)
-    }
+    const out = store.dispatch({ command: 'nope', params: {} })
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.diagnostics[0]!.code).toBe('command.unknown')
+    expect(store.revision).toBe(0)
+    expect(store.doc).toBe(before)
   })
 
   it('preserves wire-15 recursive choice state through unrelated edits and undo', () => {
@@ -1869,13 +1861,28 @@ describe('named net commands', () => {
     expect(store.doc.view.graphs.g0!.guideNets).toEqual([])
   })
 
-  it('graph.deleteItems prunes the display mode of removed nets', () => {
+  it('graph.deleteItems and node.replace dropNets prune the display mode of removed nets', () => {
     const deleteStore = makeNetStore()
     deleteStore.dispatch({ command: 'net.create', params: { graphId: 'g0', name: 'ctx', source: { node: 'n1', port: 'out0' } } })
     deleteStore.dispatch({ command: 'view.setNetDisplay', params: { graphId: 'g0', netId: 'net100', mode: 'tags' } })
     expect(deleteStore.dispatch({ command: 'graph.deleteItems', params: { graphId: 'g0', nodeIds: ['n1'] } }).ok).toBe(true)
     expect(deleteStore.doc.graphs.g0!.nets.net100).toBeUndefined()
     expect(deleteStore.doc.view.graphs.g0!.collapsedNets).toEqual([])
+
+    const replaceStore = makeNetStore()
+    replaceStore.dispatch({ command: 'net.create', params: { graphId: 'g0', name: 'ctx', source: { node: 'n1', port: 'out0' } } })
+    replaceStore.dispatch({ command: 'view.setNetDisplay', params: { graphId: 'g0', netId: 'net100', mode: 'guide' } })
+    const replaced = replaceStore.dispatch({
+      command: 'node.replace',
+      params: { plan: {
+        graphId: 'g0', nodeId: 'n1', from: 'KSampler', to: 'KSampler', values: {},
+        inputRewires: [], outputRewires: [], dropLinks: [], netSourceRewires: [], netSinks: [], dropNets: ['net100'],
+      } },
+    })
+    expect(replaced.ok, JSON.stringify(replaced.diagnostics)).toBe(true)
+    expect(replaceStore.doc.graphs.g0!.nets.net100).toBeUndefined()
+    expect(replaceStore.doc.view.graphs.g0!.collapsedNets).toEqual([])
+    expect(replaceStore.doc.view.graphs.g0!.guideNets).toEqual([])
   })
 
   it('view.setNetCollapsed toggles; matching state is a committed no-op', () => {

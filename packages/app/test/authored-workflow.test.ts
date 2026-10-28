@@ -235,9 +235,9 @@ describe('unresolved-type reporting', () => {
     expect(app.openDocument(docJson('NoSuchNode', 2), 'Missing')).toEqual([])
     const found = app.problems.get().find((entry) => entry.code === 'schema.unresolvedType' && entry.message.includes('NoSuchNode'))
     expect(found).toBeDefined()
-    expect(found!.message).toContain("'NoSuchNode'")
-    expect(found!.message).toContain('2 node(s)')
-    expect(found!.message).toContain('excluded from execution')
+    expect(found!.severity).toBe('warning')
+    expect(found!.message).toContain('NoSuchNode (2)')
+    expect(found!.message).toContain(`not available on backend ${app.backends.get()[0]!.label}`)
     expect(found!.message).not.toContain('cannot run')
   })
 
