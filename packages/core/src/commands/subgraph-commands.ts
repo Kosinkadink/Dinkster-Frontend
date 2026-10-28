@@ -1927,7 +1927,14 @@ const subgraphFlatten: CommandDefinition = {
     const valueSources = { ...(parent.valueSources ?? {}) }
     for (const [oldId, source] of Object.entries(body.valueSources ?? {})) {
       const id = valueSourceIds.get(oldId)!
-      valueSources[id] = { ...source, id: asValueSourceId(id) }
+      const input = body.boundary.inputs.find((item) => item.promoted === true &&
+        item.binds.kind === 'valueSource' && item.binds.valueSource === oldId)
+      valueSources[id] = {
+        ...source,
+        id: asValueSourceId(id),
+        ...(input !== undefined && Object.hasOwn(occurrence.values, input.id) ? { value: occurrence.values[input.id]! } : {}),
+        ...(input !== undefined && Object.hasOwn(occurrence.controllers ?? {}, input.id) ? { controller: occurrence.controllers![input.id]! } : {}),
+      }
     }
     const selectors = { ...(parent.selectors ?? {}) }
     for (const [oldId, selector] of Object.entries(body.selectors ?? {})) {

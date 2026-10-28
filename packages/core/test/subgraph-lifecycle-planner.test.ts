@@ -2131,6 +2131,85 @@ const refreshFlattenSchemaDigest = (invocation: any): void => {
 }
 
 describe('subgraph.flatten trusted-dispatch authorization', () => {
+  it.each([19, null, undefined])('flattens occurrence-local literal input state %s without mutating its shared definition', (value) => {
+    const initial = flattenDocument()
+    const binds = { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } }
+    initial.graphs.root.nodes = {
+      occurrence: { ...initial.graphs.root.nodes.occurrence, values: value === undefined ? {} : { input: value },
+        ...(value === undefined ? {} : { controllers: { input: 'decrement' } }) },
+      survivor: { ...initial.graphs.root.nodes.survivor, values: { input: 47 }, controllers: { input: 'fixed' } },
+    }
+    initial.graphs.root.links = {}
+    initial.graphs.root.nets = {}
+    initial.graphs.root.boundary = { inputs: [], outputs: [] }
+    initial.graphs.body = {
+      id: 'body', name: 'Literal input body', nodes: { a: { id: 'a', type: 'BodyNode', values: {} } },
+      links: { delivery: link('delivery', { valueSource: 'value' as never }, port('a', 'mid')) },
+      nets: {}, reroutes: {}, selectors: {}, nextOrdinal: 0,
+      valueSources: { value: { id: 'value', value: 37, title: 'Seed', controller: 'increment', spec: { widgetType: 'INT', options: {}, controller: 'after_generate' } } },
+      boundary: { inputs: [{ id: 'input', promoted: true, binds }], outputs: [] },
+    }
+    initial.view.graphs.root.nodes = { occurrence: initial.view.graphs.root.nodes.occurrence, survivor: {} }
+    delete initial.view.graphs.root.collapsedNets
+    initial.view.graphs.body = { nodes: { a: {} }, valueSources: { value: { position: { x: 80, y: 30 } } } }
+    const resolve = (type: string) => {
+      const schema = flattenResolver(type)
+      return schema === undefined ? undefined : { ...schema, isOutputNode: true }
+    }
+    const prompt = (doc: WorkflowDocument) => {
+      const result = compile({ document: doc, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('literal-input-flatten'), schemaHash: 'literal' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? Object.values(result.artifact.prompt).map((node) => node.inputs.mid).sort() : []
+    }
+    const expected = prompt(initial)
+    expect(expected).toEqual(value === null ? [47, null] : value === undefined ? [37, 47] : [19, 47])
+    const invocation = flattenInvocation(initial)
+    invocation.params.resolvedGeometry.body = [
+      { id: 'a', kind: 'node', x: 0, y: 0, width: 120, height: 80 },
+      { id: 'value', kind: 'valueSource', x: 80, y: 30, width: 120, height: 40 },
+    ]
+    expect(invocation.params.statePlan.status, JSON.stringify(invocation.params.statePlan)).toBe('ready')
+    const session = trustedFlattenSession(initial)
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    expect(session.doc.graphs.body).toEqual(initial.graphs.body)
+    expect(session.doc.graphs.root!.nodes.survivor).toEqual(initial.graphs.root.nodes.survivor)
+    const copied = Object.values(session.doc.graphs.root!.valueSources!).find((source) => source.id !== 'value')!
+    expect(copied).toEqual({ ...initial.graphs.body.valueSources.value, id: copied.id,
+      ...(value === undefined ? {} : { value, controller: 'decrement' }) })
+    expect(checkDocument(session.doc)).toEqual([])
+    expect(prompt(session.doc)).toEqual(expected)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+    expect(reopened.document).toBeDefined()
+    expect(prompt(reopened.document!)).toEqual(expected)
+    expect(session.undo()).toBe(true)
+    expect(prompt(session.doc)).toEqual(expected)
+    expect(session.redo()).toBe(true)
+    expect(prompt(session.doc)).toEqual(expected)
+    if (value === 19) {
+      for (const delivery of ['link', 'net']) {
+        const linked = structuredClone(initial)
+        linked.graphs.root.nodes.driver = { id: 'driver', type: 'BodyNode', values: {} }
+        if (delivery === 'link') linked.graphs.root.links.incoming = link('incoming', port('driver', 'out'), port('occurrence', 'input'))
+        else linked.graphs.root.nets.incoming = { id: 'incoming', name: 'Driver', source: port('driver', 'out'), sinks: [port('occurrence', 'input')] }
+        const linkedSession = trustedFlattenSession(linked)
+        const before = linkedSession.doc
+        const refused = linkedSession.dispatch(flattenInvocation(linked))
+        expect(refused.ok).toBe(false)
+        if (!refused.ok) expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.flatten.stateUnresolved')
+        expect(linkedSession.doc).toBe(before)
+      }
+      const stale = structuredClone(initial)
+      stale.graphs.body.valueSources.value.value = 99
+      const staleSession = trustedFlattenSession(stale)
+      const before = staleSession.doc
+      const refused = staleSession.dispatch(invocation)
+      expect(refused.ok).toBe(false)
+      if (!refused.ok) expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.lifecycle.stalePlan')
+      expect(staleSession.doc).toBe(before)
+    }
+  })
+
   it.each([false, true])('flattens retained literal output bindings without changing shared siblings (overlay=%s)', (overlay) => {
     const initial = flattenDocument()
     const binds = { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } }

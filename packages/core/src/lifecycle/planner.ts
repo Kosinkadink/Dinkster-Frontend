@@ -520,7 +520,10 @@ export function classifyFlattenBoundaryRoute(
   expectedSide?: 'input' | 'output',
 ): FlattenRouteKind {
   const routes = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding)).map((binding) => {
-    if (binding.kind === 'valueSource') return expectedSide === 'output' && body.valueSources?.[binding.valueSource] !== undefined ? 'plain' : 'unresolved'
+    if (binding.kind === 'valueSource') {
+      if (expectedSide === undefined || body.valueSources?.[binding.valueSource] === undefined) return 'unresolved'
+      return expectedSide === 'input' && item.promoted === true ? 'plainWidget' : 'plain'
+    }
     if (!isNodeBoundaryBinding(binding)) return 'unresolved'
     const node = body.nodes[binding.node]
     return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide, node)
@@ -1318,6 +1321,13 @@ function planFlattenState(
     }
     if (routePlan.route === 'unresolved') {
       fail('subgraph.flatten.stateUnresolved', `boundary '${item.id}' has no unique schema interpretation`, side, item.id)
+      continue
+    }
+    if (side === 'input' && item.binds.kind === 'valueSource' && (
+      Object.values(parent.links).some((link) => isPortEndpoint(link.to) && link.to.node === occurrence.id && link.to.port === item.id) ||
+      Object.values(parent.nets).some((net) => net.sinks.some((sink) => sink.node === occurrence.id && sink.port === item.id))
+    )) {
+      fail('subgraph.flatten.stateUnresolved', `literal input '${item.id}' has an external driver that requires consumer forwarding`, side, item.id)
       continue
     }
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))) {
