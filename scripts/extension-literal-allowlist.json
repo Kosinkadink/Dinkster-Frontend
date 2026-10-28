@@ -83,7 +83,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6359,
+      "line": 6389,
       "column": 38,
       "symbol": "widgetType:ASSET",
       "issue": 122

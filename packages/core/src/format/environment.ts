@@ -53,10 +53,10 @@ const usedNodeTypes = (doc: WorkflowDocument): readonly string[] => {
 
 /**
  * Compute a fresh stamp for `doc` from a live surface. Used-only on both
- * axes: only instantiated node types, only packs attributing them. Returns
- * undefined when NO used type carries a signature (ComfyUI V1 backend, or
- * schemas not loaded): no stamp rather than an empty lie - callers should
- * then preserve any existing stamp instead of overwriting it.
+ * axes: only instantiated node types, only packs attributing them.
+ * Missing types retain their saved attribution and pack provenance. Returns
+ * undefined when no used type has a live or saved signature; callers then
+ * preserve any existing stamp instead of overwriting it.
  */
 export function stampEnvironment(
   doc: WorkflowDocument,
@@ -64,20 +64,33 @@ export function stampEnvironment(
 ): EnvironmentStamp | undefined {
   const nodes: Record<string, EnvironmentNodeStamp> = {}
   const packIds = new Set<string>()
+  const livePackIds = new Set<string>()
+  let hasLiveSignature = false
   for (const type of usedNodeTypes(doc)) {
     const schema = source.resolve(type)
-    if (schema?.signature === undefined) continue
+    if (schema?.signature === undefined) {
+      const saved = doc.environment?.nodes[type]
+      if (saved !== undefined) {
+        nodes[type] = saved
+        if (saved.pack !== undefined) packIds.add(saved.pack)
+      }
+      continue
+    }
+    hasLiveSignature = true
     nodes[type] = {
       ...(schema.pack !== undefined ? { pack: schema.pack } : {}),
       signature: schema.signature,
     }
-    if (schema.pack !== undefined) packIds.add(schema.pack)
+    if (schema.pack !== undefined) {
+      packIds.add(schema.pack)
+      livePackIds.add(schema.pack)
+    }
   }
   if (Object.keys(nodes).length === 0) return undefined
 
   const packs: Record<string, EnvironmentPackStamp> = {}
   for (const id of [...packIds].sort()) {
-    const p = source.packs?.get(id)
+    const p = livePackIds.has(id) ? source.packs?.get(id) : doc.environment?.packs[id]
     packs[id] = {
       ...(p?.version !== undefined ? { version: p.version } : {}),
       ...(p?.artifactDigest !== undefined ? { artifactDigest: p.artifactDigest } : {}),
@@ -86,9 +99,13 @@ export function stampEnvironment(
     }
   }
 
+  const dinkster = hasLiveSignature ? source.server : doc.environment?.dinkster
+  const frontend = hasLiveSignature
+    ? (source.frontendVersion !== undefined ? { version: source.frontendVersion } : undefined)
+    : doc.environment?.frontend
   return {
-    ...(source.server !== undefined ? { dinkster: source.server } : {}),
-    ...(source.frontendVersion !== undefined ? { frontend: { version: source.frontendVersion } } : {}),
+    ...(dinkster !== undefined ? { dinkster } : {}),
+    ...(frontend !== undefined ? { frontend } : {}),
     packs,
     nodes,
   }
