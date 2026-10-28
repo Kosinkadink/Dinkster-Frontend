@@ -67,13 +67,19 @@ def main():
         for size in (16, 24, 32, 48, 64, 128, 256, 512, 1024):
             destination = ROOT / f"raster/{variant}/{size}.png"
             destination.parent.mkdir(parents=True, exist_ok=True)
+            raster_options = options
+            if size in (16, 24) and variant != "color":
+                raster_options = (
+                    f"--export-id=symbol-small-{size}-{variant}",
+                    *options[1:],
+                )
             export(
                 master,
                 destination,
                 "--export-type=png",
                 f"--export-width={size}",
                 f"--export-height={size}",
-                *options,
+                *raster_options,
             )
     export(
         master,

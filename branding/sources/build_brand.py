@@ -208,6 +208,46 @@ def construction_geometry(parent):
     return f"translate({dx} {dy}) scale({scale})"
 
 
+def small_path(size):
+    adjustments = {
+        16: {
+            "APERTURE_TOP": 147,
+            "APERTURE_BOTTOM": 295,
+            "STEM_TOP": 190,
+            "STEM_DIAG": 515.5,
+            "CHANNEL_LOW": 603,
+        },
+        24: {
+            "APERTURE_TOP": 152,
+            "APERTURE_BOTTOM": 290,
+            "STEM_TOP": 184,
+            "STEM_DIAG": 535.5,
+            "CHANNEL_LOW": 593,
+        },
+    }[size]
+    scale = 840 / (geometry.RIGHT - (geometry.LEG_DIAG - geometry.BOTTOM))
+    transform = geometry.Transform(
+        scale,
+        80 - (geometry.LEG_DIAG - geometry.BOTTOM) * scale,
+        (1000 - (geometry.BOTTOM - geometry.TOP) * scale) / 2 - geometry.TOP * scale,
+    )
+    original = {name: getattr(geometry, name) for name in adjustments}
+    try:
+        for name, value in adjustments.items():
+            setattr(geometry, name, value)
+        radii = {**geometry.RADII, "aperture_bl": 2 if size == 16 else 6}
+        return geometry.to_svg(
+            [
+                geometry.build(geometry.outline(), radii)[0],
+                geometry.build(geometry.stem(), geometry.RADII)[0],
+            ],
+            transform,
+        )
+    finally:
+        for name, value in original.items():
+            setattr(geometry, name, value)
+
+
 def main():
     approved = ET.parse(ROOT / "sources/dinkster-d.svg").getroot()[0]
     master = node(
@@ -298,6 +338,18 @@ def main():
         copy.set("id", f"export-{name}-d")
         copy.set("fill", fill)
         symbol.append(copy)
+        for size in (16, 24):
+            optical = node(
+                "g",
+                {"id": f"symbol-small-{size}-{name}", "transform": "translate(0 3000)"},
+                artboards,
+            )
+            node("rect", {"width": "1000", "height": "1000", "opacity": "0"}, optical)
+            node(
+                "path",
+                {"id": f"optical-{size}-{name}", "d": small_path(size), "fill": fill},
+                optical,
+            )
     color_symbol = node(
         "g", {"id": "symbol-color", "transform": "translate(0 3000)"}, artboards
     )

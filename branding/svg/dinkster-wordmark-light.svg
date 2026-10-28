@@ -4,7 +4,7 @@
    width="1279.6428"
    height="308.80432"
    version="1.1"
-   id="svg209"
+   id="svg233"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <defs
@@ -52,7 +52,7 @@
        color="#1f242a">
       <g
          transform="matrix(0.139,0,0,0.139,16.9,76.6)"
-         id="g139">
+         id="g163">
         <path
            id="wordmark-light-d"
            fill="currentColor"
@@ -60,7 +60,7 @@
       </g>
       <g
          fill="currentColor"
-         id="g148">
+         id="g172">
         <path
            id="light-i"
            d="M 2,0 H 15 V 8 L 0,16 V 2 Z M 0,24 15,16 V 49 L 8,56 H 0 Z"

@@ -72,3 +72,28 @@ The export object applies the master silhouette as one outer clip to
 solid color planes. This is coverage-equivalent to the editable clipped
 path copies, but avoids repeatedly antialiasing the outer edge. Mono and
 color therefore have identical alpha coverage, including antialiasing.
+
+## Proposed small-size optical objects
+
+The master also retains separate `symbol-small-16-*` and
+`symbol-small-24-*` objects. These do not replace the approved path.
+The proposal opens the aperture symmetrically, shortens the island,
+widens the diagonal channel and reduces its inner fillet to fit the
+shortened flat. The original coordinate transform is retained.
+
+| Source parameter | Approved | 16 px proposal | 24 px proposal |
+| --- | --- | --- | --- |
+| APERTURE_TOP | 157 | 147 | 152 |
+| APERTURE_BOTTOM | 285 | 295 | 290 |
+| STEM_TOP | 175 | 190 | 184 |
+| STEM_DIAG | 557.5 | 515.5 | 535.5 |
+| CHANNEL_LOW | 583 | 603 | 593 |
+| aperture_bl radius | 26 | 2 | 6 |
+
+All other source geometry is retained. The 16 px island is deliberately
+lighter to admit a completely transparent pixel chain down the diagonal;
+this tradeoff requires visual review, not an implicit change of master.
+The CLI exports use these objects for 16/24 px mono, white and cyan.
+The full-size mono SVG and 32 px and larger PNGs retain the approved D.
+`compare_small.py` composes the native sheet and exact 4x nearest-neighbor
+zoom from those PNGs.
