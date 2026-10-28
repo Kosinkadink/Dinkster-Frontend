@@ -520,6 +520,7 @@ export function classifyFlattenBoundaryRoute(
   expectedSide?: 'input' | 'output',
 ): FlattenRouteKind {
   const routes = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding)).map((binding) => {
+    if (binding.kind === 'valueSource') return expectedSide === 'output' && body.valueSources?.[binding.valueSource] !== undefined ? 'plain' : 'unresolved'
     if (!isNodeBoundaryBinding(binding)) return 'unresolved'
     const node = body.nodes[binding.node]
     return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide, node)

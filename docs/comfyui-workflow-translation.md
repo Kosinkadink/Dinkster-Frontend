@@ -113,6 +113,13 @@ identity and type, terminates at the existing source, and remains scoped to its
 occurrence through save/reopen and undo/redo. Input promotion still carries
 values, not consuming links: a value source cannot be a local link target.
 
+Flattening an occurrence with literal output bindings copies each retained
+source once into the parent and remaps outgoing links and enclosing output
+bindings to that fresh identity. Source values, declared specs and controllers
+are retained, and sibling occurrences keep the shared definition unchanged.
+Named nets cannot use a literal as their source; flattening refuses that
+unrepresentable result atomically rather than inventing a runtime node.
+
 Inside a definition, literal output bindings draw from the retained source pin
 to the Outputs boundary. The Boundary panel displays the source title and ID;
 Show selects and centers that source without changing the document. Input

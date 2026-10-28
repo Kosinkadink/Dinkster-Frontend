@@ -2131,6 +2131,67 @@ const refreshFlattenSchemaDigest = (invocation: any): void => {
 }
 
 describe('subgraph.flatten trusted-dispatch authorization', () => {
+  it.each([false, true])('flattens retained literal output bindings without changing shared siblings (overlay=%s)', (overlay) => {
+    const initial = flattenDocument()
+    const binds = { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } }
+    initial.graphs.root.nodes = {
+      occurrence: initial.graphs.root.nodes.occurrence,
+      survivor: initial.graphs.root.nodes.survivor,
+      consumer: { id: 'consumer', type: 'BodyNode', values: {} },
+    }
+    initial.graphs.root.links = { outgoing: link('outgoing', port('occurrence', 'output'), port('consumer', 'mid')) }
+    initial.graphs.root.nets = {}
+    initial.graphs.root.boundary = { inputs: [], outputs: [{ id: 'outer', binds: { kind: 'port', ...port('occurrence', 'output') } }] }
+    initial.graphs.body = {
+      id: 'body', name: 'Literal body', nodes: {}, links: {}, nets: {}, reroutes: {}, selectors: {}, nextOrdinal: 0,
+      valueSources: { value: { id: 'value', value: 37, title: 'Seed', controller: 'increment', spec: { widgetType: 'INT', options: {} } } },
+      boundary: { inputs: [], outputs: [{ id: 'output', binds }, { id: 'shared', binds }] },
+    }
+    initial.view.graphs.root.nodes = { occurrence: initial.view.graphs.root.nodes.occurrence, survivor: {}, consumer: {} }
+    delete initial.view.graphs.root.collapsedNets
+    initial.view.graphs.body = { nodes: {}, valueSources: { value: { position: { x: 80, y: 30 }, view: 'slider' } } }
+    if (overlay) initial.occurrenceTopologies = {
+      occurrence: { owner: { instancePath: [], node: 'occurrence' }, bodyGraph: 'body', nextOrdinal: 0, links: {} },
+    }
+    const resolve = (type: string) => {
+      const schema = flattenResolver(type)
+      return schema === undefined ? undefined : { ...schema, isOutputNode: type === 'BodyNode' }
+    }
+    const prompt = (doc: WorkflowDocument) => {
+      const result = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('literal-flatten'), schemaHash: 'literal' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? result.artifact.prompt : undefined
+    }
+    expect(checkDocument(initial)).toEqual([])
+    const expected = prompt(initial)
+    expect(expected?.consumer?.inputs).toEqual({ mid: 37 })
+    const invocation = flattenInvocation(initial)
+    invocation.params.resolvedGeometry.body = [{ id: 'value', kind: 'valueSource', x: 80, y: 30, width: 120, height: 40 }]
+    expect(invocation.params.boundaryPlan).toEqual([
+      { side: 'output', id: 'output', route: 'plain' }, { side: 'output', id: 'shared', route: 'plain' },
+    ])
+    expect(invocation.params.statePlan.status).toBe('ready')
+    const session = trustedFlattenSession(initial)
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    expect(session.doc.graphs.root!.nodes.occurrence).toBeUndefined()
+    expect(session.doc.graphs.root!.nodes.survivor!.type).toBe('#body')
+    expect(session.doc.graphs.body).toEqual(initial.graphs.body)
+    expect(session.doc.graphs.root!.valueSources!.value!.value).toBe(1)
+    expect(session.doc.graphs.root!.valueSources!.v100).toEqual({ ...initial.graphs.body.valueSources.value, id: 'v100' })
+    expect(session.doc.graphs.root!.boundary!.outputs[0]!.binds).toEqual({ ...binds, valueSource: 'v100' })
+    expect(Object.values(session.doc.graphs.root!.links).map((edge) => edge.from)).toEqual([{ valueSource: 'v100' }])
+    expect(checkDocument(session.doc)).toEqual([])
+    expect(prompt(session.doc)).toEqual(expected)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+    expect(reopened.document).toBeDefined()
+    expect(prompt(reopened.document!)).toEqual(expected)
+    expect(session.undo()).toBe(true)
+    expect(prompt(session.doc)).toEqual(expected)
+    expect(session.redo()).toBe(true)
+    expect(prompt(session.doc)).toEqual(expected)
+  })
+
   it.each([[false, false], [true, false], [false, true], [true, true]])('preserves junction fanout, enclosing bindings and values while flattening (linked=%s, overlay=%s)', (linked, overlay) => {
     const initial = flattenDocument()
     initial.graphs.body.nodes.a.type = 'BodyNode'
@@ -2342,11 +2403,13 @@ describe('subgraph.flatten L5-L6 core command', () => {
     expect(session.doc.graphs.body!.boundary!.outputs[0]!.binds).toEqual({ kind: 'widgetTap', node: 'a', tap: 'in' })
   })
 
-  it('refuses atomically when flattening would make a named net source a widget tap', () => {
+  it.each(['widgetTap', 'valueSource'] as const)('refuses atomically when flattening would make a named net source a %s', (kind) => {
     const initial = flattenDocument()
     initial.graphs.body!.boundary!.outputs = [{
       id: 'output',
-      binds: { kind: 'widgetTap', node: 'a' as never, tap: 'in' as never },
+      binds: kind === 'widgetTap'
+        ? { kind, node: 'a' as never, tap: 'in' as never }
+        : { kind, valueSource: 'value' as never, type: { kind: 'concrete', name: 'INT' } },
     }]
     const session = trustedFlattenSession(initial)
     const before = session.doc
