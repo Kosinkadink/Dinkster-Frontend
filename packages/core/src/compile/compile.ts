@@ -213,31 +213,37 @@ export function documentValueSourceResolver(doc: WorkflowDocument, base: SchemaR
   }
 }
 
-export type DocumentNodeResolver = (graphId: string, node: NodeData) => NodeSchema | undefined
+export type DocumentNodeResolver = (graphId: string, node: NodeData, instancePath?: readonly NodeId[]) => NodeSchema | undefined
 
 /**
  * Resolve a concrete document node, including occurrence-local interface
  * contracts such as regions. Definition-only callers should use
  * {@link documentResolver}; concrete graph/node callers must use this form.
  */
-export function documentNodeResolver(doc: WorkflowDocument, base: SchemaResolver): DocumentNodeResolver {
+export function documentNodeResolver(
+  doc: WorkflowDocument,
+  base: SchemaResolver,
+  resolveSource?: ReturnType<typeof documentValueSourceResolver>,
+): DocumentNodeResolver {
   const definitionResolve = documentResolver(doc, base)
   const cache = new Map<string, NodeSchema | undefined>()
-  const resolveNode: DocumentNodeResolver = (graphId, node) => {
+  const resolveNode: DocumentNodeResolver = (graphId, node, instancePath) => {
     const defId = subgraphDefIdOf(node.type)
     if (defId === undefined) return base(node.type)
-    const key = JSON.stringify([graphId, node.id])
+    const key = JSON.stringify([graphId, node.id, instancePath])
     if (cache.has(key)) return cache.get(key)
     const def = doc.graphs[defId]
     if (!def) {
       cache.set(key, undefined)
       return undefined
     }
+    const childPath = instancePath === undefined ? undefined : [...instancePath, node.id]
     const derived = deriveBoundarySchema(
       def,
       definitionResolve,
       node.region,
-      (inner) => resolveNode(def.id, inner),
+      (inner) => resolveNode(def.id, inner, childPath),
+      resolveSource === undefined ? undefined : (sourceId) => resolveSource(def.id, sourceId, childPath),
     )
     cache.set(key, derived.schema)
     return derived.schema

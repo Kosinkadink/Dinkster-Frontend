@@ -1756,3 +1756,18 @@ measurement includes resolver construction and one source query.
 The graph-local query misses exported consumers; the document query resolves
 their shared constraints. These are query times, not whole-scene or frame
 measurements, and do not measure backend execution.
+
+## 2026-10-27 Promoted literal widgets
+
+X570 CPU, Node 26.12.1, two warmups and median of seven scene builds.
+Compared the preceding scene implementation with the integrated scene using
+the same current core and historical fixture schemas, 60 chains of 20 nodes.
+This isolates scene resolution cost, not a complete revision comparison.
+
+| Scene build | Previous scene | Promoted literal widgets |
+| --- | ---: | ---: |
+| Plain 1200-node graph | 52.61 ms | 51.77 ms |
+| Feature-heavy 1200-node graph | 79.72 ms | 71.07 ms |
+
+Both workloads remain below the unchanged 2-second scene-build budget.
+These measurements do not measure browser frame time or backend execution.

@@ -19,6 +19,7 @@ import {
   asSelectorCandidateId,
   asSelectorId,
   documentResolver,
+  occurrenceDynamicView,
   loadDocument,
   type NodeProgress,
   type NodeSchema,
@@ -1824,6 +1825,57 @@ describe('boundary pseudo-nodes', () => {
     expect(outLink.x2).toBe(outputs.x)
     expect(outLink.y2).toBe(outputs.y + outputs.layout.pins[0]!.y)
     expect(outLink.typeName).toBe('IMAGE')
+  })
+
+  it.each([false, true])('renders exported promoted literals with occurrence constraints and inherited state (reverse: %s)', (reverse) => {
+    const graph = (id: string, nodes = {}) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 })
+    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
+    const document: any = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-source', root: 'root',
+      graphs: {
+        root: graph('root', {
+          a: { id: 'a', type: '#wrapper', values: {} },
+          b: { id: 'b', type: '#wrapper', values: { value: 17 }, controllers: { value: 'fixed' } },
+          left: { id: 'left', type: 'Left', values: {} }, right: { id: 'right', type: 'Right', values: {} },
+        }),
+        wrapper: { ...graph('wrapper', { inner: { id: 'inner', type: '#body', values: {} } }), boundary: {
+          inputs: [{ id: 'value', promoted: true, binds: { kind: 'port', node: 'inner', port: 'value' } }],
+          outputs: [{ id: 'out', binds: { kind: 'port', node: 'inner', port: 'out' } }],
+        } },
+        body: { ...graph('body'), valueSources: { v0: { id: 'v0', value: 11, controller: 'increment' } },
+          boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }] } },
+      },
+      view: { graphs: {} },
+    }
+    document.graphs.root.links = {
+      l0: { id: 'l0', from: { node: 'a', port: 'out' }, to: { node: 'left', port: 'value' } },
+      l1: { id: 'l1', from: { node: 'b', port: 'out' }, to: { node: 'right', port: 'value' } },
+    }
+    if (reverse) document.graphs.root.nodes = Object.fromEntries(Object.entries(document.graphs.root.nodes).reverse())
+    const resolve = (type: string): NodeSchema | undefined => type === 'Left' || type === 'Right' ? {
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [
+        { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: {
+          widgetType: 'INT', controller: 'after_generate', options: type === 'Left'
+            ? { min: 3, max: 17, step: 2 } : { min: 10, max: 20, step: 7 },
+        } },
+      ],
+    } : undefined
+    const before = structuredClone(document)
+    const root = buildScene({ document, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    for (const [id, options, mode] of [
+      ['a', { min: 3, max: 17, step: 2 }, 'increment'],
+      ['b', { min: 10, max: 20, step: 7 }, 'fixed'],
+    ] as const) {
+      const row = root.nodes.find((node) => node.id === id)!.layout.rows.find((row) => row.kind === 'widget')
+      expect(row).toMatchObject({ kind: 'widget', spec: { options, default: 11 }, controllerMode: mode })
+      const drilled = buildScene({ document, graphId: 'wrapper', resolve, tokens: defaultTokens, measure, widgetMeasure,
+        occurrence: { owner: { node: asNodeId(id), instancePath: [] }, plannerAvailable: false },
+        occurrenceView: occurrenceDynamicView(document, resolve, [id]),
+      })
+      expect(drilled.nodes[0]!.layout.rows.find((row) => row.kind === 'widget'))
+        .toMatchObject({ kind: 'widget', spec: { options, default: 11 }, controllerMode: mode })
+    }
+    expect(document).toEqual(before)
   })
 
   it('anchors shared literal output bindings at the source pin without creating a consuming input', () => {

@@ -43,7 +43,7 @@ import { isNodeBoundaryBinding, isSubtreeBinding, type BoundaryBinding, type Bou
 import { isPortEndpoint, portAddressKey, type DynamicMemberId, type PortId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
-import { effectiveValueSourceSpec } from '../value-source.js'
+import { effectiveValueSourceSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from './elaborate.js'
 import { outputDescriptorAssetOf, outputDescriptorValueOf, parseOutputDescriptors } from './output-descriptors.js'
@@ -426,6 +426,7 @@ export function deriveBoundarySchema(
   resolve: SchemaResolver,
   region?: RegionContract,
   resolveNode: (node: NodeData) => NodeSchema | undefined = (node) => resolve(node.type),
+  resolveSource?: (sourceId: string) => EffectiveValueSourceSpec | undefined,
 ): DeriveResult {
   const diags: Diagnostic[] = []
   const fail = (code: string, msg: string): void => {
@@ -899,10 +900,14 @@ export function deriveBoundarySchema(
         fail('boundary.danglingValueSource', `boundary input '${item.id}' binds missing value source '${item.binds.valueSource}'`)
         continue
       }
-      const effective = effectiveValueSourceSpec(def, source, resolve)
+      const effective = resolveSource?.(source.id) ?? effectiveValueSourceSpec(def, source, resolve)
       items.push({ kind: 'input', id: item.id, type: item.binds.type, optional: true,
         ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-        ...(item.promoted === true && effective.spec !== undefined ? { widget: effective.spec } : {}),
+        ...(item.promoted === true && effective.spec !== undefined ? { widget: {
+          ...effective.spec,
+          default: source.value,
+          ...(source.controller !== undefined ? { controllerInitial: source.controller } : {}),
+        } } : {}),
       })
       continue
     }

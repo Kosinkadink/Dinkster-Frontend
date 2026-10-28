@@ -103,6 +103,11 @@ This read-only presentation query also sees inactive structural-selector
 candidates and works while unrelated nodes are incomplete. It never changes
 stored values or serializes inferred widget constraints; pinning is explicit.
 
+Promoted literal inputs use the same occurrence-specific constraints as their
+source pills. Missing overrides display the source's stored value and mode;
+explicit instance values and controller modes remain local, including when
+viewing a nested instance. Editing a projected widget writes its outer owner.
+
 Extraction moves selected value sources and their outgoing fan-out into the
 new definition without a runtime producer. Existing authored output types are
 retained; a source with no authored boundary type uses wildcard, never a type

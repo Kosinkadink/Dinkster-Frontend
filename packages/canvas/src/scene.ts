@@ -1011,7 +1011,14 @@ export function updateSceneNodePositions(
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
-  const resolveNode = documentNodeResolver(input.document, input.resolve)
+  let resolveSource: ReturnType<typeof documentValueSourceResolver> | undefined
+  const sourcePath = input.occurrence === undefined
+    ? input.graphId === input.document.root ? [] : undefined
+    : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+  const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, sourceId, path) => {
+    resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
+    return resolveSource(graphId, sourceId, path)
+  })
   const view = input.document.view.graphs[input.graphId]
   const positioned = positionedSceneCache.get(def)
   if (view !== undefined && input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined &&
@@ -1166,7 +1173,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   // here (rather than teaching layout about graph constraints) preserves the
   // document -> elaboration -> solving -> rendering dependency direction.
   const solvedTypes = solveGraphTypes(effectiveGraph, input.resolve, {
-    resolveNode: (node) => resolveNode(input.graphId, node),
+    resolveNode: (node) => resolveNode(input.graphId, node, sourcePath),
     connectivityOf,
     ...(effective === undefined ? {} : {
       projectedInputs: projectedTypeConstraints(input.document, input.resolve, effective, def.id),
@@ -1243,7 +1250,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(occurrenceDynamic !== undefined ? { dynamic: occurrenceDynamic } : {}),
           ...(occurrenceControllers !== undefined ? { controllers: occurrenceControllers } : {}),
         }
-    const schema = resolveNode(input.graphId, occurrenceNode)
+    const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
       ? elaborateInterface(schema, occurrenceNode, connectivityOf(node.id))
       : undefined
@@ -1489,12 +1496,10 @@ export function buildScene(input: BuildSceneInput): Scene {
   const viewValueSources = graphView?.valueSources ?? {}
   const valueSources: SceneValueSource[] = []
   const valueSourceById = new Map<string, SceneValueSource>()
-  let resolveSource: ReturnType<typeof documentValueSourceResolver> | undefined
   let vsFallbackY = 0
   for (const vs of Object.values(def.valueSources ?? {})) {
     const pos = viewValueSources[vs.id]?.position ?? { x: 0, y: (vsFallbackY += 60) }
     resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
-    const sourcePath = input.occurrence === undefined ? undefined : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
     const effective = resolveSource(def.id, vs.id, sourcePath)!
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
     const valueText = valueSourceValueText(vs.value)
