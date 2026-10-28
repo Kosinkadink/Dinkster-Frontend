@@ -27,11 +27,14 @@ def main():
 
     version = subprocess.check_output([args.inkscape, "--version"], text=True).strip()
     master = ROOT / "sources/Dinkster_Master.svg"
-    for index, variant in enumerate(("mono", "dark", "light")):
+    for index, variant in enumerate(
+        ("mono", "dark", "light", "heavier-dark", "heavier-light")
+    ):
+        y = (index if index < 3 else index + 1) * 1000
         options = (
             f"--export-id=wordmark-{variant}",
             "--export-id-only",
-            f"--export-area=-60:{index * 1000 - 250}:1456.4:{index * 1000 + 630.6}",
+            f"--export-area=-60:{y - 250}:1456.4:{y + 630.6}",
         )
         export(
             master,
@@ -73,9 +76,14 @@ def main():
                 *options,
             )
     export(
-        ROOT / "sources/letter-sheet.svg",
+        master,
         ROOT / "previews/letters-enlarged.png",
         "--export-type=png",
+        "--export-id=letter-sheet",
+        "--export-id-only",
+        "--export-area=0:7000:560:7260",
+        "--export-width=1680",
+        "--export-height=780",
     )
     (ROOT / "sources/export-commands.txt").write_text(
         version + "\n" + "\n".join(commands) + "\n", encoding="ascii"

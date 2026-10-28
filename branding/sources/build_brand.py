@@ -23,15 +23,34 @@ ET.register_namespace("sodipodi", SOD)
 # replace its rounded terminals with the reference's diagonal construction.
 # Coordinates use the reference lettering's 56-unit ascender-to-baseline frame.
 LETTERS = {
-    "i": "M0 0H15V14H0Z M0 24L15 16V56H0Z",
-    "n": "M0 56V25L12 13H30L42 25V56H28V30L24 26H18L14 30V56Z",
-    "k": "M0 4L14 -8V29L29 14H49L30 33L65 70H44L16 42L14 44V56H0Z",
-    "s": "M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H0L7 44H22L5 33Q-2 28 2 21Q6 14 15 14Z",
-    "t": "M0 5L14 -6V14H30L24 27H14V39Q14 44 20 44H29V56H15Q0 56 0 41Z",
+    "i": "M2 0H15V8L0 16V2Z M0 24L15 16V49L8 56H0Z",
+    "n": "M0 56V25L12 13H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z",
+    "k": "M0 6L8.9 -2.9A3 3 0 0 1 14 -0.8V29L29 14H49L30 33L65 70H44L16 42L0 58Z",
+    "s": "M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z",
+    "t": "M0 5L14 -6V14H30L24 27H14V39Q14 44 20 44H29V56H12L0 44Z",
     "e": "M40 25L16 43H38L31 56H18Q0 56 0 36Q0 14 20 14Q34 14 40 25Z M14 34L25 26Q13 22 14 34Z",
-    "r": "M0 56V29L17 14H33L21 27H17L14 30V56Z",
+    "r": "M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z",
 }
-POSITIONS = {"i": 153, "n": 173, "k": 220, "s": 271, "t": 310, "e": 340, "r": 388}
+POSITIONS = {"i": 149, "n": 167, "k": 212, "s": 263, "t": 302, "e": 331, "r": 374}
+HEAVIER_POSITIONS = {
+    "i": 149,
+    "n": 172,
+    "k": 221,
+    "s": 276,
+    "t": 320,
+    "e": 357,
+    "r": 403,
+}
+D_STEM_WIDTH = (
+    (geometry.STEM_R - geometry.STEM_L)
+    * 840
+    / (geometry.RIGHT - (geometry.LEG_DIAG - geometry.BOTTOM))
+    * 0.139
+)
+HEAVIER_LETTERS = {
+    **LETTERS,
+    "t": LETTERS["t"].replace("V39Q14 44 20 44", "V36Q14 44 22 44"),
+}
 
 
 def node(tag, attrs=None, parent=None):
@@ -59,21 +78,30 @@ def write(path, element):
     ET.ElementTree(element).write(path, encoding="unicode", xml_declaration=True)
 
 
-def lettering(parent, fill="currentColor", transform=None, prefix="letter"):
+def lettering(
+    parent, fill="currentColor", transform=None, prefix="letter", heavier=False
+):
     group = node(
         "g", {"fill": fill, **({"transform": transform} if transform else {})}, parent
     )
-    for letter, contour in LETTERS.items():
-        node(
+    for letter, contour in (HEAVIER_LETTERS if heavier else LETTERS).items():
+        positions = HEAVIER_POSITIONS if heavier else POSITIONS
+        path = node(
             "path",
             {
                 "id": f"{prefix}-{letter}",
                 "d": contour,
-                "transform": f"translate({POSITIONS[letter]} 122)",
+                "transform": f"translate({positions[letter]} 122)",
                 "fill-rule": "evenodd",
             },
             group,
         )
+        if heavier:
+            path.set("stroke", fill)
+            path.set("stroke-width", str(D_STEM_WIDTH - (15 if letter == "i" else 14)))
+            path.set("stroke-linejoin", "miter")
+            if letter == "e":
+                path.set("clip-path", "url(#e-open-counter)")
     return group
 
 
@@ -183,7 +211,7 @@ def construction_geometry(parent):
 def main():
     approved = ET.parse(ROOT / "sources/dinkster-d.svg").getroot()[0]
     master = node(
-        "svg", {"viewBox": "0 0 1500 4200", "width": "1500", "height": "4200"}
+        "svg", {"viewBox": "0 0 1700 8000", "width": "1700", "height": "8000"}
     )
     reference = layer(master, "00_Reference")
     reference.set(f"{{{SOD}}}insensitive", "true")
@@ -219,6 +247,17 @@ def main():
     mono = layer(master, "02_Logo_Master_Mono")
     mono.append(deepcopy(approved))
     defs = node("defs", parent=master)
+    e_clip = node(
+        "clipPath", {"id": "e-open-counter", "clipPathUnits": "userSpaceOnUse"}, defs
+    )
+    node(
+        "path",
+        {
+            "d": "M-20 -20H100V100H-20Z M14 34L25 26Q13 22 14 34Z",
+            "clip-rule": "evenodd",
+        },
+        e_clip,
+    )
     silhouette_clip = node(
         "clipPath",
         {"id": "approved-silhouette", "clipPathUnits": "userSpaceOnUse"},
@@ -279,13 +318,19 @@ def main():
     # A uniform transform preserves the approved D while matching the reference
     # symbol height and its optical overshoot below the letters' baseline.
     for index, (variant, color) in enumerate(
-        (("mono", "#1F242A"), ("dark", "#F2F4F5"), ("light", "#1F242A"))
+        (
+            ("mono", "#1F242A"),
+            ("dark", "#F2F4F5"),
+            ("light", "#1F242A"),
+            ("heavier-dark", "#F2F4F5"),
+            ("heavier-light", "#1F242A"),
+        )
     ):
         wordmark = node(
             "g",
             {
                 "id": f"wordmark-{variant}",
-                "transform": f"translate(-60 {index * 1000 - 250}) scale(3.4)",
+                "transform": f"translate(-60 {(index if index < 3 else index + 1) * 1000 - 250}) scale(3.4)",
                 "color": color,
             },
             artboards,
@@ -295,21 +340,34 @@ def main():
         d.set("id", f"wordmark-{variant}-d")
         d.set("fill", "currentColor")
         symbol.append(d)
-        lettering(wordmark, prefix=variant)
+        lettering(wordmark, prefix=variant, heavier=variant.startswith("heavier"))
+    sheet = node(
+        "g", {"id": "letter-sheet", "transform": "translate(0 7000)"}, artboards
+    )
+    node("rect", {"width": "560", "height": "260", "opacity": "0"}, sheet)
+    for row, heavier in enumerate((False, True)):
+        for index, (letter, contour) in enumerate(
+            (HEAVIER_LETTERS if heavier else LETTERS).items()
+        ):
+            path = node(
+                "path",
+                {
+                    "d": contour,
+                    "fill": "#1F242A",
+                    "fill-rule": "evenodd",
+                    "transform": f"translate({index * 80 + 8} {row * 130 + 20})",
+                },
+                sheet,
+            )
+            if heavier:
+                path.set("stroke", "#1F242A")
+                path.set(
+                    "stroke-width", str(D_STEM_WIDTH - (15 if letter == "i" else 14))
+                )
+                path.set("stroke-linejoin", "miter")
+                if letter == "e":
+                    path.set("clip-path", "url(#e-open-counter)")
     write(ROOT / "sources/Dinkster_Master.svg", master)
-    sheet = node("svg", {"viewBox": "0 0 460 110", "width": "1380", "height": "330"})
-    for index, (letter, contour) in enumerate(LETTERS.items()):
-        node(
-            "path",
-            {
-                "d": contour,
-                "fill": "#1F242A",
-                "fill-rule": "evenodd",
-                "transform": f"translate({index * 65 + 8} 20)",
-            },
-            sheet,
-        )
-    write(ROOT / "sources/letter-sheet.svg", sheet)
 
 
 if __name__ == "__main__":

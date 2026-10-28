@@ -4,11 +4,19 @@
    width="1000"
    height="1000"
    version="1.1"
-   id="svg149"
+   id="svg209"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <defs
-     id="defs68">
+     id="defs71">
+    <clipPath
+       id="e-open-counter"
+       clipPathUnits="userSpaceOnUse">
+      <path
+         d="M -20,-20 H 100 V 100 H -20 Z M 14,34 25,26 Q 13,22 14,34 Z"
+         clip-rule="evenodd"
+         id="path60" />
+    </clipPath>
     <clipPath
        id="approved-silhouette"
        clipPathUnits="userSpaceOnUse">
@@ -23,7 +31,7 @@
       <polygon
          points="424,149 424,299 363,360 600,360 600,40 343,40 343,68 "
          transform="matrix(2.2134387,0,0,2.2134387,-180.07905,26.324111)"
-         id="polygon62" />
+         id="polygon65" />
     </clipPath>
     <clipPath
        id="plane-yellow"
@@ -31,7 +39,7 @@
       <polygon
          points="232,240 232,390 80,390 80,240 "
          transform="matrix(2.2134387,0,0,2.2134387,-180.07905,26.324111)"
-         id="polygon65" />
+         id="polygon68" />
     </clipPath>
   </defs>
   <g
@@ -45,7 +53,7 @@
          width="1000"
          height="1000"
          opacity="0"
-         id="rect90"
+         id="rect93"
          x="0"
          y="0" />
       <path

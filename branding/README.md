@@ -34,6 +34,14 @@ wordmark lettering is outlined; no font must be installed to render it.
 composes the repeatable review sheet from the exported PNGs. The reference
 stays an external input, not a production SVG raster dependency.
 
+The weight comparison retains the revised current-weight outlines and a
+heavier proposal with main stems at 20.31 reference units, matching the
+D island stem after its wordmark transform. The heavier proposal uses
+editable mitered outline expansion; the e counter is clipped open with
+its unchanged contour, and the t's inside hook retains its curve.
+Neither proposed weight is selected by this document. The enlarged
+letters are exported from the same master, not a separate SVG source.
+
 ## Palette
 
 `tokens/` preserves the supplied sRGB identity and semantic theme values.
