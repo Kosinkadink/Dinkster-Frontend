@@ -50,6 +50,13 @@ The subset uses synthetic inputs and checked-in fixtures:
 - `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
   and `scripts/check-path-case.test.mjs`: regression tests for source checks.
 
+Node script tests use `--test-isolation=none` in the fast lane. Recorded
+core schema and event goldens run in fast and full unit suites, not again
+in the stock-backend browser job. `pnpm --filter @dinkster/app build`
+checks its emitted HTML, nonempty module entry and inline semantic-token
+content/order after Vite builds once; unit tests do not invoke a second build.
+The widget document-value matrix runs in core alongside its store contract.
+
 Selection does not depend on changed files, labels, model availability or a
 running service. The required `CI_RUNNERS` repository variable controls every
 job. Pull requests select its `linux` entry for same-repository branches and

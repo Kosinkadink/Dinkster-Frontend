@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, loadDocument,
   type Json, type WorkflowDocument,
-} from '@dinkster/core'
+} from '../src/index.js'
 
 const asset = { digest: `blake3:${'b'.repeat(64)}`, name: 'dog.png', size: 21, mediaType: 'image/png', virtualPath: 'input/dog.png' }
 const values: Array<[string, Json]> = [

@@ -62,6 +62,7 @@ for (const args of [
     'exec',
     'node',
     '--test',
+    '--test-isolation=none',
     'scripts/check-extension-literals.test.mjs',
     'scripts/check-raw-controls.test.mjs',
     'scripts/check-ui-strings.test.mjs',
