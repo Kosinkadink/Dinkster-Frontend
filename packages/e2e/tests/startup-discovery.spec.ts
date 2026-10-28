@@ -91,6 +91,9 @@ const CURRENT_PREVIEW_TABLE = {
 }
 
 test('same-origin native launch never probes stock ComfyUI', async ({ page }) => {
+  await page.addInitScript(() => {
+    Reflect.set(window, '__dinksterTestDefaultProtocol', 'v1')
+  })
   let v1Requests = 0
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),

@@ -456,8 +456,10 @@ describe('fast pull-request and full validation workflows', () => {
         expect(recordedFixtures.run).toContain('test/events.golden.test.ts')
       }
     }
-    expect(appMain).not.toContain('VITE_DINKSTER_E2E_PROBE_V1')
-    expect(appMain).toContain('app = new AppState()')
+    expect(appMain).not.toContain('discoverBackend')
+    expect(appMain).toContain(
+      "new AppState(legacyFixture ? { defaultProtocol: 'v1' } : undefined)",
+    )
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(baseConfig).toContain("name: 'v1-compatibility'")

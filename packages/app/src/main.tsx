@@ -45,6 +45,7 @@ const hideBoot = startBootIndicator({
 // syntheticWorkflow rides along so perf specs generate workloads in-page.
 declare global {
   interface Window {
+    __dinksterTestDefaultProtocol?: 'v1'
     __dinksterTest?: {
       app: AppState
       semanticDerivations: number
@@ -102,7 +103,10 @@ async function bootstrap(): Promise<void> {
     }
   }
   hideBoot()
-  app = new AppState()
+  const legacyFixture = import.meta.env.DEV &&
+    import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1' &&
+    window.__dinksterTestDefaultProtocol === 'v1'
+  app = new AppState(legacyFixture ? { defaultProtocol: 'v1' } : undefined)
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
   await app.enableWorkspaceAuthority()
   const desktopWindow = desktop

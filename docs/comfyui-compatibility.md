@@ -11,6 +11,12 @@ probe. URL-based backend addition recognizes only Dinkster engines and
 supervisors; stock ComfyUI URLs are reported as unrecognized. The optional
 legacy connection requires an explicit AppState protocol choice.
 
+The shared legacy browser fixture sets `window.__dinksterTestDefaultProtocol`
+to `v1` before startup. Only a development server with
+`VITE_DINKSTER_E2E_PROBE_V1=1` honors that test override. Native fixtures do not
+set it and stay native on the same server; production ignores it. Neither
+fixture selects its protocol by probing stock endpoints.
+
 ## Supported matrix
 
 The pull-request matrix runs against stock ComfyUI commit
