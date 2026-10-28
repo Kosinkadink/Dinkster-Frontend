@@ -221,6 +221,37 @@ describe('effective spec derivation (P1/P2/P5)', () => {
     expect(def.valueSources!['v1']!.value).toBe('hello')
   })
 
+  it('keeps literal COMBO intersections and compiled values type-exact', () => {
+    for (const [value, other] of [[8, '8'], [true, 1], [false, 0]] as const) {
+      const def = graph({ id: 'g0',
+        nodes: { n1: { ...node('n1'), type: 'A' }, n2: { ...node('n2'), type: 'B' } },
+        valueSources: { v1: source('v1', value) },
+        links: {
+          l1: { id: asLinkId('l1'), from: vsrc('v1'), to: port('n1', 'choice') },
+          l2: { id: asLinkId('l2'), from: vsrc('v1'), to: port('n2', 'choice') },
+        },
+      })
+      for (const shared of [false, true]) {
+        const resolveScalar = (type: string) => ({ type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true, items: [
+          { kind: 'input' as const, id: 'choice', type: { kind: 'concrete' as const, name: 'COMBO' }, optional: false,
+            widget: { widgetType: 'COMBO', options: { options: type === 'A' ? [{ value, label: 'First' }] : [shared ? value : other] } } },
+        ] })
+        const eff = effectiveValueSourceSpec(def, def.valueSources!.v1!, resolveScalar)
+        if (!shared) {
+          expect(eff.diagnostics.length).toBeGreaterThan(0)
+          continue
+        }
+        expect(eff.diagnostics).toEqual([])
+        expect(eff.spec?.options.options).toEqual([{ value, label: 'First' }])
+        const result = compile({ document: doc({ g0: def }), revision: 0, resolve: resolveScalar, scope: { kind: 'full' }, connection: asConnectionId('scalars'), schemaHash: 'scalars' })
+        expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics)).toBe(true)
+        if (!result.ok) throw new Error('literal compilation failed')
+        expect(result.artifact.prompt.n1!.inputs.choice).toBe(value)
+        expect(result.artifact.prompt.n2!.inputs.choice).toBe(value)
+      }
+    }
+  })
+
   it('intersects combo option lists from same-kind consumers', () => {
     const def = doc({
       g0: graph({

@@ -619,7 +619,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1257,
+      "line": 1259,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122
