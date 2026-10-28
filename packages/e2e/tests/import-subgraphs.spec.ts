@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { expect, nativeTest, openRailPanel, test, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
-const schemas = readJson('../../core/fixtures/object_info.json')
 // Import results stay independent of the current backend catalog; see the
 // fixture's _provenance for the graph and diagnostic goldens.
 const nativeCatalog = readJson('./fixtures/native-catalog.json')
@@ -31,13 +30,10 @@ async function enterInstance(page: Page, id: string): Promise<void> {
 }
 
 async function expectSchemasReady(page: Page): Promise<void> {
-  let schemaCount = Object.keys(schemas).length
-  if (inAuditLane()) {
-    const response = await page.request.get('/api/nodes')
-    expect(response.ok()).toBe(true)
-    const catalog = await response.json()
-    schemaCount = Object.keys(catalog.nodes).length
-  }
+  const response = await page.request.get('/api/nodes')
+  expect(response.ok()).toBe(true)
+  const catalog = await response.json()
+  const schemaCount = Object.keys(catalog.nodes).length
   expect(schemaCount).toBeGreaterThan(0)
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
 }
@@ -215,14 +211,6 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
   }, exported)
   expect(reopened.failures).toEqual([])
   expect(reopened.exported).toEqual(exported)
-})
-
-test.beforeEach(async ({ page }) => {
-  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/object_info', (route) => route.fulfill({ json: schemas }))
-  await page.route('/queue', (route) => route.fulfill({ json: { queue_running: [], queue_pending: [] } }))
-  await page.route('/history*', (route) => route.fulfill({ json: {} }))
-  await page.routeWebSocket('/ws*', () => {})
 })
 
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
