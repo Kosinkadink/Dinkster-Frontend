@@ -121,10 +121,12 @@ The isolated hosted library explicitly enables templates for positive gallery
 and loop-template coverage. Template-dependent route fixtures also report
 templates enabled. Disabled-feature specs override that capability to assert
 the production default, which remains disabled.
-Base, hosted and audit Playwright servers explicitly enable the v1
-compatibility probe required by
-route-mocked specs; production startup remains native-only. No standing
-development server is reused or stopped.
+Shared browser fixtures leave native catalog and supervisor routes reachable.
+Specs either use the isolated native backend or supply their own native wire
+schemas and API routes. The shared fixture does not select a stock protocol,
+block native discovery, or add backend settings responses. App View remains an
+explicit per-test option, and spec-local routes take precedence over context
+routes. No standing development server is reused or stopped.
 The hosted native server also accepts the `localhost` Host alias so the
 run-history backend-switch test can address the same server through two
 distinct backend identities without an HTTP 421 schema rejection.
