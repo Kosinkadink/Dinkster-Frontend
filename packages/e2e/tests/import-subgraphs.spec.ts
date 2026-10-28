@@ -281,33 +281,266 @@ for (const name of templates) test(`imports and drills into official nested subg
   expect(errors).toEqual([])
 })
 
-test('reports an unrepresentable structural boundary without opening a lossy document', async ({ page }) => {
-  const errors: string[] = []
-  page.on('pageerror', (error) => errors.push(error.message))
-  await page.goto('/')
-  await expectSchemasReady(page)
-  const result = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const before = app.activeTab()!
-    const failures = app.openDocument({ nodes: [
-      ...[1, 2].map((id) => ({ id, type: 'primitive-subgraph', pos: [100, id * 250],
-        widgets_values: [`Prompt ${id}`], properties: { proxyWidgets: [['1', 'value']] },
-        inputs: [], outputs: [{ name: 'text' }] })),
-      ...[3, 4].map((id) => ({ id, type: 'CLIPTextEncode', pos: [550, (id - 2) * 250],
-        inputs: [{ name: 'clip' }, { name: 'text', widget: { name: 'text' } }], outputs: [{ name: 'CONDITIONING' }], widgets_values: [''] })),
-    ], links: [[1, 1, 0, 3, 1, 'STRING'], [2, 2, 0, 4, 1, 'STRING']], definitions: { subgraphs: [{
-      id: 'primitive-subgraph', name: 'Text', inputs: [], outputs: [{ id: 'text', name: 'text', type: 'STRING', linkIds: [1] }],
-      nodes: [{ id: 1, type: 'PrimitiveNode', pos: [0, 0], outputs: [{ name: 'STRING', type: 'STRING' }], widgets_values: ['Default'] }],
-      links: [{ id: 1, origin_id: 1, origin_slot: 0, target_id: -20, target_slot: 0, type: 'STRING' }],
-    }] } }, 'Unsupported subgraph boundary')
-    return {
-      failures: failures.map((failure: any) => ({ code: failure.code, severity: failure.severity })),
-      problems: app.problems.get().map(({ code, severity }) => ({ code, severity })),
-      activeTabUnchanged: app.activeTab()!.id === before.id,
-    }
+nativeTest.describe('native structural output boundaries', () => {
+  nativeTest.beforeEach(async ({ page }) => {
+    await page.route('/api/**', (route) =>
+      route.fulfill({ status: 503, body: 'Frontend contract fixture' }),
+    )
+    await page.route('/supervisor/status', (route) =>
+      route.fulfill({ status: 503 }),
+    )
+    await page.route('/api/nodes*', (route) =>
+      route.fulfill({
+        json: {
+          schemaVersion: 1,
+          epoch: 1,
+          dinkster: { version: 'boundary-contract-fixture', schemaWire: 1 },
+          nodes: {
+            CLIPTextEncode: {
+              outputNode: true,
+              interface: [
+                {
+                  role: 'input',
+                  id: 'text',
+                  type: { kind: 'concrete', types: ['STRING'] },
+                },
+                {
+                  role: 'input',
+                  id: 'clip',
+                  type: { kind: 'concrete', types: ['CLIP'] },
+                  optional: true,
+                },
+                {
+                  role: 'output',
+                  id: 'CONDITIONING',
+                  type: { kind: 'concrete', types: ['CONDITIONING'] },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    )
+    await page.routeWebSocket('**/api/events?*', () => {})
+    await page.goto('/')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__dinksterTest?.app.backends
+              .get()[0]
+              ?.registry.get()
+              ?.schemas.has('CLIPTextEncode') ?? false,
+        ),
+      )
+      .toBe(true)
   })
-  expect(result.failures).toContainEqual({ code: 'import.subgraphs.boundaryUnsupported', severity: 'error' })
-  expect(result.problems).toContainEqual({ code: 'import.subgraphs.boundaryUnsupported', severity: 'error' })
-  expect(result.activeTabUnchanged).toBe(true)
-  expect(errors).toEqual([])
+
+  nativeTest(
+    'preserves distinct primitive output values through save, reopen, and native submission',
+    async ({ page }, testInfo) => {
+      const errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      const result = await page.evaluate(() => {
+        const app = window.__dinksterTest!.app
+        const failures = app.openDocument(
+          {
+            nodes: [
+              ...[1, 2].map((id) => ({
+                id,
+                type: 'primitive-subgraph',
+                pos: [100, id * 250],
+                widgets_values: [`Prompt ${id}`],
+                properties: { proxyWidgets: [['1', 'value']] },
+                inputs: [],
+                outputs: [{ name: 'text' }],
+              })),
+              ...[3, 4].map((id) => ({
+                id,
+                type: 'CLIPTextEncode',
+                pos: [550, (id - 2) * 250],
+                inputs: [
+                  { name: 'clip' },
+                  { name: 'text', widget: { name: 'text' } },
+                ],
+                outputs: [{ name: 'CONDITIONING' }],
+                widgets_values: [''],
+              })),
+            ],
+            links: [
+              [1, 1, 0, 3, 1, 'STRING'],
+              [2, 2, 0, 4, 1, 'STRING'],
+            ],
+            definitions: {
+              subgraphs: [
+                {
+                  id: 'primitive-subgraph',
+                  name: 'Text',
+                  inputs: [],
+                  outputs: [
+                    { id: 'text', name: 'text', type: 'STRING', linkIds: [1] },
+                  ],
+                  nodes: [
+                    {
+                      id: 1,
+                      type: 'PrimitiveNode',
+                      pos: [0, 0],
+                      outputs: [{ name: 'STRING', type: 'STRING' }],
+                      widgets_values: ['Default'],
+                    },
+                  ],
+                  links: [
+                    {
+                      id: 1,
+                      origin_id: 1,
+                      origin_slot: 0,
+                      target_id: -20,
+                      target_slot: 0,
+                      type: 'STRING',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+          'Primitive output occurrences',
+        )
+        const exported = app.exportDocument(app.activeTab()!.id)!
+        const reopened = app.openDocument(
+          exported,
+          'Reopened primitive output occurrences',
+        )
+        return {
+          failures,
+          reopened,
+          exported,
+          saved: app.exportDocument(app.activeTab()!.id),
+          problems: app.problems
+            .get()
+            .map(({ code, severity }) => ({ code, severity })),
+        }
+      })
+      expect(result.failures).toEqual([])
+      expect(result.reopened).toEqual([])
+      expect(result.saved).toEqual(result.exported)
+      expect(
+        result.problems.filter((problem) => problem.severity === 'error'),
+      ).toEqual([])
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window
+              .__dinksterTest!.renderer!.getScene()
+              .nodes.map((node) => node.id)
+              .sort(),
+          ),
+        )
+        .toEqual(['n1', 'n2', 'n3', 'n4'])
+      await page.evaluate(() =>
+        window.__dinksterTest!.renderer!.fitToScene(260),
+      )
+      await page.screenshot({
+        path: testInfo.outputPath('primitive-output-occurrences.png'),
+        animations: 'disabled',
+      })
+      let submitted: { graph: { nodes: Record<string, unknown> } } | undefined
+      await page.route('/api/jobs', (route) => {
+        submitted = route.request().postDataJSON()
+        return route.fulfill({
+          status: 202,
+          json: { jobRef: 'primitive-output-contract' },
+        })
+      })
+      await page.evaluate(async () => {
+        const app = window.__dinksterTest!.app
+        await app.queue(app.activeTab()!)
+      })
+      expect(submitted?.graph.nodes).toEqual({
+        n3: { nodeType: 'CLIPTextEncode', inputs: { text: 'Prompt 1' } },
+        n4: { nodeType: 'CLIPTextEncode', inputs: { text: 'Prompt 2' } },
+      })
+      expect(errors).toEqual([])
+    },
+  )
+
+  nativeTest(
+    'reports an unrepresentable structural boundary without opening a lossy document',
+    async ({ page }) => {
+      const errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      const result = await page.evaluate(() => {
+        const app = window.__dinksterTest!.app
+        const before = app.activeTab()!
+        const document = app.exportDocument(before.id)
+        const failures = app.openDocument(
+          {
+            nodes: [
+              {
+                id: 1,
+                type: 'ambiguous-output',
+                inputs: [],
+                outputs: [{ name: 'text' }],
+              },
+            ],
+            links: [],
+            definitions: {
+              subgraphs: [
+                {
+                  id: 'ambiguous-output',
+                  inputs: [],
+                  outputs: [
+                    {
+                      id: 'text',
+                      name: 'text',
+                      type: 'STRING',
+                      linkIds: [1, 2],
+                    },
+                  ],
+                  nodes: [1, 2].map((id) => ({
+                    id,
+                    type: 'PrimitiveNode',
+                    outputs: [{ name: 'STRING', type: 'STRING' }],
+                    widgets_values: [`Driver ${id}`],
+                  })),
+                  links: [1, 2].map((id) => ({
+                    id,
+                    origin_id: id,
+                    origin_slot: 0,
+                    target_id: -20,
+                    target_slot: 0,
+                    type: 'STRING',
+                  })),
+                },
+              ],
+            },
+          },
+          'Ambiguous output boundary',
+        )
+        return {
+          failures: failures.map((failure: any) => ({
+            code: failure.code,
+            severity: failure.severity,
+          })),
+          problems: app.problems
+            .get()
+            .map(({ code, severity }) => ({ code, severity })),
+          activeTabUnchanged: app.activeTab()!.id === before.id,
+          documentUnchanged:
+            JSON.stringify(app.exportDocument(before.id)) ===
+            JSON.stringify(document),
+        }
+      })
+      expect(result.failures).toContainEqual({
+        code: 'import.subgraphs.boundaryUnsupported',
+        severity: 'error',
+      })
+      expect(result.problems).toContainEqual({
+        code: 'import.subgraphs.boundaryUnsupported',
+        severity: 'error',
+      })
+      expect(result.activeTabUnchanged).toBe(true)
+      expect(result.documentUnchanged).toBe(true)
+      expect(errors).toEqual([])
+    },
+  )
 })
