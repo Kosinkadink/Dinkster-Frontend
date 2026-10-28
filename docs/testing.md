@@ -45,8 +45,12 @@ The subset uses synthetic inputs and checked-in fixtures:
 - Core `dinkster-inline-value.test.ts`: scalar event decoding and invalid inputs.
 - E2E `ci-workflow.test.ts`: workflow triggers, unit selection, credentials
   and browser-isolation contracts.
-- App `extension-dogfooding.test.ts`: built-in widget, command, and editor
-  registrations use the same public doors available to packs.
+- App `extension-dogfooding.test.ts`: built-in widget registration, command
+  inventory/actions, background grid drawing and node-mode decorations through
+  their public registries.
+- App `disabled-features.dom.test.tsx`, using the component config: mounted
+  editor registration, App-view feature gating and shell cleanup, alongside
+  template-surface gating. Only the graph canvas is stubbed, not the shell.
 - `scripts/check-host-ui-contract.test.mjs`: removed extension UI symbols
   stay absent and the widget environment exposes only its scoped client.
 - `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,

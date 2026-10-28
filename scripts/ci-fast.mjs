@@ -59,6 +59,16 @@ for (const args of [
     'test/extension-world.test.ts',
   ],
   [
+    '--filter',
+    '@dinkster/app',
+    'exec',
+    'vitest',
+    'run',
+    '--config',
+    'vitest.component.config.ts',
+    'test/disabled-features.dom.test.tsx',
+  ],
+  [
     'exec',
     'node',
     '--test',

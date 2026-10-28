@@ -162,7 +162,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")
-    expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.ts/g)).toEqual([
+    expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.tsx?/g)).toEqual([
       'test/format.schema.test.ts',
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
@@ -171,6 +171,7 @@ describe('fast pull-request and full validation workflows', () => {
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
+      'test/disabled-features.dom.test.tsx',
     ])
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
