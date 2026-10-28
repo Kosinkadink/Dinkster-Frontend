@@ -672,6 +672,25 @@ use latent-specific browse, empty, search, upload, and dialog language with
 the same 1 GiB limit. Generic asset fields retain their 16 MiB limit. Model
 upload is disabled, so model dialogs do not advertise an upload limit.
 
+Non-latent file and media uploads offer an import destination and relative
+subfolder, and name the owning backend machine. The default omits the mount
+parameter so the server chooses its standard imports folder. The selector
+offers only active writable mounts that remain members of the current
+project; configured-only changes are not treated as active before restart.
+Operator roots appear only in this local control, never in the stored AssetRef.
+If operator location access is unavailable, the control says so rather than
+guessing a physical path. The server still enforces import permissions.
+
+Remember for this project changes the backend/project preference only after a
+successful import. An unchecked one-off destination leaves the previous
+remembered default unchanged. To remember the standard destination again,
+select Standard imports folder and check Remember. Cancelled choices and failed
+uploads do not persist a new preference. Each completed picker batch reloads
+that accepted default instead of silently remembering the last upload. Named
+uploads adopt the server's complete collision-safe AssetRef and show its final
+virtual path with the backend label; anonymous workflow saves retain their
+separate vault route. Latent uploads retain their classified vault behavior.
+
 The shared action footer presents upload status separately from Upload,
 Cancel, and the primary commit button (`Use asset`, or a staged count under
 multi-select). Removing the whole staged selection is a `Remove` action inside

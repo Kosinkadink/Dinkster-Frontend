@@ -512,6 +512,19 @@ describe('mount listing decode', () => {
     })
   })
 
+  it('keeps operator configured and active locations distinct across pending changes', async () => {
+    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
+    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates' }], activeMounts: [active] }
+    const { conn } = submitHarness(() => jsonResponse(200, payload))
+    expect(await conn.fetchMountLocations()).toEqual(payload)
+    const missingActive = submitHarness(() => jsonResponse(200, { mounts: payload.mounts })).conn
+    expect(await missingActive.fetchMountLocations()).toEqual({ mounts: payload.mounts })
+    const malformed = submitHarness(() => jsonResponse(200, { ...payload, activeMounts: [{ ...active, mode: 'readonly' }] })).conn
+    await expect(malformed.fetchMountLocations()).rejects.toThrow('malformed active mount')
+    const forbidden = submitHarness(() => jsonResponse(403, {})).conn
+    await expect(forbidden.fetchMountLocations()).rejects.toThrow('403')
+  })
+
   it('keeps concurrent project folder reads and writes independent', async () => {
     const orders = new Map([['film-a', ['plates', 'renders']], ['film-b', ['renders', 'plates']]])
     const connection = (project: string) => new DinksterConnection({ id: C0, project, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike,

@@ -1,4 +1,13 @@
 {
+  "uploadDestination.folder": "Import destination",
+  "uploadDestination.machine": "Files are imported on {machine}, not necessarily this computer.",
+  "uploadDestination.default": "Standard imports folder (server default)",
+  "uploadDestination.subfolder": "Subfolder (relative, optional)",
+  "uploadDestination.remember": "Remember for this project",
+  "uploadDestination.selected": "Destination root: {path}. Relative subfolder: {folder}",
+  "uploadDestination.restart": "Folder settings have pending changes. Only active writable project folders are offered for import.",
+  "uploadDestination.unavailable": "Operator folder locations are unavailable. The server still validates the selected import destination.",
+  "uploadDestination.missing": "Destination {mount} is not an active writable folder for this project. Choose another destination.",
   "projectFolders.title": "Folders",
   "projectFolders.description": "Folders for this project on {machine}. Top-to-bottom is preference order. Drag or use Move up and Move down.",
   "projectFolders.purpose": "Purpose kind (optional)",

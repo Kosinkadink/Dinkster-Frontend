@@ -773,6 +773,11 @@
     "text:results?.querySelector",
     "text:visible()[selectedIndex()] === undefined ? undefined : optionId(selectedIndex()) const activeResult = (): Extract"
   ],
+  "UploadDestination.tsx": [
+    "text:() const [error, setError] = createSignal('') let generation = 0 const load = async (): Promise",
+    "text:() const [locations, setLocations] = createSignal",
+    "text:Boolean(props.value.mount) && selected() === undefined return"
+  ],
   "VideoDocumentEditor.tsx": [
     "text:(error() === undefined ? undefined : '$raw') const setObject = (next: Record",
     "text:(initialParams) const [drafts, setDrafts] = createSignal",

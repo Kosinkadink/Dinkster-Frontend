@@ -26,6 +26,9 @@ import { SearchState } from '../SearchSurface.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import { ProductButton } from '../ProductControls.js'
 import { AssetSelectionEditor } from './AssetSelectionEditor.js'
+import { UploadDestination } from '../UploadDestination.js'
+import { activeProjectId } from '../projects.js'
+import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -123,6 +126,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [assetSelectedModel, setAssetSelectedModel] = createSolidSignal<LogicalModelPickDetail | undefined>(undefined)
   const [assetError, setAssetError] = createSolidSignal<string | undefined>(undefined)
   const [assetUploading, setAssetUploading] = createSolidSignal(false)
+  const uploadBackend = props.app.backendForTab(ed.tab)
+  const project = activeProjectId()
+  const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
+  const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
   let assetUploadInput: HTMLInputElement | undefined
   let assetUploadTrigger: HTMLButtonElement | undefined
   const restoreAssetUploadFocus = (): void => {
@@ -406,14 +413,21 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       setAssetError('Asset uploads require a native Dinkster backend')
       return false
     }
+    if (backend !== uploadBackend) return false
     setAssetError(undefined)
     publishLocalAssetPreview(file)
     try {
-      const canonical = classifiedMediaKind !== undefined
+      const choice = destination()
+      const uploadDestination = {
+        ...(choice.mount ? { mount: choice.mount } : {}),
+        ...(choice.folder ? { folder: choice.folder } : {}),
+      }
+      const ref = classifiedMediaKind !== undefined
         ? await backend.connection.uploadMediaAsset(file, {
             scope: 'local',
             kind: classifiedMediaKind,
             name: mediaUploadName(file.name),
+            ...uploadDestination,
             ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
           })
         : classifiedLatent
@@ -422,18 +436,15 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               name: mediaUploadName(file.name),
               ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
             })
-        : undefined
-      const digest = canonical === undefined
-        ? await backend.connection.uploadAsset(file, assetUploadAbort?.signal)
-        : canonical.digest
-      if (!live) return false
-      const ref: AssetRef = canonical ?? {
-          digest,
-          name: file.name,
-          size: file.size,
-          mediaType: effectiveType,
-          virtualPath: '',
-        }
+        : await backend.connection.uploadNamedAsset(file, {
+            scope: 'local', name: mediaUploadName(file.name), ...uploadDestination,
+            ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
+          })
+      if (!live || props.app.backendForTab(ed.tab) !== backend) return false
+      if (!classifiedLatent) {
+        setUploadedLocation(`${backend.label}: ${ref.virtualPath}`)
+        try { saveUploadDestination(String(backend.id), project, choice) } catch { /* A successful import remains usable when preference storage is full. */ }
+      }
       // Uploads stage into the selection like browsed picks; the footer
       // Apply button commits. The local file preview is already showing.
       if (assetMulti) {
@@ -446,7 +457,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       setAssetSelectedModel(undefined)
       return true
     } catch (error) {
-      if (live) {
+      if (live && props.app.backendForTab(ed.tab) === backend) {
         setAssetError(error instanceof Error ? error.message : String(error))
       }
       return false
@@ -898,10 +909,18 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 try { return await pickAsset(file) }
                 finally {
                   if (assetUploadAbort === abort) assetUploadAbort = undefined
-                  if (live) setAssetUploading(false)
+                  if (live) {
+                    setAssetUploading(false)
+                    setDestination(readUploadDestination(String(uploadBackend.id), project))
+                  }
                 }
               }} />
             </Show>
+            <Show when={!classifiedLatent && !usesLogicalModelSource() && uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
+              {(backend) => <UploadDestination connection={backend.connection} machine={backend.label} value={destination()}
+                disabled={assetUploading()} onChange={setDestination} />}
+            </Show>
+            <Show when={uploadedLocation()}><ProductNotice tone="status">{uploadedLocation()}</ProductNotice></Show>
             <ProductActionFooter
               status={<span role="status">{assetUploading() ? `Uploading ${assetVocabulary().uploadPlural}...` : assetUploadLimitLabel !== undefined ? `Uploads up to ${assetUploadLimitLabel}` : ''}</span>}
             >
@@ -923,7 +942,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 multiple={assetMulti}
                 accept={Array.isArray(ed.spec?.options['accept']) ? (ed.spec!.options['accept'] as string[]).join(',') : ''}
                 disabled={assetUploading() || usesLogicalModelSource()}
-                onCancel={restoreAssetUploadFocus}
+                onCancel={() => {
+                  setDestination(readUploadDestination(String(uploadBackend.id), project))
+                  restoreAssetUploadFocus()
+                }}
                 onChange={(event) => {
                   const files = Array.from(event.currentTarget.files ?? [])
                   event.currentTarget.value = ''
@@ -943,6 +965,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                       if (assetUploadAbort === abort) assetUploadAbort = undefined
                       if (live) {
                         setAssetUploading(false)
+                        setDestination(readUploadDestination(String(uploadBackend.id), project))
                         restoreAssetUploadFocus()
                       }
                     }
