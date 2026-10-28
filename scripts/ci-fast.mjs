@@ -63,6 +63,7 @@ for (const args of [
     'node',
     '--test',
     '--test-isolation=none',
+    'scripts/check-host-ui-contract.test.mjs',
     'scripts/check-extension-literals.test.mjs',
     'scripts/check-raw-controls.test.mjs',
     'scripts/check-ui-strings.test.mjs',

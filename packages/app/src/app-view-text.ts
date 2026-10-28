@@ -21,6 +21,7 @@ interface Delimiters {
   readonly labelEnd: Int32Array
   readonly paren: Int32Array
   readonly links: Map<number, { readonly end: number; readonly href?: string }>
+  readonly onScan?: (characters: number) => void
 }
 
 const MAX_NESTING = 16
@@ -50,7 +51,7 @@ const append = (
   else segments.push({ chunks: [source.slice(start, end)], ...marks })
 }
 
-const delimiterIndexes = (source: string): Delimiters => {
+const delimiterIndexes = (source: string, onScan?: (characters: number) => void): Delimiters => {
   const star = new Int32Array(source.length + 2).fill(-1)
   const bold = new Int32Array(source.length + 2).fill(-1)
   const labelEnd = new Int32Array(source.length + 2).fill(-1)
@@ -60,6 +61,7 @@ const delimiterIndexes = (source: string): Delimiters => {
   let nextLabelEnd = -1
   let nextParen = -1
   for (let index = source.length - 1; index >= 0; index -= 1) {
+    onScan?.(1)
     if (source[index] === '*') nextStar = index
     if (source[index] === '*' && source[index + 1] === '*') nextBold = index
     if (source[index] === ']' && source[index + 1] === '(') nextLabelEnd = index
@@ -69,7 +71,7 @@ const delimiterIndexes = (source: string): Delimiters => {
     labelEnd[index] = nextLabelEnd
     paren[index] = nextParen
   }
-  return { star, bold, labelEnd, paren, links: new Map() }
+  return { star, bold, labelEnd, paren, links: new Map(), ...(onScan === undefined ? {} : { onScan }) }
 }
 
 const parseRange = (
@@ -87,6 +89,7 @@ const parseRange = (
   }
   let offset = start
   while (offset < end) {
+    delimiters.onScan?.(1)
     if (source.startsWith('**', offset)) {
       let close = delimiters.bold[offset + 2] ?? -1
       if (close !== -1 && close + 1 < end) {
@@ -110,6 +113,7 @@ const parseRange = (
         let link = delimiters.links.get(labelEnd)
         if (link === undefined) {
           const linkEnd = delimiters.paren[labelEnd + 2] ?? -1
+          if (linkEnd !== -1) delimiters.onScan?.(linkEnd - labelEnd - 2)
           const href = linkEnd === -1 ? undefined : safeLink(source.slice(labelEnd + 2, linkEnd))
           link = {
             end: linkEnd,
@@ -125,15 +129,19 @@ const parseRange = (
       }
     }
     let textEnd = offset + 1
-    while (textEnd < end && source[textEnd] !== '*' && source[textEnd] !== '[') textEnd += 1
+    while (textEnd < end && source[textEnd] !== '*' && source[textEnd] !== '[') {
+      delimiters.onScan?.(1)
+      textEnd += 1
+    }
     append(segments, source, offset, textEnd, marks)
     offset = textEnd
   }
 }
 
-/** Parses bold, italic, and http/https links without interpreting HTML. */
-export function parseAppViewText(source: string): readonly AppViewTextSegment[] {
+/** Parses bold, italic, and http/https links without interpreting HTML.
+ * The optional observer counts scanned characters, including URL validation. */
+export function parseAppViewText(source: string, onScan?: (characters: number) => void): readonly AppViewTextSegment[] {
   const segments: SegmentBuilder[] = []
-  parseRange(source, 0, source.length, {}, segments, delimiterIndexes(source), 0)
+  parseRange(source, 0, source.length, {}, segments, delimiterIndexes(source, onScan), 0)
   return segments.map(({ chunks, ...marks }) => ({ text: chunks.join(''), ...marks }))
 }

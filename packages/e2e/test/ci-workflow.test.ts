@@ -158,6 +158,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(script).toContain("['check:ui-strings']")
     expect(script).toContain("['check:v1-boundary']")
     expect(script).toContain("['typecheck']")
+    expect(script).toContain("'scripts/check-host-ui-contract.test.mjs'")
     expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")

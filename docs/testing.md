@@ -47,6 +47,8 @@ The subset uses synthetic inputs and checked-in fixtures:
   and browser-isolation contracts.
 - App `extension-dogfooding.test.ts`: built-in widget, command, and editor
   registrations use the same public doors available to packs.
+- `scripts/check-host-ui-contract.test.mjs`: removed extension UI symbols
+  stay absent and the widget environment exposes only its scoped client.
 - `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
   and `scripts/check-path-case.test.mjs`: regression tests for source checks.
 

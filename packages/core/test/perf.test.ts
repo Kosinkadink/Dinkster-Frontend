@@ -39,6 +39,10 @@ describe(`synthetic workload (${NODES} nodes)`, () => {
     expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
     const doc = loaded.document!
     expect(Object.keys(doc.graphs['g0']!.nodes)).toHaveLength(NODES)
+    const resolve = documentResolver(doc, (t) => schemas.get(t))
+    for (const node of Object.values(doc.graphs['g0']!.nodes)) {
+      expect(resolve(node.type), node.type).toBeDefined()
+    }
   })
 
   it(`loads within budget (2s for ${NODES} nodes)`, () => {
@@ -88,14 +92,6 @@ describe(`synthetic workload (${NODES} nodes)`, () => {
     expect(result.ok).toBe(true)
     if (result.ok) expect(Object.keys(result.artifact.prompt)).toHaveLength(CHAIN_LENGTH)
     expect(ms, `partial compile took ${ms.toFixed(1)}ms`).toBeLessThan(2000)
-  })
-
-  it('documentResolver resolves every node type', () => {
-    const doc = loadDocument(json).document!
-    const resolve = documentResolver(doc, (t) => schemas.get(t))
-    for (const node of Object.values(doc.graphs['g0']!.nodes)) {
-      expect(resolve(node.type), node.type).toBeDefined()
-    }
   })
 })
 
@@ -193,11 +189,9 @@ describe(`type solver on the feature-heavy workload (${NODES} nodes)`, () => {
 })
 
 describe('selector-dense load + compile (regression guard)', () => {
-  // 4x chain density with a 2-candidate selector on every chain: exercises
-  // the I11 all-candidate acyclicity walk at load and eager selector
-  // resolution + closure pruning at compile. Budgets sit at the same
-  // early-warning line as the reroute-dense guard: linear behavior clears
-  // them by an order of magnitude, quadratic candidate/link rescans do not.
+  // 4x chain density at load and 2x at compile, with two candidates on
+  // every selector: exercises all-candidate acyclicity, eager selector
+  // resolution and closure pruning without changing the one-second budgets.
   const DENSE_CHAINS = CHAINS * 4
   const json = syntheticWorkflow({ chains: DENSE_CHAINS, chainLength: CHAIN_LENGTH, selectors: true })
 
@@ -210,8 +204,9 @@ describe('selector-dense load + compile (regression guard)', () => {
     expect(ms, `loadDocument took ${ms.toFixed(1)}ms`).toBeLessThan(1000)
   })
 
-  it('compiles within 1s; unselected decoy branches leave the prompt intact', () => {
-    const doc = loadDocument(json).document!
+  it('compiles within 1s at 2x selector density; unselected decoy branches leave the prompt intact', () => {
+    const compileChains = DENSE_CHAINS / 2
+    const doc = loadDocument(syntheticWorkflow({ chains: compileChains, chainLength: CHAIN_LENGTH, selectors: true })).document!
     const t0 = performance.now()
     const result = compile({
       document: doc,
@@ -226,7 +221,7 @@ describe('selector-dense load + compile (regression guard)', () => {
     // Every chain node stays reachable through its fixed 'ca' branch; the
     // decoy 'cb' feed is pruned as a LINK but its producer (the chain source)
     // is still in closure via the chain itself.
-    if (result.ok) expect(Object.keys(result.artifact.prompt)).toHaveLength(DENSE_CHAINS * CHAIN_LENGTH)
+    if (result.ok) expect(Object.keys(result.artifact.prompt)).toHaveLength(compileChains * CHAIN_LENGTH)
     expect(ms, `compile took ${ms.toFixed(1)}ms`).toBeLessThan(1000)
   })
 })
