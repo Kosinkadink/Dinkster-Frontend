@@ -16,18 +16,70 @@ def main():
     commands = []
 
     def export(source, destination, *options):
-        command = [args.inkscape, str(source), *options, f"--export-filename={destination}"]
+        command = [
+            args.inkscape,
+            str(source),
+            *options,
+            f"--export-filename={destination}",
+        ]
         commands.append(shlex.join(command))
         subprocess.run(command, check=True)
 
     version = subprocess.check_output([args.inkscape, "--version"], text=True).strip()
     master = ROOT / "sources/Dinkster_Master.svg"
     for index, variant in enumerate(("mono", "dark", "light")):
-        options = (f"--export-id=wordmark-{variant}", "--export-id-only", f"--export-area=-60:{index * 1000 - 250}:1456.4:{index * 1000 + 630.6}")
-        export(master, ROOT / f"svg/dinkster-wordmark-{variant}.svg", "--export-type=svg", "--export-plain-svg", *options)
-        export(master, ROOT / f"previews/wordmark-{variant}-2x.png", "--export-type=png", "--export-width=892", "--export-height=518", *options)
-    export(ROOT / "sources/letter-sheet.svg", ROOT / "previews/letters-enlarged.png", "--export-type=png")
-    (ROOT / "sources/export-commands.txt").write_text(version + "\n" + "\n".join(commands) + "\n", encoding="ascii")
+        options = (
+            f"--export-id=wordmark-{variant}",
+            "--export-id-only",
+            f"--export-area=-60:{index * 1000 - 250}:1456.4:{index * 1000 + 630.6}",
+        )
+        export(
+            master,
+            ROOT / f"svg/dinkster-wordmark-{variant}.svg",
+            "--export-type=svg",
+            "--export-plain-svg",
+            *options,
+        )
+        export(
+            master,
+            ROOT / f"previews/wordmark-{variant}-2x.png",
+            "--export-type=png",
+            "--export-width=892",
+            "--export-height=518",
+            *options,
+        )
+    for variant in ("mono", "cyan", "white", "color"):
+        options = (
+            f"--export-id=symbol-{variant}",
+            "--export-id-only",
+            "--export-area=0:3000:1000:4000",
+        )
+        export(
+            master,
+            ROOT / f"svg/dinkster-symbol-{variant}.svg",
+            "--export-type=svg",
+            "--export-plain-svg",
+            *options,
+        )
+        for size in (16, 24, 32, 48, 64, 128, 256, 512, 1024):
+            destination = ROOT / f"raster/{variant}/{size}.png"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            export(
+                master,
+                destination,
+                "--export-type=png",
+                f"--export-width={size}",
+                f"--export-height={size}",
+                *options,
+            )
+    export(
+        ROOT / "sources/letter-sheet.svg",
+        ROOT / "previews/letters-enlarged.png",
+        "--export-type=png",
+    )
+    (ROOT / "sources/export-commands.txt").write_text(
+        version + "\n" + "\n".join(commands) + "\n", encoding="ascii"
+    )
 
 
 if __name__ == "__main__":

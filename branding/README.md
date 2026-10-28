@@ -39,3 +39,22 @@ stays an external input, not a production SVG raster dependency.
 `tokens/` preserves the supplied sRGB identity and semantic theme values.
 Identity coral and semantic danger are distinct tokens even where their
 dark-theme values coincide. No light-mode cyan substitution is made.
+
+Run `python sources/check_tokens.py` to compare every JSON/CSS value and
+recompute WCAG 2 sRGB relative-luminance contrast ratios:
+
+| Theme | Text | Canvas | Surface | Raised |
+| --- | --- | --- | --- | --- |
+| dark | primary | 16.87:1 | 14.99:1 | 12.73:1 |
+| dark | secondary | 8.76:1 | 7.78:1 | 6.61:1 |
+| dark | muted | 5.10:1 | 4.53:1 | 3.85:1 |
+| light | primary | 14.54:1 | 15.45:1 | 13.41:1 |
+| light | secondary | 5.78:1 | 6.14:1 | 5.33:1 |
+| light | muted | 4.54:1 | 4.82:1 | 4.19:1 |
+
+Primary and secondary body text meet 4.5:1 on all three backgrounds in
+both themes. Exceptions: muted text on dark raised (3.85:1) and light
+raised (4.19:1) does not meet 4.5:1 for normal body text. Do not use these
+pairings for normal-size body text; use secondary text instead. Palette
+values are preserved, not silently retuned. These ratios do not certify
+components, focus rings or status-only communication.
