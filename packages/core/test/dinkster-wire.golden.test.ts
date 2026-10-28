@@ -13,6 +13,54 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('preserves mixed COMBO scalar identity through defaults, import, and compile', () => {
+    const values = ['auto', 8, 10, '8', true, 1, false, 1.25, ''] as const
+    for (const value of values) {
+      const result = parseDinksterSchema('ScalarCombo', {
+        outputNode: true,
+        interface: [{ role: 'input', id: 'depth', type: concrete('COMBO'), default: value,
+          widget: { type: 'COMBO', options: ['auto', 8, 10, { value: '8', label: 'String eight' }, { value: true, label: 'Enabled' }, 1, false, 1.25, ''] } }],
+      })
+      expect(result.diagnostics).toEqual([])
+      expect(result.schema).toBeDefined()
+      const resolve = (type: string) => type === 'ScalarCombo' ? result.schema : undefined
+      for (const widgets_values of [[], [value], { depth: value }]) {
+        const imported = importLitegraph({ nodes: [{ id: 1, type: 'ScalarCombo', widgets_values }], links: [] }, resolve)
+        const compiled = compile({ document: imported.document!, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('scalars'), schemaHash: 'scalars' })
+        expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('scalar compilation failed')
+        expect(compiled.artifact.prompt.n1!.inputs.depth).toBe(value)
+        expect(JSON.parse(JSON.stringify(compiled.artifact.prompt)).n1.inputs.depth).toBe(value)
+      }
+    }
+    // A mismatched option vocabulary must never coerce an authored scalar.
+    const schema = parseDinksterSchema('StringCombo', { outputNode: true, interface: [
+      { role: 'input', id: 'depth', type: concrete('COMBO'), widget: { type: 'COMBO', options: ['8', { value: 'enabled', label: 'Enabled' }] } },
+    ] }).schema!
+    for (const value of [8, 'Enabled']) {
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'StringCombo', widgets_values: [value] }], links: [] }, () => schema)
+      expect(imported.document!.graphs.g0!.nodes.n1!.values.depth).toBe(value)
+    }
+  })
+
+  it('rejects non-scalar COMBO options without widening MULTI_COMBO or dynamic keys', () => {
+    for (const value of [null, [], {}, Number.NaN, Infinity, -Infinity]) {
+      for (const option of [value, { value, label: 'Invalid' }]) {
+        expect(parseDinksterSchema('InvalidCombo', { interface: [
+          { role: 'input', id: 'depth', type: concrete('COMBO'), widget: { type: 'COMBO', options: [option] } },
+        ] }).schema).toBeUndefined()
+      }
+    }
+    for (const value of [8, true]) {
+      expect(parseDinksterSchema('InvalidMulti', { interface: [
+        { role: 'input', id: 'depth', type: { kind: 'list', element: concrete('COMBO') }, widget: { type: 'MULTI_COMBO', options: [value] } },
+      ] }).schema).toBeUndefined()
+      expect(parseDinksterSchema('InvalidDynamic', { interface: [
+        { role: 'dynamicCombo', id: 'depth', options: [{ key: value, inputs: [] }] },
+      ] }).schema).toBeUndefined()
+    }
+  })
+
   it('keeps known widgets with unknown descriptor fields and ignores the fields', () => {
     const cases = [
       ['ASSET', concrete('ASSET'), { accept: ['image/png'] }, 'ASSET'],

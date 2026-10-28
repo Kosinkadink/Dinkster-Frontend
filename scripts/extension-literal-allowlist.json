@@ -1,7 +1,7 @@
 {
   "ceilings": {
     "nodeIdLiteral": 0,
-    "widgetTypeComparison": 92
+    "widgetTypeComparison": 91
   },
   "slack": {
     "nodeIdLiteral": 0,
@@ -564,14 +564,6 @@
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
       "line": 180,
-      "column": 37,
-      "symbol": "widgetType:COMBO",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 198,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -579,7 +571,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 198,
+      "line": 180,
       "column": 44,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -587,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 205,
+      "line": 187,
       "column": 8,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -595,7 +587,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 209,
+      "line": 191,
       "column": 7,
       "symbol": "widgetType:SAVE_TARGET",
       "issue": 122
@@ -619,7 +611,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1257,
+      "line": 1259,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122
