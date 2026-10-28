@@ -2187,18 +2187,6 @@ describe('subgraph.flatten trusted-dispatch authorization', () => {
     expect(session.redo()).toBe(true)
     expect(prompt(session.doc)).toEqual(expected)
     if (value === 19) {
-      for (const delivery of ['link', 'net']) {
-        const linked = structuredClone(initial)
-        linked.graphs.root.nodes.driver = { id: 'driver', type: 'BodyNode', values: {} }
-        if (delivery === 'link') linked.graphs.root.links.incoming = link('incoming', port('driver', 'out'), port('occurrence', 'input'))
-        else linked.graphs.root.nets.incoming = { id: 'incoming', name: 'Driver', source: port('driver', 'out'), sinks: [port('occurrence', 'input')] }
-        const linkedSession = trustedFlattenSession(linked)
-        const before = linkedSession.doc
-        const refused = linkedSession.dispatch(flattenInvocation(linked))
-        expect(refused.ok).toBe(false)
-        if (!refused.ok) expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.flatten.stateUnresolved')
-        expect(linkedSession.doc).toBe(before)
-      }
       const stale = structuredClone(initial)
       stale.graphs.body.valueSources.value.value = 99
       const staleSession = trustedFlattenSession(stale)
@@ -2209,6 +2197,94 @@ describe('subgraph.flatten trusted-dispatch authorization', () => {
       expect(staleSession.doc).toBe(before)
     }
   })
+
+  it.each(['link', 'net', 'literal'].flatMap((delivery) => [false, true].map((overlay) => [delivery, overlay] as const)))(
+    'forwards a connected literal input and its output passthrough (%s, overlay=%s)', (delivery, overlay) => {
+      const initial = flattenDocument()
+      const binds = { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } }
+      initial.graphs.root.nodes = {
+        occurrence: { ...initial.graphs.root.nodes.occurrence, values: { input: null }, controllers: { input: 'decrement' } },
+        survivor: { ...initial.graphs.root.nodes.survivor, values: { input: 47 }, controllers: { input: 'fixed' } },
+        driver: { id: 'driver', type: 'BodyNode', values: { mid: 88 } },
+        consumer: { id: 'consumer', type: 'BodyNode', values: {} },
+      }
+      initial.graphs.root.links = { outgoing: link('outgoing', port('occurrence', 'output'), port('consumer', 'mid')) }
+      initial.graphs.root.nets = {}
+      const driver = delivery === 'literal' ? { valueSource: 'value' as never } : port('driver', 'out')
+      initial.graphs.root.valueSources.value.value = 61
+      if (delivery === 'net') initial.graphs.root.nets.incoming = {
+        id: 'incoming', name: 'Driver', source: driver, sinks: [port('occurrence', 'input')],
+      }
+      else initial.graphs.root.links.incoming = link('incoming', driver, port('occurrence', 'input'))
+      if (delivery === 'net') {
+        delete initial.graphs.root.links.outgoing
+        initial.graphs.root.nets.outgoing = {
+          id: 'outgoing', name: 'Result', source: port('occurrence', 'output'), sinks: [port('consumer', 'mid')],
+        }
+      }
+      initial.graphs.root.boundary = { inputs: [], outputs: [{ id: 'result', binds: { kind: 'port', node: 'occurrence', port: 'output' } }] }
+      initial.graphs.body = {
+        id: 'body', name: 'Driven literal', nodes: { a: { id: 'a', type: 'BodyNode', values: {} } },
+        links: { delivery: link('delivery', { valueSource: 'value' as never }, port('a', 'mid')) },
+        nets: {}, reroutes: {}, selectors: {}, nextOrdinal: 0,
+        valueSources: { value: { id: 'value', value: 37, controller: 'increment', spec: { widgetType: 'INT', options: {}, controller: 'after_generate' } } },
+        boundary: { inputs: [{ id: 'input', promoted: true, binds }], outputs: [{ id: 'output', binds }] },
+      }
+      initial.view.graphs.root.nodes = { occurrence: initial.view.graphs.root.nodes.occurrence, survivor: {}, driver: {}, consumer: {} }
+      delete initial.view.graphs.root.collapsedNets
+      initial.view.graphs.body = { nodes: { a: {} }, valueSources: { value: { position: { x: 80, y: 30 } } } }
+      if (overlay) initial.occurrenceTopologies = {
+        occurrence: {
+          owner: { instancePath: [], node: 'occurrence' }, bodyGraph: 'body', nextOrdinal: 1,
+          suppressedDeliveries: [{ kind: 'link', linkId: 'delivery' }],
+          links: { l0: {
+            id: 'l0', from: { kind: 'body', endpoint: { valueSource: 'value' } },
+            to: { kind: 'body', endpoint: port('a', 'mid') }, ext: { retained: true },
+          } },
+        },
+      }
+      const resolve = (type: string) => {
+        const schema = flattenResolver(type)
+        return schema === undefined ? undefined : { ...schema, isOutputNode: true }
+      }
+      const prompt = (document: WorkflowDocument) => {
+        const result = compile({ document, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('driven-literal-flatten'), schemaHash: 'literal' })
+        expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+        if (!result.ok) return []
+        const entries = Object.entries(result.artifact.prompt)
+        const driverId = entries.find(([, node]) => node.inputs.mid === 88)![0]
+        return entries.map(([, node]) => Array.isArray(node.inputs.mid) && node.inputs.mid[0] === driverId ? 'driver-output' : node.inputs.mid).sort()
+      }
+      const expected = delivery === 'literal' ? [47, 61, 61, 88] : [47, 88, 'driver-output', 'driver-output']
+      expect(prompt(initial)).toEqual(expected)
+      const invocation = flattenInvocation(initial)
+      invocation.params.resolvedGeometry.body = [
+        { id: 'a', kind: 'node', x: 0, y: 0, width: 120, height: 80 },
+        { id: 'value', kind: 'valueSource', x: 80, y: 30, width: 120, height: 40 },
+      ]
+      const session = trustedFlattenSession(initial)
+      const outcome = session.dispatch(invocation)
+      expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+      expect(checkDocument(session.doc)).toEqual([])
+      expect(prompt(session.doc)).toEqual(expected)
+      expect(session.doc.graphs.body).toEqual(initial.graphs.body)
+      expect(session.doc.graphs.root!.nodes.survivor).toEqual(initial.graphs.root.nodes.survivor)
+      const copied = Object.values(session.doc.graphs.root!.valueSources!).find((source) => source.id !== 'value')!
+      expect(copied.value).toBe(null)
+      expect(copied.controller).toBe('decrement')
+      if (overlay) expect(Object.values(session.doc.graphs.root!.links).some((link) => link.ext?.retained === true)).toBe(true)
+      expect(session.doc.graphs.root!.boundary!.outputs[0]!.binds).toEqual(delivery === 'literal'
+        ? { ...binds, valueSource: 'value' }
+        : { kind: 'port', node: 'driver', port: 'out' })
+      const reopened = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+      expect(reopened.document).toBeDefined()
+      expect(prompt(reopened.document!)).toEqual(expected)
+      expect(session.undo()).toBe(true)
+      expect(prompt(session.doc)).toEqual(expected)
+      expect(session.redo()).toBe(true)
+      expect(prompt(session.doc)).toEqual(expected)
+    },
+  )
 
   it.each([false, true])('flattens retained literal output bindings without changing shared siblings (overlay=%s)', (overlay) => {
     const initial = flattenDocument()

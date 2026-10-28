@@ -59,11 +59,14 @@ and splices one copy of its body into the parent as one undoable operation.
 Nested occurrences remain nested. After success, the newly spliced body
 nodes are selected.
 
-An unconnected promoted literal input transfers this occurrence's stored
+A promoted literal input transfers this occurrence's stored
 value and controller mode to the fresh source, preserving explicit null.
 Missing overrides retain the definition's source state. Shared definitions
-and sibling occurrences are unchanged. Connected literal inputs refuse
-atomically because a source cannot be the target of an incoming link.
+and sibling occurrences are unchanged. A connected input forwards its driver
+to the source's consumers and output passthroughs; the copied literal remains
+as dormant state, never as the target of an incoming link. Enclosing outputs
+and named nets retain the driver where their endpoint model can represent it;
+an unrepresentable structural producer refuses atomically.
 
 Extract and flatten are unavailable while execution owns the tab. Extract is
 unavailable for an empty semantic selection. Flatten is unavailable unless

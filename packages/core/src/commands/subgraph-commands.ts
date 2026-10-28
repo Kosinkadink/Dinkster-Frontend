@@ -1901,6 +1901,39 @@ const subgraphFlatten: CommandDefinition = {
       return targets.map((target) => remapBinding(target.binding, nodeIds))
     }
 
+    const literalDrivers = new Map<string, LinkEndpoint>()
+    for (const item of body.boundary.inputs) {
+      if (item.binds.kind !== 'valueSource') continue
+      const input = parentPort(nodeId, item.id)
+      const driver = Object.values(parent.links).find((link) => sameEndpoint(link.to, input))?.from ??
+        Object.values(parent.nets).find((net) => net.sinks.some((sink) => sameEndpoint(sink, input)))?.source
+      if (driver !== undefined) literalDrivers.set(valueSourceIds.get(item.binds.valueSource)!, driver)
+    }
+    const redirectFrom = (endpoint: LinkEndpoint, seen = new Set<string>()): LinkEndpoint | undefined => {
+      const key = endpointKey(endpoint)
+      if (seen.has(key)) return undefined
+      seen.add(key)
+      if (isValueSourceRef(endpoint)) {
+        const driver = literalDrivers.get(endpoint.valueSource)
+        return driver === undefined ? endpoint : redirectFrom(driver, seen)
+      }
+      if (isPortEndpoint(endpoint) && endpoint.node === nodeId) {
+        const match = matchBoundaryItem(body.boundary!.outputs, endpoint)
+        const targets = match.ok ? targetsFor('output', match.item, endpoint) : undefined
+        return targets?.length === 1 ? redirectFrom(endpointFromBinding(targets[0]!), seen) : undefined
+      }
+      return endpoint
+    }
+    const redirectOutputBinding = (binding: BoundaryBinding): BoundaryBinding | undefined => {
+      if (binding.kind !== 'valueSource') return binding
+      const endpoint = redirectFrom(endpointFromBinding(binding))
+      if (endpoint === undefined) return undefined
+      if (isValueSourceRef(endpoint)) return { ...binding, valueSource: endpoint.valueSource }
+      if (isPortEndpoint(endpoint)) return { kind: 'port', ...endpoint }
+      if (isWidgetTapRef(endpoint)) return { kind: 'widgetTap', ...endpoint }
+      return undefined
+    }
+
     const nodes: Record<string, NodeData> = { ...parent.nodes }
     delete nodes[nodeId]
     const plannedNodes = new Map(statePlan.nodes.map((entry) => [entry.node, entry]))
@@ -1985,10 +2018,11 @@ const subgraphFlatten: CommandDefinition = {
       }
       if (isPortEndpoint(link.to) && link.to.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.inputs, link.to)
-        const targets = match.ok ? targetsFor('input', match.item, link.to) : undefined
-        if (targets === undefined || targets.length === 0) {
+        const targets = match.ok ? targetsFor('input', match.item, link.to)?.filter((target) => target.kind !== 'valueSource') : undefined
+        if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: input '${link.to.port}' has no materialized target`, graphId, instancePath, nodeId, link.to)]
         }
+        if (targets.length === 0) continue
         links[id] = { ...link, from, to: endpointFromBinding(targets[0]!) }
         for (const [index, target] of targets.slice(1).entries()) {
           const deliveryId = deliveryIds.get(JSON.stringify([link.id, index]))
@@ -2052,11 +2086,11 @@ const subgraphFlatten: CommandDefinition = {
         if (targets.length !== 1) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: output '${source.port}' has no unique inner producer`, graphId, instancePath, nodeId, source)]
         }
-        const target = targets[0]!
-        if (target.kind === 'widgetTap' || target.kind === 'valueSource') {
+        const endpoint = redirectFrom(endpointFromBinding(targets[0]!))
+        if (endpoint === undefined || !isPortEndpoint(endpoint)) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: net source '${source.port}' resolves to a structural producer, which named nets cannot represent`, graphId, instancePath, nodeId, source)]
         }
-        source = portFromBinding(target)
+        source = endpoint
         netSourceRemap.set(id, source)
       }
       const sinks: PortRef[] = []
@@ -2071,6 +2105,7 @@ const subgraphFlatten: CommandDefinition = {
           }
           const expanded: PortRef[] = []
           for (const target of targets) {
+            if (target.kind === 'valueSource') continue
             const endpoint = endpointFromBinding(target)
             if (isRerouteRef(endpoint)) {
               const deliveryId = allocator.mint('l')
@@ -2116,7 +2151,12 @@ const subgraphFlatten: CommandDefinition = {
             entry.side === side && entry.itemIndex === itemIndex && entry.itemId === item.id &&
             entry.bindingIndex === bindingIndex && canonicalJson(entry.before) === canonicalJson(target))
           if (rewrite === undefined) return undefined
-          expanded.push(...rewrite.after.map((binding) => remapBinding(binding, nodeIds, rerouteIds, valueSourceIds)))
+          for (const binding of rewrite.after) {
+            const mapped = remapBinding(binding, nodeIds, rerouteIds, valueSourceIds)
+            const redirected = side === 'output' ? redirectOutputBinding(mapped) : mapped
+            if (redirected === undefined) return undefined
+            expanded.push(redirected)
+          }
         }
         if (expanded.length === 0) return undefined
         const { alsoBinds: _oldAlsoBinds, ...rest } = item
@@ -2139,6 +2179,14 @@ const subgraphFlatten: CommandDefinition = {
         outputs.push(rewritten)
       }
       boundary = { inputs, outputs }
+    }
+
+    for (const [id, link] of Object.entries(links)) {
+      const from = redirectFrom(link.from)
+      if (from === undefined) {
+        return [lifecycleError('subgraph.flatten.stateUnresolved', 'subgraph.flatten: literal input forwarding has no acyclic producer', graphId, instancePath, nodeId)]
+      }
+      links[id] = { ...link, from }
     }
 
     const parentView = doc.view.graphs[graphId] ?? { nodes: {} }

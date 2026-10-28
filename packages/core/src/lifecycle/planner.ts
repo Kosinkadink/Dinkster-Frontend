@@ -1323,13 +1323,6 @@ function planFlattenState(
       fail('subgraph.flatten.stateUnresolved', `boundary '${item.id}' has no unique schema interpretation`, side, item.id)
       continue
     }
-    if (side === 'input' && item.binds.kind === 'valueSource' && (
-      Object.values(parent.links).some((link) => isPortEndpoint(link.to) && link.to.node === occurrence.id && link.to.port === item.id) ||
-      Object.values(parent.nets).some((net) => net.sinks.some((sink) => sink.node === occurrence.id && sink.port === item.id))
-    )) {
-      fail('subgraph.flatten.stateUnresolved', `literal input '${item.id}' has an external driver that requires consumer forwarding`, side, item.id)
-      continue
-    }
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))) {
       if (!isNodeBoundaryBinding(binding)) continue
       const original = body.nodes[binding.node]
