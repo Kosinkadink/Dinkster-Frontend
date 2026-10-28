@@ -34,6 +34,16 @@ wordmark lettering is outlined; no font must be installed to render it.
 composes the repeatable review sheet from the exported PNGs. The reference
 stays an external input, not a production SVG raster dependency.
 
+The regular-only guided comparison uses `export_brand.py
+--regular-wordmark-only` to leave symbol rasters and heavier exports
+untouched. These commands are recorded in `wordmark-export-commands.txt`.
+Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
+k arm), and 56 (baseline); only the k's lower leg descends to 70.
+The enlarged k also carries its x + y = 63 cut/arm continuation guide.
+The regular e joins flat top/left segments with a 12-unit circular arc.
+Reference-image guides are measured raster estimates, not vector
+constraints imposed on or alterations to the supplied image.
+
 For the small-size comparison, run `sources/compare_geometry.py --inkscape
 /path/to/inkscape` with Python, then `python sources/compare_small.py`.
 The native and nearest-neighbor sheets show mono, cyan and clipped color

@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inkscape", default="inkscape")
+    parser.add_argument("--regular-wordmark-only", action="store_true")
     args = parser.parse_args()
     commands = []
 
@@ -30,6 +31,8 @@ def main():
     for index, variant in enumerate(
         ("mono", "dark", "light", "heavier-dark", "heavier-light")
     ):
+        if args.regular_wordmark_only and variant.startswith("heavier"):
+            continue
         y = (index if index < 3 else index + 1) * 1000
         width = 1024 if variant.startswith("heavier") else 892
         options = (
@@ -53,6 +56,8 @@ def main():
             *options,
         )
     for variant in ("mono", "cyan", "white", "color"):
+        if args.regular_wordmark_only:
+            break
         options = (
             f"--export-id=symbol-{variant}",
             "--export-id-only",
@@ -92,7 +97,12 @@ def main():
         "--export-width=1680",
         "--export-height=780",
     )
-    (ROOT / "sources/export-commands.txt").write_text(
+    record = (
+        "wordmark-export-commands.txt"
+        if args.regular_wordmark_only
+        else "export-commands.txt"
+    )
+    (ROOT / "sources" / record).write_text(
         version + "\n" + "\n".join(commands) + "\n", encoding="ascii"
     )
 
