@@ -113,6 +113,15 @@ identity and type, terminates at the existing source, and remains scoped to its
 occurrence through save/reopen and undo/redo. Input promotion still carries
 values, not consuming links: a value source cannot be a local link target.
 
+After-generate advancement follows the compiled literal owner instead of
+changing its connected consumer widgets. Shared producer fan-out advances once;
+promoted instance controls own their occurrence overrides and inherit missing
+values and modes from the inner source. Declared source widget constraints take
+precedence over consumer-derived constraints. Only executed consumers contribute
+advancement. Completion preserves user edits, including edit-and-restore changes,
+and skips controls whose live route, mode, or widget semantics changed. Source
+advancement uses the ordinary undoable value-source command, without helper nodes.
+
 Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
 constraints. The decoder retains the FLOATS socket and scalar default, min and
 step; it does not replace the runtime type with FLOAT or a primitive list.

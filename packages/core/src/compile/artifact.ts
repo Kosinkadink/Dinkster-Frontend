@@ -80,22 +80,29 @@ export interface SelectorChoice {
 }
 
 /** One document location that can provide an occurrence input's value and controller mode. */
-export interface ControllerInputSource {
+export interface ControllerNodeInputSource {
   readonly graph: GraphDefId
   readonly occurrence: Occurrence
   readonly valueKey: string
+}
+
+export type ControllerInputSource = ControllerNodeInputSource | {
+  readonly graph: GraphDefId
+  readonly instancePath: readonly NodeId[]
+  readonly valueSource: string
 }
 
 /**
  * The compiled occurrence view of one after-generate input. Sources are in
  * effective-value order; the first source owns advancement and later sources
  * provide inherited values and modes. `driven` reflects successful compiled
- * delivery through every boundary, not graph-local link presence.
+ * delivery from a runtime producer or widget tap, not graph-local link presence.
+ * Literal deliveries retain their own controller ownership instead.
  */
 export interface ControllerInputProvenance {
   readonly runtimeId: string
   /** Terminal elaborated input identity for live schema retirement checks. */
-  readonly terminal: ControllerInputSource
+  readonly terminal: ControllerNodeInputSource
   readonly sources: readonly ControllerInputSource[]
   /** Primary binding first, then alsoBinds, independent of node storage order. */
   readonly ownerPriority: number

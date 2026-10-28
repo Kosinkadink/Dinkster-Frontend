@@ -49,6 +49,69 @@ function compileDoc(document: any): CompileArtifact {
 }
 
 describe('controllerAdvancement', () => {
+  it('advances a shared literal producer once instead of its connected consumers', () => {
+    const document = fixture() as any
+    document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
+    document.graphs.g0.nodes.second = structuredClone(document.graphs.g0.nodes.seed)
+    document.graphs.g0.nodes.second.id = 'second'
+    document.graphs.g0.valueSources = {
+      v0: { id: 'v0', value: 11, controller: 'increment' },
+      v1: { id: 'v1', value: 17, controller: 'decrement' },
+    }
+    document.graphs.g0.links = {
+      l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'seed', port: 'up' } },
+      l1: { id: 'l1', from: { valueSource: 'v0' }, to: { node: 'second', port: 'up' } },
+    }
+    const artifact = compileDoc(document)
+    expect(artifact.prompt.seed!.inputs.up).toBe(11)
+    expect(controllerAdvancement(document, artifact)).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 14 } },
+    ] } })
+    document.graphs.g0.valueSources.v0.spec = { widgetType: 'INT', options: { step: 5 }, controller: 'after_generate' }
+    expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 16 } },
+    ] } })
+    document.graphs.g0.valueSources.v0.controller = 'fixed'
+    expect(controllerAdvancement(document, compileDoc(document))).toBeUndefined()
+  })
+
+  it('advances independent instance overrides of an output-only literal producer', () => {
+    const document = fixture() as any
+    document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
+    document.graphs.g0.nodes.second = structuredClone(document.graphs.g0.nodes.seed)
+    document.graphs.g0.nodes.second.id = 'second'
+    document.graphs.g0.nodes.i0 = { id: 'i0', type: '#body', values: { value: 11 }, controllers: { value: 'increment' } }
+    document.graphs.g0.nodes.i1 = { id: 'i1', type: '#body', values: { value: 17 }, controllers: { value: 'decrement' } }
+    document.graphs.g0.links = {
+      l0: { id: 'l0', from: { node: 'i0', port: 'out' }, to: { node: 'seed', port: 'up' } },
+      l1: { id: 'l1', from: { node: 'i1', port: 'out' }, to: { node: 'second', port: 'up' } },
+    }
+    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
+    document.graphs.body = {
+      id: 'body', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      valueSources: { v0: { id: 'v0', value: 13, controller: 'fixed' } },
+      boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }] },
+    }
+    const artifact = compileDoc(document)
+    expect([artifact.prompt.seed!.inputs.up, artifact.prompt.second!.inputs.up]).toEqual([11, 17])
+    expect(controllerAdvancement(document, artifact)).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: 14 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+    ] } })
+    expect(document.graphs.body.valueSources.v0.value).toBe(13)
+    delete document.graphs.g0.nodes.i0.values.value
+    expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: 16 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+    ] } })
+    document.graphs.g0.nodes.driver = structuredClone(document.graphs.g0.nodes.seed)
+    document.graphs.g0.nodes.driver.id = 'driver'
+    document.graphs.g0.links.l2 = { id: 'l2', from: { node: 'driver', port: 'out' }, to: { node: 'i0', port: 'value' } }
+    expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+    ] } })
+  })
+
   it('advances increment/decrement/randomize, leaving fixed and controller-less values untouched', () => {
     const document = fixture() as any
     const invocation = controllerAdvancement(document, compileDoc(document), () => 0.5)
@@ -782,6 +845,38 @@ describe('FLOAT controller advancement (shared canvas stepper semantics)', () =>
 })
 
 describe('completion integration', () => {
+  it.each(['unchanged', 'edited', 'restored', 'fixed', 'disconnected'] as const)('guards literal producer completion after %s state', (change) => {
+    const local = new AppState()
+    ;(local.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
+    local.registerSchemas([schema])
+    const document = fixture() as any
+    document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
+    document.graphs.g0.valueSources = { v0: { id: 'v0', value: 11, controller: 'increment' } }
+    document.graphs.g0.links = { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'seed', port: 'up' } } }
+    expect(local.openDocument(document, 'Literal Controller')).toEqual([])
+    const live = local.activeTab()!
+    const execution = { connection: asConnectionId('local'), prompt: asPromptId(`literal-${change}`) }
+    local.registerRun(live, execution, compileDoc(live.store.doc), 1)
+    if (change === 'edited' || change === 'restored') {
+      expect(live.store.dispatch({ command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 17 } }).ok).toBe(true)
+      if (change === 'restored') expect(live.store.dispatch({ command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 11 } }).ok).toBe(true)
+    }
+    if (change === 'fixed') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'fixed' } }).ok).toBe(true)
+    if (change === 'disconnected') expect(live.store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } }).ok).toBe(true)
+    local.store.apply({ kind: 'completed', execution, timestamp: 2 })
+    const expected = change === 'unchanged' ? 14 : change === 'edited' ? 17 : 11
+    expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(expected)
+    expect(live.store.doc.graphs.g0!.nodes.seed!.values.up).toBe(11)
+    local.store.apply({ kind: 'completed', execution, timestamp: 3 })
+    expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(expected)
+    if (change === 'unchanged') {
+      expect(live.store.undo()).toBe(true)
+      expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(11)
+      expect(live.store.redo()).toBe(true)
+      expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(14)
+    }
+  })
+
   let app: AppState
   let tab: Tab
   let artifact: CompileArtifact

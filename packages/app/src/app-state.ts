@@ -90,6 +90,7 @@ import {
   type ConnectionId,
   type ControllerInputProvenance,
   type ControllerInputSource,
+  type ControllerNodeInputSource,
   type ControllerMode,
   type Diagnostic,
   type DiagnosticAnchor,
@@ -831,10 +832,7 @@ export interface SelectionExecutionScopes {
  * switching to 'fixed' mid-run parks the value, in-flight plans
  * included.
  */
-export interface AdvancementStep {
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
+export type AdvancementStep = AdvancementInputLocation & {
   readonly value: Json
   readonly expected: Json | undefined
   readonly current: Json
@@ -854,20 +852,29 @@ export interface AdvancementPlan {
   readonly generations: ReadonlyMap<string, number>
 }
 
-type AdvancementInputLocation = Pick<AdvancementStep, 'graphId' | 'nodeId' | 'inputId'>
+type AdvancementInputLocation = { readonly graphId: string } & (
+  | { readonly nodeId: string; readonly inputId: string }
+  | { readonly valueSourceId: string }
+)
 
 const advancementInputKey = (step: AdvancementInputLocation): string =>
-  JSON.stringify(['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
+  JSON.stringify('valueSourceId' in step
+    ? ['graphs', step.graphId, 'valueSources', step.valueSourceId, 'value']
+    : ['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
 
-const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation => ({
-  graphId: source.graph,
-  nodeId: source.occurrence.node,
-  inputId: source.valueKey,
-})
+const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation =>
+  'valueSource' in source
+    ? { graphId: source.graph, valueSourceId: source.valueSource }
+    : { graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey }
+
+const controllerStoredValue = (document: WorkflowDocument, location: AdvancementInputLocation): Json | undefined =>
+  'valueSourceId' in location
+    ? document.graphs[location.graphId]?.valueSources?.[location.valueSourceId]?.value
+    : document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
 
 const controllerInputKey = (
   runtimeId: string,
-  terminal: ControllerInputSource,
+  terminal: ControllerNodeInputSource,
 ): string => JSON.stringify([
   runtimeId,
   terminal.graph,
@@ -894,10 +901,7 @@ const controllerSemanticsKey = (input: ControllerInputProvenance): string => can
 
 interface ControllerMutationState {
   next: number
-  readonly inputs: Map<string, {
-    readonly graphId: string
-    readonly nodeId: string
-    readonly inputId: string
+  readonly inputs: Map<string, AdvancementInputLocation & {
     value: Json | undefined
     generation: number
   }>
@@ -995,12 +999,14 @@ function effectiveControllerState(
   let mode: ControllerMode | undefined
   let valueSourceCount = sources.length
   for (const [index, source] of sources.entries()) {
-    const node = document.graphs[source.graph]?.nodes[source.occurrence.node]
+    const graph = document.graphs[source.graph]
+    const node = 'valueSource' in source ? undefined : graph?.nodes[source.occurrence.node]
+    const literal = 'valueSource' in source ? graph?.valueSources?.[source.valueSource] : undefined
     if (current === undefined) {
-      current = node?.values[source.valueKey]
+      current = controllerStoredValue(document, controllerSourceLocation(source))
       if (current !== undefined) valueSourceCount = index + 1
     }
-    if (mode === undefined) mode = node?.controllers?.[source.valueKey]
+    if (mode === undefined) mode = 'valueSource' in source ? literal?.controller : node?.controllers?.[source.valueKey]
   }
   if (current === undefined && (widget.default !== undefined || !optional)) {
     current = effectiveWidgetDefault(widget)
@@ -1024,10 +1030,9 @@ export function controllerAdvancement(
 
 /** The batch invocation for a set of advancement steps ([] -> undefined). */
 export function advancementInvocation(steps: readonly AdvancementStep[]): CommandInvocation | undefined {
-  const invocations = steps.map(({ graphId, nodeId, inputId, value }) => ({
-    command: 'node.setValue',
-    params: { graphId, nodeId, inputId, value },
-  }))
+  const invocations = steps.map((step) => 'valueSourceId' in step
+    ? { command: 'valueSource.setValue', params: { graphId: step.graphId, valueSourceId: step.valueSourceId, value: step.value } }
+    : { command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } })
   return invocations.length > 0 ? { command: 'batch', params: { invocations } as unknown as Json } : undefined
 }
 
@@ -1049,7 +1054,7 @@ export function controllerAdvancementPlan(
   for (const input of artifact.provenance.controllerInputs ?? []) {
     if (input.sources.length === 0) continue
     const owner = input.sources[0]!
-    const ownerKey = advancementInputKey({ graphId: owner.graph, nodeId: owner.occurrence.node, inputId: owner.valueKey })
+    const ownerKey = advancementInputKey(controllerSourceLocation(owner))
     let group = controllersByOwner.get(ownerKey)
     if (group === undefined) {
       group = { owner, controllers: [] }
@@ -1061,8 +1066,9 @@ export function controllerAdvancementPlan(
     controllers.sort((a, b) => a.ownerPriority - b.ownerPriority)
     const input = controllers[0]
     if (input === undefined) continue
-    const node = document.graphs[owner.graph]?.nodes[owner.occurrence.node]
-    if (!node) continue
+    const location = controllerSourceLocation(owner)
+    const graph = document.graphs[owner.graph]
+    if ('valueSourceId' in location ? !graph?.valueSources?.[location.valueSourceId] : !graph?.nodes[location.nodeId]) continue
     const state = effectiveControllerState(document, input.sources, input.widget, input.optional)
     if (state.current === undefined || state.mode === 'fixed') continue
     let value: Json
@@ -1095,11 +1101,9 @@ export function controllerAdvancementPlan(
       }
     }
     steps.push({
-      graphId: owner.graph,
-      nodeId: owner.occurrence.node,
-      inputId: owner.valueKey,
+      ...location,
       value,
-      expected: node.values[owner.valueKey],
+      expected: controllerStoredValue(document, location),
       current: state.current,
       mode: state.mode,
       valueSources: [...valueSources.values()],
@@ -7520,7 +7524,7 @@ export class AppState {
   private trackControllerMutations(session: DocumentSession, state: ControllerMutationState): void {
     session.document.subscribe((document) => {
       for (const input of state.inputs.values()) {
-        const value = document.graphs[input.graphId]?.nodes[input.nodeId]?.values[input.inputId]
+        const value = controllerStoredValue(document, input)
         if (!Object.is(value, input.value)) {
           input.value = value
           input.generation = ++state.next
@@ -7554,10 +7558,8 @@ export class AppState {
     let input = state.inputs.get(key)
     if (!input) {
       input = {
-        graphId: step.graphId,
-        nodeId: step.nodeId,
-        inputId: step.inputId,
-        value: session.doc.graphs[step.graphId]?.nodes[step.nodeId]?.values[step.inputId],
+        ...step,
+        value: controllerStoredValue(session.doc, step),
         generation: state.next,
       }
       state.inputs.set(key, input)
@@ -7782,8 +7784,9 @@ export class AppState {
     ]))
     const doc = tab.store.doc
     const applicable = plan.steps.filter((step) => {
-      const node = doc.graphs[step.graphId]?.nodes[step.nodeId]
-      if (node === undefined || node.values[step.inputId] !== step.expected) return false
+      const graph = doc.graphs[step.graphId]
+      if ('valueSourceId' in step ? !graph?.valueSources?.[step.valueSourceId] : !graph?.nodes[step.nodeId]) return false
+      if (controllerStoredValue(doc, step) !== step.expected) return false
       const liveController = step.controllers.flatMap((queued) => {
         const live = liveControllerInputs.get(controllerInputKey(queued.runtimeId, queued.terminal))
         return live !== undefined && controllerSemanticsKey(live) === controllerSemanticsKey(queued) ? [live] : []

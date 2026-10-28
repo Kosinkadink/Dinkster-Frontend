@@ -73,6 +73,7 @@ import {
 } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
+import { effectiveValueSourceSpec } from '../value-source.js'
 import { matchBypassInput, type BypassCandidate } from './bypass.js'
 import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
@@ -128,6 +129,7 @@ import type {
   CompileResult,
   ControllerInputProvenance,
   ControllerInputSource,
+  ControllerNodeInputSource,
   ExecutionScope,
   Prompt,
   PromptNode,
@@ -411,26 +413,38 @@ function compileImpl(
   /** runtimeId -> inputId -> promoted-value override (first write wins: outer beats inner). */
   const overrides = new Map<string, Map<string, Json>>()
   interface ControllerSource {
-    readonly source: ControllerInputSource
+    readonly source: ControllerNodeInputSource
     readonly widget: WidgetSpec
     readonly ownerPriority: number
   }
   /** runtimeId -> inputId -> effective controller sources, outside-in. */
   const controllerSources = new Map<string, Map<string, ControllerSource[]>>()
+  const sourcePromotions = new Map<string, ControllerNodeInputSource[]>()
+  const literalControllers = new Map<string, Map<string, {
+    readonly sources: readonly ControllerInputSource[]
+    readonly widget?: WidgetSpec
+  }>>()
   const recordControllerSource = (
-    target: ResolvedNodeInput,
+    target: ResolvedInput,
     graph: GraphDefId,
     occurrence: Occurrence,
     input: ElaboratedInput,
     ownerPriority: number,
   ): void => {
+    const source: ControllerNodeInputSource = { graph, occurrence, valueKey: valueKeyOf(input) }
+    if (!isNodeInput(target)) {
+      const key = JSON.stringify([target.path, target.valueSource])
+      const sources = sourcePromotions.get(key) ?? []
+      if (!sources.some((candidate) => candidate.graph === graph && candidate.occurrence.node === occurrence.node && candidate.valueKey === source.valueKey)) sources.push(source)
+      sourcePromotions.set(key, sources)
+      return
+    }
     const widget = input.spec.widget
     if (widget?.controller !== 'after_generate') return
     let byInput = controllerSources.get(target.runtimeId)
     if (!byInput) controllerSources.set(target.runtimeId, (byInput = new Map()))
     let sources = byInput.get(target.elabKey)
     if (!sources) byInput.set(target.elabKey, (sources = []))
-    const source: ControllerInputSource = { graph, occurrence, valueKey: valueKeyOf(input) }
     if (sources.some((candidate) =>
       candidate.source.graph === source.graph &&
       candidate.source.occurrence.node === source.occurrence.node &&
@@ -1336,7 +1350,7 @@ function compileImpl(
      * - DeclaredSpec has no runtime type), feeding the $typed lowering for
      * non-concrete destinations.
      */
-    | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string }
+    | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec }
     | { readonly kind: 'muted'; readonly reason: string }
     | { readonly kind: 'dropped'; readonly reason: string }
 
@@ -1479,7 +1493,13 @@ function compileImpl(
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `value source '${endpoint.valueSource}' is missing` } }] }
             }
             const value = ctx?.sourceValues.has(endpoint.valueSource) ? ctx.sourceValues.get(endpoint.valueSource)! : source.value
-            return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value, ...(at.typeId !== undefined ? { typeId: at.typeId } : {}) } }] }
+            const sources: readonly ControllerInputSource[] = [
+              ...(sourcePromotions.get(JSON.stringify([at.path, endpoint.valueSource])) ?? []),
+              { graph: asGraphDefId(at.defId), instancePath: at.path, valueSource: endpoint.valueSource },
+            ]
+            const widget = effectiveValueSourceSpec(def, source, resolve).spec
+            return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value, controllerSources: sources,
+              ...(widget !== undefined ? { controllerWidget: widget } : {}), ...(at.typeId !== undefined ? { typeId: at.typeId } : {}) } }] }
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
           if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence` } }] }
@@ -1823,7 +1843,10 @@ function compileImpl(
     for (const item of child.boundary.inputs) {
       if (item.binds.kind === 'valueSource') {
         const value = node.values[item.id]
-        if (value !== undefined) record({ valueSource: item.binds.valueSource, path: childPath }, value)
+        const target = { valueSource: item.binds.valueSource, path: childPath }
+        const ownerInput = item.promoted === true ? parentElab?.inputsByValueKey.get(item.id) : undefined
+        if (ownerInput !== undefined) recordControllerSource(target, parentCtx.defId, ownerOccurrence, ownerInput, 0)
+        if (value !== undefined) record(target, value)
         continue
       }
       if (item.binds.kind !== 'port') {
@@ -1832,7 +1855,7 @@ function compileImpl(
       }
       const v = node.values[item.id]
       const ownerInput = item.promoted === true ? parentElab?.inputsByValueKey.get(item.id) : undefined
-      if (v === undefined && ownerInput?.spec.widget?.controller !== 'after_generate') continue
+      if (v === undefined && ownerInput === undefined) continue
       const targetNode = child.nodes[item.binds.node]
       const targetSchema = targetNode && resolveNode(childId, targetNode)
       const selectorRoute = targetSchema && resolveBoundaryRoute(targetSchema, item.binds, 'input')
@@ -1851,7 +1874,7 @@ function compileImpl(
         // them is dormant (bypass forwards connections, never widget values).
         if (!targets || targets === 'muted' || targets === 'bypassed') continue
         for (const target of targets) {
-          if (ownerInput !== undefined && isNodeInput(target)) {
+          if (ownerInput !== undefined) {
             recordControllerSource(target, parentCtx.defId, ownerOccurrence, ownerInput, ownerPriority)
           }
           if (v !== undefined) record(target, v)
@@ -1886,7 +1909,7 @@ function compileImpl(
       const targets = resolveInputPort(parentCtx.path, parentCtx.defId, ref)
       if (!targets || targets === 'muted' || targets === 'bypassed') continue
       for (const [ownerPriority, target] of targets.entries()) {
-        if (isNodeInput(target)) recordControllerSource(target, parentCtx.defId, ownerOccurrence, input, ownerPriority)
+        recordControllerSource(target, parentCtx.defId, ownerOccurrence, input, ownerPriority)
         if (v !== undefined) record(target, v)
       }
     }
@@ -2247,6 +2270,11 @@ function compileImpl(
           }
           if (trace.kind === 'value') {
             baked = { value: trace.value, ...(trace.typeId !== undefined ? { typeId: trace.typeId } : {}) }
+            if (trace.controllerSources !== undefined) {
+              let byInput = literalControllers.get(dst.runtimeId)
+              if (!byInput) literalControllers.set(dst.runtimeId, (byInput = new Map()))
+              byInput.set(dst.elabKey, { sources: trace.controllerSources, ...(trace.controllerWidget !== undefined ? { widget: trace.controllerWidget } : {}) })
+            }
           } else src = trace.src
         }
         diags.push(...routeDiagnostics)
@@ -2679,7 +2707,8 @@ function compileImpl(
     )
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue
-      const widget = input.spec.widget
+      const literal = literalControllers.get(fn.runtimeId)?.get(input.spec.id)
+      const widget = literal?.widget ?? input.spec.widget
       if (widget?.controller === 'after_generate') {
         const sources = [...(controllerSources.get(fn.runtimeId)?.get(input.spec.id) ?? [])]
         const terminal: ControllerSource = {
@@ -2694,11 +2723,11 @@ function compileImpl(
         controllerInputs.push({
           runtimeId: fn.runtimeId,
           terminal: terminal.source,
-          sources: sources.map((source) => source.source),
+          sources: literal?.sources ?? sources.map((source) => source.source),
           ownerPriority: sources[0]?.ownerPriority ?? 0,
-          widget: sources[0]?.widget ?? widget,
+          widget: literal?.widget ?? sources[0]?.widget ?? widget,
           optional: input.spec.optional,
-          driven: successful.has(portAddressKey(input.address.port, input.address.members)),
+          driven: literal === undefined && successful.has(portAddressKey(input.address.port, input.address.members)),
         })
       }
       const submissionName = input.wire15Materialization ? input.address.port : input.apiName
