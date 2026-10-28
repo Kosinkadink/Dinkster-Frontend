@@ -81,7 +81,25 @@ async function shiftDrag(page: Page, from: { x: number; y: number }, to: { x: nu
   await page.keyboard.up('Shift')
 }
 
+const pageErrors: string[] = []
+let assetPosts = 0
+let jobPosts = 0
+
 test.beforeEach(async ({ context, page }) => {
+  pageErrors.length = 0
+  assetPosts = 0
+  jobPosts = 0
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await page.route('**/api/assets', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    assetPosts += 1
+    await route.fulfill({ status: 200, json: { digest: `blake3:${'d'.repeat(64)}` } })
+  })
+  await page.route('**/api/jobs', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    jobPosts += 1
+    await route.fulfill({ status: 202, json: { jobRef: 'audit-noodle-mocked-job' } })
+  })
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
@@ -95,6 +113,12 @@ test.beforeEach(async ({ context, page }) => {
     const tab = window.__dinksterTest!.app.activeTab()
     return tab?.store.doc.lineage === 'audit-proof' && 'status' in tab.store
   })
+})
+
+test.afterEach(() => {
+  expect(pageErrors).toEqual([])
+  expect(assetPosts).toBe(0)
+  expect(jobPosts).toBe(0)
 })
 
 test('connected and ordinary paste preserve endpoint rules', async ({ page }) => {
