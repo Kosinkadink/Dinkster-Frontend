@@ -159,15 +159,9 @@ describe(`feature-heavy synthetic workload (${NODES} nodes + reroutes/valueSourc
 })
 
 describe(`type solver on the feature-heavy workload (${NODES} nodes)`, () => {
-  // Constraint generation must stay near-linear over nodes + elaborated
-  // ports + edges: one elaboration per node, one union-find over edges.
-  // Measured ~8ms at introduction; the 100ms budget is a deliberate
-  // early-warning line (not CI slack like the 2s budgets above) - if it
-  // trips, profile first and only bump the budget once the growth is
-  // understood and intentional, never to silence it.
-  it('solves within budget (100ms); every link gets a verdict', () => {
+  it.each([CHAINS / 2, CHAINS, CHAINS * 2])('visits each node, port and constraint once across %i chains', (chains) => {
     const json = syntheticWorkflow({
-      chains: CHAINS,
+      chains,
       chainLength: CHAIN_LENGTH,
       reroutes: true,
       valueSources: true,
@@ -177,14 +171,19 @@ describe(`type solver on the feature-heavy workload (${NODES} nodes)`, () => {
     })
     const doc = loadDocument(json).document!
     const def = doc.graphs['g0']!
-    const t0 = performance.now()
-    const result = solveGraphTypes(def, (t) => schemas.get(t))
-    const ms = performance.now() - t0
-    expect(ms, `solveGraphTypes took ${ms.toFixed(1)}ms`).toBeLessThan(100)
-    // Sanity: the solver actually visited the topology (structural feeds
-    // into reroutes/selector candidates are the only links without verdicts).
-    expect(result.linkVerdicts.size).toBeGreaterThan(0)
+    const work = { node: 0, port: 0, constraint: 0 }
+    const result = solveGraphTypes(def, (t) => schemas.get(t), {
+      onWork: (kind) => { work[kind] += 1 },
+    })
+    // Each chain has source 4-in/1-out, 18 scales 3-in/1-out, and preview
+    // 1-in/1-out. The selector adds one extra type pair to its 19 edges;
+    // reroute and literal-source feeds add no type constraints.
+    expect(work).toEqual({ node: chains * 20, port: chains * 79, constraint: chains * 20 })
+    expect(result.linkVerdicts.size).toBe(chains * 18)
+    expect(result.netSinkVerdicts.size).toBe(chains)
+    expect(result.diagnostics).toEqual([])
     for (const verdict of result.linkVerdicts.values()) expect(verdict).toBe('ok')
+    for (const verdict of result.netSinkVerdicts.values()) expect(verdict).toBe('ok')
   })
 })
 
