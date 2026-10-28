@@ -89,6 +89,7 @@ import {
   planOccurrenceLinkMutation,
   samePortRef,
   serializeSelection,
+  type AssetRef,
   type CommandInvocation,
   type CommandOutcome,
   type ControllerMode,
@@ -116,7 +117,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
-import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
+import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -150,6 +151,10 @@ import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelectio
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
 import { ModalSurface } from './ModalSurface.js'
+import { UploadDestination } from './UploadDestination.js'
+import { AssetFileLocation } from './AssetFileLocation.js'
+import { activeProjectId } from './projects.js'
+import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { palettePreviewLayout, placementSchemaKey } from './palette-node-preview.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
@@ -1402,9 +1407,11 @@ interface CanvasFileDropSurface {
   readonly detail: string
   readonly facts?: readonly { readonly label: string; readonly value: string }[]
   readonly cancelable?: boolean
+  readonly location?: { readonly backend: Extract<Backend, { protocol: 'dinkster' }>; readonly digest: string; readonly project: string }
 }
 
 export function CanvasHost(props: { app: AppState; host?: EditorHostContext; tooltips?: TooltipController; occurrencePlanner?: OccurrenceMutationPlanner; federatedAssets?: AssetDtoV1WireContract }) {
+  const message = useAppMessage()
   const tooltipOwner = Symbol('canvas-host')
   const [occurrencePlanner, setOccurrencePlanner] = createSolidSignal(props.occurrencePlanner)
   const [gestureRefusal, setGestureRefusal] = createSolidSignal<{
@@ -1813,6 +1820,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly cancel: () => void
     readonly valid: () => boolean
   } | undefined>()
+  const [canvasImportChoice, setCanvasImportChoice] = createSolidSignal<{
+    readonly backend: Extract<Backend, { protocol: 'dinkster' }>
+    readonly name: string
+    readonly confirm: (destination: UploadDestinationChoice) => void
+    readonly cancel: () => void
+    readonly valid: () => boolean
+  }>()
+  const [canvasDestination, setCanvasDestination] = createSolidSignal<UploadDestinationChoice>({ remember: false })
   /** Set in onMount; canvas chrome delegates to the mounted renderer. */
   let repaintMinimap: (() => void) | undefined
   let zoomCanvas: ((factor: number) => void) | undefined
@@ -1825,6 +1840,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     tabs(); activeTabId(); docTick(); backendsTick(); tabTargets()
     const choice = embeddedDropChoice()
     if (choice !== undefined && !choice.valid()) choice.cancel()
+    const importChoice = canvasImportChoice()
+    if (importChoice !== undefined && !importChoice.valid()) importChoice.cancel()
   })
 
   createEffect(() => {
@@ -5120,7 +5137,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     const externallyModalLocked = (): boolean =>
       modalPanel() !== '' ||
-      document.querySelector('[aria-modal="true"]:not([data-modal="embedded-file-drop"])') !== null ||
+      document.querySelector('[aria-modal="true"]:not([data-modal="embedded-file-drop"]):not([data-modal="canvas-import"])') !== null ||
       document.querySelector('.widget-editor[data-dismiss-blocked]') !== null
 
     const fileDropDisabledReason = (): string | undefined => {
@@ -5225,6 +5242,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const surface = fileDropSurface()
         if (surface?.state === 'inspecting' || surface?.state === 'uploading') setFileDropSurface(undefined)
         setEmbeddedDropChoice((choice) => choice?.valid === ownerLive ? undefined : choice)
+        setCanvasImportChoice((choice) => choice?.valid === ownerLive ? undefined : choice)
       }
       const ownerLive = (): boolean => {
         const live = !settled && props.app.tabs.get().includes(tab) && activeTab() === tab &&
@@ -5328,9 +5346,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (imported || !ownerLive()) finish()
         else await loadLatent(metadata)
       }
-      const loadImage = async (mediaType: 'image/png' | 'image/jpeg' | 'image/webp'): Promise<void> => {
+      const uploadImage = async (mediaType: 'image/png' | 'image/jpeg' | 'image/webp', destination: UploadDestinationChoice): Promise<void> => {
         if (!ownerLive()) { finish(); return }
-        setEmbeddedDropChoice(undefined)
+        const project = activeProjectId()
+        let uploaded: AssetRef | undefined
         setFileDropSurface({
           state: 'uploading',
           title: 'Adding image',
@@ -5349,27 +5368,50 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           document: () => tab.store.doc,
           schemas: () => props.app.registryForTab(tab)?.schemas.values(),
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
-          upload: (body) => backend.protocol === 'dinkster'
-            ? backend.connection.uploadMediaAsset(
-                body.type === mediaType ? body : new File([body], body.name, { type: mediaType }),
-                { scope: 'local', kind: 'media/image', name: body.name, signal: abort.signal },
-              )
-            : Promise.reject(new Error('asset upload requires a Dinkster backend')),
+          upload: async (body) => {
+            if (backend.protocol !== 'dinkster') throw new Error('asset upload requires a Dinkster backend')
+            uploaded = await backend.connection.uploadMediaAsset(
+              body.type === mediaType ? body : new File([body], body.name, { type: mediaType }),
+              { scope: 'local', kind: 'media/image', name: body.name, signal: abort.signal,
+                ...(destination.mount ? { mount: destination.mount } : {}),
+                ...(destination.folder ? { folder: destination.folder } : {}),
+              },
+            )
+            return uploaded
+          },
           dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
         finish()
         if (!reportable) return
-        if (outcome === 'inserted') presentFileDropResult({
-          state: 'success',
-          title: 'Image added',
-          detail: 'Load Image was inserted without running the workflow.',
-        })
+        if (outcome === 'inserted' && uploaded !== undefined && backend.protocol === 'dinkster') {
+          try { saveUploadDestination(String(backend.id), project, destination) } catch { /* Storage failure does not undo a successful import. */ }
+          presentFileDropResult({
+            state: 'success',
+            title: 'Image added',
+            detail: 'Load Image was inserted without running the workflow.',
+            facts: [{ label: message('canvasImport.machine'), value: backend.label }, { label: message('canvasImport.file'), value: uploaded.virtualPath }],
+            location: { backend, digest: uploaded.digest, project },
+          })
+        }
         else if (outcome === 'upload-failed') report('fileDrop.uploadFailed', `${origin === 'drop' ? 'Dropped' : 'Pasted'} image upload failed; no node was inserted`, 'Image could not be added')
         else if (outcome === 'invalid-asset') report('fileDrop.invalidAsset', 'Image upload returned an incomplete asset reference; no node was inserted', 'Image could not be added')
         else if (outcome === 'schema-missing') report('fileDrop.loadImageUnavailable', 'The active catalog has no canonical Load Image ASSET node; no node was inserted', 'Load Image unavailable')
         else if (outcome === 'rejected') report('fileDrop.insertRejected', 'Load Image insertion was rejected atomically', 'Image could not be added')
+      }
+      const loadImage = (mediaType: 'image/png' | 'image/jpeg' | 'image/webp'): void => {
+        if (!ownerLive()) { finish(); return }
+        setEmbeddedDropChoice(undefined)
+        if (backend.protocol !== 'dinkster') { finish(); report('fileDrop.uploadFailed', 'Asset uploads require a native Dinkster backend'); return }
+        setFileDropSurface(undefined)
+        setCanvasDestination(readUploadDestination(String(backend.id), activeProjectId()))
+        const choice = singleUseFileDropChoice(() => setCanvasImportChoice(undefined))
+        setCanvasImportChoice({
+          backend, name: file.name, valid: ownerLive,
+          confirm: (destination) => { choice.run(() => { void uploadImage(mediaType, destination) }) },
+          cancel: () => { choice.run(finish) },
+        })
       }
       void classifyDroppedFile(file).then((classification) => {
         if (fileDropRequest !== request || !ownerLive()) {
@@ -6043,6 +6085,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               class="canvas-file-drop-surface"
               data-testid="canvas-file-drop-surface"
               data-state={surface.state}
+              data-has-location={surface.location === undefined ? undefined : 'true'}
               role={surface.state === 'error' || surface.state === 'disabled' ? 'alert' : 'status'}
               aria-live={surface.state === 'error' || surface.state === 'disabled' ? 'assertive' : 'polite'}
               aria-busy={busy ? 'true' : undefined}
@@ -6057,6 +6100,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       <For each={surface.facts}>{(fact) => <><dt>{fact.label}</dt><dd>{fact.value}</dd></>}</For>
                     </dl>
                   </Show>
+                  <Show when={surface.location} keyed>{(location) => <AssetFileLocation
+                    connection={location.backend.connection} backendUrl={location.backend.baseUrl}
+                    digest={location.digest} project={location.project}
+                    isCurrent={() => {
+                      const tab = activeTab()
+                      return tab !== undefined && props.app.backendForTab(tab) === location.backend && activeProjectId() === location.project
+                    }} />}</Show>
                 </div>
                 <Show when={surface.cancelable} fallback={
                   <Show when={surface.state === 'success' || surface.state === 'error'}>
@@ -6230,6 +6280,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         </div>
       </Show>
       <CanvasPreviewA11y targets={previewA11yTargets()} />
+      <Show when={canvasImportChoice()} keyed>{(choice) => <ModalSurface
+        title={message('canvasImport.title')} modalId="canvas-import" testId="canvas-import-dialog"
+        closeLabel={message('canvasImport.cancel')} onRequestClose={choice.cancel}>
+        <div class="canvas-import-choice">
+          <p>{message('canvasImport.description', { name: choice.name })}</p>
+          <UploadDestination connection={choice.backend.connection} machine={choice.backend.label}
+            value={canvasDestination()} onChange={setCanvasDestination} />
+          <ProductActionFooter>
+            <ProductButton type="button" variant="primary" data-testid="canvas-import-confirm" onClick={() => choice.confirm(canvasDestination())}>{message('canvasImport.confirm')}</ProductButton>
+            <ProductButton type="button" onClick={choice.cancel}>{message('canvasImport.cancel')}</ProductButton>
+          </ProductActionFooter>
+        </div>
+      </ModalSurface>}</Show>
       <Show when={embeddedDropChoice()} keyed>
         {(choice) => (
           <ModalSurface

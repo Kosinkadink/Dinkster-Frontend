@@ -133,12 +133,26 @@ async function installImageDropBackend(page: Page, uploadDigest: string, deferre
   await page.evaluate(({ digest, deferred }) => {
     const app = window.__dinksterTest!.app
     const backend = (app as unknown as {
-      backendForTab: (tab: unknown) => { protocol: string; connection: { uploadMediaAsset?: (body: File, options: { name: string; kind: string; scope: string }) => Promise<unknown> } }
+      backendForTab: (tab: unknown) => { protocol: string; connection: {
+        uploadMediaAsset?: (body: File, options: { name: string; kind: string; scope: string; mount?: string; folder?: string }) => Promise<unknown>
+        fetchMountSettings?: () => Promise<unknown>
+        fetchMountLocations?: () => Promise<unknown>
+        fetchAssetLocations?: () => Promise<readonly string[]>
+        onMountsChanged?: () => () => void
+      } }
     }).backendForTab(app.activeTab()!)
     backend.protocol = 'dinkster'
+    const plates = { id: 'plates', path: '/studio/plates', mode: 'readwrite', state: 'ready' }
+    backend.connection.fetchMountSettings = async () => ({ mounts: [plates], mountChangesAllowed: false })
+    backend.connection.fetchMountLocations = async () => ({ mounts: [plates], activeMounts: [plates] })
+    backend.connection.fetchAssetLocations = async () => ['/studio/plates/canonical-image-2.png']
+    backend.connection.onMountsChanged = () => () => {}
+    const state = window as unknown as { __imageDropUploads: unknown[] }
+    state.__imageDropUploads = []
     backend.connection.uploadMediaAsset = async (body, options) => {
       if (body.type !== 'image/png' || options.kind !== 'media/image' || options.scope !== 'local' || options.name !== body.name)
         throw new Error('Incorrect classified image upload')
+      state.__imageDropUploads.push(options)
       const asset = { digest, name: 'canonical-image-2.png', size: body.size, mediaType: 'image/png', virtualPath: 'imports/canonical-image-2.png' }
       if (!deferred) return asset
       return new Promise((resolve) => {
@@ -232,6 +246,7 @@ test('plain image preserves the canonical AssetRef at drop coordinates and undo 
   const digest = `blake3:${'a'.repeat(64)}`
   await installImageDropBackend(page, digest)
   await dropBytes(page, pngBytes(), 'private-local-name.png', 'text/html')
+  await page.getByTestId('canvas-import-confirm').click()
   await expect.poll(() => page.evaluate(() => {
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.keys(document.graphs[document.root]!.nodes).length
@@ -251,6 +266,135 @@ test('plain image preserves the canonical AssetRef at drop coordinates and undo 
   })).toBe(0)
 })
 
+test('canvas import confirms each destination and remembers only successful explicit choices', async ({ context, page }, testInfo) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await installImageDropBackend(page, `blake3:${'a'.repeat(64)}`)
+  const dialog = page.getByTestId('canvas-import-dialog')
+  const folder = dialog.getByTestId('upload-destination-folder')
+  const remember = dialog.getByTestId('upload-destination-remember')
+  const uploads = () => page.evaluate(() => (window as unknown as { __imageDropUploads: unknown[] }).__imageDropUploads)
+  const choosePlates = async () => {
+    await dialog.getByTestId('upload-destination-mount').click()
+    await page.getByRole('option').filter({ hasText: 'plates - /studio/plates' }).click()
+  }
+  const drop = () => dropBytes(page, pngBytes(), 'original.png', 'image/png')
+  await drop()
+  await expect(dialog).toContainText('Nothing is uploaded until you confirm')
+  expect(await uploads()).toEqual([])
+  await page.screenshot({ path: testInfo.outputPath('canvas-import-default.png') })
+  await folder.fill('cancelled-draft')
+  await remember.click()
+  await dialog.locator('footer').getByRole('button', { name: 'Cancel import', exact: true }).click()
+  expect(await uploads()).toEqual([])
+
+  await drop()
+  await expect(folder).toHaveValue('')
+  await expect(remember).toHaveAttribute('aria-checked', 'false')
+  await choosePlates()
+  await folder.fill('one-off')
+  await dialog.getByTestId('canvas-import-confirm').click()
+  await expect.poll(uploads).toHaveLength(1)
+  expect((await uploads())[0]).toMatchObject({ name: 'original.png', mount: 'plates', folder: 'one-off' })
+  await expect(page.getByTestId('canvas-file-drop-surface')).toContainText('/studio/plates/canonical-image-2.png')
+  await page.getByTestId('canvas-file-drop-surface').getByRole('button', { name: 'Copy server path' }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/studio/plates/canonical-image-2.png')
+  await page.screenshot({ path: testInfo.outputPath('canvas-import-location.png') })
+
+  await drop()
+  await expect(folder).toHaveValue('')
+  await expect(remember).toHaveAttribute('aria-checked', 'false')
+  await dialog.getByTestId('canvas-import-confirm').click()
+  await expect.poll(uploads).toHaveLength(2)
+  expect((await uploads())[1]).not.toHaveProperty('mount')
+  expect((await uploads())[1]).not.toHaveProperty('folder')
+
+  await drop()
+  await choosePlates()
+  await folder.fill('remembered-scene')
+  await remember.click()
+  await dialog.getByTestId('canvas-import-confirm').click()
+  await expect.poll(uploads).toHaveLength(3)
+  await expect(page.getByTestId('canvas-file-drop-surface')).toContainText('Image added')
+
+  await drop()
+  await expect(folder).toHaveValue('remembered-scene')
+  await expect(remember).toHaveAttribute('aria-checked', 'true')
+  await folder.fill('cancelled-replacement')
+  await page.keyboard.press('Escape')
+  await expect(dialog).not.toBeVisible()
+  await drop()
+  await expect(folder).toHaveValue('remembered-scene')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const backend = (app as unknown as { backendForTab(tab: unknown): { connection: { uploadMediaAsset: () => Promise<never> } } }).backendForTab(app.activeTab()!)
+    backend.connection.uploadMediaAsset = async () => { throw new Error('destination denied') }
+  })
+  await folder.fill('failed-replacement')
+  await dialog.getByTestId('canvas-import-confirm').click()
+  await expect(page.getByTestId('canvas-file-drop-surface')).toContainText('Image could not be added')
+  await page.screenshot({ path: testInfo.outputPath('canvas-import-error.png') })
+  await drop()
+  await expect(folder).toHaveValue('remembered-scene')
+  await page.keyboard.press('Escape')
+})
+
+test('canvas destination closes without upload when its tab loses ownership', async ({ page }) => {
+  await installImageDropBackend(page, `blake3:${'b'.repeat(64)}`)
+  await dropBytes(page, pngBytes(), 'cancel-on-switch.png', 'image/png')
+  await expect(page.getByTestId('canvas-import-dialog')).toBeVisible()
+  await page.evaluate(() => (window.__dinksterTest!.app as unknown as { createWorkflow(): unknown }).createWorkflow())
+  await expect(page.getByTestId('canvas-import-dialog')).not.toBeVisible()
+  expect(await page.evaluate(() => (window as unknown as { __imageDropUploads: unknown[] }).__imageDropUploads)).toEqual([])
+})
+
+test('canvas destination wraps long paths and cancels an in-flight import without remembering', async ({ page }, testInfo) => {
+  await installImageDropBackend(page, `blake3:${'c'.repeat(64)}`, true)
+  await closeRightRail(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const backend = (app as unknown as { backendForTab(tab: unknown): { connection: {
+      fetchMountSettings: () => Promise<unknown>; fetchMountLocations: () => Promise<unknown>
+    } } }).backendForTab(app.activeTab()!)
+    const mount = { id: 'plates', mode: 'readwrite', state: 'ready', path: `/studio/${'long-project-name/'.repeat(8)}plates` }
+    backend.connection.fetchMountSettings = async () => ({ mounts: [mount], mountChangesAllowed: false, restartRequired: true })
+    backend.connection.fetchMountLocations = async () => ({ mounts: [mount], activeMounts: [mount] })
+  })
+  await dropBytes(page, pngBytes(), 'long-project-image.png', 'image/png')
+  const dialog = page.getByTestId('canvas-import-dialog')
+  await dialog.getByTestId('upload-destination-mount').click()
+  await page.getByRole('option').filter({ hasText: 'plates - /studio/' }).click()
+  await dialog.getByTestId('upload-destination-remember').click()
+  await expect(dialog).toContainText('Destination root: /studio/long-project-name/')
+  await expect(dialog).toContainText('Only active writable project folders')
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('canvas-import-narrow-long-path.png') })
+  await dialog.getByTestId('canvas-import-confirm').click()
+  const surface = page.getByTestId('canvas-file-drop-surface')
+  await expect(surface).toHaveAttribute('data-state', 'uploading')
+  await page.screenshot({ path: testInfo.outputPath('canvas-import-progress.png') })
+  await surface.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(surface).toHaveCount(0)
+  await page.evaluate(() => (window as unknown as { __resolveFileDropUpload: () => void }).__resolveFileDropUpload())
+  await dropBytes(page, pngBytes(), 'after-cancel.png', 'image/png')
+  await expect(dialog.getByTestId('upload-destination-remember')).toHaveAttribute('aria-checked', 'false')
+  await expect(dialog.getByTestId('upload-destination-mount')).toContainText('Standard imports folder')
+  expect(await page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return Object.keys(doc.graphs[doc.root]!.nodes).length
+  })).toBe(0)
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const backend = (app as unknown as { backendForTab(tab: unknown): { connection: { fetchMountLocations: () => Promise<never> } } }).backendForTab(app.activeTab()!)
+    backend.connection.fetchMountLocations = async () => { throw new Error('offline') }
+  })
+  await dropBytes(page, pngBytes(), 'offline.png', 'image/png')
+  await expect(dialog).toContainText('Operator folder locations are unavailable')
+  await page.screenshot({ path: testInfo.outputPath('canvas-import-offline.png') })
+  await page.keyboard.press('Escape')
+})
+
 test('embedded Load image consumes the choice without cancelling its own upload', async ({ page }) => {
   const digest = `blake3:${'b'.repeat(64)}`
   await installImageDropBackend(page, digest)
@@ -259,6 +403,7 @@ test('embedded Load image consumes the choice without cancelling its own upload'
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Load image' }).click()
   await expect(dialog).not.toBeVisible()
+  await page.getByTestId('canvas-import-confirm').click()
   await expect.poll(() => page.evaluate(() => {
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.keys(document.graphs[document.root]!.nodes).length
@@ -275,6 +420,7 @@ test('a modal opened during upload prevents the eventual graph mutation', async 
   const digest = `blake3:${'c'.repeat(64)}`
   await installImageDropBackend(page, digest, true)
   await dropBytes(page, pngBytes(), 'plain.png', 'image/png')
+  await page.getByTestId('canvas-import-confirm').click()
   await expect.poll(() => page.evaluate(() =>
     typeof (window as unknown as { __resolveFileDropUpload?: unknown }).__resolveFileDropUpload)).toBe('function')
   await page.evaluate(() => {
@@ -511,6 +657,7 @@ test('pasted clipboard image inserts Load Image with the pasted asset name and u
   })
   await page.mouse.move(420, 320)
   await page.keyboard.press('Control+v')
+  await page.getByTestId('canvas-import-confirm').click()
   await expect.poll(() => page.evaluate(() => {
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.keys(document.graphs[document.root]!.nodes).length
@@ -547,6 +694,7 @@ test('a clipboard holding both external text and an image pastes the image, not 
   })
   await page.mouse.move(500, 300)
   await page.keyboard.press('Control+v')
+  await page.getByTestId('canvas-import-confirm').click()
   await expect.poll(() => page.evaluate(() => {
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.keys(document.graphs[document.root]!.nodes).length

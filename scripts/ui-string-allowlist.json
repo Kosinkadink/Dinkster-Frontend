@@ -214,6 +214,8 @@
     "attribute:title:File could not be added",
     "attribute:title:Selector missing.",
     "attribute:title:Value source missing.",
+    "text:() const [canvasDestination, setCanvasDestination] = createSolidSignal",
+    "text:() const [canvasImportChoice, setCanvasImportChoice] = createSolidSignal",
     "text:() const [fileDropSurface, setFileDropSurface] = createSolidSignal",
     "text:() let gestureRefusalId = 0 let gestureRefusalTimer: ReturnType",
     "text:([]) const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal",

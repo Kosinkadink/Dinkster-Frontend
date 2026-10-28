@@ -238,6 +238,7 @@ test('real canvas image drop preserves a greater-than-256-KiB PNG and its canoni
       bubbles: true, cancelable: true, clientX: 420, clientY: 320, dataTransfer: transfer,
     }))
   }, [...png])
+  await page.getByTestId('canvas-import-confirm').click()
   const request = await upload
   const query = new URL(request.url()).searchParams
   expect(query.get('scope')).toBe('local')

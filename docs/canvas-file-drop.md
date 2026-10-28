@@ -34,6 +34,25 @@ or failure.
 
 ## Images
 
+Drop and paste show an Import image dialog before uploading. Choose a current
+project's active writable destination and an optional relative subfolder.
+Remember for this project changes future imports only after a successful,
+confirmed insertion; an unchecked one-off choice, cancellation or failed
+upload never replaces the saved preference. Preferences are independent per
+backend and project and shared with picker uploads. Escape, Cancel import,
+and owner loss close the dialog without uploading. Embedded PNGs show this
+dialog only after Load image, not when opening the workflow.
+
+The destination selector names the backend machine and shows explicit active
+roots, pending-change warnings, and unavailable-location errors. Standard
+imports uses the server default; its physical root remains unknown on servers
+that do not identify that default. The success surface keeps the returned
+virtualPath and machine and queries exact scoped file locations for display
+and Copy server path. Native reveal requires the shell's capability and sends
+only digest, scope and project identity; no renderer host path authorizes it.
+Cancel remains available during upload and prevents late graph writes or
+preference changes even if the server finishes the request.
+
 A plain image is uploaded through the active tab's same-origin `uploadMediaAsset`
 connection as a named, project-local image. The classifier's MIME type replaces
 an incorrect browser MIME claim without changing the file bytes. The response

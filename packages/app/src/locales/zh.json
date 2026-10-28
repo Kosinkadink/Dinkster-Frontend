@@ -1,4 +1,10 @@
 {
+  "canvasImport.title": "Import image",
+  "canvasImport.description": "Choose where to import {name}. Nothing is uploaded until you confirm.",
+  "canvasImport.confirm": "Import image",
+  "canvasImport.cancel": "Cancel import",
+  "canvasImport.machine": "Machine",
+  "canvasImport.file": "Imported file",
   "assetLocation.reveal": "在此电脑上显示文件",
   "assetLocation.copy": "复制服务器路径",
   "uploadDestination.folder": "Import destination",
