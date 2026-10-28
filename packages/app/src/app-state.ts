@@ -6366,7 +6366,7 @@ export class AppState {
       if (!stillOwned() || (plan.packs.length === 0 && plan.assets.length === 0 && plan.errors.length === 0)) return
       this.reportProblems(tab.id, [diag(
         'warning', 'validation', 'workflow.requirements',
-        `Workflow requirements: ${plan.packs.length} packs, ${plan.assets.length} assets, ${plan.errors.length} unresolved requirements. Review the plan before installing or acquiring anything.`,
+        `Requirements: ${plan.packs.length} packs, ${plan.assets.length} assets, ${plan.errors.length} errors.`,
         { data: { ...plan } },
       )])
     } catch (error) {
