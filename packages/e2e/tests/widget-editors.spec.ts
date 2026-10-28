@@ -1,6 +1,39 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from './fixtures.js'
 
+test('mixed scalar COMBO keeps typed native choices through dropdown edits', async ({ page }, testInfo) => {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 1 },
+    nodes: { ScalarCombo: { displayName: 'Mixed scalar choices', outputNode: true, interface: [
+      { role: 'input', id: 'bit_depth', type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', widget: { type: 'COMBO', options: ['auto', 8, 10] } },
+      { role: 'input', id: 'identity', type: { kind: 'concrete', types: ['COMBO'] }, default: true, widget: { type: 'COMBO', options: [
+        { value: 8, label: 'Integer eight' }, { value: '8', label: 'String eight' },
+        { value: true, label: 'Boolean true' }, { value: 1, label: 'Integer one' },
+      ] } },
+    ] } },
+  } }))
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'ScalarCombo', widgets_values: ['auto', true] }], links: [] }, 'Mixed scalar choices')
+    window.__dinksterTest!.renderer!.setViewport({ x: 100, y: 100, scale: 1 })
+  })
+  const point = await nodeRowPoint(page, 'n1', 'bit_depth')
+  await page.mouse.click(point.x, point.y)
+  await expect(page.getByTestId('combo-option')).toHaveText(['auto', '8', '10'])
+  await page.screenshot({ path: testInfo.outputPath('mixed-scalar-depth.png') })
+  await page.getByTestId('combo-option').nth(1).click()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.bit_depth)).toBe(8)
+  for (const [index, value] of [8, '8', true, 1].entries()) {
+    const identity = await nodeRowPoint(page, 'n1', 'identity')
+    await page.mouse.click(identity.x, identity.y)
+    await expect(page.getByTestId('combo-option')).toHaveCount(4)
+    if (index === 0) await page.screenshot({ path: testInfo.outputPath('mixed-scalar-identity.png') })
+    await page.getByTestId('combo-option').nth(index).click()
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.identity)).toBe(value)
+  }
+})
+
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
 async function rowPoint(page: Page, inputId: string): Promise<{ x: number; y: number }> {

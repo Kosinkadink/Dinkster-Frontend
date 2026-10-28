@@ -178,6 +178,28 @@ describe('registry', () => {
     expect(r.kind('ASSET')!.valueSchema.validate(asset)).toBe(false)
   })
 
+  it('COMBO preserves scalar identity for defaults, labels, and membership', () => {
+    const combo = registry().kind('COMBO')!
+    for (const value of ['auto', 8, 10, '8', true, 1, false, 1.25, '']) {
+      const widget = spec('COMBO', { options: [{ value, label: 'Choice' }] }, value)
+      expect(combo.valueSchema.validate(value)).toBe(true)
+      expect(combo.defaultValue(widget)).toBe(value)
+      expect(effectiveWidgetDefault(widget)).toBe(value)
+      expect(formatWidgetValue(value, widget)).toBe('Choice')
+      expect(combo.validate(value, widget)).toEqual([])
+    }
+    for (const [value, other] of [[8, '8'], [true, 1], [false, 0]] as const) {
+      expect(combo.validate(other, spec('COMBO', { options: [value] }))).toHaveLength(1)
+    }
+    for (const value of [null, {}, [], Number.NaN, Infinity, -Infinity]) {
+      expect(combo.valueSchema.validate(value)).toBe(false)
+      const widget = spec('COMBO', { options: [false, 'fallback'] }, value)
+      expect(combo.defaultValue(widget)).toBe(false)
+      expect(effectiveWidgetDefault(widget)).toBe(false)
+    }
+    expect(registry().kind('MULTI_COMBO')!.valueSchema.validate([true])).toBe(false)
+  })
+
   it('CL10 COMBO refuses non-JSON numbers as defaults and options', () => {
     const combo = registry().kind('COMBO')!
     expect(combo.valueSchema.validate(Number.NaN)).toBe(false)

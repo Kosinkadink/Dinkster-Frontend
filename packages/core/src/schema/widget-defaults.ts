@@ -30,7 +30,7 @@
  */
 import type { Json } from '../format/document.js'
 import { EMPTY_COMPOSITOR_RECIPE, isCompositorRecipe } from '../compositor.js'
-import { normalizeComboOption } from './combo-options.js'
+import { isComboValue, normalizeComboOption } from './combo-options.js'
 import { isIntegerWidgetValue } from './numeric-step.js'
 import type { WidgetSpec } from './model.js'
 
@@ -45,9 +45,6 @@ export function isPrimitiveListWidgetValue(value: unknown, widget: WidgetSpec): 
     default: return false
   }
 }
-
-/** A value a COMBO can hold: a JSON-representable option scalar. */
-const comboValue = (v: unknown): v is string | number => typeof v === 'string' || finite(v)
 
 /** Mirrors widgets kinds.ts isCurveValue without importing the downstream package. */
 function curveValue(v: unknown): boolean {
@@ -111,7 +108,7 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'BOOLEAN':
       return typeof d === 'boolean'
     case 'COMBO':
-      return comboValue(d)
+      return isComboValue(d)
     case 'MULTI_COMBO':
     case 'COLORS':
       return Array.isArray(d) && d.every((value) => typeof value === 'string')
@@ -161,7 +158,7 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
       if (!Array.isArray(options)) return undefined
       for (const option of options) {
         const value = normalizeComboOption(option)?.value
-        if (value !== undefined && comboValue(value)) return value
+        if (isComboValue(value)) return value
       }
       return undefined
     }
