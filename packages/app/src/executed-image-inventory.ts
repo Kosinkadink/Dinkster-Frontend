@@ -21,8 +21,6 @@ export interface ExecutedImage {
   readonly name?: string
   readonly digest?: string
   readonly virtualPath?: string
-  readonly subfolder?: string
-  readonly fileType?: string
 }
 
 interface ImageAssetRef {

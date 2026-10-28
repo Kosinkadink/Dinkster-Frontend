@@ -93,7 +93,7 @@ export function ExecutedImageFacts(props: {
       <div><dt>Runtime node</dt><dd>{props.image.runtimeId}</dd></div>
       <div><dt>Output ID</dt><dd>{props.image.outputId}</dd></div>
       <div><dt>Descriptor</dt><dd>{props.image.descriptorIndex + 1}</dd></div>
-      <div><dt>Source</dt><dd>{props.image.kind === 'rendition' ? 'Server rendition (display only)' : props.image.kind === 'asset' ? 'Content-addressed asset' : 'Legacy output file'}</dd></div>
+      <div><dt>Source</dt><dd>{props.image.kind === 'rendition' ? 'Server rendition (display only)' : 'Content-addressed asset'}</dd></div>
       <div><dt>Media kind</dt><dd>Image</dd></div>
       <div><dt>Media type</dt><dd>{props.image.mediaType}</dd></div>
       <Show when={props.image.batchIndex !== undefined}><div><dt>Batch index</dt><dd>{props.image.batchIndex} (zero-based)</dd></div></Show>
@@ -108,8 +108,6 @@ export function ExecutedImageFacts(props: {
         <For each={virtualPath().split('/')}>{(segment, index) => <>{index() > 0 && <><span>/</span><wbr /></>}{segment}</>}</For>
       </dd></div>}</Show>
       <Show when={props.image.digest}>{(digest) => <div><dt>Asset digest</dt><dd><DigestValue digest={digest()} /></dd></div>}</Show>
-      <Show when={props.image.subfolder !== undefined}><div><dt>Subfolder</dt><dd>{props.image.subfolder || '(root)'}</dd></div></Show>
-      <Show when={props.image.fileType}><div><dt>File type</dt><dd>{props.image.fileType}</dd></div></Show>
       <div class="output-availability" data-availability={props.availability.toLowerCase()}>
         <dt>Availability</dt><dd>{props.availability}</dd>
       </div>

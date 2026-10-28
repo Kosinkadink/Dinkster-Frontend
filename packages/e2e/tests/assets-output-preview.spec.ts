@@ -1,38 +1,42 @@
 import { mkdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
-const proofDir = '/tmp/assets-output-preview-proof'
+const proofDir = resolve(import.meta.dirname, '../../../.amp/in/artifacts/native-output-preview')
 const longIdentityName = `middle-${'complete-identity-'.repeat(6)}.png`
+
+const imageOutput = (names: readonly string[]) => ({
+  images: { typeId: 'list<ASSET>', elements: names.map((name, index) => {
+    const digest = `blake3:${'abc'[index]!.repeat(64)}`
+    return { typeId: 'ASSET', fingerprint: digest, meta: { digest, name, mediaType: 'image/png' } }
+  }) },
+})
 
 async function mockBackend(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
-  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'proof' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 1 }, nodes: {},
   } }))
-  await page.route(/\/view(?:\?|$)/, (route) => {
-    const filename = new URL(route.request().url()).searchParams.get('filename') ?? 'unknown.png'
-    if (filename === 'unavailable.png') {
+  await page.route('**/api/assets/*', (route) => {
+    const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
+    if (digest === `blake3:${'c'.repeat(64)}`) {
       void route.fulfill({ status: 404, body: 'missing proof image' })
       return
     }
+    const filename = digest === `blake3:${'b'.repeat(64)}` ? longIdentityName : 'first.png'
     const color = filename === 'first.png' ? '#3b82f6' : filename.startsWith('middle-') ? '#a855f7' : '#22c55e'
     void route.fulfill({
       contentType: 'image/svg+xml',
       body: `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640"><rect width="960" height="640" fill="${color}"/><text x="480" y="330" text-anchor="middle" fill="white" font-size="72">${filename.startsWith('middle-') ? 'long identity image' : filename}</text></svg>`,
     })
   })
-  await page.route('**/api/assets/*', (route) => route.fulfill({
-    contentType: 'image/svg+xml',
-    body: '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640"><rect width="960" height="640" fill="#0f766e"/><text x="480" y="330" text-anchor="middle" fill="white" font-size="62">asset output</text></svg>',
-  }))
 }
 
 async function installExecution(page: Page): Promise<void> {
-  await page.evaluate((middleName) => {
+  await page.evaluate((output) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'OutputPreviewProof', displayName: 'Save Image', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
+      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
     }])
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-preview-proof', root: 'g0',
@@ -49,11 +53,11 @@ async function installExecution(page: Page): Promise<void> {
     store.apply({ kind: 'nodeStates', execution: ref, timestamp: Date.now(), nodes: { save: { state: 'done' } } })
     store.apply({
       kind: 'nodeOutput', execution: ref, runtimeNodeId: 'save', timestamp: Date.now(),
-      output: { images: [{ filename: 'first.png' }, { filename: middleName }, { filename: 'unavailable.png' }] },
+      output,
     })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  }, longIdentityName)
+  }, imageOutput(['first.png', longIdentityName, 'unavailable.png']))
 }
 
 test.beforeEach(async ({ page }) => {
@@ -151,14 +155,14 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   await page.getByTestId('output-viewer').getByRole('button', { name: /Close/ }).click()
 
   await pager.getByRole('button', { name: /Open image 3 of 3/ }).click()
-  await page.evaluate((middleName) => {
+  await page.evaluate((output) => {
     const app = window.__dinksterTest!.app
     const execution = (app as unknown as { executionForTab(tab: unknown): { ref: unknown } }).executionForTab(app.activeTab()!)
     ;(app.store as unknown as { apply(event: unknown): void }).apply({
       kind: 'nodeOutput', execution: execution.ref, runtimeNodeId: 'save', timestamp: Date.now(),
-      output: { images: [{ filename: 'first.png' }, { filename: middleName }, { filename: 'unavailable.png' }] },
+      output,
     })
-  }, longIdentityName)
+  }, imageOutput(['first.png', longIdentityName, 'unavailable.png']))
   await page.keyboard.press('Escape')
   await expect(pager.getByRole('button', { name: /Open image 3 of 3/ })).toBeFocused()
 
@@ -173,7 +177,7 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   await page.getByTestId('node-output-pager').getByRole('button', { name: /Open image 3 of 3/ }).click()
   await expect(page.getByTestId('output-viewer-position')).toHaveText('3 / 3')
 
-  await page.evaluate((middleName) => {
+  await page.evaluate((output) => {
     const app = window.__dinksterTest!.app
     const compiled = app.compileTab(app.activeTab()!)
     if (!compiled?.ok) throw new Error('second compile failed')
@@ -182,23 +186,23 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
     store.register(ref, compiled.artifact, Date.now())
     store.apply({ kind: 'started', execution: ref, timestamp: Date.now() })
     store.apply({ kind: 'nodeStates', execution: ref, timestamp: Date.now(), nodes: { save: { state: 'done' } } })
-    store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'save', timestamp: Date.now(), output: { images: [{ filename: 'first.png' }, { filename: middleName }] } })
+    store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'save', timestamp: Date.now(), output })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
-  }, longIdentityName)
+  }, imageOutput(['first.png', longIdentityName]))
   await expect(page.getByTestId('output-viewer')).toHaveCount(0)
   await expect(page.getByTestId('node-output-pager').getByRole('button', { name: /Open image 1 of 2/ })).toBeVisible()
   await page.screenshot({ path: `${proofDir}/11-new-execution-reset-1366.png`, animations: 'disabled' })
   await page.getByTestId('node-output-pager').getByRole('button', { name: /Next image/ }).click()
   await expect(page.getByTestId('node-output-pager').getByRole('button', { name: /Open image 2 of 2/ })).toBeVisible()
   await page.getByTestId('node-output-pager').getByRole('button', { name: /Open image 2 of 2/ }).click()
-  await page.evaluate(() => {
+  await page.evaluate((output) => {
     const app = window.__dinksterTest!.app
     const execution = (app as unknown as { executionForTab(tab: unknown): { ref: unknown } }).executionForTab(app.activeTab()!)
     ;(app.store as unknown as { apply(event: unknown): void }).apply({
       kind: 'nodeOutput', execution: execution.ref, runtimeNodeId: 'save', timestamp: Date.now(),
-      output: { images: [{ filename: 'first.png' }] },
+      output,
     })
-  })
+  }, imageOutput(['first.png']))
   await expect(page.getByTestId('output-viewer')).toHaveCount(1)
   await expect(page.getByTestId('output-viewer-position')).toHaveText('1 / 1')
   await expect(page.getByTestId('node-output-pager')).toHaveCount(0)
@@ -231,7 +235,7 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
         const backend = app.addBackend(
           `http://127.0.0.1:5382/${removed ? 'removed' : 'disconnected'}-output-owner`,
           removed ? 'Removed output owner' : 'Configured disconnected owner',
-          false, 'v1', false,
+          false, 'dinkster', false,
         )
         if (!backend) throw new Error(`${stateKind} fixture failed`)
         connection = backend.id
@@ -258,9 +262,13 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
         app.store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() + 103 })
         app.store.hydrateArtifacts(ref, [])
       } else if (stateKind === 'removed-owner') {
+        const digest = `blake3:${'a'.repeat(64)}`
         app.store.apply({
           kind: 'nodeOutput', execution: ref, runtimeNodeId: 'save', timestamp: Date.now() + 102,
-          output: { images: [{ filename: 'first.png', subfolder: 'retained/owner/path', type: 'output' }] },
+          output: { images: {
+            typeId: 'ASSET', fingerprint: digest,
+            meta: { digest, mediaType: 'image/png', name: 'first.png', virtualPath: 'mounts/output/retained/owner/path/first.png' },
+          } },
         })
         app.store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() + 103 })
         app.store.hydrateArtifacts(ref, [])
