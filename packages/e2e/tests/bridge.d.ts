@@ -121,6 +121,7 @@ interface DinksterBridgeTab {
   execution?: DinksterBridgeExecutionRef
   store: {
     revision: number
+    readonly canUndo: boolean
     /** Undo one revision; false when there is nothing to undo. */
     undo(): boolean
     redo(): boolean
@@ -317,6 +318,9 @@ interface DinksterTestBridge {
     menuRegistry: import('@dinkster/core').MenuRegistry
     flushPersistTabs(): void
     activeTab(): DinksterBridgeTab | undefined
+    closeTab(id: string): void
+    reviewReplacements: { set(enabled: boolean): void }
+    migrationNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }): { ok: boolean; diagnostics?: readonly unknown[] }
     /** Queue a tab against its target backend (same path as the queue button). */
     queue(tab: DinksterBridgeTab): Promise<void>
@@ -560,6 +564,7 @@ interface DinksterTestBridge {
       nodeBodyContent?: (node: DinksterBridgeSceneNode) =>
         ReadonlyArray<{ label: string; text: string; tone?: string }> | null
     }
+    getBadges(): Readonly<Record<string, readonly { id: string }[]>>
     getScene(): {
       graphId: string
       nodes: readonly DinksterBridgeSceneNode[]
