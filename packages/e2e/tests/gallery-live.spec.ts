@@ -11,12 +11,6 @@
  */
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
-// Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-// All three tests fail in the shared beforeEach: the assets dock panel and
-// the library overlay both render a `collection-search` input, so the
-// unscoped locator violates strict mode (run 35947843185).
-test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
-
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 async function addNativeBackend(page: Page): Promise<void> {
@@ -30,6 +24,7 @@ async function addNativeBackend(page: Page): Promise<void> {
 async function selectSource(page: Page, source: string): Promise<void> {
   const library = page.getByTestId('library-overlay')
   const sourceTab = library.locator(`[data-testid=collection-source][data-source=${source}]`)
+  await expect(sourceTab).toHaveCount(1)
   if (await sourceTab.isVisible()) await sourceTab.click()
   else await selectProductOption(page, library.getByTestId('library-source-select'), source)
 }
@@ -51,13 +46,15 @@ test.beforeEach(async ({ page }) => {
   await addNativeBackend(page)
 
   // Open the backend-shipped template through the production Library flow.
-  await page.getByTestId('library-toggle').click()
+  const library = page.getByTestId('library-overlay')
+  if (!await library.isVisible()) await page.getByTestId('library-toggle').click()
+  await expect(library).toBeVisible()
   await selectSource(page, 'templates')
-  await page.getByTestId('collection-search').fill('gallery')
-  await expect(page.getByTestId('collection-entry').first()).toContainText('Widget & Socket Gallery')
-  await page.getByTestId('collection-entry').first().click()
-  await page.locator('[data-testid=collection-action][data-action=open]').click()
-  await expect(page.getByTestId('library-overlay')).not.toBeVisible()
+  await library.getByTestId('collection-search').fill('gallery')
+  await expect(library.getByTestId('collection-entry').first()).toContainText('Widget & Socket Gallery')
+  await library.getByTestId('collection-entry').first().click()
+  await library.locator('[data-testid=collection-action][data-action=open]').click()
+  await expect(library).not.toBeVisible()
 
   // openTemplate targets the freshly opened tab at the library backend
   // itself, so no manual tab-target step here.

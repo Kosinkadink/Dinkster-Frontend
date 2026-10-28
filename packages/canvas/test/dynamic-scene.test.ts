@@ -635,7 +635,7 @@ describe('dynamic layout on plain nodes', () => {
       .map((pin) => pin.address.members)).toEqual([['0']])
     expect(nodeOf(reduced, 'split').layout.height).toBeLessThan(beforeHeight)
     expect(reduced.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'solve.portMissing', message: expect.stringContaining("member '2'") }),
+      expect.objectContaining({ code: 'solve.portMissing', message: 'split.results#2: connected port is unavailable' }),
     ]))
     expect(store.doc.graphs.g0!.links.l0).toBeDefined()
 

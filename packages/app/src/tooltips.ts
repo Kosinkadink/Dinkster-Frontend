@@ -244,7 +244,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     return {
       title: 'Type mismatch',
       lines: t.hit.link.diagnostics.map((diagnostic: { severity: string; message: string }) =>
-        `[${diagnostic.severity}] ${diagnostic.message}`),
+        diagnostic.message),
     }
   }
   if (t.kind === 'pin') {
@@ -273,7 +273,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
         ...(t.hit.direction === 'in' && port?.kind === 'input' ? [absentPolicyLine(port)] : []),
         ...(t.hit.direction === 'out' && t.hit.pin.maybeAbsent === true ? ['May produce no value.'] : []),
         ...((t.diagnostics ?? []) as readonly { severity: string; message: string }[])
-          .map((diagnostic) => `[${diagnostic.severity}] ${diagnostic.message}`),
+          .map((diagnostic) => diagnostic.message),
       ],
       ...(opts.detailed && port?.tooltip ? { detail: [port.tooltip] } : {}),
     }

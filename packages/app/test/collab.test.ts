@@ -1342,7 +1342,10 @@ describe('lifecycle races', () => {
     expect(tabB.instancePath.get()).toEqual([])
     expect(appB.problems.get()).toContainEqual(expect.objectContaining({
       code: 'collab.conflict.rebase',
-      message: expect.stringContaining('already exists'),
+      message: 'batch: a concurrent edit makes this change inapplicable',
+      data: expect.objectContaining({ diagnostics: expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('already exists') }),
+      ]) }),
     }))
   })
 })

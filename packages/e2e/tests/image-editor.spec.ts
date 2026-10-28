@@ -382,8 +382,6 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
 })
 
 test('image editor inserts and reopens one graph-native mask paint node', async ({ page }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   let uploadCount = 0
   await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: PNG }))
   await page.route('**/api/assets', (route) => {
@@ -394,12 +392,21 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await page.evaluate(({ source, pngSize }) => {
     const app = window.__dinksterTest!.app
-    ;(app as unknown as { registry: { set(value: unknown): void } }).registry.set({
+    const nativeApp = app as unknown as {
+      addBackend(url: string, label: string, persist: boolean, protocol: 'dinkster', start: boolean): {
+        id: string
+        registry: { set(value: unknown): void }
+        connection: { assetUrl(digest: string): string }
+      }
+      setTabTarget(tabId: string, backendId: string): void
+    }
+    const backend = nativeApp.addBackend('/mask-editor-test', 'Mask editor test', false, 'dinkster', false)
+    backend.registry.set({
       schemas: new Map(), diagnostics: [], resolve: () => undefined,
     })
     app.registerSchemas([
       {
-        type: 'dinkster.load_image', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
+        type: 'dinkster.load_image', editorRole: 'image-source', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
         items: [
           { kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
           { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
@@ -407,7 +414,7 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
         ],
       },
       {
-        type: 'dinkster.mask.paint', displayName: 'Paint Mask', category: 'test', source: 'v3', isOutputNode: false,
+        type: 'dinkster.mask.paint', editorRole: 'mask-paint', displayName: 'Paint Mask', category: 'test', source: 'v3', isOutputNode: false,
         items: [
           { kind: 'input', id: 'source', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
           { kind: 'input', id: 'operations', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: { multiline: true } } },
@@ -423,15 +430,7 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
       }, links: { mask: { id: 'mask', from: { node: 'loader', port: 'mask' }, to: { node: 'consumer', port: 'mask' }, ext: { retained: true } } }, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { loader: { position: { x: 100, y: 100 } }, consumer: { position: { x: 700, y: 100 } } } } } },
     }, 'Graph mask paint')
-    const graphApp = app as unknown as {
-      activeTab(): unknown
-      backendForTab(tab: unknown): { protocol: string; connection: { assetUrl(digest: string): string } }
-      imageTargetForInput(tab: unknown, graphId: string, nodeId: string, inputId: string): { maskPaint?: unknown } | undefined
-      openImageEditor(target: unknown): boolean
-    }
-    const tab = graphApp.activeTab()
-    const backend = graphApp.backendForTab(tab)
-    backend.protocol = 'dinkster'
+    nativeApp.setTabTarget(app.activeTab()!.id, backend.id)
     backend.connection.assetUrl = (digest: string) => `/api/assets/${encodeURIComponent(digest)}`
   }, { source: SOURCE, pngSize: PNG.byteLength })
 

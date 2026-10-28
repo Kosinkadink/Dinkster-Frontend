@@ -334,11 +334,17 @@ const NUMBER_DISPLAY_MODES: ReadonlySet<string> = new Set(['number', 'slider', '
 
 const WIDGET_REPRESENTATION_ID = /^[A-Za-z0-9_-]+$/
 
-function rejectUnknownWidgetFields(descriptor: Record<string, unknown>, allowed: readonly string[], where: string): void {
+function checkWidgetFields(descriptor: Record<string, unknown>, allowed: readonly string[], where: string, diags?: Diagnostic[]): void {
   const unknown = Object.keys(descriptor)
     .filter((key) => !allowed.includes(key))
     .sort()
-  if (unknown.length > 0) throw new Error(`${where} has unknown fields: ${unknown.join(', ')}`)
+  if (diags === undefined) {
+    if (unknown.length > 0) throw new Error(`${where} has unknown fields: ${unknown.join(', ')}`)
+    return
+  }
+  for (const field of unknown) {
+    diags.push(diag('warning', 'schema', 'schema.widget.unknownField', `${where}: unknown field '${field}'`))
+  }
 }
 
 function validateComboOption(value: unknown, where: string, scalar = false): void {
@@ -348,7 +354,7 @@ function validateComboOption(value: unknown, where: string, scalar = false): voi
     throw new Error(`${where} must be ${scalar ? 'a finite JSON scalar' : 'a non-empty string'} or structured choice`)
   }
   const option = value as Record<string, unknown>
-  rejectUnknownWidgetFields(option, ['value', 'label', 'info', 'folder'], where)
+  checkWidgetFields(option, ['value', 'label', 'info', 'folder'], where)
   if (!validValue(option['value'])) {
     throw new Error(`${where}.value must be ${scalar ? 'a finite JSON scalar' : 'a non-empty string'}`)
   }
@@ -373,7 +379,7 @@ function decodeTextCompletions(value: unknown, where: string): TextCompletionsSp
     throw new Error(`${where} must be an object`)
   }
   const raw = value as Record<string, unknown>
-  rejectUnknownWidgetFields(raw, ['items', 'inputFamilies'], where)
+  checkWidgetFields(raw, ['items', 'inputFamilies'], where)
   const rawItems = raw['items'] ?? []
   const rawFamilies = raw['inputFamilies'] ?? []
   if (!Array.isArray(rawItems)) throw new Error(`${where}.items must be an array`)
@@ -387,7 +393,7 @@ function decodeTextCompletions(value: unknown, where: string): TextCompletionsSp
       throw new Error(`${itemWhere} must be an object`)
     }
     const item = value as Record<string, unknown>
-    rejectUnknownWidgetFields(item, ['value', 'label', 'insertText', 'detail', 'kind'], itemWhere)
+    checkWidgetFields(item, ['value', 'label', 'insertText', 'detail', 'kind'], itemWhere)
     if (typeof item['value'] !== 'string' || item['value'] === '') {
       throw new Error(`${itemWhere}.value must be a non-empty string`)
     }
@@ -415,10 +421,10 @@ function decodeTextCompletions(value: unknown, where: string): TextCompletionsSp
   return { items, inputFamilies: rawFamilies as string[] }
 }
 
-function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, where: string): void {
+function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, where: string, diags: Diagnostic[]): void {
   switch (descriptor['type']) {
     case 'ASSET':
-      rejectUnknownWidgetFields(descriptor, ['type', 'accept', 'kind', 'allowUpload', 'selection'], where)
+      checkWidgetFields(descriptor, ['type', 'accept', 'kind', 'allowUpload', 'selection'], where, diags)
       if (!Array.isArray(descriptor['accept']) || !descriptor['accept'].every((value) => typeof value === 'string' && value !== '')) {
         throw new Error(`${where}.accept must be an array of non-empty strings`)
       }
@@ -439,7 +445,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'COMBO': {
-      rejectUnknownWidgetFields(descriptor, ['type', 'options', 'remote', 'controlAfterGenerate', 'optionSource'], where)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'controlAfterGenerate', 'optionSource'], where, diags)
       const options = descriptor['options']
       if (options !== undefined) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
@@ -451,7 +457,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote must be an object`)
         }
         const remoteObject = remote as Record<string, unknown>
-        rejectUnknownWidgetFields(remoteObject, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
+        checkWidgetFields(remoteObject, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
         if (typeof remoteObject['route'] !== 'string' || !remoteObject['route'].startsWith('/')) {
           throw new Error(`${where}.remote.route must start with '/'`)
         }
@@ -465,7 +471,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.optionSource must be an object`)
         }
         const source = optionSource as Record<string, unknown>
-        rejectUnknownWidgetFields(source, ['inputFamily'], `${where}.optionSource`)
+        checkWidgetFields(source, ['inputFamily'], `${where}.optionSource`)
         if (typeof source['inputFamily'] !== 'string' || source['inputFamily'] === '') {
           throw new Error(`${where}.optionSource.inputFamily must be a non-empty string`)
         }
@@ -476,7 +482,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       return
     }
     case 'MULTI_COMBO': {
-      rejectUnknownWidgetFields(descriptor, ['type', 'options', 'remote', 'placeholder', 'chip'], where)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'placeholder', 'chip'], where, diags)
       const options = descriptor['options']
       if (options !== undefined) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
@@ -488,7 +494,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote must be an object`)
         }
         const r = remote as Record<string, unknown>
-        rejectUnknownWidgetFields(r, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
+        checkWidgetFields(r, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
         if (typeof r['route'] !== 'string' || !/^\/api\/choices\/[A-Za-z0-9._-]+$/.test(r['route'])) {
           throw new Error(`${where}.remote.route must be /api/choices/{choice_id}`)
         }
@@ -502,7 +508,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       return
     }
     case 'BOOLEAN':
-      rejectUnknownWidgetFields(descriptor, ['type', 'labelOn', 'labelOff'], where)
+      checkWidgetFields(descriptor, ['type', 'labelOn', 'labelOff'], where, diags)
       for (const key of ['labelOn', 'labelOff']) {
         if (descriptor[key] !== undefined && typeof descriptor[key] !== 'string') {
           throw new Error(`${where}.${key} must be a string`)
@@ -513,7 +519,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'NUMBER':
-      rejectUnknownWidgetFields(descriptor, ['type', 'min', 'max', 'step', 'controlAfterGenerate', 'display', 'round'], where)
+      checkWidgetFields(descriptor, ['type', 'min', 'max', 'step', 'controlAfterGenerate', 'display', 'round'], where, diags)
       for (const key of ['min', 'max', 'step']) {
         const value = descriptor[key]
         const finiteNumber = typeof value === 'number' && Number.isFinite(value)
@@ -557,7 +563,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'STRING':
-      rejectUnknownWidgetFields(descriptor, ['type', 'multiline', 'placeholder', 'dynamicPrompts', 'completions'], where)
+      checkWidgetFields(descriptor, ['type', 'multiline', 'placeholder', 'dynamicPrompts', 'completions'], where, diags)
       if (descriptor['multiline'] !== undefined && typeof descriptor['multiline'] !== 'boolean') {
         throw new Error(`${where}.multiline must be a boolean`)
       }
@@ -575,13 +581,13 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       return
     case 'COLOR':
     case 'MOUNT':
-      rejectUnknownWidgetFields(descriptor, ['type'], where)
+      checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      rejectUnknownWidgetFields(descriptor, ['type'], where)
+      checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'COMPOSITOR':
-      rejectUnknownWidgetFields(descriptor, ['type'], where)
+      checkWidgetFields(descriptor, ['type'], where, diags)
       return
     default:
       if (typeof descriptor['type'] !== 'string' || descriptor['type'] === '') {
@@ -746,7 +752,7 @@ function widgetFor(
     if (descriptor.type === 'REPRESENTATIONS') {
       if (!representationsAllowed) throw new Error(`${nodeType}.${id}: nested widget representations are forbidden`)
       const raw = wire as Record<string, unknown>
-      rejectUnknownWidgetFields(raw, ['type', 'default', 'userSwitchable', 'representations'], `${nodeType}.${id} REPRESENTATIONS widget`)
+      checkWidgetFields(raw, ['type', 'default', 'userSwitchable', 'representations'], `${nodeType}.${id} REPRESENTATIONS widget`, diags)
       if (typeof raw['default'] !== 'string') throw new Error(`${nodeType}.${id}: representation default must be a string`)
       if (typeof raw['userSwitchable'] !== 'boolean') throw new Error(`${nodeType}.${id}: representation userSwitchable must be a boolean`)
       if (!Array.isArray(raw['representations']) || raw['representations'].length === 0) {
@@ -759,7 +765,7 @@ function widgetFor(
           throw new Error(`${nodeType}.${id}: representation ${index} must be an object`)
         }
         const representation = value as Record<string, unknown>
-        rejectUnknownWidgetFields(representation, ['id', 'displayName', 'widget'], `${nodeType}.${id} representation ${index}`)
+        checkWidgetFields(representation, ['id', 'displayName', 'widget'], `${nodeType}.${id} representation ${index}`)
         const representationId = representation['id']
         if (typeof representationId !== 'string' || !WIDGET_REPRESENTATION_ID.test(representationId)) {
           throw new Error(`${nodeType}.${id}: representation ${index} id must match [A-Za-z0-9_-]+`)
@@ -798,7 +804,6 @@ function widgetFor(
         },
       }
     }
-    validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`)
     if (type.kind === 'list' && (descriptor.type === 'STRING' || descriptor.type === 'NUMBER')) {
       if (type.element.kind !== 'concrete') throw new Error(`${nodeType}.${id}: list widget requires a concrete primitive element`)
       // Decode the element through the same scalar binding and precision rules.
@@ -812,6 +817,7 @@ function widgetFor(
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
+    validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`, diags)
     validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`, forceInput)
     if (descriptor.type === 'ASSET' && Array.isArray(descriptor.accept) && descriptor.accept.every((v) => typeof v === 'string')) {
       let kind: string | undefined
@@ -820,7 +826,7 @@ function widgetFor(
         else if (descriptor.kind === '') kind = undefined
         else {
           diags.push(
-            diag('warning', 'schema', 'schema.dinkster.badAssetKind', `${nodeType}.${id}: invalid ASSET kind '${String(descriptor.kind)}'; kind dropped`),
+            diag('warning', 'schema', 'schema.dinkster.badAssetKind', `${nodeType}.${id}: invalid ASSET kind '${String(descriptor.kind)}'`),
           )
         }
       }
@@ -841,7 +847,7 @@ function widgetFor(
     if (descriptor.type === 'COMBO') {
       if (type.kind !== 'concrete' || type.name !== 'COMBO') {
         diags.push(
-          diag('warning', 'schema', 'schema.dinkster.badComboSocket', `${nodeType}.${id}: COMBO descriptor on a non-COMBO input; descriptor dropped`),
+          diag('warning', 'schema', 'schema.dinkster.badComboSocket', `${nodeType}.${id}: COMBO descriptor requires a COMBO input`),
         )
         return undefined
       }
@@ -850,7 +856,7 @@ function widgetFor(
         if (Array.isArray(descriptor.options)) {
           if (descriptor.options.length > 0) options = [...descriptor.options]
         } else {
-          diags.push(diag('warning', 'schema', 'schema.dinkster.badComboOptions', `${nodeType}.${id}: COMBO options are invalid; options dropped`))
+          diags.push(diag('warning', 'schema', 'schema.dinkster.badComboOptions', `${nodeType}.${id}: COMBO options are invalid`))
         }
       }
       let remote: WidgetSpec['remote']
@@ -863,7 +869,7 @@ function widgetFor(
           }
           const policyWarning = (field: string, requirement: string): void => {
             diags.push(
-              diag('warning', 'schema', 'schema.dinkster.badComboRemotePolicy', `${nodeType}.${id}: COMBO remote ${field} ${requirement}; field dropped`),
+              diag('warning', 'schema', 'schema.dinkster.badComboRemotePolicy', `${nodeType}.${id}: COMBO remote ${field} ${requirement}`),
             )
           }
           if (r.controlAfterRefresh !== undefined) {
@@ -888,7 +894,7 @@ function widgetFor(
             } else policyWarning(field, `must be an integer in ${lower}..${upper}`)
           }
         } else {
-          diags.push(diag('warning', 'schema', 'schema.dinkster.badComboRemote', `${nodeType}.${id}: COMBO remote must be {route: "/..."}; remote dropped`))
+          diags.push(diag('warning', 'schema', 'schema.dinkster.badComboRemote', `${nodeType}.${id}: COMBO remote requires a route starting with '/'`))
         }
       }
       let optionSource: WidgetSpec['optionSource']
@@ -904,7 +910,7 @@ function widgetFor(
         }
       }
       if (options === undefined && remote === undefined && optionSource === undefined) {
-        diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO with neither options nor remote; descriptor dropped`))
+        diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO has no options or option source`))
       } else {
         let controllerInitial: WidgetSpec['controllerInitial']
         if (descriptor.controlAfterGenerate !== undefined) {
@@ -916,7 +922,7 @@ function widgetFor(
                 'warning',
                 'schema',
                 'schema.dinkster.badComboControlAfterGenerate',
-                `${nodeType}.${id}: unknown COMBO controlAfterGenerate '${String(descriptor.controlAfterGenerate)}'; control dropped`,
+                `${nodeType}.${id}: unknown COMBO controlAfterGenerate '${String(descriptor.controlAfterGenerate)}'`,
               ),
             )
           }
@@ -942,12 +948,12 @@ function widgetFor(
         if (typeof descriptor.placeholder === 'string') outOptions['placeholder'] = descriptor.placeholder
         else
           diags.push(
-            diag('warning', 'schema', 'schema.dinkster.badMultiComboPlaceholder', `${nodeType}.${id}: MULTI_COMBO placeholder must be a string; field dropped`),
+            diag('warning', 'schema', 'schema.dinkster.badMultiComboPlaceholder', `${nodeType}.${id}: MULTI_COMBO placeholder must be a string`),
           )
       }
       if (descriptor.chip !== undefined) {
         if (typeof descriptor.chip === 'boolean') outOptions['chip'] = descriptor.chip
-        else diags.push(diag('warning', 'schema', 'schema.dinkster.badMultiComboChip', `${nodeType}.${id}: MULTI_COMBO chip must be a boolean; field dropped`))
+        else diags.push(diag('warning', 'schema', 'schema.dinkster.badMultiComboChip', `${nodeType}.${id}: MULTI_COMBO chip must be a boolean`))
       }
       const r = descriptor.remote as Record<string, unknown> | undefined
       let remote: WidgetSpec['remote']
@@ -958,7 +964,7 @@ function widgetFor(
         }
         const warn = (field: string) =>
           diags.push(
-            diag('warning', 'schema', 'schema.dinkster.badMultiComboRemotePolicy', `${nodeType}.${id}: MULTI_COMBO remote ${field} is invalid; field dropped`),
+            diag('warning', 'schema', 'schema.dinkster.badMultiComboRemotePolicy', `${nodeType}.${id}: MULTI_COMBO remote ${field} is invalid`),
           )
         if (r['controlAfterRefresh'] !== undefined) {
           if ((r['controlAfterRefresh'] === 'first' || r['controlAfterRefresh'] === 'last') && r['refreshButton'] === true)
@@ -997,7 +1003,7 @@ function widgetFor(
       const numericKind = numericWidgetType(type, forceInput)
       if (numericKind !== 'INT' && numericKind !== 'FLOAT') {
         diags.push(
-          diag('warning', 'schema', 'schema.dinkster.badNumberSocket', `${nodeType}.${id}: NUMBER descriptor on a non-numeric input; descriptor dropped`),
+          diag('warning', 'schema', 'schema.dinkster.badNumberSocket', `${nodeType}.${id}: NUMBER descriptor requires a numeric input`),
         )
       } else {
         const isInt = numericKind === 'INT'
@@ -1015,7 +1021,7 @@ function widgetFor(
                 'warning',
                 'schema',
                 'schema.dinkster.badNumberField',
-                `${nodeType}.${id}: NUMBER ${key} '${String(v)}' is not an ${isInt ? 'exact integer' : 'finite number'}${key === 'step' ? ' > 0' : ''}; field dropped`,
+                `${nodeType}.${id}: ${key} '${String(v)}' is not a valid ${isInt ? 'integer' : 'number'}`,
               ),
             )
           }
@@ -1032,7 +1038,7 @@ function widgetFor(
               'warning',
               'schema',
               'schema.dinkster.badNumberRange',
-              `${nodeType}.${id}: NUMBER min ${String(options['min'])} > max ${String(options['max'])}; both dropped`,
+              `${nodeType}.${id}: NUMBER min ${String(options['min'])} exceeds max ${String(options['max'])}`,
             ),
           )
           delete options['min']
@@ -1047,7 +1053,7 @@ function widgetFor(
                 'warning',
                 'schema',
                 'schema.dinkster.badNumberDisplay',
-                `${nodeType}.${id}: unknown NUMBER display '${String(descriptor.display)}'; display dropped`,
+                `${nodeType}.${id}: unknown NUMBER display '${String(descriptor.display)}'`,
               ),
             )
           }
@@ -1068,7 +1074,7 @@ function widgetFor(
                 'warning',
                 'schema',
                 'schema.dinkster.badControlAfterGenerate',
-                `${nodeType}.${id}: unknown controlAfterGenerate '${String(descriptor.controlAfterGenerate)}'; control dropped`,
+                `${nodeType}.${id}: unknown controlAfterGenerate '${String(descriptor.controlAfterGenerate)}'`,
               ),
             )
           }
@@ -1084,7 +1090,7 @@ function widgetFor(
     if (descriptor.type === 'STRING') {
       if (type.kind !== 'concrete' || type.name !== 'STRING') {
         diags.push(
-          diag('warning', 'schema', 'schema.dinkster.badStringSocket', `${nodeType}.${id}: STRING descriptor on a non-string input; descriptor dropped`),
+          diag('warning', 'schema', 'schema.dinkster.badStringSocket', `${nodeType}.${id}: STRING descriptor requires a string input`),
         )
       } else if (descriptor.multiline === true || descriptor.multiline === false || descriptor.multiline === undefined) {
         const options: Record<string, unknown> = {}
@@ -1093,7 +1099,7 @@ function widgetFor(
           if (typeof descriptor.placeholder === 'string') options['placeholder'] = descriptor.placeholder
           else
             diags.push(
-              diag('warning', 'schema', 'schema.dinkster.badStringPlaceholder', `${nodeType}.${id}: STRING placeholder must be a string; field dropped`),
+              diag('warning', 'schema', 'schema.dinkster.badStringPlaceholder', `${nodeType}.${id}: STRING placeholder must be a string`),
             )
         }
         if (descriptor.dynamicPrompts !== undefined) options['dynamicPrompts'] = descriptor.dynamicPrompts
@@ -1147,7 +1153,7 @@ function widgetFor(
         const v = descriptor[key]
         if (typeof v === 'string' && v !== '') labels[key] = v
         else if (v !== undefined && v !== '') {
-          diags.push(diag('warning', 'schema', 'schema.dinkster.badBooleanLabel', `${nodeType}.${id}: BOOLEAN ${key} must be a string; label dropped`))
+          diags.push(diag('warning', 'schema', 'schema.dinkster.badBooleanLabel', `${nodeType}.${id}: BOOLEAN ${key} must be a string`))
         }
       }
       return {
@@ -1207,7 +1213,7 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
       throw new Error(`${nodeType}.${id}.sourceFilename must be an object`)
     }
     const source = entry.sourceFilename as Record<string, unknown>
-    rejectUnknownWidgetFields(source, ['kind', 'category'], `${nodeType}.${id}.sourceFilename`)
+    checkWidgetFields(source, ['kind', 'category'], `${nodeType}.${id}.sourceFilename`)
     if (
       source['kind'] !== 'media/image' &&
       source['kind'] !== 'media/audio' &&
@@ -2405,7 +2411,7 @@ const SEARCH_VISIBILITIES: ReadonlySet<string> = new Set(['deprecated', 'hidden'
 function decodeDeprecation(nodeType: string, wire: unknown, diags: Diagnostic[]): DeprecationInfo | undefined {
   if (wire === undefined) return undefined
   if (typeof wire !== 'object' || wire === null) {
-    diags.push(diag('warning', 'schema', 'schema.dinkster.badDeprecation', `${nodeType}: deprecation is not an object; ignoring`))
+    diags.push(diag('warning', 'schema', 'schema.dinkster.badDeprecation', `${nodeType}: deprecation is not an object`))
     return undefined
   }
   const w = wire as {
@@ -2414,12 +2420,12 @@ function decodeDeprecation(nodeType: string, wire: unknown, diags: Diagnostic[])
     replacement?: unknown
   }
   if (typeof w.message !== 'string' || w.message === '') {
-    diags.push(diag('warning', 'schema', 'schema.dinkster.badDeprecation', `${nodeType}: deprecation carries no message; ignoring`))
+    diags.push(diag('warning', 'schema', 'schema.dinkster.badDeprecation', `${nodeType}: deprecation has no message`))
     return undefined
   }
   let replacement = typeof w.replacement === 'string' && w.replacement !== '' ? w.replacement : undefined
   if (replacement === nodeType) {
-    diags.push(diag('warning', 'schema', 'schema.dinkster.badDeprecation', `${nodeType}: deprecation replacement points at itself; dropping the pointer`))
+    diags.push(diag('warning', 'schema', 'schema.dinkster.badDeprecation', `${nodeType}: deprecation replacement points at itself`))
     replacement = undefined
   }
   return {
@@ -2446,13 +2452,13 @@ function decodeSearchVisibility(nodeType: string, wire: unknown, diags: Diagnost
 function decodeReplacements(nodeType: string, wire: unknown, diags: Diagnostic[]): readonly ReplacementRule[] | undefined {
   if (wire === undefined) return undefined
   if (!Array.isArray(wire)) {
-    diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements is not an array; ignoring`))
+    diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements is not an array`))
     return undefined
   }
   const rules: ReplacementRule[] = []
   for (const [i, rule] of wire.entries()) {
     if (isReplacementRule(rule)) rules.push(rule)
-    else diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements[${i}] is malformed; skipping that rule`))
+    else diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements[${i}] is malformed`))
   }
   return rules.length > 0 ? rules : undefined
 }
@@ -2498,7 +2504,7 @@ export function parseDinksterNodes(payload: DinksterNodesPayload): {
             'error',
             'schema',
             'schema.dinkster.wireVersion',
-            `${type}: unsupported schema wire version ${String(wire.schemaVersion)}; this build speaks ${DINKSTER_SCHEMA_WIRE_VERSION}`,
+            `${type}: unsupported schema wire version ${String(wire.schemaVersion)}`,
           ),
         )
         continue

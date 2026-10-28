@@ -59,6 +59,29 @@ test('explicit Show on canvas centers and selects a warned node', async ({ page 
   })).toBeLessThan(2)
 })
 
+test('a link-only problem selects and centers the anchored link', async ({ page }) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.reportProblems(app.activeTab()!.id, [{
+      severity: 'error', origin: 'runtime', code: 'runtime.link',
+      message: 'Target input: connected types do not match', anchor: { link: 'bad' },
+    }])
+  })
+  const row = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'runtime.link' })
+  await row.locator('summary').click()
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-link-selection', '1')
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const link = renderer.getScene().links.find((candidate) => candidate.id === 'bad')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return Math.hypot(
+      (link.x1 + link.x2) / 2 * viewport.scale + viewport.x - canvas.width / 2,
+      (link.y1 + link.y2) / 2 * viewport.scale + viewport.y - canvas.height / 2,
+    )
+  })).toBeLessThan(2)
+})
+
 test('Problems locale, disclosure, selection, clipboard, and explicit canvas action remain independent', async ({ context, page, request }) => {
   let objectInfoRequests = 0
   let diagnosticRequests = 0
@@ -72,7 +95,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
     const app = window.__dinksterTest!.app
     app.reportProblems(app.activeTab()!.id, [
       {
-        severity: 'error', source: 'runtime', code: 'runtime.browserProof',
+        severity: 'error', origin: 'runtime', code: 'runtime.browserProof',
         message: 'A long selectable browser proof error message.',
         refs: [{ graphId: 'g0', nodeId: 'source' }],
         anchor: { occurrence: { instancePath: [], node: 'source' } },
@@ -83,7 +106,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
         },
       },
       {
-        severity: 'warning', source: 'runtime', code: 'runtime.warningProof',
+        severity: 'warning', origin: 'runtime', code: 'runtime.warningProof',
         message: 'Warning with nested guidance.',
         refs: [{ graphId: 'g0', nodeId: 'target', portId: 'input', direction: 'input' }],
         anchor: { port: { node: 'target', port: 'input' } },
@@ -113,7 +136,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
   await expect(warning).toHaveAttribute('open', '')
   await expect(warning.locator('.runtime-error-hints')).toContainText('Nested warning guidance is fully disclosed.')
   await expect(warning.locator('.traceback')).toContainText('Warning traceback')
-  const compatSkips = panel.locator('.compat-skips-group')
+  const compatSkips = panel.locator('.problems-group[data-section="packs"]')
   await expect(compatSkips).toContainText('raw-pack: RawNode')
   await expect(compatSkips).toContainText('raw compatibility refusal')
   await warning.locator('summary').click()
@@ -133,9 +156,9 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
     selection?.removeAllRanges()
     selection?.addRange(range)
   })
-  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toContain('runtime.browserProof')
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toContain('A long selectable browser proof error message.')
   await expect(error).toHaveAttribute('open', '')
-  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '0')
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
 
   await panel.evaluate((element) => { element.dataset['localeIdentity'] = 'panel' })
   await error.evaluate((element) => { element.dataset['localeIdentity'] = 'error' })
@@ -151,9 +174,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
       'shell.panel.problems.title': '[Probleme]',
       'problems.action.showInFocused': '[Im Fokus zeigen]',
       'problems.action.showOnCanvas': '[Auf Leinwand zeigen]',
-      'problems.compat.advisory': '[HINWEIS]',
-      'problems.compat.description': '[Nicht in den Katalog aufgenommen.]',
-      'problems.compat.title': '[Kompatibilitatssprunge]',
+      'problems.section.packs': '[Pakete und Backend]',
       'problems.empty': '[Keine Probleme.]',
       'problems.hint.code': '[Diagnosecode: {code}]',
     })
@@ -163,10 +184,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
   await expect(error.getByRole('button', { name: '[Auf Leinwand zeigen]' })).toBeVisible()
   await expect(error.getByRole('button', { name: '[Im Fokus zeigen]' })).toBeVisible()
   await expect(error.locator('.runtime-error-hint-code')).toHaveAttribute('aria-label', '[Diagnosecode: repair]')
-  await expect(compatSkips).toHaveAttribute('aria-label', '[Kompatibilitatssprunge]')
-  await expect(compatSkips.locator('.problems-group-title')).toHaveText('[Kompatibilitatssprunge]')
-  await expect(compatSkips.locator('.problems-group-severity')).toHaveText('[HINWEIS]')
-  await expect(compatSkips.locator('.compat-skips-explanation')).toHaveText('[Nicht in den Katalog aufgenommen.]')
+  await expect(compatSkips.locator('.problems-group-title')).toHaveText('[Pakete und Backend]')
   await expect(panel).toHaveAttribute('data-locale-identity', 'panel')
   await expect(error).toHaveAttribute('data-locale-identity', 'error')
   await expect(error.locator('.runtime-error-hint')).toHaveAttribute('data-locale-identity', 'hint')
@@ -176,7 +194,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
   await expect(error).toContainText('Keep browser copy native.')
   await expect(compatSkips).toContainText('raw-pack: RawNode')
   await expect(compatSkips).toContainText('raw compatibility refusal')
-  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toContain('runtime.browserProof')
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toContain('A long selectable browser proof error message.')
   await page.waitForTimeout(50)
   expect(objectInfoRequests).toBe(objectInfoRequestsBeforeLocaleChange)
   expect(diagnosticRequests).toBe(diagnosticRequestsBeforeLocaleChange)
@@ -186,11 +204,11 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
     canvas.focus()
     if (document.activeElement !== canvas) throw new Error('canvas did not take focus')
   })
-  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toContain('runtime.browserProof')
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toContain('A long selectable browser proof error message.')
 
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+c' : 'Control+c')
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('runtime.browserProof')
-  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '0')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('A long selectable browser proof error message.')
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   await page.evaluate(() => document.getSelection()?.removeAllRanges())
   await panel.screenshot({ path: evidencePath('issue-457', 'problems-static-i18n-de-DE.png'), animations: 'disabled' })
 
@@ -209,7 +227,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).not.toContain('runtime.browserProof')
 })
 
-test('hover a warned pin shows every diagnostic severity and message', async ({ page }) => {
+test('hover a warned pin shows the diagnostic message without a severity prefix', async ({ page }) => {
   const point = await page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'target')!
@@ -229,6 +247,6 @@ test('hover a warned pin shows every diagnostic severity and message', async ({ 
     }
   })
   await page.mouse.move(point.x, point.y)
-  await expect(page.getByTestId('app-tooltip')).toContainText(/\[(warning|error)\]/, { timeout: 1_500 })
-  await expect(page.getByTestId('app-tooltip')).toContainText(/type|match|compatible/i)
+  await expect(page.getByTestId('app-tooltip')).toContainText('target.input: IMAGE cannot feed INT', { timeout: 1_500 })
+  await expect(page.getByTestId('app-tooltip')).not.toContainText(/\[(warning|error)\]|solve.linkMismatch/)
 })

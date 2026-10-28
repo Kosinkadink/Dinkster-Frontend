@@ -22,6 +22,7 @@ sys.path.insert(0, f"{SOURCE_ROOT}/packages/dinkster-values/src")
 sys.path.insert(0, f"{SOURCE_ROOT}/packages/dinkster-schema/src")
 
 from dinkster_schema import (  # noqa: E402
+    AssetWidget,
     SCHEMA_WIRE_VERSION,
     InputFamilySpec,
     InputSpec,
@@ -146,6 +147,23 @@ schemas = [
         occupies=("gpu",),
     ),
 ]
+
+for kind, default in (
+    ("model/vae", "pixel_space"),
+    ("model/diffusers", "vendor/model"),
+    ("directory/input", "train/set"),
+    ("directory/dataset", "dataset"),
+):
+    schemas.append(NodeSchema(
+        node_type=f"test.selection_{kind.replace('/', '_')}",
+        inputs=(InputSpec(
+            "name",
+            TypeExpr.union("COMBO", "ASSET") if kind == "model/vae" else TypeExpr.concrete("COMBO"),
+            default=default,
+            widget=AssetWidget(kind=kind, selection=True),
+        ),),
+        output_node=True,
+    ))
 
 payload = {
     "schemaVersion": SCHEMA_WIRE_VERSION,

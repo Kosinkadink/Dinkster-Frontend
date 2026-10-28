@@ -25,7 +25,7 @@ describe('shell and surface product tooltip markup', () => {
     expect(app).not.toContain('<select')
     expect(app).toContain("data-tooltip-label={message('shell.sharedSession', { status: status() })}")
     expect(shellChrome).toContain('data-tooltip-label={props.suppressTooltipWhenPressed && props.pressed ? undefined : props.tooltip}')
-    expect(app).toContain("suppressTooltipWhenPressed={panel.id === 'assets' || panel.id === 'backends'}")
+    expect(app).toContain('suppressTooltipWhenPressed={true}')
     for (const nativeTitle of [
       "title={p.exec.artifact ? 'Open frozen view' : 'Submitted by another client'}",
       'title={b.baseUrl',

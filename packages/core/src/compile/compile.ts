@@ -1062,7 +1062,7 @@ function compileImpl(
       // Min-fill members are interface-only until a command materializes
       // them; a committed reference to one is a stale/malformed document
       // never something to silently honor.
-      sink.push(diag('error', 'compile', 'compile.port.unmaterialized', `'${node.type}' input '${input.spec.id}' references an unmaterialized dynamic member; connect/assign through a command to materialize it`, { anchor: anchorOf(path, node.id) }))
+      sink.push(diag('error', 'compile', 'compile.port.unmaterialized', `${node.type}.${input.spec.id}: dynamic input member is not materialized`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
     if (input.origin.kind === 'selector') {
@@ -1148,11 +1148,11 @@ function compileImpl(
         const childPath = [...path, node.id]
         const tapped = tappedInputs(childPath, childId, item.binds.node, item.binds.tap, sink)
         if (!tapped) {
-          sink.push(diag('error', 'compile', 'compile.tap.missingInput', `widget tap '${item.binds.node}.${item.binds.tap}' in graph '${childId}' names a missing input; boundary output '${item.id}' omitted`))
+          sink.push(diag('error', 'compile', 'compile.tap.missingInput', `${item.binds.node}.${item.binds.tap}: tapped input is missing in graph ${childId}`))
           return undefined
         }
         if (tapped !== 'muted' && tapped.some((input) => canonicalTypeIdOf(input.input.spec.type) === undefined)) {
-          sink.push(diag('error', 'compile', 'compile.tap.nonConcrete', `widget tap '${item.binds.node}.${item.binds.tap}' in graph '${childId}' has a non-concrete input type; boundary output '${item.id}' omitted`))
+          sink.push(diag('error', 'compile', 'compile.tap.nonConcrete', `${item.binds.node}.${item.binds.tap}: tapped input has no concrete type`))
           return undefined
         }
         return {
@@ -1197,7 +1197,7 @@ function compileImpl(
       return undefined
     }
     if (hasSyntheticAncestor(output.ancestry)) {
-      sink.push(diag('error', 'compile', 'compile.port.unmaterialized', `'${node.type}' output '${output.spec.id}' references an unmaterialized dynamic member; connect through a command to materialize it`, { anchor: anchorOf(path, node.id) }))
+      sink.push(diag('error', 'compile', 'compile.port.unmaterialized', `${node.type}.${output.spec.id}: dynamic output member is not materialized`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
     const outputIndex = elab.outputIndexByAddr.get(addr)
@@ -1495,9 +1495,9 @@ function compileImpl(
       cycle: (at) => {
         if (projection === 'exact') {
           if (at.kind === 'bypass') sink.push(diag('error', 'compile', 'compile.bypass.cycle', `bypass passthrough through '${at.bypass.ref.node}' in graph '${at.bypass.defId}' forms a cycle`, { anchor: anchorOf(at.bypass.path, at.bypass.ref.node) }))
-          else if (isRerouteRef(at.endpoint)) sink.push(diag('error', 'compile', 'compile.reroute.cycle', `reroute chain through '${at.endpoint.reroute}' in graph '${at.defId}' forms a cycle; route omitted`))
-          else if (isSelectorRef(at.endpoint)) sink.push(diag('error', 'compile', 'compile.selector.cycle', `selector chain through '${at.endpoint.selector}/${at.endpoint.candidate ?? 'output'}' in graph '${at.defId}' forms a cycle; route omitted`))
-          else if (isWidgetTapRef(at.endpoint)) sink.push(diag('error', 'compile', 'compile.tap.cycle', `widget tap '${at.endpoint.node}.${at.endpoint.tap}' in graph '${at.defId}' forms a cycle; route omitted`))
+          else if (isRerouteRef(at.endpoint)) sink.push(diag('error', 'compile', 'compile.reroute.cycle', `Reroute ${at.endpoint.reroute}: connection chain forms a cycle`))
+          else if (isSelectorRef(at.endpoint)) sink.push(diag('error', 'compile', 'compile.selector.cycle', `Selector ${at.endpoint.selector}: connection chain forms a cycle`))
+          else if (isWidgetTapRef(at.endpoint)) sink.push(diag('error', 'compile', 'compile.tap.cycle', `${at.endpoint.node}.${at.endpoint.tap}: tap connection forms a cycle`))
         }
         return [{ kind: 'dropped', reason: at.kind === 'bypass'
           ? `bypass cycle at '${at.bypass.ref.node}'`
@@ -1515,7 +1515,7 @@ function compileImpl(
             if (driver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: at.path, defId: at.defId, endpoint: driver.from } }] }
             const projected = projectedRerouteDrivers.get(topologyKey(at.path, at.defId))?.get(endpoint.reroute)
             if (projected) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', ...projected } }] }
-            if (selectedProjection === 'exact') sink.push(diag('warning', 'compile', 'compile.reroute.undriven', `reroute '${endpoint.reroute}' in graph '${at.defId}' has no driver; route omitted`))
+            if (selectedProjection === 'exact') sink.push(diag('warning', 'compile', 'compile.reroute.undriven', `Reroute ${endpoint.reroute}: no input connection`))
             return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `reroute '${endpoint.reroute}' is undriven` } }] }
           }
           if (isSelectorRef(endpoint)) {
@@ -1534,7 +1534,7 @@ function compileImpl(
               via?.selectors.get(selector)?.add(candidate)
               const driver = selectorDriverOf(def, selector, candidate, index)
               if (!driver) {
-                if (selectedProjection === 'exact') sink.push(diag('warning', 'compile', 'compile.selector.undriven', `selector '${selector}' candidate '${candidate}' in graph '${at.defId}' has no driver; route omitted`))
+                if (selectedProjection === 'exact') sink.push(diag('warning', 'compile', 'compile.selector.undriven', `Selector ${selector}/${candidate}: no input connection`))
                 return { kind: 'terminal', terminal: { kind: 'dropped', reason: `selector '${selector}' candidate '${candidate}' is undriven` } }
               }
               return { kind: 'recurse', at: { kind: 'endpoint', path: at.path, defId: at.defId, endpoint: driver.from } }
@@ -1548,7 +1548,7 @@ function compileImpl(
             const tapped = tapValue(at.path, at.defId, endpoint.node, endpoint.tap, sink)
             if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence` } }] }
             if (tapped === undefined) {
-              if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.tap.novalue', `widget tap '${endpoint.node}.${endpoint.tap}' in graph '${at.defId}' has no value; route omitted`))
+              if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.tap.novalue', `${endpoint.node}.${endpoint.tap}: tapped input has no value`))
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `widget tap '${endpoint.node}.${endpoint.tap}' has no value` } }] }
             }
             return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId } }] }
@@ -1602,9 +1602,9 @@ function compileImpl(
             const elab = ctx ? elabAt(ctx, node, schema) : elabOf(bypass.defId, node, schema)
             const requested = elab.outputsByAddr.get(portAddressKey(bypass.ref.port, bypass.ref.members))
             if (!requested || !elab.outputIndexByAddr.has(portAddressKey(bypass.ref.port, bypass.ref.members))) {
-              sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no wireable output '${bypass.ref.port}'${bypass.ref.members ? ` member '${bypass.ref.members.join('.')}'` : ''} to bypass through`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
+              sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `${node.type}.${portAddressKey(bypass.ref.port, bypass.ref.members)}: bypass output is not wireable`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
             } else {
-              sink.push(diag('warning', 'compile', 'compile.bypass.unrouted', `bypassed '${node.type}' ('${bypass.ref.node}' in graph '${bypass.defId}') has no driven input matching output '${requested.spec.id}'; consumer edge omitted`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
+              sink.push(diag('warning', 'compile', 'compile.bypass.unrouted', `${node.type}.${requested.spec.id}: bypass has no matching driven input`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
             }
           }
           }
@@ -1616,7 +1616,10 @@ function compileImpl(
     if (projection === 'exact' && result.hops.length > 0 && result.terminals.some((terminal) => terminal.kind === 'muted' || terminal.kind === 'dropped')) {
       const first = result.hops[0]!
       const dead = result.terminals.find((terminal) => terminal.kind === 'muted' || terminal.kind === 'dropped')!
-      sink.push(diag('warning', 'compile', 'compile.bypass.structuralRouteDropped', `bypassed '${first.at.ref.node}' selected structural input '${first.input.spec.id}' at index ${first.inputIndex} for output '${first.output.spec.id}', but the selected route through [${result.hops.map((hop) => hop.occurrenceKey).join(', ')}] did not deliver (${dead.reason}); disconnecting or reordering that visible input changes routing`, { anchor: anchorOf(first.at.path, first.at.ref.node) }))
+      sink.push(diag('warning', 'compile', 'compile.bypass.structuralRouteDropped', `${first.at.ref.node}.${first.input.spec.id}: selected bypass route has no value`, {
+        anchor: anchorOf(first.at.path, first.at.ref.node),
+        data: { reason: dead.reason, inputIndex: first.inputIndex, output: first.output.spec.id, route: result.hops.map((hop) => hop.occurrenceKey) },
+      }))
     }
     return result.terminals
   }
@@ -2011,6 +2014,11 @@ function compileImpl(
    */
   const assetSourceTypeOf = (input: ElaboratedInput, value: Json): string | undefined => {
     if (input.spec.widget?.widgetType !== 'ASSET') return undefined
+    if (input.spec.widget.selection === true && input.spec.type.kind === 'union') {
+      if (typeof value === 'string') return 'COMBO'
+      if (isAssetRefValue(value)) return 'ASSET'
+      return undefined
+    }
     const dstTypeId = canonicalTypeIdOf(input.spec.type)
     if (dstTypeId === undefined || isAssetRefDestinationTypeId(dstTypeId)) return undefined
     if (isAssetRefValue(value)) return assetTypeId(dstTypeId)
@@ -2048,13 +2056,13 @@ function compileImpl(
   ): Json | undefined => {
     if (canonicalTypeIdOf(input.spec.type) === 'INT' && isCanonicalUnsafeInteger(value)) {
       if (emitDecimalInts) return decimalIntegerWire(value)
-      sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `'${fn.node.type}' input '${input.spec.id}' holds an integer outside JavaScript's safe range, but this backend does not support lossless decimal integers; omitted`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+      sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve this large integer`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
       return undefined
     }
     const sourceType = assetSourceTypeOf(input, value)
     if (sourceType === undefined) return value
     if (emitTypedLiterals) return typedLiteralWire(sourceType, value) as Json
-    sink.push(diag('error', 'compile', 'compile.value.assetSourceUnsupported', `'${fn.node.type}' input '${input.spec.id}' holds asset reference(s) needing an asset-source stamp ('${sourceType}' into '${canonicalTypeIdOf(input.spec.type)}'), but this backend does not support typed literals; omitted`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+    sink.push(diag('error', 'compile', 'compile.value.assetSourceUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the asset source type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
     return undefined
   }
 
@@ -2067,7 +2075,7 @@ function compileImpl(
         // dependents, removed members) are preserved-by-design state, not
         // junk - never warn, never compile.
         if (!isDynamicScopedValueKey(key)) {
-          nodeDiags.push(diag('warning', 'compile', 'compile.value.unknownInput', `'${fn.node.type}' value '${key}' matches no schema input; dropped`, { anchor: { occurrence: fn.occ } }))
+          nodeDiags.push(diag('warning', 'compile', 'compile.value.unknownInput', `${fn.node.type}.${key}: stored value has no matching input`, { anchor: { occurrence: fn.occ } }))
         }
         continue
       }
@@ -2235,11 +2243,11 @@ function compileImpl(
       if (isWidgetTapRef(link.from)) {
         const tapped = tappedInputs(path, defId, link.from.node, link.from.tap, [])
         if (!tapped) {
-          diags.push(diag('error', 'compile', 'compile.tap.missingInput', `widget tap '${link.from.node}.${link.from.tap}' in graph '${defId}' names a missing input; ${link.what} omitted`))
+          diags.push(diag('error', 'compile', 'compile.tap.missingInput', `${link.from.node}.${link.from.tap}: tapped input is missing in graph ${defId}`))
           continue
         }
         if (tapped !== 'muted' && tapped.some((i) => canonicalTypeIdOf(i.input.spec.type) === undefined)) {
-          diags.push(diag('error', 'compile', 'compile.tap.nonConcrete', `widget tap '${link.from.node}.${link.from.tap}' in graph '${defId}' has a non-concrete input type; ${link.what} omitted`))
+          diags.push(diag('error', 'compile', 'compile.tap.nonConcrete', `${link.from.node}.${link.from.tap}: tapped input has no concrete type`))
           continue
         }
       }
@@ -2295,7 +2303,7 @@ function compileImpl(
         ? resolveOutputPort(path, defId, c.from, scratch, c.delivery)
         : undefined
       if (structuralSrc === 'muted' || dsts === 'muted') {
-        diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}' touches a muted node; omitted`))
+        diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
         continue
       }
       // Bypassed consumer: consumed by passthrough (or dormant) - silent.
@@ -2349,7 +2357,7 @@ function compileImpl(
           attachUnknownSchemaDependents(routeDiagnostics, [dst.runtimeId])
           if (trace.kind === 'muted') {
             diags.push(...routeDiagnostics)
-            diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}' touches a muted node; omitted`))
+            diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
             continue
           }
           if (trace.kind === 'dropped') {
@@ -2367,12 +2375,12 @@ function compileImpl(
         }
         diags.push(...routeDiagnostics)
         if (src && !flat.has(src.runtimeId)) {
-          diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}' touches a dropped node; omitted`))
+          diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is unavailable`))
           continue
         }
         const consumer = flat.get(dst.runtimeId)
         if (!consumer) {
-          diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}' touches a dropped node; omitted`))
+          diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is unavailable`))
           continue
         }
         if (baked !== undefined) {
@@ -2396,7 +2404,7 @@ function compileImpl(
                 recordSuccessfulDelivery(dst)
               }
             } else {
-              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${c.what} in graph '${defId}' bakes an integer outside JavaScript's safe range into '${consumer.node.type}' input '${dst.input.spec.id}', but the lossless integer marker requires a concrete INT destination; omitted`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
+              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: large integer requires an INT input`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
             }
             continue
           }
@@ -2409,7 +2417,7 @@ function compileImpl(
               recordSuccessfulDelivery(dst)
               continue
             }
-            diags.push(diag('error', 'compile', 'compile.tap.nonConcreteTarget', `${c.what} in graph '${defId}' bakes a literal into '${consumer.node.type}' input '${dst.input.spec.id}', which ${dstTypeId === undefined ? 'is not concrete-typed; literals need a concrete-typed input' : `needs an asset-source stamp ('${baked.typeId}' into '${dstTypeId}')`} (${baked.typeId === undefined ? 'the literal declares no runtime type to stamp' : 'this backend does not support typed literals'}); omitted`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
+            diags.push(diag('error', 'compile', 'compile.tap.nonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: literal type cannot be resolved on this backend`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
             continue
           }
           consumer.inputs[dst.elabKey] = baked.value
@@ -2448,7 +2456,7 @@ function compileImpl(
         const bodyNode = flat.get(target.runtimeId)
         if (!bodyNode) continue
         if (bodyNode.elab.outputCountInputs.has(target.input.address.port)) {
-          diags.push(diag('error', 'compile', 'compile.outputFamily.linkedCount', `region input '${item.id}' targets output schema input '${bodyNode.node.type}.${target.input.address.port}', which must store a literal`, {
+          diags.push(diag('error', 'compile', 'compile.outputFamily.linkedCount', `${bodyNode.node.type}.${target.input.address.port}: output count requires a stored literal`, {
             anchor: { occurrence: bodyNode.occ, port: { node: bodyNode.occ.node, port: target.input.address.port as PortRef['port'] } },
           }))
           continue
@@ -2750,8 +2758,8 @@ function compileImpl(
     if (selected !== undefined && input.origin.variants.some((v) => v.key === selected)) continue
     diags.push(diag('error', 'compile', 'compile.slot.missingVariant',
       selected === undefined
-        ? `'${fn.node.type}' DynamicSlot '${input.origin.construct}' is connected but has no stored variant choice; the backend elaborates the interface from the stored choice`
-        : `'${fn.node.type}' DynamicSlot '${input.origin.construct}' stores unknown variant '${selected}' (declared: ${input.origin.variants.map((v) => v.key).join(', ')})`,
+        ? `${fn.node.type}.${input.origin.construct}: connected slot has no stored variant`
+        : `${fn.node.type}.${input.origin.construct}: unknown slot variant '${selected}'`,
       { anchor: { occurrence: fn.occ } }))
   }
 

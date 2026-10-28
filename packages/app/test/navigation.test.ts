@@ -131,8 +131,8 @@ describe('diagnostic focus navigation', () => {
   const document = {
     root: 'root',
     graphs: {
-      root: { nodes: { instance: { id: 'instance', type: '#child' }, rootNode: { id: 'rootNode', type: 'Plain' } } },
-      child: { nodes: { nested: { id: 'nested', type: 'Plain' } } },
+      root: { nodes: { instance: { id: 'instance', type: '#child' }, rootNode: { id: 'rootNode', type: 'Plain' } }, links: { rootLink: {} } },
+      child: { nodes: { nested: { id: 'nested', type: 'Plain' } }, links: { childLink: {} } },
     },
   } as unknown as Tab['store']['doc']
 
@@ -153,6 +153,18 @@ describe('diagnostic focus navigation', () => {
   it('silently rejects stale nodes and stale drill-in paths', () => {
     expect(diagnosticFocusPlan(document, { occurrence: { instancePath: [], node: 'gone' as any } })).toBeUndefined()
     expect(diagnosticFocusPlan(document, { occurrence: { instancePath: ['gone' as any], node: 'nested' as any } })).toBeUndefined()
+  })
+
+  it('resolves link-only anchors in the current graph without matching sibling graph ids', () => {
+    expect(diagnosticFocusPlan(document, { link: 'rootLink' as any })).toEqual({
+      graphStack: ['root'], instancePath: [], linkId: 'rootLink',
+    })
+    expect(diagnosticFocusPlan(document, { link: 'childLink' as any }, ['instance'])).toEqual({
+      graphStack: ['root', 'child'], instancePath: ['instance'], linkId: 'childLink',
+    })
+    expect(diagnosticFocusPlan(document, { link: 'rootLink' as any }, ['instance'])).toBeUndefined()
+    expect(diagnosticFocusPlan(document, { link: 'gone' as any })).toBeUndefined()
+    expect(diagnosticFocusPlan(document, { link: 'childLink' as any }, ['gone'])).toBeUndefined()
   })
 
   it('chooses the diagnostic owner tab instead of the active tab', () => {

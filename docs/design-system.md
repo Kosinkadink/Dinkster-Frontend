@@ -83,7 +83,10 @@ The region iteration inspector uses ProductEmptyState for absent iteration
 activity, nodes without outputs, unavailable execution owners and loading.
 Retained-value refusals keep their reason and explanation in a neutral status
 card, not an execution error alert. Selection and stale-read cancellation
-remain owned by the inspector.
+remain owned by the inspector. Progress and reconciliation updates for the same
+execution and workspace tab-list refreshes preserve the selected iteration and
+body node. Switching tabs, region occurrences or executions starts a new
+inspection.
 
 The workflow queue popover uses ProductEmptyState when its owner has no jobs.
 Queue activation, disclosure, keyboard navigation and Escape focus restoration

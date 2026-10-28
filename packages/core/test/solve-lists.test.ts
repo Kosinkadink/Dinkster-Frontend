@@ -327,7 +327,7 @@ describe('solver: open lists peel the constructor', () => {
     expect(solved.linkVerdicts.get('l0' as never)).toBe('mismatch')
     expect(solved.linkVerdicts.get('l1' as never)).toBe('mismatch')
     expect(solved.diagnostics.find((diagnostic) => diagnostic.code === 'solve.varConflict')?.message)
-      .toContain("type variable 'T'")
+      .toBe('append.T: connected types have no common match')
   })
 
   it('list<T> in, T out relates element to downstream scalar consumers', () => {

@@ -264,10 +264,14 @@ describe('addBackend / removeBackend', () => {
     expect(backend.schemaState.get()).toEqual({ status: 'ready' })
   })
 
-  it('refreshes choice options in root and subgraph scenes without rewriting stored choices', async () => {
+  // ComfyUI_frontend 2dde8ae00c36b43e0ec84bc6f3a60caad5119303:
+  // app.ts reloadNodeDefs replaces widget.options.values, not widget.value.
+  it.each([
+    ['replacement', ['new-option-a', 'new-option-b']],
+    ['empty', []],
+  ] as const)('refreshes %s choice options in root and subgraph scenes without rewriting stored choices', async (_label, refreshedOptions) => {
     const backend = app.backends.get()[0]!
     const oldOptions = ['old-option']
-    const refreshedOptions = ['new-option-a', 'new-option-b']
     backend.registry.set(choiceRegistry(backend, oldOptions))
     expect(app.openDocument({
       format: 'dinkster-workflow',
@@ -298,6 +302,7 @@ describe('addBackend / removeBackend', () => {
       view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
     }, 'Choice refresh')).toEqual([])
     const tab = app.activeTab()!
+    const storedBefore = JSON.stringify(tab.store.doc)
     vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(choiceRegistry(backend, refreshedOptions))
 
     await app.refreshBackendSchemas(backend)
@@ -325,6 +330,7 @@ describe('addBackend / removeBackend', () => {
       .find((row) => row.kind === 'widget')?.spec.options['options']).toEqual(refreshedOptions)
     expect(tab.store.doc.graphs.root!.nodes.rootChoice!.values.choice).toBe('retained-root')
     expect(tab.store.doc.graphs.body!.nodes.nestedChoice!.values.choice).toBe('retained-nested')
+    expect(JSON.stringify(tab.store.doc)).toBe(storedBefore)
   })
 
   it('publishes pack locale overlays live without refetching the schema catalog', async () => {

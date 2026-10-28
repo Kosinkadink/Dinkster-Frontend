@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: dfb4d7f451a5fbaba7b317a2a6e9facc1cd15ebd
+  DINKSTER_REF: a0434ba626acca9a4b2adfd240d67af50e2d3015
 
 jobs:
   validation-plan:
@@ -41,7 +41,7 @@ jobs:
               { name: 'parallel 4/6', project: 'parallel-safe', shard: '--shard=4/6' },
               { name: 'parallel 5/6', project: 'parallel-safe', shard: '--shard=5/6' },
               { name: 'parallel 6/6', project: 'parallel-safe', shard: '--shard=6/6' },
-              { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true },
+              { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2' },
               { name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },
               { name: 'performance', project: 'performance', shard: '' },
               { name: 'native startup', project: 'native-startup', shard: '' },
@@ -190,7 +190,7 @@ jobs:
           uv pip install --python .ci/Dinkster/.venv-torch/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           uv pip install --python .ci/Dinkster/.venv-torch/bin/python -r .ci/ComfyUI/requirements.txt
           uv pip install --python .ci/Dinkster/.venv-torch/bin/python --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match \
-            "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@c4ce40550e77f5a3b9b8d2f96597a4d6c24c1377" \
+            "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@9a9d0fd74ede9dea3058a0a63b2c5e9a8b00cb1c" \
             packaging "comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0" \
             "sentencepiece==0.2.1" "tokenizers==0.23.1"
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
@@ -198,12 +198,10 @@ jobs:
           CUDA_VISIBLE_DEVICES: ""
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - name: Install software Vulkan for hosted rendering
-        if: matrix.vulkan
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers
       - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
-        if: matrix.vulkan
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}
         env:
           # Match the software Vulkan driver available on CPU-only runners.

@@ -460,7 +460,7 @@ export class DocumentStore implements DocumentStoreContract {
       return {
         ok: false,
         diagnostics: [
-          diag('error', 'command', 'command.actor.invalid', `${invocation.command}: actor id ${JSON.stringify(invocation.actor)} is not a valid id fragment (safe set: [A-Za-z0-9_-]+)`),
+          diag('error', 'command', 'command.actor.invalid', `Actor ${JSON.stringify(invocation.actor)}: id contains characters outside [A-Za-z0-9_-]`),
         ],
       }
     }

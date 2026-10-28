@@ -139,11 +139,36 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   await selects.nth(0).selectOption({ label: 'Iteration 1' })
   await selects.nth(1).selectOption({ label: 'No-output step' })
   await expect(inspector).toContainText('This body node has no inspectable outputs.')
+  await page.evaluate(() => {
+    const tabs = window.__dinksterTest!.app.tabs
+    ;(tabs as typeof tabs & { set(value: ReturnType<typeof tabs.get>): void }).set([...tabs.get()])
+  })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const execution = [...app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'region-inspector-run')!
+    app.store.apply({
+      kind: 'nodeStates', execution: execution.ref, timestamp: Date.now(), snapshot: false,
+      nodes: { 'outer[0]/source': { state: 'running', value: 0.5 } },
+    } as never)
+  })
   if (proofDir !== undefined) {
     await page.screenshot({ path: join(proofDir, 'region-iteration-absent-output.png'), animations: 'disabled', fullPage: true })
   }
+  await expect(selects.nth(1)).toHaveValue('outer[0]/sink')
+  await expect(inspector).toContainText('This body node has no inspectable outputs.')
 
   await selects.nth(0).selectOption({ label: 'Iteration 2' })
+  await expect(inspector).toContainText('Cached or coalesced')
+  await expect(inspector).toContainText('outer[1]/source:value')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const execution = [...app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'region-inspector-run')!
+    app.store.apply({
+      kind: 'regionFinished', execution: execution.ref, timestamp: Date.now(),
+      runtimeNodeId: 'outer', iterations: 2,
+    } as never)
+  })
+  await expect(selects.nth(0)).toHaveValue(JSON.stringify([{ nodeId: 'outer', iteration: 1 }]))
   await expect(inspector).toContainText('Cached or coalesced')
   await expect(inspector).toContainText('outer[1]/source:value')
   if (proofDir !== undefined) {

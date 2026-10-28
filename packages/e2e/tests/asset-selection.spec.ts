@@ -40,29 +40,28 @@ test('native source choices preserve names, cancel, unavailable values and backe
   }
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
   await open()
-  await expect(page.getByTestId('asset-selection-choice')).toHaveText('old/source (unavailable)')
-  await expect(page.getByTestId('asset-selection-apply')).toBeDisabled()
-  await page.getByTestId('asset-selection-choice').click()
-  await expect(page.getByRole('option')).toHaveText(['old/source (unavailable)', 'datasets/portraits', 'datasets/landscapes'])
+  await expect(page.getByTestId('asset-selection-editor')).toContainText('old/source')
+  await expect(page.getByRole('button', { name: 'Use selection', exact: true })).toBeDisabled()
+  await expect(page.locator('[data-entry="datasets/portraits"]')).toBeVisible()
+  await expect(page.locator('[data-entry="datasets/landscapes"]')).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('source-choice-options.png') })
-  await page.locator('[data-option-id="datasets/landscapes"]').click()
+  await page.locator('[data-entry="datasets/landscapes"]').click()
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect(await value()).toBe('old/source')
   await open()
-  await page.getByTestId('asset-selection-choice').click()
-  await page.locator('[data-option-id="datasets/portraits"]').click()
-  await page.getByTestId('asset-selection-apply').click()
+  await page.locator('[data-entry="datasets/portraits"]').click()
+  await page.getByRole('button', { name: 'Use selection', exact: true }).click()
   expect(await value()).toBe('datasets/portraits')
   expect(new URL(queries[0]!).searchParams.get('kind')).toBe('directory/dataset')
   expect(new URL(queries[0]!).searchParams.get('project')).toBe('default')
   await open()
-  await expect(page.getByTestId('asset-selection-apply')).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Use selection', exact: true })).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('source-choice-ready.png') })
   await page.keyboard.press('Escape')
   fail = true
   await open()
-  await expect(page.getByTestId('asset-selection-editor')).toContainText('Source choices are unavailable')
-  await expect(page.getByTestId('asset-selection-apply')).toBeDisabled()
+  await expect(page.getByTestId('asset-selection-editor')).toContainText('GET asset selections failed: 503')
+  await expect(page.getByRole('button', { name: 'Use selection', exact: true })).toBeDisabled()
   await page.screenshot({ path: testInfo.outputPath('source-choice-error.png') })
   await page.keyboard.press('Escape')
   expect(await value()).toBe('datasets/portraits')
@@ -77,6 +76,8 @@ test('VAE source picker preserves file identity and rejects closed-editor and st
   let mode: 'closed' | 'ready' | 'stale' | 'new' = 'closed'
   let closedStarted = false
   let staleStarted = false
+  let closedFinished = false
+  let staleFinished = false
   await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'vae-source-contract', schemaWire: 1 },
@@ -93,6 +94,8 @@ test('VAE source picker preserves file identity and rejects closed-editor and st
       : requestMode === 'new' ? [{ name: 'new-epoch.vae', shape: 'file' }]
       : [{ name: 'pixel_space', shape: 'literal' }, { name: 'paired/taesd', shape: 'pair' }, { name: 'nested/new.vae', shape: 'file' }],
     } })
+    if (requestMode === 'closed') closedFinished = true
+    if (requestMode === 'stale') staleFinished = true
   })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
@@ -114,49 +117,49 @@ test('VAE source picker preserves file identity and rejects closed-editor and st
       return { x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x, y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
     })
     await page.mouse.click(point.x, point.y)
+    const back = page.getByRole('button', { name: 'Back to source options', exact: true })
+    if (await back.isVisible()) await back.click()
     await expect(page.getByTestId('asset-selection-editor')).toBeVisible()
   }
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
   await open()
   await expect.poll(() => closedStarted).toBe(true)
-  await expect(page.getByTestId('asset-selection-choice')).toHaveText('explicit.vae')
-  await expect(page.getByTestId('asset-selection-apply')).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Use selection', exact: true })).toBeDisabled()
   await page.keyboard.press('Escape')
   expect(await value()).toEqual(asset)
   mode = 'ready'
   await open()
-  await page.getByTestId('asset-selection-choice').click()
-  await expect(page.getByRole('option')).toHaveText(['explicit.vae', 'pixel_space', 'paired/taesd', 'nested/new.vae'])
-  const late = page.waitForResponse((response) => response.url().includes('/api/assets/selections') && response.request().method() === 'GET')
+  await expect(page.locator('[data-entry="pixel_space"]')).toBeVisible()
+  await expect(page.locator('[data-entry="paired/taesd"]')).toBeVisible()
+  await expect(page.locator('[data-entry="nested/new.vae"]')).toBeVisible()
   release()
-  await late
-  await expect(page.getByRole('option')).toHaveText(['explicit.vae', 'pixel_space', 'paired/taesd', 'nested/new.vae'])
+  await expect.poll(() => closedFinished).toBe(true)
+  await expect(page.locator('[data-entry="late/retired.vae"]')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('vae-reference-and-source-options.png') })
-  await page.locator('[data-option-id="paired/taesd"]').click()
+  await page.locator('[data-entry="paired/taesd"]').click()
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect(await value()).toEqual(asset)
   await open()
-  await page.getByTestId('asset-selection-choice').click()
-  await page.locator('[data-option-id="pixel_space"]').click()
-  await page.getByTestId('asset-selection-apply').click()
+  await page.locator('[data-entry="pixel_space"]').click()
+  await page.getByRole('button', { name: 'Use selection', exact: true }).click()
   expect(await value()).toBe('pixel_space')
   mode = 'stale'
   await open()
   await expect.poll(() => staleStarted).toBe(true)
-  await expect(page.getByTestId('asset-selection-apply')).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Use selection', exact: true })).toBeDisabled()
   mode = 'new'
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     await app.refreshBackendSchemas(app.backendForTab(app.activeTab()!))
   })
-  await page.getByTestId('asset-selection-choice').click()
-  await expect(page.getByRole('option')).toHaveText(['pixel_space (unavailable)', 'new-epoch.vae'])
-  const stale = page.waitForResponse((response) => response.url().includes('/api/assets/selections') && response.request().method() === 'GET')
+  await expect(page.locator('[data-entry="new-epoch.vae"]')).toBeVisible()
+  await expect(page.locator('[data-entry="pixel_space"]')).toHaveCount(0)
   releaseStale()
-  await stale
-  await expect(page.getByRole('option')).toHaveText(['pixel_space (unavailable)', 'new-epoch.vae'])
-  await expect(page.getByTestId('asset-selection-apply')).toBeDisabled()
-  await page.locator('[data-option-id="new-epoch.vae"]').click()
-  await page.getByTestId('asset-selection-apply').click()
+  await expect.poll(() => staleFinished).toBe(true)
+  await expect(page.locator('[data-entry="new-epoch.vae"]')).toBeVisible()
+  await expect(page.locator('[data-entry="pixel_space"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Use selection', exact: true })).toBeDisabled()
+  await page.locator('[data-entry="new-epoch.vae"]').click()
+  await page.getByRole('button', { name: 'Use selection', exact: true }).click()
   expect(await value()).toBe('new-epoch.vae')
 })

@@ -596,7 +596,7 @@ function buildEffectiveOccurrenceTopology(
       diagnostics.push(diag(
         'error', 'compile',
         opposite.has(key) ? 'occurrence.topology.endpointDirection' : 'occurrence.topology.endpointMissing',
-        `effective ${side} endpoint '${endpoint.endpoint.node}.${endpoint.endpoint.port}' is not a current ${side === 'source' ? 'output' : 'input'}`,
+        `${endpoint.endpoint.node}.${endpoint.endpoint.port}: ${side} port is unavailable`,
       ))
     }
     for (const link of [...links, ...projectedParentLinks]) {

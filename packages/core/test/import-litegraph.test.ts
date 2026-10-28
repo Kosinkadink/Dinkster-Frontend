@@ -1772,9 +1772,10 @@ describe('Autogrow endpoint reconstruction', () => {
       diagnostic.code === 'compile.bypass.structuralRouteDropped')
     expect(warnings).toHaveLength(1)
     expect(warnings[0]!.anchor?.occurrence).toEqual({ instancePath: [], node: 'n4' })
-    expect(warnings[0]!.message).toContain("input 'items.m0' at index 0")
-    expect(warnings[0]!.message).toContain('through [n4, n3]')
-    expect(warnings[0]!.message).toContain("producer 'n1' is muted or in an inactive occurrence")
+    expect(warnings[0]!.message).toBe('n4.items.m0: selected bypass route has no value')
+    expect(warnings[0]!.data).toMatchObject({
+      inputIndex: 0, route: ['n4', 'n3'], reason: "producer 'n1' is muted or in an inactive occurrence",
+    })
     expect(dead.artifact.prompt.n5!.inputs).toEqual({})
   })
 })

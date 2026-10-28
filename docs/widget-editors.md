@@ -1,5 +1,14 @@
 # Widget compact controls and expanded editors
 
+## Descriptor fields
+
+An unknown field on a known widget descriptor produces a
+`schema.widget.unknownField` warning naming the node, input and field. The
+decoder ignores that field and keeps the node and its supported widget
+settings. Missing required fields and mistyped known fields still reject the
+node with a schema error. Unknown non-empty widget type names remain custom
+pack descriptors, preserving their JSON parameters for widget-kind lookup.
+
 ## Button actions
 
 BUTTON is stateless, with a null default and the `core.button` view. Its
@@ -31,6 +40,10 @@ precision 2. False or absent round preserves parsed precision; step affects
 slider movement, not typed-text rounding. Display precision never changes the
 stored value. The native NUMBER descriptor currently carries round but not
 precision; explicit precision is honored when supplied by a WidgetSpec.
+The reference is ComfyUI_frontend `2dde8ae00c36b43e0ec84bc6f3a60caad5119303`,
+`useFloatWidget.ts`'s `onFloatValueChange` callback, used by NumberWidget.
+`widget-commit.test.ts` states independent expected values, including negative
+half-step ties toward positive infinity and explicit zero precision.
 
 ## Numeric union inputs
 
@@ -40,6 +53,39 @@ member order; importing a workflow preserves integer and fractional values.
 Named numeric representations use the same binding. Mixed nonnumeric unions
 and list-of-union widgets are not numeric editor domains. Concrete INT inputs
 retain their exact-integer editor and decimal-string precision handling.
+
+A forced concrete FLOATS input may carry NUMBER presentation while retaining
+its FLOATS socket, default, bounds, step, and connection requirement. Unforced
+FLOATS, list wrappers and mixed FLOATS unions are not numeric editor domains.
+COLOR widgets accept concrete COLOR or STRING inputs without rewriting the
+socket or stored hexadecimal value. Named representations obey the same rules.
+
+## Source-named asset selections
+
+An ASSET descriptor with `selection: true` preserves source option names for
+exact kinds `model/vae`, `model/diffusers`, `directory/input`, and
+`directory/dataset`. Its socket stays scalar COMBO, or the VAE-only
+COMBO/ASSET union. Upload is not allowed in this mode. Ordinary ASSET
+descriptors keep their existing file-reference contract.
+
+The editing connection reads current names and shapes from
+`GET /api/assets/selections?kind=...`. Responses contain no host roots.
+Import retains these strings rather than matching a pair, directory, or
+file-free option to a catalog file. Compilation stamps the selected union
+arm as COMBO for a source name or ASSET for an existing file descriptor;
+directory COMBO values stay unchanged. The server revalidates current grants
+at execution.
+
+The selection dialog uses the shared searchable CollectionPanel and stages
+one original source name. Its right rail distinguishes files, same-root
+pairs, read-only directories, and file-free literals. Refresh re-reads current
+grants; an unavailable staged name cannot be applied. Cancel preserves the
+stored value. VAE's Browse files action opens the existing model-file picker
+for an explicit file descriptor, and reopening a stored descriptor keeps that
+file picker. This action requires the COMBO/ASSET union; scalar COMBO sockets
+offer source names only. Switching picker modes preserves each mode's staged
+choice without committing it. No upload or arbitrary-path entry is offered
+for source options.
 
 ## Primitive list inputs
 
@@ -108,7 +154,10 @@ change.
 
 Refreshing backend schemas replaces the options shown by COMBO widgets in root
 and subgraph scenes. Stored selections remain document values, including a
-selection that the refreshed vocabulary no longer lists.
+selection that the refreshed vocabulary no longer lists, or an empty refreshed
+list. This follows the same reference's `app.ts` `refreshComboInNodes` and
+`reloadNodeDefs`: replace option vocabulary without assigning widget values.
+`backends.test.ts` asserts both scene vocabularies and an unchanged document.
 
 ## Product number, slider, and color controls
 
@@ -188,8 +237,8 @@ node-input multiline STRING in the `core.text` representation is edited
 directly in its painted rectangle instead. The popovers are non-draggable,
 non-resizable, canvas-stage-clamped, and close through Escape, Cancel, a
 committed selection, or an outside click. Native ASSET source selections use
-the same compact popover with backend-provided names from
-`/api/assets/selections`, scoped to the editing tab and project. Apply writes
+the searchable product dialog with backend-provided names from
+`/api/assets/selections`, scoped to the editing tab and project. Use selection writes
 the exact selected name; unavailable stored names remain visible but cannot
 be applied. Cancel preserves the stored value, including a VAE asset reference.
 Ordinary ASSET strings remain unresolved filenames, not source selections.

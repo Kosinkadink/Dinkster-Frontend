@@ -207,7 +207,7 @@ describe('fast pull-request and full validation workflows', () => {
       "{ name: 'parallel 4/6', project: 'parallel-safe', shard: '--shard=4/6' },",
       "{ name: 'parallel 5/6', project: 'parallel-safe', shard: '--shard=5/6' },",
       "{ name: 'parallel 6/6', project: 'parallel-safe', shard: '--shard=6/6' },",
-      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2', vulkan: true },",
+      "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2' },",
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
       "{ name: 'native startup', project: 'native-startup', shard: '' },",
@@ -319,7 +319,7 @@ describe('fast pull-request and full validation workflows', () => {
     const installVulkan = hostedSteps.find(
       (step) => step.name === 'Install software Vulkan for hosted rendering',
     )!
-    expect(installVulkan.if).toBe('matrix.vulkan')
+    expect(installVulkan.if).toBeUndefined()
     expect(installVulkan.run).toContain(
       'sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers',
     )
@@ -475,7 +475,7 @@ describe('fast pull-request and full validation workflows', () => {
           (step) => step.name === 'Install hosted compatibility dependencies',
         )!
         expect(compatibilityInstall.run).toContain(
-          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@c4ce40550e77f5a3b9b8d2f96597a4d6c24c1377',
+          'dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@9a9d0fd74ede9dea3058a0a63b2c5e9a8b00cb1c',
         )
         expect(compatibilityInstall.run).toContain(
           'uv pip install --python .ci/Dinkster/.venv-torch/bin/python',

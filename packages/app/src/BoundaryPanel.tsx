@@ -128,8 +128,8 @@ export function BoundaryPanel(props: { app: AppState }) {
 
   /**
    * Boundary diagnostics for the edited definition, from the SAME derivation
-   * the canvas uses. Matching an item by the quoted id in the message is a
-   * stopgap until diagnostics carry structured targets.
+   * the canvas uses. Prefer structured targets; messages without refs still
+   * identify their boundary item with a quoted id.
    */
   const boundaryDerivation = () => {
     const ctx = editedDef()
@@ -145,7 +145,7 @@ export function BoundaryPanel(props: { app: AppState }) {
     )
 
   const diagsFor = (item: BoundaryItem): readonly Diagnostic[] =>
-    boundaryDiags().filter((d) => d.message.includes(`'${item.id}'`))
+    boundaryDiags().filter((d) => d.refs?.some((ref) => ref.portId === item.id) ?? d.message.includes(`'${item.id}'`))
 
   const defaultItemName = (side: 'inputs' | 'outputs', item: BoundaryItem): string => {
     const fallback = defaultBoundaryLabels(editedDef()?.def.boundary?.[side] ?? []).get(item.id) ?? 'Boundary'

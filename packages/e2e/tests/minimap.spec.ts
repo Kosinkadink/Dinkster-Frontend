@@ -350,9 +350,18 @@ test('ordinary and narrow layouts keep controls disjoint and canvas interaction 
     // and above it when a side panel or narrow window leaves none; either
     // way it stays in the viewport and never covers the minimap or the bar
     // controls, which stay visible and in place.
-    const menu = (await page.locator('.minimap-menu').boundingBox())!
-    if (menuPlacement === 'beside') expect(menu.x + menu.width).toBeLessThanOrEqual(panel!.x)
-    else expect(menu.y + menu.height).toBeLessThanOrEqual(panel!.y)
+    // Responsive shell layout can move the cluster after the pre-open checks.
+    // Compare both surfaces in one layout snapshot, not different resize frames.
+    const { menu, minimap } = await page.locator('.minimap-menu').evaluate((element) => {
+      const menu = element.getBoundingClientRect()
+      const minimap = document.querySelector('[data-testid="minimap"]')!.getBoundingClientRect()
+      return {
+        menu: { x: menu.x, y: menu.y, width: menu.width, height: menu.height },
+        minimap: { x: minimap.x, y: minimap.y },
+      }
+    })
+    if (menuPlacement === 'beside') expect(menu.x + menu.width).toBeLessThanOrEqual(minimap.x)
+    else expect(menu.y + menu.height).toBeLessThanOrEqual(minimap.y)
     expect(menu.x).toBeGreaterThanOrEqual(0)
     expect(menu.y).toBeGreaterThanOrEqual(0)
     expect(menu.x + menu.width).toBeLessThanOrEqual(size.width)

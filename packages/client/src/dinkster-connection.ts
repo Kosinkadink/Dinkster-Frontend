@@ -198,7 +198,7 @@ export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): 
             'submit.unresolvedLink',
             producer === undefined
               ? `node '${nodeId}' input '${inputId}' links to missing node '${producerId}'`
-              : `node '${nodeId}' input '${inputId}' links to '${producer.class_type}' output #${outputIndex}, which its ${compilerOutputs.has(producerId) ? 'compiler outputIds' : 'schema'} does not declare`,
+              : `${nodeId}.${inputId}: ${producer.class_type} has no output #${outputIndex}`,
           ),
         )
         continue
@@ -899,6 +899,11 @@ export interface MissingAsset {
   readonly kind?: string
   readonly size?: number
   readonly packagedFrom?: readonly string[]
+}
+
+export interface AssetSelectionOption {
+  readonly name: string
+  readonly shape: 'file' | 'pair' | 'directory' | 'literal'
 }
 
 export interface MountDescriptor {
@@ -2098,7 +2103,7 @@ export class DinksterConnection {
             'submit.staleSchemas',
             registry === undefined
               ? 'schemas have not been fetched on this connection'
-              : `artifact compiled against schema hash '${artifact.schemaHash}', connection has '${registry.hash}' - recompile`,
+              : `Compiled workflow: backend ${this.id} schemas have changed`,
           ),
         ],
       }
@@ -2143,7 +2148,7 @@ export class DinksterConnection {
           'error',
           'compile',
           'submit.placementInvalid',
-          `worker placement references non-active top-level node${missingPlacementNodes.length === 1 ? '' : 's'}: ${missingPlacementNodes.map((id) => `'${id}'`).join(', ')}`,
+          `Worker placement: nodes ${missingPlacementNodes.join(', ')} are not active at the root`,
         )],
       }
     }
@@ -2681,6 +2686,31 @@ export class DinksterConnection {
 
   async listMounts(): Promise<readonly MountDescriptor[]> {
     return (await this.fetchMountSettings()).mounts
+  }
+
+  async listAssetSelections(kind: string, signal?: AbortSignal, project?: string): Promise<readonly AssetSelectionOption[]> {
+    if (!['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(kind)) {
+      throw new Error('Unsupported asset selection kind')
+    }
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind, ...(project === undefined ? {} : { project }) })}`, signal === undefined ? undefined : { signal })
+    if (!res.ok) throw new Error(`GET asset selections failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed asset selections')
+    const body = payload as Record<string, unknown>
+    if (Object.keys(body).some((key) => key !== 'kind' && key !== 'options') || body['kind'] !== kind || !Array.isArray(body['options'])) {
+      throw new Error('Malformed asset selections')
+    }
+    const names = new Set<string>()
+    return body['options'].map((value: unknown) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Malformed asset selection option')
+      const option = value as Record<string, unknown>
+      const shapes = kind === 'model/vae' ? ['file', 'pair', 'literal'] : ['directory']
+      if (Object.keys(option).some((key) => key !== 'name' && key !== 'shape') ||
+        typeof option['name'] !== 'string' || option['name'] === '' || names.has(option['name']) ||
+        typeof option['shape'] !== 'string' || !shapes.includes(option['shape'])) throw new Error('Malformed asset selection option')
+      names.add(option['name'])
+      return { name: option['name'], shape: option['shape'] as AssetSelectionOption['shape'] }
+    })
   }
 
   async selectOutputMount(id: string): Promise<void> {

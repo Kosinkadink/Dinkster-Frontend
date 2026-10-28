@@ -63,6 +63,32 @@ const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPrompt
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+it('reads live source selections from the editing connection and rejects malformed options', async () => {
+  let payload: unknown = { kind: 'model/vae', options: [
+    { name: 'vendor/vae.safetensors', shape: 'file' },
+    { name: 'taesd', shape: 'pair' }, { name: 'pixel_space', shape: 'literal' },
+  ] }
+  const fetchFn = vi.fn<FetchLike>(async () => jsonResponse(200, payload))
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/native', clientId: 'selection', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  expect(await connection.listAssetSelections('model/vae')).toEqual((payload as { options: unknown }).options)
+  expect(fetchFn.mock.calls[0]?.[0]).toBe('/native/api/assets/selections?kind=model%2Fvae')
+  payload = { kind: 'directory/input', options: [{ name: 'train/set', shape: 'directory' }] }
+  expect(await connection.listAssetSelections('directory/input')).toEqual([{ name: 'train/set', shape: 'directory' }])
+  for (const invalid of [
+    { kind: 'model/vae', options: [{ name: 'a', shape: 'directory' }] },
+    { kind: 'model/vae', options: [{ name: 'a', shape: 'file', path: '/host/private' }] },
+    { kind: 'model/vae', options: [{ name: 'a', shape: 'file' }, { name: 'a', shape: 'pair' }] },
+    { kind: 'model/vae', options: [{ name: '', shape: 'literal' }] },
+    { kind: 'directory/input', options: [] },
+    { kind: 'model/vae', options: [], root: '/host/private' },
+  ]) {
+    payload = invalid
+    await expect(connection.listAssetSelections('model/vae')).rejects.toThrow('Malformed')
+  }
+  await expect(connection.listAssetSelections('model/*')).rejects.toThrow('Unsupported')
+})
+
 it('includes output profile detector revision in registry identity', () => {
   const payload = (revision: string): DinksterNodesPayload => ({
     schemaVersion: 1,
@@ -1020,7 +1046,7 @@ describe('promptToDinksterGraph', () => {
       expect(result.ok).toBe(false)
       if (result.ok) throw new Error('unreachable')
       expect(result.diagnostics[0]?.code).toBe('submit.unresolvedLink')
-      expect(result.diagnostics[0]?.message).toContain('compiler outputIds')
+      expect(result.diagnostics[0]?.message).toBe(`sink.a: std.math.add_ints has no output #${index}`)
     },
   )
 

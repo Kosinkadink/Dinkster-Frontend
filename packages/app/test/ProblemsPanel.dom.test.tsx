@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { createSignal as createSolidSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
@@ -140,16 +141,14 @@ describe('ProblemsPanel browser interactions', () => {
       'shell.panel.problems.title': '[Probleme]',
       'problems.action.showInFocused': '[Im Fokus zeigen]',
       'problems.action.showOnCanvas': '[Auf Leinwand zeigen]',
-      'problems.compat.advisory': '[HINWEIS]',
-      'problems.compat.description': '[Nicht in den Katalog aufgenommen.]',
-      'problems.compat.title': '[Kompatibilitatssprunge]',
+      'problems.section.packs': '[Pakete und Backend]',
       'problems.empty': '[Keine Probleme.]',
       'problems.hint.code': '[Diagnosecode: {code}]',
     })
     const panelDiagnostics = createSignal<readonly Diagnostic[]>(diagnostics)
-    const compatSkips = createSignal([{ packId: 'raw-pack', nodeId: 'RawNode', reason: 'raw refusal reason' }])
+    const [compatSkips, setCompatSkips] = createSolidSignal([{ packId: 'raw-pack', nodeId: 'RawNode', reason: 'raw refusal reason' }])
     const shown: Diagnostic[] = []
-    const { root, unmount } = mountPanel((diagnostic) => shown.push(diagnostic), panelDiagnostics.get, compatSkips.get)
+    const { root, unmount } = mountPanel((diagnostic) => shown.push(diagnostic), panelDiagnostics.get, compatSkips)
     const panel = root.querySelector<HTMLElement>('[data-testid="problems-panel"]')!
     const group = root.querySelector<HTMLElement>('.problems-group')!
     const details = root.querySelector<HTMLDetailsElement>('details.problem')!
@@ -162,10 +161,7 @@ describe('ProblemsPanel browser interactions', () => {
     expect(root.querySelector('h2')!.textContent).toBe('[Probleme]')
     expect(root.querySelector<HTMLButtonElement>('.problem-show-on-canvas')!.textContent).toBe('[Auf Leinwand zeigen]')
     expect(root.querySelector<HTMLButtonElement>('.problem-show-in-context')!.textContent).toBe('[Im Fokus zeigen]')
-    expect(root.querySelector<HTMLElement>('.compat-skips-group')!.getAttribute('aria-label')).toBe('[Kompatibilitatssprunge]')
-    expect(root.querySelector<HTMLElement>('.compat-skips-group .problems-group-title')!.textContent).toBe('[Kompatibilitatssprunge]')
-    expect(root.querySelector<HTMLElement>('.compat-skips-group .problems-group-severity')!.textContent).toBe('[HINWEIS]')
-    expect(root.querySelector<HTMLElement>('.compat-skips-explanation')!.textContent).toBe('[Nicht in den Katalog aufgenommen.]')
+    expect(root.querySelector<HTMLElement>('[data-section="packs"] .problems-group-title')!.textContent).toBe('[Pakete und Backend]')
     expect(root.querySelector<HTMLElement>('.runtime-error-hint-code')!.getAttribute('aria-label')).toBe('[Diagnosecode: repair]')
     expect(root.querySelector<HTMLElement>('.runtime-error-hint-code')!.getAttribute('data-tooltip-label')).toBe('[Diagnosecode: repair]')
     expect(root.textContent).toContain('runtime.exploded')
@@ -180,6 +176,11 @@ describe('ProblemsPanel browser interactions', () => {
     expect(details.open).toBe(true)
     expect(shown).toEqual([])
 
+    setCompatSkips([{ packId: 'updated-pack', nodeId: 'UpdatedNode', reason: 'updated refusal reason' }])
+    expect(root.textContent).toContain('updated refusal reason')
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    expect(root.querySelector('.runtime-error-hint')!.textContent).toContain('Select this complete repair hint')
+
     unmount()
     document.body.replaceChildren()
     setLocale('en')
@@ -192,7 +193,7 @@ describe('ProblemsPanel browser interactions', () => {
     empty.unmount()
   })
 
-  it('keeps group and diagnostic disclosure native and separates canvas activation', () => {
+  it('keeps disclosure native and navigates when anchored rows are clicked', () => {
     const { diagnosticFocus, root, unmount } = mountPanel()
     const groupButtons = root.querySelectorAll<HTMLButtonElement>('.problems-group-header')
     expect(groupButtons).toHaveLength(2)
@@ -205,18 +206,21 @@ describe('ProblemsPanel browser interactions', () => {
     const details = root.querySelectorAll<HTMLDetailsElement>('details.problem')
     const errorSummary = details[0]!.querySelector('summary')!
     const warningSummary = details[1]!.querySelector('summary')!
+    expect(details[0]!.querySelectorAll('.problem-message')).toHaveLength(1)
+    expect(details[0]!.querySelector('.problem-detail')!.textContent).not.toContain(diagnostics[0]!.message)
+    expect(errorSummary.getAttribute('title')).toBe(diagnostics[0]!.message)
     errorSummary.click()
     warningSummary.click()
     expect(details[0]!.open).toBe(true)
     expect(details[1]!.open).toBe(true)
     expect(details[1]!.textContent).toContain('Nested warning guidance.')
-    expect(diagnosticFocus.get()).toBeUndefined()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: diagnostics[1]!.anchor })
 
     errorSummary.click()
     warningSummary.click()
     expect(details[0]!.open).toBe(false)
     expect(details[1]!.open).toBe(false)
-    expect(diagnosticFocus.get()).toBeUndefined()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: diagnostics[1]!.anchor })
 
     errorSummary.click()
     details[0]!.querySelector<HTMLButtonElement>('.problem-show-on-canvas')!.click()
@@ -264,7 +268,7 @@ describe('ProblemsPanel browser interactions', () => {
     expect([selectStart, pointerDown, pointerMove, pointerUp].every((event) => !event.defaultPrevented)).toBe(true)
     expect(selection.toString()).toBe(selected)
     expect(details.open).toBe(true)
-    expect(diagnosticFocus.get()).toBeUndefined()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: diagnostics[0]!.anchor })
 
     let canvasCopies = 0
     const routeCanvasCopy = (event: KeyboardEvent): void => {

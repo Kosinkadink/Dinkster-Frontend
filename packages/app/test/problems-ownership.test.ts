@@ -49,6 +49,19 @@ const shownCodes = (activeTabId: string): readonly string[] =>
   visibleProblems(app.problems.get(), new Set([activeTabId])).map((d) => d.code)
 
 describe('problems ownership', () => {
+  it('dismisses only the selected workflow import notices', () => {
+    const a = open('lin-import-a')
+    const b = open('lin-import-b')
+    app.reportProblems(a.id, [diag('info', 'import', 'import.notice', 'Seed format is upgraded')])
+    app.reportProblems(b.id, [
+      diag('info', 'import', 'import.notice', 'Seed format is upgraded'),
+      diag('error', 'compile', 'compile.input.missing', 'Sampler model: required input has no connection'),
+    ])
+    app.dismissImportProblems()
+    expect(shownCodes(a.id)).toEqual(['import.notice'])
+    expect(shownCodes(b.id)).toEqual(['compile.input.missing'])
+  })
+
   it('deduplicates report ingress and accepts an entry again after clearing', () => {
     const tab = open('lin-dedupe')
     const diagnostic = diag('warning', 'command', 'boundary.bindKind', 'family forwarding cannot fan out')
@@ -151,13 +164,14 @@ describe('problems ownership', () => {
     const a = open('lin-a')
     const b = open('lin-b')
     app.reportProblems(a.id, [diag('error', 'compile', 'a.problem', 'A')])
-    app.reportProblems(b.id, [diag('error', 'compile', 'b.problem', 'B')])
+    app.reportProblems(b.id, [diag('error', 'compile', 'b.problem', 'B'), diag('info', 'import', 'import.notice', 'B: saved seed format is upgraded')])
     app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'schema', 'global.problem', 'G')])
     app.closeTab(b.id)
     const codes = app.problems.get().map((d) => d.code)
     expect(codes).toContain('a.problem')
     expect(codes).toContain('global.problem')
     expect(codes).not.toContain('b.problem')
+    expect(codes).not.toContain('import.notice')
   })
 
   it('replacing a document (same lineage) replaces its diagnostics, not others\'', () => {

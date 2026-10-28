@@ -652,7 +652,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
       if (isSelectorRef(link.from) && link.from.candidate !== undefined) {
         // I11: candidate endpoints consume, never produce
         diags.push(
-          diag('error', 'invariant', 'doc.link.selectorCandidateSource', where(`link '${link.id}' sources selector candidate '${link.from.selector}/${link.from.candidate}' (candidates cannot produce)`)),
+          diag('error', 'invariant', 'doc.link.selectorCandidateSource', where(`Link ${link.id}: selector candidate ${link.from.selector}/${link.from.candidate} cannot produce values`)),
         )
       }
     }
@@ -676,7 +676,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
           const existing = drivenSelectorCandidates.get(key)
           if (existing !== undefined) {
             diags.push(
-              diag('error', 'invariant', 'doc.selector.multiDriver', where(`selector candidate '${link.to.selector}/${link.to.candidate}' driven by both link '${existing.id}' and link '${link.id}'`)),
+              diag('error', 'invariant', 'doc.selector.multiDriver', where(`Selector ${link.to.selector}/${link.to.candidate}: links ${existing.id} and ${link.id} both drive this candidate`)),
             )
           } else {
             drivenSelectorCandidates.set(key, link)

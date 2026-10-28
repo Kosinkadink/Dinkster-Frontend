@@ -385,8 +385,8 @@ export function App(props: {
       app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
         'error', 'validation', 'deepLink.backendNotConnected',
         link.backendUrl !== undefined
-          ? `the workflow link names a server that is not connected: ${link.backendUrl}. Connect it from the Backends panel, then follow the link again.`
-          : 'the workflow link targets the default backend, but no backend is available',
+          ? `Workflow link: server ${link.backendUrl} is not connected`
+          : 'Workflow link: default backend is unavailable',
       )])
       return
     }
@@ -516,6 +516,8 @@ export function App(props: {
   let endRegionResize: (() => void) | undefined
   const beginResize = (region: ShellRegion, sign: 1 | -1) => (down: PointerEvent): void => {
     endRegionResize?.()
+    if (region === 'left') app.shell.previewSize(region, renderedDockWidth())
+    if (region === 'right') app.shell.previewSize(region, renderedRailWidth())
     endRegionResize = beginRegionResize(app.shell, region, down, sign)
   }
   const resizeFromKeyboard = (region: ShellRegion) => (value: number): void => {
@@ -1798,6 +1800,34 @@ export function App(props: {
   const leftOpen = () => zoneOpen('left') && leftPanels().length > 0
   const bottomOpen = () => zoneOpen('bottom') && bottomZonePanels().length > 0
   let bodyElement!: HTMLDivElement
+  const [sideSpace, setSideSpace] = createSolidSignal<number>()
+  onMount(() => {
+    const sidebar = bodyElement.querySelector<HTMLElement>(':scope > .left-sidebar')!
+    const measure = (): void => {
+      setSideSpace(bodyElement.clientWidth <= 520
+        ? undefined
+        : Math.max(0, bodyElement.clientWidth - sidebar.getBoundingClientRect().width - 320))
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(bodyElement)
+    observer.observe(sidebar)
+    measure()
+    onCleanup(() => observer.disconnect())
+  })
+  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace() ?? dockWidth()))
+  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace() ?? railWidth()))
+  let previousRailOpen = railOpen()
+  createEffect(() => {
+    const right = railOpen()
+    const left = leftOpen()
+    const space = sideSpace()
+    const openedRail = right && !previousRailOpen
+    previousRailOpen = right
+    if (space !== undefined && left && right && dockWidth() + railWidth() > space) {
+      // Preserve a newly opened region; shrinking the window closes the rail.
+      app.dock.setOpen(openedRail ? 'left' : 'right', false)
+    }
+  })
   const [panelDrag, setPanelDrag] = createSolidSignal<PanelDragModel>()
   let panelDragPointerId: number | undefined
   let disposePanelDrag: (() => void) | undefined
@@ -2373,7 +2403,18 @@ export function App(props: {
               <ProductButton type="button" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</ProductButton>
             </div>
           </Show>
-          <div class="canvas-stage-toolbar">
+          <div class="canvas-stage-toolbar" ref={(toolbar) => {
+            onMount(() => {
+              const stage = toolbar.parentElement!
+              const measure = (): void => {
+                stage.style.setProperty('--canvas-toolbar-bottom', `${toolbar.offsetTop + toolbar.offsetHeight}px`)
+              }
+              const observer = new ResizeObserver(measure)
+              observer.observe(toolbar)
+              measure()
+              onCleanup(() => observer.disconnect())
+            })
+          }}>
             <CanvasViewControls
               drilled={paneEditorKind() === GRAPH_EDITOR_KIND && paneGraphStackDepth() > 1}
               disabled={!paneActiveTab() || paneActiveTab()!.execution !== undefined}
@@ -2656,10 +2697,10 @@ export function App(props: {
                     tooltip={panel.description ?? panel.title}
                     pressed={sidebarPressed(panel.id)}
                     panelId={panel.id}
-                    suppressTooltipWhenPressed={panel.id === 'assets' || panel.id === 'backends'}
+                    suppressTooltipWhenPressed={true}
                     testId={panel.toggleTestId}
                     onActivate={() => {
-                      if (panel.id === 'assets' || panel.id === 'backends') tooltips.hide()
+                      tooltips.hide()
                       toggleSidebarPanel(panel.id)
                     }}
                   />
@@ -2701,7 +2742,7 @@ export function App(props: {
             data-testid="dock-panel"
             data-active-panel={leftActiveId()}
             aria-label={message('shell.primaryDockPanels')}
-            style={{ width: `${dockWidth()}px` }}
+            style={{ width: `${renderedDockWidth()}px` }}
           >
             <DockZoneHost
               zone="left"
@@ -2717,7 +2758,7 @@ export function App(props: {
             <ShellResizeHandle
               region="left"
               label={message('shell.resize.primaryDockPanels')}
-              value={dockWidth()}
+              value={renderedDockWidth()}
               min={REGION_SIZE_BOUNDS.left.min}
               max={REGION_SIZE_BOUNDS.left.max}
               testId="dock-resize"
@@ -2807,11 +2848,11 @@ export function App(props: {
           </Show>
         </main>
 
-        <Show when={railOpen()}><aside class="rail" aria-label={message('shell.inspectorPanels')} style={{ width: `${railWidth()}px` }}>
+        <Show when={railOpen()}><aside class="rail" aria-label={message('shell.inspectorPanels')} style={{ width: `${renderedRailWidth()}px` }}>
           <ShellResizeHandle
             region="right"
             label={message('shell.resize.inspectorPanels')}
-            value={railWidth()}
+            value={renderedRailWidth()}
             min={REGION_SIZE_BOUNDS.right.min}
             max={REGION_SIZE_BOUNDS.right.max}
             testId="rail-resize"
@@ -3032,7 +3073,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
       }
     }
     return { media: [...media].sort(), layers: [...layers].sort() }
-  })
+  }, undefined, { equals: (previous, next) => canonicalJson(previous) === canonicalJson(next) })
   const mediaValueGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly identities: string[] }>()
     for (const identity of outputIdentities().media) {

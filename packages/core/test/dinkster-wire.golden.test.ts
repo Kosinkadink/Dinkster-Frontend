@@ -346,6 +346,190 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('keeps known widgets with unknown descriptor fields and ignores the fields', () => {
+    const cases = [
+      ['ASSET', concrete('ASSET'), { accept: ['image/png'] }, 'ASSET'],
+      ['MOUNT', concrete('STRING'), {}, 'MOUNT'],
+      ['COMBO', concrete('COMBO'), { options: ['a'] }, 'COMBO'],
+      ['MULTI_COMBO', { kind: 'list', element: concrete('COMBO') }, { options: ['a'] }, 'MULTI_COMBO'],
+      ['BOOLEAN', concrete('BOOLEAN'), { labelOn: 'On' }, 'BOOLEAN'],
+      ['NUMBER', concrete('FLOAT'), { min: 0 }, 'FLOAT'],
+      ['STRING', concrete('STRING'), { multiline: true }, 'STRING'],
+      ['COLOR', concrete('STRING'), {}, 'COLOR'],
+      ['CURVE', concrete('CURVE'), {}, 'CURVE'],
+      ['COMPOSITOR', concrete('COMPOSITOR'), {}, 'COMPOSITOR'],
+      ['NUMBER', { kind: 'list', element: concrete('INT') }, { min: 0 }, 'LIST'],
+      ['REPRESENTATIONS', concrete('STRING'), {
+        default: 'color', userSwitchable: true,
+        representations: [{ id: 'color', widget: { type: 'COLOR' } }],
+      }, 'COLOR'],
+    ] as const
+    for (const [type, socket, fields, widgetType] of cases) {
+      const input = { role: 'input', id: 'value', type: socket, required: true, widget: { type, ...fields } }
+      const clean = parseDinksterSchema('Example', { interface: [input] })
+      const result = parseDinksterSchema('Example', {
+        interface: [{ ...input, widget: { ...input.widget, futureHint: 'new' } }],
+      })
+      expect(clean.schema, type).toBeDefined()
+      expect(result.schema, type).toEqual(clean.schema)
+      expect(inputsOf(result.schema!)[0]!.widget?.widgetType).toBe(widgetType)
+      expect(result.diagnostics).toEqual([{
+        severity: 'warning', origin: 'schema', code: 'schema.widget.unknownField',
+        message: `Example.value ${type === 'REPRESENTATIONS' ? 'REPRESENTATIONS ' : ''}widget: unknown field 'futureHint'`,
+      }])
+    }
+  })
+
+  it('keeps missing and mistyped known widget fields as unresolved schema errors', () => {
+    for (const widget of [{ type: 'ASSET' }, { type: 'ASSET', accept: 7 }, { type: 'ASSET', accept: [], selection: 'yes' }]) {
+      const result = parseDinksterSchema('Invalid', {
+        interface: [{ role: 'input', id: 'image', type: concrete('ASSET'), required: true, widget }],
+      })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics).toEqual([expect.objectContaining({
+        severity: 'error', origin: 'schema', code: 'schema.parse.threw',
+      })])
+    }
+  })
+
+  it('isolates a real catalog error from an additive widget warning', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
+    const valid = { interface: [{ role: 'input', id: 'image', type: concrete('ASSET'), required: true,
+      widget: { type: 'ASSET', accept: [], futureHint: true } }] }
+    const warningOnly = parseDinksterNodes({ ...fixture, nodes: { Additive: valid } })
+    expect([...warningOnly.schemas.keys()]).toEqual(['Additive'])
+    expect(warningOnly.diagnostics.map(({ severity, code }) => ({ severity, code }))).toEqual([
+      { severity: 'warning', code: 'schema.widget.unknownField' },
+    ])
+    expect(warningOnly.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    const mixed = parseDinksterNodes({ ...fixture, nodes: { Additive: valid, Invalid: {
+      interface: [{ role: 'input', id: 'image', type: concrete('ASSET'), required: true, widget: { type: 'ASSET' } }],
+    } } })
+    expect([...mixed.schemas.keys()]).toEqual(['Additive'])
+    expect(mixed.diagnostics.map(({ severity, code }) => ({ severity, code }))).toEqual([
+      { severity: 'warning', code: 'schema.widget.unknownField' },
+      { severity: 'error', code: 'schema.parse.threw' },
+    ])
+    expect(mixed.diagnostics.filter((item) => item.severity === 'error')).toHaveLength(1)
+  })
+
+  it('preserves source selection names through import and stamps only the VAE union arm', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
+    const file = { digest: `blake3:${'a'.repeat(64)}`, name: 'vae.safetensors', size: 4,
+      mediaType: 'application/octet-stream', virtualPath: 'mount/vae.safetensors' }
+    for (const [kind, value] of [
+      ['model/vae', 'pixel_space'], ['model/vae', 'taesd'], ['model/vae', file],
+      ['model/diffusers', 'vendor/model'], ['directory/input', 'train/set'], ['directory/dataset', 'dataset'],
+    ] as const) {
+      const parsed = parseDinksterSchema('Loader', fixture.nodes[`test.selection_${kind.replace('/', '_')}`])
+      expect(parsed.diagnostics).toEqual([])
+      expect(inputsOf(parsed.schema!)[0]!.widget).toMatchObject({ widgetType: 'ASSET', selection: true, kind })
+      const resolve = (type: string) => type === 'Loader' ? parsed.schema : undefined
+      const imported = importLitegraph({ version: 0.4, nodes: [{ id: 1, type: 'Loader', widgets_values: [value] }], links: [] }, resolve)
+      expect(imported.document).toBeDefined()
+      const preserved = resolveImportedAssetLiterals(imported.document!, resolve, () => file)
+      expect(preserved.unresolved).toEqual([])
+      const compiled = compile({ document: preserved.document, revision: 1, resolve, scope: { kind: 'full' },
+        connection: asConnectionId('selection'), schemaHash: 'selection', graphFeatures: ['typedLiteral'] })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('selection compilation failed')
+      expect(compiled.artifact.prompt.n1!.inputs['name']).toEqual(kind === 'model/vae'
+        ? { $typed: { type: typeof value === 'string' ? 'COMBO' : 'ASSET', value } } : value)
+    }
+  })
+
+  it('admits source selections only on the declared exact-kind scalar sockets', () => {
+    const widget = { type: 'ASSET', accept: [], selection: true, kind: 'model/vae' }
+    const union = { kind: 'union', types: ['COMBO', 'ASSET'] }
+    const decode = (type: unknown, descriptor: unknown) => parseDinksterSchema('Selection', {
+      interface: [{ role: 'input', id: 'name', type, required: true, widget: descriptor }],
+    })
+    for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
+      const parsed = decode(concrete('COMBO'), { ...widget, kind })
+      expect(parsed.diagnostics).toEqual([])
+      expect(inputsOf(parsed.schema!)[0]!.widget).toMatchObject({ selection: true, kind })
+    }
+    expect(decode(union, widget).schema).toBeDefined()
+    for (const [type, descriptor] of [
+      [union, { ...widget, kind: 'model/diffusers' }],
+      [concrete('ASSET'), widget],
+      [concrete('STRING'), widget],
+      [{ kind: 'list', element: concrete('COMBO') }, widget],
+      [{ kind: 'union', types: ['COMBO', 'ASSET', 'STRING'] }, widget],
+      [concrete('COMBO'), { ...widget, kind: 'model/text-encoder' }],
+      [concrete('COMBO'), { ...widget, allowUpload: true }],
+      [concrete('COMBO'), { ...widget, selection: 'true' }],
+    ]) expect(decode(type, descriptor).schema).toBeUndefined()
+    const ordinary = decode(concrete('ASSET'), { ...widget, selection: false })
+    expect(ordinary.diagnostics).toEqual([])
+    expect(inputsOf(ordinary.schema!)[0]!.widget?.selection).toBeUndefined()
+  })
+
+  it('preserves forced FLOATS numeric presentation without widening other socket domains', () => {
+    const widget = { type: 'NUMBER', min: -1, step: 0.001 }
+    const representations = { type: 'REPRESENTATIONS', default: 'number', userSwitchable: false,
+      representations: [{ id: 'number', widget }] }
+    for (const descriptor of [widget, representations]) {
+      const entry = { role: 'input', id: 'strengths', type: concrete('FLOATS'), forceInput: true, default: -1, widget: descriptor }
+      const decoded = parseDinksterSchema('ForcedFloats', { interface: [entry] })
+      expect(decoded.diagnostics).toEqual([])
+      expect(inputsOf(decoded.schema!)[0]).toMatchObject({
+        type: { kind: 'concrete', name: 'FLOATS' }, forceInput: true,
+        widget: { widgetType: 'FLOAT', default: -1, options: { min: -1, step: 0.001 } },
+      })
+      for (const invalid of [
+        { ...entry, forceInput: false },
+        { ...entry, forceInput: undefined },
+        { ...entry, type: concrete('OtherFloats') },
+        { ...entry, type: { kind: 'list', element: concrete('FLOATS') } },
+        { ...entry, type: { kind: 'union', types: ['FLOATS', 'FLOAT'] } },
+      ]) {
+        const rejected = parseDinksterSchema('BadFloatsPresentation', { interface: [invalid] })
+        expect(rejected.schema).toBeUndefined()
+        expect(rejected.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+      }
+    }
+  })
+
+  it('preserves COLOR and STRING color-widget sockets through decoding, import, and compilation', () => {
+    for (const socket of ['COLOR', 'STRING']) {
+      for (const represented of [false, true]) {
+        const widget = represented ? {
+          type: 'REPRESENTATIONS', default: 'color', userSwitchable: false,
+          representations: [{ id: 'color', widget: { type: 'COLOR' } }],
+        } : { type: 'COLOR' }
+        const decoded = parseDinksterSchema('ColorToRGBInt', {
+          schemaVersion: 1, outputNode: true,
+          interface: [{ role: 'input', id: 'color', type: concrete(socket), required: true, default: '#ffffff', widget }],
+        })
+        expect(decoded.diagnostics).toEqual([])
+        expect(inputsOf(decoded.schema!)[0]).toMatchObject({
+          type: { kind: 'concrete', name: socket },
+          widget: { widgetType: 'COLOR', default: '#ffffff' },
+        })
+        const resolve = (type: string) => type === 'ColorToRGBInt' ? decoded.schema : undefined
+        const imported = importLitegraph({ version: 0.4, nodes: [{ id: 1, type: 'ColorToRGBInt', widgets_values: ['#12345678'] }], links: [] }, resolve)
+        expect(imported.diagnostics).toEqual([])
+        const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('color'), schemaHash: 'color' })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('color compilation failed')
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual({ color: '#12345678' })
+      }
+    }
+    for (const type of [
+      concrete('INT'), concrete('OtherColor'),
+      { kind: 'list', element: concrete('COLOR') },
+      { kind: 'union', types: ['COLOR', 'STRING'] },
+    ]) {
+      const rejected = parseDinksterSchema('InvalidColor', {
+        schemaVersion: 1,
+        interface: [{ role: 'input', id: 'color', type, required: true, widget: { type: 'COLOR' } }],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
+    }
+  })
+
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
     const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
     const production = parseDinksterSchema('test.numeric_union', fixture.nodes['test.numeric_union'])

@@ -190,6 +190,15 @@
   font-size: var(--dinkster-type-metadata-size);
   line-height: var(--dinkster-type-metadata-line);
 }
+.asset-editor-mode {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+.asset-editor-mode[hidden] { display: none; }
+.asset-editor-mode > .product-button { flex: none; }
 .asset-editor {
   display: flex;
   min-height: 0;
@@ -513,4 +522,3 @@
   cursor: crosshair;
   touch-action: none;
 }
-

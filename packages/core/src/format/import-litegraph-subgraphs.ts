@@ -299,7 +299,7 @@ export function importLitegraphSubgraphs(
           const controllerId = proxyControllers.get(node)?.get(index)
           if (controllerId !== undefined && ['fixed', 'increment', 'decrement', 'randomize'].includes(value)) controllers[controllerId] = value
           else if (id !== undefined && controllerId === undefined) values[id] = value
-          else diagnostics.push(diag('warning', 'import', 'import.subgraphs.widgetUnresolved', `subgraph instance ${node['id']} has an unresolved promoted widget at index ${index}; raw state is preserved`))
+          else diagnostics.push(diag('warning', 'import', 'import.subgraphs.widgetUnresolved', `Subgraph ${node['id']}: promoted widget ${index} has no matching input`))
         }
       } else if (object(rawValues)) {
         for (const slot of def.raw['inputs']) {
@@ -544,7 +544,7 @@ export function importLitegraphSubgraphs(
         'warning',
         'import',
         'import.subgraphs.boundaryUnresolved',
-        `subgraph '${id}' keeps its authored definition, but its boundary cannot be resolved against the current node schemas and requires review`,
+        `Subgraph ${id}: boundary does not resolve against current node schemas`,
       ))
     }
     graphs[id] = candidate

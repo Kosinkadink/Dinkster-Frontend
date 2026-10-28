@@ -2,6 +2,26 @@ import { expect, openRailPanel, test } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await page.goto('/') })
 
+test('opening Library dismisses its focused activity-bar tooltip', async ({ page }) => {
+  const library = page.getByTestId('library-toggle')
+  if (await library.getAttribute('aria-pressed') === 'true') await library.click()
+  await page.mouse.move(600, 400)
+  await library.focus()
+  await expect(page.getByTestId('app-tooltip')).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect(library).toBeFocused()
+  await expect(library).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('app-tooltip')).toBeHidden()
+  await library.hover()
+  await expect(page.getByTestId('app-tooltip')).toBeHidden()
+  await page.keyboard.press('Enter')
+  await expect(library).toHaveAttribute('aria-pressed', 'false')
+  await page.mouse.move(600, 400)
+  await library.blur()
+  await library.focus()
+  await expect(page.getByTestId('app-tooltip')).toBeVisible()
+})
+
 test('DOM chrome tooltip observes delay, Alt detail, and hover-out', async ({ page }) => {
   const settings = page.getByTestId('settings-button')
   await settings.hover()
@@ -277,5 +297,5 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
   await page.mouse.move(point.x, point.y)
   const tooltip = page.getByTestId('app-tooltip')
   await expect(tooltip).toContainText('Type mismatch', { timeout: 1_500 })
-  await expect(tooltip).toContainText(/output type 'IMAGE'.*input type 'LATENT'/)
+  await expect(tooltip).toContainText('target.input: IMAGE cannot feed LATENT')
 })

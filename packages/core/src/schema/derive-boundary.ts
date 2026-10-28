@@ -847,7 +847,8 @@ export function deriveBoundarySchema(
         'warning',
         'schema',
         'boundary.countBoundOutputInvalid',
-        `[${def.id}] boundary output '${boundaryOutput.id}' cannot project count-bound family '${boundaryOutput.binds.port}': count input '${spec.count.input}' is linked inside the definition; this output item is omitted`,
+        `${def.id}.${boundaryOutput.id}: count input '${spec.count.input}' is linked inside the definition`,
+        { refs: [{ graphId: def.id, portId: boundaryOutput.id, direction: 'output' }] },
       ))
       return undefined
     }
@@ -870,8 +871,9 @@ export function deriveBoundarySchema(
         'schema',
         'boundary.countBoundOutputInvalid',
         promoted === undefined
-          ? `[${def.id}] boundary output '${boundaryOutput.id}' cannot project count-bound family '${boundaryOutput.binds.port}': count input '${spec.count.input}' must hold a safe integer in ${min}..${effectiveMax}; this output item is omitted`
-          : `[${def.id}] boundary output '${boundaryOutput.id}' has no valid definition fallback for count-bound family '${boundaryOutput.binds.port}': promoted input '${promoted.id}' must hold a safe integer in ${min}..${effectiveMax} on each instance`,
+          ? `${def.id}.${boundaryOutput.id}: count input '${spec.count.input}' requires an integer in ${min}..${effectiveMax}`
+          : `${def.id}.${boundaryOutput.id}: promoted count '${promoted.id}' requires an integer in ${min}..${effectiveMax}`,
+        { refs: [{ graphId: def.id, portId: boundaryOutput.id, direction: 'output' }] },
       ))
       if (promoted === undefined) return undefined
     }
@@ -1046,7 +1048,9 @@ export function deriveBoundarySchema(
           ...(selected !== undefined ? { defaultOption: selected } : {}),
         },
       })
-      diags.push(diag('warning', 'schema', 'boundary.selectorOnly', `[${def.id}] boundary input '${item.id}' forwards only the selector; branch inputs stay definition-owned. Upgrade to full-branch forwarding to edit them per instance.`))
+      diags.push(diag('warning', 'schema', 'boundary.selectorOnly', `${def.id}.${item.id}: selector forwarding does not include branch inputs`, {
+        refs: [{ graphId: def.id, portId: item.id, direction: 'input' }],
+      }))
       continue
     }
     if (inner.dynamic?.kind === 'dynamicSlot') {

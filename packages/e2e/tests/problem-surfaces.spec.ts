@@ -43,13 +43,13 @@ const reportTwoProblems = (page: Page): Promise<void> =>
     const app = window.__dinksterTest!.app
     app.reportProblems(app.activeTab()!.id, [
       {
-        severity: 'error', source: 'runtime', code: 'proof.sourceBroken',
+        severity: 'error', origin: 'runtime', code: 'proof.sourceBroken',
         message: 'Source node proof problem.',
         refs: [{ graphId: 'g0', nodeId: 'source' }],
         anchor: { occurrence: { instancePath: [], node: 'source' } },
       },
       {
-        severity: 'warning', source: 'runtime', code: 'proof.targetSuspicious',
+        severity: 'warning', origin: 'runtime', code: 'proof.targetSuspicious',
         message: 'Target node proof problem.',
         refs: [{ graphId: 'g0', nodeId: 'target' }],
         anchor: { occurrence: { instancePath: [], node: 'target' } },
@@ -119,8 +119,6 @@ test('the Focused tab follows canvas focus and shows only that context\'s proble
 })
 
 test('the mounted Focused panel relabels without changing context, raw facts, or requests', async ({ page, request }) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   await page.setViewportSize({ width: 1600, height: 950 })
   const requests: string[] = []
   page.on('request', (event) => {
@@ -146,7 +144,8 @@ test('the mounted Focused panel relabels without changing context, raw facts, or
   await expect(problem).toHaveAttribute('open', '')
   await expect(showOnCanvas).toBeFocused()
   await expect(entity).toContainText('Source proof')
-  await expect(problemSummary).toContainText('[error] proof.sourceBroken: Node "Source proof" (source): Source node proof problem.')
+  await expect(problemSummary).toContainText('Node "Source proof" (source): Source node proof problem.')
+  await expect(problemSummary).not.toContainText('[error] proof.sourceBroken:')
 
   await panel.evaluate((element) => { element.dataset['localeIdentity'] = 'panel' })
   await context.evaluate((element) => { element.dataset['localeIdentity'] = 'context' })
@@ -209,7 +208,8 @@ test('the mounted Focused panel relabels without changing context, raw facts, or
   await expect(problem).toHaveAttribute('open', '')
   await expect(showOnCanvas).toBeFocused()
   await expect(entity).toContainText('Source proof')
-  await expect(problemSummary).toContainText('[error] proof.sourceBroken: Node "Source proof" (source): Source node proof problem.')
+  await expect(problemSummary).toContainText('Node "Source proof" (source): Source node proof problem.')
+  await expect(problemSummary).not.toContainText('[error] proof.sourceBroken:')
   expect(requests.slice(requestsBeforeLocale)).toEqual([])
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app

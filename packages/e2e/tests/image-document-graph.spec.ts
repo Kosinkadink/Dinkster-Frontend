@@ -15,8 +15,6 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('opens graph layers, recovers edits and explicitly exports an asset-backed snapshot', async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
   const fixture = await page.evaluate(async () => {
     const modulePath = '/src/image-document-local.ts'
     const { ImageDocumentLocalStore, importSingleRaster } = await import(modulePath)
@@ -116,21 +114,21 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
     app.registerSchemas([
       { type: 'LayerDocumentTest', displayName: 'Layer document', category: 'test', source: 'v3', isOutputNode: true,
         items: [{ kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
-      { type: 'dinkster.layers.load', displayName: 'Load Layers', category: 'image', source: 'v3', isOutputNode: false,
+      { type: 'dinkster.layers.load', editorRole: 'layers-load', displayName: 'Load Layers', category: 'image', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'document', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: {} } },
         { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
-      { type: 'dinkster.layers.flatten', displayName: 'Flatten Layers', category: 'image', source: 'v3', isOutputNode: false,
+      { type: 'dinkster.layers.flatten', editorRole: 'layers-flatten', displayName: 'Flatten Layers', category: 'image', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
         { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
           widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
         { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }] },
-      { type: 'dinkster.layers.edit', displayName: 'Edit Layers', category: 'image', source: 'v3', isOutputNode: false,
+      { type: 'dinkster.layers.edit', editorRole: 'layers-edit', displayName: 'Edit Layers', category: 'image', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
         { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', options: { multiline: true } } },
         { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
-      { type: 'dinkster.save_image', displayName: 'Save Image', category: 'image', source: 'v3', isOutputNode: true,
+      { type: 'dinkster.save_image', editorRole: 'image-save', displayName: 'Save Image', category: 'image', source: 'v3', isOutputNode: true,
         items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
         { kind: 'input', id: 'format', type: { kind: 'concrete', name: 'COMBO' }, optional: true,
           widget: { widgetType: 'COMBO', options: { options: ['png', 'jpeg', 'webp'] }, default: 'png' } },

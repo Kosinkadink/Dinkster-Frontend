@@ -171,10 +171,10 @@ describe('contextProblems', () => {
 })
 
 describe('hasOwningContext', () => {
-  it('answers true exactly for occurrence or port anchors', () => {
+  it('answers true exactly for occurrence, port or link anchors', () => {
     expect(hasOwningContext(occurrenceDiag('n1'))).toBe(true)
     expect(hasOwningContext(portDiag('n1', 'model'))).toBe(true)
-    expect(hasOwningContext(linkDiag('l1'))).toBe(false)
+    expect(hasOwningContext(linkDiag('l1'))).toBe(true)
     expect(hasOwningContext(refDiag('n1'))).toBe(false)
     expect(hasOwningContext(unanchoredDiag)).toBe(false)
   })
