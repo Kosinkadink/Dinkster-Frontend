@@ -96,6 +96,60 @@ describe('controllerAdvancement', () => {
     expect(controllerAdvancement(document, compileDoc(document))).toBeUndefined()
   })
 
+  it.each([false, true])('unifies exported literal constraints independently of consumer order (reverse: %s)', (reverse) => {
+    const document = fixture() as any
+    const consumer = (id: string, type: string) => ({ id, type, values: document.graphs.g0.nodes.seed.values,
+      controllers: { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' } })
+    const nodes = [consumer('left', 'Left'), consumer('right', 'Right')]
+    document.graphs.g0.nodes = Object.fromEntries((reverse ? nodes.reverse() : nodes).map((node) => [node.id, node]))
+    document.graphs.g0.nodes.i0 = { id: 'i0', type: '#body', values: {} }
+    document.graphs.g0.links = {
+      l0: { id: 'l0', from: { node: 'i0', port: 'out' }, to: { node: 'left', port: 'up' } },
+      l1: { id: 'l1', from: { node: 'i0', port: 'out' }, to: { node: 'right', port: 'up' } },
+    }
+    document.graphs.body = {
+      id: 'body', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      valueSources: { v0: { id: 'v0', value: 10, controller: 'increment' } },
+      boundary: { inputs: [], outputs: [{ id: 'out', binds: {
+        kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' },
+      } }] },
+    }
+    const consumers = Object.fromEntries<NodeSchema>(([
+      ['Left', { min: 3, max: 17, step: 2 }], ['Right', { min: 10, max: 20, step: 7 }],
+    ] as const).map(([type, options]) => [type, { ...schema, type, items: schema.items.map((item) =>
+      item.kind === 'input' && item.id === 'up' ? { ...item, widget: { ...item.widget!, options } } : item) }]))
+    for (const arrangement of ['fanout', 'shared', 'promoted']) {
+      document.graphs.g0.nodes.i1 = { id: 'i1', type: '#body', values: { value: 10 }, controllers: { value: 'increment' } }
+      document.graphs.g0.nodes.i0.values = { value: 10 }
+      document.graphs.g0.nodes.i0.controllers = { value: 'increment' }
+      document.graphs.g0.links.l1.from.node = arrangement === 'fanout' ? 'i0' : 'i1'
+      document.graphs.body.boundary.inputs = arrangement === 'promoted' ? [{
+        id: 'value', promoted: true, binds: document.graphs.body.boundary.outputs[0].binds,
+      }] : []
+      for (const partial of [false, true]) {
+        for (const declared of [false, true]) {
+          document.graphs.body.valueSources.v0.spec = declared
+            ? { widgetType: 'INT', options: { step: 5 }, controller: 'after_generate' } : undefined
+          const result = compile({ document, revision: 0, resolve: (type) => consumers[type],
+            scope: partial ? { kind: 'partial', targets: [{ instancePath: [], node: 'left' as any }] } : { kind: 'full' },
+            connection: asConnectionId('local'), schemaHash: 'test' })
+          if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+          expect(result.artifact.prompt.left!.inputs.up).toBe(10)
+          const invocations = arrangement === 'promoted' ? [
+            { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: declared ? 15 : 12 } },
+            ...(!partial ? [{ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: declared ? 15 : 17 } }] : []),
+          ] : [{ command: 'valueSource.setValue', params: { graphId: 'body', valueSourceId: 'v0', value: declared ? 15 : 17 } }]
+          const advancement = controllerAdvancement(document, result.artifact)
+          expect(advancement).toEqual({ command: 'batch', params: {
+            invocations: expect.arrayContaining(invocations),
+          } })
+          expect((advancement!.params as any).invocations).toHaveLength(invocations.length)
+          expect(document.graphs.body.valueSources.v0.value).toBe(10)
+        }
+      }
+    }
+  })
+
   it('advances independent instance overrides of an output-only literal producer', () => {
     const document = fixture() as any
     document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }

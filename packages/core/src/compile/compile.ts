@@ -73,7 +73,7 @@ import {
 } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
-import { effectiveValueSourceSpec } from '../value-source.js'
+import { effectiveValueSourceSpec, valueSourceWidgetSpec } from '../value-source.js'
 import { matchBypassInput, type BypassCandidate } from './bypass.js'
 import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
@@ -2667,6 +2667,45 @@ function compileImpl(
 
   const errors = diags.filter((d) => d.severity === 'error')
   if (errors.length > 0) return { result: { ok: false, diagnostics: diags } }
+
+  // Resolve constraints before scope filtering: executing one consumer must
+  // not change a shared literal's step or range. Group by the stored owner:
+  // shared definition values unify, but promoted instance overrides do not.
+  const literalOwnerKey = (sources: readonly ControllerInputSource[]): string => {
+    const owner = sources[0]!
+    return JSON.stringify('valueSource' in owner
+      ? [owner.graph, 'valueSource', owner.valueSource]
+      : [owner.graph, 'node', owner.occurrence.node, owner.valueKey])
+  }
+  const literalWidgets = new Map<string, WidgetSpec[]>()
+  for (const fn of [...flat.values()].sort((a, b) => a.runtimeId.localeCompare(b.runtimeId))) {
+    for (const input of fn.elab.inputs) {
+      const literal = literalControllers.get(fn.runtimeId)?.get(input.spec.id)
+      if (!literal) continue
+      const key = literalOwnerKey(literal.sources)
+      let widgets = literalWidgets.get(key)
+      if (!widgets) literalWidgets.set(key, (widgets = []))
+      if (literal.widget) widgets.push(literal.widget)
+      if (input.spec.widget) widgets.push(input.spec.widget)
+    }
+  }
+  const mergedLiteralWidgets = new Map<string, WidgetSpec | undefined>()
+  for (const byInput of literalControllers.values()) {
+    for (const [inputId, literal] of byInput) {
+      const key = literalOwnerKey(literal.sources)
+      if (!mergedLiteralWidgets.has(key)) {
+        const owner = literal.sources.find((source) => 'valueSource' in source)
+        if (!owner || !('valueSource' in owner)) continue
+        const source = graphOf(owner.graph)?.valueSources?.[owner.valueSource]
+        if (!source) continue
+        const effective = valueSourceWidgetSpec(source, literalWidgets.get(key) ?? [])
+        mergedLiteralWidgets.set(key, effective.spec)
+        diags.push(...effective.diagnostics)
+      }
+      const widget = mergedLiteralWidgets.get(key)
+      if (widget) byInput.set(inputId, { ...literal, widget })
+    }
+  }
 
   // -- Assemble artifact -------------------------------------------------------
 

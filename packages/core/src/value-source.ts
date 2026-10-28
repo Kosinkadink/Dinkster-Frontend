@@ -212,7 +212,6 @@ export function effectiveValueSourceSpec(
   resolve: (nodeType: string) => NodeSchema | undefined,
   index?: RerouteIndex,
 ): EffectiveValueSourceSpec {
-  const diags: Diagnostic[] = []
   const consumers = valueSourceConsumersOf(def, vs.id, index)
 
   // Gather consumer input specs (widget-backed or not). Top-level static
@@ -247,8 +246,17 @@ export function effectiveValueSourceSpec(
   let type: TypeExpr = { kind: 'wildcard' }
   for (const { input } of consumerInputs) type = type.kind === 'wildcard' ? input.type : intersectTypes(type, input.type)
 
-  // Widget type: declared verbatim, else unified from widget-backed consumers.
   const widgetSpecs = consumerInputs.filter((c) => c.input.widget).map((c) => c.input.widget!)
+  return { ...valueSourceWidgetSpec(vs, widgetSpecs), type, consumers }
+}
+
+/** Merge widget constraints from resolved consumers, retaining declared source fields. */
+export function valueSourceWidgetSpec(
+  vs: ValueSourceData,
+  widgetSpecs: readonly WidgetSpec[],
+): Pick<EffectiveValueSourceSpec, 'spec' | 'diagnostics'> {
+  const diags: Diagnostic[] = []
+  // Widget type: declared verbatim, else unified from widget-backed consumers.
   let widgetType = vs.spec?.widgetType
   for (const w of widgetSpecs) {
     if (widgetType === undefined) {
@@ -264,7 +272,7 @@ export function effectiveValueSourceSpec(
   }
   if (widgetType === undefined) {
     // Unconnected + undeclared: no spec. Raw-value fallback view renders (P2).
-    return { type, consumers, diagnostics: diags }
+    return { diagnostics: diags }
   }
 
   // Options: unify same-kind consumer options, then overlay declared verbatim.
@@ -323,7 +331,7 @@ export function effectiveValueSourceSpec(
     ...(controllerInitial !== undefined ? { controllerInitial } : {}),
     ...(remote ? { remote } : {}),
   }
-  return { spec, type, consumers, diagnostics: diags }
+  return { spec, diagnostics: diags }
 }
 
 /**

@@ -23,6 +23,8 @@ The advancement is planned at queue time, from the exact document snapshot the r
 
 Controllers in active DynamicCombo branches, DynamicSlot dependents, and autogrow members follow their elaborated value keys. A promoted subgraph widget advances its own occurrence, while an unset occurrence inherits the definition's current value and mode. When one boundary input fans out, its primary `binds` target supplies that fallback before any `alsoBinds` target, regardless of graph node storage order. Nested promotion follows the outermost owner, and a link that reaches the terminal input suppresses advancement through every boundary it crossed. An unpromoted controller remains definition-owned and advances once even when that definition has multiple running instances.
 
+Literal controllers unify their consumers' widget constraints across subgraph outputs, using the same merge rules as local value sources. Declared source fields remain authoritative. Constraints are gathered before partial-execution filtering, so executing only one consumer does not change a shared literal's step or range. Separate promoted owners retain independent constraints; shared definition-owned literals advance once using their combined consumer constraints.
+
 Completion verifies each controller against the current compiled occurrence view. If a schema refresh removes a controller while a run is in flight, that retired item stays unchanged while other valid controllers can still advance.
 
 Inspected before-and-after screenshots of two promoted occurrences are under `dinkster-evidence/frontend/issue-308/`.
