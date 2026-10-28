@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 async function mountPoint(page: Page, inputId = 'destination', nodeId = 'save') {
   return page.evaluate(({ inputId, nodeId }) => {

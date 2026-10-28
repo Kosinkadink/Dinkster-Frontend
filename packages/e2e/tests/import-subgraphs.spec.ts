@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, test, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 const schemas = readJson('../../core/fixtures/object_info.json')
@@ -42,7 +42,7 @@ async function expectSchemasReady(page: Page): Promise<void> {
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
 }
 
-test('retains unattached typed boundary slots without phantom destinations', async ({ page }, testInfo) => {
+nativeTest('retains unattached typed boundary slots without phantom destinations', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1600, height: 1400 })
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -94,7 +94,7 @@ test('retains unattached typed boundary slots without phantom destinations', asy
   expect(errors).toEqual([])
 })
 
-test('draws, rebinds, and extracts an imported input boundary with mixed direct and reroute fanout', async ({ page }, testInfo) => {
+nativeTest('draws, rebinds, and extracts an imported input boundary with mixed direct and reroute fanout', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 1 }, packs: {},
