@@ -149,6 +149,31 @@ describe('stampEnvironment', () => {
     expect(Object.keys(stamp.nodes)).toEqual(['core.add'])
   })
 
+  it('preserves used missing-pack provenance while refreshing live packs and dropping removed types', () => {
+    const saved: WorkflowDocument = {
+      ...doc({ g0: graph('g0', { n0: 'core.add', n1: 'missing.load' }) }),
+      environment: {
+        nodes: {
+          'core.add': { pack: 'core', signature: 'old-core' },
+          'missing.load': { pack: 'missing', signature: 'saved-missing' },
+          'removed.load': { pack: 'removed', signature: 'saved-removed' },
+        },
+        packs: { core: { version: '0.1.0' }, missing: { version: '4.2.1', source: 'registry' }, removed: { version: '9.0.0' } },
+      },
+    }
+    const before = JSON.stringify(saved)
+    const stamp = stampEnvironment(saved, source)!
+    expect(stamp.nodes).toEqual({
+      'core.add': { pack: 'core', signature: 'sig-add-1' },
+      'missing.load': { pack: 'missing', signature: 'saved-missing' },
+    })
+    expect(stamp.packs).toEqual({ core: { version: '1.2.0' }, missing: { version: '4.2.1', source: 'registry' } })
+    expect(JSON.stringify(saved)).toBe(before)
+    const unavailable = stampEnvironment(saved, { resolve: () => undefined })!
+    expect(unavailable.packs).toEqual({ core: { version: '0.1.0' }, missing: { version: '4.2.1', source: 'registry' } })
+    expect(Object.keys(unavailable.nodes)).toEqual(['core.add', 'missing.load'])
+  })
+
   it('returns undefined when NO used type carries a signature (V1 backend) - never an empty lie', () => {
     const d = doc({ g0: graph('g0', { n0: 'v1.legacy', n1: 'NotInstalled' }) })
     expect(stampEnvironment(d, source)).toBeUndefined()

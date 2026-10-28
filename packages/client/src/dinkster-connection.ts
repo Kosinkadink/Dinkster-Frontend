@@ -901,6 +901,17 @@ export interface MissingAsset {
   readonly packagedFrom?: readonly string[]
 }
 
+export interface WorkflowRequirementPlan {
+  readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
+  readonly assets: readonly {
+    readonly digest: string
+    readonly name: string
+    readonly sources: readonly string[]
+    readonly packagedFrom?: readonly string[]
+  }[]
+  readonly errors: readonly string[]
+}
+
 export interface AssetSelectionOption {
   readonly name: string
   readonly shape: 'file' | 'pair' | 'directory' | 'literal'
@@ -2598,6 +2609,42 @@ export class DinksterConnection {
       matches.push(...parseAssetGuessMatches(await res.json()))
     }
     return matches
+  }
+
+  /** Read host requirements without granting download or installation consent. */
+  async planWorkflowRequirements(document: WorkflowDocument): Promise<WorkflowRequirementPlan> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/workflows/plan`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflows: [document] }),
+    })
+    if (!res.ok) throw new Error(`POST /api/workflows/plan failed: ${res.status}`)
+    const raw: unknown = await res.json()
+    const invalid = () => new Error('invalid workflow requirement plan')
+    if (typeof raw !== 'object' || raw === null) throw invalid()
+    const body = raw as Record<string, unknown>
+    if (!Array.isArray(body['packs']) || !Array.isArray(body['assets']) ||
+      !Array.isArray(body['errors']) || !body['errors'].every((error) => typeof error === 'string')) throw invalid()
+    const packs = body['packs'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null) throw invalid()
+      const pack = raw as Record<string, unknown>
+      if (typeof pack['pack'] !== 'string' || pack['pack'] === '' ||
+        (pack['version'] !== null && (typeof pack['version'] !== 'string' || pack['version'] === ''))) throw invalid()
+      return { pack: pack['pack'], version: pack['version'] }
+    })
+    const assets = body['assets'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null) throw invalid()
+      const asset = raw as Record<string, unknown>
+      if (typeof asset['digest'] !== 'string' || !/^blake3:[0-9a-f]{64}$/.test(asset['digest']) ||
+        typeof asset['name'] !== 'string' || !Array.isArray(asset['sources']) ||
+        !asset['sources'].every((source) => typeof source === 'string') ||
+        (asset['packagedFrom'] !== undefined && (!Array.isArray(asset['packagedFrom']) ||
+          !asset['packagedFrom'].every((pack) => typeof pack === 'string')))) throw invalid()
+      return {
+        digest: asset['digest'], name: asset['name'], sources: asset['sources'] as string[],
+        ...(Array.isArray(asset['packagedFrom']) ? { packagedFrom: asset['packagedFrom'] as string[] } : {}),
+      }
+    })
+    return { packs, assets, errors: body['errors'] as string[] }
   }
 
   /** Fetch asset bytes as text; undefined when not held (or no library). */

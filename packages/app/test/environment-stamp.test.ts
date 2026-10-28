@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asPromptId,
   DINKSTER_SCHEMA_WIRE_VERSION,
@@ -204,5 +204,44 @@ describe('load-time drift reporting', () => {
     loadDinksterSchemas()
     open(docJson('lin-none', ['std.a']))
     expect(driftCodes()).toEqual([])
+  })
+})
+
+describe('workflow-open requirements', () => {
+  it('opens an all-present workflow silently and reports one structured missing-item plan', async () => {
+    app = new AppState({ defaultProtocol: 'dinkster' })
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    if (backend.protocol !== 'dinkster') throw new Error('expected native backend')
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    const plan = vi.spyOn(backend.connection, 'planWorkflowRequirements')
+      .mockResolvedValue({ packs: [], assets: [], errors: [] })
+    open(docJson('present-plan', ['std.a']))
+    await Promise.resolve()
+    expect(app.problems.get().filter((entry) => entry.code.startsWith('workflow.requirements'))).toEqual([])
+    const missing = { packs: [{ pack: 'core', version: '1.2.0' }], assets: [], errors: [] }
+    plan.mockResolvedValue(missing)
+    const tab = open(docJson('missing-plan', ['std.a']))
+    await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'workflow.requirements')).toEqual([
+      expect.objectContaining({ owner: tab.id, severity: 'warning', data: missing }),
+    ]))
+  })
+
+  it('discards a plan for a replaced tab even when the replacement has the same lineage', async () => {
+    app = new AppState({ defaultProtocol: 'dinkster' })
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    if (backend.protocol !== 'dinkster') throw new Error('expected native backend')
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    let finish!: (plan: { packs: { pack: string; version: string }[]; assets: []; errors: [] }) => void
+    vi.spyOn(backend.connection, 'planWorkflowRequirements')
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      .mockResolvedValue({ packs: [], assets: [], errors: [] })
+    open(docJson('replaced-plan', ['std.a']))
+    open(docJson('replaced-plan', ['std.b']))
+    finish({ packs: [{ pack: 'retired', version: '0.1.0' }], assets: [], errors: [] })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app.problems.get().filter((entry) => entry.code === 'workflow.requirements')).toEqual([])
   })
 })
