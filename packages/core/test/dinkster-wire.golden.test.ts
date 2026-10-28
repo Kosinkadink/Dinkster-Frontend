@@ -201,7 +201,6 @@ describe('Dinkster schema wire', () => {
         expect(JSON.parse(JSON.stringify(compiled.artifact.prompt)).n1.inputs.depth).toBe(value)
       }
     }
-    // Even a mismatched option vocabulary must never coerce an authored scalar.
     const schema = parseDinksterSchema('StringCombo', { outputNode: true, interface: [
       { role: 'input', id: 'depth', type: concrete('COMBO'), widget: { type: 'COMBO', options: ['8', { value: 'enabled', label: 'Enabled' }] } },
     ] }).schema!
