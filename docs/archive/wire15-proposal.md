@@ -13,9 +13,8 @@ The native wire-14 decoder in
 `minMembers`/`maxMembers` on `inputFamily`, `variants` on `dynamicSlot`, and
 `inputs` for each variant's dependent list. Wire 15 should retain those names.
 
-The legacy V1 `/object_info` normalizer in
-`packages/core/src/schema/object-info.ts` proves a larger recursive model than
-wire 14 can carry:
+The removed legacy V1 normalizer represented a larger recursive model than
+wire 14 could carry:
 
 - Autogrow has an ordered, non-empty template of ordinary or dynamic inputs,
   including grouped templates and Autogrow nested in Autogrow.
@@ -25,10 +24,10 @@ wire 14 can carry:
 - Ordinary leaves retain widget/default/required-ness and documentation at
   every depth.
 
-The tests in `packages/core/test/object-info.test.ts` pin Autogrow in
-DynamicCombo, DynamicCombo in Autogrow, DynamicCombo in DynamicSlot shared
-dependents, and Autogrow in DynamicSlot variant inputs. Therefore a singular
-ordinary-only Autogrow template, as in the initial backend sketch, is not
+That legacy model allowed Autogrow in DynamicCombo, DynamicCombo in Autogrow,
+DynamicCombo in DynamicSlot shared dependents, and Autogrow in DynamicSlot
+variant inputs. Therefore a singular ordinary-only Autogrow template,
+as in the initial backend sketch, is not
 closed over the legacy model. This proposal changes that one point to a
 non-empty recursive `template` array.
 

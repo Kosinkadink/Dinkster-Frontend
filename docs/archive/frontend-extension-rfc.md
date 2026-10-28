@@ -363,8 +363,7 @@ name `widgetType`, custom event, or service metadata whose implementation comes
 from the selected frontend entry point. The normalized frontend model already
 uses `WidgetSpec.widgetType` as the registry key and keeps kind-specific
 options (`Dinkster-Frontend/packages/core/src/schema/model.ts:131-151`). The
-legacy schema adapter already preserves explicit `widgetType` plus remaining
-options (`Dinkster-Frontend/packages/core/src/schema/object-info.ts:127-168`).
+removed legacy schema adapter is not part of this native contract.
 
 Therefore every schema table response MUST identify the snapshot digest and
 schema epoch it belongs to. On a schema-change notification, the client fetches
@@ -1175,7 +1174,7 @@ take over the import pipeline or mutate the document after import.
 | Manifest | JSON manifest, namespaced ids, closed contribution categories, validation (`Dinkster-Frontend/packages/core/src/extensions/manifest.ts:1-91`) | Add pack version/API range, frontend entry points, privileges, snapshot/module identity, event declarations, ordering, and broader kinds |
 | Host/gating | Pack/category/contribution gates, deployment allow/deny, typed registry routing, diagnostics (`Dinkster-Frontend/packages/core/src/extensions/host.ts:31-155,290-398`) | Stage and atomically commit; add pack/world disposal; correlate snapshot; current partial-survival on throw conflicts with DESIGN 3.0 |
 | Multi-backend | Per-backend schema registry, connection, scoped client, tab targeting (`Dinkster-Frontend/packages/app/src/app-state.ts:675-704,820-857`) | Replace one global extension/widget world with per-connection/snapshot child worlds; retain old execution worlds |
-| Schema | Normalized `WidgetSpec`, explicit `widgetType`, open options (`Dinkster-Frontend/packages/core/src/schema/model.ts:131-160`; `Dinkster-Frontend/packages/core/src/schema/object-info.ts:127-168`) | Pair schema with snapshot digest; define native namespaced metadata; prevent public runtime schema overrides |
+| Schema | Normalized `WidgetSpec`, explicit `widgetType`, open options (`Dinkster-Frontend/packages/core/src/schema/model.ts:131-160`) | Pair schema with snapshot digest; define native namespaced metadata; prevent public runtime schema overrides |
 | Widgets | Public kind/view/preview contracts, core dogfood, unregister functions (`Dinkster-Frontend/packages/core/src/widgets/contract.ts:37-145`; `Dinkster-Frontend/packages/widgets/src/registry.ts:9-44`) | Exact preview-channel arbitration, extension contexts, per-world registries, isolated-compatible RPC, implement compact hit regions |
 | Menus | Plain-data context/actions and deterministic group/order/id composition (`Dinkster-Frontend/packages/core/src/menus/contract.ts:75-174`) | Add missing anchors, nested descriptors, declarative visibility selectors, connection/snapshot context |
 | Canvas | Retained base scene, injected widget painter, badges, previews, internal lens hook (`Dinkster-Frontend/packages/canvas/src/scene.ts:378-457`; `Dinkster-Frontend/packages/canvas/src/renderer.ts:342-456`) | Add separate overlay scene, fixed phases, generic hit regions/actions, decoration registries; do not publish raw lens context |
