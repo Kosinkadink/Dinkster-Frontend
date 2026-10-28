@@ -306,14 +306,27 @@ def main():
     outline_copy = deepcopy(approved)
     outline_copy.set("id", "silhouette-clip-path")
     silhouette_clip.append(outline_copy)
-    for name, polygon in (
-        ("coral", "343,68 424,149 424,299 363,360 600,360 600,40 343,40"),
-        ("yellow", "80,240 232,240 232,390 80,390"),
+    coral_boundary = [
+        ("start", 343, 68),
+        ("right_top", 424, 149),
+        ("right_bottom", 424, 299),
+        ("end", 363, 360),
+        ("outside_bottom", 600, 360),
+        ("outside_top", 600, 40),
+        ("outside_left", 343, 40),
+    ]
+    coral_commands, _ = geometry.build(
+        coral_boundary,
+        {name: geometry.RADII[name] for name in ("right_top", "right_bottom")},
+    )
+    for name, contour in (
+        ("coral", geometry.to_svg([coral_commands], geometry.Transform(1, 0, 0))),
+        ("yellow", "M80 240H232V390H80Z"),
     ):
         clip = node(
             "clipPath", {"id": f"plane-{name}", "clipPathUnits": "userSpaceOnUse"}, defs
         )
-        node("polygon", {"points": polygon, "transform": reference_transform}, clip)
+        node("path", {"d": contour, "transform": reference_transform}, clip)
     for label, color, name in (
         ("03_Chromatic_Cyan", "#32E6C5", "cyan"),
         ("04_Chromatic_Coral", "#FF7468", "coral"),

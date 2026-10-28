@@ -61,17 +61,35 @@ sampling and the unchanged master path remain distinct editable objects.
 ## Color planes
 
 The base is the full cyan D. Coral and yellow are copies of its exact
-path, each clipped by a hard polygon in the same reference frame.
+path, each clipped by a hard-edged path in the same reference frame.
 Coral follows an inset 45-degree top chamfer, vertical right plane and
-lower chamfer. Yellow is restricted to the lower-left leg, left of
-STEM_L and below source y = 240. No gradient, blur, stroke expansion or
-second silhouette is introduced. Plane placement is a visual proposal
-for checkpoint 2, not a modification of the approved D.
+lower chamfer. Its two central turns use the master's `right_top` and
+`right_bottom` fillet radii (45 reference px). Yellow covers the region
+left of STEM_L and below source y = 240, including the current body's
+baseline tip. The unselected trims below remove that tip, not the color
+region. No gradient, blur, stroke expansion or second silhouette is
+introduced. Plane placement is a visual proposal for checkpoint 2, not a
+modification of the approved D.
 
 The export object applies the master silhouette as one outer clip to
 solid color planes. This is coverage-equivalent to the editable clipped
 path copies, but avoids repeatedly antialiasing the outer edge. Mono and
 color therefore have identical alpha coverage, including antialiasing.
+
+## Unselected lower-arm proposals
+
+`compare_geometry.py` keeps the approved source and master unchanged and
+renders two local lower-arm trims beside the current shape, in mono and
+color at 1024 px on both backgrounds. Both replace the body's corner at
+`CHANNEL_LOW - BOTTOM = 223` with a vertical end at `STEM_L = 232`,
+from y = 360 to `CHANNEL_LOW - STEM_L = 351`. The straight trim is sharp;
+the rounded trim uses a 3 reference px radius at the baseline corner.
+The island, aperture, diagonal channel and all other outer corners are
+unchanged. The equal 18 px gaps along the channel are not shifted; the
+local trim only removes material at its baseline end. Neither proposal
+is selected or used in the production master or raster exports.
+`geometry-export-commands.txt` records the Inkscape build and commands;
+`previews/geometry-options/` retains each proposal SVG and PNG.
 
 ## Proposed small-size optical objects
 

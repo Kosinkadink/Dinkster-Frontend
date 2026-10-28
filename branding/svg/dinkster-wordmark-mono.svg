@@ -28,18 +28,18 @@
     <clipPath
        id="plane-coral"
        clipPathUnits="userSpaceOnUse">
-      <polygon
-         points="424,149 424,299 363,360 600,360 600,40 343,40 343,68 "
+      <path
+         d="m 343,68 67.8,67.8 a 45,45 0 0 1 13.2,31.8 v 112.8 a 45,45 0 0 1 -13.2,31.8 L 363,360 H 600 V 40 H 343 Z"
          transform="matrix(2.2134387,0,0,2.2134387,-180.07905,26.324111)"
-         id="polygon65" />
+         id="path65" />
     </clipPath>
     <clipPath
        id="plane-yellow"
        clipPathUnits="userSpaceOnUse">
-      <polygon
-         points="232,240 232,390 80,390 80,240 "
+      <path
+         d="M 80,240 H 232 V 390 H 80 Z"
          transform="matrix(2.2134387,0,0,2.2134387,-180.07905,26.324111)"
-         id="polygon68" />
+         id="path68" />
     </clipPath>
   </defs>
   <g
