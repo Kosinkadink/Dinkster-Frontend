@@ -24,7 +24,7 @@ or service mutation). Parent matrix: docs/widget-parity-matrix-audit.md
    V3 has NumberDisplay.number/.slider/.gradient_slider
    (ComfyUI/comfy_api/latest/_io.py:74-78); Int.Input and Float.Input take
    display_mode and serialize it as display (_io.py:267-320). Bounds and
-   display are separate fields in both declarations.
+   display are separate fields in V3.
 
 2. Dinkster drops the intent in compat/backend translation. The v1
    translator's _number_widget iterates only min/max/step plus INT
