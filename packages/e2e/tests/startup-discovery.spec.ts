@@ -6,10 +6,6 @@
  * unit tests) and the app default-option tests prove separately; here the
  * full composition runs in the real browser: AppState native default ->
  * native client fetch, without a stock ComfyUI discovery fallback.
- *
- * Deliberately imports from '@playwright/test', NOT './fixtures.js': the
- * shared fixture pins the same-origin default to v1 for the rest of the
- * suite, which is exactly the behavior this spec must escape.
  */
 import { expect, test } from '@playwright/test'
 
@@ -17,11 +13,11 @@ const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!nativeFrontend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the native-only frontend')
 test.use({ baseURL: nativeFrontend })
 
-test('native compatibility matrix replaces the V1 connection entry', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'native-without-v1', 'runs only in the native compatibility matrix')
+test('native startup loads the live registry without a stock connection entry', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'native-startup', 'runs only in the native startup matrix')
   await page.goto('/')
-  await expect.poll(() => page.evaluate(() => window.__dinksterV1EntryStubbed)).toBe(true)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol)).toBe('dinkster')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0)).toBeGreaterThan(0)
 })
 
 const NATIVE_TABLE = {
@@ -91,9 +87,6 @@ const CURRENT_PREVIEW_TABLE = {
 }
 
 test('same-origin native launch never probes stock ComfyUI', async ({ page }) => {
-  await page.addInitScript(() => {
-    Reflect.set(window, '__dinksterTestDefaultProtocol', 'v1')
-  })
   let v1Requests = 0
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),

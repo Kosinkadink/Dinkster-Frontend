@@ -91,16 +91,16 @@ gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <
 
 The dispatch ref selects both the workflow and frontend checkout. Main pushes,
 scheduled runs, called runs, and dispatched runs all use the complete matrix.
-Parallel-safe runs as six shards, backend-serial as two, and native-without-V1
-as three so each job fits the 20-minute main budget. The software Vulkan check
-stays on backend-serial 1/2. All 13 E2E lanes may run concurrently on
+Parallel-safe runs as six shards, backend-serial as two, and native startup
+as one isolated job. The software Vulkan check
+stays on backend-serial 1/2. All 10 E2E jobs may run concurrently on
 GitHub-hosted Linux. The jobs retain their existing assertions and dependency
 pins:
 
 | Job           | Checks                                                                                                                                                                                                                                                   |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ci`          | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                             |
-| `e2e-suite`   | Six parallel-safe shards, two backend-serial shards, three native-without-V1 shards, stock V1 compatibility, and the performance browser job. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
+| `e2e-suite`   | Six parallel-safe shards, two backend-serial shards, native startup, and the performance browser job. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
 | `e2e`         | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                              |
 | `main-status` | Uploads one lane-result JSON artifact and fails unless every selected main lane passed                                                                                                                                                                   |
 
@@ -110,9 +110,12 @@ pinned Dinkster checkout and uses frontend/native ports 15376/15377. Its subgrap
 import readiness count follows the served `/api/nodes` catalog; graph structure
 and diagnostic expectations remain fixed goldens in `native-catalog.json`.
 Full E2E
-uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
-compatibility dependencies into the pinned ComfyUI interpreter used by its
-full composition. Its contract proof separately starts Dinkster with
+uses frontend/native ports 15410/15412 and installs the locked
+inference dependencies into the native execution interpreter used by its
+full composition. It does not start a stock ComfyUI server. The native startup
+job runs the 11 native client and two native app live Vitest cases once inside
+its native server lifetime, serially, and retains their JSON reports with exact
+case-count and passed-status checks. Its contract proof separately starts Dinkster with
 `--no-default-packs --pack tests/fixtures/extension-contract-pack/dinkster-pack.toml`
 on ports 15420/15421, activates the fixture pack's immutable frontend module,
 renders two custom nodes linked through the pack's custom value type, executes

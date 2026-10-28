@@ -21,12 +21,11 @@ process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
 
 /**
  * smoke suite. Requires:
- * - a ComfyUI backend (default http://127.0.0.1:8199, override DINKSTER_BACKEND)
+ * - a native backend (override DINKSTER_NATIVE_BACKEND)
  * - a fresh isolated dev server is started automatically.
  */
 /**
- * Specs that touch SHARED MUTABLE backend state (real V1 executions on
- * :8199 with one queue/history, native :8765 writes - run-history even
+ * Specs that touch SHARED MUTABLE backend state (native :8765 writes - run-history even
  * clears scope=local) or that measure timing budgets. These must run one
  * at a time; everything else is client-side or route-mocked and safe to
  * parallelize at file granularity (no spec uses beforeAll or
@@ -35,7 +34,7 @@ process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
  * flake in the parallel-safe project, not locally.
  */
 const BACKEND_SERIAL_SPECS = [
-  // V1 (:8199) execution writers: one shared queue and history.
+  // Execution writers share one queue and history.
   'collections.spec.ts',
   'execution-ux.spec.ts',
   'minimap.spec.ts',
@@ -75,59 +74,13 @@ const BACKEND_SERIAL_SPECS = [
   'app-view-queue-buttons-native.spec.ts',
   'output-mount-live.spec.ts',
   'browser-mount-live.spec.ts',
+  'audit-widget-parity-live.spec.ts',
   // Environment-conditional live discovery probe.
   'startup-discovery.spec.ts',
 ]
 
 const PERFORMANCE_SPECS = ['perf.spec.ts']
-const V1_COMPATIBILITY_SPECS = ['smoke.spec.ts']
-const NATIVE_WITHOUT_V1_SPECS = [
-  'app-view-queue-buttons-native.spec.ts',
-  'asset-widget.spec.ts',
-  'audit-float-paste-live.spec.ts',
-  'audit-noodle-live.spec.ts',
-  'audit-tap-boundary-live.spec.ts',
-  'audit-widget-parity-live.spec.ts',
-  'audio-recording-live.spec.ts',
-  'collab-noodle-presence.spec.ts',
-  'compositor-editor.spec.ts',
-  'curve-editor.spec.ts',
-  'dynamic-combo-native-live.spec.ts',
-  'executable-examples-live.spec.ts',
-  'fixture-discovery.spec.ts',
-  'gallery-live.spec.ts',
-  'glsl-shader.spec.ts',
-  'image-document-graph-live.spec.ts',
-  'image-editor.spec.ts',
-  'image-mask-graph-live.spec.ts',
-  'image-upload-byte-proof.spec.ts',
-  'import-legacy.spec.ts',
-  'link-drop.spec.ts',
-  'lora-conditioning-scheduling-live.spec.ts',
-  'midgraph-preview-live.spec.ts',
-  'missing-model-ux.spec.ts',
-  'native-catalog-decode.spec.ts',
-  'native-catalog-presentation.spec.ts',
-  'native-family-port-quality.spec.ts',
-  'native-imagery-live.spec.ts',
-  'node-help.spec.ts',
-  'output-mount-live.spec.ts',
-  'pack-assets-settings.spec.ts',
-  'palette-filters.spec.ts',
-  'peek-preview.spec.ts',
-  'rowj-live.spec.ts',
-  'run-history.spec.ts',
-  'starter-templates-live.spec.ts',
-  'startup-discovery.spec.ts',
-  'string-split-output-lifecycle.spec.ts',
-  'trellis2-official-workflow-live.spec.ts',
-  'video-document-editor.spec.ts',
-  'video-edit.spec.ts',
-  'widget-representations-wire17.spec.ts',
-  'widget-value-presentation.spec.ts',
-  'wire43-input-family-combo.spec.ts',
-  'workflow-library.spec.ts',
-]
+const NATIVE_STARTUP_SPECS = ['startup-discovery.spec.ts']
 
 export default defineConfig({
   testDir: './tests',
@@ -156,6 +109,7 @@ export default defineConfig({
         ...BACKEND_SERIAL_SPECS,
         ...PERFORMANCE_SPECS,
         'extension-contract-pack.spec.ts',
+        'product-surface-visuals.spec.ts',
       ].map((f) => `tests/${f}`),
     },
     {
@@ -167,12 +121,8 @@ export default defineConfig({
       testMatch: PERFORMANCE_SPECS.map((f) => `tests/${f}`),
     },
     {
-      name: 'v1-compatibility',
-      testMatch: V1_COMPATIBILITY_SPECS.map((f) => `tests/${f}`),
-    },
-    {
-      name: 'native-without-v1',
-      testMatch: NATIVE_WITHOUT_V1_SPECS.map((f) => `tests/${f}`),
+      name: 'native-startup',
+      testMatch: NATIVE_STARTUP_SPECS.map((f) => `tests/${f}`),
     },
   ],
   use: {
@@ -197,7 +147,6 @@ export default defineConfig({
       env: {
         DINKSTER_NATIVE_BACKEND:
           process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
-        VITE_DINKSTER_E2E_PROBE_V1: '1',
       },
       cwd: '../..',
     },
@@ -208,7 +157,6 @@ export default defineConfig({
       env: {
         DINKSTER_NATIVE_BACKEND:
           process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765',
-        VITE_DINKSTER_E2E_PROBE_V1: '0',
       },
       cwd: '../..',
     },
