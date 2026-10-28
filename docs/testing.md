@@ -112,7 +112,10 @@ and diagnostic expectations remain fixed goldens in `native-catalog.json`.
 Full E2E
 uses frontend/native ports 15410/15412 and installs the locked
 inference dependencies into the native execution interpreter used by its
-full composition. It does not start a stock ComfyUI server. The native startup
+rootless native composition. It neither starts a stock ComfyUI server nor
+passes a ComfyUI root to Dinkster. The isolated library configures a read-only
+`checkpoints` mount with kind `model/checkpoint` for the missing-model picker
+fixture, alongside its writable `output` mount. The native startup
 job runs the 11 native client and two native app live Vitest cases once inside
 its native server lifetime, serially, and retains their JSON reports with exact
 case-count and passed-status checks. Its contract proof separately starts Dinkster with

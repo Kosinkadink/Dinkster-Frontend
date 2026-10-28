@@ -542,9 +542,10 @@ describe('fast pull-request and full validation workflows', () => {
       '`--allow-origin http://127.0.0.1:${nativeFrontendPort}`',
     )
     expect(hostedConfig).not.toContain("'--no-default-packs'")
-    expect(hostedConfig).toContain(
-      '`--comfy-root ${JSON.stringify(comfyRoot)}`',
-    )
+    expect(hostedConfig).not.toContain('--comfy-root')
+    expect(hostedConfig).not.toContain('DINKSTER_E2E_COMFY_ROOT')
+    expect(hostedConfig).toContain('[mounts.checkpoints]')
+    expect(hostedConfig).toContain('kind = "model/checkpoint"')
     expect(hostedConfig).toContain(
       "`--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`",
     )

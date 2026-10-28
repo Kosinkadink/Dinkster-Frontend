@@ -41,7 +41,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  const checkpointResponse = await page.request.get('/api/mounts/comfy-model-checkpoints-1/entries?kind=model/checkpoint')
+  const checkpointResponse = await page.request.get('/api/mounts/checkpoints/entries?kind=model/checkpoint')
   expect(checkpointResponse.ok()).toBe(true)
   const checkpointEntries = await checkpointResponse.json() as { entries: Array<Record<string, unknown>> }
   const checkpoint = checkpointEntries.entries.find((entry) => entry['name'] === 'audit-local-checkpoint.safetensors')
