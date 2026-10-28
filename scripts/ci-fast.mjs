@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 const dinksterSource = process.env.DINKSTER_SOURCE_ROOT ?? '../Dinkster'
-const ceilingBaseRef = `origin/${process.env.GITHUB_BASE_REF ?? 'main'}`
+const ceilingBaseRef = `origin/${process.env.GITHUB_BASE_REF || 'main'}`
 execFileSync(
   process.env.PYTHON ?? 'python3',
   [
@@ -12,6 +12,13 @@ execFileSync(
     '.',
   ],
   { stdio: 'inherit' },
+)
+execFileSync(
+  process.env.PYTHON ?? 'python3',
+  ['scripts/bundle_artifact_test.py'],
+  {
+    stdio: 'inherit',
+  },
 )
 
 for (const args of [
