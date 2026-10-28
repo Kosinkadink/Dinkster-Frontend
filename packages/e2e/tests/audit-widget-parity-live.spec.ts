@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
 import { skipWithoutNativeCatalog } from './fixtures.js'
 
-const proofDir = '/tmp/audit-wpar-proof'
+// Backend a0434ba and ComfyUI 15eb748b: 279 pack declarations plus 620 translated nodes.
 const canonicalCatalogSha256 =
-  'ece23f4b1408736a0350aa3d8242a6335c3e69b987415a47252f49956b586b99'
+  'dba3632b340753668adfce02980c1efdf10903bcb86b67d8681f457a60aa18bb'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -26,6 +27,7 @@ type Catalog = {
   dinkster: Record<string, unknown> & {
     mergeableTypes: string[]
   }
+  packs: Record<string, Record<string, unknown>>
   nodes: Record<string, CatalogNode>
 }
 
@@ -117,15 +119,12 @@ async function refreshCombo(
   await page.keyboard.press('Escape')
 }
 
-test('standing current-wire stack proves live widget adoption and exact catalog absences', async ({
+test('hosted native stack proves live widget adoption and exact catalog absences', async ({
   page,
   request,
 }, testInfo) => {
-  test.skip(
-    true,
-    'mergeable type mismatch tracked in Kosinkadink/comfy-vibe-station#539',
-  )
   await skipWithoutNativeCatalog(request, testInfo)
+  const proofDir = testInfo.outputPath('widget-parity-proof')
   await mkdir(proofDir, { recursive: true })
   const catalogResponse = await page.request.get(`${nativeBackend}/api/nodes`)
   expect(catalogResponse.ok()).toBe(true)
@@ -134,21 +133,35 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
   expect(proxiedCatalogResponse.ok()).toBe(true)
   expect(await proxiedCatalogResponse.body()).toEqual(catalogBytes)
   const catalog = JSON.parse(catalogBytes.toString()) as Catalog
-  // Execution registers dinkster.image lazily without changing the node catalog.
-  expect([['comfy.IMAGE'], ['comfy.IMAGE', 'IMAGE']]).toContainEqual(
-    catalog.dinkster.mergeableTypes,
-  )
+  expect(catalog.dinkster.mergeableTypes).toEqual(['IMAGE'])
   const stableDinkster = Object.fromEntries(
     Object.entries(catalog.dinkster).filter(
       ([key]) => key !== 'mergeableTypes',
     ),
   )
-  const stableCatalog = { ...catalog, dinkster: stableDinkster }
+  // A local pack retains its identity, not the runner's absolute checkout path.
+  const stablePacks = Object.fromEntries(
+    Object.entries(catalog.packs).map(([id, info]) => [
+      id,
+      {
+        ...info,
+        ...(typeof info['source'] === 'string' &&
+        info['source'].startsWith('local:')
+          ? { source: `local:${basename(info['source'].slice(6))}` }
+          : {}),
+      },
+    ]),
+  )
+  const stableCatalog = {
+    ...catalog,
+    dinkster: stableDinkster,
+    packs: stablePacks,
+  }
   const catalogDigest = createHash('sha256')
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(930)
+  expect(Object.keys(catalog.nodes)).toHaveLength(899)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -157,7 +170,7 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
   const roundInputs = inputs.filter(
     ({ input }) => typeof input.widget?.['round'] === 'number',
   )
-  expect(roundInputs).toHaveLength(5)
+  expect(roundInputs).toHaveLength(17)
   expect(roundInputs).toContainEqual(
     expect.objectContaining({
       nodeType: 'comfy.DualModelGuider',
@@ -170,7 +183,7 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
   const dynamicPromptInputs = inputs.filter(({ input }) =>
     JSON.stringify(input.widget ?? {}).includes('"dynamicPrompts":true'),
   )
-  expect(dynamicPromptInputs).toHaveLength(41)
+  expect(dynamicPromptInputs).toHaveLength(40)
   expect(
     dynamicPromptInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`),
   ).toContain('dinkster.clip_text_encode.text')
@@ -198,9 +211,9 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
   ).toHaveLength(0)
   expect(
     inputs.filter(({ input }) => input.widget?.['type'] === 'COLOR'),
-  ).toHaveLength(9)
-  expect(Object.hasOwn(catalog.nodes, 'dinkster.ksampler_advanced')).toBe(true)
-  expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(false)
+  ).toHaveLength(10)
+  expect(Object.hasOwn(catalog.nodes, 'dinkster.ksampler_advanced')).toBe(false)
+  expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(true)
 
   const remoteDescriptors = descriptors.filter(
     (widget) => typeof widget['remote'] === 'object',
@@ -345,7 +358,6 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
     'dinkster.load_gaussian_splat.splat',
     'dinkster.load_image.image',
     'dinkster.load_image_output.image',
-    'dinkster.load_latent.asset',
     'dinkster.load_mask.mask',
     'dinkster.load_model3d.model',
     'dinkster.load_video.video',
@@ -387,7 +399,7 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
         ),
       { timeout: 20_000 },
     )
-    .toBe(930)
+    .toBe(899)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {
@@ -412,10 +424,10 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
               },
               sampler: {
                 id: 'sampler',
-                type: 'dinkster.ksampler_advanced',
+                type: 'comfy.KSamplerAdvanced',
                 values: {
-                  sampler_name: 'dinkster.euler',
-                  scheduler: 'dinkster.simple',
+                  sampler_name: 'euler',
+                  scheduler: 'simple',
                 },
               },
               media: { id: 'media', type: 'dinkster.load_mask', values: {} },
@@ -704,7 +716,7 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
       const banner = document.createElement('pre')
       banner.style.cssText =
         'position:fixed;right:320px;top:150px;width:520px;white-space:pre-wrap;overflow-wrap:anywhere;z-index:10000;background:#102030;color:#e8f4ff;padding:16px;border:2px solid #60a5fa'
-      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: dinkster.ksampler_advanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: 0\nremote policy declarers: 0`
+      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: comfy.KSamplerAdvanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: 0\nremote policy declarers: 0`
       document.body.appendChild(banner)
     },
     {
@@ -720,7 +732,7 @@ test('standing current-wire stack proves live widget adoption and exact catalog 
     JSON.stringify({
       canonicalCatalogSha256,
       round: 'comfy.DualModelGuider.cfg 8.129 -> 8.13',
-      sampler: 'dinkster.ksampler_advanced',
+      sampler: 'comfy.KSamplerAdvanced',
       choiceRequests,
       mediaUpload: Object.fromEntries(mediaUrl.searchParams),
       dynamicPrompt: submitted!.graph.nodes.encode.inputs.text,
