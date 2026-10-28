@@ -97,7 +97,7 @@ export function OutputMountSettings(props: {
                 label: mount.id,
                 value: mount.id,
               }))}
-              disabled={saving() || writable().length === 0}
+              disabled={saving() || !settings()?.mountChangesAllowed || writable().length === 0}
               onSelect={(option) => setSelected(option.value)}
             />
           </ProductField>
@@ -114,6 +114,7 @@ export function OutputMountSettings(props: {
               data-testid="output-mount-apply"
               disabled={
                 saving() ||
+                !settings()?.mountChangesAllowed ||
                 !selected() ||
                 selected() === settings()?.outputMount
               }

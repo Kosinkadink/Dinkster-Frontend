@@ -211,7 +211,7 @@ import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
-import { scopedSharedName, scopedStorageKey } from './projects.js'
+import { activeProjectId, scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -4142,7 +4142,7 @@ export class AppState {
       return () => unsubs.forEach((u) => u())
     }
     if (protocol === 'dinkster') {
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl })
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId() })
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in

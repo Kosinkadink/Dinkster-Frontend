@@ -140,10 +140,23 @@ readiness after the availability check. Supervisor health requests have bounded
 deadlines and are cancellation-aware, so shutdown and environment rollback do
 not wait on a stalled response.
 
-The model-folder picker grants the local backend read-only access to an existing
-directory. The backend indexes models in place; it does not copy them into the
-Dinkster library. The local desktop and tinkerer launchers both enable this durable
-mount API through their shared engine command line.
+The folder grant form defaults to read-only access and current-project membership.
+Choose Read and write explicitly for writable folders, and Shared to make a new
+folder available to other projects. Purpose accepts a namespaced kind such as
+`model/checkpoint` or `media/image`. The backend indexes existing files in place;
+it does not copy them into the library. Network paths must already be mounted
+on the backend machine; the form does not store network credentials.
+
+Open Assets -> Folders or the backend's Settings card to manage project folders.
+Top-to-bottom is preference order. Drag rows or use the keyboard-accessible Move
+up and Move down buttons. Stop using removes this project's association, never
+files or another project's grant. A selected output requires a writable
+replacement before removal. Retry / rescan refreshes a reconnected drive.
+Order, membership and output selection persist on the server, independently for
+each project window. Physical paths require operator access and stay out of
+shareable asset records. Pending sandbox changes say Restart required and show
+the still-active output; they do not rebind live grants. Server policy can
+disable folder changes without hiding the configured folders.
 
 ### Remote worker machines
 

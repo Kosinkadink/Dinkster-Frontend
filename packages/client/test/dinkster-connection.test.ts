@@ -498,17 +498,37 @@ describe('mount listing decode', () => {
     expect(requests[1]).toMatchObject({ url: 'http://native/api/mounts/shared-models', init: { method: 'DELETE' } })
   })
 
-  it('selects the default output mount with the settings route', async () => {
+  it('selects the project output without changing global output preferences', async () => {
     const requests: { url: string; init?: RequestInit }[] = []
     const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
       requests.push({ url: String(url), ...(init ? { init } : {}) })
-      return jsonResponse(200, { outputMount: 'renders' })
+      return jsonResponse(200, { mounts: [{ id: 'renders', mode: 'readwrite', state: 'ready' }], outputMount: null, activeOutputMount: null, restartRequired: true, pendingRemovals: ['old'] })
     } })
     await connection.selectOutputMount('renders')
-    expect(requests).toEqual([{
-      url: 'http://native/api/mounts/output',
-      init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'renders' }) },
-    }])
+    expect(requests[0]?.url).toBe('http://native/api/mounts')
+    expect(requests[1]).toEqual({
+      url: 'http://native/api/mounts/projects/default',
+      init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mounts: ['renders'], outputMount: 'renders' }) },
+    })
+  })
+
+  it('keeps concurrent project folder reads and writes independent', async () => {
+    const orders = new Map([['film-a', ['plates', 'renders']], ['film-b', ['renders', 'plates']]])
+    const connection = (project: string) => new DinksterConnection({ id: C0, project, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike,
+      fetchFn: async (url, init) => {
+        const parsed = new URL(String(url))
+        const owner = parsed.searchParams.get('project') ?? parsed.pathname.split('/').at(-1)!
+        if (init?.method === 'PUT') orders.set(owner, JSON.parse(String(init.body)).mounts)
+        return jsonResponse(200, { mounts: orders.get(owner)!.map((id) => ({ id, mode: 'readwrite', state: 'ready' })), outputMount: null, activeOutputMount: null, restartRequired: false, pendingRemovals: [] })
+      },
+    })
+    const a = connection('film-a'), b = connection('film-b')
+    const [left, right] = await Promise.all([a.fetchMountSettings(), b.fetchMountSettings()])
+    expect(left.mounts.map((row) => row.id)).toEqual(['plates', 'renders'])
+    expect(right.mounts.map((row) => row.id)).toEqual(['renders', 'plates'])
+    await a.updateProjectFolders(['plates'], null)
+    expect((await b.fetchMountSettings()).mounts.map((row) => row.id)).toEqual(['renders', 'plates'])
+    expect(await a.fetchMountSettings()).toMatchObject({ restartRequired: false, pendingRemovals: [] })
   })
 })
 

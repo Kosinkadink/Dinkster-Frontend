@@ -1,16 +1,19 @@
 import { createSignal, Show } from 'solid-js'
-import type { MountDescriptor } from '@dinkster/client'
+import type { MountDescriptor, MountGrantOptions } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
-import { ProductButton, ProductTextInput } from './ProductControls.js'
+import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductControls.js'
+import { ProductSelect } from './ProductSelect.js'
+import { ProductField } from './ProductForm.js'
+import { activeProjectId } from './projects.js'
 
 export interface MountFolderConnection {
-  addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise<MountDescriptor>
+  addMount(id: string, path: string, mode: 'read' | 'readwrite', options?: MountGrantOptions): Promise<MountDescriptor>
 }
 
 type StatusMessage = { readonly key: string } | { readonly raw: string }
 
 /**
- * Read-only folder grant form shared by the desktop management dialog and the
+ * Folder grant form shared by the desktop management dialog and the
  * browser template gallery. Desktop hosts pass `chooseDirectory` to use the
  * native folder picker; browser hosts omit it and the server filesystem path
  * is typed because browser directory pickers cannot reveal a server path.
@@ -23,6 +26,9 @@ export function MountFolderForm(props: {
   const message = useAppMessage()
   const [mountPath, setMountPath] = createSignal('')
   const [mountId, setMountId] = createSignal('')
+  const [mode, setMode] = createSignal<'read' | 'readwrite'>('read')
+  const [kind, setKind] = createSignal('')
+  const [shared, setShared] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
   const [status, setStatus] = createSignal<StatusMessage>()
 
@@ -47,7 +53,7 @@ export function MountFolderForm(props: {
     setBusy(true)
     setStatus(undefined)
     try {
-      await props.connection.addMount(mountId().trim(), path, 'read')
+      await props.connection.addMount(mountId().trim(), path, mode(), { project: activeProjectId(), shared: shared(), kind: kind().trim() })
       setMountPath('')
       setMountId('')
       setStatus({ key: 'desktopManagement.folders.granted' })
@@ -66,6 +72,19 @@ export function MountFolderForm(props: {
 
   return (
     <>
+      <div class="project-folder-grant-options">
+        <ProductField controlId="folder-purpose" label={message('projectFolders.purpose')} layout="stack">
+          <ProductTextInput id="folder-purpose" value={kind()} placeholder={message('projectFolders.purposeHint')} disabled={busy()} onInput={(event) => setKind(event.currentTarget.value)} />
+        </ProductField>
+        <ProductField controlId="folder-access" label={message('projectFolders.access')} layout="stack">
+          <ProductSelect id="folder-access" selectedId={mode()} disabled={busy()} options={[
+            { id: 'read', label: message('projectFolders.read'), value: 'read' as const },
+            { id: 'readwrite', label: message('projectFolders.readwrite'), value: 'readwrite' as const },
+          ]} onSelect={(option) => setMode(option.value)} />
+        </ProductField>
+        <label class="project-folder-shared"><ProductCheckbox checked={shared()} disabled={busy()} ariaLabel={message('projectFolders.shared')} onChange={setShared} />{message('projectFolders.shared')}</label>
+        <p>{message('projectFolders.projectOnly')}</p>
+      </div>
       <Show when={props.chooseDirectory !== undefined} fallback={
         <form class="desktop-mount-form desktop-mount-form-typed" onSubmit={(event) => { event.preventDefault(); void addMount() }}>
           <label for="desktop-mount-path">{message('importAssetResolution.fact.path')}</label>

@@ -18,3 +18,39 @@
 @import './styles/collaboration.css';
 @import './styles/boot.css';
 @import './styles/image-editor.css';
+
+.project-folder-list {
+  margin: 0;
+  padding-inline-start: 24px;
+}
+.project-folder-list li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.project-folder-facts {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-folder-facts code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.project-folder-actions, .project-folder-shared {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.project-folder-grant-options, .project-folder-removal {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.asset-project-folders {
+  padding: 8px;
+  max-height: 70vh;
+  overflow: auto;
+}

@@ -755,6 +755,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly baseUrl: string
   /** Stable per-session client id; jobs and WS routing are keyed by it. */
   readonly clientId: string
+  /** Immutable window project; folder preferences never change global priorities. */
+  readonly project?: string
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
   readonly wsUrl?: string
   readonly fetchFn?: FetchLike
@@ -926,9 +928,22 @@ export interface MountDescriptor {
   readonly scanProgress?: MountScanProgress
 }
 
+export interface MountGrantOptions {
+  readonly project?: string
+  readonly shared?: boolean
+  readonly kind?: string
+}
+
+export interface MountLocations {
+  readonly mounts: readonly { readonly id: string; readonly path: string }[]
+}
+
 export interface MountSettings {
   readonly mounts: readonly MountDescriptor[]
   readonly outputMount?: string
+  readonly activeOutputMount?: string
+  readonly restartRequired?: boolean
+  readonly pendingRemovals?: readonly string[]
   /**
    * Server's gate on mutating mount configuration (add/remove grants,
    * select the output mount). A response that omits it (an older backend)
@@ -1589,6 +1604,7 @@ export class DinksterConnection {
   readonly id: ConnectionId
   private readonly baseUrl: string
   private readonly clientId: string
+  private readonly project: string | undefined
   private readonly fetchFn: FetchLike
   private readonly normalizer: DinksterNormalizer
   private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
@@ -1632,6 +1648,7 @@ export class DinksterConnection {
     this.id = config.id
     this.baseUrl = config.baseUrl
     this.clientId = config.clientId
+    this.project = config.project
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
@@ -2161,6 +2178,7 @@ export class DinksterConnection {
     const jobId = this.jobIdFactory()
     const body = {
       clientId: this.clientId,
+      ...(this.project !== undefined ? { project: this.project } : {}),
       jobId,
       targets,
       graph: graph as unknown as Json,
@@ -2643,9 +2661,10 @@ export class DinksterConnection {
   }
 
   private async readMountSettings(signal: AbortSignal): Promise<MountSettings> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts`, { signal })
+    const query = this.project && this.project !== 'default' ? `?${new URLSearchParams({ project: this.project })}` : ''
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts${query}`, { signal })
     if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
-    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; mountChangesAllowed?: unknown }
+    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
     // Compatibility: a response without the field (older backend) decodes
     // as false - read-only; a present non-boolean is a protocol error.
     if (payload.mountChangesAllowed !== undefined && typeof payload.mountChangesAllowed !== 'boolean') {
@@ -2672,12 +2691,43 @@ export class DinksterConnection {
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
-    if (payload.outputMount !== undefined && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
+    if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
+    if (payload.activeOutputMount != null && typeof payload.activeOutputMount !== 'string') throw new Error('GET /api/mounts: malformed active output mount')
+    if (payload.restartRequired !== undefined && typeof payload.restartRequired !== 'boolean') throw new Error('GET /api/mounts: malformed restartRequired')
+    if (payload.pendingRemovals !== undefined && (!Array.isArray(payload.pendingRemovals) || !payload.pendingRemovals.every((id) => typeof id === 'string'))) throw new Error('GET /api/mounts: malformed pendingRemovals')
     return {
       mounts,
       mountChangesAllowed: payload.mountChangesAllowed === undefined ? false : payload.mountChangesAllowed,
       ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}),
+      ...(typeof payload.activeOutputMount === 'string' ? { activeOutputMount: payload.activeOutputMount } : {}),
+      ...(typeof payload.restartRequired === 'boolean' ? { restartRequired: payload.restartRequired } : {}),
+      ...(Array.isArray(payload.pendingRemovals) ? { pendingRemovals: payload.pendingRemovals as string[] } : {}),
     }
+  }
+
+  async fetchMountLocations(): Promise<MountLocations> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations`)
+    if (!res.ok) throw new Error(`GET /api/mounts/locations failed: ${res.status}`)
+    const payload = await res.json() as { mounts?: unknown }
+    if (!Array.isArray(payload.mounts)) throw new Error('GET /api/mounts/locations: malformed response')
+    return { mounts: payload.mounts.map((value: unknown) => {
+      const row = value as Record<string, unknown> | null
+      if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
+      return { id: row['id'], path: row['path'] }
+    }) }
+  }
+
+  async updateProjectFolders(mounts: readonly string[], outputMount: string | null): Promise<void> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/projects/${encodeURIComponent(this.project ?? 'default')}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mounts, outputMount }),
+    })
+    if (!res.ok) throw new Error(`PUT project folders failed: ${res.status}`)
+  }
+
+  async retryMount(id: string): Promise<void> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(id)}/retry`, { method: 'POST' })
+    if (!res.ok) throw new Error(`POST mount retry failed: ${res.status}`)
   }
 
   async listMounts(): Promise<readonly MountDescriptor[]> {
@@ -2688,7 +2738,7 @@ export class DinksterConnection {
     if (!['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(kind)) {
       throw new Error('Unsupported asset selection kind')
     }
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind })}`, signal === undefined ? undefined : { signal })
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind, ...(this.project !== undefined ? { project: this.project } : {}) })}`, signal === undefined ? undefined : { signal })
     if (!res.ok) throw new Error(`GET asset selections failed: ${res.status}`)
     const payload: unknown = await res.json()
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed asset selections')
@@ -2710,19 +2760,15 @@ export class DinksterConnection {
   }
 
   async selectOutputMount(id: string): Promise<void> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/output`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-    if (!res.ok) throw new Error(`PUT /api/mounts/output failed: ${res.status}`)
+    const settings = await this.fetchMountSettings()
+    await this.updateProjectFolders(settings.mounts.map((mount) => mount.id), id)
   }
 
-  async addMount(id: string, path: string, mode: 'read' | 'readwrite' = 'read'): Promise<MountDescriptor> {
+  async addMount(id: string, path: string, mode: 'read' | 'readwrite' = 'read', options: MountGrantOptions = {}): Promise<MountDescriptor> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, path, mode }),
+      body: JSON.stringify({ id, path, mode, ...(this.project !== undefined ? { project: this.project } : {}), ...options }),
     })
     if (!res.ok) throw new Error(`POST /api/mounts failed: ${res.status}`)
     const value = await res.json() as Record<string, unknown>

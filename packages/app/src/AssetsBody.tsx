@@ -14,6 +14,7 @@ import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProjectFolderSettings } from './ProjectFolderSettings.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 type SourceSectionKey = 'assets.source.section.models' | 'assets.source.section.media' | 'assets.source.section.inputOutput' | 'assets.source.section.other'
@@ -265,6 +266,10 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
 
   return (
     <div class="assets-panel" data-testid="assets-overlay">
+      <details class="asset-project-folders">
+        <summary>{message('projectFolders.title')}</summary>
+        <ProjectFolderSettings connection={props.connection} backendLabel={props.baseUrl || props.backendId} onChanged={() => setRetryTick((tick) => tick + 1)} />
+      </details>
       <Show
         when={discoveryError()}
         fallback={

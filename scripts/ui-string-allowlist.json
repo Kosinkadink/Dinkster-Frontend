@@ -632,6 +632,7 @@
     "text:Rendering 3D preview..."
   ],
   "MountFolderForm.tsx": [
+    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal",
     "text:Promise"
   ],
   "NodePalette.tsx": [
@@ -684,6 +685,14 @@
   "ProductTabs.tsx": [
     "text:) return (",
     "text:tab.id === fromId) const next = direction === 'first' ? available[0] : direction === 'last' ? available.at(-1) : available[(current + direction + available.length) % available.length] tablist.querySelector"
+  ],
+  "ProjectFolderSettings.tsx": [
+    "text:() const [busy, setBusy] = createSignal(false) const [error, setError] = createSignal('') const [locationError, setLocationError] = createSignal('') const [removing, setRemoving] = createSignal",
+    "text:() const [locations, setLocations] = createSignal",
+    "text:): Promise",
+    "text:Promise",
+    "text:Promise",
+    "text:busy() || settings()?.mountChangesAllowed !== true return"
   ],
   "ProjectsDialog.tsx": [
     "attribute:aria-label:New project name",

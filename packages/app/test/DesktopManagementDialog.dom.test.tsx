@@ -151,7 +151,7 @@ describe('DesktopManagementDialog', () => {
     expect(root.textContent).toContain('D:\\Shared Models')
     root.querySelector<HTMLFormElement>('.desktop-mount-form')!.requestSubmit()
     await flush()
-    expect(addMount).toHaveBeenCalledWith('shared-models', 'D:\\Shared Models', 'read')
+    expect(addMount).toHaveBeenCalledWith('shared-models', 'D:\\Shared Models', 'read', { project: 'default', shared: false, kind: '' })
     expect(root.textContent).toContain('Test GPU')
     expect(root.textContent).toContain('10.0 GB free of 20.0 GB')
     unmount()
@@ -326,7 +326,7 @@ describe('DesktopManagementDialog', () => {
     await click(section('\u73b0\u6709\u6a21\u578b\u6587\u4ef6\u5939'), '\u9009\u62e9\u6587\u4ef6\u5939')
     await vi.waitFor(() => expect(root.querySelector('.desktop-mount-form')).not.toBeNull())
     root.querySelector<HTMLFormElement>('.desktop-mount-form')!.requestSubmit()
-    await vi.waitFor(() => expect(addMount).toHaveBeenCalledWith('shared-models', 'D:\\Shared Models', 'read'))
+    await vi.waitFor(() => expect(addMount).toHaveBeenCalledWith('shared-models', 'D:\\Shared Models', 'read', { project: 'default', shared: false, kind: '' }))
     await vi.waitFor(() => expect([...section('\u8fdc\u7a0b\u5de5\u4f5c\u8282\u70b9').querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent === '\u79fb\u9664')?.disabled).toBe(false))
     await click(section('\u8fdc\u7a0b\u5de5\u4f5c\u8282\u70b9'), '\u79fb\u9664')
