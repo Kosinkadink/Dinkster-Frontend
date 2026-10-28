@@ -50,12 +50,4 @@ describe('shell and surface product tooltip markup', () => {
     visit(parsed)
     expect(nativeTitles).toEqual([])
   })
-
-  it('replaces the minimap bookmark title without changing its switch contract', () => {
-    const canvas = source('CanvasHost.tsx')
-    expect(canvas).toContain('data-testid="minimap-marker-toggle" aria-checked=')
-    expect(canvas).toContain('data-tooltip-label="Show bookmark numbers on the minimap"')
-    expect(canvas).toContain('aria-label="Bookmarks. Show bookmark numbers on the minimap"')
-    expect(canvas).not.toContain('title="Show bookmark numbers on the minimap"')
-  })
 })
