@@ -13,6 +13,28 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('binds color pickers to native COLOR or STRING without rewriting socket types', () => {
+    for (const socket of ['COLOR', 'STRING']) {
+      const result = parseDinksterSchema('ColorPicker', { interface: [
+        { role: 'input', id: 'color', type: concrete(socket), default: '#12ab34cd', widget: { type: 'COLOR' } },
+        { role: 'output', id: 'hex', type: concrete(socket) },
+      ] })
+      expect(result.diagnostics).toEqual([])
+      expect(inputsOf(result.schema!)[0]).toMatchObject({
+        type: { kind: 'concrete', name: socket },
+        widget: { widgetType: 'COLOR', default: '#12ab34cd' },
+      })
+      expect(outputsOf(result.schema!)[0]!.type).toEqual({ kind: 'concrete', name: socket })
+    }
+    for (const type of [concrete('INT'), concrete('COMBO'), { kind: 'list', element: concrete('COLOR') }]) {
+      const result = parseDinksterSchema('InvalidColorPicker', { interface: [
+        { role: 'input', id: 'color', type, widget: { type: 'COLOR' } },
+      ] })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+    }
+  })
+
   it('decodes historical input-family templates and rejects malformed declarations without losing the node', () => {
     const rule = (sourceTemplate: unknown) => ({
       from: 'OldNode', cases: [{ to: 'NewNode', inputFamilies: { values: {

@@ -227,8 +227,8 @@ export const colorKind: WidgetKind<string> = {
   type: 'COLOR',
   valueSchema: stringSchema,
   defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '#ffffff',
-  // COLOR is a presentation hint over canonical STRING. Preserve every
-  // string exactly; color parsing and normalization are view-only concerns.
+  // Preserve strings independently of the socket identity; color parsing
+  // and normalization are view-only concerns.
   validate: () => [],
   defaultView: () => 'core.color',
 }
