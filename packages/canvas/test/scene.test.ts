@@ -1826,6 +1826,32 @@ describe('boundary pseudo-nodes', () => {
     expect(outLink.typeName).toBe('IMAGE')
   })
 
+  it('anchors shared literal output bindings at the source pin without creating a consuming input', () => {
+    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
+    const document = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'source-boundary-scene', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+        valueSources: { v0: { id: 'v0', value: 23 } },
+        boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }, { id: 'shared', binds }] },
+      } },
+      view: { graphs: { g0: { nodes: {}, valueSources: { v0: { position: { x: 137, y: 241 } } } } } },
+    } as unknown as WorkflowDocument
+    const scene = buildScene({ document, graphId: 'g0', resolve: documentResolver(document, () => undefined), tokens: defaultTokens, measure, widgetMeasure })
+    expect(scene.nodes).toEqual([])
+    const source = scene.valueSources[0]!
+    expect(source).toMatchObject({ id: 'v0', x: 137, y: 241, valueText: '23' })
+    const links = scene.links.filter((link) => link.boundary)
+    expect(links.map((link) => link.id).sort()).toEqual(['boundary:outputs:out', 'boundary:outputs:shared'])
+    for (const link of links) {
+      expect(link.from).toEqual({ kind: 'valueSource', valueSource: 'v0' })
+      expect(link.to).toMatchObject({ kind: 'boundary', side: 'outputs' })
+      expect(link.x1).toBe(source.x + source.width)
+      expect(link.y1).toBe(source.y + source.height / 2)
+      expect(link.typeName).toBe('INT')
+    }
+  })
+
   it('projects an output widget-tap binding from the exact widget pin', () => {
     const doc = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document as WorkflowDocument
     const g1 = doc.graphs['g1']!

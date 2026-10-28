@@ -1539,7 +1539,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   })
   let semanticTargetSelected: (target: CanvasSemanticTarget) => boolean = () => false
-  let activateSemanticItem: (item: CanvasSemanticItem) => void = () => {}
+  let activateSemanticTarget: (target: CanvasSemanticTarget) => void = () => {}
   let focusSemanticPin: (item: CanvasSemanticItem | undefined) => void = () => {}
   let focusCanvas = (): void => {}
   const [editorViewport, setEditorViewport] = createSolidSignal({ x: 0, y: 0, scale: 1 })
@@ -3390,9 +3390,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (target.kind === 'net') return controller.getNetViewSelection().has(target.id)
       return controller.getGroupSelection().has(target.id)
     }
-    activateSemanticItem = (item): void => {
+    activateSemanticTarget = (target): void => {
       const source = renderer.getScene()
-      const target = item.target
       let rect: EditorWorldRect | undefined
       if (target.kind === 'node' || target.kind === 'port') {
         const nodeId = target.kind === 'node' ? target.id : target.nodeId
@@ -5734,6 +5733,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const group = scene.groups.find((g) => g.id === groupId)
         return group ? nodesInGroup(scene, group) : undefined
       },
+      showValueSource: (tabId, graphId, valueSourceId) => {
+        if (activeTab()?.id !== tabId || scene.graphId !== graphId) return
+        activateSemanticTarget({ kind: 'valueSource', id: valueSourceId })
+      },
       deleteSelection,
       selectAll: () => controller.selectAll(),
       setSelectedMode: (mode) => {
@@ -5899,7 +5902,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setOutputPages(new Map())
       setOutputViewerKey(undefined)
       semanticTargetSelected = () => false
-      activateSemanticItem = () => {}
+      activateSemanticTarget = () => {}
       focusSemanticPin = () => {}
       focusCanvas = () => {}
     })
@@ -6003,7 +6006,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           items={semanticScene().items}
           selectionVersion={selVersion()}
           isSelected={(target) => semanticTargetSelected(target)}
-          onActivate={(item) => activateSemanticItem(item)}
+          onActivate={(item) => activateSemanticTarget(item.target)}
           onExit={() => focusCanvas()}
           onFocusChange={(focused) => setSemanticFocused(focused)}
           onActiveChange={(item) => focusSemanticPin(item)}

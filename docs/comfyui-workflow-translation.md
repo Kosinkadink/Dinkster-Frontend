@@ -113,6 +113,11 @@ identity and type, terminates at the existing source, and remains scoped to its
 occurrence through save/reopen and undo/redo. Input promotion still carries
 values, not consuming links: a value source cannot be a local link target.
 
+Inside a definition, literal output bindings draw from the retained source pin
+to the Outputs boundary. The Boundary panel displays the source title and ID;
+Show selects and centers that source without changing the document. Input
+promotion carries an override value, not an incoming wire to the source.
+
 After-generate advancement follows the compiled literal owner instead of
 changing its connected consumer widgets. Shared producer fan-out advances once;
 promoted instance controls own their occurrence overrides and inherit missing

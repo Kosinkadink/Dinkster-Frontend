@@ -1141,6 +1141,7 @@ const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
 export interface CanvasBridge {
   readonly selectedNodes: () => readonly string[]
   readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
+  readonly showValueSource?: (tabId: string, graphId: string, valueSourceId: string) => void
   /** App-level actions live here so commands do not reach into renderer internals. */
   readonly deleteSelection: () => void
   readonly selectAll: () => void
