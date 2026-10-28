@@ -444,6 +444,11 @@ narrow rows retain a 44px label floor and clip at one stable threshold. Hovering
 the value zone exposes the complete effective value in the widget tooltip, so a
 clipped seed remains discoverable without overlapping the chip or edge stepper.
 
+Literal sources inherit the initial mode from the consumer supplying their
+controller slot, including when promoted as a subgraph input. An explicit
+source or occurrence mode takes precedence. Declaring a different controller
+slot does not inherit the original slot's initial mode.
+
 Compact widget hover uses a neutral wash clipped to the exact visible rounded
 widget chrome, and an anchored widget diagnostic uses the same rounded path as
 a red outline. Both keep the chrome's 2px top/bottom breathing room and 4px

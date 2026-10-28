@@ -271,11 +271,15 @@ export function effectiveValueSourceSpec(
   const merge = specMergeFor(widgetType)
   let options: Record<string, unknown> = {}
   let controller: WidgetSpec['controller'] | undefined
+  let controllerInitial: WidgetSpec['controllerInitial'] | undefined
   let remote: WidgetSpec['remote'] | undefined
   let first = true
   for (const w of widgetSpecs) {
     if (w.widgetType !== widgetType) continue
-    if (w.controller && controller === undefined) controller = w.controller
+    if (w.controller && controller === undefined) {
+      controller = w.controller
+      controllerInitial = w.controllerInitial
+    }
     if (w.remote && remote === undefined) remote = w.remote
     if (first) {
       options = { ...w.options }
@@ -307,12 +311,16 @@ export function effectiveValueSourceSpec(
       )
     }
   }
-  if (vs.spec?.controller) controller = vs.spec.controller
+  if (vs.spec?.controller) {
+    if (vs.spec.controller !== controller) controllerInitial = undefined
+    controller = vs.spec.controller
+  }
 
   const spec: WidgetSpec = {
     widgetType,
     options,
     ...(controller ? { controller } : {}),
+    ...(controllerInitial !== undefined ? { controllerInitial } : {}),
     ...(remote ? { remote } : {}),
   }
   return { spec, type, consumers, diagnostics: diags }

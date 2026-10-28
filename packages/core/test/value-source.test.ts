@@ -136,6 +136,31 @@ describe('value source consumers', () => {
 })
 
 describe('effective spec derivation (P1/P2/P5)', () => {
+  it.each(['fixed', 'decrement', undefined] as const)('retains consumer initial controller mode %s through input promotion', (controllerInitial) => {
+    const schema = { ...resolve('KSampler')!, type: 'InitialMode', items: [{
+      kind: 'input' as const, id: 'seed', type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
+      widget: { widgetType: 'INT', options: { step: 2 }, controller: 'after_generate' as const,
+        ...(controllerInitial !== undefined ? { controllerInitial } : {}) },
+    }] }
+    const def = graph({ id: 'g0', nodes: { n1: node('n1', 'InitialMode') },
+      valueSources: { v1: source('v1', 11) },
+      links: { l0: { id: asLinkId('l0'), from: vsrc('v1'), to: port('n1', 'seed') } },
+      boundary: { inputs: [{ id: 'value', promoted: true, binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type: { kind: 'concrete', name: 'INT' } } }], outputs: [] },
+    })
+    const before = JSON.stringify(def)
+    const resolveInitial = (type: string) => type === schema.type ? schema : undefined
+    expect(effectiveValueSourceSpec(def, def.valueSources!.v1!, resolveInitial).spec).toEqual({
+      widgetType: 'INT', options: { step: 2 }, controller: 'after_generate',
+      ...(controllerInitial !== undefined ? { controllerInitial } : {}),
+    })
+    const promoted = deriveBoundarySchema(def, resolveInitial)
+    expect(promoted.diagnostics).toEqual([])
+    expect(promoted.schema!.items[0]).toMatchObject({ kind: 'input', widget: {
+      controller: 'after_generate', ...(controllerInitial !== undefined ? { controllerInitial } : {}),
+    } })
+    expect(JSON.stringify(def)).toBe(before)
+  })
+
   it('unifies numeric constraints across INT consumers (intersection)', () => {
     // KSampler.seed: min 0, huge max; KSampler.steps: min 1, max 10000.
     const def = doc({

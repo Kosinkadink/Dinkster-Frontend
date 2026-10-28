@@ -49,6 +49,27 @@ function compileDoc(document: any): CompileArtifact {
 }
 
 describe('controllerAdvancement', () => {
+  it.each(['fixed', 'decrement'] as const)('honors a literal consumer initial mode %s without stored controller state', (controllerInitial) => {
+    const initialSchema: NodeSchema = { ...schema, items: schema.items.map((item) => item.kind === 'input' && item.id === 'down'
+      ? { ...item, widget: { ...item.widget!, controllerInitial } } : item) }
+    const document = fixture() as any
+    document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
+    document.graphs.g0.valueSources = { v0: { id: 'v0', value: 11 } }
+    document.graphs.g0.links = { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'seed', port: 'down' } } }
+    const result = compile({ document, revision: 0, resolve: (type) => type === schema.type ? initialSchema : undefined,
+      scope: { kind: 'full' }, connection: asConnectionId('local'), schemaHash: 'test' })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    expect(controllerAdvancement(document, result.artifact)).toEqual(controllerInitial === 'fixed' ? undefined : {
+      command: 'batch', params: { invocations: [
+        { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 9 } },
+      ] },
+    })
+    document.graphs.g0.valueSources.v0.controller = 'increment'
+    expect(controllerAdvancement(document, result.artifact)).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 13 } },
+    ] } })
+  })
+
   it('advances a shared literal producer once instead of its connected consumers', () => {
     const document = fixture() as any
     document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
