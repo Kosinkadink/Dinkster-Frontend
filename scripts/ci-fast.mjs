@@ -13,6 +13,13 @@ execFileSync(
   ],
   { stdio: 'inherit' },
 )
+execFileSync(
+  process.env.PYTHON ?? 'python3',
+  ['scripts/bundle_artifact_test.py'],
+  {
+    stdio: 'inherit',
+  },
+)
 
 for (const args of [
   [
