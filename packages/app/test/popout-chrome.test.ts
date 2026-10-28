@@ -17,14 +17,4 @@ describe('pop-out, floating, and projects chrome styling', () => {
     expect(focus).toContain('outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus)')
     expect(projects).not.toContain('outline: none')
   })
-
-  it('gives detached and missing-panel window states interactive button styling', () => {
-    const detached = block('.detached-workspace-state {', '.seed-controller-menu {')
-    expect(detached).toContain('.native-panel-window-missing button')
-    expect(detached).toMatch(/\.detached-workspace-state button:hover/)
-    expect(detached).toMatch(/\.native-panel-window-missing button:hover/)
-    expect(detached).toMatch(/\.detached-workspace-state button:focus-visible/)
-    expect(detached).toMatch(/\.native-panel-window-missing button:focus-visible/)
-    expect(detached).toMatch(/cursor: pointer/)
-  })
 })

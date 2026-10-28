@@ -50,7 +50,8 @@ The subset uses synthetic inputs and checked-in fixtures:
   their public registries.
 - App `disabled-features.dom.test.tsx`, using the component config: mounted
   editor registration, App-view feature gating and shell cleanup, alongside
-  template-surface gating. Only the graph canvas is stubbed, not the shell.
+  template-surface gating, backend targeting, review toggles and live
+  shared-session tooltip hints. Only the graph canvas is stubbed, not the shell.
 - `scripts/check-host-ui-contract.test.mjs`: removed extension UI symbols
   stay absent and the widget environment exposes only its scoped client.
 - `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
@@ -62,6 +63,10 @@ in the stock-backend browser job. `pnpm --filter @dinkster/app build`
 checks its emitted HTML, nonempty module entry and inline semantic-token
 content/order after Vite builds once; unit tests do not invoke a second build.
 The widget document-value matrix runs in core alongside its store contract.
+Execution and backend component tests check mounted labels, ownership and
+actions; the tooltip AST check only bans native HTML titles. The existing
+settings multiwindow browser keeper checks hover and keyboard focus on missing
+panel and workflow return controls rather than matching stylesheet text.
 
 Selection does not depend on changed files, labels, model availability or a
 running service. The required `CI_RUNNERS` repository variable controls every
