@@ -28,7 +28,11 @@ def main():
         draw.text((140, 490), "MONOCHROME (LIGHT ON DARK)", fill="#F2F4F5", font=font)
         draw.text((140, 966), "MONOCHROME (DARK ON LIGHT)", fill="#1F242A", font=font)
         drafts.append(draft)
-    guides = (("upper", "#32B7CB"), ("x-height", "#F07060"), ("baseline", "#C99B28"))
+    guides = (
+        ("upper: i top / k,t slope start", "#32B7CB"),
+        ("x-height", "#F07060"),
+        ("baseline", "#C99B28"),
+    )
     reference = reference.copy()
     reference_draw = ImageDraw.Draw(reference)
     for upper, xheight, baseline in ((122, 134, 178), (376, 388, 432)):
@@ -68,7 +72,7 @@ def main():
     labels = ImageDraw.Draw(letter_comparison)
     labels.text(
         (24, 18),
-        "REGULAR WEIGHT - upper / x-height / baseline guides; magenta = k cut / arm continuation",
+        "REGULAR - blue: i top / k,t slope start; red: x-height; gold: baseline; magenta: k continuation",
         fill="#1F242A",
         font=font,
     )

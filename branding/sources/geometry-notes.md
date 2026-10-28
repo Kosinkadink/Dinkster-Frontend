@@ -124,3 +124,34 @@ trims at 16-64 px with those same small-size cuts. `compare_small.py`
 composes all three geometry columns on both backgrounds in mono, cyan
 and color, plus an exact 4x nearest-neighbor enlargement. The trimmed
 proof variants are not production selections.
+
+## Counter and larger-corner proposals
+
+`compare_geometry.py --counter-options` retains the approved geometry and
+renders full D proposals at 1024 px. The three smaller counters keep
+the y=157/285 flats, symmetry about y=221, n=3.2 superellipse exponent,
+left radii 26, island and channel gaps unchanged. Only the horizontal
+radius of the superellipse half is reduced, with its left endpoint
+x=324 fixed. The area metric closes the counter at the island's straight
+right edge x=298; it excludes the open channel. The sampled right-half
+area plus the fixed 26x128 flat rectangle gives horizontal radius
+factors 0.854588344, 0.709176687 and 0.563765031 for 10/20/30 percent
+less area. The resulting right extremes are 378.693654, 369.387308 and
+360.080962. Vertical size is deliberately retained to preserve the gaps
+and left corners; these are aspect-ratio proposals, not chosen geometry.
+
+The x=232 trim's corner uses a real radius-24 circle centered at
+(256,336). The old vertical trim segment is only 9 units tall, so a full
+quarter-circle cannot fit between it and the unchanged diagonal channel.
+The proposal ends the circle at its exact intersection with x+y=583,
+approximately (235.1369,347.8631). The arc is tangent to the baseline but
+not to the channel; no self-overlapping vertical/arc segment is inserted.
+The x=232 trim line is therefore a construction boundary rather than a
+surviving straight segment. The comparison explicitly shows a second,
+fully tangent radius-24 alternative on the original baseline/channel
+intersection. That alternative's leftmost point is about x=256.94,
+farther right than the requested trim. Neither corner construction is
+silently treated as the user's selection. The current shape and an
+unchanged-counter rounded proposal isolate the corner from the counter
+change. All are proof-only SVGs and PNGs, with matching mono/color alpha;
+the master and production symbol exports stay unchanged.

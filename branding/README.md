@@ -41,8 +41,22 @@ Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
 k arm), and 56 (baseline); only the k's lower leg descends to 70.
 The enlarged k also carries its x + y = 63 cut/arm continuation guide.
 The regular e joins flat top/left segments with a 12-unit circular arc.
+The blue line is the start of the k/t top slopes, not their highest
+point; the i dot's top edge ends on that line and never rises above it.
+The regular k beam ends in a triangle at (7,56), with its cut
+meeting the lower leg at (18.5,44.5). The i dot/stem separation is reduced
+by moving the stem top up four units. The e counter joins its flat top
+and left with a tangent 2-unit arc.
 Reference-image guides are measured raster estimates, not vector
 constraints imposed on or alterations to the supplied image.
+
+`compare_geometry.py --counter-options --inkscape /path/to/inkscape`
+renders the full-size counter proposals without changing the approved
+source or master. The comparison includes the current shape, the x=232
+trim with a 24-unit corner arc, three smaller counters, and a tangent
+24-unit corner alternative. `counter-export-commands.txt` records the
+renderer and every CLI export. See `geometry-notes.md` for the corner's
+channel-intersection constraint and the counter-area measurement.
 
 For the small-size comparison, run `sources/compare_geometry.py --inkscape
 /path/to/inkscape` with Python, then `python sources/compare_small.py`.
