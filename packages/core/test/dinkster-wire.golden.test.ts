@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile/compile.js'
-import { importLitegraph } from '../src/format/import-litegraph.js'
+import { importLitegraph, resolveImportedAssetLiterals } from '../src/format/import-litegraph.js'
 import { asConnectionId } from '../src/ids.js'
 import {
   DINKSTER_SCHEMA_WIRE_VERSION,
@@ -13,6 +13,53 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('preserves native asset-selection schemas and imported source names', () => {
+    for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
+      const types = [concrete('COMBO'), ...(kind === 'model/vae' ? [{ kind: 'union', types: ['COMBO', 'ASSET'] }] : [])]
+      const source = kind === 'model/vae' ? 'pixel_space' : 'nested/source'
+      for (const type of types) {
+        const result = parseDinksterSchema('SourceSelection', { interface: [
+          { role: 'input', id: 'source', type, widget: { type: 'ASSET', accept: [], kind, selection: true } },
+          { role: 'input', id: 'file', type: concrete('ASSET'), widget: { type: 'ASSET', accept: [] } },
+        ] })
+        expect(result.diagnostics).toEqual([])
+        expect(inputsOf(result.schema!)[0]!.widget).toMatchObject({ widgetType: 'ASSET', kind, selection: true })
+        const resolve = () => result.schema
+        const imported = importLitegraph({ nodes: [{ id: 1, type: 'SourceSelection', widgets_values: [source, 'ordinary.vae'] }], links: [] }, resolve)
+        const descriptor = { digest: `blake3:${'a'.repeat(64)}`, name: 'ordinary.vae', size: 17, mediaType: 'application/octet-stream', virtualPath: 'mounts/vae/ordinary.vae' }
+        const resolved = resolveImportedAssetLiterals(imported.document!, resolve, () => descriptor)
+        expect(resolved.unresolved).toEqual([])
+        expect(resolved.document.graphs.g0!.nodes.n1!.values).toEqual({ source, file: descriptor })
+        const linked = importLitegraph({ nodes: [
+          { id: 1, type: 'SourceSelection', inputs: [{ name: 'source', type: 'COMBO', link: 7 }], widgets_values: [source, 'ordinary.vae'] },
+          { id: 2, type: 'PrimitiveNode', outputs: [{ name: 'COMBO', type: 'COMBO', links: [7] }], widgets_values: [source] },
+        ], links: [[7, 2, 0, 1, 0, 'COMBO']] }, (nodeType) => nodeType === 'SourceSelection' ? result.schema : undefined)
+        expect(linked.document).toBeDefined()
+        const linkedResolved = resolveImportedAssetLiterals(linked.document!, resolve, () => descriptor)
+        expect(linkedResolved.unresolved).toEqual([])
+        expect(Object.values(linkedResolved.document.graphs.g0!.valueSources!)[0]!.value).toBe(source)
+      }
+    }
+  })
+
+  it('rejects invalid native asset-selection contracts without widening ordinary assets', () => {
+    const union = { kind: 'union', types: ['COMBO', 'ASSET'] }
+    for (const [type, widget] of [
+      [concrete('COMBO'), { kind: 'media/image', selection: true }],
+      [concrete('COMBO'), { kind: 'model/vae', selection: 'true' }],
+      [concrete('COMBO'), { kind: 'model/vae', selection: true, allowUpload: true }],
+      [concrete('ASSET'), { kind: 'model/vae', selection: true }],
+      [union, { kind: 'model/diffusers', selection: true }],
+      [union, { kind: 'model/vae', selection: false }],
+    ]) {
+      const result = parseDinksterSchema('InvalidSelection', { interface: [
+        { role: 'input', id: 'source', type, widget: { type: 'ASSET', accept: [], ...widget } },
+      ] })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+    }
+  })
+
   it('binds color pickers to native COLOR or STRING without rewriting socket types', () => {
     for (const socket of ['COLOR', 'STRING']) {
       const result = parseDinksterSchema('ColorPicker', { interface: [

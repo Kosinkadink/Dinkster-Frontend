@@ -2,7 +2,15 @@
 
 Dinkster translates legacy ComfyUI LiteGraph workflows when `AppState.openDocument` receives their JSON. Widget arrays are mapped to schema input IDs. Legacy ASSET widget values remain strings until the user decides whether to replace them.
 
-For a native Dinkster connection, the app looks up those strings with `POST /api/assets/guess` after translation. Canonical blake3 hints from the workflow's top-level ComfyUI `models` metadata are sent as `digestHints` for their original imported names. Names that include subdirectories are also queried by basename, but those added basename queries remain unhinted. Basename candidates remain attached to the original imported string and count only as exact-name signals. The lookup does not fetch assets.
+ASSET descriptors with `selection: true` retain named source choices rather than
+ordinary file literals. Their exact kind is `model/vae`, `model/diffusers`,
+`directory/input`, or `directory/dataset`; uploads are not permitted. They bind
+to COMBO, or to the COMBO/ASSET union for `model/vae` only. Imported source names
+stay unchanged and do not enter file guessing or automatic descriptor
+replacement, including when carried by a value source. Backend resolution can
+select a file, a directory, a VAE pair, or a built-in choice such as `pixel_space`.
+
+For ordinary file literals on a native Dinkster connection, the app looks up the strings with `POST /api/assets/guess` after translation. Canonical blake3 hints from the workflow's top-level ComfyUI `models` metadata are sent as `digestHints` for their original imported names. Names that include subdirectories are also queried by basename, but those added basename queries remain unhinted. Basename candidates remain attached to the original imported string and count only as exact-name signals. The lookup does not fetch assets.
 
 Complete candidates can be applied without a prompt. A `blake3` digest in the workflow's top-level ComfyUI `models` metadata is authoritative; other hash types remain provenance only. An exact `digest`-confidence candidate matching that workflow hint is the strongest evidence tier. Same-digest duplicates choose the lexically first virtual path. A hint-free retry against a pre-amendment backend can still use a complete candidate with the authoritative workflow digest. Without a digest hint, one digest at the exact path tier, or at the case-sensitive basename tier when no path match exists, is deterministic and is applied. Conflicting digests, a workflow digest that matches no candidate, weak confidence tiers, and missing candidates remain unresolved. A digest-known miss never falls back to filename similarity. All automatic replacements from one import are one command batch, one revision, and one undo step, with an info diagnostic recording the original string, selected virtual path, and digest.
 
