@@ -1013,24 +1013,29 @@ export interface MediaAssetRef extends JsonObject {
   readonly virtualPath: string
 }
 
-const classifiedAssetRef = (payload: unknown, kind: string, endpoint: string): MediaAssetRef => {
+export interface AssetUploadDestination {
+  readonly mount?: string
+  readonly folder?: string
+}
+
+const uploadedAssetRef = (payload: unknown, kind: string | undefined, endpoint: string): MediaAssetRef => {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new Error(`${endpoint}: malformed response`)
   }
   const body = payload as Record<string, unknown>
   const asset = body['asset']
-  if (body['kind'] !== kind || typeof asset !== 'object' || asset === null || Array.isArray(asset)) {
+  if ((kind !== undefined && body['kind'] !== kind) || typeof asset !== 'object' || asset === null || Array.isArray(asset)) {
     throw new Error(`${endpoint}: malformed response`)
   }
   const value = asset as Record<string, unknown>
-  if (!/^blake3:[0-9a-f]{64}$/.test(String(value['digest'])) ||
+  if (typeof value['digest'] !== 'string' || !/^blake3:[0-9a-f]{64}$/.test(value['digest']) ||
       typeof value['name'] !== 'string' || value['name'] === '' ||
       typeof value['size'] !== 'number' || !Number.isSafeInteger(value['size']) || value['size'] < 0 ||
       typeof value['mediaType'] !== 'string' || value['mediaType'] === '' ||
       typeof value['virtualPath'] !== 'string') {
     throw new Error(`${endpoint}: malformed response`)
   }
-  return value as unknown as MediaAssetRef
+  return { digest: value['digest'], name: value['name'], size: value['size'], mediaType: value['mediaType'], virtualPath: value['virtualPath'] }
 }
 
 const GUESS_CONFIDENCE = new Set<AssetGuessConfidence>(['digest', 'path', 'name', 'name-insensitive', 'stem'])
@@ -2484,6 +2489,27 @@ export class DinksterConnection {
     return payload.digest
   }
 
+  /** Import a named file into the current project's writable folder, not the workflow vault. */
+  async uploadNamedAsset(
+    file: File,
+    options: AssetUploadDestination & { readonly scope: string; readonly name: string; readonly signal?: AbortSignal },
+  ): Promise<MediaAssetRef> {
+    const query = new URLSearchParams({ scope: options.scope, name: options.name,
+      ...(this.project !== undefined ? { project: this.project } : {}),
+      ...(options.mount !== undefined ? { mount: options.mount } : {}),
+      ...(options.folder !== undefined ? { folder: options.folder } : {}),
+    })
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets?${query}`, {
+      method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
+    if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    const asset = uploadedAssetRef(payload, undefined, 'POST /api/assets')
+    if ((payload as Record<string, unknown>)['digest'] !== asset.digest) throw new Error('POST /api/assets: malformed response')
+    return asset
+  }
+
   /** Validate and adopt canonical ImageDocument bytes plus their scoped dependencies. */
   async adoptImageDocument(
     bytes: Blob | ArrayBuffer | Uint8Array | string,
@@ -2564,7 +2590,7 @@ export class DinksterConnection {
   /** Upload classified source media and return only the server-authored AssetRef. */
   async uploadMediaAsset(
     file: File,
-    options: {
+    options: AssetUploadDestination & {
       readonly scope: string
       readonly kind: 'media/image' | 'media/audio' | 'media/video'
       readonly name: string
@@ -2572,7 +2598,11 @@ export class DinksterConnection {
       readonly signal?: AbortSignal
     },
   ): Promise<MediaAssetRef> {
-    const query = new URLSearchParams({ scope: options.scope, kind: options.kind, name: options.name })
+    const query = new URLSearchParams({ scope: options.scope, kind: options.kind, name: options.name,
+      ...(this.project !== undefined ? { project: this.project } : {}),
+      ...(options.mount !== undefined ? { mount: options.mount } : {}),
+      ...(options.folder !== undefined ? { folder: options.folder } : {}),
+    })
     const headers = new Headers({ 'Content-Type': file.type })
     if (options.expectedDigest !== undefined) headers.set('X-Dinkster-Digest', options.expectedDigest)
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/media?${query}`, {
@@ -2582,7 +2612,7 @@ export class DinksterConnection {
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!res.ok) throw new Error(`POST /api/assets/media failed: ${res.status}`)
-    return classifiedAssetRef(await res.json(), options.kind, 'POST /api/assets/media')
+    return uploadedAssetRef(await res.json(), options.kind, 'POST /api/assets/media')
   }
 
   /** Upload a validated safetensors latent and adopt the server-authored AssetRef. */
@@ -2598,7 +2628,7 @@ export class DinksterConnection {
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!res.ok) throw new Error(`POST /api/assets/latent failed: ${res.status}`)
-    return classifiedAssetRef(await res.json(), 'data/latent', 'POST /api/assets/latent')
+    return uploadedAssetRef(await res.json(), 'data/latent', 'POST /api/assets/latent')
   }
 
   /** Resolve legacy asset names without acquiring bytes or changing a document. */

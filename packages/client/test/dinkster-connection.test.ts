@@ -1388,7 +1388,7 @@ describe('targetsForArtifact', () => {
 // Submit
 // ---------------------------------------------------------------------------
 
-function submitHarness(respond: (url: string, init?: RequestInit) => Response | undefined) {
+function submitHarness(respond: (url: string, init?: RequestInit) => Response | undefined, project?: string) {
   const requests: { url: string; init?: RequestInit }[] = []
   const fetchFn: FetchLike = async (url, init) => {
     requests.push({ url, ...(init ? { init } : {}) })
@@ -1402,6 +1402,7 @@ function submitHarness(respond: (url: string, init?: RequestInit) => Response | 
     clientId: 'cid',
     fetchFn,
     jobIdFactory: () => 'job-fixed',
+    ...(project !== undefined ? { project } : {}),
   })
   return { conn, requests }
 }
@@ -3705,6 +3706,55 @@ describe('workflow library wire', () => {
     const headers = new Headers(request.init?.headers)
     expect(headers.get('Content-Type')).toBe('image/png')
     expect(headers.get('X-Dinkster-Digest')).toBe(DIGEST)
+  })
+
+  it.each(['named', 'media'] as const)('%s upload preserves the project destination and collision-safe server reference', async (route) => {
+    const body = new File(['different bytes'], 'proof.png', { type: 'image/png' })
+    const asset = { ...MEDIA_ASSET, name: 'proof (2).png', size: 19, virtualPath: 'mounts/imports/plates/scene A/proof (2).png' }
+    const { conn, requests } = submitHarness(() => jsonResponse(201, {
+      digest: DIGEST, asset: { ...asset, hostPath: '/private/not-an-asset-field' }, kind: 'media/image',
+    }), 'project-b')
+    const controller = new AbortController()
+    const options = { scope: 'team', name: body.name, mount: 'imports', folder: 'plates/scene A', signal: controller.signal }
+    const result = route === 'named'
+      ? await conn.uploadNamedAsset(body, options)
+      : await conn.uploadMediaAsset(body, { ...options, kind: 'media/image' })
+    expect(result).toEqual(asset)
+    const request = requests[0]!
+    const url = new URL(request.url)
+    expect(url.pathname).toBe(route === 'named' ? '/api/assets' : '/api/assets/media')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      scope: 'team', project: 'project-b', name: 'proof.png', mount: 'imports', folder: 'plates/scene A',
+      ...(route === 'media' ? { kind: 'media/image' } : {}),
+    })
+    expect(request.init?.body).toBe(body)
+    expect(request.init?.signal).toBe(controller.signal)
+  })
+
+  it('named upload leaves the default destination to the server without changing anonymous vault uploads', async () => {
+    const body = new File(['weights'], 'model.safetensors')
+    const asset = { ...MEDIA_ASSET, name: body.name, mediaType: 'application/octet-stream', virtualPath: 'mounts/imports/model.safetensors' }
+    const { conn, requests } = submitHarness(() => jsonResponse(201, { digest: DIGEST, asset }))
+    await expect(conn.uploadNamedAsset(body, { scope: 'local', name: body.name })).resolves.toEqual(asset)
+    expect(Object.fromEntries(new URL(requests[0]!.url).searchParams)).toEqual({ scope: 'local', name: 'model.safetensors' })
+    expect(new Headers(requests[0]?.init?.headers).get('Content-Type')).toBe('application/octet-stream')
+    expect(await conn.uploadAsset(body)).toBe(DIGEST)
+    expect(requests[1]?.url).toBe('http://test/api/assets')
+  })
+
+  it.each([
+    { digest: 'blake3:' + 'b'.repeat(64), asset: MEDIA_ASSET },
+    { digest: DIGEST, asset: { ...MEDIA_ASSET, virtualPath: undefined } },
+    { digest: DIGEST },
+  ])('named upload rejects a malformed or inconsistent server reference', async (payload) => {
+    const { conn } = submitHarness(() => jsonResponse(201, payload))
+    await expect(conn.uploadNamedAsset(new File(['x'], 'x'), { scope: 'local', name: 'x' })).rejects.toThrow('malformed response')
+  })
+
+  it('named upload surfaces a rejected destination without retrying into the vault', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(403, { error: 'read-only mount' }))
+    await expect(conn.uploadNamedAsset(new File(['x'], 'x'), { scope: 'local', name: 'x', mount: 'readonly' })).rejects.toThrow('403')
+    expect(requests).toHaveLength(1)
   })
 
   it('uploadMediaAsset sends a video File directly without reading or copying it in JavaScript', async () => {
