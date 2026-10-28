@@ -4,8 +4,8 @@
  * same-origin default backend - no manual add, no protocol picker, no
  * stored state. This is the "just works" path that discovery.spec (client
  * unit tests) and the app default-option tests prove separately; here the
- * full composition runs in the real browser: main.tsx discovery ->
- * AppState default protocol -> native client fetch.
+ * full composition runs in the real browser: AppState native default ->
+ * native client fetch, without a stock ComfyUI discovery fallback.
  *
  * Deliberately imports from '@playwright/test', NOT './fixtures.js': the
  * shared fixture pins the same-origin default to v1 for the rest of the
@@ -90,9 +90,7 @@ const CURRENT_PREVIEW_TABLE = {
   },
 }
 
-test('same-origin native launch keeps the compatibility probe bounded', async ({ page }, testInfo) => {
-  // Temporary skip pending attribution: Kosinkadink/comfy-vibe-station#430
-  test.skip(true, 'red at main; attribution and re-enable tracked in Kosinkadink/comfy-vibe-station#430')
+test('same-origin native launch never probes stock ComfyUI', async ({ page }) => {
   let v1Requests = 0
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),
@@ -111,8 +109,7 @@ test('same-origin native launch keeps the compatibility probe bounded', async ({
   await expect
     .poll(() =>
       page.evaluate(() => {
-        // The bridge lands after main.tsx's pre-render discovery await;
-        // return a retriable sentinel instead of throwing until then.
+        // The bridge lands after fonts and desktop setup.
         const backend = window.__dinksterTest?.app.backends.get()[0]
         if (!backend) return { protocol: 'pending', schemas: 0, title: '', nodes: -1 }
         const tab = window.__dinksterTest?.app.activeTab()
@@ -126,7 +123,33 @@ test('same-origin native launch keeps the compatibility probe bounded', async ({
       }),
     )
     .toEqual({ protocol: 'dinkster', schemas: 1, title: 'Untitled', nodes: 0 })
-  expect(v1Requests).toBe(testInfo.project.name === 'native-without-v1' ? 0 : 1)
+  expect(v1Requests).toBe(0)
+})
+
+test('slow font startup shows the boot message before the native shell', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    const load = document.fonts.load.bind(document.fonts)
+    const startupReady = new Promise<void>((resolve) => { Reflect.set(window, 'releaseStartupFonts', resolve) })
+    document.fonts.load = async (...args) => {
+      const fonts = await load(...args)
+      await startupReady
+      return fonts
+    }
+  })
+  await page.routeWebSocket('**/api/events?*', () => {})
+  await page.route('/api/*', (route) => route.fulfill({ status: 503 }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: NATIVE_TABLE }))
+  try {
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('.boot-indicator-waiting')).toHaveText('Starting Dinkster...')
+    await expect(page.locator('.boot-indicator-waiting')).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('native-font-startup.png') })
+  } finally {
+    await page.evaluate(() => Reflect.get(window, 'releaseStartupFonts')())
+  }
+  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await expect(page.locator('.boot-indicator')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('native-startup-ready.png') })
 })
 
 test('native clean startup stays blank with a richer compatibility catalog', async ({ page }) => {

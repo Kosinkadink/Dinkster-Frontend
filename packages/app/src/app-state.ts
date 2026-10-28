@@ -2936,9 +2936,8 @@ export class AppState {
 
   constructor(options?: {
     /**
-     * Protocol for the same-origin default backend, as discovered by the
-     * entry point (discoverBackend('') in main.tsx) BEFORE construction.
-     * Defaults to the native Dinkster protocol.
+     * Explicit protocol override for the same-origin default backend.
+     * Production startup uses the native Dinkster default.
      */
     readonly defaultProtocol?: BackendProtocol
     /** Injectable collab session transport (tests); defaults to HTTP + WS. */
@@ -4356,9 +4355,9 @@ export class AppState {
   }
 
   /**
-   * URL-only add: discover what the server speaks (supervisor -> native ->
-   * v1) and add it with the discovered protocol. Nothing is added when the
-   * URL is unreachable, unrecognized, or a wire-incompatible Dinkster - each
+   * URL-only add: identify a native engine or supervisor before adding it.
+   * Nothing is added when the URL is unreachable, unrecognized, or a
+   * wire-incompatible Dinkster - each
    * lands as a named problem instead, so a typo or down server is a loud
    * diagnosis, not a dead backend row. `discover` is injectable for tests.
    */
@@ -4384,12 +4383,12 @@ export class AppState {
       ])
       return undefined
     }
-    if (found.kind === 'dinkster' || found.kind === 'v1') {
+    if (found.kind === 'dinkster') {
       return this.addBackend(
         trimmed,
         options?.label,
         options?.start ?? true,
-        found.kind === 'v1' ? 'v1' : 'dinkster',
+        'dinkster',
       )
     }
     const message = `'${trimmed}': ${found.detail}`

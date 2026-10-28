@@ -807,31 +807,27 @@ focus to its trigger; clicking another palette control closes the filter while
 preserving that control's click. Opening, closing, searching, and keyboard
 navigation never edit the document.
 
-## Boot indicator (pre-render discovery window)
+## Boot indicator
 
-Before the shell mounts, `main.tsx` awaits `discoverBackend()` to pick the
-same-origin protocol. On a slow or dead origin that await holds for up to
-the probe timeout (2500ms), leaving `#root` blank. The boot indicator
-fills that window with a minimal centered pulse and the product name so the
-launch is never a blank screen.
-
-The launch origin is native-only: startup checks the supervisor and Dinkster
-node catalog but makes no ComfyUI v1 request. URL-based backend addition keeps
-full protocol discovery for users who explicitly add a ComfyUI server.
+Before the shell mounts, `main.tsx` loads fonts and completes desktop setup
+when present. The boot indicator fills that window with a centered pulse
+and the product name. Startup constructs a native Dinkster connection directly;
+backend metadata loads after construction rather than blocking the shell on
+a protocol-choice probe. URL-based backend addition recognizes only a native
+engine or supervisor and reports a named problem for stock ComfyUI servers.
 
 Timing contract (`packages/app/src/boot-indicator.ts`):
 
-- The indicator appears only after **150ms**. A fast boot that discovers
+- The indicator appears only after **150ms**. A fast boot that loads
   and renders before then never flashes it.
 - After **3000ms** an additional line names what it is waiting on
-  ("Waiting for backend discovery...").
+  ("Starting Dinkster...").
 - `hide()` cancels both timers and removes the element. It is called the
-  moment `discoverBackend()` resolves, before Solid's `render()`.
+  moment setup completes, before Solid's `render()`.
 
 The indicator is plain DOM/CSS (no framework, no new dependencies) and
 never blocks or delays startup - it is appended to `#root` and removed
-before `render()` replaces the root's content. The discovery/probe logic
-itself is unchanged; this is presentation only.
+before `render()` replaces the root's content.
 
 Coverage: `app/test/boot-indicator.test.ts` pins the show-after-delay,
 no-flash-on-fast-boot, message-after-3000ms, hide-cancels-both-timers,

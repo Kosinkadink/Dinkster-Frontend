@@ -6,9 +6,10 @@ implementation. The compatibility entry is `packages/app/src/v1-connection-kind.
 which exposes `@dinkster/client/comfy-v1`; the protocol decoder is exposed from
 `@dinkster/core/comfy-v1`.
 
-AppState construction and protocol-less backend adds default to the native
-Dinkster connection. The legacy connection requires an explicit protocol choice
-or a legacy discovery result; it is never the implicit application default.
+Startup constructs a native Dinkster connection without a protocol-choice
+probe. URL-based backend addition recognizes only Dinkster engines and
+supervisors; stock ComfyUI URLs are reported as unrecognized. The optional
+legacy connection requires an explicit AppState protocol choice.
 
 ## Supported matrix
 
