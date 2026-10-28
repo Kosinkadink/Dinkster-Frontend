@@ -69,7 +69,7 @@ def main():
             destination = ROOT / f"raster/{variant}/{size}.png"
             destination.parent.mkdir(parents=True, exist_ok=True)
             raster_options = options
-            if size in (16, 24) and variant != "color":
+            if size in (16, 24):
                 raster_options = (
                     f"--export-id=symbol-small-{size}-{variant}",
                     *options[1:],

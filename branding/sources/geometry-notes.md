@@ -95,23 +95,32 @@ is selected or used in the production master or raster exports.
 
 The master also retains separate `symbol-small-16-*` and
 `symbol-small-24-*` objects. These do not replace the approved path.
-The proposal opens the aperture symmetrically, shortens the island,
-widens the diagonal channel and reduces its inner fillet to fit the
-shortened flat. The original coordinate transform is retained.
+The proposal keeps the approved aperture, channel and fillets, but
+expands the island toward the body so the small mark reads as one D with
+a narrow cut. The original coordinate transform is retained. The one
+size-specific gap sets both the upper vertical separation and the lower
+diagonal's perpendicular separation.
 
 | Source parameter | Approved | 16 px proposal | 24 px proposal |
 | --- | --- | --- | --- |
-| APERTURE_TOP | 157 | 147 | 152 |
-| APERTURE_BOTTOM | 285 | 295 | 290 |
-| STEM_TOP | 175 | 190 | 184 |
-| STEM_DIAG | 557.5 | 515.5 | 535.5 |
-| CHANNEL_LOW | 583 | 603 | 593 |
-| aperture_bl radius | 26 | 2 | 6 |
+| Gap in reference px | 18 | 4 | 8 |
+| STEM_TOP | 175 | 161 | 165 |
+| STEM_DIAG | 557.5 | 583 - 4 * sqrt(2) | 583 - 8 * sqrt(2) |
+| APERTURE_TOP | 157 | 157 | 157 |
+| APERTURE_BOTTOM | 285 | 285 | 285 |
+| CHANNEL_LOW | 583 | 583 | 583 |
+| aperture_bl radius | 26 | 26 | 26 |
 
-All other source geometry is retained. The 16 px island is deliberately
-lighter to admit a completely transparent pixel chain down the diagonal;
-this tradeoff requires visual review, not an implicit change of master.
-The CLI exports use these objects for 16/24 px mono, white and cyan.
-The full-size mono SVG and 32 px and larger PNGs retain the approved D.
-`compare_small.py` composes the native sheet and exact 4x nearest-neighbor
-zoom from those PNGs.
+All other source geometry is retained. The resulting straight cuts are
+about 0.142 output px at 16 and 0.425 px at 24. This intentionally favors
+a much less visible separation and a fuller island. The cuts are
+subpixel antialiased coverage, not fully transparent pixel channels.
+
+The CLI exports use these objects for 16/24 px mono, white, cyan and
+three-plane color, all sharing the same alpha coverage. The full-size
+mono SVG and 32 px and larger production PNGs retain the approved D and
+full gap. `compare_geometry.py` also renders both unselected bottom-left
+trims at 16-64 px with those same small-size cuts. `compare_small.py`
+composes all three geometry columns on both backgrounds in mono, cyan
+and color, plus an exact 4x nearest-neighbor enlargement. The trimmed
+proof variants are not production selections.

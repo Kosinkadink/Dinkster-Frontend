@@ -227,23 +227,16 @@ def construction_geometry(parent):
     return f"translate({dx} {dy}) scale({scale})"
 
 
-def small_path(size):
-    adjustments = {
-        16: {
-            "APERTURE_TOP": 147,
-            "APERTURE_BOTTOM": 295,
-            "STEM_TOP": 190,
-            "STEM_DIAG": 515.5,
-            "CHANNEL_LOW": 603,
-        },
-        24: {
-            "APERTURE_TOP": 152,
-            "APERTURE_BOTTOM": 290,
-            "STEM_TOP": 184,
-            "STEM_DIAG": 535.5,
-            "CHANNEL_LOW": 593,
-        },
-    }[size]
+def symbol_path(size=None, trim_radius=None):
+    gap = {16: 4, 24: 8}.get(size)
+    adjustments = (
+        {
+            "STEM_TOP": geometry.APERTURE_TOP + gap,
+            "STEM_DIAG": geometry.CHANNEL_LOW - gap * math.sqrt(2),
+        }
+        if gap is not None
+        else {}
+    )
     scale = 840 / (geometry.RIGHT - (geometry.LEG_DIAG - geometry.BOTTOM))
     transform = geometry.Transform(
         scale,
@@ -254,10 +247,23 @@ def small_path(size):
     try:
         for name, value in adjustments.items():
             setattr(geometry, name, value)
-        radii = {**geometry.RADII, "aperture_bl": 2 if size == 16 else 6}
+        contour = geometry.outline()
+        if trim_radius is not None:
+            index = next(
+                i for i, vertex in enumerate(contour) if vertex[0] == "bottom_channel"
+            )
+            contour[index : index + 1] = [
+                ("bottom_trim", geometry.STEM_L, geometry.BOTTOM),
+                (
+                    "trim_channel",
+                    geometry.STEM_L,
+                    geometry.CHANNEL_LOW - geometry.STEM_L,
+                ),
+            ]
+        radii = {**geometry.RADII, "bottom_trim": trim_radius or 0}
         return geometry.to_svg(
             [
-                geometry.build(geometry.outline(), radii)[0],
+                geometry.build(contour, radii)[0],
                 geometry.build(geometry.stem(), geometry.RADII)[0],
             ],
             transform,
@@ -386,26 +392,39 @@ def main():
             node("rect", {"width": "1000", "height": "1000", "opacity": "0"}, optical)
             node(
                 "path",
-                {"id": f"optical-{size}-{name}", "d": small_path(size), "fill": fill},
+                {"id": f"optical-{size}-{name}", "d": symbol_path(size), "fill": fill},
                 optical,
             )
-    color_symbol = node(
-        "g", {"id": "symbol-color", "transform": "translate(0 3000)"}, artboards
-    )
-    node("rect", {"width": "1000", "height": "1000", "opacity": "0"}, color_symbol)
-    clipped = node("g", {"clip-path": "url(#approved-silhouette)"}, color_symbol)
-    node("rect", {"width": "1000", "height": "1000", "fill": "#32E6C5"}, clipped)
-    for name, fill in (("coral", "#FF7468"), ("yellow", "#FFD86B")):
-        node(
-            "rect",
+    for size in (None, 16, 24):
+        clip_id = "approved-silhouette"
+        if size is not None:
+            clip_id = f"optical-silhouette-{size}"
+            clip = node(
+                "clipPath", {"id": clip_id, "clipPathUnits": "userSpaceOnUse"}, defs
+            )
+            node("path", {"d": symbol_path(size)}, clip)
+        color_symbol = node(
+            "g",
             {
-                "width": "1000",
-                "height": "1000",
-                "fill": fill,
-                "clip-path": f"url(#plane-{name})",
+                "id": "symbol-color" if size is None else f"symbol-small-{size}-color",
+                "transform": "translate(0 3000)",
             },
-            clipped,
+            artboards,
         )
+        node("rect", {"width": "1000", "height": "1000", "opacity": "0"}, color_symbol)
+        clipped = node("g", {"clip-path": f"url(#{clip_id})"}, color_symbol)
+        node("rect", {"width": "1000", "height": "1000", "fill": "#32E6C5"}, clipped)
+        for name, fill in (("coral", "#FF7468"), ("yellow", "#FFD86B")):
+            node(
+                "rect",
+                {
+                    "width": "1000",
+                    "height": "1000",
+                    "fill": fill,
+                    "clip-path": f"url(#plane-{name})",
+                },
+                clipped,
+            )
     # A uniform transform preserves the approved D while matching the reference
     # symbol height and its optical overshoot below the letters' baseline.
     for index, (variant, color) in enumerate(

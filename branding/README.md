@@ -34,6 +34,14 @@ wordmark lettering is outlined; no font must be installed to render it.
 composes the repeatable review sheet from the exported PNGs. The reference
 stays an external input, not a production SVG raster dependency.
 
+For the small-size comparison, run `sources/compare_geometry.py --inkscape
+/path/to/inkscape` with Python, then `python sources/compare_small.py`.
+The native and nearest-neighbor sheets show mono, cyan and clipped color
+on both backgrounds, with the current body and both unselected bottom-left
+trims. Only 16/24 px use the narrower-cut optical objects; production
+32 px and larger exports retain the approved full gap. The geometry notes
+list the parameters; `geometry-export-commands.txt` records each CLI render.
+
 The weight comparison retains the revised current-weight outlines and a
 heavier proposal with main stems at 20.31 reference units, matching the
 D island stem after its wordmark transform. The heavier proposal uses
