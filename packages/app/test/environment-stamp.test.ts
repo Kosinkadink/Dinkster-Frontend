@@ -209,7 +209,7 @@ describe('load-time drift reporting', () => {
 
 describe('workflow-open requirements', () => {
   it('opens an all-present workflow silently and reports one structured missing-item plan', async () => {
-    app = new AppState({ defaultProtocol: 'dinkster' })
+    app = new AppState()
     loadDinksterSchemas()
     const backend = app.backends.get()[0]!
     if (backend.protocol !== 'dinkster') throw new Error('expected native backend')
@@ -228,7 +228,7 @@ describe('workflow-open requirements', () => {
   })
 
   it('discards a plan for a replaced tab even when the replacement has the same lineage', async () => {
-    app = new AppState({ defaultProtocol: 'dinkster' })
+    app = new AppState()
     loadDinksterSchemas()
     const backend = app.backends.get()[0]!
     if (backend.protocol !== 'dinkster') throw new Error('expected native backend')
