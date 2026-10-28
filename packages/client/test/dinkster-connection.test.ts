@@ -416,6 +416,14 @@ describe('mount listing decode', () => {
       mountChangesAllowed: true,
       mounts: [{ id: 'output', mode: 'readwrite', state: 'ready', path: '/library/output' }],
     })
+    for (const unset of [undefined, null]) {
+      await expect(connectionWith([
+        { id: 'output', mode: 'readwrite', state: 'ready' },
+      ], unset).fetchMountSettings()).resolves.toEqual({
+        mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }],
+        mountChangesAllowed: true,
+      })
+    }
     await expect(connectionWith([], 42).fetchMountSettings()).rejects.toThrow('malformed output mount')
   })
 
