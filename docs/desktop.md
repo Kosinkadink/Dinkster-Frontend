@@ -152,8 +152,13 @@ Native folder choice is offered only when the Desktop shell reports
 The empty same-origin connection URL resolves to the window's web host URL;
 the renderer does not infer native access from a local-looking address.
 Picker cancellation leaves the form unchanged; picker errors are displayed.
-Native output reveal is unavailable: mount roots alone do not authorize an
-exact asset file. Operator locations are display facts, not file permissions.
+The asset picker offers Show file on this computer for selected imported or
+vault assets only when the current shell reports the reveal capability. It
+sends the selected digest, local scope and current window project, never a
+renderer path. The shell independently authorizes the exact file. Operator
+exact locations provide Copy server path, including when native reveal is
+unavailable or rejects the request. Errors remain visible. The output gallery
+does not offer native reveal. Mount roots alone never authorize an exact file.
 
 Open Assets -> Folders or the backend's Settings card to manage project folders.
 Top-to-bottom is preference order. Drag rows or use the keyboard-accessible Move

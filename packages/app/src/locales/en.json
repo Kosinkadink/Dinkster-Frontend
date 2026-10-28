@@ -1,4 +1,6 @@
 {
+  "assetLocation.reveal": "Show file on this computer",
+  "assetLocation.copy": "Copy server path",
   "uploadDestination.folder": "Import destination",
   "uploadDestination.machine": "Files are imported on {machine}, not necessarily this computer.",
   "uploadDestination.default": "Standard imports folder (server default)",

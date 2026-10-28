@@ -2747,6 +2747,20 @@ export class DinksterConnection {
     }
   }
 
+  async fetchAssetLocations(digest: string): Promise<readonly string[]> {
+    const query = new URLSearchParams({ digest, scope: 'local', project: this.project ?? 'default' })
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations?${query}`)
+    if (!res.ok) throw new Error(`GET asset locations failed: ${res.status}`)
+    const payload = await res.json() as { locations?: unknown }
+    if (!Array.isArray(payload.locations)) throw new Error('GET asset locations: malformed response')
+    return payload.locations.map((value: unknown) => {
+      if (typeof value !== 'object' || value === null || typeof (value as Record<string, unknown>)['path'] !== 'string') {
+        throw new Error('GET asset locations: malformed location')
+      }
+      return (value as { path: string }).path
+    })
+  }
+
   async fetchMountLocations(): Promise<MountLocations> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations`)
     if (!res.ok) throw new Error(`GET /api/mounts/locations failed: ${res.status}`)

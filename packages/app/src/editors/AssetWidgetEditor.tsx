@@ -29,6 +29,7 @@ import { AssetSelectionEditor } from './AssetSelectionEditor.js'
 import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
+import { AssetFileLocation } from '../AssetFileLocation.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -901,6 +902,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               </Show>
             </section>
             </div>
+            <Show when={uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
+              {(backend) => <For each={assetSelection()}>{(ref) => <AssetFileLocation connection={backend.connection}
+                backendUrl={backend.baseUrl} digest={ref.digest} project={project}
+                isCurrent={() => live && props.app.backendForTab(ed.tab) === backend && activeProjectId() === project} />}</For>}
+            </Show>
             <Show when={classifiedMediaKind === 'media/audio' && ed.spec?.allowUpload === true}>
               <AudioRecorder disabled={assetUploading()} onSave={async (file) => {
                 const abort = new AbortController()

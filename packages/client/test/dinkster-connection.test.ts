@@ -525,6 +525,23 @@ describe('mount listing decode', () => {
     await expect(forbidden.fetchMountLocations()).rejects.toThrow('403')
   })
 
+  it('queries exact asset locations with local scope and the connection project, rejecting failed or malformed responses', async () => {
+    const digest = `blake3:${'a'.repeat(64)}`
+    const urls: string[] = []
+    let response = jsonResponse(200, { locations: [{ storage: 'mount', path: '/imports/final-2.png' }, { storage: 'vault', path: '/vault/aa/file' }] })
+    const conn = new DinksterConnection({ id: C0, project: 'p-film', baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url) => {
+      urls.push(String(url))
+      return response
+    } })
+    expect(await conn.fetchAssetLocations(digest)).toEqual(['/imports/final-2.png', '/vault/aa/file'])
+    const query = new URL(urls[0]!).searchParams
+    expect(Object.fromEntries(query)).toEqual({ digest, scope: 'local', project: 'p-film' })
+    response = jsonResponse(403, {})
+    await expect(conn.fetchAssetLocations(digest)).rejects.toThrow('403')
+    response = jsonResponse(200, { mounts: [] })
+    await expect(conn.fetchAssetLocations(digest)).rejects.toThrow('malformed response')
+  })
+
   it('keeps concurrent project folder reads and writes independent', async () => {
     const orders = new Map([['film-a', ['plates', 'renders']], ['film-b', ['renders', 'plates']]])
     const connection = (project: string) => new DinksterConnection({ id: C0, project, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike,

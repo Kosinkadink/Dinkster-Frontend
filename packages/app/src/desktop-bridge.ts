@@ -101,6 +101,7 @@ export interface DinksterDesktopBridge {
   installUpdate(): Promise<void>
   fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean }>
   chooseDirectory(backendUrl: string): Promise<string | undefined>
+  revealFile?(backendUrl: string, asset: { readonly digest: string; readonly scope: 'local'; readonly project: string }): Promise<{ readonly mode: 'selected' | 'folder' }>
   exportSnapshot(): Promise<string | undefined>
   importSnapshot(): Promise<unknown | undefined>
   systemCheck(): Promise<DesktopSystemCheck>

@@ -72,3 +72,19 @@
 .project-folder-settings .runtime-settings-body {
   padding-bottom: var(--dinkster-space-16);
 }
+.asset-file-location code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.asset-file-location {
+  flex: none;
+}
+.asset-file-location-path {
+  display: grid;
+  min-width: 0;
+  gap: var(--dinkster-space-8);
+}
+.asset-editor:has(.asset-file-location) .asset-editor-body {
+  flex: none;
+  min-height: 240px;
+}

@@ -1384,7 +1384,12 @@ test('Asset selection instructions stay readable for the rail and single or mult
         const singleType = { kind: 'concrete', name: 'ASSET' }
         dispose = render(() => AssetWidgetEditor({
           app: {
-            backendForTab: () => ({ id: 'asset-visual', protocol: 'dinkster', connection: { listMounts: async () => [] } }),
+            backendForTab: () => ({ id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
+              listMounts: async () => [],
+              onMountsChanged: () => () => {},
+              fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
+              fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
+            } }),
             dispatchTo: () => { host.dataset['committed'] = 'true' },
             widgetRegistry: { kind: () => undefined },
           },
