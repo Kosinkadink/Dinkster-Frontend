@@ -80,9 +80,7 @@ async function assertUploadAndVault(
   bytes: Buffer,
   expectedPageRecord: { length: number; sha256: string },
 ): Promise<string> {
-  expect(await request.headerValue('content-type')).toBe(
-    new URL(request.url()).pathname === '/api/assets/media' ? 'image/png' : 'application/octet-stream',
-  )
+  expect(await request.headerValue('content-type')).toBe('image/png')
   const response = await request.response()
   expect(response).not.toBeNull()
   expect([200, 201]).toContain(response!.status())
@@ -212,25 +210,27 @@ test('real ASSET Upload preserves a greater-than-256-KiB PNG through graph, vaul
   })
   const request = await upload
   const digest = await assertUploadAndVault(page, request, png, pageRecord)
+  const payload = await (await request.response())!.json() as { asset: AssetRef }
+  expect(payload.asset).toMatchObject({ digest, size: png.length, mediaType: 'image/png' })
+  expect(payload.asset.name).toMatch(/^widget-byte-proof(?:_\d+)?\.png$/)
+  expect(payload.asset.virtualPath).not.toBe('')
   const editor = page.getByTestId('asset-editor')
   await expect(editor).toBeVisible()
   await expect(editor.getByTestId('asset-upload-trigger')).toBeFocused()
   await editor.getByTestId('asset-apply').click()
   await expect(editor).not.toBeVisible()
-  expect(await assetRef(page)).toEqual({
-    digest, name: 'widget-byte-proof.png', size: png.length, mediaType: 'image/png', virtualPath: '',
-  })
+  expect(await assetRef(page)).toEqual(payload.asset)
   await assertExportReopen(page)
   await connectOutputAndRun(page)
 })
 
-test('real canvas image drop preserves a greater-than-256-KiB PNG through graph, vault, and reopen', async ({ page }) => {
+test('real canvas image drop preserves a greater-than-256-KiB PNG and its canonical reference through reopen', async ({ page }) => {
   const png = largePng()
   const sha256 = createHash('sha256').update(png).digest('hex')
   const pageRecord = await recordOriginalInPage(page, png)
   expect(pageRecord).toEqual({ length: png.length, sha256 })
   await openDocument(page, 'canvas-image-byte-proof', false, false)
-  const upload = waitForUpload(page, '/api/assets')
+  const upload = waitForUpload(page, '/api/assets/media')
   await page.getByTestId('graph-canvas').evaluate((canvas, numbers) => {
     const transfer = new DataTransfer()
     transfer.items.add(new File([Uint8Array.from(numbers)], 'private-canvas-name.png', { type: 'image/png' }))
@@ -239,9 +239,15 @@ test('real canvas image drop preserves a greater-than-256-KiB PNG through graph,
     }))
   }, [...png])
   const request = await upload
+  const query = new URL(request.url()).searchParams
+  expect(query.get('scope')).toBe('local')
+  expect(query.get('kind')).toBe('media/image')
+  expect(query.get('name')).toBe('private-canvas-name.png')
   const digest = await assertUploadAndVault(page, request, png, pageRecord)
-  await expect.poll(() => assetRef(page)).toEqual({
-    digest, name: 'dropped-image.png', size: png.length, mediaType: 'image/png', virtualPath: '',
-  })
+  const payload = await (await request.response())!.json() as { asset: AssetRef }
+  expect(payload.asset).toMatchObject({ digest, size: png.length, mediaType: 'image/png' })
+  expect(payload.asset.name).toMatch(/^private-canvas-name(?:_\d+)?\.png$/)
+  expect(payload.asset.virtualPath).not.toBe('')
+  await expect.poll(() => assetRef(page)).toEqual(payload.asset)
   await assertExportReopen(page)
 })

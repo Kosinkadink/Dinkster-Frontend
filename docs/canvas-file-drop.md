@@ -34,22 +34,24 @@ or failure.
 
 ## Images
 
-A plain image is uploaded through the active tab's same-origin `uploadAsset`
-connection. The response must be a lowercase BLAKE3 digest. The canvas then
+A plain image is uploaded through the active tab's same-origin `uploadMediaAsset`
+connection as a named, project-local image. The classifier's MIME type replaces
+an incorrect browser MIME claim without changing the file bytes. The response
+must contain the canonical five-field AssetRef. The canvas then
 scans that tab's current catalog for a node with one visible ASSET input that
 accepts the image MIME type. An exact MIME match wins over wildcard matches;
 ties retain catalog order. The canvas dispatches one atomic batch containing
-that node with a complete five-field AssetRef. The stored name is a generated
-media label such as `dropped-image.png`; the local filename and path are never
-persisted. Undo removes the node; the immutable uploaded object may remain in
-the library.
+that node with the server-returned AssetRef, preserving the final filename,
+size, media type and virtualPath, including collision-adjusted names. Host
+paths never enter the document. Undo removes the node; the imported file may
+remain in the library. Anonymous workflow-file uploads remain vault uploads.
 
 Upload failure, malformed responses, no compatible catalog schema, frozen tabs,
 closed or retargeted tabs, and retired or navigated graphs insert nothing. The
 tab object, backend, graph id, graph incarnation, and world coordinates are all
 captured before asynchronous classification and upload.
 
-The frontend passes the original File object to `uploadAsset` and does not
+The frontend passes the original file bytes to `uploadMediaAsset` and does not
 write the graph until that upload succeeds. Framework-free tests pin the exact
 object, bytes, metadata, and write ordering. A native browser proof is authored
 in `packages/e2e/tests/image-upload-byte-proof.spec.ts`: its canvas-drop arm
@@ -76,7 +78,8 @@ Ctrl+V, Ctrl+Shift+V, and the empty-canvas context-menu Paste first read the OS
 clipboard for an image (png preferred, then jpeg, then webp). A found image
 rides the same classification, upload, and atomic insertion pipeline as a
 dropped file; only the surface wording says pasting instead of dropping. The
-stored asset name is a generated label such as `pasted-image.png`. The anchor
+upload name is a generated label such as `pasted-image.png`; the stored name
+and virtualPath come from the server response. The anchor
 is the current pointer position in world coordinates for keyboard paste, the
 menu invocation position for context-menu paste, and the viewport center when
 neither applies.

@@ -5340,7 +5340,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const outcome = await insertDroppedImage({
           file,
           mediaType,
-          ...(origin === 'paste' ? { assetName: pastedImageName(mediaType) } : {}),
           graphId,
           position,
           tabStillOpen: ownerLive,
@@ -5351,7 +5350,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           schemas: () => props.app.registryForTab(tab)?.schemas.values(),
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
           upload: (body) => backend.protocol === 'dinkster'
-            ? backend.connection.uploadAsset(body, abort.signal)
+            ? backend.connection.uploadMediaAsset(
+                body.type === mediaType ? body : new File([body], body.name, { type: mediaType }),
+                { scope: 'local', kind: 'media/image', name: body.name, signal: abort.signal },
+              )
             : Promise.reject(new Error('asset upload requires a Dinkster backend')),
           dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },

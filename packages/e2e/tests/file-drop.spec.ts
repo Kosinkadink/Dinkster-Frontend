@@ -133,14 +133,18 @@ async function installImageDropBackend(page: Page, uploadDigest: string, deferre
   await page.evaluate(({ digest, deferred }) => {
     const app = window.__dinksterTest!.app
     const backend = (app as unknown as {
-      backendForTab: (tab: unknown) => { protocol: string; connection: { uploadAsset?: (body: Blob) => Promise<string> } }
+      backendForTab: (tab: unknown) => { protocol: string; connection: { uploadMediaAsset?: (body: File, options: { name: string; kind: string; scope: string }) => Promise<unknown> } }
     }).backendForTab(app.activeTab()!)
     backend.protocol = 'dinkster'
-    backend.connection.uploadAsset = deferred
-      ? () => new Promise((resolve) => {
-          ;(window as unknown as { __resolveFileDropUpload: () => void }).__resolveFileDropUpload = () => resolve(digest)
-        })
-      : async () => digest
+    backend.connection.uploadMediaAsset = async (body, options) => {
+      if (body.type !== 'image/png' || options.kind !== 'media/image' || options.scope !== 'local' || options.name !== body.name)
+        throw new Error('Incorrect classified image upload')
+      const asset = { digest, name: 'canonical-image-2.png', size: body.size, mediaType: 'image/png', virtualPath: 'imports/canonical-image-2.png' }
+      if (!deferred) return asset
+      return new Promise((resolve) => {
+        ;(window as unknown as { __resolveFileDropUpload: () => void }).__resolveFileDropUpload = () => resolve(asset)
+      })
+    }
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, { digest: uploadDigest, deferred })
 }
@@ -224,7 +228,7 @@ test('embedded PNG is keyboard-modal and Cancel leaves graph and history unchang
   })).toEqual(before)
 })
 
-test('plain image inserts one anonymous AssetRef batch at drop coordinates and undo removes it', async ({ page }) => {
+test('plain image preserves the canonical AssetRef at drop coordinates and undo removes it', async ({ page }) => {
   const digest = `blake3:${'a'.repeat(64)}`
   await installImageDropBackend(page, digest)
   await dropBytes(page, pngBytes(), 'private-local-name.png', 'text/html')
@@ -237,7 +241,7 @@ test('plain image inserts one anonymous AssetRef batch at drop coordinates and u
     return Object.values(document.graphs[document.root]!.nodes)[0]
   })
   expect(inserted).toMatchObject({ type: 'dinkster.load_image', values: { image: {
-    digest, name: 'dropped-image.png', mediaType: 'image/png', virtualPath: '',
+    digest, name: 'canonical-image-2.png', mediaType: 'image/png', virtualPath: 'imports/canonical-image-2.png',
   } } })
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   await page.keyboard.press('Control+z')
@@ -263,7 +267,7 @@ test('embedded Load image consumes the choice without cancelling its own upload'
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(document.graphs[document.root]!.nodes)[0]
   })).toMatchObject({
-    type: 'dinkster.load_image', values: { image: { digest, name: 'dropped-image.png' } },
+    type: 'dinkster.load_image', values: { image: { digest, name: 'canonical-image-2.png' } },
   })
 })
 
@@ -515,7 +519,7 @@ test('pasted clipboard image inserts Load Image with the pasted asset name and u
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(document.graphs[document.root]!.nodes)[0]
   })).toMatchObject({ type: 'dinkster.load_image', values: { image: {
-    digest, name: 'pasted-image.png', mediaType: 'image/png', virtualPath: '',
+    digest, name: 'canonical-image-2.png', mediaType: 'image/png', virtualPath: 'imports/canonical-image-2.png',
   } } })
   await expect(page.getByTestId('canvas-file-drop-surface')).toContainText('Image added')
   await page.keyboard.press('Control+z')
@@ -550,7 +554,7 @@ test('a clipboard holding both external text and an image pastes the image, not 
   expect(await page.evaluate(() => {
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(document.graphs[document.root]!.nodes)[0]
-  })).toMatchObject({ type: 'dinkster.load_image', values: { image: { digest, name: 'pasted-image.png' } } })
+  })).toMatchObject({ type: 'dinkster.load_image', values: { image: { digest, name: 'canonical-image-2.png' } } })
 })
 
 test('a clipboard image read that resolves after a tab switch does not paste', async ({ page }) => {

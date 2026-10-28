@@ -211,7 +211,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 6717,
+      "line": 6719,
       "column": 19,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -307,7 +307,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/file-drop.ts",
-      "line": 232,
+      "line": 230,
       "column": 60,
       "symbol": "widgetType:ASSET",
       "issue": 122
