@@ -187,8 +187,13 @@ COMBO, and MOUNT use a small non-modal popover anchored to that row. A
 node-input multiline STRING in the `core.text` representation is edited
 directly in its painted rectangle instead. The popovers are non-draggable,
 non-resizable, canvas-stage-clamped, and close through Escape, Cancel, a
-committed selection, or an outside click. ASSET alone uses the native product
-dialog because browsing, previewing, selecting, and uploading need a large
+committed selection, or an outside click. Native ASSET source selections use
+the same compact popover with backend-provided names from
+`/api/assets/selections`, scoped to the editing tab and project. Apply writes
+the exact selected name; unavailable stored names remain visible but cannot
+be applied. Cancel preserves the stored value, including a VAE asset reference.
+Ordinary ASSET strings remain unresolved filenames, not source selections.
+Ordinary ASSET uses the native product dialog because browsing, previewing, selecting, and uploading need a large
 focus-contained surface. BOOLEAN is complete inline and deliberately has no
 fake expanded surface. User dismissal and commit paths restore keyboard focus
 to the graph canvas.

@@ -112,6 +112,7 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'AUDIO_RECORD':
       return isAssetRefValue(d) && String((d as Record<string, unknown>)['mediaType']).startsWith('audio/')
     case 'ASSET':
+      if (widget.selection === true) return typeof d === 'string' || (widget.kind === 'model/vae' && isAssetRefValue(d))
       // Multi-select (list-declared) asset inputs store ARRAYS of refs;
       // a non-empty all-ref array is as submittable as a single ref.
       return isAssetRefValue(d) || (Array.isArray(d) && d.length > 0 && d.every(isAssetRefValue))

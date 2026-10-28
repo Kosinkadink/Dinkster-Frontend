@@ -470,6 +470,23 @@ describe('kind semantics', () => {
     expect(kind.defaultView(spec('COLOR'))).toBe('core.color')
   })
 
+  it('ASSET selection validates source names without widening ordinary assets', () => {
+    const kind = registry().kind('ASSET')!
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'model.vae', size: 42, mediaType: 'application/octet-stream', virtualPath: 'mounts/vae/model.vae' }
+    for (const sourceKind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
+      const selection: WidgetSpec = { widgetType: 'ASSET', options: {}, kind: sourceKind, selection: true, default: 'nested/source' }
+      expect(kind.valueSchema.validate('nested/source', selection)).toBe(true)
+      expect(kind.valueSchema.validate('pixel_space', selection)).toBe(true)
+      expect(kind.valueSchema.validate(asset, selection)).toBe(sourceKind === 'model/vae')
+      expect(kind.valueSchema.validate([asset], selection)).toBe(false)
+      expect(kind.defaultValue(selection)).toBe('nested/source')
+      expect(effectiveWidgetDefault(selection)).toBe('nested/source')
+      expect(kind.valueSchema.validate('nested/source', { widgetType: 'ASSET', options: {}, kind: sourceKind })).toBe(false)
+    }
+    expect(kind.valueSchema.validate('pixel_space')).toBe(false)
+    expect(kind.defaultValue(spec('ASSET', {}, 'pixel_space'))).toBeNull()
+  })
+
   it('ASSET validates references and uses null for absent or invalid defaults', () => {
     const kind = registry().kind('ASSET')!
     const asset = {

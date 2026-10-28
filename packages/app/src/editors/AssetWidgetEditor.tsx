@@ -15,7 +15,11 @@ import { AssetEntryFallback } from '../asset-browser/presentation.js'
 import { isModel3dMime, model3dMimeFor } from '../model3d-mime.js'
 import { Model3dPosterImage } from '../Model3dPosterImage.js'
 import { AudioRecorder } from '../AudioRecorder.js'
-import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
+import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
+import { ProductButton } from '../ProductControls.js'
+import { ProductSelect } from '../ProductSelect.js'
+import { useAppMessage } from '../locale.js'
+import { activeProjectId } from '../projects.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { AssetSelectionDetails, LogicalModelVariantFacts } from '../asset-browser/rail.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../asset-browser/types.js'
@@ -979,7 +983,73 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   )
 }
 
+const AssetSelectionImplementation: Component<WidgetEditorImplementationProps> = (props) => {
+  const ed = props.editor.ed
+  const message = useAppMessage()
+  const initial = ed.initial === undefined ? ed.spec?.default : ed.initial
+  const [selected, setSelected] = createSolidSignal(typeof initial === 'string' ? initial : undefined)
+  const [names, setNames] = createSolidSignal<readonly string[]>()
+  const [error, setError] = createSolidSignal(false)
+  const tick = props.editor.app.backendsTick
+  const [backendTick, setBackendTick] = createSolidSignal(tick.get())
+  const unsubscribe = tick.subscribe(setBackendTick)
+  let live = true
+  let generation = 0
+  const [authority, setAuthority] = createSolidSignal(-1)
+  let client = props.editor.app.backendForTab(ed.tab).scopedClient
+  const current = () => {
+    backendTick()
+    const owner = props.editor.app.backendForTab(ed.tab).scopedClient
+    return client === owner && authority() === owner.remoteChoiceAuthority()
+  }
+  createEffect(() => {
+    backendTick()
+    client = props.editor.app.backendForTab(ed.tab).scopedClient
+    const requestClient = client
+    const requestAuthority = client.remoteChoiceAuthority()
+    setAuthority(requestAuthority)
+    const request = ++generation
+    setNames(undefined)
+    setError(false)
+    void requestClient.query('/api/assets/selections', { kind: ed.spec!.kind!, project: activeProjectId() }, { refresh: true }).then((result) => {
+      if (!live || request !== generation || requestAuthority !== requestClient.remoteChoiceAuthority() || requestClient !== props.editor.app.backendForTab(ed.tab).scopedClient) return
+      if (typeof result !== 'object' || result === null || !('kind' in result) || result.kind !== ed.spec!.kind || !('options' in result) || !Array.isArray(result.options)) throw new Error('Invalid source choices')
+      const options = result.options.map((option: unknown) => {
+        if (typeof option !== 'object' || option === null || !('name' in option) || typeof option.name !== 'string') throw new Error('Invalid source choice')
+        return option.name
+      })
+      setNames([...new Set(options)])
+    }).catch(() => {
+      if (live && request === generation) setError(true)
+    })
+  })
+  const options = () => {
+    const available = current() ? names() ?? [] : []
+    const choices = available.map((name) => ({ id: name, value: name, label: name, disabled: false }))
+    const value = selected()
+    if (value !== undefined && !available.includes(value)) choices.unshift({ id: value, value, label: message('assetSelection.unavailable', { name: value }), disabled: true })
+    if (value === undefined) choices.unshift({ id: '', value: '', label: isAssetRef(initial) ? initial.name : message('assetSelection.choose'), disabled: true })
+    return choices
+  }
+  const canApply = () => current() && selected() !== undefined && names()?.includes(selected()!) === true
+  props.editor.bindClickAway?.(props.close)
+  onCleanup(() => { live = false; unsubscribe(); props.editor.bindClickAway?.(undefined) })
+  return <div ref={props.bindPopover} class="widget-editor floating-surface widget-editor-popover" data-testid="asset-selection-editor" role="dialog" aria-label={ed.label}>
+    <props.header type="ASSET" />
+    <Show when={!names() && !error()}><ProductNotice tone="status">{message('collection.state.loading')}</ProductNotice></Show>
+    <Show when={error() || !current()}><ProductNotice tone="error">{message('assetSelection.error')}</ProductNotice></Show>
+    <ProductField controlId="asset-selection-choice" label={ed.label} layout="compact">
+      <ProductSelect id="asset-selection-choice" testId="asset-selection-choice" ariaLabel={ed.label} selectedId={selected() ?? ''} options={options()} onSelect={(option) => setSelected(option.value)} />
+    </ProductField>
+    <ProductActionFooter>
+      <ProductButton type="button" onClick={props.close}>{message('common.cancel')}</ProductButton>
+      <ProductButton type="button" variant="primary" data-testid="asset-selection-apply" disabled={!canApply()} onClick={() => { if (canApply()) props.commitValue(selected()!) }}>{message('common.apply')}</ProductButton>
+    </ProductActionFooter>
+  </div>
+}
+
 export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
+  if (props.ed.spec?.selection === true) return <WidgetEditorController {...props} implementation={AssetSelectionImplementation} />
   const accept = (): readonly string[] => {
     const value = props.ed.spec?.options['accept']
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []

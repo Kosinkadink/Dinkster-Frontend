@@ -4235,7 +4235,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const value = node.node.values[row.valueKey]
           if (value === undefined) continue
           const where = `${node.id}.${row.valueKey}`
-          if (row.spec.widgetType === 'ASSET' && typeof value === 'string') {
+          if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
             out.push(unresolvedAssetImportDiagnostic({
               graphId: scene.graphId,
               nodeId: node.id,
@@ -4247,7 +4247,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             mark(node.id, row.valueKey)
             continue
           }
-          if (!kind.valueSchema.validate(value)) {
+          if (!kind.valueSchema.validate(value, row.spec)) {
             out.push(diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, {
               refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
             }))
