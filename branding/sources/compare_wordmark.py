@@ -17,9 +17,10 @@ def main():
     font = ImageFont.truetype("DejaVuSans.ttf", 18)
     drafts = []
     for prefix in ("", "heavier-"):
-        draft = Image.new("RGB", (892, 1036), "#111316")
+        width = 1024 if prefix else 892
+        draft = Image.new("RGB", (width, 1036), "#111316")
         draw = ImageDraw.Draw(draft)
-        draw.rectangle((0, 584, 892, 1036), fill="#F7F8FA")
+        draw.rectangle((0, 584, width, 1036), fill="#F7F8FA")
         dark = Image.open(ROOT / f"previews/wordmark-{prefix}dark-2x.png")
         light = Image.open(ROOT / f"previews/wordmark-{prefix}light-2x.png")
         draft.paste(dark, (0, 0), dark)
@@ -27,7 +28,7 @@ def main():
         draw.text((140, 490), "MONOCHROME (LIGHT ON DARK)", fill="#F2F4F5", font=font)
         draw.text((140, 966), "MONOCHROME (DARK ON LIGHT)", fill="#1F242A", font=font)
         drafts.append(draft)
-    comparison = Image.new("RGB", (2736, 1670), "#E4E8EC")
+    comparison = Image.new("RGB", (2868, 1670), "#E4E8EC")
     draw = ImageDraw.Draw(comparison)
     draw.text((20, 16), "REFERENCE - native size", fill="#1F242A", font=font)
     draw.text((486, 16), "CURRENT WEIGHT - native size", fill="#1F242A", font=font)
@@ -35,7 +36,8 @@ def main():
     comparison.paste(reference, (20, 50))
     for index, draft in enumerate(drafts):
         comparison.paste(
-            draft.resize((446, 518), Image.Resampling.LANCZOS), (486 + index * 466, 50)
+            draft.resize((draft.width // 2, 518), Image.Resampling.LANCZOS),
+            (486 + index * 466, 50),
         )
     draw.text((20, 590), "REFERENCE - 2x", fill="#1F242A", font=font)
     draw.text((932, 590), "CURRENT WEIGHT - 2x", fill="#1F242A", font=font)
@@ -60,13 +62,13 @@ def main():
     labels = ImageDraw.Draw(letter_comparison)
     labels.text(
         (24, 18),
-        "CURRENT WEIGHT - revised contours, tighter tracking in full wordmark",
+        "CURRENT WEIGHT - revised i / k / e, uniform exterior spacing",
         fill="#1F242A",
         font=font,
     )
     labels.text(
         (24, 458),
-        "HEAVIER WEIGHT - main stems match the D; e counter retained",
+        "HEAVIER WEIGHT - D-matched stems and gap-driven spacing / counters",
         fill="#1F242A",
         font=font,
     )

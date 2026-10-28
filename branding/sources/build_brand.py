@@ -1,14 +1,21 @@
 """Build editable brand geometry. Rendering is performed by export_brand.py."""
 
+import argparse
 from copy import deepcopy
+import io
 import math
 from pathlib import Path
+import shlex
+import subprocess
 import xml.etree.ElementTree as ET
 
 import build_d as geometry
+import cairosvg
+import numpy as np
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,12 +30,12 @@ ET.register_namespace("sodipodi", SOD)
 # replace its rounded terminals with the reference's diagonal construction.
 # Coordinates use the reference lettering's 56-unit ascender-to-baseline frame.
 LETTERS = {
-    "i": "M2 0H15V8L0 16V2Z M0 24L15 16V49L8 56H0Z",
+    "i": "M0 0H17V6.933333L-2 17.066667V2Z M0 24L15 16V49L8 56H0Z",
     "n": "M0 56V25L12 13H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z",
-    "k": "M0 6L8.9 -2.9A3 3 0 0 1 14 -0.8V29L29 14H49L30 33L65 70H44L16 42L0 58Z",
+    "k": "M0 6L8.9 -2.9A3 3 0 0 1 14 -0.8V22L29 7H49L23 33L65 70H44L16 40L0 56Z",
     "s": "M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z",
     "t": "M0 5L14 -6V14H30L24 27H14V39Q14 44 20 44H29V56H12L0 44Z",
-    "e": "M40 25L16 43H38L31 56H18Q0 56 0 36Q0 14 20 14Q34 14 40 25Z M14 34L25 26Q13 22 14 34Z",
+    "e": "M40 25L16 43H38L31 56H18Q0 56 0 38V14H25Q34 14 40 25Z M14 34V26H25Z",
     "r": "M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z",
 }
 POSITIONS = {"i": 149, "n": 167, "k": 212, "s": 263, "t": 302, "e": 331, "r": 374}
@@ -41,15 +48,25 @@ HEAVIER_POSITIONS = {
     "e": 357,
     "r": 403,
 }
-D_STEM_WIDTH = (
-    (geometry.STEM_R - geometry.STEM_L)
-    * 840
-    / (geometry.RIGHT - (geometry.LEG_DIAG - geometry.BOTTOM))
-    * 0.139
+D_REFERENCE_SCALE = (
+    840 / (geometry.RIGHT - (geometry.LEG_DIAG - geometry.BOTTOM)) * 0.139
 )
+D_STEM_WIDTH = (geometry.STEM_R - geometry.STEM_L) * D_REFERENCE_SCALE
+HEAVIER_GAP = (geometry.STEM_TOP - geometry.APERTURE_TOP) * D_REFERENCE_SCALE
+HEAVIER_STROKE = D_STEM_WIDTH - 14
+N_COUNTER = HEAVIER_GAP + HEAVIER_STROKE
+N_RIGHT = 28 + N_COUNTER
+I_TOP = 16 + (HEAVIER_GAP + D_STEM_WIDTH - 15) * math.hypot(1, 8 / 15)
+E_COUNTER = f"M14 34V{34 - HEAVIER_GAP}H{14 + HEAVIER_GAP * 11 / 8}Z"
 HEAVIER_LETTERS = {
     **LETTERS,
-    "t": LETTERS["t"].replace("V39Q14 44 20 44", "V36Q14 44 22 44"),
+    "i": f"M0 0H17V6.933333L-2 17.066667V2Z M0 {I_TOP}L15 {I_TOP - 8}V49L8 56H0Z",
+    "n": f"M0 56V25L12 13H{N_RIGHT - 12}L{N_RIGHT} 25V56H{14 + N_COUNTER}V33Q{14 + N_COUNTER} 26 {14 + N_COUNTER / 2} 26Q14 26 14 33V56Z",
+    "t": LETTERS["t"].replace(
+        "V39Q14 44 20 44",
+        f"V31Q14 {27 + N_COUNTER} 20 {27 + N_COUNTER}",
+    ),
+    "e": LETTERS["e"].replace("M14 34V26H25Z", E_COUNTER),
 }
 
 
@@ -102,6 +119,8 @@ def lettering(
             path.set("stroke-linejoin", "miter")
             if letter == "e":
                 path.set("clip-path", "url(#e-open-counter)")
+            elif letter == "k":
+                path.set("clip-path", "url(#k-beam-baseline)")
     return group
 
 
@@ -249,6 +268,9 @@ def small_path(size):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--inkscape", required=True)
+    args = parser.parse_args()
     approved = ET.parse(ROOT / "sources/dinkster-d.svg").getroot()[0]
     master = node(
         "svg", {"viewBox": "0 0 1700 8000", "width": "1700", "height": "8000"}
@@ -293,11 +315,15 @@ def main():
     node(
         "path",
         {
-            "d": "M-20 -20H100V100H-20Z M14 34L25 26Q13 22 14 34Z",
+            "d": f"M-20 -20H100V100H-20Z {E_COUNTER}",
             "clip-rule": "evenodd",
         },
         e_clip,
     )
+    k_clip = node(
+        "clipPath", {"id": "k-beam-baseline", "clipPathUnits": "userSpaceOnUse"}, defs
+    )
+    node("path", {"d": f"M-20 -20H100V100H14V{56 + HEAVIER_STROKE / 2}H-20Z"}, k_clip)
     silhouette_clip = node(
         "clipPath",
         {"id": "approved-silhouette", "clipPathUnits": "userSpaceOnUse"},
@@ -432,7 +458,45 @@ def main():
                 path.set("stroke-linejoin", "miter")
                 if letter == "e":
                     path.set("clip-path", "url(#e-open-counter)")
+                elif letter == "k":
+                    path.set("clip-path", "url(#k-beam-baseline)")
+
+    def ink_profile(element):
+        svg = node("svg", {"viewBox": "-10 0 180 200", "color": "#000000"})
+        svg.append(deepcopy(defs))
+        svg.append(deepcopy(element))
+        raster = cairosvg.svg2png(
+            bytestring=ET.tostring(svg), output_width=1440, output_height=1600
+        )
+        mask = np.asarray(Image.open(io.BytesIO(raster)))[:, :, 3] >= 128
+        rows = mask.any(axis=1)
+        left = np.argmax(mask, axis=1) / 8 - 10
+        right = (mask.shape[1] - np.argmax(mask[:, ::-1], axis=1)) / 8 - 10
+        return rows, left, right
+
+    for variant in ("mono", "dark", "light", "heavier-dark", "heavier-light"):
+        heavier = variant.startswith("heavier")
+        gap = HEAVIER_GAP if heavier else 3.0
+        d = next(e for e in master.iter() if e.get("id") == f"wordmark-{variant}-d")
+        symbol = node("g", {"transform": "translate(16.9 76.6) scale(.139)"})
+        symbol.append(deepcopy(d))
+        previous_rows, _, previous_right = ink_profile(symbol)
+        for letter in LETTERS:
+            element = next(
+                e for e in master.iter() if e.get("id") == f"{variant}-{letter}"
+            )
+            element.set("transform", "translate(0 122)")
+            rows, left, right = ink_profile(element)
+            shared = rows & previous_rows
+            position = float(np.max(previous_right[shared] - left[shared])) + gap
+            element.set("transform", f"translate({position} 122)")
+            previous_rows, previous_right = rows, right + position
     write(ROOT / "sources/Dinkster_Master.svg", master)
+    command = [args.inkscape, str(ROOT / "sources/Dinkster_Master.svg"), "--query-all"]
+    subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
+    (ROOT / "sources/layout-command.txt").write_text(
+        shlex.join(command) + "\n", encoding="ascii"
+    )
 
 
 if __name__ == "__main__":

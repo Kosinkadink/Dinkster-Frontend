@@ -16,7 +16,7 @@ The authoring environment uses Python 3.12, fonttools 4.68.0, Pillow,
 numpy, scipy and cairosvg. These are standalone artwork-authoring tools;
 the frontend build and test dependencies are unchanged.
 
-Run `python sources/build_brand.py` from this directory, then
+Run `python sources/build_brand.py --inkscape /path/to/inkscape` from this directory, then
 `python sources/export_brand.py --inkscape /path/to/inkscape`.
 `sources/export-commands.txt` records the renderer build and exact commands.
 The current renderer is Ubuntu's Inkscape 1.2.2
@@ -37,8 +37,22 @@ stays an external input, not a production SVG raster dependency.
 The weight comparison retains the revised current-weight outlines and a
 heavier proposal with main stems at 20.31 reference units, matching the
 D island stem after its wordmark transform. The heavier proposal uses
-editable mitered outline expansion; the e counter is clipped open with
-its unchanged contour, and the t's inside hook retains its curve.
+editable mitered outline expansion. Its gap parameter is 18 D-reference
+px, converted to 5.538 lettering units. Letter spacing uses the minimum
+horizontal clearance between occupied scanlines, including D/i, rather
+than whole-glyph boxes that over-space the k's descending leg. The layout
+is sampled at eight pixels per lettering unit with CairoSVG; production
+exports still use Inkscape. The current weight uses a uniform 3-unit gap.
+The i's parallel dot/stem clearance, n's straight counter, t's hook
+clearance and e's counter height derive from the heavier gap.
+Curved caps and triangular
+counters taper rather than retaining a constant width everywhere.
+The e counter is clipped open, and the t's inside hook retains its curve.
+The heavier k's beam is clipped at the n's baseline without shortening
+its descending leg. `sources/layout-command.txt` records the final
+Inkscape bounds query that checks the generated document.
+The heavier comparison frame is wider, not scaled down: both weights
+retain the same D scale and the reference-size/2x row layout.
 Neither proposed weight is selected by this document. The enlarged
 letters are exported from the same master, not a separate SVG source.
 

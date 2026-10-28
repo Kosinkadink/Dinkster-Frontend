@@ -31,10 +31,11 @@ def main():
         ("mono", "dark", "light", "heavier-dark", "heavier-light")
     ):
         y = (index if index < 3 else index + 1) * 1000
+        width = 1024 if variant.startswith("heavier") else 892
         options = (
             f"--export-id=wordmark-{variant}",
             "--export-id-only",
-            f"--export-area=-60:{y - 250}:1456.4:{y + 630.6}",
+            f"--export-area=-60:{y - 250}:{width * 1.7 - 60}:{y + 630.6}",
         )
         export(
             master,
@@ -47,7 +48,7 @@ def main():
             master,
             ROOT / f"previews/wordmark-{variant}-2x.png",
             "--export-type=png",
-            "--export-width=892",
+            f"--export-width={width}",
             "--export-height=518",
             *options,
         )

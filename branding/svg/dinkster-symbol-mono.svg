@@ -4,18 +4,25 @@
    width="1000"
    height="1000"
    version="1.1"
-   id="svg233"
+   id="svg236"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <defs
-     id="defs71">
+     id="defs74">
     <clipPath
        id="e-open-counter"
        clipPathUnits="userSpaceOnUse">
       <path
-         d="M -20,-20 H 100 V 100 H -20 Z M 14,34 25,26 Q 13,22 14,34 Z"
+         d="M -20,-20 H 100 V 100 H -20 Z m 34,54 v -5.538024 h 7.614783 z"
          clip-rule="evenodd"
          id="path60" />
+    </clipPath>
+    <clipPath
+       id="k-beam-baseline"
+       clipPathUnits="userSpaceOnUse">
+      <path
+         d="M -20,-20 H 100 V 100 H 14 V 59.153043 h -34 z"
+         id="path63" />
     </clipPath>
     <clipPath
        id="approved-silhouette"
@@ -31,7 +38,7 @@
       <path
          d="m 343,68 67.8,67.8 a 45,45 0 0 1 13.2,31.8 v 112.8 a 45,45 0 0 1 -13.2,31.8 L 363,360 H 600 V 40 H 343 Z"
          transform="matrix(2.2134387,0,0,2.2134387,-180.07905,26.324111)"
-         id="path65" />
+         id="path68" />
     </clipPath>
     <clipPath
        id="plane-yellow"
@@ -39,7 +46,7 @@
       <path
          d="M 80,240 H 232 V 390 H 80 Z"
          transform="matrix(2.2134387,0,0,2.2134387,-180.07905,26.324111)"
-         id="path68" />
+         id="path71" />
     </clipPath>
   </defs>
   <g
@@ -53,7 +60,7 @@
          width="1000"
          height="1000"
          opacity="0"
-         id="rect89"
+         id="rect92"
          x="0"
          y="0" />
       <path
