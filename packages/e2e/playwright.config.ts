@@ -75,8 +75,6 @@ const BACKEND_SERIAL_SPECS = [
   'output-mount-live.spec.ts',
   'browser-mount-live.spec.ts',
   'audit-widget-parity-live.spec.ts',
-  // Environment-conditional live discovery probe.
-  'startup-discovery.spec.ts',
 ]
 
 const PERFORMANCE_SPECS = ['perf.spec.ts']
@@ -108,6 +106,7 @@ export default defineConfig({
       testIgnore: [
         ...BACKEND_SERIAL_SPECS,
         ...PERFORMANCE_SPECS,
+        ...NATIVE_STARTUP_SPECS,
         'extension-contract-pack.spec.ts',
         'product-surface-visuals.spec.ts',
       ].map((f) => `tests/${f}`),

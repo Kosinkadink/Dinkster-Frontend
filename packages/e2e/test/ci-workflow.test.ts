@@ -368,6 +368,8 @@ describe('fast pull-request and full validation workflows', () => {
     const parallel = projects.find(
       (project) => project.name === 'parallel-safe',
     )!
+    expect(serial.testMatch).not.toContain('tests/startup-discovery.spec.ts')
+    expect(parallel.testIgnore).toContain('tests/startup-discovery.spec.ts')
     for (const file of [
       'audit-widget-parity-live.spec.ts',
       'output-mount-live.spec.ts',
