@@ -1742,3 +1742,17 @@ the same fixture schemas. These are scene-build times, not browser frame times.
 The feature-heavy workload includes reroutes, value sources, nets, groups and
 selectors. Ordinary sockets remain on node borders; adjacent widget sockets
 use separate vertical slots without per-endpoint horizontal overrides.
+
+## 2026-10-27 Exported literal presentation
+
+X570 CPU, Chromium, Node 26.12.1. Median of seven batches of 100 queries
+after 50 warmups on a two-graph, four-runtime-node fixture. The document
+measurement includes resolver construction and one source query.
+
+| Source specification query | Graph-local derivation | Document-aware derivation |
+| --- | ---: | ---: |
+| Exported literal | 0.001 ms | 0.110 ms |
+
+The graph-local query misses exported consumers; the document query resolves
+their shared constraints. These are query times, not whole-scene or frame
+measurements, and do not measure backend execution.

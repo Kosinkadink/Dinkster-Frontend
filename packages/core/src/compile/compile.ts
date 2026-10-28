@@ -73,7 +73,7 @@ import {
 } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
-import { effectiveValueSourceSpec, valueSourceWidgetSpec } from '../value-source.js'
+import { effectiveValueSourceSpec, resolvedValueSourceSpec, valueSourceWidgetSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { matchBypassInput, type BypassCandidate } from './bypass.js'
 import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
@@ -103,7 +103,7 @@ import {
   type BoundaryCrossing,
 } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -171,6 +171,46 @@ export function documentResolver(doc: WorkflowDocument, base: SchemaResolver): S
     }
   )
   return resolve
+}
+
+/**
+ * Read-only value-source presentation for one document snapshot. Occurrence
+ * queries follow the stored owner; definition queries combine its consumers.
+ * Uninstantiated definitions retain graph-local derivation.
+ */
+export function documentValueSourceResolver(doc: WorkflowDocument, base: SchemaResolver): (
+  graphId: string,
+  sourceId: string,
+  instancePath?: readonly NodeId[],
+) => EffectiveValueSourceSpec | undefined {
+  const resolve = documentResolver(doc, base)
+  const consumers = Object.keys(doc.graphs).length === 1 && doc.occurrenceTopologies === undefined
+    ? [] : compileImpl({ query: 'valueSources', document: doc, resolve: base }, true).consumers
+  const byOwner = new Map<string, ValueSourceConsumer[]>()
+  for (const consumer of consumers) {
+    const key = literalOwnerKey(consumer.sources)
+    const group = byOwner.get(key) ?? []
+    group.push(consumer)
+    byOwner.set(key, group)
+  }
+  return (graphId, sourceId, instancePath) => {
+    const def = doc.graphs[graphId]
+    const source = def?.valueSources?.[sourceId]
+    if (!def || !source) return undefined
+    const reachesSource = (consumer: ValueSourceConsumer): boolean => consumer.sources.some((candidate) =>
+      'valueSource' in candidate && candidate.graph === graphId && candidate.valueSource === sourceId &&
+      (instancePath === undefined || JSON.stringify(candidate.instancePath) === JSON.stringify(instancePath)))
+    const owners = new Set(consumers.filter(reachesSource).map((consumer) => literalOwnerKey(consumer.sources)))
+    const reached = [...owners].flatMap((owner) => byOwner.get(owner) ?? [])
+    if (reached.length === 0) return effectiveValueSourceSpec(def, source, resolve)
+    const unique = new Map<string, ValueSourceConsumer>()
+    for (const consumer of reached) unique.set(JSON.stringify([consumer.terminal.graph,
+      occurrenceKey(consumer.terminal.occurrence), consumer.terminal.valueKey]), consumer)
+    return resolvedValueSourceSpec(source, [...unique.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, consumer]) => ({
+      ref: consumer.ref,
+      input: consumer.input,
+    })))
+  }
 }
 
 export type DocumentNodeResolver = (graphId: string, node: NodeData) => NodeSchema | undefined
@@ -357,6 +397,32 @@ export function compile(input: CompileInput): CompileResult {
   return compileImpl(input, false).result
 }
 
+interface ValueSourceConsumer {
+  readonly sources: readonly ControllerInputSource[]
+  readonly terminal: ControllerNodeInputSource
+  readonly ref: PortRef
+  readonly input: InputSpec
+}
+
+const literalOwnerKey = (sources: readonly ControllerInputSource[]): string => {
+  const owner = sources[0]!
+  return JSON.stringify('valueSource' in owner
+    ? [owner.graph, 'valueSource', owner.valueSource]
+    : [owner.graph, 'node', owner.occurrence.node, owner.valueKey])
+}
+
+interface ValueSourceQuery {
+  readonly query: 'valueSources'
+  readonly document: WorkflowDocument
+  readonly resolve: SchemaResolver
+}
+
+interface CompileTraversalResult {
+  result: CompileResult
+  structural?: ReadonlyMap<string, ScopeStructuralGraph>
+  inactiveExclusive?: ReadonlyMap<string, ReadonlySet<string>>
+}
+
 /**
  * Shared implementation behind {@link compile} (real submissions) and
  * {@link scopeClosure} (would-run previews). In would-run mode:
@@ -372,15 +438,17 @@ export function compile(input: CompileInput): CompileResult {
  * A would-run artifact must be DISCARDED - its prompt stages one arbitrary
  * branch per undecided selector and must never be submitted.
  */
+function compileImpl(input: CompileInput, wouldRun: boolean): CompileTraversalResult
+function compileImpl(input: ValueSourceQuery, wouldRun: boolean): { consumers: readonly ValueSourceConsumer[] }
 function compileImpl(
-  input: CompileInput,
+  input: CompileInput | ValueSourceQuery,
   wouldRun: boolean,
-): {
-  result: CompileResult
-  structural?: ReadonlyMap<string, ScopeStructuralGraph>
-  inactiveExclusive?: ReadonlyMap<string, ReadonlySet<string>>
-} {
-  const { document: doc, scope } = input
+): CompileTraversalResult | { consumers: readonly ValueSourceConsumer[] } {
+  const doc = input.document
+  const queryingSources = 'query' in input
+  const options = queryingSources ? undefined : input
+  const scope: ExecutionScope = queryingSources ? { kind: 'full' } : input.scope
+  const sourceConsumers: ValueSourceConsumer[] = []
   const resolve = documentResolver(doc, input.resolve)
   const resolveNode = documentNodeResolver(doc, input.resolve)
   const isVirtualNode = (graphId: string, node: NodeData): boolean =>
@@ -390,9 +458,9 @@ function compileImpl(
    * ea6eca7): absent = the target server would pass the marker through as a
    * plain literal dict, so HOLD the lowering and refuse loudly instead.
    */
-  const emitTypedLiterals = input.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_TYPED_LITERAL) ?? false
-  const emitDecimalInts = input.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_DECIMAL_INT) ?? false
-  const emitRegions = input.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS) ?? false
+  const emitTypedLiterals = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_TYPED_LITERAL) ?? false
+  const emitDecimalInts = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_DECIMAL_INT) ?? false
+  const emitRegions = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS) ?? false
   const diags: Diagnostic[] = []
   const elaborationDiagnosticOwners = new Map<Diagnostic, {
     readonly graphId: GraphDefId
@@ -522,7 +590,7 @@ function compileImpl(
     }
   }
   scanRegions(doc.root, [], new Set())
-  if (diags.some((diagnostic) => diagnostic.severity === 'error')) {
+  if (!queryingSources && diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
   }
   // -- Occurrence contexts and forwarding state
@@ -1178,7 +1246,7 @@ function compileImpl(
     const def = graphOf(defId)
     for (const sel of Object.values(def?.selectors ?? {})) {
       const policy = sel.policy
-      const replayed = input.candidateOverride?.({
+      const replayed = options?.candidateOverride?.({
         graph: defId,
         selector: sel.id,
         candidates: sel.candidates.map((candidate) => candidate.id),
@@ -1215,7 +1283,7 @@ function compileImpl(
         selectorChoices.push({ graph: defId, selector: sel.id, policy: 'random', candidate: overridden })
         continue
       }
-      if (!input.pickCandidate) {
+      if (!options?.pickCandidate) {
         if (wouldRun) {
           // Would-run mode needs no chooser: the staged branch is arbitrary
           // (first candidate) because the closure adds extra edges for EVERY
@@ -1231,7 +1299,7 @@ function compileImpl(
         diags.push(diag('error', 'compile', 'compile.selector.noChooser', `selector '${sel.id}' in graph '${defId}' has a random policy but no pickCandidate chooser was provided`))
         continue
       }
-      const raw = input.pickCandidate({ graph: defId, selector: sel.id, count: sel.candidates.length })
+      const raw = options.pickCandidate({ graph: defId, selector: sel.id, count: sel.candidates.length })
       const idx = Number.isFinite(raw) ? Math.min(sel.candidates.length - 1, Math.max(0, Math.floor(raw))) : 0
       const chosen = sel.candidates[idx]!
       map.set(sel.id, chosen.id)
@@ -1450,7 +1518,9 @@ function compileImpl(
               ? [endpoint.candidate]
               : selectedProjection === 'exact'
                 ? [...(selectorResolutionFor(at.defId).get(selector) ? [selectorResolutionFor(at.defId).get(selector)!] : [])]
-                : [...(fixedSelectionFor(at.defId).get(selector) ? [fixedSelectionFor(at.defId).get(selector)!] : (def.selectors?.[selector]?.candidates ?? []).map((candidate) => candidate.id))]
+                : selectedProjection === 'spec'
+                  ? (def.selectors?.[selector]?.candidates ?? []).map((candidate) => candidate.id)
+                  : [...(fixedSelectionFor(at.defId).get(selector) ? [fixedSelectionFor(at.defId).get(selector)!] : (def.selectors?.[selector]?.candidates ?? []).map((candidate) => candidate.id))]
             const via = viaFor?.(at.defId)
             if (via && !via.selectors.has(selector)) via.selectors.set(selector, new Set())
             if (choices.length === 0) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `selector '${selector}' is unresolved` } }] }
@@ -2126,7 +2196,7 @@ function compileImpl(
           if (!via) vias.set(routeDefId, (via = { reroutes: new Set(), selectors: new Map(), valueSources: new Set() }))
           return via
         }
-        const all = projectRoute({ kind: 'endpoint', path, defId, endpoint: from }, 'would-run', scratch, destination.input.spec.type, viaFor, delivery)
+        const all = projectRoute({ kind: 'endpoint', path, defId, endpoint: from }, queryingSources ? 'spec' : 'would-run', scratch, destination.input.spec.type, viaFor, delivery)
         const connections = wouldRunVia.get(destination.runtimeId)
         const recorded = [...vias].map(([routeDefId, via]) => ({ defId: routeDefId, via }))
         const record = { inputKey: destination.elabKey, entries: recorded }
@@ -2134,7 +2204,18 @@ function compileImpl(
         else wouldRunVia.set(destination.runtimeId, [record])
         let anyCandidateDelivers = false
         for (const terminal of all) {
-          if (terminal.kind === 'value') { anyCandidateDelivers = true; continue }
+          if (terminal.kind === 'value') {
+            anyCandidateDelivers = true
+            if (queryingSources && terminal.controllerSources !== undefined) {
+              const consumer = flat.get(destination.runtimeId)!
+              sourceConsumers.push({ sources: terminal.controllerSources,
+                terminal: { graph: consumer.graphId, occurrence: consumer.occ, valueKey: valueKeyOf(destination.input) },
+                ref: { node: consumer.occ.node, ...destination.input.address, port: destination.input.address.port as PortRef['port'] },
+                input: destination.input.spec,
+              })
+            }
+            continue
+          }
           if (terminal.kind !== 'output') continue
           anyCandidateDelivers = true
           if (!flat.has(terminal.src.runtimeId)) continue
@@ -2182,6 +2263,7 @@ function compileImpl(
       // route engine. Hypothetical branches write no diagnostics.
       if (!isPortEndpoint(link.to)) continue
       recordWouldRunConnection(link.from, link.to, link.delivery)
+      if (queryingSources) continue
       connections.push({ from: link.from, to: link.to, what: link.what, ...(link.delivery ? { delivery: link.delivery } : {}) })
     }
     for (const c of connections) {
@@ -2373,6 +2455,8 @@ function compileImpl(
       }
     }
   }
+
+  if ('query' in input) return { consumers: sourceConsumers }
 
   // -- Scope: full = closure of output nodes; partial = closure of targets ---
 
@@ -2671,12 +2755,6 @@ function compileImpl(
   // Resolve constraints before scope filtering: executing one consumer must
   // not change a shared literal's step or range. Group by the stored owner:
   // shared definition values unify, but promoted instance overrides do not.
-  const literalOwnerKey = (sources: readonly ControllerInputSource[]): string => {
-    const owner = sources[0]!
-    return JSON.stringify('valueSource' in owner
-      ? [owner.graph, 'valueSource', owner.valueSource]
-      : [owner.graph, 'node', owner.occurrence.node, owner.valueKey])
-  }
   const literalWidgets = new Map<string, WidgetSpec[]>()
   for (const fn of [...flat.values()].sort((a, b) => a.runtimeId.localeCompare(b.runtimeId))) {
     for (const input of fn.elab.inputs) {

@@ -95,6 +95,14 @@ can have only one input boundary slot; duplicate targets are rejected rather
 than choosing a driver or literal by declaration order. Deleting the value
 source removes its boundary slots in the same undoable transaction.
 
+Source pills and their spec popovers resolve consumers across exported subgraph
+outputs. Shared stored literals combine constraints across instances; separately
+promoted owners remain independent in drilled views. Definition views combine
+the reachable consumers, while uninstantiated definitions retain local specs.
+This read-only presentation query also sees inactive structural-selector
+candidates and works while unrelated nodes are incomplete. It never changes
+stored values or serializes inferred widget constraints; pinning is explicit.
+
 Extraction moves selected value sources and their outgoing fan-out into the
 new definition without a runtime producer. Existing authored output types are
 retained; a source with no authored boundary type uses wildcard, never a type

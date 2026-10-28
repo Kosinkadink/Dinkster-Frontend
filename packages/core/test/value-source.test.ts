@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
-import { compile, type CompileInput } from '../src/compile/compile.js'
+import { compile, documentValueSourceResolver, type CompileInput } from '../src/compile/compile.js'
 import { semanticHashOf } from '../src/compile/hash.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { GraphDef, JsonObject, ValueSourceData, WorkflowDocument } from '../src/format/document.js'
@@ -28,6 +28,8 @@ import {
   asNodeId,
   asPortId,
   asRerouteId,
+  asSelectorCandidateId,
+  asSelectorId,
   asValueSourceId,
 } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
@@ -111,6 +113,62 @@ const makeStore = (d: WorkflowDocument) => new DocumentStore(d, coreCommandRegis
 // ---------------------------------------------------------------------------
 
 describe('value source consumers', () => {
+  it.each([false, true])('derives exported literal presentation without requiring an executable document (reverse: %s)', (reverse) => {
+    const document: any = doc({
+      g0: graph({ id: 'g0', nodes: {
+        i0: { id: asNodeId('i0'), type: '#body', values: {} },
+        i1: { id: asNodeId('i1'), type: '#body', values: {} },
+        left: { id: asNodeId('left'), type: 'Left', values: {} },
+        right: { id: asNodeId('right'), type: 'Right', values: {} },
+        missing: { id: asNodeId('missing'), type: 'Unregistered', values: {} },
+      }, links: {
+        l0: { id: asLinkId('l0'), from: port('i0', 'out'), to: port('left', 'value') },
+        l1: { id: asLinkId('l1'), from: port('i1', 'out'), to: port('right', 'value') },
+      } }),
+      body: graph({ id: 'body', valueSources: { v1: source('v1', 11) },
+        boundary: { inputs: [], outputs: [{ id: asPortId('out'), binds: {
+          kind: 'valueSource', valueSource: asValueSourceId('v1'), type: { kind: 'concrete', name: 'INT' },
+        } }] },
+      }),
+    })
+    if (reverse) document.graphs.g0!.nodes = Object.fromEntries(Object.entries(document.graphs.g0!.nodes).reverse())
+    const resolver = (type: string) => type === 'Left' || type === 'Right' ? {
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' },
+        widget: { widgetType: 'INT', options: type === 'Left' ? { min: 3, max: 17, step: 2 } : { min: 10, max: 20, step: 7 } } }],
+    } as import('../src/schema/model.js').NodeSchema : undefined
+    const before = structuredClone(document)
+    const resolveSource = documentValueSourceResolver(document, resolver)
+    expect(resolveSource('body', 'v1')).toMatchObject({ type: { kind: 'concrete', name: 'INT' },
+      spec: { widgetType: 'INT', options: { min: 10, max: 17, step: 7 } } })
+    expect(resolveSource('body', 'v1', [asNodeId('i0')])?.spec?.options).toEqual({ min: 10, max: 17, step: 7 })
+    expect(resolveSource('body', 'v1', [asNodeId('i1')])?.spec?.options).toEqual({ min: 10, max: 17, step: 7 })
+    expect(document).toEqual(before)
+    document.graphs.body!.boundary!.inputs = [{ id: asPortId('value'), promoted: true,
+      binds: document.graphs.body!.boundary!.outputs[0]!.binds }]
+    const promoted = documentValueSourceResolver(document, resolver)
+    expect(promoted('body', 'v1', [asNodeId('i0')])?.spec?.options).toEqual({ min: 3, max: 17, step: 2 })
+    expect(promoted('body', 'v1', [asNodeId('i1')])?.spec?.options).toEqual({ min: 10, max: 20, step: 7 })
+    document.graphs.body!.valueSources!.v1!.spec = { widgetType: 'INT', options: { step: 5 } }
+    expect(documentValueSourceResolver(document, resolver)('body', 'v1')?.spec?.options).toEqual({ min: 10, max: 17, step: 5 })
+    delete document.graphs.body!.valueSources!.v1!.spec
+    const root = document.graphs.g0!
+    root.valueSources = { other: source('other', 99) }
+    root.selectors = { s0: { id: asSelectorId('s0'), candidates: [
+      { id: asSelectorCandidateId('a') }, { id: asSelectorCandidateId('b') },
+    ], policy: { kind: 'fixed', candidate: asSelectorCandidateId('a') } } }
+    root.links.l0!.from = { selector: asSelectorId('s0') }
+    root.links.l2 = { id: asLinkId('l2'), from: port('i0', 'out'),
+      to: { selector: asSelectorId('s0'), candidate: asSelectorCandidateId('b') } }
+    root.links.l3 = { id: asLinkId('l3'), from: vsrc('other'),
+      to: { selector: asSelectorId('s0'), candidate: asSelectorCandidateId('a') } }
+    for (const random of [false, true]) {
+      root.selectors.s0!.policy = random ? { kind: 'random' } : { kind: 'fixed', candidate: asSelectorCandidateId('a') }
+      expect(documentValueSourceResolver(document, resolver)('body', 'v1', [asNodeId('i0')])?.spec?.options)
+        .toEqual({ min: 3, max: 17, step: 2 })
+    }
+  })
+
   it('finds direct and reroute-chained consumers (fan-out)', () => {
     const def = fanoutDoc().graphs['g0']!
     expect(valueSourceLinksOf(def, 'v1').map((l) => l.id).sort()).toEqual(['l4', 'l6'])

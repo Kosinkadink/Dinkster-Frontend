@@ -17,7 +17,7 @@ import {
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
   documentNodeResolver,
-  effectiveValueSourceSpec,
+  documentValueSourceResolver,
   effectiveOccurrenceTopology,
   elabKeyOf,
   elaborateInterface,
@@ -1489,10 +1489,13 @@ export function buildScene(input: BuildSceneInput): Scene {
   const viewValueSources = graphView?.valueSources ?? {}
   const valueSources: SceneValueSource[] = []
   const valueSourceById = new Map<string, SceneValueSource>()
+  let resolveSource: ReturnType<typeof documentValueSourceResolver> | undefined
   let vsFallbackY = 0
   for (const vs of Object.values(def.valueSources ?? {})) {
     const pos = viewValueSources[vs.id]?.position ?? { x: 0, y: (vsFallbackY += 60) }
-    const effective = effectiveValueSourceSpec(def, vs, input.resolve, rerouteIndex)
+    resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
+    const sourcePath = input.occurrence === undefined ? undefined : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+    const effective = resolveSource(def.id, vs.id, sourcePath)!
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
     const valueText = valueSourceValueText(vs.value)
     const width = Math.min(

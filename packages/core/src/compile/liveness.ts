@@ -20,7 +20,7 @@ export interface DeliveryLiveness {
 /** Would-run producer occurrences, keyed by consumer occurrence and input id. */
 export type WouldRunEdges = ReadonlyMap<string, ReadonlyMap<string, ReadonlySet<string>>>
 
-export type RouteProjection = 'exact' | 'would-run'
+export type RouteProjection = 'exact' | 'would-run' | 'spec'
 
 export type RoutedStep<TAt, TTerminal> =
   | { readonly kind: 'recurse'; readonly at: TAt }

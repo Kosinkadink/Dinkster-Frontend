@@ -242,12 +242,20 @@ export function effectiveValueSourceSpec(
     consumerInputs.push({ ref, input })
   }
 
+  return resolvedValueSourceSpec(vs, consumerInputs)
+}
+
+/** Derive presentation from already resolved consumer inputs without solving types. */
+export function resolvedValueSourceSpec(
+  vs: ValueSourceData,
+  consumerInputs: readonly { readonly ref: PortRef; readonly input: InputSpec }[],
+): EffectiveValueSourceSpec {
   // Advisory type: intersection of consumer input types (wildcard when none).
   let type: TypeExpr = { kind: 'wildcard' }
   for (const { input } of consumerInputs) type = type.kind === 'wildcard' ? input.type : intersectTypes(type, input.type)
 
   const widgetSpecs = consumerInputs.filter((c) => c.input.widget).map((c) => c.input.widget!)
-  return { ...valueSourceWidgetSpec(vs, widgetSpecs), type, consumers }
+  return { ...valueSourceWidgetSpec(vs, widgetSpecs), type, consumers: consumerInputs.map((consumer) => consumer.ref) }
 }
 
 /** Merge widget constraints from resolved consumers, retaining declared source fields. */

@@ -67,7 +67,7 @@ import {
   parseOutputDescriptors,
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
-  effectiveValueSourceSpec,
+  documentValueSourceResolver,
   elabInputsOf,
   formatWidgetValue,
   flattenShellRefusalDiagnostic,
@@ -1897,8 +1897,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const def = tab.store.doc.graphs[graphId]
     const vs = def?.valueSources?.[id]
     if (!def || !vs) return undefined
-    const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
-    const effective = effectiveValueSourceSpec(def, vs, resolve)
+    const resolveSource = documentValueSourceResolver(tab.store.doc, reg?.resolve ?? (() => undefined))
+    const effective = resolveSource(graphId, id, viewInstancePath(tab)?.map(asNodeId))!
     const specState: 'declared' | 'derived' | 'raw' = vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw'
     return { graphId, vs, effective, specState }
   }

@@ -3,6 +3,7 @@ import {
   asConnectionId,
   asPromptId,
   compile,
+  type CommandInvocation,
   type CompileArtifact,
   type ExecutionRef,
   type NodeSchema,
@@ -135,7 +136,7 @@ describe('controllerAdvancement', () => {
             connection: asConnectionId('local'), schemaHash: 'test' })
           if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
           expect(result.artifact.prompt.left!.inputs.up).toBe(10)
-          const invocations = arrangement === 'promoted' ? [
+          const invocations: CommandInvocation[] = arrangement === 'promoted' ? [
             { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: declared ? 15 : 12 } },
             ...(!partial ? [{ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: declared ? 15 : 17 } }] : []),
           ] : [{ command: 'valueSource.setValue', params: { graphId: 'body', valueSourceId: 'v0', value: declared ? 15 : 17 } }]
