@@ -638,6 +638,18 @@ describe('compiled occurrence controller ownership', () => {
     expect(tab.store.doc.graphs.g0!.nodes.right!.values.seed).toBeUndefined()
   })
 
+  it.each(['owner', 'inherited'] as const)('preserves a promoted %s mode edit-and-restore while its sibling advances', (target) => {
+    const { app, tab, ref } = occurrenceCompletionHarness()
+    const location = target === 'owner' ? { graphId: 'g0', nodeId: 'left' } : { graphId: 'sub', nodeId: 'leaf' }
+    for (const mode of ['fixed', target === 'owner' ? 'decrement' : 'increment']) expect(tab.store.dispatch({
+      command: 'node.setController', params: { ...location, inputId: 'seed', mode },
+    }).ok).toBe(true)
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+    expect(tab.store.doc.graphs.g0!.nodes.left!.values.seed).toBe(target === 'owner' ? 10 : 9)
+    expect(tab.store.doc.graphs.g0!.nodes.right!.values.seed).toBe(target === 'owner' ? 6 : undefined)
+    expect(tab.store.doc.graphs.sub!.nodes.leaf!.values.seed).toBe(5)
+  })
+
   it('invalidates only occurrences whose effective fallback value changed after queueing', () => {
     const { app, tab, ref } = occurrenceCompletionHarness()
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'sub', nodeId: 'leaf', inputId: 'seed', value: 7 } })
@@ -845,7 +857,7 @@ describe('FLOAT controller advancement (shared canvas stepper semantics)', () =>
 })
 
 describe('completion integration', () => {
-  it.each(['unchanged', 'edited', 'restored', 'fixed', 'disconnected'] as const)('guards literal producer completion after %s state', (change) => {
+  it.each(['unchanged', 'edited', 'restored', 'fixed', 'mode-restored', 'disconnected'] as const)('guards literal producer completion after %s state', (change) => {
     const local = new AppState()
     ;(local.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     local.registerSchemas([schema])
@@ -861,7 +873,8 @@ describe('completion integration', () => {
       expect(live.store.dispatch({ command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 17 } }).ok).toBe(true)
       if (change === 'restored') expect(live.store.dispatch({ command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 11 } }).ok).toBe(true)
     }
-    if (change === 'fixed') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'fixed' } }).ok).toBe(true)
+    if (change === 'fixed' || change === 'mode-restored') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'fixed' } }).ok).toBe(true)
+    if (change === 'mode-restored') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'increment' } }).ok).toBe(true)
     if (change === 'disconnected') expect(live.store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } }).ok).toBe(true)
     local.store.apply({ kind: 'completed', execution, timestamp: 2 })
     const expected = change === 'unchanged' ? 14 : change === 'edited' ? 17 : 11

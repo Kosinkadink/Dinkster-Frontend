@@ -850,6 +850,7 @@ export interface AdvancementPlan {
   readonly steps: readonly AdvancementStep[]
   /** Per-input value mutation generation captured with the queue-time snapshot. */
   readonly generations: ReadonlyMap<string, number>
+  readonly modeGenerations: ReadonlyMap<string, number>
 }
 
 type AdvancementInputLocation = { readonly graphId: string } & (
@@ -903,6 +904,11 @@ interface ControllerMutationState {
   next: number
   readonly inputs: Map<string, AdvancementInputLocation & {
     value: Json | undefined
+    generation: number
+  }>
+  readonly controllers: Map<string, {
+    readonly input: ControllerInputProvenance
+    mode: ControllerMode
     generation: number
   }>
 }
@@ -7515,9 +7521,8 @@ export class AppState {
   /**
    * Latest mutation generation by document path. Value equality alone has
    * an ABA hole (manual + then - returns to the queued value), so an
-   * after-generate plan also snapshots the generation of its exact value.
-   * Controller intent remains compared by EFFECTIVE mode: explicitly
-   * storing the same default mode is deliberately not an intent change.
+   * after-generate plan snapshots value and effective-mode generations.
+   * Explicitly storing the same default mode is not an intent change.
    */
   private readonly controllerMutations = new WeakMap<DocumentSession, ControllerMutationState>()
 
@@ -7528,6 +7533,14 @@ export class AppState {
         if (!Object.is(value, input.value)) {
           input.value = value
           input.generation = ++state.next
+        }
+      }
+      for (const controller of state.controllers.values()) {
+        const { input } = controller
+        const { mode } = effectiveControllerState(document, input.sources, input.widget, input.optional)
+        if (mode !== controller.mode) {
+          controller.mode = mode
+          controller.generation = ++state.next
         }
       }
     })
@@ -7547,13 +7560,30 @@ export class AppState {
     this.trackControllerMutations(session, state)
   }
 
-  private controllerMutationGeneration(session: DocumentSession, step: AdvancementInputLocation): number {
+  private controllerMutationState(session: DocumentSession): ControllerMutationState {
     let state = this.controllerMutations.get(session)
     if (!state) {
-      state = { next: 0, inputs: new Map() }
+      state = { next: 0, inputs: new Map(), controllers: new Map() }
       this.controllerMutations.set(session, state)
       this.trackControllerMutations(session, state)
     }
+    return state
+  }
+
+  private controllerModeMutationGeneration(session: DocumentSession, input: ControllerInputProvenance): number {
+    const state = this.controllerMutationState(session)
+    const key = controllerSemanticsKey(input)
+    let controller = state.controllers.get(key)
+    if (!controller) {
+      const { mode } = effectiveControllerState(session.doc, input.sources, input.widget, input.optional)
+      controller = { input, mode, generation: state.next }
+      state.controllers.set(key, controller)
+    }
+    return controller.generation
+  }
+
+  private controllerMutationGeneration(session: DocumentSession, step: AdvancementInputLocation): number {
+    const state = this.controllerMutationState(session)
     const key = advancementInputKey(step)
     let input = state.inputs.get(key)
     if (!input) {
@@ -7622,7 +7652,10 @@ export class AppState {
       const location = controllerSourceLocation(source)
       return [advancementInputKey(location), this.controllerMutationGeneration(session, location)] as const
     })))
-    return { session, artifact, steps, generations }
+    const modeGenerations = new Map(steps.flatMap((step) => step.controllers.map((controller) => [
+      controllerSemanticsKey(controller), this.controllerModeMutationGeneration(session, controller),
+    ] as const)))
+    return { session, artifact, steps, generations, modeGenerations }
   }
 
   /**
@@ -7792,6 +7825,7 @@ export class AppState {
         return live !== undefined && controllerSemanticsKey(live) === controllerSemanticsKey(queued) ? [live] : []
       })[0]
       if (liveController === undefined) return false
+      if (this.controllerModeMutationGeneration(plan.session, liveController) !== plan.modeGenerations.get(controllerSemanticsKey(liveController))) return false
       if (step.valueSources.some((source) => {
         const location = controllerSourceLocation(source)
         return this.controllerMutationGeneration(plan.session, location) !== plan.generations.get(advancementInputKey(location))

@@ -119,8 +119,10 @@ promoted instance controls own their occurrence overrides and inherit missing
 values and modes from the inner source. Declared source widget constraints take
 precedence over consumer-derived constraints. Only executed consumers contribute
 advancement. Completion preserves user edits, including edit-and-restore changes,
-and skips controls whose live route, mode, or widget semantics changed. Source
-advancement uses the ordinary undoable value-source command, without helper nodes.
+and skips controls whose live route, effective mode, or widget semantics changed.
+Changing a controller mode and restoring it still invalidates pending advancement;
+explicitly storing an unchanged effective mode does not. Source advancement uses
+the ordinary undoable value-source command, without helper nodes.
 
 Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
 constraints. The decoder retains the FLOATS socket and scalar default, min and
