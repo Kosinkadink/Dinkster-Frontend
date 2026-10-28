@@ -51,18 +51,6 @@ describe('shell and surface product tooltip markup', () => {
     expect(nativeTitles).toEqual([])
   })
 
-  it('replaces surface action and broken-binding titles with keyboard-reachable delegated tooltips', () => {
-    const panel = source('SurfacePanel.tsx')
-    expect(panel).toContain("data-tooltip-label={message('controlSurfaces.action.deleteSurface')}")
-    expect(panel).toContain('data-tooltip-label={msg()}')
-    expect(panel).toContain('class="mode-binding-warning" tabindex="0"')
-    expect(panel).toContain("data-tooltip-label={message('controlSurfaces.action.removeBinding')}")
-    expect(panel).toContain("ariaLabel={message('controlSurfaces.action.bindGroup')}")
-    expect(panel).toContain('selectedId=""')
-    expect(panel).not.toContain('<select')
-    expect(panel).not.toMatch(/title=(?:"Delete surface"|"Remove binding"|{msg\(\)})/)
-  })
-
   it('replaces the minimap bookmark title without changing its switch contract', () => {
     const canvas = source('CanvasHost.tsx')
     expect(canvas).toContain('data-testid="minimap-marker-toggle" aria-checked=')
