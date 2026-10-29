@@ -47,6 +47,17 @@ and named-net sinks. Import reconstructs members from every authored input
 slot, including unlinked slots, before decoding positional or keyed widgets.
 Nested dynamic family templates are rejected for review rather than inferred.
 
+An input-family copy can declare
+`sourceTemplate: {inputs: [all historical template-local IDs], memberPort?: "flat.port"}`
+when the predecessor schema is absent. The full ordered list distinguishes
+single-input members from grouped paths even when only one input is mapped.
+`memberPort` identifies a flat port with member IDs and requires a single-input
+template. An available predecessor must match the template order and member
+port. Same-type migrations use the historical declaration rather than the
+current schema. Without this declaration, planning still requires the source
+schema. Copies refuse application after the source node or incoming topology
+changes, and retain authored member IDs rather than renaming them.
+
 Version migrations can select cases from stored nested DynamicCombo choices.
 Rules may also materialize top-level input families on helper nodes and link
 helper outputs to those explicit members. Standalone input mappings cannot

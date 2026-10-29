@@ -1177,7 +1177,7 @@ describe('input family replacement', () => {
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
 
-  it('preserves identity-mapped links and net sinks on flat prefix families', () => {
+  it.each([false, true])('preserves flat prefix links and net sinks with historical template=%s', (historical) => {
     const flatFamily = (type: string): NodeSchema => schemaOf(type, [{
       kind: 'input',
       id: 'refs',
@@ -1215,13 +1215,15 @@ describe('input family replacement', () => {
           refs: {
             kind: 'copy',
             sourceFamily: 'refs',
+            ...(historical ? { sourceTemplate: { inputs: ['value'], memberPort: 'refs.refs' } } : {}),
             inputs: { value: { kind: 'copy', input: 'value' } },
           },
         },
       }],
     }
 
-    const planned = planReplacement(original, 'g0', 'old', rule, (type) => schemas[type as keyof typeof schemas])
+    const planned = planReplacement(original, 'g0', 'old', rule, (type) =>
+      historical && type === 'FlatOld' ? undefined : schemas[type as keyof typeof schemas])
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan).toMatchObject({ inputRewires: [], dropLinks: [], netSinks: [] })
 
@@ -1291,6 +1293,104 @@ describe('input family replacement', () => {
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(original)
   })
+
+  it.each(['missing', 'available', 'same-type'] as const)(
+    'copies partial grouped historical templates with predecessor %s', (predecessor) => {
+      const sameType = predecessor === 'same-type'
+      const sourceType = sameType ? 'FamilyNew' : 'HistoricalGroup'
+      const original = doc({ g0: graph({
+        id: 'g0',
+        nodes: {
+          src: node('src', 'Producer'),
+          old: node('old', sourceType, { 'operands.b.right': 29, 'operands.a.right': 11 }, {
+            dynamic: { operands: { members: ['b', 'a'], seq: 9 } },
+            controllers: { 'operands.b.right': 'increment' },
+          }),
+        },
+        links: { linked: link('linked', port('src', 'out'), port('old', 'operands.b.right')) },
+        nets: { routed: net('routed', port('src', 'out'), [port('old', 'operands.a.right')]) },
+      }) })
+      const rule: ReplacementRule = {
+        from: sourceType,
+        ...(sameType ? { migration: { historicalInputs: ['operands.b.right', 'operands.a.right'] } } : {}),
+        cases: [{ to: 'FamilyNew', inputFamilies: { values: {
+          kind: 'copy', sourceFamily: 'operands',
+          sourceTemplate: { inputs: ['left', 'right'] },
+          inputs: { value: { kind: 'copy', input: 'right' } },
+        } } }],
+      }
+      const oldSchema = schemaOf('HistoricalGroup', [{
+        ...familyInput('operands', ['a', 'b']),
+        dynamic: {
+          kind: 'autogrow', materialization: 'wire15',
+          template: [widgetInput('left', 0), widgetInput('right', 0)],
+          naming: { kind: 'names', names: ['a', 'b'], min: 1 },
+        },
+      }])
+      const resolve = (type: string) => type === 'HistoricalGroup'
+        ? predecessor === 'available' ? oldSchema : undefined
+        : familyResolve(type)
+      expect(isReplacementRule(rule)).toBe(true)
+      const planned = planReplacement(original, 'g0', 'old', rule, resolve)
+      expect(planned.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([])
+      expect(planned.plan?.values).toEqual({ 'values.b': 29, 'values.a': 11 })
+      expect(planned.plan?.controllers).toEqual({ 'values.b': 'increment' })
+      expect(planned.plan?.dynamic).toEqual({ values: { members: ['b', 'a'], seq: 9 } })
+      const store = new DocumentStore(original, coreCommandRegistry())
+      expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan! } as unknown as Json }).ok).toBe(true)
+      expect(store.doc.graphs.g0!.links.linked!.to).toEqual(port('old', 'values.b'))
+      expect(store.doc.graphs.g0!.nets.routed!.sinks).toEqual([port('old', 'values.a')])
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(doc({ g0: graph({ ...original.graphs.g0!, nodes: {
+        ...original.graphs.g0!.nodes,
+        old: { ...original.graphs.g0!.nodes.old!, dynamic: {
+          operands: { members: ['b', 'a'], seq: 9 }, values: { seq: 9 },
+        } },
+      } }) }))
+      expect(store.redo()).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.old!.values).toEqual({ 'values.b': 29, 'values.a': 11 })
+
+      for (const changes of [
+        { values: { 'operands.b.right': 31, 'operands.a.right': 11 } },
+        { dynamic: { operands: { members: ['a', 'b'], seq: 9 } } },
+        { controllers: { 'operands.b.right': 'randomize' as const } },
+      ]) {
+        const changed = doc({ g0: graph({ ...original.graphs.g0!, nodes: {
+          ...original.graphs.g0!.nodes,
+          old: { ...original.graphs.g0!.nodes.old!, ...changes },
+        } }) })
+        const stale = new DocumentStore(changed, coreCommandRegistry())
+        const result = stale.dispatch({ command: 'node.replace', params: { plan: planned.plan! } as unknown as Json })
+        expect(result.ok).toBe(false)
+        expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
+        expect(stale.doc).toEqual(changed)
+      }
+      for (const graphChanges of [
+        { links: { ...original.graphs.g0!.links, added: link('added', port('src', 'other'), port('old', 'operands.a.right')) } },
+        { nets: { routed: net('routed', port('src', 'other'), [port('old', 'operands.a.right')]) } },
+      ]) {
+        const changed = doc({ g0: graph({ ...original.graphs.g0!, ...graphChanges }) })
+        const stale = new DocumentStore(changed, coreCommandRegistry())
+        const result = stale.dispatch({ command: 'node.replace', params: { plan: planned.plan! } as unknown as Json })
+        expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
+        expect(stale.doc).toEqual(changed)
+      }
+      if (predecessor === 'available') {
+        for (const inputs of [['right'], ['right', 'left']]) {
+          const mismatched: ReplacementRule = { ...rule, cases: [{
+            to: 'FamilyNew', inputFamilies: { values: {
+              kind: 'copy', sourceFamily: 'operands', sourceTemplate: { inputs },
+              inputs: { value: { kind: 'copy', input: 'right' } },
+            } },
+          }] }
+          const refused = planReplacement(original, 'g0', 'old', mismatched, resolve)
+          expect(refused.plan).toBeUndefined()
+          expect(refused.diagnostics)
+            .toContainEqual(expect.objectContaining({ code: 'replace.source.familyTemplate' }))
+        }
+      }
+    },
+  )
 
   it('maps fixed source inputs to explicit ordered target members', () => {
     const original = doc({

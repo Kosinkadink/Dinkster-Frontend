@@ -13,6 +13,36 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('decodes historical input-family templates and rejects malformed declarations without losing the node', () => {
+    const rule = (sourceTemplate: unknown) => ({
+      from: 'OldNode', cases: [{ to: 'NewNode', inputFamilies: { values: {
+        kind: 'copy', sourceFamily: 'operands', sourceTemplate,
+        inputs: { value: { kind: 'copy', input: 'right' } },
+      } } }],
+    })
+    for (const sourceTemplate of [
+      { inputs: ['left', 'right'] },
+      { inputs: ['right'], memberPort: 'operands.item' },
+    ]) {
+      const replacement = rule(sourceTemplate)
+      const parsed = parseDinksterSchema('NewNode', { interface: [], replacements: [replacement] })
+      expect(parsed.diagnostics).toEqual([])
+      expect(parsed.schema?.replacements).toEqual([replacement])
+    }
+    for (const sourceTemplate of [
+      null, [], {}, { inputs: [] }, { inputs: ['right', 'right'] },
+      { inputs: ['left'] }, { inputs: ['bad.path', 'right'] },
+      { inputs: ['right'], unknown: true }, { inputs: ['right'], memberPort: null },
+      { inputs: ['right'], memberPort: '' }, { inputs: ['right'], memberPort: 'bad..path' },
+      { inputs: ['left', 'right'], memberPort: 'operands.item' },
+    ]) {
+      const parsed = parseDinksterSchema('NewNode', { interface: [], replacements: [rule(sourceTemplate)] })
+      expect(parsed.schema?.type).toBe('NewNode')
+      expect(parsed.schema?.replacements).toBeUndefined()
+      expect(parsed.diagnostics).toContainEqual(expect.objectContaining({ code: 'schema.dinkster.badReplacements' }))
+    }
+  })
+
   it('preserves mixed COMBO scalar identity through defaults, import, and compile', () => {
     const values = ['auto', 8, 10, '8', true, 1, false, 1.25, ''] as const
     for (const value of values) {
