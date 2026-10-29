@@ -99,6 +99,75 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
   expect(missingReads).toEqual([])
 })
 
+for (const state of ['retired', 'inactive', 'linked'] as const) {
+  test(`missing ${state} asset reports unavailable replacement without editing its stored value`, async ({ page }, info) => {
+    await page.goto('/')
+    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.schemaState.get().status)).toBe('ready')
+    await page.evaluate((state) => {
+      const app = window.__dinksterTest!.app
+      const assetType = { kind: 'concrete', name: 'ASSET' } as const
+      const file = { kind: 'input', id: 'file#name', type: assetType, optional: false,
+        widget: { widgetType: 'ASSET', kind: 'asset/file', options: {}, default: null } } as const
+      app.registerSchemas([{
+        type: 'UnavailableAssetInput', displayName: 'Unavailable asset input', category: 'test', source: 'v3', isOutputNode: false,
+        items: state === 'retired' ? [] : [{
+          kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+          dynamic: { kind: 'dynamicCombo', defaultOption: 'empty', options: [
+            { key: 'empty', inputs: [] }, { key: 'file', inputs: [file] },
+          ] },
+        }],
+      }, {
+        type: 'AssetInputProducer', displayName: 'Asset input producer', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'output', id: 'out', type: assetType }],
+      }])
+      const key = state === 'retired' ? 'file#name' : 'choice.[file].file%23name'
+      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: `unavailable-asset-${state}`, root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: {
+          target: { id: 'target', type: 'UnavailableAssetInput', values: { [key]: {
+            digest: 'blake3:' + '0'.repeat(64), name: 'missing.bin', size: 12,
+            mediaType: 'application/octet-stream', virtualPath: 'uploads/missing.bin',
+          } }, ...(state === 'retired' ? {} : { dynamic: { choice: { selected: state === 'linked' ? 'file' : 'empty' } } }) },
+          source: { id: 'source', type: 'AssetInputProducer', values: {} },
+        }, links: state === 'linked' ? {
+          wire: { id: 'wire', from: { node: 'source', port: 'out' }, to: { node: 'target', port: 'choice.[file].file#name' } },
+        } : {}, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+        view: { graphs: { g0: { nodes: {
+          target: { position: { x: 400, y: 200 } }, source: { position: { x: 80, y: 200 } },
+        } } } },
+      } as never, 'Unavailable stored asset')
+    }, state)
+    const before = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
+    if (state === 'linked') {
+      const row = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
+        .find((node) => node.id === 'target')!.layout.rows.find((row) => row.kind === 'widget' && row.inputId !== 'choice'))
+      expect(row!.inputId).toBe('choice.[file].file%23name')
+    }
+    await openRailPanel(page, 'Problems')
+    const problem = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'is missing on' })
+    await expect(problem).toHaveCount(1)
+    await problem.locator('summary').click()
+    await problem.getByRole('button', { name: 'Locate or replace', exact: true }).click()
+    await expect(page.getByTestId('gesture-refusal-toast')).toContainText('This stored asset has no editable ASSET row')
+    await expect(page.getByTestId('asset-editor')).toHaveCount(0)
+    if (state === 'linked') {
+      await page.getByRole('button', { name: 'Dismiss refusal message', exact: true }).click()
+      await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+      const point = await page.evaluate(() => {
+        const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'target')!
+        const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId !== 'choice')!
+        const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+        return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + row.y + row.height / 2 }
+      })
+      await page.mouse.click(point.x, point.y)
+      await expect(page.getByTestId('asset-editor')).toHaveCount(0)
+    }
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)).toEqual(before)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(0)
+    if (state === 'retired') await page.screenshot({ path: info.outputPath('replacement-unavailable.png') })
+  })
+}
+
 for (const fixture of [
   { name: 'catalog-image.png', mime: 'image/png', kind: 'media/image', path: 'with_metadata.png' },
   { name: 'catalog-video.webm', mime: 'video/webm', kind: 'media/video' },

@@ -1102,6 +1102,7 @@
   "problems.action.showInFocused": "Show in Focused",
   "problems.action.showOnCanvas": "Show on canvas",
   "problems.action.locateAsset": "Locate or replace",
+  "problems.assetReplacementUnavailable": "This stored asset has no editable ASSET row in the current view. Expose the input or disconnect its wire before replacing it.",
   "problems.action.open": "Show Problems",
   "problems.action.dismiss": "Dismiss",
   "problems.section.execution": "Execution",

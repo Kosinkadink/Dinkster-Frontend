@@ -85,6 +85,7 @@ import {
   canonicalTypeIdOf,
   nodeSearchFields,
   searchVisibilityOf,
+  isAssetWidgetInput,
   isPortEndpoint,
   planOccurrenceLinkMutation,
   samePortRef,
@@ -4208,11 +4209,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const input = focusRequest?.openAssetInput
           const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
             candidate.kind === 'widget' && candidate.valueKey === input)
-          if (row?.kind === 'widget' && hostFocused()) {
+          if (input !== undefined && hostFocused()) {
             const snapshot = tab.store.doc
             queueMicrotask(() => {
               if (!canvasEl.isConnected || activeTab() !== tab || tab.store.doc !== snapshot || currentGraphId(tab) !== graphId ||
                   props.app.diagnosticFocus.get() !== undefined) return
+              if (row?.kind !== 'widget' || !isAssetWidgetInput({ widget: row.spec }) || tab.execution ||
+                  (row.selector === undefined && companionInputs.get(node.id)?.has(row.address.port))) {
+                reportGestureRefusal(tab.id, [diag('warning', 'validation', 'asset.replacement.unavailable',
+                  message('problems.assetReplacementUnavailable'))])
+                return
+              }
               openWidgetEditor({
                 kind: 'widget', node, row, x: node.x + row.inset, y: node.y + row.y,
                 width: node.layout.width - row.inset * 2, height: row.height, localX: 0, localY: 0,
@@ -4777,7 +4784,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // stored value underneath. The exact envelope -> curve editor relation
       // instead opens a read-only view of the executed curve. Selector rows
       // keep their own value channel and are never driven.
-      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.valueKey) && curveTarget?.follow === undefined) return
+      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.address.port) && curveTarget?.follow === undefined) return
       const editorRole = (registry()?.resolve(hit.node.node.type) as { readonly editorRole?: string } | undefined)?.editorRole
       const valueType = canonicalTypeIdOf(hit.row.type)
       if (props.app.openEditorForBinding(tab.id, {

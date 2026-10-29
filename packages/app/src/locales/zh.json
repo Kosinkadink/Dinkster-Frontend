@@ -1104,6 +1104,7 @@
   "problems.action.showInFocused": "显示在聚焦状态",
   "problems.action.showOnCanvas": "显示在画布上",
   "problems.action.locateAsset": "定位或替换",
+  "problems.assetReplacementUnavailable": "当前视图中此已存储资产没有可编辑的 ASSET 行。请先显示输入或断开连线，再进行替换。",
   "problems.action.open": "显示问题",
   "problems.action.dismiss": "关闭",
   "problems.section.execution": "执行",
