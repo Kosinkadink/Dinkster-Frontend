@@ -60,6 +60,7 @@ export default defineConfig({
         '-m dinkster.serve',
         '--host 127.0.0.1',
         `--port ${nativePort}`,
+        '--engine-variant linux-cpu',
         '--no-default-packs',
         `--pack ${JSON.stringify(pack)}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,

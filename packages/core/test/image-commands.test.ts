@@ -454,10 +454,10 @@ describe('image.documentExport', () => {
   const loadSchema: NodeSchema = { ...schema, type: 'dinkster.layers.load', editorRole: 'layers-load', items: [
     { kind: 'input', id: 'document', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
       widget: { widgetType: 'ASSET', options: {} } },
-    { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } },
+    { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } },
   ] }
   const flattenSchema: NodeSchema = { ...schema, type: 'dinkster.layers.flatten', editorRole: 'layers-flatten', items: [
-    { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+    { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
     { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
       widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
   ] }
@@ -503,13 +503,17 @@ describe('image.documentExport', () => {
     expect(target.revision).toBe(0)
   })
 
-  it('refuses incompatible document and selector ports before allocating nodes', () => {
+  it('refuses incompatible document, layer and selector ports before allocating nodes', () => {
     const incompatible: NodeSchema[] = [
       { ...loadSchema, items: loadSchema.items.map((item) => item.kind === 'input'
         ? { ...item, type: { kind: 'concrete', name: 'STRING' } } : item) },
       { ...flattenSchema, items: flattenSchema.items.filter((item) => item.kind !== 'input' || item.id !== 'selector') },
       { ...flattenSchema, items: flattenSchema.items.map((item) => item.kind === 'input' && item.id === 'selector'
         ? { ...item, type: { kind: 'concrete', name: 'INT' } } : item) },
+      ...['LAYERS', 'comfy.LAYERS'].flatMap((name) => [loadSchema, flattenSchema].map((candidate) => ({
+        ...candidate, items: candidate.items.map((item) => item.id === 'layers'
+          ? { ...item, type: { kind: 'concrete' as const, name } } : item),
+      }))),
     ]
     for (const candidate of incompatible) {
       const before = document(graph())
@@ -525,16 +529,16 @@ describe('image.documentExport', () => {
 describe('image.documentRecipeExport', () => {
   const schemas: NodeSchema[] = [
     { ...schema, type: 'Source', items: [
-      { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'LAYERS' } },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.layers' } },
     ] },
     { ...schema, type: 'dinkster.layers.edit', editorRole: 'layers-edit', items: [
-      { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+      { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
       { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: { multiline: true } } },
-      { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } },
+      { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } },
     ] },
     { ...schema, type: 'dinkster.layers.flatten', editorRole: 'layers-flatten', items: [
-      { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+      { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
       { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true },
       { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
     ] },
@@ -610,6 +614,21 @@ describe('image.documentRecipeExport', () => {
     expect(target.dispatch({ command: 'image.documentRecipeExport', params: params() }).ok).toBe(false)
     expect(target.revision).toBe(0)
     expect(target.doc).toEqual(document(graph()))
+  })
+
+  it('refuses tensor layer ports at every recipe boundary without allocating', () => {
+    for (const name of ['LAYERS', 'comfy.LAYERS']) for (const candidate of schemas) {
+      for (const port of candidate.items.filter((item) =>
+        (item.kind === 'input' || item.kind === 'output') && item.type.kind === 'concrete' && item.type.name === 'dinkster.layers')) {
+        const incompatible: NodeSchema = { ...candidate, items: candidate.items.map((item) => item === port
+          ? { ...item, type: { kind: 'concrete', name } } : item) }
+        const target = new DocumentStore(document(graph()), coreCommandRegistry([], (type) =>
+          type === candidate.type ? incompatible : resolve(type)))
+        expect(target.dispatch({ command: 'image.documentRecipeExport', params: params() }).ok).toBe(false)
+        expect(target.revision).toBe(0)
+        expect(target.doc).toEqual(document(graph()))
+      }
+    }
   })
 
   it('refuses output policy values outside the current save schema without allocating', () => {

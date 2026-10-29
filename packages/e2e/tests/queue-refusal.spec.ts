@@ -31,7 +31,7 @@ for (const width of [1440, 900]) {
     await page.screenshot({ path: info.outputPath(`queue-refusal-${width}.png`) })
     await toast.getByRole('button', { name: 'Show Problems', exact: true }).click()
     await expect(page.getByTestId('problems-panel')).toBeVisible()
-    await expect(page.getByTestId('problems-panel').locator('summary')).toContainText('comfy.Morphology: not available on backend Local')
+    await expect(page.getByTestId('problems-panel').locator('summary[title="comfy.Morphology: not available on backend Local"]')).toContainText('comfy.Morphology: not available on backend Local')
     await expect(toast).toBeHidden()
     await page.screenshot({ path: info.outputPath(`queue-problems-${width}.png`) })
   })

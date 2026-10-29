@@ -47,6 +47,7 @@ async function openAsset(page: Page): Promise<void> {
 
 test('proves product upload control and hidden workflow picker lifecycle', async ({ page }) => {
   await page.route('/api/**', (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
+  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))
@@ -54,6 +55,8 @@ test('proves product upload control and hidden workflow picker lifecycle', async
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))
   await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  await page.route('/api/mounts/locations*', (route) => route.fulfill({ json: new URL(route.request().url()).searchParams.has('digest')
+    ? { locations: [] } : { mounts: [], activeMounts: [], importMount: null } }))
   await page.route('/api/assets/*', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: '' }))
 
   let posts = 0
