@@ -23,6 +23,10 @@ the active tab. The selected editor kind persists with the tab. App View shows
 the workflow title and description, an **Arrange** toggle, and the same queue
 action used by the workflow toolbar.
 
+Switching views while a workflow's shared workspace is opening preserves its
+local input edits, exposed controls, undo history, and selected view. Both
+views continue the same document session rather than opening a competing one.
+
 ## Modes
 
 **Use mode** is the default presentation. It shows only authored content,

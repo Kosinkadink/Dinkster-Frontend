@@ -3769,7 +3769,7 @@ export class AppState {
 
   private startWorkspaceTabPromotion(tab: Tab): Promise<void> {
     const existing = this.workspacePromotions.get(tab.id)
-    if (existing?.tab === tab) return existing.promise
+    if (existing?.tab.store === tab.store) return existing.promise
     const generation = this.workspaceAuthorityGeneration
     const promise = this.promoteWorkspaceTab(tab, generation).finally(() => {
       if (this.workspacePromotions.get(tab.id)?.promise === promise) this.workspacePromotions.delete(tab.id)
@@ -3805,7 +3805,7 @@ export class AppState {
           ]),
         },
         this.workspacePortFactory,
-        () => this.tabs.get().find((candidate) => candidate.id === tab.id) === tab ? tab.store.doc : undefined,
+        () => this.tabs.get().find((candidate) => candidate.id === tab.id)?.store === tab.store ? tab.store.doc : undefined,
         this.workspaceReplacements.has(tab),
       )
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
@@ -3813,9 +3813,9 @@ export class AppState {
       const sameDocument = JSON.stringify(session.doc) === JSON.stringify(tab.store.doc)
       const latestWasAdopted = !sourceChanged || sameDocument
       if (generation !== this.workspaceAuthorityGeneration || !this.workspaceAuthorityEnabled ||
-        live !== tab || this.collabTabs.get().has(tab.id) || !latestWasAdopted) {
+        live?.store !== tab.store || this.collabTabs.get().has(tab.id) || !latestWasAdopted) {
         session.close()
-        if (live === tab && sourceChanged) {
+        if (live?.store === tab.store && sourceChanged) {
           this.reportProblems(tab.id, [diag(
             'error', 'command', 'workspace.authority.changedDuringOpen',
             'The workflow changed while its shared workspace was opening; the local edit was kept.',
@@ -3830,7 +3830,7 @@ export class AppState {
       // established the workspace first) invalidates the records, so they
       // stay behind.
       if (sameDocument) session.adoptHistory(tab.store.historySnapshot())
-      const replacement: Tab = { ...tab, store: session }
+      const replacement: Tab = { ...live, store: session }
       // The swap strands in-flight advancement plans keyed to the old store
       // identity (combo refresh responses, queued run completions); record
       // the continuation so they follow the live session instead of dying,
@@ -3841,7 +3841,7 @@ export class AppState {
       this.reconcileDocumentPersistenceRevision(tab.id, tab.store.doc, session.doc)
       reconcileGraphNavigation(replacement)
       this.workspaceSessions.set(tab.id, { tab: replacement, session })
-      this.tabs.set(this.tabs.get().map((candidate) => candidate === tab ? replacement : candidate))
+      this.tabs.set(this.tabs.get().map((candidate) => candidate === live ? replacement : candidate))
     } catch (error) {
       session?.close()
       this.reportProblems(tab.id, [diag(
