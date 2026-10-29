@@ -20,7 +20,7 @@ test('recorded local assets keep exact identity and provenance without reading m
   await page.route('/api/nodes*', (route) => void route.fulfill({ json: { schemaVersion: 1, epoch: 1,
     dinkster: { version: 'local-assets-test', schemaWire: 1 }, nodes: {},
   } }))
-  await page.route('**/api/mounts', (route) => void route.fulfill({ json: { mounts: [] } }))
+  await page.route('**/api/mounts', (route) => void route.fulfill({ status: 503, body: 'Mount discovery offline' }))
   await page.route('**/api/assets/catalog?*', (route) => {
     if (offline) return void route.fulfill({ status: 503 })
     const query = new URL(route.request().url()).searchParams
@@ -47,6 +47,9 @@ test('recorded local assets keep exact identity and provenance without reading m
   await page.getByTestId('assets-toggle').click()
   const panel = page.getByTestId('assets-overlay')
   await expect(panel.getByRole('option', { name: /uploaded\.png/ })).toBeVisible()
+  await panel.getByTestId('asset-source-health').locator('summary').click()
+  await expect(panel.getByTestId('asset-source-health')).toContainText('GET /api/mounts failed: 503')
+  await expect(panel.getByTestId('assets-retry')).toBeVisible()
   const missingRow = panel.getByRole('option', { name: /missing\.png/ })
   await expect(missingRow).toContainText('missing')
   await panel.getByRole('option', { name: /uploaded\.png/ }).click()

@@ -1271,12 +1271,12 @@ export function App(props: {
   const AssetsPanelBody = () => {
     const backend = activeBackend()
     return backend.protocol === 'dinkster'
-      ? <BackendMetadataState><AssetsBody
+      ? <AssetsBody
           connection={backend.connection}
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
           {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
-        /></BackendMetadataState>
+        />
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
   }
   const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />

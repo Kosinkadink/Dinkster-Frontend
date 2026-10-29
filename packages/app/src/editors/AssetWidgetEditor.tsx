@@ -386,13 +386,16 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     } else {
       const local = localAssetSource(backend.connection)
       setAssetSources([local])
-      void loadLogicalModels([local])
       void mountAssetSources(backend.connection, assetBrowseKind()).then((sources) => {
         if (!live) return
         const combined = [local, ...sources]
         setAssetSources(combined)
         void loadLogicalModels(combined)
-      }).catch((reason: unknown) => { if (live) setMountDiscoveryError(reason instanceof Error ? reason.message : String(reason)) })
+      }).catch((reason: unknown) => {
+        if (!live) return
+        setMountDiscoveryError(reason instanceof Error ? reason.message : String(reason))
+        void loadLogicalModels([local])
+      })
     }
   }
 

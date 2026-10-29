@@ -905,6 +905,7 @@
     "text:(undefined) const [logicalModels, setLogicalModels] = createSolidSignal",
     "text:(undefined) const [logicalModelsError, setLogicalModelsError] = createSolidSignal",
     "text:(undefined) const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false) const unresolvedAsset = ed.spec?.selection !== true && typeof ed.initial === 'string' ? ed.initial : undefined const [assetMatchCandidates, setAssetMatchCandidates] = createSolidSignal",
+    "text:(undefined) const [mountDiscoveryError, setMountDiscoveryError] = createSolidSignal",
     "text:/ list",
     "text:Accepted types",
     "text:Back to source options",

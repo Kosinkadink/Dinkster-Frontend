@@ -107,6 +107,7 @@ describe('Assets dock body', () => {
       'assets.details.title': '[Details DE]',
       'assets.fact.source': '[Quelle DE]',
       'assets.source.all': '[Alle Assets]',
+      'assets.source.federatedCatalog': '[Verbundkatalog]',
     })
     const digest = `blake3:${'a'.repeat(64)}`
     const encodeRequest = vi.fn(() => ({ injected: true }))
@@ -154,7 +155,7 @@ describe('Assets dock body', () => {
     expect(selection.textContent).toContain('Compatibilitycompatible:')
     setLocale('de-DE')
     expect(selection.querySelector<HTMLDetailsElement>('[data-testid="asset-rail-details"]')?.open).toBe(true)
-    expect(selection.textContent).toContain('[Quelle DE][Alle Assets]')
+    expect(selection.textContent).toContain('[Quelle DE][Verbundkatalog]')
     expect(encodeRequest).toHaveBeenCalled()
     expect(fetchFn).toHaveBeenCalledWith('https://backend.example/api/catalog', expect.anything())
     dispose()
@@ -180,6 +181,7 @@ describe('Assets dock body', () => {
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-control"]')).not.toBeNull())
+    await vi.waitFor(() => expect(root.querySelector('[data-source="mount:offline-cache"]')).not.toBeNull())
     root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
     expect(document.querySelector('[data-option-id="mount:comfy-model-checkpoints-1"]')?.textContent).toBe('Models / Checkpoints')
     expect(document.querySelector('[data-option-id="mount:comfy-model-checkpoints-2"]')?.textContent).toBe('Models / Checkpoints 2')
