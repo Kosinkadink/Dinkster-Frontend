@@ -18,7 +18,6 @@ import {
   drawMinimap,
   minimapToWorld,
   minimapWheelViewport,
-  defaultTokens,
   type CanvasRenderer,
   type MinimapTransform,
 } from '@dinkster/canvas'
@@ -143,7 +142,7 @@ export function setupMinimap(deps: {
       remoteViewports: renderer.getPresence().flatMap((a) =>
         a.view !== undefined ? [{ ...a.view, color: a.color }] : [],
       ),
-      tokens: defaultTokens,
+      tokens: renderer.getTokens(),
     })
     ctx.restore()
   }

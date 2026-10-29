@@ -152,39 +152,7 @@ export const defaultTokens: DesignTokens = {
     scrollbarWidth: 6,
     scrollbarInset: 2,
   },
-  colors: {
-    canvasBackground: canvasSemanticTokens.surface.canvas,
-    gridDot: canvasSemanticTokens.border.subtle,
-    nodeBody: canvasSemanticTokens.surface.raised,
-    nodeHeader: canvasSemanticTokens.surface.panel,
-    nodeOutline: canvasSemanticTokens.border.strong,
-    nodeBorder: canvasSemanticTokens.border.subtle,
-    // Selection outlines/halos everywhere (nodes, selectors, reroutes,
-    // noodles, value sources): white, so "selected" never reads as the blue
-    // live-affordance accent below.
-    nodeSelectedBorder: canvasSemanticTokens.border.selected,
-    groupDefault: canvasSemanticTokens.border.strong,
-    title: canvasSemanticTokens.text.primary,
-    label: canvasSemanticTokens.text.secondary,
-    value: canvasSemanticTokens.text.primary,
-    widgetBackground: canvasSemanticTokens.surface.inset,
-    widgetAffordance: canvasSemanticTokens.text.disabled,
-    widgetAffordanceActive: canvasSemanticTokens.meaning.accent.border,
-    widgetRangeFill: canvasSemanticTokens.interaction.selectedOverlay,
-    linkDefault: canvasSemanticTokens.text.muted,
-    selection: canvasSemanticTokens.meaning.accent.border,
-    dropTarget: canvasSemanticTokens.border.selected,
-    modifiedIndicator: canvasSemanticTokens.meaning.warning.border,
-    companionValue: canvasSemanticTokens.text.secondary,
-    companionUnproven: canvasSemanticTokens.meaning.info.foreground,
-    companionEstimate: canvasSemanticTokens.meaning.success.foreground,
-    mutedBadge: '#4a4a5e',
-    bypassedBadge: '#69449a',
-    bypassWash: 'rgba(147, 88, 220, 0.28)',
-    // Same hue as stateColors.error so "problem" reads as one color family.
-    error: canvasSemanticTokens.meaning.danger.border,
-    blockingWarning: canvasSemanticTokens.meaning.warning.border,
-  },
+  colors: canvasColorsForTheme('dark'),
   typeColors: {
     CLIP: '#FFD500',
     CLIP_VISION: '#A8DADC',
@@ -224,7 +192,6 @@ export const defaultTokens: DesignTokens = {
 export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['colors'] {
   const tokens = semanticTokensForTheme(theme)
   return {
-    ...defaultTokens.colors,
     canvasBackground: tokens.surface.canvas,
     gridDot: tokens.border.subtle,
     nodeBody: tokens.surface.raised,
@@ -240,6 +207,11 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,
+    // Link and execution-mode semantics do not change with shell themes.
+    linkDefault: canvasSemanticTokens.text.muted,
+    mutedBadge: '#4a4a5e',
+    bypassedBadge: '#69449a',
+    bypassWash: 'rgba(147, 88, 220, 0.28)',
     selection: tokens.border.focus,
     dropTarget: tokens.border.selected,
     modifiedIndicator: tokens.meaning.warning.border,

@@ -906,6 +906,10 @@ export class CanvasRenderer {
     this.invalidate()
   }
 
+  getTokens(): DesignTokens {
+    return this.tokens
+  }
+
   private companions: CompanionMap = {}
 
   /** Companion (propagated) values per node/valueKey. Derived, never stored. */

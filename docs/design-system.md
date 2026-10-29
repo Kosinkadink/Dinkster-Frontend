@@ -20,6 +20,13 @@ Status foregrounds use their semantic status colors on panel surfaces.
 Muted text on raised surfaces retains the brand guide's documented contrast
 exception (dark 3.85:1, light 4.19:1); normal body copy uses secondary text.
 
+Deliberate literal-color exceptions are color-picker spectrum ramps and
+editable color presets/defaults, user-authored media/GLSL/mask colors, calculated
+black/white contrast labels, and graph data-type/link/execution-mode semantics.
+These represent content rather than shell styling. Elevation shadows retain
+neutral black alpha inside the token source. Canvas and minimap chrome share
+the active renderer theme; graph data-type and link meaning do not switch.
+
 Redesigned components consume semantic roles rather than copying token values.
 Literal colors and dimensions are reserved for user data, media content,
 calculated geometry, and other values that are not product styling. A surface

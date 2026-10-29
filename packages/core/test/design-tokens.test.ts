@@ -78,14 +78,20 @@ describe('semantic design tokens', () => {
   })
 
   it('keeps readable semantic text and meaning pairs', () => {
-    for (const color of [semanticDesignTokens.text.primary, semanticDesignTokens.text.secondary, semanticDesignTokens.text.muted]) {
-      expect(contrast(color, semanticDesignTokens.surface.panel)).toBeGreaterThanOrEqual(4.5)
+    for (const theme of ['dark', 'light'] as const) {
+      const tokens = semanticTokensForTheme(theme)
+      for (const surface of Object.values(tokens.surface)) {
+        for (const color of [tokens.text.primary, tokens.text.secondary]) {
+          expect(contrast(color, surface)).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+      for (const meaning of Object.values(tokens.meaning)) {
+        expect(contrast(meaning.foreground, meaning.background)).toBeGreaterThanOrEqual(4.5)
+      }
+      expect(contrast(tokens.action.primaryText, tokens.action.primaryBg)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(tokens.text.onSelected, tokens.surface.selected)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(tokens.border.focus, tokens.surface.panel)).toBeGreaterThanOrEqual(3)
     }
-    for (const meaning of Object.values(semanticDesignTokens.meaning)) {
-      expect(contrast(meaning.foreground, meaning.background)).toBeGreaterThanOrEqual(4.5)
-    }
-    expect(contrast(semanticDesignTokens.text.onSelected, semanticDesignTokens.surface.selected)).toBeGreaterThanOrEqual(4.5)
-    expect(contrast(semanticDesignTokens.border.focus, semanticDesignTokens.surface.panel)).toBeGreaterThanOrEqual(3)
   })
 
   it('freezes semantic tokens and both projections recursively', () => {
