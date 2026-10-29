@@ -1556,7 +1556,11 @@ describe('fetchSchemas payload validation (CL5)', () => {
     const { conn } = submitHarness((url) =>
       url.includes('/api/nodes') ? jsonResponse(200, payload) : undefined,
     )
-    await expect(conn.fetchSchemas()).resolves.toBeDefined()
+    const registry = await conn.fetchSchemas()
+    expect(registry.schemas.size).toBe(0)
+    expect(registry.server).toEqual({ version: '0.1.0', schemaWire: 1 })
+    expect(registry.diagnostics).toEqual([])
+    expect(conn.currentRegistry).toBe(registry)
   })
 
   it('rejects a malformed nodes table instead of installing an empty registry', async () => {

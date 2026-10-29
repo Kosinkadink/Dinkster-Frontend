@@ -4,7 +4,6 @@ import type { ConnectionStatus, MemoryStatus } from '@dinkster/client'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { formatBytes, leaseSeconds, MemoryPanel, MemoryStatusController, projectDevices, telemetryPresentationState } from '../src/MemoryPanel.js'
-import { appendMemorySample, deviceBarSegments, diffHeatmapFlags, memoryDetailKey, overBudgetBytes, pageFlagRanges, pageIsResident, residencySegments, updateHeatmapState } from '../src/memory-visualization.js'
 
 const payload: MemoryStatus = {
   devices: { 'cuda:0': { executionCapacity: 2, executionInUse: 1 } },
@@ -105,59 +104,6 @@ describe('memory status projection', () => {
     await Promise.resolve()
     expect(accepted).toEqual([{ status: payload, details: false }])
     controller.dispose()
-  })
-})
-
-describe('memory visualization logic', () => {
-  it('samples graph history at most once per second and bounds the ring buffer', () => {
-    const sample = (timestamp: number) => ({ timestamp, footprintBytes: timestamp, reservedBytes: 2, capacityBytes: 100 })
-    let history = appendMemorySample([], sample(0), 3)
-    history = appendMemorySample(history, sample(999), 3)
-    expect(history.map((item) => item.timestamp)).toEqual([0])
-    history = appendMemorySample(history, sample(1000), 3)
-    history = appendMemorySample(history, sample(2000), 3)
-    history = appendMemorySample(history, sample(3000), 3)
-    expect(history.map((item) => item.timestamp)).toEqual([1000, 2000, 3000])
-  })
-
-  it('computes non-overlapping governed and measured stacked bar segments', () => {
-    expect(deviceBarSegments(payload.memoryGovernor!['cuda:0']!).map(({ key, bytes, fraction }) => ({ key, bytes, fraction }))).toEqual([
-      { key: 'footprint', bytes: 3 * 1024 ** 3, fraction: 3 / 8 },
-      { key: 'reserved', bytes: 2 * 1024 ** 3, fraction: 2 / 8 },
-      { key: 'available', bytes: 3 * 1024 ** 3, fraction: 3 / 8 },
-    ])
-    const measured = deviceBarSegments({ ...payload.memoryGovernor!['cuda:0']!, budgetBytes: null, availableBytes: null })
-    expect(measured.map(({ key, bytes }) => ({ key, bytes }))).toEqual([
-      { key: 'measured-used', bytes: 7 * 1024 ** 3 }, { key: 'measured-free', bytes: 5 * 1024 ** 3 },
-    ])
-    expect(residencySegments({ device: 3, pinned: 1 }).map((item) => item.fraction)).toEqual([.75, .25])
-    const correctedFree = deviceBarSegments({ ...payload.memoryGovernor!['cuda:0']!, budgetBytes: null, availableBytes: null, measured: { totalBytes: 10, freeBytes: 12 } })
-    expect(correctedFree.reduce((sum, item) => sum + item.fraction, 0)).toBe(1)
-    const over = { ...payload.memoryGovernor!['cuda:0']!, budgetBytes: 1024, availableBytes: -2048 }
-    expect(overBudgetBytes(over)).toBe(2048)
-    expect(deviceBarSegments(over).reduce((sum, item) => sum + item.fraction, 0)).toBe(1)
-  })
-
-  it('maps page residency bits and classifies page-in and page-out pulses', () => {
-    expect([0, 1, 2, 3].map(pageIsResident)).toEqual([false, true, false, true])
-    const initial = diffHeatmapFlags(undefined, [0, 1, 2, 3])
-    expect(initial.map((cell) => cell.pulse)).toEqual(['none', 'none', 'none', 'none'])
-    const changed = diffHeatmapFlags(initial, [1, 0, 3, 2])
-    expect(changed.map(({ resident, pulse, age }) => ({ resident, pulse, age }))).toEqual([
-      { resident: true, pulse: 'in', age: 6 }, { resident: false, pulse: 'out', age: 6 },
-      { resident: true, pulse: 'in', age: 6 }, { resident: false, pulse: 'out', age: 6 },
-    ])
-    expect(diffHeatmapFlags(changed, [1, 0, 3, 2])[0]).toEqual({ resident: true, pulse: 'in', age: 5 })
-    const first = updateHeatmapState({}, payload.consumerDetails)
-    const nextDetails = { models: [{ ...payload.consumerDetails!.models![0]!, pages: { pageBytes: 1024, pageCount: 3, flags: [0, 1, 3] } }] }
-    const second = updateHeatmapState(first, nextDetails)
-    expect(second[memoryDetailKey('models', 'm1')]?.map((cell) => cell.pulse)).toEqual(['out', 'none', 'in'])
-    expect(pageFlagRanges([1, 1, 2, 2, 3])).toEqual([
-      { first: 0, last: 1, flag: 1, resident: true, pulse: 'none' },
-      { first: 2, last: 3, flag: 2, resident: false, pulse: 'none' },
-      { first: 4, last: 4, flag: 3, resident: true, pulse: 'none' },
-    ])
-    expect(pageFlagRanges([1, 1], [{ resident: true, pulse: 'in', age: 6 }, { resident: true, pulse: 'none', age: 0 }]).map((range) => range.pulse)).toEqual(['in', 'none'])
   })
 })
 

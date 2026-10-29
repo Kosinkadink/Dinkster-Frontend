@@ -307,10 +307,15 @@ describe('delegation transport', () => {
   })
 
   it('does not reconnect after a refused ticket', async () => {
+    let resolveDenied!: () => void
+    const denied = new Promise<void>((resolve) => { resolveDenied = resolve })
     const fetchFn = vi.fn(async () => jsonResponse(401, { error: 'authentication-required' }))
-    const { connection, sockets, scheduled } = harness({ actorKind: 'agent', fetchFn })
-    await connection.fetchSnapshot().catch(() => {})
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    const { connection, sockets, scheduled } = harness({
+      actorKind: 'agent', fetchFn, onDiagnostic: () => resolveDenied(),
+    })
+    await denied
+    expect(connection.denial).toMatchObject({ code: 'authentication-required', operation: 'ws-ticket' })
+    await expect(connection.fetchSnapshot()).rejects.toThrow('authentication-required')
     expect(sockets).toHaveLength(0)
     expect(scheduled).toHaveLength(0)
     connection.close()

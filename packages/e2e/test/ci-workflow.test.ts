@@ -161,10 +161,11 @@ describe('fast pull-request and full validation workflows', () => {
     expect(script).toContain("['check:ui-strings']")
     expect(script).toContain("['check:v1-boundary']")
     expect(script).toContain("['typecheck']")
+    expect(script).toContain("'scripts/check-host-ui-contract.test.mjs'")
     expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")
-    expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.ts/g)).toEqual([
+    expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.tsx?/g)).toEqual([
       'test/format.schema.test.ts',
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
@@ -173,6 +174,7 @@ describe('fast pull-request and full validation workflows', () => {
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
+      'test/disabled-features.dom.test.tsx',
     ])
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
@@ -509,14 +511,11 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_PORT: '15420',
           DINKSTER_E2E_NATIVE_PORT: '15421',
         })
-        const recordedFixtures = steps.find(
-          (step) => step.name === 'Replay recorded stock ComfyUI fixtures',
-        )!
-        expect(recordedFixtures.if).toBe("matrix.name == 'stock ComfyUI V1'")
-        expect(recordedFixtures.run).toContain(
-          'test/object-info.golden.test.ts',
-        )
-        expect(recordedFixtures.run).toContain('test/events.golden.test.ts')
+        expect(
+          steps.filter((step) =>
+            /vitest.*(?:object-info|events)\.golden/.test(step.run ?? ''),
+          ),
+        ).toEqual([])
       }
     }
     expect(appMain).toContain(

@@ -2,6 +2,7 @@
 
 import { asConnectionId, asLineageId, asPromptId, type CompileArtifact } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ExecutionActivityCard, executionBlockedSummary, executionExpandedSummary, executionNodeSummary, executionProgress, executionRegionIterationRows } from '../src/ExecutionActivityCard.js'
@@ -238,13 +239,20 @@ describe('ExecutionActivityCard', () => {
     const pin = vi.fn()
     const root = document.createElement('div')
     document.body.append(root)
-    render(() => <ExecutionActivityCard entry={entry({ status: 'completed' })} title="Workflow" testId="activity" relation="latest" onOpen={open} onPin={pin} />, root)
+    const [relation, setRelation] = createSignal<'latest' | 'pinned'>('latest')
+    render(() => <ExecutionActivityCard entry={entry({ status: 'completed' })} title="Workflow" testId="activity" relation={relation()} onOpen={open} onPin={pin} />, root)
 
     root.querySelector<HTMLButtonElement>('.execution-open')!.click()
     root.querySelector<HTMLButtonElement>('.execution-pin')!.click()
     expect(open).toHaveBeenCalledOnce()
     expect(pin).toHaveBeenCalledOnce()
+    expect(root.querySelector('.execution-open')?.getAttribute('aria-label')).toBe('Open Workflow, execution prompt-long-identity, completed')
+    expect(root.querySelector('.execution-pin')?.getAttribute('aria-label')).toBe('Pin this execution to the canvas')
     expect(root.querySelector('.execution-pin')?.getAttribute('aria-pressed')).toBe('false')
     expect(root.textContent).toContain('Following latest')
+    setRelation('pinned')
+    expect(root.querySelector('.execution-pin')?.getAttribute('aria-label')).toBe('Follow latest execution')
+    expect(root.querySelector('.execution-pin')?.getAttribute('aria-pressed')).toBe('true')
+    expect(root.querySelectorAll('button[title]')).toHaveLength(0)
   })
 })

@@ -50,6 +50,10 @@ describe('BackendsPanel', () => {
     const card = root.querySelector(`[data-connection="${extra.id}"]`)!
     expect(card.textContent).toContain(label)
     expect(card.textContent).toContain('catalog decode refused at node 418')
+    expect(card.querySelector('code.backend-address')?.textContent).toBe('http://example.test/a/very/long/backend/path/that/must/wrap')
+    expect(root.querySelector('[data-connection="local"] code.backend-address')?.textContent).toBe('Same origin')
+    expect(card.querySelector('.backend-engine')?.getAttribute('aria-label')).toBe(`${label} engine`)
+    expect(card.querySelectorAll('[title]')).toHaveLength(0)
     expect(card.querySelector('[aria-label="Restart A backend with a deliberately very long name that must wrap without covering its actions engine"]')).not.toBeNull()
     expect(card.querySelector('[aria-label="Retry schemas for A backend with a deliberately very long name that must wrap without covering its actions"]')).not.toBeNull()
     expect(card.querySelector('[aria-label="Remove A backend with a deliberately very long name that must wrap without covering its actions"]')).not.toBeNull()
