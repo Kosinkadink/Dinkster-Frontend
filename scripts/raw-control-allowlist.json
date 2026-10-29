@@ -3,7 +3,7 @@
   "ceilings": {
     "rawControl": 175,
     "inlineStyle": 65,
-    "cssLiteral": 343
+    "cssLiteral": 294
   },
   "entries": [
     {
@@ -435,7 +435,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 343,
+      "count": 294,
       "issue": 382
     }
   ]

@@ -40,12 +40,20 @@ for (const directory of ['svg', 'raster/color', 'platform']) {
     )
   }
 }
-const manifest = JSON.parse(readFileSync(new URL('manifest.webmanifest', output), 'utf8'))
+const manifest = JSON.parse(
+  readFileSync(new URL('manifest.webmanifest', output), 'utf8'),
+)
 assert.equal(manifest.name, 'Dinkster')
 for (const icon of manifest.icons) {
   assert.ok(readFileSync(new URL(icon.src, output)).length > 0)
 }
-for (const icon of html.matchAll(/<link\b[^>]*rel="(?:icon|apple-touch-icon|manifest)"[^>]*href="([^"]+)"/g)) {
-  assert.ok(readFileSync(new URL(icon[1].replace(/^\//, ''), output)).length > 0)
+for (const icon of html.matchAll(
+  /<link\b[^>]*rel="(?:icon|apple-touch-icon|manifest)"[^>]*href="([^"]+)"/g,
+)) {
+  assert.ok(
+    readFileSync(new URL(icon[1].replace(/^\//, ''), output)).length > 0,
+  )
 }
-console.log('Production entry, semantic tokens and canonical brand assets verified')
+console.log(
+  'Production entry, semantic tokens and canonical brand assets verified',
+)
