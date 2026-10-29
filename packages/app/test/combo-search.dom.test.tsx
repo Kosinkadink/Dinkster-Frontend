@@ -103,6 +103,22 @@ const editorState = (spec: WidgetEditorState['spec'], initial: WidgetEditorState
 })
 
 describe('combo search', () => {
+  it('commits mixed scalar options without string or boolean coercion', async () => {
+    const choices = ['auto', 8, 10, '8', true, 1, false]
+    const widgetRegistry = createWidgetRegistry()
+    registerCoreWidgets(widgetRegistrationDoors(widgetRegistry))
+    for (const [index, value] of choices.entries()) {
+      const mounted = mountEditor(editorState({ widgetType: 'COMBO', options: { options: choices } }, value), { widgetRegistry } as Partial<AppState>)
+      await flushMicrotasks()
+      expect(mounted.root.querySelectorAll('.combo-option')[index]?.getAttribute('aria-selected')).toBe('true')
+      mounted.root.querySelectorAll<HTMLElement>('.combo-option')[index]!.click()
+      expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        command: 'node.setValue', params: expect.objectContaining({ value }),
+      }))
+      mounted.unmount()
+    }
+  })
+
   it('MULTI_COMBO preserves order and duplicate multiplicity and commits empty arrays', async () => {
     const mounted = mountEditor(editorState({
       widgetType: 'MULTI_COMBO',

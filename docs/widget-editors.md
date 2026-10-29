@@ -142,7 +142,11 @@ The trigger exposes the combobox name, expanded state, popup relationship,
 and active descendant. The popup and rows expose listbox and option roles,
 selected state, and disabled state. Callers may synthesize a disabled current
 option when a stored value is outside the available vocabulary. AppView keeps
-typed COMBO values mapped by option index; runtime settings keep changes in
+typed COMBO values mapped by option index; string, boolean, and finite-number
+choices commit their original scalar rather than their displayed label.
+Integer `8` and string `"8"`, or boolean `true` and integer `1`, remain distinct.
+Remote lists, dynamic branch keys, and MULTI_COMBO selections remain strings.
+Runtime settings keep changes in
 their Apply draft; SAVE_TARGET keeps mount choice staged until Save; registry
 settings write immediately; and CollectionPanel preserves asynchronous,
 open-vocabulary source and filter values while resetting paging on a source
@@ -672,6 +676,33 @@ use latent-specific browse, empty, search, upload, and dialog language with
 the same 1 GiB limit. Generic asset fields retain their 16 MiB limit. Model
 upload is disabled, so model dialogs do not advertise an upload limit.
 
+Non-latent file and media uploads offer an import destination and relative
+subfolder, and name the owning backend machine. The default omits the mount
+parameter so the server chooses its standard imports folder. The selector
+offers only ready writable mounts that remain members of the current
+project; configured-only changes are not treated as active before restart.
+The standard destination displays the active root identified by the server's
+importMount, never the output folder or a guessed imports grant. A missing,
+revoked or unadvertised standard destination shows a warning instead.
+Operator roots appear only in this local control, never in the stored AssetRef.
+If operator location access is unavailable, the control says so rather than
+guessing a physical path. The server still enforces import permissions.
+
+Remember for this project changes the backend/project preference only after a
+successful import. An unchecked one-off destination leaves the previous
+remembered default unchanged. To remember the standard destination again,
+select Standard imports folder and check Remember. Cancelled choices and failed
+uploads do not persist a new preference. Each completed picker batch reloads
+that accepted default instead of silently remembering the last upload. Named
+uploads adopt the server's complete collision-safe AssetRef and show its final
+virtual path with the backend label; anonymous workflow saves retain their
+separate vault route. Latent uploads retain their classified vault behavior.
+
+The browse list keeps its content height with or without a staged selection.
+The editor scrolls to reach destination controls and actions rather than
+shrinking the folder rows underneath them. Picking a mounted file stages its
+existing reference without an upload; Cancel preserves the previous value.
+
 The shared action footer presents upload status separately from Upload,
 Cancel, and the primary commit button (`Use asset`, or a staged count under
 multi-select). Removing the whole staged selection is a `Remove` action inside
@@ -747,6 +778,17 @@ writable destination mount selection, or approve/execute/progress endpoints.
 Workflow-provided URLs are neither linked nor fetched. The existing guess route
 matches names and paths only; it cannot recover a renamed asset by digest
 because the unresolved import supplies no digest query.
+
+Desktop file selection and canvas image ingress first ask the optional
+`resolveDroppedFile(backendUrl, File)` bridge on a capability-confirmed managed
+connection with `fileCapabilities(backendUrl).resolvePath === true`; folder
+choice is a separate capability. A resolved mounted reference is used unchanged, reports the machine
+and location with "no copy made", and does not change destination preferences.
+Explicit refusal or a missing bridge permits the normal upload controls;
+canvas copying still requires destination confirmation. Native resolution
+errors remain visible without silently uploading. Cancelled or stale editor,
+tab, graph, backend and project results cannot insert or start a copy. The
+renderer never supplies or receives a native path through this operation.
 
 Upload preserves the selected File as the request body: the editor passes that
 exact object to `DinksterConnection.uploadAsset`, waits for success, and only then

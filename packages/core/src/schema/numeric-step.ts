@@ -1,6 +1,6 @@
 /** Shared numeric stepping keeps canvas controls and queue-time advancement identical. */
 import { formatNumber } from '../i18n/index.js'
-import { comboOptionLabel } from './combo-options.js'
+import { comboOptionLabel, isComboValue } from './combo-options.js'
 import type { WidgetSpec } from './model.js'
 
 const MAX_SAFE_INTEGER = BigInt(Number.MAX_SAFE_INTEGER)
@@ -168,7 +168,7 @@ export function formatWidgetValue(value: unknown, spec: Pick<WidgetSpec, 'widget
   }
   if (spec.widgetType === 'INT' && typeof value === 'number' && Number.isFinite(value)) return String(Math.round(value))
   if (spec.widgetType === 'INT' && isCanonicalUnsafeInteger(value)) return value
-  if (spec.widgetType === 'COMBO' && (typeof value === 'string' || typeof value === 'number')) {
+  if (spec.widgetType === 'COMBO' && isComboValue(value)) {
     return comboOptionLabel(value, spec)
   }
   if (spec.widgetType === 'MULTI_COMBO' && Array.isArray(value)) {
