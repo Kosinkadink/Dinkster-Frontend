@@ -67,6 +67,8 @@ resources on the destination backend, then adds `dinkster.layers.load` wired to
 browser URLs or producer paths. Export is one undoable workflow command and
 refuses a changed destination graph, tab or backend. It neither changes the
 original graph source nor publishes a library record.
+Snapshot and recipe export require `dinkster.layers` at every layer port;
+tensor `LAYERS` and `comfy.LAYERS` ports are not compatible document targets.
 
 Documents opened from an executed native layer output also offer **Export
 editable recipe**. It branches `dinkster.layers.edit` -> `dinkster.layers.flatten` ->
