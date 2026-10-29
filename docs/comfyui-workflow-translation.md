@@ -245,7 +245,10 @@ member targets against the same retained node state and preserves their exact
 endpoint addresses without allocating replacement family members.
 
 Modern instance widget arrays follow promoted-input order without implicit
-seed-controller entries. Legacy `proxyWidgets` references promote matching
+seed-controller entries, even when the instance socket array omits widget-only
+inputs. Socket links keep their instance indices and resolve boundary identities
+by their unique names rather than shifting across omitted inputs.
+Legacy `proxyWidgets` references promote matching
 inner widgets; missing host values inherit the definition's saved values.
 Unresolved widget state stays under `importer.subgraphWidgets` with a warning.
 

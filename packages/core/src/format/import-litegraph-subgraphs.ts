@@ -290,9 +290,7 @@ export function importLitegraphSubgraphs(
       const rawValues = node['widgets_values']
       const proxies = proxySlots.get(node)
       const promoted = inputsOf(def.schema).filter((item) => item.widget !== undefined)
-      const valueIds = proxies ?? (node['inputs'] ?? []).flatMap((slot: Mutable, index: number) =>
-        slot['widget'] ? [def.raw['inputs'][index]?.['id']] : [])
-      const ids = valueIds.length ? valueIds : promoted.map((item) => item.id)
+      const ids = proxies ?? promoted.map((item) => item.id)
       if (Array.isArray(rawValues)) {
         for (const [index, value] of rawValues.entries()) {
           const id = ids[index]
@@ -311,8 +309,14 @@ export function importLitegraphSubgraphs(
       preparedControllers.set(node, controllers)
       node['properties'] = { ...node['properties'], 'dinkster.importedSubgraph': def.raw['id'], 'dinkster.rawWidgets': rawValues ?? [] }
       node['widgets_values'] = values
-      node['inputs'] = def.raw['inputs'].map((slot: Mutable, index: number) => ({ ...node['inputs']?.[index], name: slot['id'] }))
-      node['outputs'] = def.raw['outputs'].map((slot: Mutable, index: number) => ({ ...node['outputs']?.[index], name: slot['id'] }))
+      for (const side of ['inputs', 'outputs']) {
+        // Instance sockets can omit widget-only boundaries; links index this sparse array.
+        node[side] = (node[side] ?? def.raw[side]).map((slot: Mutable, index: number) => {
+          const matches = def.raw[side].filter((candidate: Mutable) => candidate['id'] === slot['name'] || candidate['name'] === slot['name'])
+          const boundary = matches.length === 1 ? matches[0] : def.raw[side][index]
+          return { ...slot, name: boundary?.['id'] ?? slot['name'] }
+        })
+      }
     }
   }
 

@@ -350,6 +350,27 @@ describe('LiteGraph subgraphs', () => {
     expect(doc.graphs['inner']!.nodes.n1!.values).toEqual({ value: 7 })
   })
 
+  it('maps sparse instance sockets independently of promoted widget order', () => {
+    const def = definition()
+    def.nodes.push(relay(2), relay(3))
+    def.inputs.push(
+      { id: 'duration', name: 'duration', type: 'INT', linkIds: [3] },
+      { id: 'audio', name: 'audio', type: 'INT', linkIds: [4] },
+    )
+    def.links.push(link(3, -10, 1, 2, 0), link(4, -10, 2, 3, 0))
+    const doc = imported({ nodes: [
+      { ...instance(1), inputs: [
+        { name: 'value', widget: { name: 'value' } }, { name: 'audio', link: 9 },
+      ], widgets_values: [19, 360, 71] },
+      { ...relay(4), inputs: [], widgets_values: [53] },
+    ], links: [link(9, 4, 0, 1, 1)], definitions: { subgraphs: [def] } })
+    const compiled = prompt(doc)
+    expect(compiled['n1.n1']!.inputs['value']).toBe(19)
+    expect(compiled['n1.n2']!.inputs['value']).toBe(360)
+    expect(compiled['n1.n3']!.inputs['value']).toEqual(['n4', 0])
+    expect(doc.graphs.g0!.nodes.n1!.values).toEqual({ in: 19, duration: 360, audio: 71 })
+  })
+
   it('keeps modern promoted seed values separate from implicit controller entries', () => {
     const controlled: NodeSchema = { ...schema, items: [
       { ...schema.items[0]!, kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
