@@ -43,22 +43,26 @@ The corrected body has no intersection with the yellow plane.
 The historical analytic construction remains hidden inside the construction
 layer. Its constants define the
 paused heavier proposal, but no longer construct the approved silhouette.
-The separate 16/24 objects keep the selected path under a vector luminance
-mask with two black channel cuts on a white field. `SMALL_CHANNEL_CUTS`
-defines the upper horizontal centerline (240,374)-(570,374) and the lower
-diagonal centerline (240,850)-(570,520) in the 1000-unit master frame.
-`SMALL_CHANNEL_WIDTHS` is 150 units at 16 px and 125 units at 24 px
-(2.4 and 3 native pixels respectively). Butt caps terminate the cuts inside
-the open counter or outside the D, not inside a surviving stroke.
-This preserves the original outer contour except where the channel mouths
-open. No full-size path, color boundary or wordmark changes.
-Both sizes retain two foreground components even counting any nonzero
-alpha with 8-neighbor connectivity; fully transparent pixels form one
-4-connected component with no trapped interior. The retained exact-source
-frames fail these checks and provide the before control.
-The 16 px color object omits yellow after cutting because no fully covered
-yellow pixel survives; 24 px retains yellow. These optical objects apply
-only to the 16/24 PNGs and their platform-container representations.
+The separate 16/24 production objects keep the selected path without channel
+masks. Production PNGs and containers retain exact-source frames while the
+minimal single-pixel proposals await visual selection. Wide channel cuts
+are rejected; their PNGs remain only as comparison controls.
+`compare_small_minimal.py` sets alpha to zero at these zero-based pixel
+coordinates, leaving RGB and every other pixel unchanged:
+
+| Size | Upper channel | Lower channel |
+| --- | --- | --- |
+| 16 | (5,5), (6,5), (7,5), (8,5) | (7,9), (6,10), (5,11), (4,12) |
+| 24 | (8,8), (9,8), (10,8), (11,8), (12,8) | (11,14), (10,15), (9,16), (8,17), (7,18) |
+
+Each channel is a single-pixel chain through its existing antialiased
+centerline, not a widened vector stroke. No fully opaque pixel is removed;
+the exterior edges, opaque stem/bowl widths and original color coverage
+outside those coordinates remain unchanged. The diagonal chain need not be
+4-connected. Component counts and trapped zero-alpha pixels are reported
+as diagnostics, not used to widen the channels or determine acceptance.
+The proposal keeps the original yellow at both sizes. No full-size path,
+color boundary or wordmark changes.
 
 ## Historical analytic constants
 

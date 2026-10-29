@@ -50,20 +50,22 @@ symbol SVGs, rasters or platform assets. The full command regenerates all
 assets, including color wordmarks for both themes and platform containers.
 Heavier lettering is historical and unselected; its contours and placements
 remain frozen. The regular 1.35x wordmark is the production selection.
-Separate 16/24 objects retain the selected path under editable vector cut
-masks that open its upper and lower stem/bowl channels. Mask cuts are
-documented in `sources/geometry-notes.md`; only these small objects use them.
-The 16 px color object omits yellow because it cannot retain a fully
-covered yellow pixel. The 24 px object keeps yellow; coral is retained at
-both sizes. Mono, cyan and color use the same alpha mask.
+Separate 16/24 objects currently retain the exact selected path. The wider
+channel masks are rejected and retained only as comparison controls in
+`previews/small-vetoed/`. Production small PNGs and platform containers
+use the exact-source frames until a minimal revision is visually accepted.
 `export_brand.py --small-icons-only --inkscape /path/to/inkscape` regenerates
-only these PNGs and the ICO/ICNS containers, leaving all other exports
+only the small PNGs and the ICO/ICNS containers, leaving all other exports
 byte-identical. Commands are recorded in `small-export-commands.txt`.
-`compare_small_optical.py` checks component counts and trapped transparent
-pixels, then renders the exact-source/optical native and 12x comparison
-on both themes. Exact-source frames are preserved in
-`previews/small-exact-source/`; the new optical comparison and JSON report
-are separate from the historical exact-source sheets.
+`compare_small_minimal.py` starts with the preserved exact-source PNGs and
+clears only the listed single pixels on the existing channel centerlines:
+eight at 16 px and ten at 24 px. Every other RGBA byte stays unchanged,
+including the original yellow and coral. No fully opaque pixel is removed.
+It writes proposal PNGs to `previews/small-minimal/`, a native/12x comparison
+against exact source and rejected cuts on both themes, and a JSON report.
+Connectivity is diagnostic, not an acceptance gate; visual approval decides
+the small-size selection. `compare_small_optical.py` reproduces only the
+historical wider-cut comparison from the preserved rejected controls.
 Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
 k arm), and 56 (baseline); only the k's lower leg descends to 70.
 The enlarged k also carries its x + y = 63 cut/arm continuation guide.
@@ -127,8 +129,8 @@ comparison files are historical, not additional production selections.
   Color has the same silhouette as mono, with no effect required for recognition.
 - Raster: 16, 24, 32, 48, 64, 128, 256, 512 and 1024 px in `raster/color/`,
   `cyan/`, `mono/`, `white/`, `dark/` (white) and `light/` (ink).
-  The 16/24 exports use separate optical objects; 32 px and larger retain
-  the unchanged selected master silhouette.
+  All production sizes currently retain the selected master silhouette;
+  minimal 16/24 revisions are separate previews pending visual acceptance.
 - Windows/favicon container: `platform/dinkster.ico`, with 16, 24, 32, 48,
   64, 128 and 256 px color PNG entries. Apple: `platform/dinkster.icns`,
   16 through 1024 px including 2x representations. `sources/package_icons.py`

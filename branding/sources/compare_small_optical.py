@@ -61,9 +61,9 @@ def main():
                 before = Image.open(
                     ROOT / f"previews/small-exact-source/{source}-{size}.png"
                 ).convert("RGBA")
-                after = Image.open(ROOT / f"raster/{variant}/{size}.png").convert(
-                    "RGBA"
-                )
+                after = Image.open(
+                    ROOT / f"previews/small-vetoed/{source}-{size}.png"
+                ).convert("RGBA")
                 if variant != "color":
                     ink = Image.new(
                         "RGBA",
@@ -72,6 +72,9 @@ def main():
                     )
                     ink.putalpha(before.getchannel("A"))
                     before = ink
+                    ink = ink.copy()
+                    ink.putalpha(after.getchannel("A"))
+                    after = ink
                 name = "mono" if variant == theme else variant
                 old = connectivity(before)
                 new = connectivity(after)
