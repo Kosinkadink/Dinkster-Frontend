@@ -1,7 +1,7 @@
 # Approved D geometry
 
-`reference-d.svg` is the approved complete dark-on-light reference trace.
-`build_d.py --export-master` copies its exact path into `dinkster-d.svg`;
+`reference-d.svg` is the complete selected dark-on-light reference trace.
+`build_d.py --export-master` derives the locally rounded silhouette in `dinkster-d.svg`;
 the `02_Logo_Master_Mono` layer retains that data unchanged. The editable
 `reference-trace-construction` object uses those same Bezier coordinates.
 `TRACE_SOURCE` names the trace file relative to the geometry script.
@@ -12,11 +12,26 @@ with the two connected components traced by Potrace 1.16, unit=100.
 Potrace coordinates map to native wordmark coordinates by
 (0.005,0,0,-0.005,22,193), then to the 1000-unit master by the inverse of
 translate(16.9,76.6) scale(0.139). No fit-to-bounds or optical correction
-is applied. The exact master bounds map to a native bottom y188; the
+is applied to the source trace. Only the body bottom-left tip is locally
+rounded in the derived master. The exact master bounds map to a native bottom y188; the
 regular baseline y178 is therefore 10 px above it.
 
+`BODY_TIP_INCOMING_T` = 0.78 and `BODY_TIP_OUTGOING_T` = 0.40 split the
+two cubics adjacent to the body tip by de Casteljau subdivision. Their
+retained pieces join through a new cubic, with tangent-aligned handles
+at `BODY_TIP_HANDLE_SCALE` = 0.35 of each retained endpoint handle vector.
+All other traced spans and the complete stem/leg island are unchanged.
+The original trace remains available for an exact comparison.
+
+Color clips use master coordinates rather than the historical frame:
+`YELLOW_PLANE_X` = 331.6546762589928 matches the island's left vertical;
+`YELLOW_PLANE_TOP` = 395 excludes the top body and falls in empty space
+left of that vertical; `CORAL_PLANE_X` = 758.4 retains the existing
+right-side cut's central position. Both visible seams are vertical.
+The corrected body has no intersection with the yellow plane.
+
 The historical analytic construction remains hidden inside the construction
-layer. Its constants also place the existing color planes and define the
+layer. Its constants define the
 paused heavier proposal, but no longer construct the approved silhouette.
 The 16/24 master objects currently copy the unadjusted approved trace;
 historical optical corrections must not silently replace its geometry.
@@ -93,14 +108,9 @@ sampling and the unchanged master path remain distinct editable objects.
 ## Color planes
 
 The base is the full cyan D. Coral and yellow are copies of its exact
-path, each clipped by a hard-edged path in the same reference frame.
-Coral follows an inset 45-degree top chamfer, vertical right plane and
-lower chamfer. Its two central turns use the master's `right_top` and
-`right_bottom` fillet radii (45 reference px). Yellow covers the region
-left of STEM_L and below source y = 240. The selected lower-body corner
-removes the old body's yellow baseline tip without changing that color
-region. No gradient, blur, stroke expansion or second silhouette is
-introduced. All planes share the selected master silhouette.
+path, each clipped by the vertical rectangles defined above in master
+coordinates. No gradient, blur, stroke expansion or second silhouette is
+introduced. All planes share the corrected master silhouette.
 
 The export object applies the master silhouette as one outer clip to
 solid color planes. This is coverage-equivalent to the editable clipped

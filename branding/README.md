@@ -2,7 +2,9 @@
 
 The approved D is `sources/dinkster-d.svg`. Its path is copied unchanged
 into `sources/Dinkster_Master.svg`. `sources/build_d.py --export-master`
-copies the exact selected dark-on-light trace from `sources/reference-d.svg`.
+derives the silhouette from the selected dark-on-light trace in
+`sources/reference-d.svg`, with a local upward rounding at the body's
+bottom-left tip. The original traced input remains unchanged.
 The analytic construction is historical, not the active silhouette.
 The regular e is accepted; the i bottom cut and wordmark size/position are
 review proposals, not yet production selections. Application
@@ -68,15 +70,21 @@ The i bottom slice runs from (15,47) to (6,56), moving its 45-degree line
 `sources/compare_wordmark_sizes.py /path/to/wordmark-monochrome-reference.png
 --inkscape /path/to/inkscape` renders the color junction and four size proofs.
 The control retains the existing regular-letter baseline at native y178.
-The aligned variants translate it down 10 px to the traced D's exact y188
-bottom (20 px at 2x). Larger variants uniformly scale the regular contours
-by 1.05 about (147.75,178), preserving aspect ratio, relative stroke weight
+The larger variants uniformly scale the regular contours by 1.15 and 1.25
+about (147.75,178), preserving aspect ratio, relative stroke weight
 and tracking proportions; there is no added stroke or heavier contour.
-The D never scales or moves. All non-control transforms are preview-only.
+Each scale is shown at the current baseline and with the actual lowest
+letter ink (the k descender, not the yellow baseline) aligned to the D's
+y188 bottom. This requires a 6.1 px upward shift at 1.15 and 7.5 px upward
+at 1.25 (12.2/15 px at 2x). The D never scales or moves across variants.
+The comparison frame adds 54 native pixels of right padding, not a scale
+change, so the 1.25 lettering is not clipped. All size transforms are preview-only.
 `size-export-commands.txt` records the Inkscape build and each export.
-The color enlargement retains the existing plane boundaries, including
-the small yellow sliver at the body's lower-left tip. It does not bridge
-the negative-space channel; no plane-boundary correction is applied.
+The color cuts are vertical at master x331.6546762589928 (yellow) and
+x758.4 (coral). The yellow starts at y395, above the lower-left accent
+but below the top body, so its hidden horizontal boundary cannot create
+a visible step. The body tip is locally rounded above the yellow plane;
+no yellow falls on the body, and the negative-space channel stays open.
 
 `sources/trace_reference_e.py /path/to/wordmark-monochrome-reference.png
 --potrace /path/to/potrace` rebuilds the regular e from the light-on-dark
@@ -90,8 +98,9 @@ reference and filled threshold differences at the original registration.
 The thresholded trace overlaps 99.04 percent by intersection-over-union,
 not exact raster identity. Regular letter placements are explicit:
 the traced e retains the 3-unit clearance from t; every other regular
-letter retains its established placement, leaving about 1.5 units from
-e to r at their closest sampled rows. Heavier contours remain unchanged.
+letter retains its established placement except r, shifted 2 units right
+to increase the sampled e-to-r clearance from about 1.5 to 3.5 units.
+Heavier contours and placements remain unchanged.
 Reference-image guides are measured raster estimates, not vector
 constraints imposed on or alterations to the supplied image.
 

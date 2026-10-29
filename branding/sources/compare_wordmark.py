@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--dark-reference-only", action="store_true")
     parser.add_argument("--letter-scale", type=float, default=1.0)
     parser.add_argument("--baseline-shift", type=float, default=0.0)
+    parser.add_argument("--native-width", type=int, default=446)
     args = parser.parse_args()
     reference = Image.open(args.reference).convert("RGB")
     if args.dark_reference_only:
@@ -29,10 +30,18 @@ def main():
             fill="#F2F4F5",
             font=ImageFont.truetype("DejaVuSans.ttf", 9),
         )
+    native_width = args.native_width
+    if native_width != reference.width:
+        padded = Image.new("RGB", (native_width, 518), "#111316")
+        ImageDraw.Draw(padded).rectangle((0, 292, native_width, 518), fill="#F7F8FA")
+        padded.paste(reference, (0, 0))
+        reference = padded
+    native_x = native_width + 40
+    double_x = native_width * 2 + 40
     font = ImageFont.truetype("DejaVuSans.ttf", 18)
     drafts = []
     for prefix in (args.prefix,):
-        width = 892
+        width = native_width * 2
         draft = Image.new("RGB", (width, 1036), "#111316")
         draw = ImageDraw.Draw(draft)
         draw.rectangle((0, 584, width, 1036), fill="#F7F8FA")
@@ -61,22 +70,26 @@ def main():
                 for y in (122, 136, 178)
             )
             for (_, color), y in zip(guides, positions):
-                guide_draw.line((280, y + offset, 870, y + offset), fill=color, width=1)
-    comparison = Image.new("RGB", (1844, 1670), "#E4E8EC")
+                guide_draw.line(
+                    (280, y + offset, width - 22, y + offset), fill=color, width=1
+                )
+    comparison = Image.new("RGB", (native_width * 4 + 60, 1670), "#E4E8EC")
     draw = ImageDraw.Draw(comparison)
     draw.text((20, 16), "REFERENCE - native size", fill="#1F242A", font=font)
-    draw.text((486, 16), "CURRENT WEIGHT - native size", fill="#1F242A", font=font)
+    draw.text((native_x, 16), "CURRENT WEIGHT - native size", fill="#1F242A", font=font)
     for index, (name, color) in enumerate(guides):
-        draw.text((952, 64 + index * 28), f"{name} guide", fill=color, font=font)
+        draw.text(
+            (double_x + 20, 64 + index * 28), f"{name} guide", fill=color, font=font
+        )
     draw.text(
-        (952, 170),
+        (double_x + 20, 170),
         args.caption,
         fill="#1F242A",
         font=font,
     )
     if args.dark_reference_only:
         draw.text(
-            (952, 205),
+            (double_x + 20, 205),
             "Upper reference: lower artwork inverted",
             fill="#1F242A",
             font=font,
@@ -85,13 +98,15 @@ def main():
     for index, draft in enumerate(drafts):
         comparison.paste(
             draft.resize((draft.width // 2, 518), Image.Resampling.LANCZOS),
-            (486 + index * 466, 50),
+            (native_x + index * (native_width + 20), 50),
         )
     draw.text((20, 590), "REFERENCE - 2x", fill="#1F242A", font=font)
-    draw.text((932, 590), "CURRENT WEIGHT - 2x", fill="#1F242A", font=font)
-    comparison.paste(reference.resize((892, 1036), Image.Resampling.LANCZOS), (20, 624))
+    draw.text((double_x, 590), "CURRENT WEIGHT - 2x", fill="#1F242A", font=font)
+    comparison.paste(
+        reference.resize((native_width * 2, 1036), Image.Resampling.LANCZOS), (20, 624)
+    )
     for index, draft in enumerate(drafts):
-        comparison.paste(draft, (932 + index * 912, 624))
+        comparison.paste(draft, (double_x + index * (native_width * 2 + 20), 624))
     comparison.save(ROOT / f"previews/wordmark-{args.prefix}reference-comparison.png")
     if args.prefix:
         return

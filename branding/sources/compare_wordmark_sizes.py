@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 NS = "http://www.w3.org/2000/svg"
 ET.register_namespace("", NS)
-SCALE = 1.05
+NATIVE_WIDTH = 500
 
 
 def main():
@@ -32,7 +32,12 @@ def main():
     bounds = BoundsPen(None)
     parse_path(contour, bounds)
     bottom = 76.6 + 0.139 * bounds.bounds[3]
-    shift = bottom - 178
+    letter_bottom = 178
+    for element in master.iter():
+        if element.get("id") in {f"dark-{letter}" for letter in "inkster"}:
+            letter_bounds = BoundsPen(None)
+            parse_path(element.get("d"), letter_bounds)
+            letter_bottom = max(letter_bottom, 122 + letter_bounds.bounds[3])
     commands = [
         subprocess.check_output([args.inkscape, "--version"], text=True).strip()
     ]
@@ -79,13 +84,13 @@ def main():
     draw = ImageDraw.Draw(sheet)
     draw.text(
         (24, 18),
-        "SELECTED D - color planes clipped to the uncorrected reference trace",
+        "CORRECTED D - rounded body tip; straight vertical color boundaries",
         fill="#1F242A",
         font=title,
     )
     draw.text(
         (24, 54),
-        "Bottom channel stays open: color does not cross the gap. Enlarged junction below.",
+        "No yellow on the body; yellow and coral meet teal along straight vertical cuts.",
         fill="#1F242A",
         font=font,
     )
@@ -119,10 +124,20 @@ def main():
     sheet.save(ROOT / "previews/d-selected-color-junction.png")
     if not args.junction_only:
         variants = (
-            ("current", "Current size / current position", 1.0, 0.0),
-            ("aligned", "Current size / baseline aligned", 1.0, shift),
-            ("larger", "Larger / current baseline", SCALE, 0.0),
-            ("larger-aligned", "Larger / baseline aligned", SCALE, shift),
+            ("115-current", "1.15x / current baseline", 1.15, 0.0),
+            (
+                "115-bottoms",
+                "1.15x / letter bottoms aligned",
+                1.15,
+                bottom - (178 + (letter_bottom - 178) * 1.15),
+            ),
+            ("125-current", "1.25x / current baseline", 1.25, 0.0),
+            (
+                "125-bottoms",
+                "1.25x / letter bottoms aligned",
+                1.25,
+                bottom - (178 + (letter_bottom - 178) * 1.25),
+            ),
         )
         for name, label, scale, dy in variants:
             for variant, y in (("dark", 1000), ("light", 2000)):
@@ -150,8 +165,8 @@ def main():
                     "--export-type=png",
                     f"--export-id=wordmark-{variant}",
                     "--export-id-only",
-                    f"--export-area=-60:{y - 250}:1456.3999999999999:{y + 630.6}",
-                    "--export-width=892",
+                    f"--export-area=-60:{y - 250}:{NATIVE_WIDTH * 3.4 - 60}:{y + 630.6}",
+                    f"--export-width={NATIVE_WIDTH * 2}",
                     "--export-height=518",
                 )
             subprocess.run(
@@ -162,34 +177,50 @@ def main():
                     "--prefix",
                     name + "-",
                     "--caption",
-                    f"{label}; scale {scale:.2f}; shift {dy:+.4f}px",
+                    f"{label}; shift {dy:+.2f}px; e/r +2 units",
                     "--dark-reference-only",
                     "--letter-scale",
                     str(scale),
                     "--baseline-shift",
                     str(dy),
+                    "--native-width",
+                    str(NATIVE_WIDTH),
                 ],
                 check=True,
             )
-        combined = Image.new("RGB", (4580, 1670), "#E4E8EC")
+        column_width = NATIVE_WIDTH * 2 + 20
+        combined = Image.new("RGB", (column_width * 5 + 20, 1670), "#E4E8EC")
         labels = ImageDraw.Draw(combined)
         for index, (name, label, scale, dy) in enumerate(variants):
             comparison = Image.open(
                 ROOT / f"previews/wordmark-{name}-reference-comparison.png"
             )
-            x = (index + 1) * 912 + 20
-            combined.paste(comparison.crop((486, 50, 932, 568)), (x + 223, 50))
-            combined.paste(comparison.crop((932, 624, 1824, 1660)), (x, 624))
+            x = (index + 1) * column_width + 20
+            native_x = NATIVE_WIDTH + 40
+            double_x = NATIVE_WIDTH * 2 + 40
+            combined.paste(
+                comparison.crop((native_x, 50, native_x + NATIVE_WIDTH, 568)),
+                (x + NATIVE_WIDTH // 2, 50),
+            )
+            combined.paste(
+                comparison.crop((double_x, 624, double_x + NATIVE_WIDTH * 2, 1660)),
+                (x, 624),
+            )
             labels.text((x + 8, 14), label, fill="#1F242A", font=font)
             labels.text(
                 (x + 8, 584),
-                f"2x - scale {scale:.2f}; baseline {dy:+.4f}px native",
+                f"2x - scale {scale:.2f}; baseline shift {dy:+.2f}px native",
                 fill="#1F242A",
                 font=font,
             )
             if index == 0:
-                combined.paste(comparison.crop((20, 50, 466, 568)), (243, 50))
-                combined.paste(comparison.crop((20, 624, 912, 1660)), (20, 624))
+                combined.paste(
+                    comparison.crop((20, 50, 20 + NATIVE_WIDTH, 568)),
+                    (20 + NATIVE_WIDTH // 2, 50),
+                )
+                combined.paste(
+                    comparison.crop((20, 624, 20 + NATIVE_WIDTH * 2, 1660)), (20, 624)
+                )
         labels.text(
             (24, 14),
             "Dark-on-light reference (upper inverted)",
@@ -207,7 +238,7 @@ def main():
         "\n".join(commands) + "\n", encoding="ascii"
     )
     print(
-        f"D bottom: {bottom:.9f}px; aligned shift: {shift:.9f}px native; letter scale: {SCALE}"
+        f"D bottom: {bottom:.9f}px; letter bottom before scaling: {letter_bottom}; scales: 1.15, 1.25"
     )
 
 
