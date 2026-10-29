@@ -379,17 +379,23 @@ describe('LiteGraph subgraphs', () => {
   })
 
   it.each([
-    ['inputs', 'missing'], ['inputs', 'shared'],
-    ['outputs', 'missing'], ['outputs', 'shared'], ['outputs', 'second'],
-  ] as const)('resolves sparse %s socket %s only by a unique boundary identity', (side, socket) => {
+    ['inputs', 'missing', false], ['inputs', 'shared', false],
+    ['outputs', 'missing', false], ['outputs', 'shared', false], ['outputs', 'second', false],
+    ['inputs', 'missing', true], ['inputs', 'shared', true],
+    ['outputs', 'missing', true], ['outputs', 'shared', true], ['outputs', 'second', true],
+  ] as const)('resolves %s socket %s only by a unique boundary identity (full: %s)', (side, socket, full) => {
     const def = definition()
     def.nodes.push(relay(2))
     def[side][0]!.name = 'shared'
     def[side].push({ id: 'second', name: 'shared', type: 'INT', linkIds: [3] })
     def.links.push(side === 'inputs' ? link(3, -10, 1, 2, 0) : link(3, 2, 0, -20, 1))
     const host = { ...instance(1),
-      inputs: side === 'inputs' ? [{ name: socket, link: 9 }] : [{ name: 'value', widget: { name: 'value' } }],
-      outputs: side === 'outputs' ? [{ name: socket, links: [9] }] : [{ name: 'result' }],
+      inputs: side === 'inputs'
+        ? [{ name: socket, link: 9 }, ...(full ? [{ name: 'second' }] : [])]
+        : [{ name: 'value', widget: { name: 'value' } }],
+      outputs: side === 'outputs'
+        ? [{ name: socket, links: [9] }, ...(full ? [{ name: 'out' }] : [])]
+        : [{ name: 'result' }],
       widgets_values: [19, 31],
     }
     const external = { ...relay(4), inputs: side === 'outputs' ? [{ name: 'value', link: 9 }] : [], widgets_values: [53] }
