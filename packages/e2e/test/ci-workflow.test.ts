@@ -545,9 +545,7 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_NATIVE_PORT: '15421',
         })
         expect(
-          steps.filter((step) =>
-            /\bvitest(?:\s|$)/.test(step.run ?? ''),
-          ),
+          steps.filter((step) => /\bvitest(?:\s|$)/.test(step.run ?? '')),
         ).toEqual([])
       }
     }
