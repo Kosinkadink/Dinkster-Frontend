@@ -4,7 +4,7 @@
    width="1523.7312"
    height="371.79001"
    version="1.1"
-   id="svg265"
+   id="svg313"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <defs
@@ -37,7 +37,7 @@
        id="plane-coral"
        clipPathUnits="userSpaceOnUse">
       <path
-         d="m 343,68 67.8,67.8 a 45,45 0 0 1 13.2,31.8 v 112.8 a 45,45 0 0 1 -13.2,31.8 L 363,360 H 600 V 40 H 343 Z"
+         d="M 323,28 430.8,135.8 A 45,45 0 0 1 444,167.6 V 440 H 650 V -40 H 323 Z"
          transform="matrix(2.2134387,0,0,2.2134387,-180.07905,26.324111)"
          id="path69" />
     </clipPath>

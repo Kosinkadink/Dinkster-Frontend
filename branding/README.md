@@ -46,12 +46,15 @@ The regular-only guided comparison uses `export_brand.py
 --regular-wordmark-only` to leave symbol rasters and heavier exports
 untouched. These commands are recorded in `wordmark-export-commands.txt`.
 `--wordmarks-only` regenerates both wordmark weights without exporting
-production symbol SVGs, rasters or platform assets. Those assets remain
-at the earlier geometry until production export resumes; the layered
-master uses the selected D. Heavier exports remain paused, with their
-letter contours and placements frozen independently of D geometry changes.
-The master small-size objects currently copy the unadjusted trace; the
-historical optical corrections do not apply to the new silhouette.
+symbol SVGs, rasters or platform assets. The full command regenerates all
+assets, including color wordmarks for both themes and platform containers.
+Heavier lettering is historical and unselected; its contours and placements
+remain frozen. The regular 1.35x wordmark is the production selection.
+The separate 16/24 objects currently copy the selected silhouette exactly;
+no optical change has been applied to them. Their channels do not satisfy
+the full-background-pixel requirement at both sizes. Keep them provisional
+until that small-size acceptance question is resolved; do not wire them
+into the product merely because a file exists.
 Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
 k arm), and 56 (baseline); only the k's lower leg descends to 70.
 The enlarged k also carries its x + y = 63 cut/arm continuation guide.
@@ -89,26 +92,47 @@ The yellow starts at y395, above the lower-left accent
 but below the top body, so its hidden horizontal boundary cannot create
 a visible step. The body tip is locally rounded above the yellow plane;
 no yellow falls on the body, and the negative-space channel stays open.
-Coral retains the reference-frame band through (343,68), (424,149),
-(424,299) and (363,360), with the two radius-45 turns. It is mapped by
-the historical construction transform without fitting or displacement.
-`previews/d-coral-band-ends.png` shows the unchanged band at 12x native
-size, with labeled top/bottom ends for visual review. Marker locations
-use the first/last coral raster rows with at least half alpha coverage
-in the 8x native CLI render; they do not modify the plane geometry.
+Coral uses the selected thinner upper boundary from (323,28) through
+(444,149), with its radius-45 turn, then continues vertically at x444
+past the D bottom. The historical construction transform maps the band;
+the D exterior is the same shared clip. No lower diagonal or lower
+inner rounding is inserted. The upper no-divot geometry is unchanged.
 
 `sources/compare_coral.py /path/to/wordmark-monochrome-reference.png
---inkscape /path/to/inkscape` compares the current band with two thinner
-proposals without changing the master coral clip. Both proposals continue
-the upper inner diagonal beyond the D top, removing the short visible
-vertical closure. The inner boundary moves right by 12 or 20 historical
-reference units (about 3.69 or 6.15 native pixels); the outer D, yellow
-and all lettering remain fixed. At native y145 near the counter nose,
-the right-bowl split is about 49/51 or 41/59 coral/teal by raster width.
-The comparison shows native, 2x and a 12x top-end detail on both backgrounds,
-followed by color wordmark sheets at the selected 1.35x/y188 placement.
-`coral-export-commands.txt` records every Inkscape export. The proposals
-are not master selections until the user picks their geometry.
+--inkscape /path/to/inkscape` compares the previous thinner band with the
+selected vertical-bottom version. At native y145 near the counter nose,
+both are about 41/59 coral/teal by raster width. The comparison shows
+native, 2x and 12x top/bottom details on both backgrounds, followed by
+color wordmark sheets at the selected 1.35x/y188 placement.
+`coral-export-commands.txt` records every Inkscape export. Earlier
+comparison files are historical, not additional production selections.
+
+## Product integration inventory
+
+- Editable source: `sources/Dinkster_Master.svg`; immutable selected trace
+  in `sources/reference-d.svg` and derived mono silhouette in `sources/dinkster-d.svg`.
+- Header/website: `svg/dinkster-wordmark-color-dark.svg` and
+  `svg/dinkster-wordmark-color-light.svg`; mono lettering/mark alternatives
+  are `dinkster-wordmark-dark.svg`, `-light.svg` and `-mono.svg`.
+- D-only: `svg/dinkster-symbol-color.svg`, `-cyan.svg`, `-mono.svg`, `-white.svg`.
+  Color has the same silhouette as mono, with no effect required for recognition.
+- Raster: 16, 24, 32, 48, 64, 128, 256, 512 and 1024 px in `raster/color/`,
+  `cyan/`, `mono/`, `white/`, `dark/` (white) and `light/` (ink).
+  The 16/24 exports retain the unresolved small-size limitation above.
+- Windows/favicon container: `platform/dinkster.ico`, with 16, 24, 32, 48,
+  64, 128 and 256 px color PNG entries. Apple: `platform/dinkster.icns`,
+  16 through 1024 px including 2x representations. `sources/package_icons.py`
+  embeds the CLI PNG bytes unchanged; `platform-export-command.txt` records the command.
+- Palette: `tokens/dinkster-colors.json` and `tokens/dinkster-theme.css`.
+  Identity names are `brand.cyan` = `#32E6C5`, `brand.coral` = `#FF7468`,
+  `brand.yellow` = `#FFD86B`, `brand.offWhite` = `#F2F4F5`, `brand.ink` = `#1F242A`.
+  Theme groups cover backgrounds, border, primary/secondary/muted text,
+  primary action and success/info/warning/danger; values are preserved in
+  both token files. Semantic danger is not a brand-plane alias.
+
+Product integration belongs to separate frontend/Desktop changes using a
+landed asset commit. No header, favicon, application icon, palette runtime
+or package dependency is changed by this asset branch.
 
 `sources/trace_reference_e.py /path/to/wordmark-monochrome-reference.png
 --potrace /path/to/potrace` rebuilds the regular e from the light-on-dark
@@ -166,15 +190,11 @@ comparison appearance is an explicitly labeled inversion of that source,
 not the different light-on-dark drawing. Potrace/Inkscape versions and
 commands are recorded in `previews/reference-d-options/commands.txt`.
 
-For the small-size comparison, run `sources/compare_geometry.py --inkscape
-/path/to/inkscape` with Python, then `python sources/compare_small.py`.
-The historical native and nearest-neighbor sheets show mono, cyan and
-clipped color on both backgrounds, with the original body and both
-unselected bottom-left trims. The comparison explicitly uses the original
-reference outline so those earlier proofs remain reproducible. Only
-16/24 px in these historical proofs use narrower-cut optical objects;
-they are not current master revisions. The geometry notes
-list the parameters; `geometry-export-commands.txt` records each CLI render.
+After the full CLI export, `python sources/compare_small.py` composes the
+native 16-64 px sheet and nearest-neighbor enlargement directly from the
+current mono, cyan and color PNGs on both backgrounds. It does not repair
+or resample the source exports. `compare_geometry.py` and its option files
+retain the historical analytic small-size proposals, not active revisions.
 
 The weight comparison retains the revised current-weight outlines and a
 heavier proposal with main stems at 20.31 reference units, matching the

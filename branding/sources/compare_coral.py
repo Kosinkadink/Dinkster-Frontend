@@ -29,9 +29,8 @@ def main():
         subprocess.check_output([args.inkscape, "--version"], text=True).strip()
     ]
     variants = (
-        ("current", "Current band / top divot retained", 0),
-        ("balanced", "No divot / about 50% coral at bowl nose", 12),
-        ("thinner", "No divot / about 40% coral at bowl nose", 20),
+        ("thinner", "Previous 40% band / slanted bottom", 20),
+        ("selected", "Selected 40% band / vertical bottom", 0),
     )
     renders = []
 
@@ -144,16 +143,16 @@ def main():
             check=True,
         )
     font = ImageFont.truetype("DejaVuSans.ttf", 18)
-    sheet = Image.new("RGB", (2400, 1820), "#E4E8EC")
+    sheet = Image.new("RGB", (1600, 2890), "#E4E8EC")
     draw = ImageDraw.Draw(sheet)
     for column, ((name, label, offset), image) in enumerate(zip(variants, renders)):
         x = column * 800
         draw.text((x + 16, 16), label, fill="#1F242A", font=font)
         for theme, background, foreground, y in (
             ("dark", "#111316", "#F2F4F5", 50),
-            ("light", "#F7F8FA", "#1F242A", 930),
+            ("light", "#F7F8FA", "#1F242A", 1470),
         ):
-            draw.rectangle((x + 10, y, x + 789, y + 869), fill=background)
+            draw.rectangle((x + 10, y, x + 789, y + 1399), fill=background)
             draw.text(
                 (x + 28, y + 14),
                 "Native                     2x native",
@@ -174,6 +173,13 @@ def main():
                 (720, 480), Image.Resampling.LANCZOS
             )
             sheet.paste(top, (x + 40, y + 346), top)
+            draw.text(
+                (x + 28, y + 850), "Bottom end - 12x native", fill=foreground, font=font
+            )
+            bottom = image.crop((88 * 8, 154 * 8, 148 * 8, 194 * 8)).resize(
+                (720, 480), Image.Resampling.LANCZOS
+            )
+            sheet.paste(bottom, (x + 40, y + 890), bottom)
     sheet.save(ROOT / "previews/d-coral-thickness-comparison.png")
     (ROOT / "sources/coral-export-commands.txt").write_text(
         "\n".join(commands) + "\n", encoding="ascii"

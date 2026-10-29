@@ -330,7 +330,7 @@ def main():
     args = parser.parse_args()
     approved = ET.parse(ROOT / "sources/dinkster-d.svg").getroot()[0]
     master = node(
-        "svg", {"viewBox": "0 0 1700 8000", "width": "1700", "height": "8000"}
+        "svg", {"viewBox": "0 0 1700 11000", "width": "1700", "height": "11000"}
     )
     reference = layer(master, "00_Reference")
     reference.set(f"{{{SOD}}}insensitive", "true")
@@ -401,17 +401,16 @@ def main():
     outline_copy.set("id", "silhouette-clip-path")
     silhouette_clip.append(outline_copy)
     coral_boundary = [
-        ("start", 343, 68),
-        ("right_top", 424, 149),
-        ("right_bottom", 424, 299),
-        ("end", 363, 360),
-        ("outside_bottom", 600, 360),
-        ("outside_top", 600, 40),
-        ("outside_left", 343, 40),
+        ("start", 323, 28),
+        ("right_top", 444, 149),
+        ("end", 444, 440),
+        ("outside_bottom", 650, 440),
+        ("outside_top", 650, -40),
+        ("outside_left", 323, -40),
     ]
     coral_commands, _ = geometry.build(
         coral_boundary,
-        {name: geometry.RADII[name] for name in ("right_top", "right_bottom")},
+        {"right_top": geometry.RADII["right_top"]},
     )
     for name, contour in (
         ("coral", geometry.to_svg([coral_commands], geometry.Transform(1, 0, 0))),
@@ -571,6 +570,25 @@ def main():
                 e for e in master.iter() if e.get("id") == f"{variant}-{letter}"
             )
             element.set("transform", f"translate({position} 122)")
+    for theme, y in (("dark", 8000), ("light", 9000)):
+        wordmark = deepcopy(
+            next(e for e in master.iter() if e.get("id") == f"wordmark-{theme}")
+        )
+        for element in wordmark.iter():
+            identifier = element.get("id")
+            if identifier:
+                element.set("id", identifier.replace(theme, f"color-{theme}"))
+        wordmark.set("transform", f"translate(-60 {y - 250}) scale(3.4)")
+        symbol = wordmark[0]
+        symbol.clear()
+        symbol.set("transform", "translate(16.9 76.6) scale(.139)")
+        color = deepcopy(
+            next(e for e in master.iter() if e.get("id") == "symbol-color")
+        )
+        color.attrib.pop("id")
+        color.attrib.pop("transform")
+        symbol.append(color)
+        artboards.append(wordmark)
     write(ROOT / "sources/Dinkster_Master.svg", master)
     command = [args.inkscape, str(ROOT / "sources/Dinkster_Master.svg"), "--query-all"]
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL)

@@ -3,6 +3,7 @@
 import argparse
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,12 +30,17 @@ def main():
 
     version = subprocess.check_output([args.inkscape, "--version"], text=True).strip()
     master = ROOT / "sources/Dinkster_Master.svg"
-    for index, variant in enumerate(
-        ("mono", "dark", "light", "heavier-dark", "heavier-light")
+    for variant, y in (
+        ("mono", 0),
+        ("dark", 1000),
+        ("light", 2000),
+        ("heavier-dark", 4000),
+        ("heavier-light", 5000),
+        ("color-dark", 8000),
+        ("color-light", 9000),
     ):
         if args.regular_wordmark_only and variant.startswith("heavier"):
             continue
-        y = (index if index < 3 else index + 1) * 1000
         width = 1024 if variant.startswith("heavier") else 1000
         options = (
             f"--export-id=wordmark-{variant}",
@@ -56,11 +62,12 @@ def main():
             "--export-height=518",
             *options,
         )
-    for variant in ("mono", "cyan", "white", "color"):
+    for variant in ("mono", "cyan", "white", "color", "dark", "light"):
         if args.regular_wordmark_only or args.wordmarks_only:
             break
+        symbol = {"dark": "white", "light": "mono"}.get(variant, variant)
         options = (
-            f"--export-id=symbol-{variant}",
+            f"--export-id=symbol-{symbol}",
             "--export-id-only",
             "--export-area=0:3000:1000:4000",
         )
@@ -77,7 +84,7 @@ def main():
             raster_options = options
             if size in (16, 24):
                 raster_options = (
-                    f"--export-id=symbol-small-{size}-{variant}",
+                    f"--export-id=symbol-small-{size}-{symbol}",
                     *options[1:],
                 )
             export(
@@ -106,6 +113,10 @@ def main():
     (ROOT / "sources" / record).write_text(
         version + "\n" + "\n".join(commands) + "\n", encoding="ascii"
     )
+    if not (args.regular_wordmark_only or args.wordmarks_only):
+        subprocess.run(
+            [sys.executable, str(ROOT / "sources/package_icons.py")], check=True
+        )
 
 
 if __name__ == "__main__":

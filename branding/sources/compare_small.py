@@ -8,48 +8,36 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    sheet = Image.new("RGB", (1128, 660), "#E4E8EC")
+    sheet = Image.new("RGB", (1120, 450), "#E4E8EC")
     draw = ImageDraw.Draw(sheet)
-    font = ImageFont.truetype("DejaVuSans.ttf", 12)
-    for column, (option, title) in enumerate(
-        (
-            ("current", "CURRENT BODY - narrower 16/24 cut"),
-            ("vertical-trim", "PROPOSED vertical trim + narrow cut"),
-            ("rounded-trim", "PROPOSED rounded trim + narrow cut"),
-        )
+    font = ImageFont.truetype("DejaVuSans.ttf", 16)
+    draw.text(
+        (16, 14),
+        "SELECTED D - exact production exports; no small-size contour changes",
+        fill="#1F242A",
+        font=font,
+    )
+    for column, (theme, background, foreground) in enumerate(
+        (("dark", "#111316", "#F2F4F5"), ("light", "#F7F8FA", "#1F242A"))
     ):
-        offset = column * 376
-        draw.text((offset + 8, 12), title, fill="#1F242A", font=font)
-        for row, background in enumerate(("#111316", "#F7F8FA")):
-            y = 36 + row * 312
-            draw.rectangle((offset, y, offset + 359, y + 311), fill=background)
-            foreground = "#F2F4F5" if row == 0 else "#1F242A"
-            for line, variant in enumerate(("mono", "cyan", "color")):
-                draw.text(
-                    (offset + 12, y + line * 98 + 6),
-                    variant,
-                    fill=foreground,
-                    font=font,
+        x0 = column * 560
+        draw.rectangle((x0 + 8, 48, x0 + 551, 439), fill=background)
+        for row, variant in enumerate((theme, "cyan", "color")):
+            y = 70 + row * 120
+            draw.text(
+                (x0 + 24, y),
+                "mono" if variant == theme else variant,
+                fill=foreground,
+                font=font,
+            )
+            x = x0 + 120
+            for size in (16, 24, 32, 48, 64):
+                image = Image.open(ROOT / f"raster/{variant}/{size}.png").convert(
+                    "RGBA"
                 )
-                x = offset + 68
-                for size in (16, 24, 32, 48, 64):
-                    source = "color" if variant == "color" else "mono"
-                    im = Image.open(
-                        ROOT / f"previews/geometry-options/{option}-{source}-{size}.png"
-                    ).convert("RGBA")
-                    if variant != "color":
-                        ink = Image.new(
-                            "RGBA",
-                            im.size,
-                            "#32E6C5" if variant == "cyan" else foreground,
-                        )
-                        ink.putalpha(im.getchannel("A"))
-                        im = ink
-                    sheet.paste(im, (x, y + line * 98 + 24 + 64 - size), im)
-                    draw.text(
-                        (x, y + line * 98 + 8), str(size), fill=foreground, font=font
-                    )
-                    x += size + 12
+                sheet.paste(image, (x, y + 90 - size), image)
+                draw.text((x, y), str(size), fill=foreground, font=font)
+                x += size + 24
     sheet.save(ROOT / "previews/size-proof-native.png")
     sheet.resize((sheet.width * 4, sheet.height * 4), Image.Resampling.NEAREST).save(
         ROOT / "previews/size-proof-zoomed-nearest.png"
