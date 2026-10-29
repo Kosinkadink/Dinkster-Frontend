@@ -1,7 +1,9 @@
 # Dinkster vector brand
 
 The approved D is `sources/dinkster-d.svg`. Its path is copied unchanged
-into `sources/Dinkster_Master.svg`. The wordmark lettering is a proposed
+into `sources/Dinkster_Master.svg`. `sources/build_d.py` constructs the
+selected -30 percent reshaped counter, 62 percent nose and partial r24
+lower corner from named constants. The wordmark lettering is a proposed
 custom outline, not yet a user-approved production asset. Application
 header and favicon assets are not changed here.
 
@@ -16,7 +18,9 @@ The authoring environment uses Python 3.12, fonttools 4.68.0, Pillow,
 numpy, scipy and cairosvg. These are standalone artwork-authoring tools;
 the frontend build and test dependencies are unchanged.
 
-Run `python sources/build_brand.py --inkscape /path/to/inkscape` from this directory, then
+Run `python sources/build_d.py --export-master sources/dinkster-d.svg`
+from this directory to regenerate the silhouette without reference-image
+scratch renders. Then run `python sources/build_brand.py --inkscape /path/to/inkscape`, followed by
 `python sources/export_brand.py --inkscape /path/to/inkscape`.
 `sources/export-commands.txt` records the renderer build and exact commands.
 The current renderer is Ubuntu's Inkscape 1.2.2
@@ -37,6 +41,10 @@ stays an external input, not a production SVG raster dependency.
 The regular-only guided comparison uses `export_brand.py
 --regular-wordmark-only` to leave symbol rasters and heavier exports
 untouched. These commands are recorded in `wordmark-export-commands.txt`.
+`--wordmarks-only` regenerates both wordmark weights without exporting
+production symbol SVGs, rasters or platform assets. Those assets remain
+at the earlier geometry until production export resumes; the layered
+master and both wordmark weights use the selected D.
 Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
 k arm), and 56 (baseline); only the k's lower leg descends to 70.
 The enlarged k also carries its x + y = 63 cut/arm continuation guide.
@@ -74,13 +82,18 @@ exports 1024 and 64 px proofs, not production raster assets. The single
 `previews/nose-height-options.png` sheet includes both backgrounds and
 mono/color at both sizes, plus per-option nose and stroke measurements.
 `nose-export-commands.txt` records the renderer and sixteen CLI exports.
-No option changes the master or `build_d.py` constants.
+These historical option sheets do not change the master or constants.
+The selected 62 percent option is now the master geometry; both wordmark
+weights derive from it, while the regular letter contours remain under
+user review.
 
 For the small-size comparison, run `sources/compare_geometry.py --inkscape
 /path/to/inkscape` with Python, then `python sources/compare_small.py`.
-The native and nearest-neighbor sheets show mono, cyan and clipped color
-on both backgrounds, with the current body and both unselected bottom-left
-trims. Only 16/24 px use the narrower-cut optical objects; production
+The historical native and nearest-neighbor sheets show mono, cyan and
+clipped color on both backgrounds, with the original body and both
+unselected bottom-left trims. The comparison explicitly uses the original
+reference outline so those earlier proofs remain reproducible. Only
+16/24 px use the narrower-cut optical objects; production
 32 px and larger exports retain the approved full gap. The geometry notes
 list the parameters; `geometry-export-commands.txt` records each CLI render.
 

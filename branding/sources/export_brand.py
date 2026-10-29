@@ -1,10 +1,9 @@
 """Export vectors and raster proofs with Inkscape, retaining exact CLI commands."""
 
 import argparse
-from pathlib import Path
 import shlex
 import subprocess
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -12,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inkscape", default="inkscape")
-    parser.add_argument("--regular-wordmark-only", action="store_true")
+    wordmarks = parser.add_mutually_exclusive_group()
+    wordmarks.add_argument("--regular-wordmark-only", action="store_true")
+    wordmarks.add_argument("--wordmarks-only", action="store_true")
     args = parser.parse_args()
     commands = []
 
@@ -56,7 +57,7 @@ def main():
             *options,
         )
     for variant in ("mono", "cyan", "white", "color"):
-        if args.regular_wordmark_only:
+        if args.regular_wordmark_only or args.wordmarks_only:
             break
         options = (
             f"--export-id=symbol-{variant}",
@@ -99,7 +100,7 @@ def main():
     )
     record = (
         "wordmark-export-commands.txt"
-        if args.regular_wordmark_only
+        if args.regular_wordmark_only or args.wordmarks_only
         else "export-commands.txt"
     )
     (ROOT / "sources" / record).write_text(

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -50,7 +49,7 @@ def main():
     for index, (name, color) in enumerate(guides):
         draw.text((952, 64 + index * 28), f"{name} guide", fill=color, font=font)
     draw.text(
-        (952, 170), "Regular weight only; heavier unchanged", fill="#1F242A", font=font
+        (952, 170), "Regular letters unchanged; selected D", fill="#1F242A", font=font
     )
     comparison.paste(reference, (20, 50))
     for index, draft in enumerate(drafts):

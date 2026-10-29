@@ -6,42 +6,53 @@ reference-image pixel coordinates (straight edges, one bowl arc, and a fillet
 radius per corner), then mapped to a 1000x1000 viewBox. The stem and leg stay
 a separate island, as in the reference.
 
-Hole style: squircle by default (user choice); --faceted, --stadium and
---echo keep the rejected alternatives for comparison.
+The approved counter reshapes an n=3.2 squircle to 70 percent reference
+area, with its nose 62 percent down the counter. --faceted, --stadium and
+--echo keep the rejected reference alternatives for comparison.
 Run with --fit to re-estimate every fillet radius against the reference.
 """
+
 import io
 import math
 import sys
+
+import cairosvg
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage
-import cairosvg
 
-REF = "A-plus-two-variants.png"   # run from this directory
+REF = "A-plus-two-variants.png"  # run from this directory
 
 # Measured reference geometry (source pixels). Lines at 45 degrees are given
 # as x - y = c (rising to the right) or x + y = c (falling to the right).
 TOP, BOTTOM = 68.0, 360.0
-LEFT_TOP_X = 152.0        # top-left corner
-TOP_RIGHT_X = 400.0       # where the top edge meets the top-right chamfer
-RIGHT = 497.0             # right edge
-CHAMFER_TL = 84.0         # x - y = CHAMFER_TL
-CHAMFER_TR = 334.0        # x - y = CHAMFER_TR
-CHAMFER_BR = 768.0        # x + y = CHAMFER_BR
+LEFT_TOP_X = 152.0  # top-left corner
+TOP_RIGHT_X = 400.0  # where the top edge meets the top-right chamfer
+RIGHT = 497.0  # right edge
+CHAMFER_TL = 84.0  # x - y = CHAMFER_TL
+CHAMFER_TR = 334.0  # x - y = CHAMFER_TR
+CHAMFER_BR = 768.0  # x + y = CHAMFER_BR
 APERTURE_TOP = 157.0
 BOWL_C, BOWL_R = (338.0, 221.0), 50.0
-BOWL_END_DEG = 45.0       # bowl arc spans -45..+45 degrees; 45-degree tangents run to the flat top and bottom
-SQUIRCLE_N = 3.2          # squircle exponent (default hole style)
-ECHO_CHAMFER = 42.0       # --echo chamfer size (outer chamfer scaled to the hole height)
-APERTURE_BOTTOM = 285.0   # flat aperture bottom; mirrors the top about the bowl center (user choice)
-CHANNEL_LOW = 583.0       # lower arm inner edge: x + y = CHANNEL_LOW
+BOWL_END_DEG = 45.0  # bowl arc spans -45..+45 degrees; 45-degree tangents run to the flat top and bottom
+SQUIRCLE_N = 3.2  # squircle exponent (default hole style)
+ECHO_CHAMFER = 42.0  # --echo chamfer size (outer chamfer scaled to the hole height)
+REFERENCE_APERTURE_BOTTOM = 285.0
+APERTURE_BOTTOM = 269.0
+COUNTER_AREA_RATIO = 0.70
+COUNTER_NOSE_FRACTION = 0.62
+COUNTER_PROFILE_X = 324.0
+COUNTER_BOTTOM_SHIFT = 16.0
+COUNTER_TOP_SCALE = 0.5
+BODY_TRIM_X = 232.0
+BODY_TRIM_RADIUS = 24.0
+CHANNEL_LOW = 583.0  # lower arm inner edge: x + y = CHANNEL_LOW
 STEM_TOP = 175.0
 STEM_L, STEM_R = 232.0, 298.0
 # Reference values are 551 / 471 (gaps 18 top, 11.5 bottom). Both moved out by
 # 6.5 so the bottom gap matches the top gap (user choice).
-STEM_DIAG = 557.5         # stem/leg right edge: x + y = STEM_DIAG
-LEG_DIAG = 477.5          # leg left edge: x + y = LEG_DIAG
+STEM_DIAG = 557.5  # stem/leg right edge: x + y = STEM_DIAG
+LEG_DIAG = 477.5  # leg left edge: x + y = LEG_DIAG
 
 K = math.sqrt(0.5)
 
@@ -55,7 +66,7 @@ RADII = {
     "bottom_right": 24.0,
     "bottom_channel": 0.0,
     "aperture_bl": 26.0,
-    "aperture_br": None,   # None: exactly consume the 45-degree tangent (see diag_fillet_radius)
+    "aperture_br": None,  # None: exactly consume the 45-degree tangent (see diag_fillet_radius)
     "aperture_tr": None,
     "aperture_tl": 26.0,
     "hole_rt": 20.0,
@@ -69,10 +80,8 @@ RADII = {
 }
 
 
-def outline():
-    """Outer contour, clockwise. Vertices are (name, x, y); 'arc' entries are
-    (cx, cy, r, a0, a1) in degrees. The aperture is a flat top and bottom joined
-    to the bowl arc by 45-degree tangents, mirror images about the bowl center."""
+def reference_outline():
+    """Original reference silhouette, retained for reproducible comparisons."""
     return [
         ("top_left", LEFT_TOP_X, TOP),
         ("top_right", TOP_RIGHT_X, TOP),
@@ -80,9 +89,34 @@ def outline():
         ("right_bottom", RIGHT, CHAMFER_BR - RIGHT),
         ("bottom_right", CHAMFER_BR - BOTTOM, BOTTOM),
         ("bottom_channel", CHANNEL_LOW - BOTTOM, BOTTOM),
-        ("aperture_bl", CHANNEL_LOW - APERTURE_BOTTOM, APERTURE_BOTTOM),
-        *bowl_side(),
+        (
+            "aperture_bl",
+            CHANNEL_LOW - REFERENCE_APERTURE_BOTTOM,
+            REFERENCE_APERTURE_BOTTOM,
+        ),
+        *reference_bowl_side(),
         ("aperture_tl", APERTURE_TOP + CHAMFER_TL, APERTURE_TOP),
+    ]
+
+
+def outline():
+    """Approved body with a channel-clipped r24 and the selected counter."""
+    if any(flag in sys.argv for flag in ("--faceted", "--stadium", "--echo")):
+        return reference_outline()
+    radius = BODY_TRIM_RADIUS
+    cx, cy = BODY_TRIM_X + radius, BOTTOM - radius
+    offset = CHANNEL_LOW - cx - cy
+    dx = (offset - math.sqrt(2 * radius**2 - offset**2)) / 2
+    angle = math.degrees(math.atan2(offset - dx, dx))
+    return [
+        ("arc", cx, cy, radius, 90, angle)
+        if vertex[0] == "bottom_channel"
+        else ("aperture_bl", CHANNEL_LOW - APERTURE_BOTTOM, APERTURE_BOTTOM)
+        if vertex[0] == "aperture_bl"
+        else ("poly", bowl_side()[0][1])
+        if vertex[0] == "poly"
+        else vertex
+        for vertex in reference_outline()
     ]
 
 
@@ -90,19 +124,19 @@ def diag_fillet_radius():
     """Radius at which the fillet between a flat and its 45-degree tangent
     swallows the whole tangent segment, so the flat flows into the bowl arc
     with no straight facet in between (curvature 1/r -> 1/BOWL_R)."""
-    cx, cy = BOWL_C
+    _, cy = BOWL_C
     tan_top_y = cy - BOWL_R * K
-    diag_len = tan_top_y - APERTURE_TOP          # the 45-degree segment's vertical extent
+    diag_len = tan_top_y - APERTURE_TOP  # the 45-degree segment's vertical extent
     return diag_len / math.tan(math.radians(22.5))
 
 
-def bowl_side():
+def reference_bowl_side():
     """Right side of the aperture. Faceted: 45-degree tangents from the flats
     into the bowl arc. Stadium: one semicircle tangent to both flats, keeping
     the bowl's right extreme in place."""
     cx, cy = BOWL_C
-    right = cx + BOWL_R                          # right extreme of the hole, shared by all styles
-    half = (APERTURE_BOTTOM - APERTURE_TOP) / 2
+    right = cx + BOWL_R  # right extreme of the hole, shared by all styles
+    half = (REFERENCE_APERTURE_BOTTOM - APERTURE_TOP) / 2
     if "--stadium" in sys.argv:
         return [("arc", right - half, cy, half, 90.0, -90.0)]
     if not any(f in sys.argv for f in ("--faceted", "--stadium", "--echo")):
@@ -111,29 +145,88 @@ def bowl_side():
         n = SQUIRCLE_N
         pts = []
         for i in range(97):
-            t = math.pi / 2 - math.pi * i / 96          # +90 (bottom) .. -90 (top), clockwise
+            t = math.pi / 2 - math.pi * i / 96  # +90 (bottom) .. -90 (top), clockwise
             c, sn = math.cos(t), math.sin(t)
-            pts.append((right - half + half * abs(c) ** (2 / n),
-                        cy + half * math.copysign(abs(sn) ** (2 / n), sn)))
+            pts.append(
+                (
+                    right - half + half * abs(c) ** (2 / n),
+                    cy + half * math.copysign(abs(sn) ** (2 / n), sn),
+                )
+            )
         return [("poly", pts)]
     if "--echo" in sys.argv:
         # The outer D's right side in miniature: 45-degree chamfers around a vertical flat.
         ch = ECHO_CHAMFER
         return [
-            ("aperture_br", right - ch, APERTURE_BOTTOM),
-            ("hole_rb", right, APERTURE_BOTTOM - ch),
+            ("aperture_br", right - ch, REFERENCE_APERTURE_BOTTOM),
+            ("hole_rb", right, REFERENCE_APERTURE_BOTTOM - ch),
             ("hole_rt", right, APERTURE_TOP + ch),
             ("aperture_tr", right - ch, APERTURE_TOP),
         ]
     tan_top = (cx + BOWL_R * K, cy - BOWL_R * K)
     tan_bot = (cx + BOWL_R * K, cy + BOWL_R * K)
     diag_top_x = tan_top[0] - (tan_top[1] - APERTURE_TOP)
-    diag_bot_x = tan_bot[0] - (APERTURE_BOTTOM - tan_bot[1])
+    diag_bot_x = tan_bot[0] - (REFERENCE_APERTURE_BOTTOM - tan_bot[1])
     return [
-        ("aperture_br", diag_bot_x, APERTURE_BOTTOM),
+        ("aperture_br", diag_bot_x, REFERENCE_APERTURE_BOTTOM),
         ("arc", cx, cy, BOWL_R, BOWL_END_DEG, -BOWL_END_DEG),
         ("aperture_tr", diag_top_x, APERTURE_TOP),
     ]
+
+
+def bowl_side():
+    """Reshape, lift and area-normalize the approved sampled counter."""
+    bowl = reference_bowl_side()[0][1]
+    reference_height = REFERENCE_APERTURE_BOTTOM - APERTURE_TOP
+    height = APERTURE_BOTTOM - APERTURE_TOP
+    profile = []
+    for x, y in bowl:
+        u = (y - APERTURE_TOP) / reference_height
+        profile.append(
+            (
+                COUNTER_PROFILE_X
+                + COUNTER_BOTTOM_SHIFT * u
+                + (x - COUNTER_PROFILE_X)
+                * (COUNTER_TOP_SCALE + (1 - COUNTER_TOP_SCALE) * u),
+                APERTURE_TOP + height * u,
+            )
+        )
+    nose = (max(profile, key=lambda point: point[0])[1] - APERTURE_TOP) / height
+    power = math.log(COUNTER_NOSE_FRACTION) / math.log(nose)
+    profile = [
+        (x, APERTURE_TOP + height * ((y - APERTURE_TOP) / height) ** power)
+        for x, y in profile
+    ]
+
+    def area(points):
+        return abs(
+            sum(
+                a[0] * b[1] - b[0] * a[1]
+                for a, b in zip(points, points[1:] + points[:1])
+            )
+            / 2
+        )
+
+    reference_area = area(
+        [(STEM_R, REFERENCE_APERTURE_BOTTOM), *bowl, (STEM_R, APERTURE_TOP)]
+    )
+
+    def counter_area(factor):
+        polygon = build(
+            [
+                ("aperture_bl", CHANNEL_LOW - APERTURE_BOTTOM, APERTURE_BOTTOM),
+                ("poly", [(STEM_R + (x - STEM_R) * factor, y) for x, y in profile]),
+                ("close_top", STEM_R, APERTURE_TOP),
+                ("close_bottom", STEM_R, REFERENCE_APERTURE_BOTTOM),
+            ],
+            RADII,
+        )[1]
+        return area(polygon)
+
+    base_area = counter_area(1)
+    area_slope = (counter_area(1.2) - base_area) / 0.2
+    factor = 1 + (reference_area * COUNTER_AREA_RATIO - base_area) / area_slope
+    return [("poly", [(STEM_R + (x - STEM_R) * factor, y) for x, y in profile])]
 
 
 def stem():
@@ -148,8 +241,13 @@ def stem():
 
 
 def arc_points(cx, cy, r, a0, a1, steps=48):
-    return [(cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / steps)),
-             cy + r * math.sin(math.radians(a0 + (a1 - a0) * i / steps))) for i in range(steps + 1)]
+    return [
+        (
+            cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / steps)),
+            cy + r * math.sin(math.radians(a0 + (a1 - a0) * i / steps)),
+        )
+        for i in range(steps + 1)
+    ]
 
 
 def build(contour, radii):
@@ -183,7 +281,7 @@ def build(contour, radii):
         if e[0] == "arc":
             _, pts, r, sweep = e
             poly.extend(pts)
-            cmds.append(("L", *pts[0]))   # arcs start at their own tangent point
+            cmds.append(("L", *pts[0]))  # arcs start at their own tangent point
             cmds.append(("A", r, sweep, *pts[-1]))
             continue
         _, name, x, y = e
@@ -203,7 +301,7 @@ def build(contour, radii):
         d2 = (d2[0] / l2, d2[1] / l2)
         cross = d1[0] * d2[1] - d1[1] * d2[0]
         dot = d1[0] * d2[0] + d1[1] * d2[1]
-        turn = math.atan2(abs(cross), dot)          # deflection angle
+        turn = math.atan2(abs(cross), dot)  # deflection angle
         t = r * math.tan(turn / 2)
         a = (x - d1[0] * t, y - d1[1] * t)
         b = (x + d2[0] * t, y + d2[1] * t)
@@ -219,7 +317,7 @@ def build(contour, radii):
             a1 -= 2 * math.pi
         cmds.append(("L", *a))
         cmds.append(("A", r, sweep, *b))
-        for k in range(0, 17):
+        for k in range(17):
             ang = a0 + (a1 - a0) * k / 16
             poly.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
     cmds[0] = ("M", *cmds[0][1:]) if cmds[0][0] == "L" else cmds[0]
@@ -272,7 +370,9 @@ def rasterize(radii):
 
 def fit_radii(ref):
     radii = dict(RADII)
-    corners = {v[0]: (v[1], v[2]) for v in outline() + stem() if v[0] not in ("arc", "poly")}
+    corners = {
+        v[0]: (v[1], v[2]) for v in outline() + stem() if v[0] not in ("arc", "poly")
+    }
     for name, (x, y) in corners.items():
         x0, x1 = int(x) - 25, int(x) + 25
         y0, y1 = int(y) - 25, int(y) + 25
@@ -290,40 +390,60 @@ def fit_radii(ref):
 
 
 def main():
-    ref = reference_mask()
+    export_master = "--export-master" in sys.argv
+    if not export_master or "--fit" in sys.argv:
+        ref = reference_mask()
     radii = fit_radii(ref) if "--fit" in sys.argv else RADII
-    ours = rasterize(radii)
-    print(f"IoU vs reference union: {(ours & ref).sum() / (ours | ref).sum():.4f}")
 
     LEFT = LEG_DIAG - BOTTOM
     ref_w, ref_h = RIGHT - LEFT, BOTTOM - TOP
     scale = 840.0 / max(ref_w, ref_h)
     width, height = ref_w * scale, ref_h * scale
-    tf = Transform(scale, (1000 - width) / 2 - LEFT * scale, (1000 - height) / 2 - TOP * scale)
+    tf = Transform(
+        scale, (1000 - width) / 2 - LEFT * scale, (1000 - height) / 2 - TOP * scale
+    )
     d = to_svg([build(outline(), radii)[0], build(stem(), radii)[0]], tf)
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">\n'
         f'  <path id="dinkster-d" fill="#32E6C5" d="{d}"/>\n'
         "</svg>\n"
     )
+    if export_master:
+        destination = sys.argv[sys.argv.index("--export-master") + 1]
+        with open(destination, "w", encoding="ascii") as f:
+            f.write(svg)
+        return
     with open("dinkster-d-draft.svg", "w") as f:
         f.write(svg)
 
+    ours = rasterize(radii)
+    print(f"IoU vs reference union: {(ours & ref).sum() / (ours | ref).sum():.4f}")
     ov = np.zeros((470, 560, 3), np.uint8)
     ov[ref & ours] = (235, 235, 235)
     ov[ref & ~ours] = (255, 60, 60)
     ov[~ref & ours] = (60, 120, 255)
-    Image.fromarray(ov[40:380, 90:520]).resize((860, 680), Image.NEAREST).save("overlay.png")
+    Image.fromarray(ov[40:380, 90:520]).resize((860, 680), Image.NEAREST).save(
+        "overlay.png"
+    )
 
-    cairosvg.svg2png(bytestring=svg.encode(), write_to="d-1024.png", output_width=1024, output_height=1024)
+    cairosvg.svg2png(
+        bytestring=svg.encode(),
+        write_to="d-1024.png",
+        output_width=1024,
+        output_height=1024,
+    )
     strip = Image.new("RGB", (16 + 32 + 64 + 128 + 5 * 24, 128 + 48), (17, 19, 22))
     x = 24
     for size in (16, 32, 64, 128):
-        png = cairosvg.svg2png(bytestring=svg.encode(), output_width=size, output_height=size)
+        png = cairosvg.svg2png(
+            bytestring=svg.encode(), output_width=size, output_height=size
+        )
         icon = Image.open(io.BytesIO(png)).convert("RGBA")
         strip.paste(icon, (x, 24 + (128 - size)), icon)
         x += size + 24
-    strip.resize((strip.width * 3, strip.height * 3), Image.NEAREST).save("size-proof-nearest.png")
+    strip.resize((strip.width * 3, strip.height * 3), Image.NEAREST).save(
+        "size-proof-nearest.png"
+    )
 
 
 if __name__ == "__main__":

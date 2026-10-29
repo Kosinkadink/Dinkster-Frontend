@@ -155,7 +155,20 @@ def construction_geometry(parent):
                 group,
             )
         for index, vertex in enumerate(contour):
-            if vertex[0] in ("arc", "poly"):
+            if vertex[0] == "arc":
+                _, cx, cy, radius, _, _ = vertex
+                node(
+                    "circle",
+                    {
+                        "id": "fillet-bottom-trim",
+                        "cx": str(cx),
+                        "cy": str(cy),
+                        "r": str(radius),
+                    },
+                    group,
+                )
+                continue
+            if vertex[0] == "poly":
                 continue
             name, x, y = vertex
             radius = geometry.RADII[name]
@@ -165,8 +178,20 @@ def construction_geometry(parent):
                 contour[index - 1],
                 contour[(index + 1) % len(contour)],
             )
-            p = previous[1][-1] if previous[0] == "poly" else previous[1:3]
-            q = following[1][0] if following[0] == "poly" else following[1:3]
+            p = (
+                previous[1][-1]
+                if previous[0] == "poly"
+                else geometry.arc_points(*previous[1:])[-1]
+                if previous[0] == "arc"
+                else previous[1:3]
+            )
+            q = (
+                following[1][0]
+                if following[0] == "poly"
+                else geometry.arc_points(*following[1:])[0]
+                if following[0] == "arc"
+                else following[1:3]
+            )
             a, b = (x - p[0], y - p[1]), (q[0] - x, q[1] - y)
             la, lb = math.hypot(*a), math.hypot(*b)
             a, b = (a[0] / la, a[1] / la), (b[0] / lb, b[1] / lb)
@@ -231,7 +256,7 @@ def construction_geometry(parent):
     return f"translate({dx} {dy}) scale({scale})"
 
 
-def symbol_path(size=None, trim_radius=None):
+def symbol_path(size=None, trim_radius=None, reference=False):
     gap = {16: 4, 24: 8}.get(size)
     adjustments = (
         {
@@ -251,8 +276,9 @@ def symbol_path(size=None, trim_radius=None):
     try:
         for name, value in adjustments.items():
             setattr(geometry, name, value)
-        contour = geometry.outline()
+        contour = geometry.reference_outline() if reference else geometry.outline()
         if trim_radius is not None:
+            contour = geometry.reference_outline()
             index = next(
                 i for i, vertex in enumerate(contour) if vertex[0] == "bottom_channel"
             )

@@ -1,16 +1,15 @@
 """Render unselected lower-arm proposals without changing the approved D."""
 
 import argparse
-from copy import deepcopy
 import math
 import shlex
 import subprocess
 import xml.etree.ElementTree as ET
+from copy import deepcopy
 
 import build_d as geometry
-from PIL import Image, ImageDraw, ImageFont
-
 from build_brand import ROOT, SVG, node, symbol_path, write
+from PIL import Image, ImageDraw, ImageFont
 
 
 def counter_options(inkscape, nose_options=False):
@@ -24,10 +23,10 @@ def counter_options(inkscape, nose_options=False):
         80 - (geometry.LEG_DIAG - geometry.BOTTOM) * scale,
         (1000 - (geometry.BOTTOM - geometry.TOP) * scale) / 2 - geometry.TOP * scale,
     )
-    bowl = geometry.bowl_side()[0][1]
+    bowl = geometry.reference_bowl_side()[0][1]
     # Counter area is measured right of the island's straight stem edge.
     points = [
-        (geometry.STEM_R, geometry.APERTURE_BOTTOM),
+        (geometry.STEM_R, geometry.REFERENCE_APERTURE_BOTTOM),
         *bowl,
         (geometry.STEM_R, geometry.APERTURE_TOP),
     ]
@@ -78,7 +77,7 @@ def counter_options(inkscape, nose_options=False):
         base_area = counter_area(1)
         area_slope = (counter_area(1.2) - base_area) / 0.2
         factor = 1 + (area * (1 - reduction / 100) - base_area) / area_slope
-        contour = geometry.outline()
+        contour = geometry.reference_outline()
         if column or nose_options:
             contour = [
                 ("poly", [(298 + (x - 298) * factor, y) for x, y in reshaped])
@@ -123,7 +122,13 @@ def counter_options(inkscape, nose_options=False):
             source = ET.parse(
                 output.parent / f"geometry-options/current-{variant}.svg"
             ).getroot()
-            approved = symbol_path()
+            approved = geometry.to_svg(
+                [
+                    geometry.build(geometry.reference_outline(), geometry.RADII)[0],
+                    geometry.build(geometry.stem(), geometry.RADII)[0],
+                ],
+                transform,
+            )
             for element in source.iter():
                 if element.get("d") == approved:
                     element.set("d", path)
@@ -279,7 +284,7 @@ def main():
             symbol.attrib.pop("transform")
             svg.append(symbol)
             for size in (16, 24, 32, 48, 64, 1024):
-                path = symbol_path(size, radius)
+                path = symbol_path(size, radius, reference=True)
                 copy = deepcopy(svg)
                 for element in copy.iter():
                     if element.get("d") == approved:

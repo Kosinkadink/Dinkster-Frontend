@@ -1,7 +1,8 @@
 # Approved D geometry
 
-`build_d.py` is the unchanged geometry source from the approved wrapper
-reference. `dinkster-d.svg` is the unchanged approved silhouette. The
+`build_d.py` constructs the selected -30 percent reshaped counter with
+the nose at 62 percent height and a partial radius-24 lower corner.
+`dinkster-d.svg` is its approved silhouette. The
 `02_Logo_Master_Mono` layer retains that path's exact data. Rendering and
 clipping copies never replace it. All source coordinates below are in the
 reference image's pixel frame, not the 1000-unit SVG frame.
@@ -17,12 +18,20 @@ reference image's pixel frame, not the 1000-unit SVG frame.
 | CHAMFER_TR | 334 | Top-right line x - y = 334 |
 | CHAMFER_BR | 768 | Bottom-right line x + y = 768 |
 | APERTURE_TOP | 157 | Flat top of interior aperture |
-| BOWL_C | (338, 221) | Aperture symmetry center; legacy bowl center |
-| BOWL_R | 50 | Legacy arc radius; fixes hole's right extreme at 388 |
+| BOWL_C | (338, 221) | Original reference counter's symmetry center |
+| BOWL_R | 50 | Reference arc radius; reference hole's right extreme is 388 |
 | BOWL_END_DEG | 45 | Rejected faceted bowl tangent angle |
 | SQUIRCLE_N | 3.2 | Approved aperture superellipse exponent |
 | ECHO_CHAMFER | 42 | Rejected echo-style aperture chamfer |
-| APERTURE_BOTTOM | 285 | Flat bottom, symmetric about y = 221 |
+| REFERENCE_APERTURE_BOTTOM | 285 | Original flat bottom used for the area baseline |
+| APERTURE_BOTTOM | 269 | Selected counter's flat bottom |
+| COUNTER_AREA_RATIO | 0.70 | Selected sampled counter area / reference area |
+| COUNTER_NOSE_FRACTION | 0.62 | Maximum-right sample's height down the counter |
+| COUNTER_PROFILE_X | 324 | Horizontal anchor of the unscaled reshaped profile |
+| COUNTER_BOTTOM_SHIFT | 16 | Rightward taper offset at the profile bottom |
+| COUNTER_TOP_SCALE | 0.5 | Horizontal scale at profile top, increasing to 1 at bottom |
+| BODY_TRIM_X | 232 | Construction boundary of the partial lower-corner circle |
+| BODY_TRIM_RADIUS | 24 | Lower-corner radius, cut by the diagonal channel |
 | CHANNEL_LOW | 583 | Lower arm's inner line x + y = 583 |
 | STEM_TOP | 175 | Island's top; 18 below the aperture top |
 | STEM_L, STEM_R | 232, 298 | Island stem bounds |
@@ -47,6 +56,8 @@ The construction layer includes each active fillet's circle at its
 computed center, the uncolored contour, named vertices, edge/chamfer
 guides, the legacy bowl circle, and the sampled approved superellipse.
 The circle is construction material, never a circular replacement hole.
+The selected partial r24 has its own circle centered at (256,336);
+neighboring fillets use its channel endpoint, not its center.
 
 ## Mapping and sampling
 
@@ -65,11 +76,10 @@ path, each clipped by a hard-edged path in the same reference frame.
 Coral follows an inset 45-degree top chamfer, vertical right plane and
 lower chamfer. Its two central turns use the master's `right_top` and
 `right_bottom` fillet radii (45 reference px). Yellow covers the region
-left of STEM_L and below source y = 240, including the current body's
-baseline tip. The unselected trims below remove that tip, not the color
+left of STEM_L and below source y = 240. The selected lower-body corner
+removes the old body's yellow baseline tip without changing that color
 region. No gradient, blur, stroke expansion or second silhouette is
-introduced. Plane placement is a visual proposal for checkpoint 2, not a
-modification of the approved D.
+introduced. All planes share the selected master silhouette.
 
 The export object applies the master silhouette as one outer clip to
 solid color planes. This is coverage-equivalent to the editable clipped
@@ -79,7 +89,7 @@ color therefore have identical alpha coverage, including antialiasing.
 ## Unselected lower-arm proposals
 
 `compare_geometry.py` keeps the approved source and master unchanged and
-renders two local lower-arm trims beside the current shape, in mono and
+renders two historical lower-arm trims beside the original shape, in mono and
 color at 1024 px on both backgrounds. Both replace the body's corner at
 `CHANNEL_LOW - BOTTOM = 223` with a vertical end at `STEM_L = 232`,
 from y = 360 to `CHANNEL_LOW - STEM_L = 351`. The straight trim is sharp;
@@ -162,11 +172,12 @@ The proposal ends the circle at its exact intersection with x+y=583,
 approximately (235.1369,347.8631). The arc is tangent to the baseline but
 not to the channel; no self-overlapping vertical/arc segment is inserted.
 The x=232 trim line is therefore a construction boundary rather than a
-surviving straight segment. The partial arc is the selected construction
-for these proofs; the fully tangent alternative is not selected. The
-master is not replaced until the user selects the new counter. All
-proposals are proof-only SVGs and PNGs with matching mono/color alpha;
-the master and production symbol exports stay unchanged.
+surviving straight segment. The partial arc is the selected construction;
+the fully tangent alternative is not selected. The 62 percent nose at
+-30 percent area is now the master geometry. Historical option SVGs and
+PNGs remain proof artifacts with matching mono/color alpha. Production
+symbol exports remain paused and are not regenerated by wordmark-only
+export.
 
 ## Lifted nose proofs
 
