@@ -1,0 +1,6 @@
+potrace 1.16. Copyright (C) 2001-2019 Peter Selinger.
+/home/kosin/comfy-vibe-station/lanes/brand-558/.amp/in/potrace/root/usr/bin/potrace --svg --flat --alphamax=1 --opttolerance=0.2 --unit=100 /home/kosin/comfy-vibe-station/lanes/brand-558/branding/sources/reference-e-2x.pbm --output -
+Input: reference light-on-dark, crop (336,130)-(388,182), at 2x.
+Threshold: red > 128; retain connected e component.
+Uniform map: x=(source_x-338)*42/44; y=14+(source_y-134)*42/44.
+Rerun: python /home/kosin/comfy-vibe-station/lanes/brand-558/branding/sources/trace_reference_e.py ../../notes/reference/branding/wordmark-monochrome-reference.png --potrace /home/kosin/comfy-vibe-station/lanes/brand-558/.amp/in/potrace/root/usr/bin/potrace

@@ -1,0 +1,1 @@
+/home/kosin/comfy-vibe-station/.amp/in/brand/venv/bin/python /home/kosin/comfy-vibe-station/lanes/brand-558/branding/sources/package_icons.py
