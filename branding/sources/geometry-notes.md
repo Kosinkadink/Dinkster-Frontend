@@ -44,8 +44,9 @@ The historical analytic construction remains hidden inside the construction
 layer. Its constants define the
 paused heavier proposal, but no longer construct the approved silhouette.
 The separate 16/24 production objects keep the selected path without channel
-masks. Production PNGs and containers retain exact-source frames while the
-minimal single-pixel proposals await visual selection. Wide channel cuts
+masks. Production PNGs and containers use the accepted exact-source frames
+with no hand edits. Minimal single-pixel revisions are backups only, never
+read by production exports or packaging. Wide channel cuts
 are rejected; their PNGs remain only as comparison controls.
 `compare_small_minimal.py` sets alpha to zero at these zero-based pixel
 coordinates, leaving RGB and every other pixel unchanged:

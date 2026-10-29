@@ -50,10 +50,10 @@ symbol SVGs, rasters or platform assets. The full command regenerates all
 assets, including color wordmarks for both themes and platform containers.
 Heavier lettering is historical and unselected; its contours and placements
 remain frozen. The regular 1.35x wordmark is the production selection.
-Separate 16/24 objects currently retain the exact selected path. The wider
+Separate 16/24 objects retain the exact selected path. The wider
 channel masks are rejected and retained only as comparison controls in
 `previews/small-vetoed/`. Production small PNGs and platform containers
-use the exact-source frames until a minimal revision is visually accepted.
+use the accepted exact-source frames with no hand edits in any variant.
 `export_brand.py --small-icons-only --inkscape /path/to/inkscape` regenerates
 only the small PNGs and the ICO/ICNS containers, leaving all other exports
 byte-identical. Commands are recorded in `small-export-commands.txt`.
@@ -61,10 +61,12 @@ byte-identical. Commands are recorded in `small-export-commands.txt`.
 clears only the listed single pixels on the existing channel centerlines:
 eight at 16 px and ten at 24 px. Every other RGBA byte stays unchanged,
 including the original yellow and coral. No fully opaque pixel is removed.
-It writes proposal PNGs to `previews/small-minimal/`, a native/12x comparison
+It writes backup PNGs to `previews/small-minimal/`, a native/12x comparison
 against exact source and rejected cuts on both themes, and a JSON report.
-Connectivity is diagnostic, not an acceptance gate; visual approval decides
-the small-size selection. `compare_small_optical.py` reproduces only the
+These two minimal revisions are documented backups only: production exports
+and platform packaging never read them. Connectivity is diagnostic, not an
+acceptance gate; the exact-source frames are the visual selection.
+`compare_small_optical.py` reproduces only the
 historical wider-cut comparison from the preserved rejected controls.
 Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
 k arm), and 56 (baseline); only the k's lower leg descends to 70.
@@ -129,8 +131,8 @@ comparison files are historical, not additional production selections.
   Color has the same silhouette as mono, with no effect required for recognition.
 - Raster: 16, 24, 32, 48, 64, 128, 256, 512 and 1024 px in `raster/color/`,
   `cyan/`, `mono/`, `white/`, `dark/` (white) and `light/` (ink).
-  All production sizes currently retain the selected master silhouette;
-  minimal 16/24 revisions are separate previews pending visual acceptance.
+  All production sizes retain the selected master silhouette with no hand
+  edits. Minimal 16/24 revisions are backup previews, not production assets.
 - Windows/favicon container: `platform/dinkster.ico`, with 16, 24, 32, 48,
   64, 128 and 256 px color PNG entries. Apple: `platform/dinkster.icns`,
   16 through 1024 px including 2x representations. `sources/package_icons.py`
