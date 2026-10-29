@@ -377,7 +377,9 @@ The selected available asset also names its backend machine and offers exact
 operator locations through Copy server path. A capable Desktop shell adds
 Show file on this computer using digest, scope and project, never a renderer
 path. Missing rows expose no location actions. Connection and project changes
-invalidate the old selection's actions.
+invalidate the old selection's actions. The dock keys its body on the active
+backend, clearing selection and disposing pending location reads when a tab
+switches backend; switching panels alone preserves the body.
 All assets groups equal digests across sources and pages, retaining observed
 names, virtual locations and provenance in Details. Different bytes remain
 separate even when their names match; a live location can satisfy an older

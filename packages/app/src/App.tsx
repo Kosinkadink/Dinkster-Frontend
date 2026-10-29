@@ -1273,9 +1273,9 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const AssetsPanelBody = () => {
-    const backend = activeBackend()
-    return backend.protocol === 'dinkster'
+  const AssetsPanelBody = () => <Show when={activeBackend()} keyed>
+    {(backend) => {
+      return backend.protocol === 'dinkster'
       ? <BackendMetadataState independentMounts><AssetsBody
           connection={backend.connection}
           backendId={String(backend.id)}
@@ -1284,7 +1284,8 @@ export function App(props: {
           {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
         /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
-  }
+    }}
+  </Show>
   const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
   /**
    * Best-effort display title for a runtime node id: resolve through compile
