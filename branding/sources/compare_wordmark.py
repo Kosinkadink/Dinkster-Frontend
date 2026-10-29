@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -11,12 +11,26 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("reference", type=Path)
+    parser.add_argument("--prefix", default="")
+    parser.add_argument("--caption", default="Reference-traced e; selected D unchanged")
+    parser.add_argument("--dark-reference-only", action="store_true")
     args = parser.parse_args()
     reference = Image.open(args.reference).convert("RGB")
+    if args.dark_reference_only:
+        lower = reference.copy()
+        reference = Image.new("RGB", (446, 518), "#111316")
+        reference.paste(lower.crop((0, 292, 446, 518)), (0, 292))
+        reference.paste(ImageOps.invert(lower.crop((0, 310, 446, 447))), (0, 56))
+        ImageDraw.Draw(reference).text(
+            (70, 245),
+            "DARK-ON-LIGHT REFERENCE - INVERTED",
+            fill="#F2F4F5",
+            font=ImageFont.truetype("DejaVuSans.ttf", 9),
+        )
     font = ImageFont.truetype("DejaVuSans.ttf", 18)
     drafts = []
-    for prefix in ("",):
-        width = 1024 if prefix else 892
+    for prefix in (args.prefix,):
+        width = 892
         draft = Image.new("RGB", (width, 1036), "#111316")
         draw = ImageDraw.Draw(draft)
         draw.rectangle((0, 584, width, 1036), fill="#F7F8FA")
@@ -50,10 +64,17 @@ def main():
         draw.text((952, 64 + index * 28), f"{name} guide", fill=color, font=font)
     draw.text(
         (952, 170),
-        "Reference-traced e; selected D unchanged",
+        args.caption,
         fill="#1F242A",
         font=font,
     )
+    if args.dark_reference_only:
+        draw.text(
+            (952, 205),
+            "Upper reference: lower artwork inverted",
+            fill="#1F242A",
+            font=font,
+        )
     comparison.paste(reference, (20, 50))
     for index, draft in enumerate(drafts):
         comparison.paste(
@@ -65,7 +86,9 @@ def main():
     comparison.paste(reference.resize((892, 1036), Image.Resampling.LANCZOS), (20, 624))
     for index, draft in enumerate(drafts):
         comparison.paste(draft, (932 + index * 912, 624))
-    comparison.save(ROOT / "previews/wordmark-reference-comparison.png")
+    comparison.save(ROOT / f"previews/wordmark-{args.prefix}reference-comparison.png")
+    if args.prefix:
+        return
     letters = Image.open(ROOT / "previews/letters-enlarged.png").convert("RGBA")
     letter_comparison = Image.new("RGB", (1680, 440), "#F7F8FA")
     letter_comparison.paste(

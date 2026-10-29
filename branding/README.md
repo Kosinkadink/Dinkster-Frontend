@@ -97,6 +97,22 @@ The selected 62 percent option is now the master geometry; both wordmark
 weights derive from it, while the regular letter contours remain under
 user review.
 
+`sources/trace_reference_d.py /path/to/wordmark-monochrome-reference.png
+--potrace /path/to/potrace --inkscape /path/to/inkscape` generates review-only
+D candidates under `previews/`. Only the dark-on-light reference D is
+sampled, at 2x and threshold red < 128. Candidate A is the complete trace,
+registered to the native reference with no optical corrections. Candidate
+B retains the approved exterior SVG arcs and edges, replacing the inner
+body and inward island faces with the traced segments. Straight joins at
+the splice boundaries remain visible; no fitting or smoothing conceals
+them. The island's exterior leg edge and baseline remain approved geometry.
+The source D, layered master, letter paths/placements, heavier artwork and
+production exports are not rewritten. The full-trace IoU overlay and both
+regular comparison sheets use only the dark-on-light D; its upper
+comparison appearance is an explicitly labeled inversion of that source,
+not the different light-on-dark drawing. Potrace/Inkscape versions and
+commands are recorded in `previews/reference-d-options/commands.txt`.
+
 For the small-size comparison, run `sources/compare_geometry.py --inkscape
 /path/to/inkscape` with Python, then `python sources/compare_small.py`.
 The historical native and nearest-neighbor sheets show mono, cyan and
