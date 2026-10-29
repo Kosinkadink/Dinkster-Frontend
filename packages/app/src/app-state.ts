@@ -3345,6 +3345,7 @@ export class AppState {
       this.pruneExtensionWorlds()
       this.drainLegacyBooleans() // before replacements: same open boundary
       this.drainUpgrades()
+      for (const tab of this.tabs.get()) this.refreshWorkflowAssets(tab)
     })
     // Mirror tab, document, and active-tab changes back into storage.
     this.tabs.subscribe(() => {
@@ -3437,6 +3438,8 @@ export class AppState {
     this.persistTimer = undefined
     for (const watcher of this.persistWatchers.values()) watcher.unsubscribe()
     this.persistWatchers.clear()
+    for (const check of this.workflowAssetChecks.values()) check.controller.abort()
+    this.workflowAssetChecks.clear()
     this.workspaceEvents?.removeEventListener?.('message', this.receiveWorkspaceEvent)
     this.workspaceEvents?.close?.()
     globalThis.removeEventListener?.('storage', this.receiveStorage)
@@ -3881,15 +3884,66 @@ export class AppState {
     if (changed) this.documentPersistenceDirty.add(tabId)
   }
 
-  /**
-   * (Re)subscribe to each live tab's document; drop watchers of closed
-   * tabs and REBIND watchers whose tab id now names a different session.
-   */
+  private readonly workflowAssetChecks = new Map<DocumentSession, {
+    readonly backend: Backend
+    readonly signature: string
+    readonly status: ConnectionStatus
+    readonly controller: AbortController
+  }>()
+
+  private refreshWorkflowAssets(tab: Tab): void {
+    if (this.disposed || tab.execution) return
+    const backend = this.backendForTab(tab)
+    const occurrences = Object.values(tab.store.doc.graphs).flatMap((graph) =>
+      Object.values(graph.nodes).flatMap((node) => Object.entries(node.values).flatMap(([input, value]) => {
+        const values = Array.isArray(value) ? value : [value]
+        return values.flatMap((asset, index) => isAssetRef(asset)
+          ? [{ graph: graph.id, node: node.id, input, index, asset }] : [])
+      })))
+    const signature = JSON.stringify(occurrences)
+    const status = backend.connection.status.get()
+    const previous = this.workflowAssetChecks.get(tab.store)
+    if (previous?.backend === backend && previous.signature === signature && previous.status === status) return
+    previous?.controller.abort()
+    const check = { backend, signature, status, controller: new AbortController() }
+    this.workflowAssetChecks.set(tab.store, check)
+    const publish = (diagnostics: readonly Diagnostic[]): void => {
+      if (this.disposed || check.controller.signal.aborted || this.workflowAssetChecks.get(tab.store) !== check ||
+          !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return
+      this.problems.update((problems) => problems.filter((problem) => problem.owner !== tab.id ||
+        (problem.code !== 'asset.availability.missing' && problem.code !== 'asset.availability.unchecked')))
+      this.reportProblems(tab.id, diagnostics)
+    }
+    publish([])
+    if (backend.protocol !== 'dinkster' || occurrences.length === 0) return
+    const unchecked = (): void => publish([diag('warning', 'validation', 'asset.availability.unchecked',
+      `Could not check workflow asset presence on ${backend.label}. No files were acquired.`)])
+    if (status !== 'connected') {
+      unchecked()
+      return
+    }
+    void backend.connection.checkAssetAvailability(occurrences.map(({ asset }) => asset.digest), {
+      scope: 'local', signal: check.controller.signal,
+    }).then((rows) => {
+      const missing = new Set(rows.filter((row) => row.status === 'missing').map((row) => row.digest))
+      publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map(({ graph, node, input, index, asset }) =>
+        diag('warning', 'validation', 'asset.availability.missing',
+          `${asset.name} is missing on ${backend.label}: ${graph}/${node}/${input} [${index + 1}].`, {
+            refs: [{ graphId: graph, nodeId: node, valueKey: input, direction: 'input' }],
+            data: { name: asset.name, backend: backend.label, graph, node, input,
+              digest: asset.digest, virtualPath: asset.virtualPath, index },
+          })))
+    }, unchecked)
+  }
+
+  /** Rebind document watchers when a tab id starts naming a different session. */
   private watchTabDocuments(): void {
     const live = new Map(this.tabs.get().filter((t) => !t.execution).map((t) => [t.id, t]))
     for (const [id, watcher] of this.persistWatchers) {
       if (live.get(id) === watcher.tab) continue // same session, still good
       watcher.unsubscribe()
+      this.workflowAssetChecks.get(watcher.tab.store)?.controller.abort()
+      this.workflowAssetChecks.delete(watcher.tab.store)
       this.persistWatchers.delete(id)
     }
     for (const [id, tab] of live) {
@@ -3905,9 +3959,11 @@ export class AppState {
           reconcileGraphNavigation(tab)
           this.markTabDirty(id)
           this.schedulePersistTabs()
+          this.refreshWorkflowAssets(tab)
         }),
       }
       this.persistWatchers.set(id, watcher)
+      this.refreshWorkflowAssets(tab)
     }
   }
 

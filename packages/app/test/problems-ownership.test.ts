@@ -284,6 +284,82 @@ async function callStarted(spy: { mock: { calls: unknown[][] } }): Promise<void>
   if (spy.mock.calls.length === 0) throw new Error('spied call was never entered')
 }
 
+describe('workflow asset presence', () => {
+  const first = { digest: 'blake3:' + 'a'.repeat(64), name: 'portrait.png', size: 17,
+    mediaType: 'image/png', virtualPath: 'mounts/original/portrait.png' }
+  const other = { ...first, digest: 'blake3:' + 'b'.repeat(64) }
+  const document = {
+    ...CHAIN_DOC,
+    graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+      n0: { ...CHAIN_DOC.graphs.g0.nodes.n0, values: { a: first, b: [other, first] } },
+    }, links: {} } },
+  }
+
+  it('checks exact identities on reopen and retarget without mutating refs or unrelated problems', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'missing' },
+    ])
+    expect(app.openDocument(document, 'Assets')).toEqual([])
+    const tab = app.activeTab()!
+    const before = JSON.stringify(tab.store.doc)
+    const revision = tab.store.revision
+    app.reportProblems(tab.id, [diag('info', 'command', 'unrelated.notice', 'Keep me')])
+    app.setTabTarget(tab.id, backend.id)
+    await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.missing'))
+    const missing = app.problems.get().filter((problem) => problem.code === 'asset.availability.missing')
+    expect(missing).toHaveLength(1)
+    expect(missing[0]).toMatchObject({
+      message: 'portrait.png is missing on Native: g0/n0/b [1].',
+      refs: [{ graphId: 'g0', nodeId: 'n0', valueKey: 'b', direction: 'input' }],
+      data: { digest: other.digest, index: 0 },
+    })
+    const empty = app.addBackend('http://empty:8000', 'Empty library', false, 'dinkster')!
+    if (empty.protocol !== 'dinkster') throw new Error('native backend required')
+    vi.spyOn(empty.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(empty.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'available' },
+    ])
+    app.setTabTarget(tab.id, empty.id)
+    await vi.waitFor(() => expect(app.problems.get().filter((problem) => problem.code === 'asset.availability.missing')).toHaveLength(2))
+    expect(shownCodes(tab.id)).toContain('unrelated.notice')
+    expect(JSON.stringify(tab.store.doc)).toBe(before)
+    expect(tab.store.revision).toBe(revision)
+    expect(app.assetConsent.get()).toBeUndefined()
+    app.dispose()
+  })
+
+  it('does not interpret failed checks as missing or publish late responses after edits and close', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    const pending = deferred<readonly { digest: string; status: 'missing' }[]>()
+    const check = vi.spyOn(backend.connection, 'checkAssetAvailability').mockReturnValue(pending.promise)
+    app.openDocument(document, 'Assets')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await callStarted(check)
+    check.mockRejectedValue(new Error('network unavailable'))
+    expect(app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'a', value: other,
+    } }).ok).toBe(true)
+    await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.unchecked'))
+    pending.resolve([{ digest: first.digest, status: 'missing' }])
+    await pending.promise
+    expect(shownCodes(tab.id)).not.toContain('asset.availability.missing')
+    const closed = deferred<readonly { digest: string; status: 'missing' }[]>()
+    check.mockReturnValue(closed.promise)
+    app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'a', value: first,
+    } })
+    app.closeTab(tab.id)
+    closed.resolve([{ digest: first.digest, status: 'missing' }])
+    await closed.promise
+    expect(app.problems.get().filter((problem) => problem.owner === tab.id)).toEqual([])
+    app.dispose()
+  })
+})
+
 describe('late async results and dead owners', () => {
   it('blocks a stale wire-15 artifact before POST when mode changes during source upload', async () => {
     const { backend, tab } = nativeSetup()

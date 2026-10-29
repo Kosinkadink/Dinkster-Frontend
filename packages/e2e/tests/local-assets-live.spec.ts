@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
+import { openRailPanel } from './fixtures.js'
 
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!nativeFrontend) throw new Error('Native frontend is required')
@@ -18,6 +19,60 @@ async function openPicker(page: Page): Promise<void> {
   await page.mouse.click(point.x, point.y)
   await expect(page.getByTestId('asset-editor')).toBeVisible()
 }
+
+test('reopened workflow checks exact asset presence without acquiring or rewriting refs', async ({ page, request }, info) => {
+  const response = await request.post(`${process.env['DINKSTER_NATIVE_BACKEND']}/api/assets?scope=local&name=workflow-presence-${Date.now()}.bin`, {
+    headers: { 'Content-Type': 'application/octet-stream' }, data: Buffer.from('workflow presence fixture'),
+  })
+  expect(response.status()).toBe(201)
+  const { asset: available } = await response.json()
+  const missing = { ...available, digest: 'blake3:' + '0'.repeat(64) }
+  const writes: string[] = []
+  const missingReads: string[] = []
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && request.url().includes('/api/assets')) writes.push(request.url())
+    if (decodeURIComponent(request.url()).includes(`/api/assets/${missing.digest}`)) missingReads.push(request.url())
+  })
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await page.evaluate(({ available, missing }) => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'WorkflowAssetPresence', displayName: 'Workflow asset presence', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'input', id: 'file', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+        widget: { widgetType: 'ASSET', kind: 'asset/file', options: {}, default: null } }],
+    }])
+    app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'workflow-asset-presence', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        existing: { id: 'existing', type: 'WorkflowAssetPresence', values: { file: available } },
+        absent: { id: 'absent', type: 'WorkflowAssetPresence', values: { file: missing } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+      view: { graphs: { g0: { nodes: {
+        existing: { position: { x: 100, y: 100 } }, absent: { position: { x: 100, y: 300 } },
+      } } } },
+    } as never, 'Saved asset references')
+  }, { available, missing })
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
+    .filter((entry) => entry.code === 'asset.availability.missing').map((entry) => entry.code))).toEqual(['asset.availability.missing'])
+  await openRailPanel(page, 'Problems')
+  const problem = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'is missing on' })
+  await expect(problem).toHaveCount(1)
+  await expect(problem).toContainText(missing.name)
+  await expect(problem).toContainText('g0/absent/file [1]')
+  await problem.locator('summary').click()
+  for (const width of [1440, 600]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect(problem).toBeVisible()
+    await page.screenshot({ path: info.outputPath(`workflow-missing-${width}.png`) })
+  }
+  const saved = await page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return { revision: tab.store.revision, values: Object.values(tab.store.doc.graphs['g0']!.nodes).map((node) => node.values['file']) }
+  })
+  expect(saved).toEqual({ revision: 0, values: [available, missing] })
+  expect(writes).toEqual([])
+  expect(missingReads).toEqual([])
+})
 
 for (const fixture of [
   { name: 'catalog-image.png', mime: 'image/png', kind: 'media/image', path: 'with_metadata.png' },
