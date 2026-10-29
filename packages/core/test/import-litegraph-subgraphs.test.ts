@@ -434,13 +434,22 @@ describe('LiteGraph subgraphs', () => {
     expect(prompt(doc, resolver)['n1.n1']!.inputs['value']).toBe(19)
   })
 
-  it('imports repeated output links from the same socket without changing the producer', () => {
+  it.each(['INT', 'FLOAT'])('imports repeated output links only with matching declared types (%s)', (type) => {
     const def = definition()
-    def.links.push(link(3, 1, 0, -20, 0))
+    def.links.push({ ...link(3, 1, 0, -20, 0), type })
     def.outputs[0]!.linkIds = [3]
     const raw = { nodes: [instance(10), { ...relay(20), inputs: [{ name: 'value', link: 9 }] }],
       links: [link(9, 10, 0, 20, 0)], definitions: { subgraphs: [def] } }
     const before = JSON.stringify(raw)
+    if (type !== 'INT') {
+      const result = importLitegraph(raw as JsonObject, resolve)
+      expect(result.document).toBeUndefined()
+      expect(result.diagnostics).toContainEqual(expect.objectContaining({
+        severity: 'error', code: 'import.subgraphs.boundaryUnsupported',
+      }))
+      expect(JSON.stringify(raw)).toBe(before)
+      return
+    }
     const doc = imported(raw)
     expect(doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
     expect(prompt(doc).n20!.inputs.value).toEqual(['n10.n1', 0])
