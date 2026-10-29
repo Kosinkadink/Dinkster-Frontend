@@ -551,7 +551,7 @@
     "text:Size",
     "text:Undo mask edit",
     "text:isCompositorEditorTarget(request()) ?",
-    "text:props.host?.tabId() ?? globalActiveTabId() const [session, setSession] = createSignal"
+    "text:props.host?.tabId() ?? globalActiveTabId()) const [session, setSession] = createSignal"
   ],
   "ImportAssetResolutionDialog.tsx": [
     "text:decisionEl) const request = useSignal(props.app.importAssetResolution) const [selected, setSelected] = createSignal"

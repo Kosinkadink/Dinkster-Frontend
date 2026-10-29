@@ -218,7 +218,7 @@ test('real ASSET Upload preserves a greater-than-256-KiB PNG through graph, vaul
   await editor.getByTestId('asset-apply').click()
   await expect(editor).not.toBeVisible()
   expect(await assetRef(page)).toEqual({
-    digest, name: 'widget-byte-proof.png', size: png.length, mediaType: 'image/png', virtualPath: '',
+    digest, name: 'widget-byte-proof.png', size: png.length, mediaType: 'image/png', virtualPath: 'mounts/imports/widget-byte-proof.png',
   })
   await assertExportReopen(page)
   await connectOutputAndRun(page)
