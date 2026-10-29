@@ -4403,3 +4403,21 @@ describe('memory telemetry transport', () => {
     await expect(connection.fetchMemoryStatus()).rejects.toThrow('malformed response')
   })
 })
+
+it('reads workflow plans without sending a hardware guess or acquisition consent', async () => {
+  const workflow = loadDocument(readJson('fixtures/workflows/minimal.json')).document
+  expect(workflow).toBeDefined()
+  const plan = {
+    packs: [{ pack: 'tools-a', version: '1.2.3' }],
+    assets: [{ digest: `blake3:${'a'.repeat(64)}`, name: 'first.bin', sources: ['https://models.example.test/first'], packagedFrom: ['starter'] }],
+    errors: [],
+  }
+  let payload: unknown = plan
+  const { conn, requests } = submitHarness(() => jsonResponse(200, payload))
+  await expect(conn.planWorkflowRequirements(workflow!)).resolves.toEqual(plan)
+  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ workflows: [workflow] })
+  payload = { ...plan, packs: [{ pack: 'tools-a', version: 123 }] }
+  await expect(conn.planWorkflowRequirements(workflow!)).rejects.toThrow('invalid workflow requirement plan')
+  payload = { ...plan, assets: [{ ...plan.assets[0], sources: 'not-a-list' }] }
+  await expect(conn.planWorkflowRequirements(workflow!)).rejects.toThrow('invalid workflow requirement plan')
+})

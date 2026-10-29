@@ -37,6 +37,9 @@ test('notes render, persist, copy atomically, and never reach the backend', asyn
   await page.route('/api/nodes*', (route) =>
     route.fulfill({ json: nativeTable }),
   )
+  await page.route('/api/workflows/plan', (route) =>
+    route.fulfill({ json: { packs: [], assets: [], errors: [] } }),
+  )
   await page.route('/api/assets', (route) =>
     route.fulfill({
       status: 200,
