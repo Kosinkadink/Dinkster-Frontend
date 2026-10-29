@@ -125,7 +125,7 @@ async function queueAndWait(
   ).toHaveCount(completedBefore + 1, { timeout: 30_000 });
 }
 
-test("Save Image publishes its mounted path and follows the persisted output mount setting", async ({
+test("Save Image publishes its mounted path and follows the persisted project output setting", async ({
   page,
   request,
 }) => {
@@ -195,9 +195,14 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await page.getByRole("option", { name: "renders" }).click();
   await settings.getByRole("button", { name: "Apply" }).click();
   await expect(settings.getByText("Saved", { exact: true })).toBeVisible();
-  expect(await readFile(resolve(library, "mounts.toml"), "utf8")).toContain(
-    'output-mount = "renders"',
-  );
+  const selected = await request.get(`${backend}/api/mounts`);
+  expect(selected.status()).toBe(200);
+  expect((await selected.json()) as { outputMount?: string }).toMatchObject({
+    outputMount: "renders",
+  });
+  expect(JSON.parse(await readFile(resolve(library, "project-folders.json"), "utf8"))).toMatchObject({
+    outputs: { default: "renders" },
+  });
   await page.screenshot({
     path: evidencePath("issue-145", "alternate-output-setting.png"),
     fullPage: true,
@@ -211,6 +216,10 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   );
   expect(await readdir(alternateOutput)).toContain("ComfyUI_00001.png");
 
-  await request.put(`${backend}/api/mounts/output`, { data: { id: "output" } });
-  await request.delete(`${backend}/api/mounts/renders`);
+  const reset = await request.put(`${backend}/api/mounts/projects/default`, {
+    data: { mounts: ["output"], outputMount: "output" },
+  });
+  expect(reset.status()).toBe(200);
+  const removed = await request.delete(`${backend}/api/mounts/renders`);
+  expect(removed.status()).toBe(200);
 });

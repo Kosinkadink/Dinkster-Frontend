@@ -44,21 +44,25 @@ const comfyRoot = requiredDirectory('DINKSTER_E2E_COMFY_ROOT')
 const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
 const nativeOutput = resolve(nativeLibrary, 'output')
+const nativeImports = resolve(nativeLibrary, 'imports')
 if (argumentProject) {
   // Catalog preparation creates pack environments and schema data here before
   // Playwright loads this config. Reset only mutable test state so the native
   // server can still compose those prepared default packs.
   rmSync(nativeOutput, { recursive: true, force: true })
+  rmSync(nativeImports, { recursive: true, force: true })
   rmSync(resolve(nativeLibrary, 'vault'), { recursive: true, force: true })
   rmSync(resolve(nativeLibrary, 'value-store'), {
     recursive: true,
     force: true,
   })
+  rmSync(resolve(nativeLibrary, 'project-folders.json'), { force: true })
   rmSync(resolve(nativeLibrary, 'worker-state'), {
     recursive: true,
     force: true,
   })
   mkdirSync(nativeOutput, { recursive: true })
+  mkdirSync(nativeImports, { recursive: true })
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
   writeFileSync(
     resolve(nativeLibrary, 'settings.json'),
@@ -66,7 +70,7 @@ if (argumentProject) {
   )
   writeFileSync(
     resolve(nativeLibrary, 'mounts.toml'),
-    `[settings]\noutput-mount = "output"\n\n[mounts.output]\npath = ${JSON.stringify(nativeOutput)}\nmode = "readwrite"\n`,
+    `[settings]\noutput-mount = "output"\n\n[mounts.imports]\npath = ${JSON.stringify(nativeImports)}\nmode = "readwrite"\n\n[mounts.output]\npath = ${JSON.stringify(nativeOutput)}\nmode = "readwrite"\n`,
   )
 }
 const checkpointFixture = resolve(

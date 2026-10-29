@@ -55,6 +55,21 @@ test('proves product upload control and hidden workflow picker lifecycle', async
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))
   await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  let locationRequests = 0
+  await page.route('/api/mounts/locations', (route) => {
+    locationRequests++
+    expect(route.request().method()).toBe('GET')
+    return route.fulfill({ json: { mounts: [], activeMounts: [], importMount: null } })
+  })
+  await page.route('/api/mounts/locations?*', (route) => {
+    locationRequests++
+    const query = new URL(route.request().url()).searchParams
+    expect(route.request().method()).toBe('GET')
+    expect(query.get('scope')).toBe('local')
+    expect(query.get('project')).toBe('default')
+    expect(query.get('digest')).toMatch(/^blake3:/)
+    return route.fulfill({ json: { locations: [] } })
+  })
   await page.route('/api/assets/*', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: '' }))
 
   let posts = 0
@@ -214,4 +229,5 @@ test('proves product upload control and hidden workflow picker lifecycle', async
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().some((problem) =>
     problem.code === 'workflow.importFailed' && problem.message.includes('failed to open workflow file picker: picker blocked by proof')))).toBe(true)
   await expect(page.getByTestId('transient-status')).toContainText('picker blocked by proof')
+  expect(locationRequests).toBeGreaterThan(0)
 })

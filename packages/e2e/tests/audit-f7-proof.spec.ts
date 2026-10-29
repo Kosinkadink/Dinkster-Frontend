@@ -8,7 +8,7 @@ const catalog = {
   nodes: {},
 }
 
-async function prepare(page: Page): Promise<void> {
+async function prepare(page: Page): Promise<{ locationRequests: () => number }> {
   await page.route('/api/**', (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
@@ -18,12 +18,28 @@ async function prepare(page: Page): Promise<void> {
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))
   await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  let locationRequests = 0
+  await page.route('/api/mounts/locations', (route) => {
+    locationRequests++
+    expect(route.request().method()).toBe('GET')
+    return route.fulfill({ json: { mounts: [], activeMounts: [], importMount: null } })
+  })
+  await page.route('/api/mounts/locations?*', (route) => {
+    locationRequests++
+    const query = new URL(route.request().url()).searchParams
+    expect(route.request().method()).toBe('GET')
+    expect(query.get('scope')).toBe('local')
+    expect(query.get('project')).toBe('default')
+    expect(query.get('digest')).toMatch(/^blake3:/)
+    return route.fulfill({ json: { locations: [] } })
+  })
   await page.goto('/')
   await expect(page.getByTestId('settings-button')).toBeVisible()
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
   })
+  return { locationRequests: () => locationRequests }
 }
 
 const tabClose = (page: Page, tabId: string) =>
@@ -212,7 +228,7 @@ test('a pending close decision does not transfer to a same-id replacement docume
 })
 
 test('native dialog hosts retain only browser modality while product CSS owns visible chrome', async ({ page }) => {
-  await prepare(page)
+  const { locationRequests } = await prepare(page)
 
   const searchTrigger = page.getByTestId('topbar-search')
   await searchTrigger.click()
@@ -323,6 +339,7 @@ test('native dialog hosts retain only browser modality while product CSS owns vi
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   releaseUpload!()
   await expect(assetDialog.getByTestId('modal-close')).toBeEnabled()
+  expect(locationRequests()).toBeGreaterThan(0)
   await assetDialog.getByRole('button', { name: 'cancel' }).click()
   await expect(assetDialog).toHaveCount(0)
 })
