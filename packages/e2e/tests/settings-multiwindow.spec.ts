@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
 
 async function disableNativeDiscovery(page: Page): Promise<void> {
@@ -6,7 +6,24 @@ async function disableNativeDiscovery(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
 }
 
-test('settings changes reach an already-open panel window', async ({ page, context }) => {
+async function expectInteractiveReturnButton(page: Page, state: Locator): Promise<void> {
+  const button = state.getByRole('button', { name: 'Move back to main window', exact: true })
+  await expect(button).toBeVisible()
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAttribute('type', 'button')
+  await expect(button).toHaveCSS('cursor', 'pointer')
+  await page.mouse.move(0, 0)
+  const background = await button.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await button.hover()
+  await expect.poll(() => button.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(background)
+  await page.keyboard.press('Tab')
+  await button.focus()
+  await expect(button).toBeFocused()
+  await expect(button).toHaveCSS('outline-style', 'solid')
+  expect(await button.evaluate((element) => Number.parseFloat(getComputedStyle(element).outlineWidth))).toBeGreaterThan(0)
+}
+
+test('settings changes reach an already-open panel window', async ({ page, context }, info) => {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   const setGate = (enabled: boolean) => page.evaluate((value) => {
@@ -26,6 +43,15 @@ test('settings changes reach an already-open panel window', async ({ page, conte
   await setGate(false)
   await expect(panel.getByTestId('native-panel-window-missing')).toBeVisible()
   await expect(panel.getByTestId('native-panel-window-missing')).toContainText('Panel unavailable')
+  await expectInteractiveReturnButton(panel, panel.getByTestId('native-panel-window-missing'))
+  await panel.screenshot({ path: info.outputPath('missing-panel-action.png') })
+
+  await panel.goto('/?dinksterWindow=browser-missing-workflow&dinksterWorkflow=not-an-open-workflow')
+  const missing = panel.getByTestId('detached-workflow-missing')
+  await expect(missing).toBeVisible()
+  await expect(missing).toContainText('Workflow unavailable')
+  await expectInteractiveReturnButton(panel, missing)
+  await panel.screenshot({ path: info.outputPath('missing-workflow-action.png') })
 })
 
 test('panel window headers render and clear live indicators', async ({ page }) => {

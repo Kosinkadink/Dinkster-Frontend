@@ -114,6 +114,9 @@
 }
 .embedded-file-drop-choice { padding: var(--dinkster-space-16); }
 .embedded-file-drop-choice p { margin: 0 0 var(--dinkster-space-16); color: var(--dinkster-text-secondary); }
+.modal-surface[data-modal='canvas-import'] { width: min(560px, 90vw); min-width: min(320px, 90vw); }
+.canvas-import-choice { min-height: 0; padding: var(--dinkster-space-16); overflow: auto; overflow-wrap: anywhere; }
+.canvas-import-choice > p { margin: 0; color: var(--dinkster-text-secondary); }
 .modal-surface[data-modal^='widget-'] {
   min-width: min(280px, calc(100vw - 16px));
   width: min(620px, calc(100vw - 16px));
@@ -304,6 +307,8 @@
   padding: var(--dinkster-space-16);
   pointer-events: none;
 }
+.canvas-file-drop-surface[data-has-location='true'] { place-items: start end; padding-top: calc(var(--dinkster-space-32) * 2); }
+.canvas-file-drop-surface[data-has-location='true'] .canvas-file-drop-card { pointer-events: auto; }
 .canvas-file-drop-surface[data-state='drag'],
 .canvas-file-drop-surface[data-state='disabled'] {
   background: color-mix(in srgb, var(--dinkster-surface-canvas) 62%, transparent);
@@ -391,6 +396,7 @@
 
 @media (max-width: 520px) {
   .canvas-file-drop-surface { padding: var(--dinkster-space-8); }
+  .canvas-file-drop-surface[data-has-location='true'] { padding-top: calc(var(--dinkster-space-32) * 3); }
   .canvas-file-drop-card { grid-template-columns: auto minmax(0, 1fr); padding: var(--dinkster-space-12); }
   .canvas-file-drop-action { grid-column: 2; justify-self: start; }
   .canvas-file-drop-facts { grid-template-columns: minmax(0, 1fr); }
@@ -430,4 +436,3 @@
 .gesture-refusal-toast button:hover { background: #ffffff1a; }
 .gesture-refusal-toast button:focus-visible { outline: 2px solid #ef9a9a; outline-offset: 1px; }
 .gesture-refusal-toast svg { width: 15px; height: 15px; }
-

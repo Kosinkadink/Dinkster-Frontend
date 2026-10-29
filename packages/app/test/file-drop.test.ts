@@ -308,6 +308,7 @@ describe('file-drop lifecycle gates', () => {
 
 describe('dropped image insertion', () => {
   const digest = `blake3:${'a'.repeat(64)}`
+  const asset: AssetRef = { digest, name: 'server-name-2.png', size: 73, mediaType: 'image/png', virtualPath: 'imports/scene/server-name-2.png' }
   const schema = {
     type: 'dinkster.load_image', displayName: 'Load Image', category: 'image', source: { kind: 'dinkster' }, isOutputNode: false,
     items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['image/*'] } } }],
@@ -318,12 +319,12 @@ describe('dropped image insertion', () => {
     mediaType: 'image/png' as const, graphId: 'g0', position: { x: 12, y: 34 },
     tabStillOpen: () => true, graphStillOwned: () => true, currentGraphId: () => 'g0', frozen: () => false,
     document: () => document, schemas: () => [schema],
-    predictedNodeId: () => 'n1', upload: vi.fn(async () => digest), dispatch: vi.fn((_invocation: CommandInvocation) => true), onInserted: vi.fn(),
+    predictedNodeId: () => 'n1', upload: vi.fn(async () => asset), dispatch: vi.fn((_invocation: CommandInvocation) => true), onInserted: vi.fn(),
   })
 
-  it('uploads first, then dispatches one atomic batch with a complete anonymous AssetRef', async () => {
-    let resolveUpload!: (value: string) => void
-    const upload = new Promise<string>((resolve) => { resolveUpload = resolve })
+  it('uploads first, then preserves the authoritative reference in one atomic batch', async () => {
+    let resolveUpload!: (value: AssetRef) => void
+    const upload = new Promise<AssetRef>((resolve) => { resolveUpload = resolve })
     const p = { ...base(), upload: vi.fn((_body: Blob) => upload) }
     const pending = insertDroppedImage(p)
     await Promise.resolve()
@@ -333,23 +334,28 @@ describe('dropped image insertion', () => {
     expect(new Uint8Array(await uploaded.arrayBuffer())).toEqual(new Uint8Array([0, 255, 17, 33, 4]))
     expect(p.dispatch).not.toHaveBeenCalled()
 
-    resolveUpload(digest)
+    resolveUpload(asset)
     await expect(pending).resolves.toBe('inserted')
     expect(p.dispatch).toHaveBeenCalledOnce()
     expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
       command: 'node.add', params: { graphId: 'g0', type: 'dinkster.load_image', position: { x: 12, y: 34 }, values: { image: {
-        digest, name: 'dropped-image.png', size: 5, mediaType: 'image/png', virtualPath: '',
+        digest, name: 'server-name-2.png', size: 73, mediaType: 'image/png', virtualPath: 'imports/scene/server-name-2.png',
       } } },
     }] } })
     expect(p.onInserted).toHaveBeenCalledWith('n1')
   })
 
-  it('names the asset from the assetName override instead of the dropped default', async () => {
-    const p = { ...base(), assetName: 'pasted-image.png' }
-    await expect(insertDroppedImage(p)).resolves.toBe('inserted')
-    expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
-      command: 'node.add', params: { values: { image: { digest, name: 'pasted-image.png' } } },
-    }] } })
+  it.each([
+    { ...asset, digest: 'not-a-digest' },
+    { ...asset, name: '' },
+    { ...asset, size: -1 },
+    { ...asset, size: 1.5 },
+    { ...asset, mediaType: 'image/jpeg' },
+    { ...asset, virtualPath: undefined } as unknown as AssetRef,
+  ])('refuses an incomplete or wrong-media reference without mutation: %j', async (invalid) => {
+    const p = { ...base(), upload: vi.fn(async () => invalid) }
+    await expect(insertDroppedImage(p)).resolves.toBe('invalid-asset')
+    expect(p.dispatch).not.toHaveBeenCalled()
   })
 
   it('chooses a synthetic catalog loader whose ASSET input exactly accepts the dropped MIME type', async () => {
@@ -362,7 +368,7 @@ describe('dropped image insertion', () => {
       type: 'pack.synthetic_jpeg_loader',
       items: [{ ...schema.items[0]!, id: 'source', widget: { widgetType: 'ASSET', options: { accept: ['image/jpeg'] } } }],
     } as NodeSchema
-    const p = { ...base(), mediaType: 'image/jpeg' as const, schemas: () => [pngOnly, synthetic] }
+    const p = { ...base(), mediaType: 'image/jpeg' as const, upload: async () => ({ ...asset, mediaType: 'image/jpeg' }), schemas: () => [pngOnly, synthetic] }
     await expect(insertDroppedImage(p)).resolves.toBe('inserted')
     expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
       command: 'node.add', params: { type: 'pack.synthetic_jpeg_loader', values: { source: { mediaType: 'image/jpeg' } } },
@@ -380,12 +386,12 @@ describe('dropped image insertion', () => {
 
   it('rechecks ownership after a deferred upload before dispatch', async () => {
     let live = true
-    let resolveUpload!: (digest: string) => void
-    const upload = new Promise<string>((resolve) => { resolveUpload = resolve })
+    let resolveUpload!: (asset: AssetRef) => void
+    const upload = new Promise<AssetRef>((resolve) => { resolveUpload = resolve })
     const p = { ...base(), tabStillOpen: () => live, upload: vi.fn(() => upload) }
     const pending = insertDroppedImage(p)
     live = false
-    resolveUpload(digest)
+    resolveUpload(asset)
     await expect(pending).resolves.toBe('stale-tab')
     expect(p.dispatch).not.toHaveBeenCalled()
   })

@@ -195,7 +195,16 @@ test('video trim and crop controls at desktop and compact widths', async ({ page
 
 test('native trim derives its widget, requests lazy source selectors, preserves JSON and undoes the sibling atomically', async ({ page }, info) => {
   const requests: URL[] = []
+  // Finish the canvas output peek before installing the editor-only capture.
+  // Otherwise a delayed, legitimate edit-node preview enters the source assertions.
+  const outputPreview = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname === '/api/values' && url.searchParams.get('jobId') === 'video-editor-run' && url.searchParams.get('nodeId') === 'edit'
+  })
   await openDocument(page, 'trim')
+  const outputResponse = await outputPreview
+  expect(outputResponse.status()).toBe(404)
+  await outputResponse.finished()
   const png = await page.evaluate(() => {
     const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180
     const ctx = canvas.getContext('2d')!
@@ -224,7 +233,7 @@ test('native trim derives its widget, requests lazy source selectors, preserves 
   expect(requests.some((url) => url.searchParams.get('frame') === '1.25s')).toBe(true)
   expect(requests.some((url) => url.searchParams.get('rendition') === 'thumbs')).toBe(true)
   expect(requests.every((url) => !url.searchParams.has('thumbs'))).toBe(true)
-  expect(requests.every((url) => url.searchParams.get('nodeId') === 'source' && url.searchParams.get('jobId') === 'video-editor-run' && !url.searchParams.has('element'))).toBe(true)
+  expect(requests.every((url) => url.searchParams.get('nodeId') === 'source' && url.searchParams.get('jobId') === 'video-editor-run' && !url.searchParams.has('element')), JSON.stringify(requests.map(String))).toBe(true)
   expect(requests.some((url) => ['original', 'preview'].includes(url.searchParams.get('rendition') ?? ''))).toBe(false)
   await page.getByTestId('video-trim-start-frame').fill('48')
   await page.getByTestId('video-trim-start-frame').press('Tab')

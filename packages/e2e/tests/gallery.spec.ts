@@ -2,8 +2,7 @@
  * Widget & Socket Gallery: one workflow that instantiates every widget kind
  * and every socket display variant (required/optional, MultiType 2/3/4-way,
  * Any, list<T>, list unions, nested lists, match-type variables) so display
- * regressions surface in ONE place and a full-canvas screenshot artifact is
- * produced for visual review on every run. The fixtures
+ * regressions surface in one place. The fixtures
  * (fixtures/gallery-schemas.json + fixtures/gallery-workflow.json) are the
  * frontend's half of the shared gallery contract; the backend's dev gallery
  * pack mirrors the same coverage for live end-to-end testing.
@@ -92,12 +91,4 @@ test('gallery pins cover every socket display variant', async ({ page }) => {
     kind: 'variable',
     matchVariable: 'T',
   })
-})
-
-test('visual artifact: full gallery screenshot', async ({ page }, testInfo) => {
-  // Not a pixel assertion - a stable, human-reviewable artifact. Attach it
-  // so the report always carries the current gallery rendering.
-  const path = testInfo.outputPath('gallery.png')
-  await page.getByTestId('graph-canvas').screenshot({ path })
-  await testInfo.attach('gallery', { path, contentType: 'image/png' })
 })

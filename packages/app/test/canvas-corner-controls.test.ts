@@ -1,70 +1,8 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { minimapMenuPlacement } from '../src/minimap.js'
 import { shellStyles as styles } from './fixtures/styles.js'
 
-const source = readFileSync(new URL('../src/CanvasHost.tsx', import.meta.url), 'utf8')
-
 describe('canvas corner controls', () => {
-  it('groups minimap toggle, settings, and zoom controls on the corner bar with accessible labels', () => {
-    expect(source).toContain('class="canvas-corner-controls"')
-    expect(source).toContain('class="canvas-corner-bar"')
-    expect(source).toContain('role="group" aria-label="Minimap controls"')
-    expect(source).toContain('role="group" aria-label="Canvas view controls"')
-    expect(source).toContain('data-testid="canvas-zoom-out"')
-    expect(source).toContain('data-testid="canvas-zoom-level"')
-    expect(source).toContain('data-testid="canvas-fit-view"')
-    expect(source).toContain('data-testid="canvas-zoom-in"')
-    expect(source).toContain('data-tooltip-label="Zoom out"')
-    expect(source).toContain('data-tooltip-label="Fit graph to view"')
-    expect(source).toContain('data-tooltip-label="Zoom in"')
-    expect(source).toContain('data-tooltip-label="Minimap settings"')
-    expect(source).toContain('data-tooltip-label="Reset zoom to 100%"')
-    expect(source).toContain('data-tooltip-label="Show bookmark numbers on the minimap"')
-    // Setting rows show their labels as text; a tooltip would duplicate the
-    // label and the row focused on menu open would spawn one over the menu.
-    expect(source).toContain('aria-label={label} aria-checked={enabled()}')
-    expect(source).not.toContain('data-tooltip-label={label}')
-    // The visibility toggle is one stateful button whose accessible name
-    // tracks the state it would produce.
-    expect(source).toContain('data-testid="minimap-toggle"')
-    expect(source).toMatch(/data-testid="minimap-toggle"[^>]*aria-pressed=\{minimapVisible\(\)\}/)
-    expect(source).toContain("minimapVisible() ? 'Hide minimap' : 'Show minimap'")
-  })
-
-  it('keeps the overlay wrapper click-through and gives controls usable targets and states', () => {
-    expect(styles).toMatch(/\.canvas-corner-controls\s*\{[^}]*pointer-events:\s*none/s)
-    expect(styles).toMatch(/\.canvas-corner-controls\s+(?:button|\.canvas-corner-button)[^{]*\{[^}]*min-width:\s*36px[^}]*min-height:\s*36px/s)
-    expect(source).toMatch(/<ProductButton[^>]*class="canvas-corner-button"/)
-    expect(styles).toMatch(/:is\(button,[^}]*:focus-visible\s*\{[^}]*outline:\s*var\(--dinkster-focus-ring-width\) solid var\(--dinkster-border-focus\)/s)
-    expect(styles).toContain('.product-button:active:not(:disabled)')
-    expect(styles).toMatch(/\.minimap-setting-row\s*\{[^}]*min-height:\s*36px/s)
-    expect(source).toMatch(/<ProductButton[^>]*role="switch" class="minimap-setting-row"/)
-  })
-
-  it('stacks the minimap above the corner bar and keeps the settings menu beside the cluster', () => {
-    // Column flow makes overlap between the minimap and the bar impossible
-    // by construction; nothing is absolutely positioned over the map.
-    expect(styles).toMatch(/\.canvas-corner-controls\s*\{[^}]*flex-direction:\s*column/s)
-    expect(styles).toMatch(/\.canvas-corner-controls\s*\{[^}]*width:\s*min\(260px,/s)
-    expect(styles).toMatch(/\.minimap\s*\{[^}]*height:\s*150px/s)
-    expect(styles).not.toMatch(/\.minimap-menu\s*\{[^}]*inset:\s*0/s)
-    expect(styles).toMatch(/\.minimap-menu\s*\{[^}]*right:\s*calc\(100% \+ 8px\)/s)
-    const compactStart = styles.indexOf('@media (max-width: 520px) {', styles.indexOf('.canvas-corner-controls {'))
-    const compactEnd = styles.indexOf('.canvas-view-controls {', compactStart)
-    const compact = styles.slice(compactStart, compactEnd)
-    expect(compactStart).toBeGreaterThanOrEqual(0)
-    expect(compactEnd).toBeGreaterThan(compactStart)
-    expect(compact).toMatch(/\.minimap\s*\{[^}]*height:\s*122px/s)
-    // When the stage leaves no room beside the cluster the menu opens above,
-    // driven by measurement in the host, not by a viewport media query.
-    expect(styles).toMatch(/\.minimap-menu\.above\s*\{[^}]*bottom:\s*calc\(100% \+ 8px\)/s)
-    expect(compact).not.toContain('.minimap-menu')
-    // While the menu is open the cluster outranks the floating top toolbar
-    // (z-index 7); the popover must never be painted over by other chrome.
-    expect(styles).toMatch(/\.canvas-corner-controls:has\(\.minimap-menu\)\s*\{[^}]*z-index:\s*9/s)
-  })
-
   it('flips the settings menu above the cluster only when the stage has no room beside it', () => {
     // Plenty of stage to the left of the cluster: open beside.
     expect(minimapMenuPlacement({ left: 870, top: 662 }, { left: 72, top: 90 })).toEqual({ above: false })

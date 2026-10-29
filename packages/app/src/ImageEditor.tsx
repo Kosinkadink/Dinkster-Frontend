@@ -51,7 +51,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
   const globalActiveTabId = useSignal(props.app.activeTabId)
   // When hosted inside a split group, this editor shows the group's active
   // tab, which may differ from the app-global active tab.
-  const activeTabId = (): string => props.host?.tabId() ?? globalActiveTabId()
+  const activeTabId = createMemo(() => props.host?.tabId() ?? globalActiveTabId())
   const [session, setSession] = createSignal<ImageSession>()
   const [error, setError] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)

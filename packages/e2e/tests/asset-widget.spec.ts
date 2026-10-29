@@ -122,6 +122,9 @@ test('asset editing uses the product modal with focus, close, touchscreen, and n
   await page.evaluate(() => document.querySelector<HTMLElement>('[data-testid="rail-toggle"]')?.focus())
   expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).not.toBe('rail-toggle')
 
+  // Source discovery and the first collection page resize the centered dialog.
+  // Finish both before measuring header movement, not the loading transition.
+  await expect(editor.locator('[data-search-state="loading"], [data-collection-state="loading"], [aria-busy="true"]')).toHaveCount(0)
   // Header pointer movement cannot drag a modal. The inner surface has no
   // drag handlers and the native dialog remains in the same top-layer box.
   const header = dialog.locator('.dock-header')

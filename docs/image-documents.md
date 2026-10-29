@@ -46,9 +46,10 @@ through the same command history. All 27 declared blend modes are retained.
 
 ## Graph documents
 
-The Outputs panel offers **Open layers** for `LAYERS` and `comfy.LAYERS`
-values. Opening uses the selected execution, runtime node and output identity
-on the value's owning connection and explicitly requests the `document`
+The Outputs panel offers **Open layers** for `dinkster.layers` values, not
+the `LAYERS` or `comfy.LAYERS` tensor mappings. Opening uses the selected
+execution, runtime node and output identity on the value's owning connection
+and explicitly requests the `document`
 rendition. The response must identify the selected type and fingerprint, report
 the `document` rendition, and use
 `application/vnd.dinkster.image-document+json`. The client adopts the exact
@@ -66,10 +67,12 @@ resources on the destination backend, then adds `dinkster.layers.load` wired to
 browser URLs or producer paths. Export is one undoable workflow command and
 refuses a changed destination graph, tab or backend. It neither changes the
 original graph source nor publishes a library record.
+Snapshot and recipe export require `dinkster.layers` at every layer port;
+tensor `LAYERS` and `comfy.LAYERS` ports are not compatible document targets.
 
 Documents opened from an executed native layer output also offer **Export
 editable recipe**. It branches `dinkster.layers.edit` -> `dinkster.layers.flatten` ->
-`dinkster.save_image` from the original `LAYERS` output without replacing or
+`dinkster.save_image` from the original `dinkster.layers` output without replacing or
 rewiring that source. The edit node receives canonical document commands;
 format and quality are explicit save-node values. PNG, JPEG, and WebP are
 supported, quality is 0-100, and PNG remains lossless. Output policy is
@@ -111,6 +114,8 @@ image mask editor offers **Apply mask to graph**. It inserts or updates one
 source-bound `dinkster.mask.paint` node, stores the serialized brush operations,
 and rewires only that loader's current mask consumers. The original image
 AssetRef remains unchanged, so the edit is visible and repeatable in execution.
+Pending mask edits and undo history survive layout refreshes while the same
+tab and image target remain active.
 The live acceptance executes paint, layer, and flatten nodes and checks every
 decoded transparency-mask sample against the identically edited explicit bake.
 For other eligible inputs, **Bake to asset** explicitly replaces the input

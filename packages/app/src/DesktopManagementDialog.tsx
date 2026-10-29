@@ -1,4 +1,4 @@
-import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import type { MountDescriptor, MountSettings } from '@dinkster/client'
 import {
   DESKTOP_ENGINE_ACCELERATORS,
@@ -38,7 +38,7 @@ const formatBytes = (bytes: number): string => {
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
-export function DesktopManagementDialog(props: { readonly connection: DesktopMountConnection | undefined }) {
+export function DesktopManagementDialog(props: { readonly connection: DesktopMountConnection | undefined; readonly backendUrl?: string }) {
   const bridge = desktopBridge()
   const message = useAppMessage()
   const [info, setInfo] = createSignal<DesktopInfo>()
@@ -46,6 +46,7 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
   const [statusMessage, setStatusMessage] = createSignal<StatusMessage>()
   const [check, setCheck] = createSignal<DesktopSystemCheck>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
+  const [mountChangesAllowed, setMountChangesAllowed] = createSignal(false)
   const [workers, setWorkers] = createSignal<readonly DesktopRemoteWorker[]>([])
   const [workerFormOpen, setWorkerFormOpen] = createSignal(false)
   const [editingWorker, setEditingWorker] = createSignal<string>()
@@ -98,8 +99,22 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
   }
 
   const refreshMounts = (): void => {
-    void props.connection?.fetchMountSettings().then((settings) => setMounts(settings.mounts)).catch(() => undefined)
+    const connection = props.connection
+    void connection?.fetchMountSettings().then((settings) => {
+      if (connection !== props.connection) return
+      setMounts(settings.mounts)
+      setMountChangesAllowed(settings.mountChangesAllowed)
+    }).catch(() => {
+      if (connection === props.connection) setMountChangesAllowed(false)
+    })
   }
+
+  createEffect(() => {
+    props.connection
+    setMounts([])
+    setMountChangesAllowed(false)
+    refreshMounts()
+  })
 
   onMount(() => {
     if (!bridge) return
@@ -108,7 +123,6 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
     onCleanup(dispose)
     void bridge.systemCheck().then(setCheck).catch(() => undefined)
     void bridge.remoteWorkers().then(setWorkers).catch((error: unknown) => setStatusMessage({ raw: error instanceof Error ? error.message : String(error) }))
-    refreshMounts()
   })
 
   const openWorkerForm = (worker?: DesktopRemoteWorker): void => {
@@ -256,11 +270,13 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
               </div>
               <Show when={props.connection} fallback={<p class="desktop-management-note">{message('desktopManagement.folders.unavailable')}</p>}>
                 {(connection) => <>
-                  <MountFolderForm
-                    connection={connection()}
-                    chooseDirectory={() => bridge!.chooseDirectory()}
-                    onGranted={refreshMounts}
-                  />
+                  <Show when={mountChangesAllowed()}>
+                    <MountFolderForm
+                      connection={connection()}
+                      {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })}
+                      onGranted={refreshMounts}
+                    />
+                  </Show>
                   <div class="desktop-mount-list">
                     <For each={mounts()}>{(mount) => <span>{mount.id} - {mount.state} - {mount.mode}</span>}</For>
                   </div>

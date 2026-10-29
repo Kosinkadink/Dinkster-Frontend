@@ -45,11 +45,11 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
     if (url.searchParams.has('rendition')) phases.push('document')
     return url.searchParams.has('rendition')
       ? route.fulfill({ contentType: mime, body: fixture.canonical, headers: {
-        'X-Dinkster-Type-Id': 'LAYERS',
+        'X-Dinkster-Type-Id': 'dinkster.layers',
         'X-Dinkster-Fingerprint': 'graph-document', 'X-Dinkster-Rendition': 'document',
       } })
       : route.fulfill({ json: { available: true,
-        descriptor: { typeId: 'LAYERS', fingerprint: 'graph-document' },
+        descriptor: { typeId: 'dinkster.layers', fingerprint: 'graph-document' },
         renditions: [{ kind: 'document', mime }],
       } })
   })
@@ -113,21 +113,21 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
     const app = window.__dinksterTest!.app
     app.registerSchemas([
       { type: 'LayerDocumentTest', displayName: 'Layer document', category: 'test', source: 'v3', isOutputNode: true,
-        items: [{ kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
+        items: [{ kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } }] },
       { type: 'dinkster.layers.load', editorRole: 'layers-load', displayName: 'Load Layers', category: 'image', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'document', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: {} } },
-        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
+        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } }] },
       { type: 'dinkster.layers.flatten', editorRole: 'layers-flatten', displayName: 'Flatten Layers', category: 'image', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+        items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
         { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
           widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
         { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }] },
       { type: 'dinkster.layers.edit', editorRole: 'layers-edit', displayName: 'Edit Layers', category: 'image', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+        items: [{ kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
         { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', options: { multiline: true } } },
-        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } }] },
+        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } }] },
       { type: 'dinkster.save_image', editorRole: 'image-save', displayName: 'Save Image', category: 'image', source: 'v3', isOutputNode: true,
         items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
         { kind: 'input', id: 'format', type: { kind: 'concrete', name: 'COMBO' }, optional: true,
@@ -147,7 +147,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
     store.register(ref, compiled.artifact, Date.now())
     store.apply({ kind: 'started', execution: ref, timestamp: Date.now() })
     store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'source', timestamp: Date.now(), output: {
-      layers: { typeId: 'LAYERS', fingerprint: 'graph-document' },
+      layers: { typeId: 'dinkster.layers', fingerprint: 'graph-document' },
     } })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
   })

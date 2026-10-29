@@ -9,6 +9,13 @@ import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
 
+const assetLocationMethods = {
+  fetchAssetLocations: async () => [],
+  fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
+  fetchMountLocations: async () => ({ mounts: [], activeMounts: [], importMount: null }),
+  onMountsChanged: () => () => {},
+}
+
 beforeEach(() => {
   vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (this: HTMLDialogElement) {
     this.setAttribute('open', '')
@@ -283,6 +290,7 @@ describe('ASSET widget modal integration', () => {
     const digestA = `blake3:${'a'.repeat(64)}`
     const digestB = `blake3:${'b'.repeat(64)}`
     const connection = {
+      ...assetLocationMethods,
       listMounts: vi.fn().mockResolvedValue([
         { id: 'left', mode: 'read', state: 'ready', kind },
         { id: 'right', mode: 'read', state: 'ready', kind },
@@ -723,6 +731,7 @@ describe('ASSET widget modal integration', () => {
     const close = vi.fn()
     const dispatchTo = vi.fn()
     const connection = {
+      ...assetLocationMethods,
       listMounts: vi.fn().mockResolvedValue([]),
       guessAssets: vi.fn().mockResolvedValue([]),
       listAssetSelections: vi.fn().mockResolvedValue([{ name: 'pixel_space', shape: 'literal' }, { name: 'taesd', shape: 'pair' }]),
@@ -998,9 +1007,10 @@ describe('ASSET widget modal integration', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const clickInput = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    let resolveUpload!: (digest: string) => void
-    const pendingUpload = new Promise<string>((resolve) => { resolveUpload = resolve })
-    const uploadAsset = vi.fn((_body: Blob, _signal?: AbortSignal) => pendingUpload)
+    const canonical = { digest: `blake3:${'d'.repeat(64)}`, name: 'byte-proof.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: 'mounts/capture/byte-proof.bin' }
+    let resolveUpload!: (asset: typeof canonical) => void
+    const pendingUpload = new Promise<typeof canonical>((resolve) => { resolveUpload = resolve })
+    const uploadNamedAsset = vi.fn((_body: File, _options: unknown) => pendingUpload)
     const dispatchTo = vi.fn()
     const close = vi.fn()
     const ed: WidgetEditorState = {
@@ -1014,8 +1024,9 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
     }
+    const backend = { protocol: 'dinkster', baseUrl: '', connection: { ...assetLocationMethods, uploadNamedAsset }, registry: { listCollections: () => [] } }
     const app = {
-      backendForTab: () => ({ protocol: 'dinkster', connection: { uploadAsset }, registry: { listCollections: () => [] } }),
+      backendForTab: () => backend,
       dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
@@ -1052,14 +1063,14 @@ describe('ASSET widget modal integration', () => {
 
     expect(input.value).toBe('')
     expect(trigger.disabled).toBe(true)
-    expect(uploadAsset).toHaveBeenCalledOnce()
-    expect(uploadAsset.mock.calls[0]?.[0]).toBe(file)
-    expect(new Uint8Array(await (uploadAsset.mock.calls[0]?.[0] as File).arrayBuffer())).toEqual(bytes)
+    expect(uploadNamedAsset).toHaveBeenCalledOnce()
+    expect(uploadNamedAsset.mock.calls[0]?.[0]).toBe(file)
+    expect(uploadNamedAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', name: 'byte-proof.bin' })
+    expect(new Uint8Array(await (uploadNamedAsset.mock.calls[0]?.[0] as File).arrayBuffer())).toEqual(bytes)
     expect(dispatchTo).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
 
-    const digest = `blake3:${'d'.repeat(64)}`
-    resolveUpload(digest)
+    resolveUpload(canonical)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     // The upload stages into the selection panel; Apply commits.
     expect(close).not.toHaveBeenCalled()
@@ -1071,14 +1082,14 @@ describe('ASSET widget modal integration', () => {
     expect(dispatchTo).toHaveBeenCalledWith(ed.tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'file', value: {
-        digest,
+        digest: canonical.digest,
         name: 'byte-proof.bin',
         size: bytes.length,
         mediaType: 'application/octet-stream',
-        virtualPath: '',
+        virtualPath: 'mounts/capture/byte-proof.bin',
       } },
     })
-    expect(dispatchTo.mock.invocationCallOrder[0]).toBeGreaterThan(uploadAsset.mock.invocationCallOrder[0]!)
+    expect(dispatchTo.mock.invocationCallOrder[0]).toBeGreaterThan(uploadNamedAsset.mock.invocationCallOrder[0]!)
     unmount()
   })
 
@@ -1112,10 +1123,11 @@ describe('ASSET widget modal integration', () => {
       initial: null,
     }
     const app = {
-      backendForTab: () => ({
+      backendForTab: vi.fn().mockReturnValue({
         protocol: 'dinkster',
         id: 'native',
         connection: {
+          ...assetLocationMethods,
           listMounts: vi.fn().mockResolvedValue([{ id: 'latents', mode: 'read', state: 'ready', kind: 'data/latent' }]),
           listMountEntries: vi.fn().mockResolvedValue({ entries: [] }),
           uploadAsset,
@@ -1188,6 +1200,7 @@ describe('ASSET widget modal integration', () => {
     }
     const app = {
       backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: {
+        ...assetLocationMethods,
         assetUrl,
         listMounts: vi.fn().mockResolvedValue([]),
       } }),
@@ -1233,6 +1246,7 @@ describe('ASSET widget modal integration', () => {
     }
     const app = {
       backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: {
+        ...assetLocationMethods,
         fetchAssetBytes: vi.fn().mockResolvedValue(new Uint8Array([0, 1, 2, 3])),
         listMounts: vi.fn().mockResolvedValue([]),
       } }),
@@ -1284,7 +1298,8 @@ describe('ASSET widget modal integration', () => {
       initial: null,
     }
     const app = {
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: {
+      backendForTab: vi.fn().mockReturnValue({ protocol: 'dinkster', id: 'native', connection: {
+        ...assetLocationMethods,
         uploadMediaAsset,
         listMounts: vi.fn().mockResolvedValue([]),
       } }),

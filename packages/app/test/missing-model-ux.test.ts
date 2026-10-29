@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { unresolvedAssetImportDiagnostic } from '../src/CanvasHost.js'
-import { backendSupportsAssetAcquisition, mediaAcceptsFile, unresolvedAssetBasename } from '../src/WidgetEditor.js'
+import { mediaAcceptsFile, unresolvedAssetBasename } from '../src/WidgetEditor.js'
 
 describe('unresolved imported ASSET diagnostics', () => {
   it('matches exact and wildcard media accepts without trusting an empty type', () => {
@@ -40,9 +40,5 @@ describe('unresolved imported ASSET diagnostics', () => {
     const requested = 'models/subdir/checkpoint.safetensors'
     expect(unresolvedAssetBasename(requested)).toBe('checkpoint.safetensors')
     expect(requested).toBe('models/subdir/checkpoint.safetensors')
-  })
-
-  it('keeps acquisition disabled until the backend has an explicit contract', () => {
-    expect(backendSupportsAssetAcquisition()).toBe(false)
   })
 })

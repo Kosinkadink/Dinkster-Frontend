@@ -1,9 +1,17 @@
 # Safe canvas file drop
 
-The graph canvas accepts one local file at a time. Classification uses bounded
-file bytes. Names and extensions select the bounded latent parser but are never
-trusted as file authority. Browser MIME claims, URLs, and local paths remain
-untrusted. The data-only handlers are:
+The graph canvas accepts one local file at a time. On a capability-confirmed
+managed Desktop connection, it first passes the original File to the trusted
+native bridge. A resolved mounted image or latent reference inserts its loader
+unchanged without reading browser bytes, recovering embedded workflows, or
+uploading. The result names the machine and location with "no copy made".
+Unsupported resolved media and bridge errors fail without copying. Cancellation
+or loss of the owning tab, graph, project or backend discards late replies.
+
+Missing native support or an explicit refusal uses bounded byte classification
+and the existing import flow below. Names and extensions select the bounded
+latent parser but are never trusted as file authority. Browser MIME claims,
+URLs, and local paths remain untrusted. The data-only handlers are:
 
 - UTF-8 JSON, opened through the existing workflow-file import pipeline.
 - PNG, JPEG, and WebP signatures.
@@ -34,22 +42,45 @@ or failure.
 
 ## Images
 
-A plain image is uploaded through the active tab's same-origin `uploadAsset`
-connection. The response must be a lowercase BLAKE3 digest. The canvas then
+Drop and paste show an Import image dialog before uploading. Choose a current
+project's active writable destination and an optional relative subfolder.
+Remember for this project changes future imports only after a successful,
+confirmed insertion; an unchecked one-off choice, cancellation or failed
+upload never replaces the saved preference. Preferences are independent per
+backend and project and shared with picker uploads. Escape, Cancel import,
+and owner loss close the dialog without uploading. Embedded PNGs show this
+dialog only after Load image, not when opening the workflow.
+
+The destination selector names the backend machine and shows explicit active
+roots, pending-change warnings, and unavailable-location errors. Standard
+imports uses the server's advertised importMount, matched to a ready writable
+project folder for physical-root display. It never infers that root from the
+output folder or a folder name. Unadvertised, revoked or unavailable defaults
+show a warning instead of a guessed root. The success surface keeps the returned
+virtualPath and machine and queries exact scoped file locations for display
+and Copy server path. Native reveal requires the shell's capability and sends
+only digest, scope and project identity; no renderer host path authorizes it.
+Cancel remains available during upload and prevents late graph writes or
+preference changes even if the server finishes the request.
+
+A plain image is uploaded through the active tab's same-origin `uploadMediaAsset`
+connection as a named, project-local image. The classifier's MIME type replaces
+an incorrect browser MIME claim without changing the file bytes. The response
+must contain the canonical five-field AssetRef. The canvas then
 scans that tab's current catalog for a node with one visible ASSET input that
 accepts the image MIME type. An exact MIME match wins over wildcard matches;
 ties retain catalog order. The canvas dispatches one atomic batch containing
-that node with a complete five-field AssetRef. The stored name is a generated
-media label such as `dropped-image.png`; the local filename and path are never
-persisted. Undo removes the node; the immutable uploaded object may remain in
-the library.
+that node with the server-returned AssetRef, preserving the final filename,
+size, media type and virtualPath, including collision-adjusted names. Host
+paths never enter the document. Undo removes the node; the imported file may
+remain in the library. Anonymous workflow-file uploads remain vault uploads.
 
 Upload failure, malformed responses, no compatible catalog schema, frozen tabs,
 closed or retargeted tabs, and retired or navigated graphs insert nothing. The
 tab object, backend, graph id, graph incarnation, and world coordinates are all
 captured before asynchronous classification and upload.
 
-The frontend passes the original File object to `uploadAsset` and does not
+The frontend passes the original file bytes to `uploadMediaAsset` and does not
 write the graph until that upload succeeds. Framework-free tests pin the exact
 object, bytes, metadata, and write ordering. A native browser proof is authored
 in `packages/e2e/tests/image-upload-byte-proof.spec.ts`: its canvas-drop arm
@@ -76,7 +107,8 @@ Ctrl+V, Ctrl+Shift+V, and the empty-canvas context-menu Paste first read the OS
 clipboard for an image (png preferred, then jpeg, then webp). A found image
 rides the same classification, upload, and atomic insertion pipeline as a
 dropped file; only the surface wording says pasting instead of dropping. The
-stored asset name is a generated label such as `pasted-image.png`. The anchor
+upload name is a generated label such as `pasted-image.png`; the stored name
+and virtualPath come from the server response. The anchor
 is the current pointer position in world coordinates for keyboard paste, the
 menu invocation position for context-menu paste, and the viewport center when
 neither applies.
