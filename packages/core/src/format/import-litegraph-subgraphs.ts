@@ -313,7 +313,8 @@ export function importLitegraphSubgraphs(
         // Instance sockets can omit widget-only boundaries; links index this sparse array.
         node[side] = (node[side] ?? def.raw[side]).map((slot: Mutable, index: number) => {
           const matches = def.raw[side].filter((candidate: Mutable) => candidate['id'] === slot['name'] || candidate['name'] === slot['name'])
-          const boundary = matches.length === 1 ? matches[0] : def.raw[side][index]
+          const boundary = matches.length === 1 ? matches[0]
+            : node[side]?.length === def.raw[side].length ? def.raw[side][index] : undefined
           return { ...slot, name: boundary?.['id'] ?? slot['name'] }
         })
       }
