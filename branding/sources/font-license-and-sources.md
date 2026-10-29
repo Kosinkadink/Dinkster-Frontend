@@ -12,6 +12,10 @@ Source: https://github.com/google/fonts/tree/9862abc066c9b83bf84c3e8ed1fc2d8d48f
 `build_brand.py` retains original outlined glyphs in the construction layer.
 The visible lettering is a proposed custom redrawing using the scaffold's
 geometric sans construction and the reference's proportions, square i-dot,
-diagonal terminals and open counters. It is not an approved font or an
-automatic trace of the supplied image. The font binary is unchanged.
+diagonal terminals and open counters. The regular e is instead a direct
+2x trace of the supplied wordmark reference, without optical corrections;
+`reference-e.svg` retains the traced contour. `trace_reference_e.py`
+records the threshold, connected-component isolation, uniform coordinate
+mapping and Potrace command. Other letters remain custom redrawn contours.
+This is not an approved font. The font binary is unchanged.
 Production SVGs contain outlined paths only and require no installed font.

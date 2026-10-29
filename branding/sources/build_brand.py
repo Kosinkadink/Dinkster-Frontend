@@ -41,10 +41,19 @@ LETTERS = {
     "k": f"M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V{K_ARM_TOP - 21}L{K_ARM_TOP - 14} 14H49L30 33L67 70H{70 - K_LEG_INNER}L{K_JOIN_X} {63 - K_JOIN_X}L7 56Z",
     "s": "M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z",
     "t": "M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H23L29 56H12L0 44Z",
-    "e": "M36 28L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25C32 14 35 17.5 38 22Q40 25 36 28Z M16 36V30A2 2 0 0 1 18 28H24Q27 28 24.25 30Z",
+    "e": ET.parse(ROOT / "sources/reference-e.svg").find(f"{{{SVG}}}path").get("d"),
     "r": "M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z",
 }
 POSITIONS = {"i": 149, "n": 167, "k": 212, "s": 263, "t": 302, "e": 331, "r": 374}
+REGULAR_WORDMARK_POSITIONS = {
+    "i": 147.75,
+    "n": 165.75,
+    "k": 203.75,
+    "s": 247.875,
+    "t": 287.375,
+    "e": 313.625,
+    "r": 357.125,
+}
 HEAVIER_POSITIONS = {
     "i": 149,
     "n": 172,
@@ -525,7 +534,14 @@ def main():
 
     for variant in ("mono", "dark", "light", "heavier-dark", "heavier-light"):
         heavier = variant.startswith("heavier")
-        gap = HEAVIER_GAP if heavier else 3.0
+        if not heavier:
+            for letter, position in REGULAR_WORDMARK_POSITIONS.items():
+                element = next(
+                    e for e in master.iter() if e.get("id") == f"{variant}-{letter}"
+                )
+                element.set("transform", f"translate({position} 122)")
+            continue
+        gap = HEAVIER_GAP
         d = next(e for e in master.iter() if e.get("id") == f"wordmark-{variant}-d")
         symbol = node("g", {"transform": "translate(16.9 76.6) scale(.139)"})
         symbol.append(deepcopy(d))

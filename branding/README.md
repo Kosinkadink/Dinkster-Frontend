@@ -48,7 +48,7 @@ master and both wordmark weights use the selected D.
 Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
 k arm), and 56 (baseline); only the k's lower leg descends to 70.
 The enlarged k also carries its x + y = 63 cut/arm continuation guide.
-The regular e joins flat top/left segments with a 12-unit circular arc.
+The regular e is traced directly from the supplied reference at 2x.
 The blue line is the start of the k/t top slopes, not their highest
 point; the i dot's top edge ends on that line and never rises above it.
 The regular k beam ends in a triangle at (7,56), with its cut
@@ -57,12 +57,22 @@ strokes have the bar's 14-unit perpendicular thickness, not a 14-unit
 horizontal span. The i's opposing faces have slope -0.7 and retain the
 accepted 4/sqrt(1+(8/19)^2) perpendicular clearance (about 3.687 units).
 Its dot extends 2 units beyond the 15-unit stem on the right. The t's
-lower-right face runs from (23,44) to (29,56). The e counter joins its
-flat top and left with a tangent 2-unit arc; its upper-right turn is a
-quadratic curve tangent to its straight top and diagonal. The outer
-upper-right shoulder also turns smoothly into the diagonal. The counter's
-left edge is at x=16 and top flat at y=28, shifted right/down by 2 units
-from the sharper counter to place it nearer the bowl's visual center.
+lower-right face runs from (23,44) to (29,56).
+
+`sources/trace_reference_e.py /path/to/wordmark-monochrome-reference.png
+--potrace /path/to/potrace` rebuilds the regular e from the light-on-dark
+reference at 2x, using threshold 128 and Potrace 1.16 (Ubuntu package
+1.16-2build1). It retains the source bitmap in `reference-e-2x.pbm`, the
+mapped contour in `reference-e.svg`, and the CLI in `e-trace-command.txt`.
+The x-height band y134..178 maps uniformly to y14..56; there is no
+independent width correction or optical adjustment. The overlay proof
+`previews/e-reference-overlay.png` shows thin/bold outlines over the
+reference and filled threshold differences at the original registration.
+The thresholded trace overlaps 99.04 percent by intersection-over-union,
+not exact raster identity. Regular letter placements are explicit:
+the traced e retains the 3-unit clearance from t; every other regular
+letter retains its established placement, leaving about 1.5 units from
+e to r at their closest sampled rows. Heavier contours remain unchanged.
 Reference-image guides are measured raster estimates, not vector
 constraints imposed on or alterations to the supplied image.
 
