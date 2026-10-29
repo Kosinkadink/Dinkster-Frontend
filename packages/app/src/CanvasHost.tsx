@@ -11,6 +11,7 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack } from 'solid-js'
 import type { AssetDtoV1WireContract, ExecutionLogEntry } from '@dinkster/client'
 import {
+  badgeRect,
   buildScene,
   boundarySceneId,
   CANVAS_DETAIL_MIN_SCALE,
@@ -1860,7 +1861,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // -- badge popover ----------------------------------------------------------
   // Opened by clicking a node header badge (error chip, subgraph marker).
   // Anchored in canvas-pane CSS px; content resolves lazily at render.
-  const [badgePopover, setBadgePopover] = createSolidSignal<BadgeAnchor | undefined>(undefined)
+  const [badgePopover, setBadgePopover] = createSolidSignal<
+    (BadgeAnchor & { readonly owner: string }) | undefined
+  >(undefined)
 
   // Replacement scan items for the CURRENT graph, keyed by node id. Rebuilt
   // by the badges effect; read lazily by the deprecation badge popover.
@@ -2994,11 +2997,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       onBadgeClick: (node, badge, rect) => {
+        const tab = activeTab()
+        if (!tab) return
         closePalette()
         setEditor(undefined)
         setMenu(undefined)
         const vp = renderer.getViewport()
         setBadgePopover({
+          owner: JSON.stringify([tab.id, tab.store.doc.lineage, currentGraphId(tab), viewInstancePath(tab)]),
           x: rect.x * vp.scale + vp.x,
           y: (rect.y + rect.height) * vp.scale + vp.y + 6,
           nodeId: node.id,
@@ -4310,6 +4316,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // that is actually installed in the renderer.
     function refreshSceneOverlays(tab: Tab | undefined): void {
       if (!tab) {
+        setBadgePopover(undefined)
         renderer.setSelectorResolutions(undefined)
         renderer.setInactiveNodes(undefined)
         companionInputs = new Map()
@@ -4533,10 +4540,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setBadges(decorations.badges)
       renderer.setNodeDecorations(decorations.presentation)
       renderer.setPortProblems(model.portProblems)
-      setBadgePopover(undefined) // anchor may have moved/vanished
       const nodeOutputTexts = lens.id === 'standard' ? model.outputTexts : {}
       renderer.setNodeOutputTexts(nodeOutputTexts)
       renderer.setNodePreviews(model.previews)
+      // Background overlay updates must not dismiss a still-valid user decision.
+      setBadgePopover((anchor) => {
+        if (!anchor || anchor.owner !== JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])) return undefined
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === anchor.nodeId)
+        const badges = decorations.badges[anchor.nodeId] ?? []
+        const index = badges.findIndex((badge) => badge.id === anchor.badge.id)
+        if (!node || index === -1) return undefined
+        const rect = badgeRect(node, index, badges)
+        const vp = renderer.getViewport()
+        if (anchor.x !== rect.x * vp.scale + vp.x ||
+            anchor.y !== (rect.y + rect.height) * vp.scale + vp.y + 6) return undefined
+        return { ...anchor, badge: badges[index]! }
+      })
       setSemanticSource({
         owner: `${tab.id}:${gid}`,
         source: {
