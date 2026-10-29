@@ -611,7 +611,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/replace/plan.ts",
-      "line": 825,
+      "line": 860,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122

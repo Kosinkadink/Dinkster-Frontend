@@ -756,6 +756,14 @@ export function planReplacement(
   const state = sourceStateOf(def, node)
   const sourceSchema = rule.migration === undefined ? resolve(node.type, 'source') : undefined
   const migrationHistoricalInputs = new Set(rule.migration?.historicalInputs ?? [])
+  const migrationHistoricalFamilies = new Set<string>()
+  for (const candidate of rule.migration === undefined ? [] : rule.cases) {
+    for (const mapping of Object.values(candidate.inputFamilies ?? {})) {
+      if (mapping.kind === 'copy' && mapping.memberIds === 'targetPositions' && mapping.sourceTemplate !== undefined &&
+          migrationHistoricalInputs.has(mapping.sourceFamily)) migrationHistoricalFamilies.add(mapping.sourceFamily)
+    }
+  }
+  for (const family of migrationHistoricalFamilies) migrationHistoricalInputs.delete(family)
   const migrationInvalidTapLinks = state.invalidTapLinks.filter((id) => {
     const source = def.links[id]?.from
     return source !== undefined &&
@@ -777,7 +785,33 @@ export function planReplacement(
       binding.kind !== 'widgetTap' && binding.node === nodeId && migrationHistoricalInputs.has(binding.port),
     ),
   )
-  const migrationEvidence = rule.migration?.historicalInputs.some((input) =>
+  const historicalFamilyMembers = new Map<InputFamilyMapping, readonly string[]>()
+  const historicalMemberPorts = new Set<InputFamilyMapping>()
+  for (const candidate of rule.migration === undefined ? [] : rule.cases) {
+    for (const mapping of Object.values(candidate.inputFamilies ?? {})) {
+      if (mapping.kind !== 'copy' || mapping.memberIds !== 'targetPositions' || mapping.sourceTemplate === undefined ||
+          !migrationHistoricalFamilies.has(mapping.sourceFamily)) continue
+      const endpoints = [
+        ...Object.values(def.links).flatMap((link) => isPortEndpoint(link.to) ? [link.to] : []),
+        ...Object.values(def.nets).flatMap((net) => net.sinks),
+      ].filter((endpoint) => endpoint.node === nodeId)
+      const inputPorts = endpoints.flatMap((endpoint) => {
+        if (endpoint.members === undefined) return [endpoint.port]
+        if (endpoint.port !== mapping.sourceTemplate!.memberPort || endpoint.members.length !== 1) return []
+        historicalMemberPorts.add(mapping)
+        return [joinValuePath(mapping.sourceFamily, endpoint.members[0]!)]
+      })
+      historicalFamilyMembers.set(mapping, collectWire15MemberEvidence(
+        mapping.sourceFamily,
+        node.dynamic?.[mapping.sourceFamily]?.members ?? [],
+        [...Object.keys(node.values), ...Object.keys(node.controllers ?? {})],
+        inputPorts,
+        [],
+        mapping.sourceTemplate.inputs.length === 1,
+      ))
+    }
+  }
+  let migrationEvidence = [...migrationHistoricalInputs].some((input) =>
     Object.hasOwn(node.values, input) ||
     node.dynamic?.[input]?.selected !== undefined ||
     Object.hasOwn(node.controllers ?? {}, input) ||
@@ -785,7 +819,8 @@ export function planReplacement(
     (state.netsIn.get(input)?.length ?? 0) > 0 ||
     (state.tapLinksOut.get(input)?.length ?? 0) > 0,
   ) === true || historicalViewInputs.length > 0 || boundaryHasHistoricalInput || migrationInvalidTapLinks.length > 0
-  if (rule.migration !== undefined && !migrationEvidence) return { diagnostics: [] }
+  if (rule.migration !== undefined && !migrationEvidence &&
+      ![...historicalFamilyMembers.values()].some((members) => members.length > 0)) return { diagnostics: [] }
 
   let sourceElaboration: ReturnType<typeof elaborateInterface> | undefined
   if (rule.migration === undefined && sourceSchema !== undefined) {
@@ -1098,7 +1133,7 @@ export function planReplacement(
         )
         continue
       }
-      members = sourceFamilyState?.members ?? []
+      members = historicalFamilyMembers.get(mapping) ?? sourceFamilyState?.members ?? []
     } else {
       members = mapping.members.map((member) => member.suffix)
     }
@@ -1106,9 +1141,24 @@ export function planReplacement(
     const sourceMembers = members
     if (mapping.kind === 'copy' && mapping.memberIds === 'targetPositions') {
       const naming = targetFamily.spec.naming
-      members = sourceMembers.map((_, index) => naming.kind === 'names'
-        ? naming.names[index] ?? ''
-        : naming.kind === 'prefix' ? `${naming.prefix}${index}` : '')
+      let retainMemberIds = false
+      if (historicalFamilyMembers.has(mapping)) {
+        const canonicalMembers = sourceMembers.every((member) => {
+            if (naming.kind === 'names') return naming.names.includes(member)
+            if (naming.kind !== 'prefix') return false
+            const position = Number(member.slice(naming.prefix.length)) - (targetFamily.spec.ordinalOffset ?? 0)
+            return Number.isSafeInteger(position) && position >= 0 && position < autogrowBounds(targetFamily.spec).max &&
+              member === `${naming.prefix}${position + (targetFamily.spec.ordinalOffset ?? 0)}`
+          })
+        retainMemberIds = mapping.sourceFamily === familyAddress.port && canonicalMembers &&
+          !(historicalMemberPorts.has(mapping) && sourceFamily?.memberPort !== targetFamily.memberPort)
+        if (!retainMemberIds) migrationEvidence = true
+      }
+      if (!retainMemberIds) {
+        members = sourceMembers.map((_, index) => naming.kind === 'names'
+          ? naming.names[index] ?? ''
+          : naming.kind === 'prefix' ? `${naming.prefix}${index + (targetFamily.spec.ordinalOffset ?? 0)}` : '')
+      }
     }
     if (!familyMembersAreAdmitted(targetFamily, members)) {
       errors.push(
@@ -1141,6 +1191,8 @@ export function planReplacement(
       ...(sourceFamily !== undefined ? { sourceFamily } : {}),
     })
   }
+
+  if (rule.migration !== undefined && !migrationEvidence) return { diagnostics: [] }
 
   const activeInputs = new Map<string, ReadonlyMap<string, ElaboratedInput>>()
   const targetKey = (localId: string | undefined): string => localId ?? ''

@@ -1273,6 +1273,72 @@ describe('input family replacement', () => {
     expect(overflow.diagnostics.some((diagnostic) => diagnostic.code === 'replace.target.familyMembers')).toBe(true)
   })
 
+  it.each([false, true].flatMap((named) => [false, true].flatMap((flat) =>
+    ['unconnected', 'linked', 'inferred', ...(flat ? ['flatCanonical'] : [])].map((evidence) => ({ named, flat, evidence })),
+  )))(
+    'migrates historical family state without widget values (named=$named, flat=$flat, evidence=$evidence)',
+    ({ named, flat, evidence }) => {
+      const members = named ? ['a', 'b'] : ['item0', 'item1']
+      const oldMembers = evidence === 'flatCanonical' ? members : ['oldB', 'oldA']
+      const connected = evidence !== 'unconnected'
+      const target = schemaOf('FamilySame', [{
+        ...familyInput('values', []),
+        dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+          template: [input('value')],
+          naming: named ? { kind: 'names', names: ['a', 'b', 'c'], min: 1 }
+            : { kind: 'prefix', prefix: 'item', min: 1, max: 4 },
+        },
+      }])
+      const rule: ReplacementRule = { from: 'FamilySame', migration: { historicalInputs: ['values'] }, cases: [{
+        to: 'FamilySame', inputFamilies: { values: {
+          kind: 'copy', sourceFamily: 'values', memberIds: 'targetPositions',
+          sourceTemplate: { inputs: ['value'], ...(flat ? { memberPort: 'values.values' } : {}) },
+          inputs: { value: { kind: 'copy', input: 'value' } },
+        } },
+      }] }
+      const oldEndpoint = (member: string) => flat
+        ? mport('old', 'values.values', member) : port('old', `values.${member}`)
+      const original = doc({ g0: graph({ id: 'g0', nodes: {
+        src: node('src', 'Producer'),
+        old: node('old', 'FamilySame', {}, evidence === 'inferred' ? {} : { dynamic: { values: {
+          members: oldMembers, memberLabels: { [oldMembers[1]!]: 'Second' },
+        } } }),
+      }, ...(connected ? {
+        links: { linked: link('linked', port('src', 'out'), oldEndpoint(oldMembers[0]!)) },
+        nets: { routed: net('routed', port('src', 'out'), [oldEndpoint(oldMembers[1]!)]) },
+      } : {}) }) })
+      const resolve = (type: string) => type === 'FamilySame' ? target : schemas[type]
+      const planned = planReplacement(original, 'g0', 'old', rule, resolve)
+      expect(planned.plan).toBeDefined()
+      if (!planned.plan) return
+      expect(planned.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
+      const registry = createReplacementRegistry()
+      expect(registry.register('schema', rule)).toEqual([])
+      expect(scanReplacements(original, registry, resolve)).toMatchObject([
+        { status: 'terminal', safe: true, hops: [{ plan: { to: 'FamilySame' } }] },
+      ])
+      const store = new DocumentStore(original, coreCommandRegistry())
+      expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.old!.dynamic!.values).toMatchObject({
+        members, ...(evidence === 'inferred' ? {} : { memberLabels: { [members[1]!]: 'Second' } }),
+      })
+      if (connected) {
+        expect(store.doc.graphs.g0!.links.linked!.to).toEqual(port('old', `values.${members[0]}`))
+        expect(store.doc.graphs.g0!.nets.routed!.sinks).toEqual([port('old', `values.${members[1]}`)])
+      }
+      expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(original)
+      expect(store.redo()).toBe(true)
+      const canonical = doc({ g0: graph({ id: 'g0', nodes: {
+        old: node('old', 'FamilySame', {}, { dynamic: { values: {
+          members: named ? ['a', 'c'] : ['item0', 'item3'],
+        } } }),
+      }, boundary: { inputs: [{ id: 'forwarded', binds: { kind: 'family', ...port('old', 'values') } }], outputs: [] } }) })
+      expect(planReplacement(canonical, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    },
+  )
+
   it.each([false, true])('preserves flat prefix links and net sinks with historical template=%s', (historical) => {
     const flatFamily = (type: string): NodeSchema => schemaOf(type, [{
       kind: 'input',
