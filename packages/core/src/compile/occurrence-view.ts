@@ -216,7 +216,8 @@ export function occurrenceDynamicView(
     const childValueOwners = new Map<string, Map<string, ValueOwner>>()
     const childOwners = new Map<string, Map<string, SelectorOwner>>()
     const childFamilyOwners = new Map<string, Map<string, FamilyOwner>>()
-    const instanceEvidence = inputEvidence.filter(({ ref }) => ref.node === node.id)
+    // A recorded route ends in this body; only unrecorded deliveries may continue freely.
+    const instanceEvidence = inputEvidence.filter(({ ref, route }) => ref.node === node.id && route?.length !== 0)
     const instanceInputs = instanceEvidence.map(({ ref }) => ref.port)
     const { crossings, problems } = buildBoundaryCrossings(child, resolve, instanceDynamic, (inner) => resolveNode(child.id, inner), instanceValues, instanceInputs)
     if (problems.length > 0) return empty()
@@ -261,8 +262,12 @@ export function occurrenceDynamicView(
       for (const [crossingIndex, crossing] of crossingTargets(primaryCrossing).entries()) {
         if (!isSubtreeCrossing(crossing) && crossing.countBound) continue
         const base = childOverlays.get(crossing.targetNode) ?? child.nodes[crossing.targetNode]?.dynamic
-        childOverlays.set(crossing.targetNode, overlayNodeDynamic(base, crossing, instanceDynamic))
         const target = child.nodes[crossing.targetNode]!
+        // Link evidence follows its remaining route, not synthesized instance membership.
+        const stateCrossing = !isSubtreeCrossing(crossing) && crossing.optionalAfterMinimum && subgraphDefIdOf(target.type) !== undefined
+          ? { ...crossing, rebase: new Map([...crossing.rebase].filter(([member]) => instanceDynamic?.[crossing.boundaryId]?.members?.includes(member))) }
+          : crossing
+        childOverlays.set(crossing.targetNode, overlayNodeDynamic(base, stateCrossing, instanceDynamic))
         childValues.set(target.id, { ...(childValues.get(target.id) ?? target.values), ...projectCrossingValues(instanceValues, crossing) })
         childControllers.set(target.id, { ...(childControllers.get(target.id) ?? target.controllers), ...projectCrossingValues(instanceControllers, crossing) })
         if (isSubtreeCrossing(crossing)) {

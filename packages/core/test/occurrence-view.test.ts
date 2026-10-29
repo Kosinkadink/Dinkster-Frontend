@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { compile, documentNodeResolver, documentResolver } from '../src/compile/compile.js'
 import { occurrenceDynamicView, occurrenceFamilyEndpoint } from '../src/compile/occurrence-view.js'
 import type { WorkflowDocument } from '../src/format/document.js'
-import { asConnectionId, asGraphDefId, asNodeId, asPortId } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
 
 const combo: InputSpec = {
@@ -192,6 +192,42 @@ describe('occurrenceDynamicView', () => {
     const ghost = occurrenceFamilyEndpoint(owner, `items.${names[3]}`, undefined, names[3])
     expect(ghost).toMatchObject({ occurrence: { instancePath: [], node: 's' }, address: { port: `outside.${names[3]}` } })
     expect(ghost?.kind === 'boundary' && ghost.address.members).toBeUndefined()
+  })
+
+  it.each(['truncated', 'complete', 'unrecorded'])('stops recorded input evidence at its terminal body coordinate (route=%s)', (route) => {
+    const canonical: NodeSchema = { ...familySchema, type: 'Canonical', items: [{
+      ...familySchema.items[0] as InputSpec,
+      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+        template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: true }],
+        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
+      },
+    }] }
+    const outerBinding = { kind: 'family', node: 'i', port: 'forwarded' }
+    const innerBinding = { kind: 'family', node: 'n', port: 'items' }
+    const owner = { instancePath: [], node: asNodeId('s') }
+    const doc = { ...docOf(), graphs: {
+      g0: graph('g0', { s: { id: 's', type: '#outer', values: {} } }),
+      outer: graph('outer', { i: { id: 'i', type: '#sub', values: {} } }, {
+        inputs: [{ id: 'forwarded', binds: outerBinding }], outputs: [],
+      }),
+      sub: graph('sub', { n: { id: 'n', type: 'Canonical', values: {} } }, {
+        inputs: [{ id: 'forwarded', binds: innerBinding }], outputs: [],
+      }),
+    }, occurrenceTopologies: { [occurrenceKey(owner)]: {
+      owner, bodyGraph: 'outer', nextOrdinal: 1,
+      links: { local: { id: 'local', from: { kind: 'body', endpoint: { node: 'i', port: 'unused' } },
+        to: route === 'unrecorded' ? { kind: 'body', endpoint: { node: 'i', port: 'forwarded.item1' } } : {
+          kind: 'boundary', occurrence: { instancePath: [], node: 's' }, address: { port: 'forwarded.item1' },
+          route: [{ graph: 'outer', boundaryId: 'forwarded', binding: outerBinding },
+            ...(route === 'complete' ? [{ graph: 'sub', boundaryId: 'forwarded', binding: innerBinding }] : [])],
+        },
+      } },
+    } } } as unknown as WorkflowDocument
+    const resolver = (type: string) => type === 'Canonical' ? canonical : resolve(type)
+    expect(occurrenceDynamicView(doc, resolver, ['s']).inputPorts.get('i')).toEqual(['forwarded.item1'])
+    const deep = occurrenceDynamicView(doc, resolver, ['s', 'i'])
+    expect(deep.inputPorts.get('n') ?? []).toEqual(route === 'truncated' ? [] : ['items.item1'])
+    expect(deep.dynamic.get('n')?.items?.members ?? []).toEqual(route === 'truncated' ? [] : ['item1'])
   })
 
   it('reverses a nested suffix coordinate and allocates a ghost from the owner high-water mark', () => {
