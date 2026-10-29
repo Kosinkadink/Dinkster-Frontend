@@ -1,21 +1,21 @@
 import type { WidgetSpec } from './model.js'
 
 export interface NormalizedComboOption {
-  readonly value: string | number
+  readonly value: string | number | boolean
   readonly label: string
   readonly info?: string
   readonly folder?: string
 }
 
-const comboValue = (value: unknown): value is string | number =>
-  typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))
+export const isComboValue = (value: unknown): value is string | number | boolean =>
+  typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))
 
 /** Normalize native structured choices and legacy scalar/[value, label] choices. */
 export function normalizeComboOption(option: unknown): NormalizedComboOption | undefined {
-  if (comboValue(option)) return { value: option, label: String(option) }
+  if (isComboValue(option)) return { value: option, label: String(option) }
   if (Array.isArray(option)) {
     const value = option[0]
-    if (!comboValue(value)) return undefined
+    if (!isComboValue(value)) return undefined
     return {
       value,
       label: typeof option[1] === 'string' && option[1] !== '' ? option[1] : String(value),
@@ -24,7 +24,7 @@ export function normalizeComboOption(option: unknown): NormalizedComboOption | u
   if (typeof option !== 'object' || option === null) return undefined
   const record = option as Record<string, unknown>
   const value = record['value']
-  if (!comboValue(value)) return undefined
+  if (!isComboValue(value)) return undefined
   const label = record['label']
   const info = record['info']
   const folder = record['folder']
@@ -50,7 +50,7 @@ export function normalizedComboOptions(
 
 /** Display text for a stored choice without changing the stored value. */
 export function comboOptionLabel(
-  value: string | number,
+  value: string | number | boolean,
   spec: Pick<WidgetSpec, 'options'>,
 ): string {
   return normalizedComboOptions(spec).find((option) => option.value === value)?.label ?? String(value)

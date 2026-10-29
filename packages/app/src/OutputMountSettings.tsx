@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show, untrack } from "solid-js";
 import type { DinksterConnection, MountSettings } from "@dinkster/client";
 import {
   ProductActionFooter,
@@ -12,7 +12,7 @@ import { useAppMessage } from "./locale.js";
 
 type OutputMountConnection = Pick<
   DinksterConnection,
-  "fetchMountSettings" | "selectOutputMount"
+  "fetchMountSettings" | "selectOutputMount" | "onMountsChanged"
 >;
 
 export function OutputMountSettings(props: {
@@ -25,6 +25,7 @@ export function OutputMountSettings(props: {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal("");
   let generation = 0;
+  let connectionGeneration = 0;
   onCleanup(() => { generation++; });
   const load = async (): Promise<void> => {
     const request = ++generation;
@@ -42,19 +43,30 @@ export function OutputMountSettings(props: {
       if (request === generation) setLoading(false);
     }
   };
-  onMount(() => void load());
+  createEffect(() => {
+    const connection = props.connection;
+    connectionGeneration++;
+    setSettings(undefined);
+    setSelected("");
+    setSaving(false);
+    onCleanup(connection.onMountsChanged(() => void load()));
+    onCleanup(() => { generation++; connectionGeneration++; });
+    untrack(() => { void load(); });
+  });
   const writable = () =>
     settings()?.mounts.filter((mount) => mount.mode === "readwrite") ?? [];
   const save = async (): Promise<void> => {
-    if (!selected() || selected() === settings()?.outputMount) return;
+    if (saving() || !settings()?.mountChangesAllowed || !selected() || selected() === settings()?.outputMount) return;
+    const request = connectionGeneration;
     setSaving(true);
     try {
       await props.connection.selectOutputMount(selected());
+      if (request !== connectionGeneration) return;
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (request === connectionGeneration) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setSaving(false);
+      if (request === connectionGeneration) setSaving(false);
     }
   };
   return (
@@ -82,6 +94,9 @@ export function OutputMountSettings(props: {
             />
           }
         >
+          <Show when={settings()?.restartRequired}>
+            <ProductNotice tone="warning">{message("projectFolders.restart", { output: settings()?.activeOutputMount ?? message("projectFolders.none") })}</ProductNotice>
+          </Show>
           <ProductField
             controlId="default-output-mount"
             label={message("outputMountSettings.label")}
@@ -97,7 +112,7 @@ export function OutputMountSettings(props: {
                 label: mount.id,
                 value: mount.id,
               }))}
-              disabled={saving() || writable().length === 0}
+              disabled={saving() || !settings()?.mountChangesAllowed || writable().length === 0}
               onSelect={(option) => setSelected(option.value)}
             />
           </ProductField>
@@ -114,6 +129,7 @@ export function OutputMountSettings(props: {
               data-testid="output-mount-apply"
               disabled={
                 saving() ||
+                !settings()?.mountChangesAllowed ||
                 !selected() ||
                 selected() === settings()?.outputMount
               }

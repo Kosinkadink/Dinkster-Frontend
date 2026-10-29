@@ -52,6 +52,7 @@ const BACKEND_SERIAL_SPECS = [
   // clears the whole local scope.
   'workflow-library.spec.ts',
   'asset-widget.spec.ts',
+  'audit-widget-parity-live.spec.ts',
   'run-history.spec.ts',
   'peek-preview.spec.ts',
   'native-imagery-live.spec.ts',
@@ -86,7 +87,10 @@ export default defineConfig({
   testDir: './tests',
   snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}{ext}',
   timeout: 60_000,
-  reporter: [[process.env['CI'] ? 'dot' : 'list'], ['./custom-widget-server-reporter.ts']],
+  reporter: [
+    [process.env['CI'] ? 'dot' : 'list'],
+    ['./custom-widget-server-reporter.ts'],
+  ],
   // SH3 (amended 2026-07-27): every worker shares ONE dev server and ONE
   // live backend per protocol. The dev server tolerates concurrent
   // clients, but specs that execute prompts or write server state

@@ -158,6 +158,10 @@ Base, hosted and audit Playwright servers explicitly enable the v1
 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing
 development server is reused or stopped.
+Hosted native launches declare `--engine-variant linux-cpu`. After composition,
+global setup requires an empty workflow to return an empty requirement plan
+without a request variant. Mock-only native fixtures explicitly answer that
+read-only plan request; live native cases use the pinned backend route.
 The hosted native server also accepts the `localhost` Host alias so the
 run-history backend-switch test can address the same server through two
 distinct backend identities without an HTTP 421 schema rejection.

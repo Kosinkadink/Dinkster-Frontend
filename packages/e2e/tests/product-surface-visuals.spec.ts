@@ -925,6 +925,11 @@ test('Template gallery presents loading error retry and empty search states', as
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
+      if (state === 'folder-form') {
+        const grant = gallery.getByRole('button', { name: 'Grant folder', exact: true })
+        await grant.scrollIntoViewIfNeeded()
+        await expect(grant).toBeInViewport({ ratio: 1 })
+      }
       await page.mouse.move(0, 0)
       await screenshot(page, `gallery-${state}-${width}`)
     }
@@ -1379,7 +1384,12 @@ test('Asset selection instructions stay readable for the rail and single or mult
         const singleType = { kind: 'concrete', name: 'ASSET' }
         dispose = render(() => AssetWidgetEditor({
           app: {
-            backendForTab: () => ({ id: 'asset-visual', protocol: 'dinkster', connection: { listMounts: async () => [] } }),
+            backendForTab: () => ({ id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
+              listMounts: async () => [],
+              onMountsChanged: () => () => {},
+              fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
+              fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
+            } }),
             dispatchTo: () => { host.dataset['committed'] = 'true' },
             widgetRegistry: { kind: () => undefined },
           },

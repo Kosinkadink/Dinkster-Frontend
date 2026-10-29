@@ -117,6 +117,7 @@ describe('fast pull-request and full validation workflows', () => {
 
   it('requires product screenshots and bounded fast checks without a PR label path', () => {
     expect(fast.on).toEqual({
+      push: { branches: ['main'] },
       pull_request: null,
       merge_group: null,
       workflow_dispatch: {
@@ -132,10 +133,11 @@ describe('fast pull-request and full validation workflows', () => {
       },
     })
     expect(fast.concurrency).toEqual({
-      group: 'ci-${{ github.workflow }}-${{ github.ref }}',
+      group:
+        "ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}",
       'cancel-in-progress': true,
     })
-    expect(Object.keys(fast.jobs)).toEqual(['fast', 'visual'])
+    expect(Object.keys(fast.jobs)).toEqual(['fast', 'visual', 'bundle'])
     const job = fast.jobs['fast']!
     expect(job.needs).toBe('visual')
     expect(job.if).toBe('always()')
@@ -175,6 +177,34 @@ describe('fast pull-request and full validation workflows', () => {
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
     )
+  })
+
+  it('publishes content-addressed bundles only after the fast gate', () => {
+    const job = fast.jobs['bundle']!
+    expect(job.needs).toBe('fast')
+    expect(job.if).toBe(
+      "github.event_name == 'push' || github.event_name == 'pull_request'",
+    )
+    const steps = job.steps!
+    expect(
+      steps.find((step) => step.uses === 'actions/checkout@v4')?.with?.['ref'],
+    ).toBe('${{ github.event.pull_request.head.sha || github.sha }}')
+    expect(steps.flatMap((step) => step.run ?? [])).toContain(
+      'pnpm --filter @dinkster/app build',
+    )
+    expect(steps.find((step) => step.id === 'archive')?.run).toContain(
+      'python3 scripts/bundle_artifact.py --output .ci/bundle',
+    )
+    expect(steps.at(-1)).toEqual({
+      uses: 'actions/upload-artifact@v4',
+      with: {
+        name: '${{ steps.archive.outputs.name }}',
+        path: '.ci/bundle/',
+        'if-no-files-found': 'error',
+        'retention-days': 90,
+      },
+    })
+    expect(script).toContain('scripts/bundle_artifact_test.py')
   })
 
   it('runs every heavy lane through one guarded reusable workflow', async () => {
@@ -400,7 +430,11 @@ describe('fast pull-request and full validation workflows', () => {
           })
           expect(step.with).not.toHaveProperty('ssh-key')
           expect(step.with).not.toHaveProperty('token')
-          if (!step.with?.['repository'])
+          if (job === fast.jobs['bundle'])
+            expect(step.with?.['ref']).toBe(
+              '${{ github.event.pull_request.head.sha || github.sha }}',
+            )
+          else if (!step.with?.['repository'])
             expect(step.with).not.toHaveProperty('ref')
         }
       }
