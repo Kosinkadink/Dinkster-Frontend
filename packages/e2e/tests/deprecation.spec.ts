@@ -328,7 +328,7 @@ test('a lossy plan never auto-applies; its badge popover shows the warning', asy
 
   await page.evaluate(() => {
     const settings = window.__dinksterTest!.app.settings
-    settings.set('execution.mirrorPreviews', !settings.get<boolean>('execution.mirrorPreviews'))
+    settings.set('execution.mirrorPreviews', false)
   })
   await expect(popover).toContainText('warning:')
   await page.screenshot({ path: testInfo.outputPath('warning-after-overlay-refresh.png') })
