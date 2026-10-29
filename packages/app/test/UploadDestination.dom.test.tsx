@@ -27,7 +27,7 @@ describe('import destination', () => {
     const connection = {
       onMountsChanged: () => () => {},
       fetchMountSettings: async () => ({ mountChangesAllowed: false, outputMount: 'renders', mounts: [mount('capture'), mount('imports'), mount('renders'), mount('revoked'), mount('readonly', 'read')] }),
-      fetchMountLocations: async () => ({ importMount, mounts: [{ id: 'capture', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('capture'), mount('imports'), mount('renders'), mount('readonly', 'read'), mount('outside-project')] }),
+      fetchMountLocations: async () => ({ ...(importMount !== undefined ? { importMount } : {}), mounts: [{ id: 'capture', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('capture'), mount('imports'), mount('renders'), mount('readonly', 'read'), mount('outside-project')] }),
     }
     const root = document.createElement('div')
     document.body.append(root)
