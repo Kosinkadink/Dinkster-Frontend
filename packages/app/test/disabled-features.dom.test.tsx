@@ -66,7 +66,7 @@ it('registers built-in editors at shell mount and withdraws the feature-gated Ap
 })
 
 it('renders backend targeting, review state and live shared-session tooltip hints', async () => {
-  app = new AppState({ defaultProtocol: 'dinkster' })
+  app = new AppState()
   const remote = app.addBackend('http://rendered.test:9000', 'Rendered backend', false, 'dinkster')!
   const host = document.createElement('div')
   document.body.append(host)
@@ -84,12 +84,16 @@ it('renders backend targeting, review state and live shared-session tooltip hint
   expect(app.tabTargets.get().get(app.activeTab()!.id)).toBe(remote.id)
 
   const review = host.querySelector<HTMLButtonElement>('[data-testid="review-upgrades-toggle"]')!
-  expect(review.getAttribute('data-tooltip-label')).toBe('When on, deprecated nodes are never upgraded automatically on open - review each via its badge (debug aid).')
+  expect(review.getAttribute('aria-label')).toBe('Review upgrades')
+  expect(review.textContent).toBe('Review upgrades')
   expect(review.getAttribute('aria-pressed')).toBe('false')
   expect(review.hasAttribute('title')).toBe(false)
   review.click()
   expect(app.reviewReplacements.get()).toBe(true)
   expect(review.getAttribute('aria-pressed')).toBe('true')
+  review.click()
+  expect(app.reviewReplacements.get()).toBe(false)
+  expect(review.getAttribute('aria-pressed')).toBe('false')
 
   const backends = host.querySelector<HTMLButtonElement>('[data-testid="backends-sidebar-toggle"]')!
   expect(backends.getAttribute('aria-pressed')).toBe('false')

@@ -8,7 +8,7 @@ import { AppState } from '../src/app-state.js'
 let app: AppState
 beforeEach(() => {
   vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-  app = new AppState({ defaultProtocol: 'dinkster' })
+  app = new AppState()
 })
 afterEach(() => {
   app.dispose()
