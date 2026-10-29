@@ -84,7 +84,7 @@
          id="g190">
         <path
            id="dark-i"
-           d="M 2,0 H 19 V 8 L 0,16 V 2 Z M 0,20 15,13.684211 V 49 L 8,56 H 0 Z"
+           d="M 2,0 H 17 V 4.1 L 0,16 V 2 Z M 0,20.499997 15,9.9999974 V 49 L 8,56 H 0 Z"
            transform="translate(147.75,122)"
            fill-rule="evenodd" />
         <path
@@ -109,7 +109,7 @@
            fill-rule="evenodd" />
         <path
            id="dark-e"
-           d="M 40,25 16,43 H 38 L 31,56 H 18 Q 0,56 0,38 V 26 A 12,12 0 0 1 12,14 h 13 q 9,0 15,11 z m -26,9 v -6 a 2,2 0 0 1 2,-2 h 9 z"
+           d="M 36,28 16,43 H 38 L 31,56 H 18 Q 0,56 0,38 V 26 A 12,12 0 0 1 12,14 h 13 c 7,0 10,3.5 13,8 q 2,3 -2,6 z m -20,8 v -6 a 2,2 0 0 1 2,-2 h 6 q 3,0 0.25,2 z"
            transform="translate(316.125,122)"
            fill-rule="evenodd" />
         <path

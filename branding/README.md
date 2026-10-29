@@ -46,10 +46,15 @@ point; the i dot's top edge ends on that line and never rises above it.
 The regular k beam ends in a triangle at (7,56), with its cut
 meeting the lower leg at approximately (20.1005,42.8995). Both diagonal
 strokes have the bar's 14-unit perpendicular thickness, not a 14-unit
-horizontal span. The i's opposing faces have slope -8/19 and a four-unit
-vertical separation; its dot shape is unchanged. The t's lower-right
-face runs from (23,44) to (29,56). The e counter joins its flat top and
-left with a tangent 2-unit arc.
+horizontal span. The i's opposing faces have slope -0.7 and retain the
+accepted 4/sqrt(1+(8/19)^2) perpendicular clearance (about 3.687 units).
+Its dot extends 2 units beyond the 15-unit stem on the right. The t's
+lower-right face runs from (23,44) to (29,56). The e counter joins its
+flat top and left with a tangent 2-unit arc; its upper-right turn is a
+quadratic curve tangent to its straight top and diagonal. The outer
+upper-right shoulder also turns smoothly into the diagonal. The counter's
+left edge is at x=16 and top flat at y=28, shifted right/down by 2 units
+from the sharper counter to place it nearer the bowl's visual center.
 Reference-image guides are measured raster estimates, not vector
 constraints imposed on or alterations to the supplied image.
 

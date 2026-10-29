@@ -1,13 +1,13 @@
 """Build editable brand geometry. Rendering is performed by export_brand.py."""
 
 import argparse
-from copy import deepcopy
 import io
 import math
-from pathlib import Path
 import shlex
 import subprocess
 import xml.etree.ElementTree as ET
+from copy import deepcopy
+from pathlib import Path
 
 import build_d as geometry
 import cairosvg
@@ -16,7 +16,6 @@ from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
 from PIL import Image
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SVG = "http://www.w3.org/2000/svg"
@@ -33,13 +32,16 @@ K_DIAGONAL_SPAN = 14 * math.sqrt(2)
 K_ARM_TOP = 63 - K_DIAGONAL_SPAN
 K_LEG_INNER = 3 + K_DIAGONAL_SPAN
 K_JOIN_X = (63 - K_LEG_INNER) / 2
+I_CUT_SLOPE = 0.7
+I_FACE_GAP = 4 / math.hypot(1, 8 / 19)
+I_STEM_TOP = 16 + I_FACE_GAP * math.hypot(1, I_CUT_SLOPE)
 LETTERS = {
-    "i": f"M2 0H19V8L0 16V2Z M0 20L15 {20 - 15 * 8 / 19}V49L8 56H0Z",
+    "i": f"M2 0H17V{16 - 17 * I_CUT_SLOPE}L0 16V2Z M0 {I_STEM_TOP}L15 {I_STEM_TOP - 15 * I_CUT_SLOPE}V49L8 56H0Z",
     "n": "M0 56V25L12 14H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z",
     "k": f"M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V{K_ARM_TOP - 21}L{K_ARM_TOP - 14} 14H49L30 33L67 70H{70 - K_LEG_INNER}L{K_JOIN_X} {63 - K_JOIN_X}L7 56Z",
     "s": "M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z",
     "t": "M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H23L29 56H12L0 44Z",
-    "e": "M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z",
+    "e": "M36 28L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25C32 14 35 17.5 38 22Q40 25 36 28Z M16 36V30A2 2 0 0 1 18 28H24Q27 28 24.25 30Z",
     "r": "M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z",
 }
 POSITIONS = {"i": 149, "n": 167, "k": 212, "s": 263, "t": 302, "e": 331, "r": 374}
