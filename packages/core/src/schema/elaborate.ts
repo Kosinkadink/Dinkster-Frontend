@@ -576,6 +576,7 @@ export function collectWire15MemberEvidence(
   valueKeys: readonly string[],
   inputPorts: readonly string[],
   dynamicKeys: readonly string[],
+  singleLeaf = false,
 ): readonly string[] {
   const result: string[] = []
   const seen = new Set<string>()
@@ -587,9 +588,11 @@ export function collectWire15MemberEvidence(
   }
   for (const member of explicitMembers) add(member)
   const prefix = `${family}.`
-  for (const channel of [valueKeys, inputPorts, dynamicKeys]) {
+  for (const channel of singleLeaf ? [valueKeys, inputPorts] : [valueKeys, inputPorts, dynamicKeys]) {
     for (const key of channel) {
-      if (key.startsWith(prefix)) add(key.slice(prefix.length).split('.', 1)[0]!)
+      if (!key.startsWith(prefix)) continue
+      const suffix = key.slice(prefix.length)
+      if (!singleLeaf || !suffix.includes('.')) add(suffix.split('.', 1)[0]!)
     }
   }
   return result
@@ -627,6 +630,7 @@ function elaborateWire15Family(
     Object.keys(ctx.storedValues),
     ctx.connectivity.inputPorts?.() ?? [],
     Object.keys(ctx.dynamicState),
+    spec.optionalAfterMinimum === true,
   )
   for (const member of evidenceMembers) {
     if (storedMembers.includes(member as never)) add(member)

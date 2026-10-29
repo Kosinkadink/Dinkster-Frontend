@@ -2,6 +2,7 @@ import { isSubtreeBinding, type NodeData, type WorkflowDocument } from '../forma
 import { subgraphDefIdOf } from '../invariants.js'
 import type { GraphDefId } from '../ids.js'
 import type { NodeSchema } from '../schema/model.js'
+import { buildGraphConnectivity } from '../schema/elaborate.js'
 import { buildBoundaryCrossings, inheritSubtreeState, isSubtreeCrossing, mergeDynamicScope, type BoundaryNodeState } from './crossing.js'
 
 /** Shared, non-persisted inheritance for instance rendering and compilation. */
@@ -21,7 +22,9 @@ export function boundaryStateResolver(
     if (visiting.has(key)) return node
     visiting.add(key)
     let inherited: BoundaryNodeState = { values: {} }
-    const { crossings } = buildBoundaryCrossings(child, () => undefined, node.dynamic, (inner) => resolveNode(child.id, inner), node.values)
+    const parent = document.graphs[graph]
+    const instanceInputs = parent && buildGraphConnectivity(parent)(node.id).inputPorts?.()
+    const { crossings } = buildBoundaryCrossings(child, () => undefined, node.dynamic, (inner) => resolveNode(child.id, inner), node.values, instanceInputs)
     for (const crossing of crossings.values()) {
       if (!isSubtreeCrossing(crossing)) continue
       const inner = child.nodes[crossing.targetNode]

@@ -565,6 +565,25 @@ describe('whole-family forwarding derives boundary autogrow families', () => {
     )
   })
 
+  it.each([false, true].flatMap((named) => ['members', 'value', 'link'].map((evidence) => ({ named, evidence }))))('rejects sparse definition-owned positional members (named=$named, $evidence)', ({ named, evidence }) => {
+    const inner = parseDinksterSchema('Positional', { interface: [{
+      role: 'inputFamily', id: 'items', minMembers: 2, optionalAfterMinimum: true,
+      ...(named ? { memberNames: ['first', 'second', 'tail'] } : { memberPrefix: 'item', maxMembers: 3 }),
+      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: true }],
+    }] }).schema!
+    const member = named ? 'tail' : 'item2'
+    const base = defWith({ source: { id: 'source', type: 'Source', values: {} }, n0: { id: 'n0', type: 'Positional', values: evidence === 'value' ? { [`items.${member}`]: 10 } : {},
+      ...(evidence === 'members' ? { dynamic: { items: { members: [member] } } } : {}),
+    } }, [{ id: 'pics', binds: { kind: 'family', node: 'n0', port: 'items' } }])
+    const def = evidence === 'link' ? asDef({ ...base, links: {
+      l0: { id: 'l0', from: { node: 'source', port: 'out' }, to: { node: 'n0', port: `items.${member}` } },
+    } }) : base
+    const source: NodeSchema = { ...inner, type: 'Source', items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } }] }
+    const result = deriveBoundarySchema(def, (type) => type === 'Source' ? source : inner)
+    expect(result.schema).toBeUndefined()
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('boundary.familyNonPrefix')
+  })
+
   it('forwards a top-level input family with a recursively freshened template', () => {
     const def = defWith({ n0: { id: 'n0', type: 'ImpactSwitch', values: {} } }, [
       { id: 'pics', binds: { kind: 'family', node: 'n0', port: 'input' } },

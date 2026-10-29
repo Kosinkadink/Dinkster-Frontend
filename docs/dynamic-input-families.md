@@ -10,7 +10,14 @@ declared name or numeric-prefix positions: initial required positions cannot
 be replaced by later members, and members beyond the minimum are optional.
 An optional template stays optional at every position. Forwarding a family
 retains this rule after subtracting the definition's existing prefix from its
-local minimum. Families without the opt-in retain their existing behavior.
+local minimum. Definition-owned members must occupy consecutive initial
+canonical positions; a sparse set cannot be forwarded as a fixed prefix.
+Imported members and forwarded suffixes retain their declared canonical names.
+Stored member values and input connections establish ownership even without
+an explicit member list; an instance cannot overwrite definition-owned members.
+Occurrence-local connections and parent deliveries retain this evidence through
+each forwarded boundary without adding members to sibling occurrences.
+Families without the opt-in retain their existing behavior.
 
 Fresh nodes persist every required minimum member when they are placed. While
 another member is available, the canvas shows one ghost member as the growth
