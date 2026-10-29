@@ -2,12 +2,23 @@ import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AssetFileLocation } from '../src/AssetFileLocation.js'
-import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
+import { resolveDroppedAsset, type DinksterDesktopBridge } from '../src/desktop-bridge.js'
 
 const digest = `blake3:${'a'.repeat(64)}`
 afterEach(() => { delete window.dinksterDesktop; document.body.replaceChildren(); vi.restoreAllMocks() })
 
 describe('exact asset location actions', () => {
+  it('does not send a File to a nonmanaged connection and fails closed on capability errors', async () => {
+    const resolveDroppedFile = vi.fn()
+    const file = new File(['original'], 'original.png', { type: 'image/png' })
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false }), resolveDroppedFile } as unknown as DinksterDesktopBridge
+    expect(await resolveDroppedAsset('http://remote.test', file, () => true)).toBeUndefined()
+    expect(resolveDroppedFile).not.toHaveBeenCalled()
+    window.dinksterDesktop.fileCapabilities = async () => { throw new Error('/private/path') }
+    await expect(resolveDroppedAsset('', file, () => true)).rejects.toThrow('Could not resolve the existing file. Nothing was uploaded.')
+    expect(resolveDroppedFile).not.toHaveBeenCalled()
+  })
+
   it.each(['/imports/scene-2.png', '/vault/aa/asset'])('reveals identity, not operator path %s, and preserves copy after a rejection', async (path) => {
     const revealFile = vi.fn().mockRejectedValue(new Error('Project authorization changed'))
     window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: true }), revealFile } as unknown as DinksterDesktopBridge

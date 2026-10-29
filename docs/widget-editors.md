@@ -776,6 +776,16 @@ Workflow-provided URLs are neither linked nor fetched. The existing guess route
 matches names and paths only; it cannot recover a renamed asset by digest
 because the unresolved import supplies no digest query.
 
+Desktop file selection and canvas image ingress first ask the optional
+`resolveDroppedFile(backendUrl, File)` bridge on a capability-confirmed managed
+connection. A resolved mounted reference is used unchanged, reports the machine
+and location with "no copy made", and does not change destination preferences.
+Explicit refusal or a missing bridge permits the normal upload controls;
+canvas copying still requires destination confirmation. Native resolution
+errors remain visible without silently uploading. Cancelled or stale editor,
+tab, graph, backend and project results cannot insert or start a copy. The
+renderer never supplies or receives a native path through this operation.
+
 Upload preserves the selected File as the request body: the editor passes that
 exact object to `DinksterConnection.uploadAsset`, waits for success, and only then
 commits a five-field AssetRef whose name, size, and mediaType come from the

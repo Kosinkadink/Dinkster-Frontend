@@ -30,6 +30,7 @@ import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
+import { resolveDroppedAsset } from '../desktop-bridge.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -401,14 +402,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     // 3D files (.glb, .ply) get their type inferred from the name so accept
     // validation and the committed ref carry a previewable media type.
     const effectiveType = model3dMimeFor(file.name, file.type) ?? file.type
-    if (accept.length > 0 && !mediaAcceptsFile(accept, effectiveType) && !(classifiedLatent && file.type === '')) {
-      setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
-      return false
-    }
-    if (file.size > assetUploadMaxBytes) {
-      setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
-      return false
-    }
     const backend = props.app.backendForTab(ed.tab)
     if (backend.protocol !== 'dinkster') {
       setAssetError('Asset uploads require a native Dinkster backend')
@@ -417,13 +410,29 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     if (backend !== uploadBackend) return false
     setAssetError(undefined)
     publishLocalAssetPreview(file)
+    const current = (): boolean => live && !assetUploadAbort?.signal.aborted &&
+      props.app.backendForTab(ed.tab) === backend && activeProjectId() === project
     try {
+      const existing = await resolveDroppedAsset(backend.baseUrl, file, current)
+      if (!current()) return false
+      if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType)) {
+        setAssetError('The existing file is not compatible with this input. Nothing was uploaded.')
+        return false
+      }
+      if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType) && !(classifiedLatent && file.type === '')) {
+        setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
+        return false
+      }
+      if (!existing && file.size > assetUploadMaxBytes) {
+        setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
+        return false
+      }
       const choice = destination()
       const uploadDestination = {
         ...(choice.mount ? { mount: choice.mount } : {}),
         ...(choice.folder ? { folder: choice.folder } : {}),
       }
-      const ref = classifiedMediaKind !== undefined
+      const ref = existing ?? (classifiedMediaKind !== undefined
         ? await backend.connection.uploadMediaAsset(file, {
             scope: 'local',
             kind: classifiedMediaKind,
@@ -440,11 +449,13 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         : await backend.connection.uploadNamedAsset(file, {
             scope: 'local', name: mediaUploadName(file.name), ...uploadDestination,
             ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
-          })
-      if (!live || props.app.backendForTab(ed.tab) !== backend) return false
-      if (!classifiedLatent) {
-        setUploadedLocation(`${backend.label}: ${ref.virtualPath}`)
-        try { saveUploadDestination(String(backend.id), project, choice) } catch { /* A successful import remains usable when preference storage is full. */ }
+          }))
+      if (!current()) return false
+      if (!classifiedLatent || existing) {
+        setUploadedLocation(`${existing ? 'Using existing file; no copy made. ' : ''}${backend.label}: ${ref.virtualPath}`)
+        if (!existing) {
+          try { saveUploadDestination(String(backend.id), project, choice) } catch { /* A successful import remains usable when preference storage is full. */ }
+        }
       }
       // Uploads stage into the selection like browsed picks; the footer
       // Apply button commits. The local file preview is already showing.
@@ -458,7 +469,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       setAssetSelectedModel(undefined)
       return true
     } catch (error) {
-      if (live && props.app.backendForTab(ed.tab) === backend) {
+      if (current()) {
         setAssetError(error instanceof Error ? error.message : String(error))
       }
       return false

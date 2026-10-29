@@ -1,3 +1,5 @@
+import type { AssetRef } from '@dinkster/core'
+
 export const DESKTOP_ENGINE_ACCELERATORS = ['cpu', 'cuda', 'mps', 'rocm', 'xpu'] as const
 export type DesktopEngineAccelerator = typeof DESKTOP_ENGINE_ACCELERATORS[number]
 
@@ -102,6 +104,10 @@ export interface DinksterDesktopBridge {
   fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean }>
   chooseDirectory(backendUrl: string): Promise<string | undefined>
   revealFile?(backendUrl: string, asset: { readonly digest: string; readonly scope: 'local'; readonly project: string }): Promise<{ readonly mode: 'selected' | 'folder' }>
+  resolveDroppedFile?(backendUrl: string, file: File): Promise<
+    | { readonly status: 'resolved'; readonly asset: AssetRef }
+    | { readonly status: 'refused'; readonly reason: 'not-resolvable' | 'not-native-file' | 'unsupported-backend' }
+  >
   exportSnapshot(): Promise<string | undefined>
   importSnapshot(): Promise<unknown | undefined>
   systemCheck(): Promise<DesktopSystemCheck>
@@ -155,4 +161,34 @@ declare global {
 
 export function desktopBridge(): DinksterDesktopBridge | undefined {
   return window.dinksterDesktop
+}
+
+/** Only an explicit refusal permits the caller to offer byte upload. */
+export async function resolveDroppedAsset(backendUrl: string, file: File, isCurrent: () => boolean): Promise<AssetRef | undefined> {
+  const bridge = desktopBridge()
+  if (!bridge?.resolveDroppedFile) return undefined
+  const url = new URL(backendUrl || '/', window.location.href).href
+  try {
+    const capabilities = await bridge.fileCapabilities(url)
+    if (typeof capabilities?.nativeFolderChoice !== 'boolean') throw new Error('Invalid native capability response')
+    if (!isCurrent() || !capabilities.nativeFolderChoice) return undefined
+    const result = await bridge.resolveDroppedFile(url, file)
+    if (!isCurrent()) return undefined
+    if (result?.status === 'refused' && Object.keys(result).length === 2 &&
+        ['not-resolvable', 'not-native-file', 'unsupported-backend'].includes(result.reason)) return undefined
+    if (result?.status === 'resolved' && Object.keys(result).length === 2) {
+      const asset = result.asset
+      if (asset && Object.keys(asset).length === 5 && /^blake3:[a-f0-9]{64}$/.test(asset.digest) &&
+          typeof asset.name === 'string' && asset.name !== '' && Number.isSafeInteger(asset.size) && asset.size >= 0 &&
+          typeof asset.mediaType === 'string' && asset.mediaType !== '' && typeof asset.virtualPath === 'string') {
+        const segments = asset.virtualPath.split('/')
+        if (segments.length >= 3 && segments[0] === 'mounts' && segments.at(-1) === asset.name &&
+            !/[\\\0]/.test(asset.virtualPath) && segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..')) return asset
+      }
+    }
+  } catch {
+    // Native errors may contain private server details; keep the renderer message fixed.
+    throw new Error('Could not resolve the existing file. Nothing was uploaded.')
+  }
+  throw new Error('Invalid native file resolution response. Nothing was uploaded.')
 }

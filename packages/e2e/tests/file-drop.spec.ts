@@ -266,6 +266,72 @@ test('plain image preserves the canonical AssetRef at drop coordinates and undo 
   })).toBe(0)
 })
 
+test('native image resolution preserves mounted identity without upload and only explicit refusal offers copying', async ({ page }, testInfo) => {
+  const digest = `blake3:${'b'.repeat(64)}`
+  await installImageDropBackend(page, digest)
+  await page.evaluate((digest) => {
+    const app = window.__dinksterTest!.app
+    const backend = (app as unknown as { backendForTab(tab: unknown): { connection: { fetchAssetLocations: () => Promise<readonly string[]> } } }).backendForTab(app.activeTab()!)
+    backend.connection.fetchAssetLocations = async () => ['/studio/plates/nested/native.png']
+    const state = window as unknown as { nativeDropMode: string; nativeDropUrl?: string; dinksterDesktop: unknown }
+    state.nativeDropMode = 'resolved'
+    state.dinksterDesktop = {
+      fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: false }),
+      resolveDroppedFile: async (url: string, file: File) => {
+        state.nativeDropUrl = url
+        if (file.name !== 'native.png') throw new Error('Expected original File')
+        if (state.nativeDropMode === 'error') throw new Error('/private/native/path')
+        if (state.nativeDropMode === 'malformed') return { status: 'refused', reason: 'unknown' }
+        if (state.nativeDropMode !== 'resolved') return { status: 'refused', reason: state.nativeDropMode }
+        return { status: 'resolved', asset: { digest, name: 'native.png', size: 23, mediaType: 'image/png', virtualPath: 'mounts/plates/nested/native.png' } }
+      },
+    }
+  }, digest)
+  const preferences = await page.evaluate(() => JSON.stringify(localStorage))
+  await dropBytes(page, pngBytes(), 'native.png', 'image/png')
+  const surface = page.getByTestId('canvas-file-drop-surface')
+  await expect(surface).toContainText('Using existing file; no copy made.')
+  await expect(surface).toContainText('mounts/plates/nested/native.png')
+  await expect(page.getByTestId('canvas-import-confirm')).toHaveCount(0)
+  expect(await page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return Object.values(doc.graphs[doc.root]!.nodes)[0]!.values['image']
+  })).toEqual({ digest, name: 'native.png', size: 23, mediaType: 'image/png', virtualPath: 'mounts/plates/nested/native.png' })
+  expect(await page.evaluate(() => (window as unknown as { __imageDropUploads: unknown[] }).__imageDropUploads)).toEqual([])
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).toBe(preferences)
+  await page.screenshot({ path: testInfo.outputPath('native-drop-no-copy.png') })
+  await closeRightRail(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: testInfo.outputPath('native-drop-no-copy-narrow.png') })
+  for (const mode of ['not-resolvable', 'not-native-file', 'unsupported-backend', 'error', 'malformed']) {
+    await page.evaluate((mode) => { (window as unknown as { nativeDropMode: string }).nativeDropMode = mode }, mode)
+    await dropBytes(page, pngBytes(), 'native.png', 'image/png')
+    if (mode === 'error' || mode === 'malformed') {
+      await expect(surface).toContainText('Could not resolve the existing file. Nothing was uploaded.')
+      await expect(surface).not.toContainText('/private/native/path')
+      await expect(page.getByTestId('canvas-import-confirm')).toHaveCount(0)
+      if (mode === 'error') await page.screenshot({ path: testInfo.outputPath('native-drop-error-narrow.png') })
+    } else {
+      const dialog = page.getByTestId('canvas-import-dialog')
+      await expect(page.getByTestId('canvas-import-confirm')).toBeVisible()
+      await dialog.locator('footer').getByRole('button', { name: 'Cancel import', exact: true }).click()
+    }
+    expect(await page.evaluate(() => (window as unknown as { __imageDropUploads: unknown[] }).__imageDropUploads)).toEqual([])
+  }
+  await page.evaluate(() => {
+    const bridge = (window as unknown as { dinksterDesktop: { resolveDroppedFile: () => Promise<unknown> } }).dinksterDesktop
+    bridge.resolveDroppedFile = () => new Promise((resolve) => {
+      ;(window as unknown as { completeNativeDrop: () => void }).completeNativeDrop = () => resolve({ status: 'refused', reason: 'not-resolvable' })
+    })
+  })
+  await dropBytes(page, pngBytes(), 'native.png', 'image/png')
+  await page.waitForFunction(() => typeof (window as unknown as { completeNativeDrop?: unknown }).completeNativeDrop === 'function')
+  await surface.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.evaluate(() => (window as unknown as { completeNativeDrop: () => void }).completeNativeDrop())
+  await expect(page.getByTestId('canvas-import-dialog')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as unknown as { __imageDropUploads: unknown[] }).__imageDropUploads)).toEqual([])
+})
+
 test('canvas import confirms each destination and remembers only successful explicit choices', async ({ context, page }, testInfo) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await installImageDropBackend(page, `blake3:${'a'.repeat(64)}`)
