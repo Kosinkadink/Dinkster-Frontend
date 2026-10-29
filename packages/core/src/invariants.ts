@@ -208,6 +208,7 @@ function routeMatchesOwnerChain(
 ): boolean {
   if (route.length !== chain.length - startIndex) return false
   let address = initialAddress
+  let inheritedCanonicalMember = false
   for (let offset = 0; offset < route.length; offset++) {
     const ownerHop = chain[startIndex + offset]!
     const graph = doc.graphs[ownerHop.bodyGraphId]!
@@ -218,7 +219,7 @@ function routeMatchesOwnerChain(
     if (!match.ok || match.item.id !== leg.boundaryId) return false
     const item = match.item
     if (item.binds.kind === 'family' &&
-        resolveDynamicAddress(address, ownerHop.node.dynamic).kind !== 'resolved')
+        !inheritedCanonicalMember && resolveDynamicAddress(address, ownerHop.node.dynamic).kind !== 'resolved')
       return false
     const bindings = [item.binds, ...(item.alsoBinds ?? [])]
     const bindingMatches = bindings.filter((binding) =>
@@ -240,7 +241,15 @@ function routeMatchesOwnerChain(
         }, address)
         if (!translated.ok) return false
         address = translated.ref
-      } else address = { port: binding.port, ...(binding.members ? { members: binding.members } : {}) }
+        inheritedCanonicalMember = false
+      } else if (binding.kind === 'family' && address.members === undefined && address.port.startsWith(`${item.id}.`)) {
+        // The ancestor owns this canonical suffix; intermediate instances need not persist it.
+        address = { port: `${binding.port}${address.port.slice(item.id.length)}` }
+        inheritedCanonicalMember = true
+      } else {
+        address = { port: binding.port, ...(binding.members ? { members: binding.members } : {}) }
+        inheritedCanonicalMember = false
+      }
     }
   }
   return true

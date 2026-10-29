@@ -330,6 +330,67 @@ describe('occurrence-local link commands', () => {
     expect(unavailable.ok).toBe(false)
   })
 
+  it.each([false, true].flatMap((named) => [false, true].map((chained) => ({ named, chained }))))('materializes a canonical boundary ghost atomically (named=$named, chained=$chained)', ({ named, chained }) => {
+    const names = named ? ['head', 'middle', 'tail'] : ['item0', 'item1', 'item2']
+    const canonical: NodeSchema = { ...schema('CanonicalSink', [], []), isOutputNode: true, items: [{
+      kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: true,
+      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+        template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
+        naming: named ? { kind: 'names', names } : { kind: 'prefix', prefix: 'item', min: 0, max: 3 },
+      },
+    }] }
+    const resolver = (type: string) => type === 'CanonicalSink' ? canonical : resolve(type)
+    const initial = document(chained)
+    const target = chained ? owner('inner', ['outer']) : owner('a')
+    const sourceOwner = chained ? owner('outer') : target
+    const bodyGraph = initial.graphs.body!
+    ;(bodyGraph.nodes as Record<string, NodeData>).sink = {
+      id: asNodeId('sink'), type: 'CanonicalSink', values: {}, dynamic: { items: { members: [names[0]!] } },
+    }
+    ;(bodyGraph as unknown as { links: Record<string, never>; nets: Record<string, never> }).links = {}
+    ;(bodyGraph as unknown as { links: Record<string, never>; nets: Record<string, never> }).nets = {}
+    const familyBinding = { kind: 'family' as const, node: asNodeId('sink'), port: asPortId('items') }
+    ;(bodyGraph.boundary as unknown as { inputs: BoundaryItem[] }).inputs = [{ id: 'ingest' as never, binds: familyBinding }]
+    const outerBinding = { kind: 'family' as const, node: asNodeId('inner'), port: asPortId('ingest') }
+    if (chained) (initial.graphs.mid!.boundary as unknown as { inputs: BoundaryItem[] }).inputs = [{ id: 'outerIngest' as never, binds: outerBinding }]
+    const construct = chained ? 'outerIngest' : 'ingest'
+    const ghost: OccurrenceLinkEndpoint = {
+      kind: 'boundary', occurrence: sourceOwner, address: { port: asPortId(`${construct}.${names[1]}`) },
+      route: [...(chained ? [{ graph: asGraphDefId('mid'), boundaryId: 'outerIngest', binding: outerBinding }] : []),
+        { graph: asGraphDefId('body'), boundaryId: 'ingest', binding: familyBinding }],
+    }
+    const store = new DocumentStore(initial, coreCommandRegistry())
+    const plan = planOccurrenceLinkMutation(store.doc, resolver, {
+      kind: 'connect', owner: target, bodyGraph: 'body',
+      from: body({ node: 'producerOne', port: 'out' }), to: ghost,
+    })
+    expect(plan.ok, !plan.ok && JSON.stringify(plan.diagnostics)).toBe(true)
+    if (!plan.ok) return
+    const applied = store.dispatch(plan.invocation)
+    expect(applied.ok, JSON.stringify(applied.diagnostics)).toBe(true)
+    const source = () => store.doc.graphs.root!.nodes[sourceOwner.node]!
+    expect(source().dynamic?.[construct]?.members).toEqual([names[1]])
+    expect(store.doc.graphs.body!.nodes.sink!.dynamic?.items?.members).toEqual([names[0]])
+    expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links)).toHaveLength(1)
+    expect(store.dispatch(plan.invocation).ok).toBe(false)
+    expect(planOccurrenceLinkMutation(store.doc, resolver, {
+      kind: 'connect', owner: target, bodyGraph: 'body', from: body({ node: 'producerOne', port: 'out' }),
+      to: { ...ghost, address: { port: asPortId(`${construct}.notOffered`) } },
+    }).ok).toBe(false)
+    const compiled = compile({ document: store.doc, revision: store.revision, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('c'), schemaHash: 'canonical-ghost' })
+    expect(compiled.ok, !compiled.ok && JSON.stringify(compiled.diagnostics)).toBe(true)
+    if (compiled.ok) {
+      const prefix = chained ? 'outer.inner' : 'a'
+      expect(compiled.artifact.prompt[`${prefix}.sink`]!.inputs).toEqual({ [`items.${names[1]}`]: [`${prefix}.producerOne`, 0] })
+    }
+    expect(store.undo()).toBe(true)
+    expect(source().dynamic?.[construct]?.members ?? []).toEqual([])
+    expect(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links).toEqual({})
+    expect(store.redo()).toBe(true)
+    expect(source().dynamic?.[construct]?.members).toEqual([names[1]])
+    expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links)).toHaveLength(1)
+  })
+
   it('allows ordinary edits to distinct members while occurrence and whole-family drivers stay guarded', () => {
     const initial = document()
     const target = owner('a')
