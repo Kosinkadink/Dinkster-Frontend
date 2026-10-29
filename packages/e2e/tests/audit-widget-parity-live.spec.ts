@@ -3,11 +3,11 @@ import { mkdir } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
-import { skipWithoutNativeCatalog } from './fixtures.js'
+import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
-// Backend a0434ba and ComfyUI 15eb748b: 279 pack declarations plus 620 translated nodes.
+// Backend 2daa7ad6 and ComfyUI 15eb748b: 279 pack declarations plus 620 translated nodes.
 const canonicalCatalogSha256 =
-  'dba3632b340753668adfce02980c1efdf10903bcb86b67d8681f457a60aa18bb'
+  '7463897b718667d256db419d522aabd2f266290b0b236a4f3046cd1519f8d764'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -508,6 +508,13 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   const media = await rowPoint(page, 'media', 'mask')
   await page.mouse.click(media.x, media.y)
   await expect(page.getByTestId('asset-editor')).toBeVisible()
+  await selectProductOption(
+    page,
+    page.getByTestId('upload-destination-mount'),
+    'output',
+  )
+  const uploadFolder = `widget-parity-${testInfo.repeatEachIndex}`
+  await page.getByTestId('upload-destination-folder').fill(uploadFolder)
   const png = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64',
@@ -526,13 +533,16 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       buffer: png,
     })
   const uploadResponse = await uploadResponsePromise
-  expect(uploadResponse.ok()).toBe(true)
+  expect(uploadResponse.ok(), await uploadResponse.text()).toBe(true)
   await expect.poll(() => mediaUploads.length).toBe(1)
   const mediaUrl = new URL(mediaUploads[0]!)
   expect(Object.fromEntries(mediaUrl.searchParams)).toEqual({
     scope: 'local',
     kind: 'media/image',
     name: 'audit-wpar-source.png',
+    mount: 'output',
+    folder: uploadFolder,
+    project: 'default',
   })
   await page.getByRole('button', { name: 'Use asset' }).click()
   const uploadedAsset = await expect
