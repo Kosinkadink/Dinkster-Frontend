@@ -742,6 +742,7 @@ export function deriveBoundarySchema(
       kind: 'autogrow',
       template: template.map((s) => freshenInputSpec(s, binding.node, typeBindingsFor(node))),
       naming,
+      ...(spec.optionalAfterMinimum ? { optionalAfterMinimum: true, materialization: 'wire15' as const } : {}),
       ...(offset > 0 ? { ordinalOffset: offset } : {}),
     }
   }

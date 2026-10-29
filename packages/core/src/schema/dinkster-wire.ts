@@ -84,6 +84,7 @@ interface WireEntry {
   readonly typeTemplateId?: unknown
   readonly memberPrefix?: unknown
   readonly memberNames?: unknown
+  readonly optionalAfterMinimum?: unknown
   readonly forceInput?: unknown
   /** Computation-semantic demand marker. */
   readonly lazy?: unknown
@@ -1566,6 +1567,10 @@ function decodeWireFamily(
   const max = wireBound(entry['maxMembers'], `${where}.maxMembers`)
   const hasPrefix = Object.prototype.hasOwnProperty.call(entry, 'memberPrefix')
   const hasNames = Object.prototype.hasOwnProperty.call(entry, 'memberNames')
+  const optionalAfterMinimum = wireBoolean(entry['optionalAfterMinimum'], `${where}.optionalAfterMinimum`, false)
+  if (optionalAfterMinimum && (
+    decodedTemplate.length !== 1 || decodedTemplate[0]!.dynamic !== undefined || (!hasPrefix && !hasNames)
+  )) throw new Error(`${where}.optionalAfterMinimum needs one ordinary template leaf and a declared vocabulary`)
   if (hasPrefix && hasNames) throw new Error(`${where} cannot carry both memberPrefix and memberNames`)
   let naming: Extract<DynamicSpec, { kind: 'autogrow' }>['naming']
   if (hasNames) {
@@ -1604,7 +1609,7 @@ function decodeWireFamily(
   // prefix family. Nested families and names vocabularies use dot-scoped
   // identities even when their authored leaf is named "value".
   const flatFamilyCompatible =
-    depth === 0 && naming.kind === 'prefix' && decodedTemplate.length === 1 && decodedTemplate[0]!.dynamic === undefined && decodedTemplate[0]!.id === 'value'
+    !optionalAfterMinimum && depth === 0 && naming.kind === 'prefix' && decodedTemplate.length === 1 && decodedTemplate[0]!.dynamic === undefined && decodedTemplate[0]!.id === 'value'
   let template = decodedTemplate
   if (flatFamilyCompatible) {
     const { widget: _inferredWidget, ...compatLeaf } = decodedTemplate[0]!
@@ -1621,6 +1626,7 @@ function decodeWireFamily(
       kind: 'autogrow',
       template,
       naming,
+      ...(optionalAfterMinimum ? { optionalAfterMinimum: true } : {}),
       ...(wireBoolean(entry['independentTypes'], `${where}.independentTypes`, false) ? { independentTypes: true } : {}),
       ...(!flatFamilyCompatible ? { materialization: 'wire15' as const } : {}),
     },

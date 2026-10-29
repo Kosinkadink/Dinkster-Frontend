@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../src/schema/derive-boundary.js'
-import { elaborateInterface } from '../src/schema/elaborate.js'
+import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf, outputCountInputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
@@ -543,6 +544,26 @@ describe('whole-family forwarding derives boundary autogrow families', () => {
 
   const inputItem = (schema: NodeSchema, id: string) => inputsOf(schema).find((i) => i.id === id)!
   const outputItem = (schema: NodeSchema, id: string) => outputsOf(schema).find((o) => o.id === id)!
+
+  it.each([0, 1, 2])('preserves positional requiredness through a forwarded prefix of %s', (prefix) => {
+    const inner = parseDinksterSchema('Positional', { interface: [{
+      role: 'inputFamily', id: 'items', minMembers: 2, maxMembers: 4,
+      memberPrefix: 'item', optionalAfterMinimum: true,
+      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
+    }] }).schema!
+    const def = defWith({ n0: { id: 'n0', type: 'Positional', values: {}, dynamic: {
+      items: { members: Array.from({ length: prefix }, (_, index) => `item${index}`) },
+    } } }, [{ id: 'pics', binds: { kind: 'family', node: 'n0', port: 'items' } }])
+    const result = deriveBoundarySchema(def, () => inner)
+    expect(result.diagnostics).toEqual([])
+    expect(inputItem(result.schema!, 'pics').dynamic).toMatchObject({ optionalAfterMinimum: true, materialization: 'wire15' })
+    const inputs = elabInputsOf(elaborateInterface(result.schema!, {
+      values: {}, dynamic: { pics: { members: ['item2'] } },
+    })).filter((input) => input.origin.kind !== 'member' || !input.origin.ghost)
+    expect(inputs.map((input) => [input.apiName, input.spec.optional])).toEqual(
+      Array.from({ length: 3 - prefix }, (_, index) => [`pics.item${prefix + index}`, prefix + index >= 2]),
+    )
+  })
 
   it('forwards a top-level input family with a recursively freshened template', () => {
     const def = defWith({ n0: { id: 'n0', type: 'ImpactSwitch', values: {} } }, [

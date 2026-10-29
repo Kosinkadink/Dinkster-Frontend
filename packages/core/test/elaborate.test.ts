@@ -21,6 +21,7 @@ import {
   type ElaboratedInput,
 } from '../src/schema/elaborate.js'
 import { initialDynamicStateOf, type DynamicComboSpec, type InputSpec, type InterfaceItem, type NodeSchema, type OutputSpec } from '../src/schema/model.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -152,6 +153,26 @@ describe('static schemas', () => {
 // ---------------------------------------------------------------------------
 
 describe('autogrow', () => {
+  it.each([false, true])('uses declared positions for opted-in native families (named=%s)', (named) => {
+    const parsed = parseDinksterSchema('Positional', { interface: [{
+      role: 'inputFamily', id: 'items', minMembers: 2, optionalAfterMinimum: true,
+      ...(named ? { memberNames: ['z', 'a', 'b', 'c'] } : { memberPrefix: 'item', maxMembers: 12 }),
+      template: [{ role: 'input', id: 'entry', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
+    }] })
+    expect(parsed.diagnostics).toEqual([])
+    expect(parsed.schema).toBeDefined()
+    const tails = named ? ['c', 'b'] : ['item10', 'item2']
+    const e = elaborateInterface(parsed.schema!, {
+      values: {}, dynamic: { items: { members: tails } },
+    })
+    const actual = elabInputsOf(e).filter((input) => input.origin.kind !== 'member' || !input.origin.ghost)
+    const first = named ? ['z', 'a'] : ['item0', 'item1']
+    expect(actual.map((input) => [input.address.port, input.apiName, input.spec.optional])).toEqual(
+      [...first, ...[...tails].reverse()].map((suffix, index) => [`items.${suffix}`, `items.${suffix}`, index >= 2]),
+    )
+    expect(initialDynamicStateOf(parsed.schema!).items?.members).toEqual(first)
+  })
+
   it('orders wire-15 explicit members before value, structural, and dynamic evidence', () => {
     const family: InputSpec = {
       ...autogrowFamily('items', { min: 0, max: 8 }),
