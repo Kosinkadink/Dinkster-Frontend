@@ -93,5 +93,16 @@ for (const fixture of [
     await editor.getByTestId('collection-search').fill(name)
     await expect(editor.getByTestId('collection-entry').filter({ hasText: name })).toHaveCount(1)
     await page.screenshot({ path: info.outputPath(`${fixture.kind.replace('/', '-')}-catalog.png`) })
+    if (fixture.kind === 'asset/file') {
+      for (const width of [1440, 600]) {
+        await page.setViewportSize({ width, height: 900 })
+        const apply = editor.getByTestId('asset-apply')
+        await apply.scrollIntoViewIfNeeded()
+        await expect(apply).toBeInViewport()
+        await expect(editor.getByTestId('asset-upload-trigger')).toBeInViewport()
+        await expect(editor.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport()
+        await page.screenshot({ path: info.outputPath(`asset-file-actions-${width}.png`) })
+      }
+    }
   })
 }
