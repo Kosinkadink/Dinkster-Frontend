@@ -166,8 +166,7 @@ up and Move down buttons. Stop using removes this project's association, never
 files or another project's grant. A selected output requires a writable
 replacement before removal. Retry / rescan refreshes a reconnected drive.
 Order, membership and output selection persist on the server, independently for
-each project window. Backend status refreshes and canceling the native chooser
-preserve an unsaved folder choice. Switching connections clears unsaved folder choices and
+each project window. Switching connections clears unsaved folder choices and
 loads the new server's settings; late saves or errors from the previous
 connection do not overwrite the current form. Physical paths require operator
 access and stay out of shareable asset records. Pending sandbox changes say
@@ -175,6 +174,9 @@ Restart required and show the still-active output; server grants pending removal
 are listed separately and remain live until restart. Saving configuration does
 not rebind live grants. Server policy can
 disable folder changes without hiding the configured folders.
+
+Backend status refreshes and canceling the native chooser preserve an unsaved
+folder choice.
 
 ### Remote worker machines
 
