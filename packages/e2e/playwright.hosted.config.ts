@@ -98,6 +98,7 @@ export default defineConfig({
         '--host 127.0.0.1',
         '--allow-host localhost',
         `--port ${nativePort}`,
+        '--engine-variant linux-cpu',
         `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,

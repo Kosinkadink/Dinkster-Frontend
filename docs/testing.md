@@ -133,6 +133,10 @@ schemas and API routes. The shared fixture does not select a stock protocol,
 block native discovery, or add backend settings responses. App View remains an
 explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
+Hosted native launches declare `--engine-variant linux-cpu`. After composition,
+global setup requires an empty workflow to return an empty requirement plan
+without a request variant. Mock-only native fixtures explicitly answer that
+read-only plan request; live native cases use the pinned backend route.
 The hosted native server also accepts the `localhost` Host alias so the
 run-history backend-switch test can address the same server through two
 distinct backend identities without an HTTP 421 schema rejection.
