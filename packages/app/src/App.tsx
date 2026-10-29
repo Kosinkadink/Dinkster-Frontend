@@ -1280,6 +1280,7 @@ export function App(props: {
           connection={backend.connection}
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
+          backendLabel={backend.label}
           {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
         /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />

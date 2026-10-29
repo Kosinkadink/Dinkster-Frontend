@@ -7,6 +7,7 @@
   "canvasImport.file": "Imported file",
   "assetLocation.reveal": "在此电脑上显示文件",
   "assetLocation.copy": "复制服务器路径",
+  "assetLocation.machine": "文件位于 {machine}，不一定在此电脑上。",
   "uploadDestination.folder": "Import destination",
   "uploadDestination.machine": "Files are imported on {machine}, not necessarily this computer.",
   "uploadDestination.default": "Standard imports folder (server default)",

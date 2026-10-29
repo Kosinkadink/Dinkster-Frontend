@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { assetDtoV1Contract, type DinksterConnection } from '@dinkster/client'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
+import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
 import '../src/locale.js'
 
 afterEach(() => {
+  delete window.dinksterDesktop
   vi.useRealTimers()
   document.body.replaceChildren()
   localStorage.clear()
@@ -21,10 +23,54 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
   onMountsChanged: vi.fn(() => () => undefined),
   listLocalAssets: vi.fn().mockResolvedValue({ assets: [] }),
   checkAssetAvailability: vi.fn().mockResolvedValue([]),
+  fetchAssetLocations: vi.fn().mockResolvedValue([]),
   ...members,
 } as unknown as DinksterConnection)
 
 describe('Assets dock body', () => {
+  it.each([false, true])('shows produced-output provenance and server paths with native reveal %s', async (reveal) => {
+    const digest = `blake3:${'d'.repeat(64)}`
+    const missing = `blake3:${'e'.repeat(64)}`
+    const asset = { digest, name: 'kept.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: 'mounts/output/kept.bin' }
+    const revealFile = vi.fn().mockResolvedValue(undefined)
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: false, reveal }), revealFile } as unknown as DinksterDesktopBridge
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    const connection = stubConnection({
+      listMounts: async () => [],
+      listLocalAssets: async () => ({ assets: [
+        { asset, aliases: ['kept.bin'], observations: [{ kind: 'asset/file', created: 1700000000, origin: { kind: 'produced', job: 'output-job', node: 'save-node' } }] },
+        { asset: { ...asset, digest: missing, name: 'missing.bin' }, aliases: ['missing.bin'], observations: [] },
+      ] }),
+      checkAssetAvailability: async () => [{ digest, status: 'available' }, { digest: missing, status: 'missing' }],
+      assetUrl: (digest: string) => `/api/assets/${digest}`,
+      fetchAssetLocations: async () => ['/server/output/kept.bin'],
+    })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="remote" baseUrl="http://remote.test:3639" backendLabel="Render workstation" />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+      ;[...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((row) => row.textContent?.includes('kept.bin'))!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('Copy server path'))
+      expect(root.textContent).toContain('Render workstation')
+      const details = root.querySelector<HTMLDetailsElement>('[data-testid="asset-rail-details"]')!
+      details.open = true
+      expect(details.textContent).toContain('output-job')
+      expect(details.textContent).toContain('save-node')
+      expect(details.textContent).toContain('2023-11-14T22:13:20.000Z')
+      ;[...root.querySelectorAll('button')].find((b) => b.textContent === 'Copy server path')!.click()
+      await vi.waitFor(() => expect(copy).toHaveBeenCalledWith('/server/output/kept.bin'))
+      const revealButton = [...root.querySelectorAll('button')].find((b) => b.textContent === 'Show file on this computer')
+      if (reveal) {
+        expect(revealButton).toBeDefined()
+        revealButton!.click()
+        await vi.waitFor(() => expect(revealFile).toHaveBeenCalledWith('http://remote.test:3639/', { digest, scope: 'local', project: 'default' }))
+      } else expect(revealButton).toBeUndefined()
+      ;[...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((row) => row.textContent?.includes('missing.bin'))!.click()
+      expect(root.querySelector('[data-testid="asset-file-location"]')).toBeNull()
+    } finally { dispose() }
+  })
+
   it('updates open source and health controls without refetching or translating source data', async () => {
     registerCatalog('de-DE', {
       'assets.search': '[Assets durchsuchen]',

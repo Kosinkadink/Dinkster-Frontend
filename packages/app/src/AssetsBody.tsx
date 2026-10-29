@@ -190,7 +190,7 @@ function assetState(state: CollectionPanelState, message: AssetMessage) {
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source })} />
 }
 
-export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly federatedContract?: AssetDtoV1WireContract }) {
+export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly federatedContract?: AssetDtoV1WireContract }) {
   const message = useAppMessage()
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
@@ -305,7 +305,9 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
               searchPlaceholder={message('assets.search')}
               renderState={(state) => assetState(state, message)}
               entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
-              detailRail={(entry) => <AssetEntrySelection entry={entry} adapters={presentedAdapters()} backendId={props.backendId} assetUrl={(digest) => props.connection.assetUrl(digest)} />}
+              detailRail={(entry) => <AssetEntrySelection entry={entry} adapters={presentedAdapters()} backendId={props.backendId}
+                connection={props.connection} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel}
+                assetUrl={(digest) => props.connection.assetUrl(digest)} />}
             />
     </div>
   )
