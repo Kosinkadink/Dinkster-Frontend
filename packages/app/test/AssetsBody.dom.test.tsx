@@ -92,13 +92,13 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it('shows a deterministic source-discovery loading state', () => {
+  it('browses local assets while mount discovery is pending', async () => {
     const connection = stubConnection({ listMounts: vi.fn(() => new Promise(() => undefined)) })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
-    expect(root.textContent).toContain('Loading asset sources')
-    expect(root.textContent).toContain('Discovering backend-owned asset mounts.')
+    await vi.waitFor(() => expect(root.textContent).toContain('No assets yet'))
+    expect(root.querySelector('[data-testid="collection-panel"]')).not.toBeNull()
     dispose()
   })
 
@@ -424,13 +424,23 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it('shows a terminal discovery failure without a false loading state', async () => {
-    const connection = stubConnection({ listMounts: vi.fn().mockRejectedValue(new Error('mount catalog offline')) })
+  it('keeps local assets and retry available when mount discovery fails', async () => {
+    const digest = `blake3:${'c'.repeat(64)}`
+    const asset = { digest, name: 'local.png', size: 5, mediaType: 'image/png', virtualPath: 'imports/local.png' }
+    const connection = stubConnection({
+      listMounts: vi.fn().mockRejectedValue(new Error('mount catalog offline')),
+      listLocalAssets: vi.fn().mockResolvedValue({ assets: [{ asset, aliases: ['local.png'], observations: [] }] }),
+      checkAssetAvailability: vi.fn().mockResolvedValue([{ digest, status: 'available' }]),
+      assetUrl: (digest: string) => `/assets/${digest}`,
+    })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
-    await vi.waitFor(() => expect(root.querySelector('[data-testid="assets-error"]')?.textContent).toContain('mount catalog offline'))
-    expect(root.querySelector('[data-testid="assets-error"]')?.textContent).toContain('Asset sources unavailable')
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('local.png'))
+    expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('mount catalog offline')
+    root.querySelector<HTMLButtonElement>('[data-testid="assets-retry"]')!.click()
+    await vi.waitFor(() => expect(connection.listMounts).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('local.png'))
     expect(root.textContent).not.toContain('Loading asset sources')
     dispose()
   })

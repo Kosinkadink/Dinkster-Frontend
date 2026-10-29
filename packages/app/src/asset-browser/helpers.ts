@@ -8,7 +8,7 @@ import type { AssetBrowserItem } from './types.js'
 export const VIEW_PREFERENCE_KEY = 'dinkster.assetBrowser.view.v1'
 
 export function isBrowserPreviewable(item: Pick<AssetBrowserItem, 'kind' | 'mediaType' | 'digest' | 'availability'>): boolean {
-  if (item.availability === 'missing' || !item.digest || !item.mediaType || !item.mediaType.startsWith('image/')) return false
+  if ((item.availability !== undefined && item.availability !== 'available') || !item.digest || !item.mediaType || !item.mediaType.startsWith('image/')) return false
   return item.kind === undefined || item.kind.startsWith('media/')
 }
 
@@ -52,7 +52,7 @@ export function isCompatible(item: AssetBrowserItem, accept: readonly string[], 
 export function committableAssetRef(
   item: AssetBrowserItem,
 ): { digest: string; name: string; size: number; mediaType: string; virtualPath: string } | undefined {
-  if (item.availability === 'missing' || item.folder || !item.digest || !item.mediaType) return undefined
+  if ((item.availability !== undefined && item.availability !== 'available') || item.folder || !item.digest || !item.mediaType) return undefined
   if (typeof item.size !== 'number' || !Number.isSafeInteger(item.size) || item.size < 0) return undefined
   return { digest: item.digest, name: item.name, size: item.size, mediaType: item.mediaType, virtualPath: item.virtualPath ?? '' }
 }

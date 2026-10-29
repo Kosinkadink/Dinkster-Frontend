@@ -93,6 +93,8 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     } })
   } else if (path.endsWith('/api/mounts')) {
     await route.fulfill({ json: { mounts: [] } })
+  } else if (path.endsWith('/api/assets/catalog')) {
+    await route.fulfill({ json: { assets: [] } })
   } else if (path.endsWith('/api/history/runs')) {
     await route.fulfill({ json: { records: [] } })
   } else {
@@ -1386,6 +1388,8 @@ test('Asset selection instructions stay readable for the rail and single or mult
           app: {
             backendForTab: () => ({ id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
               listMounts: async () => [],
+              listLocalAssets: async () => ({ assets: [] }),
+              checkAssetAvailability: async () => [],
               onMountsChanged: () => () => {},
               fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
               fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),

@@ -209,7 +209,8 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     let outputTimer: ReturnType<typeof setTimeout> | undefined
     let active = true
     let scanPolling = false
-    setAdapters(undefined)
+    const local = localAssetSource(connection)
+    setAdapters([local])
     setMounts([])
     setDiscoveryError(undefined)
     setSourceFailures({})
@@ -219,7 +220,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         const descriptors = await connection.listMounts()
         const browsable = await mountAssetSources(connection, undefined, descriptors)
         if (!live || !active || generation !== discoveryGeneration) return
-        setAdapters([localAssetSource(connection), ...browsable])
+        setAdapters([local, ...browsable])
         setMounts(descriptors)
         setDiscoveryError(undefined)
         scanPolling = descriptors.some((mount) => mount.state === 'pending' || mount.state === 'scanning')
@@ -251,6 +252,10 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     })
   })
   const unavailable = createMemo(() => mounts().filter((mount) => mount.state !== 'ready' && mount.state !== 'scanning'))
+  const failures = createMemo(() => ({
+    ...sourceFailures(),
+    ...(discoveryError() ? { 'mount-discovery': { label: message('projectFolders.title'), message: discoveryError()! } } : {}),
+  }))
   const presentations = createMemo(() => mountPresentations(mounts()))
   const presentedAdapters = createMemo(() => {
     const labels = new Map(presentations().map((row) => [`mount:${row.mount.id}`, row.label]))
@@ -286,13 +291,14 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
           <ProjectFolderSettings connection={props.connection} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} backendLabel={props.baseUrl || props.backendId} onChanged={() => setRetryTick((tick) => tick + 1)} />
         </Show>
       </details>
-      <Show
-        when={discoveryError()}
-        fallback={
-          <Show when={adapters() !== undefined} fallback={<ProductEmptyState tone="loading" title={message('assets.discovery.loading.title')} hint={message('assets.discovery.loading.detail')} />}>
             <CollectionPanel
               sources={sources()}
-              sourceRail={({ selectedId, select }) => <AssetSourceControl sources={sources()} presentations={presentations()} failures={sourceFailures()} selectedId={selectedId} select={select} message={message} />}
+              sourceRail={({ selectedId, select }) => <>
+                <AssetSourceControl sources={sources()} presentations={presentations()} failures={failures()} selectedId={selectedId} select={select} message={message} />
+                <Show when={discoveryError()}>
+                  <ProductButton type="button" data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
+                </Show>
+              </>}
               modeKey={VIEW_PREFERENCE_KEY}
               searchPriority="primary"
               searchLabel={message('assets.search')}
@@ -301,13 +307,6 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
               entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
               detailRail={(entry) => <AssetEntrySelection entry={entry} adapters={presentedAdapters()} backendId={props.backendId} assetUrl={(digest) => props.connection.assetUrl(digest)} />}
             />
-          </Show>
-        }
-      >
-        {(error) => <ProductEmptyState tone="error" testId="assets-error" title={message('assets.discovery.error.title')} hint={error()} action={
-          <ProductButton type="button" data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
-        } />}
-      </Show>
     </div>
   )
 }

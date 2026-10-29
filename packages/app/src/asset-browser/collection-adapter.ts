@@ -53,7 +53,7 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
     // instead of a URL.
     ...(assetUrl !== undefined && item.digest !== undefined && isBrowserPreviewable(item)
       ? { thumbUrl: assetUrl(item.digest) }
-      : assetUrl !== undefined && item.digest !== undefined && item.availability !== 'missing' && isModel3dMime(item.mediaType)
+      : assetUrl !== undefined && item.digest !== undefined && (item.availability === undefined || item.availability === 'available') && isModel3dMime(item.mediaType)
         ? {
             thumbRender: () => {
               const url = assetUrl(item.digest!)

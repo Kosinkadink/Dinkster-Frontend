@@ -6,6 +6,7 @@ import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset
 import { assetSourcesStatus, committableAssetRef, formatSize, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
+import { federatedCollectionSource } from '../asset-browser/federated-collection-source.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from '../asset-browser/logical-model-merge.js'
 import { candidateLogicalModelAdapter } from '../asset-browser/candidate-logical-model.js'
@@ -152,6 +153,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   // undefined = discovery not settled; [] = settled with nothing browsable.
   const [assetSources, setAssetSources] = createSolidSignal<readonly AssetSourceAdapter[] | undefined>(undefined)
   const [assetSourcesError, setAssetSourcesError] = createSolidSignal<string | undefined>(undefined)
+  const [mountDiscoveryError, setMountDiscoveryError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModels, setLogicalModels] = createSolidSignal<readonly LogicalModel[] | undefined>(undefined)
   const [logicalModelsError, setLogicalModelsError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false)
@@ -324,7 +326,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     setLogicalModelsLoading(true)
     setLogicalModelsError(undefined)
     try {
-      const localAdapter = await localMountScanAdapter(sources, kind, assetAccept())
+      const sourceErrors: string[] = []
+      const localAdapter = await localMountScanAdapter(sources, kind, assetAccept(), {
+        signal: abort.signal,
+        onSourceError: (message) => sourceErrors.push(message),
+      })
       const candidateItems: CandidateV1[] = []
       let candidateError: string | undefined
       if (props.federatedAssets !== undefined && ed.target.kind === 'input') {
@@ -362,7 +368,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       ])
       if (!live || load !== logicalModelLoad) return
       setLogicalModels(result.models)
-      const errors = [...(candidateError !== undefined ? [candidateError] : []), ...result.diagnostics.map((entry) => entry.message)]
+      const errors = [...sourceErrors, ...(candidateError !== undefined ? [candidateError] : []), ...result.diagnostics.map((entry) => entry.message)]
       if (errors.length > 0) setLogicalModelsError(errors.join('; '))
     } catch (error) {
       if (live && load === logicalModelLoad) setLogicalModelsError(error instanceof Error ? error.message : String(error))
@@ -378,12 +384,15 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     if (backend.protocol !== 'dinkster') {
       setAssetSourcesError('Asset browsing requires a native Dinkster backend')
     } else {
+      const local = localAssetSource(backend.connection)
+      setAssetSources([local])
+      void loadLogicalModels([local])
       void mountAssetSources(backend.connection, assetBrowseKind()).then((sources) => {
         if (!live) return
-        const combined = [localAssetSource(backend.connection), ...sources]
+        const combined = [local, ...sources]
         setAssetSources(combined)
         void loadLogicalModels(combined)
-      }).catch((reason: unknown) => { if (live) setAssetSourcesError(reason instanceof Error ? reason.message : String(reason)) })
+      }).catch((reason: unknown) => { if (live) setMountDiscoveryError(reason instanceof Error ? reason.message : String(reason)) })
     }
   }
 
@@ -615,21 +624,33 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     if (usesLogicalModelSource()) {
       return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
     }
+    const federated = props.federatedAssets === undefined ? undefined : {
+      ...federatedCollectionSource(new AssetDtoV1Client('', props.federatedAssets), () => undefined, {
+        ...(fixedKind !== undefined ? { fixedKind } : {}),
+        ...(assetUrl !== undefined ? { assetUrl } : {}),
+      }),
+      id: 'federated-assets', label: 'Federated catalog',
+    }
+    const additionalSources = federated ? [federated] : []
     if (fixedKind?.startsWith('media/') === true) {
       const imported = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'input')
       const generated = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'output')
       return [
-        allAssetsCollectionSource(adapters, [], assetUrl, { fixedKind, failWhenAllSourcesFail: true }),
+        allAssetsCollectionSource(adapters, [], assetUrl, { fixedKind, failWhenAllSourcesFail: true, additionalSources }),
         ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
         ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
       ]
     }
-    return adapters.map((adapter) =>
+    return [
+      ...(federated ? [allAssetsCollectionSource(adapters, [], assetUrl, { additionalSources, failWhenAllSourcesFail: true })] : []),
+      ...adapters.map((adapter) =>
       assetCollectionSource(adapter, {
         ...(assetUrl !== undefined ? { assetUrl } : {}),
         ...(fixedKind !== undefined ? { fixedKind } : {}),
-      }),
-    )
+      }
+      )),
+      ...additionalSources,
+    ]
   })
   const pickAssetEntry = (entry: CollectionEntry): void => {
     if (usesLogicalModelSource()) {
@@ -752,6 +773,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 </Show>
               </header>
               <Show when={assetSourcesError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
+              <Show when={mountDiscoveryError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
               <Show when={assetSourcesStatus(assetSources(), assetSourcesError()) === 'loading'}>
                 <SearchState kind="loading" title={`Loading ${assetVocabulary().singular} sources`} detail="Discovering readable mounts on this backend." />
               </Show>

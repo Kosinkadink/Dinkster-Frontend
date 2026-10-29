@@ -37,6 +37,34 @@ function source(id: string, label: string, pages: readonly (readonly AssetBrowse
 }
 
 describe('localMountScanAdapter', () => {
+  it('keeps healthy model sources available while reporting an offline source', async () => {
+    const offline = source('local-assets', 'Local assets', [])
+    offline.page = async () => { throw new Error('Catalog offline') }
+    const errors: string[] = []
+    const adapter = await localMountScanAdapter([
+      offline,
+      source('mount:models', 'Models', [[item('mount:models', 'Models', A, 'mounted.safetensors')]]),
+    ], 'model/checkpoint', [], { onSourceError: (message) => errors.push(message) })
+
+    expect(ingestLogicalModels([adapter]).models.map((model) => model.displayName)).toEqual(['mounted.safetensors'])
+    expect(errors).toEqual(['Local assets: Catalog offline'])
+  })
+
+  it('stops pagination after cancellation rather than publishing partial models', async () => {
+    const abort = new AbortController()
+    let pages = 0
+    const mounted = source('mount:models', 'Models', [])
+    mounted.page = async () => {
+      pages += 1
+      abort.abort()
+      return { items: [item('mount:models', 'Models', A, 'mounted.safetensors')], cursor: 'next' }
+    }
+    await expect(localMountScanAdapter([mounted], 'model/checkpoint', [], {
+      signal: abort.signal, onSourceError: () => { throw new Error('Cancellation is not a source failure') },
+    })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(pages).toBe(1)
+  })
+
   it('canonicalizes a digest across mounts and renamed paths before V1 ingestion', async () => {
     const left = source('mount:left', 'Left', [[item('mount:left', 'Left', A, 'zeta.safetensors')]])
     const right = source('mount:right', 'Right', [[item('mount:right', 'Right', A, 'alpha.safetensors', 'renamed/alpha.safetensors')]])
