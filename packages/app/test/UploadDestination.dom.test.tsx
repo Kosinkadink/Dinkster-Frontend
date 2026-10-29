@@ -22,6 +22,27 @@ describe('import destination', () => {
     expect(readUploadDestination('server-a', 'alpha', localStorage)).toEqual({ mount: '', folder: '', remember: true })
   })
 
+  it.each(['capture', null, undefined, 'revoked', 'readonly', 'outside-project'])('shows only the advertised active writable standard import root (%s)', async (importMount) => {
+    const mount = (id: string, mode: 'read' | 'readwrite' = 'readwrite') => ({ id, mode, state: 'ready', path: `/live/${id}` })
+    const connection = {
+      onMountsChanged: () => () => {},
+      fetchMountSettings: async () => ({ mountChangesAllowed: false, outputMount: 'renders', mounts: [mount('capture'), mount('imports'), mount('renders'), mount('revoked'), mount('readonly', 'read')] }),
+      fetchMountLocations: async () => ({ importMount, mounts: [{ id: 'capture', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('capture'), mount('imports'), mount('renders'), mount('readonly', 'read'), mount('outside-project')] }),
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <UploadDestination connection={connection} machine="Studio machine" value={{ remember: false }} onChange={() => {}} />, root)
+    try {
+      if (importMount === 'capture') await vi.waitFor(() => expect(root.textContent).toContain('Destination root: /live/capture'))
+      else await vi.waitFor(() => expect(root.textContent).toContain('standard import destination is unavailable or not advertised'))
+      expect(root.textContent).not.toContain('/configured/NOT-ACTIVE')
+      expect(root.textContent).not.toContain('Destination root: /live/imports')
+      expect(root.textContent).not.toContain('Destination root: /live/renders')
+      expect(root.textContent).not.toContain('Destination root: /live/readonly')
+      expect(root.textContent).not.toContain('Destination root: /live/outside-project')
+    } finally { dispose() }
+  })
+
   it('offers only active writable project members, not configured paths or the selected output', async () => {
     const mount = (id: string, mode: 'read' | 'readwrite' = 'readwrite') => ({ id, mode, state: 'ready', path: `/active/${id}` })
     const connection = {

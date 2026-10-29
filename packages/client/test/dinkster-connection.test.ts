@@ -514,9 +514,15 @@ describe('mount listing decode', () => {
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
     const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
-    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates' }], activeMounts: [active] }
+    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates' }], activeMounts: [active], importMount: 'plates' }
     const { conn } = submitHarness(() => jsonResponse(200, payload))
     expect(await conn.fetchMountLocations()).toEqual(payload)
+    const unconfigured = submitHarness(() => jsonResponse(200, { ...payload, importMount: null })).conn
+    expect(await unconfigured.fetchMountLocations()).toEqual({ ...payload, importMount: null })
+    for (const importMount of ['', false, 12, {}]) {
+      const invalid = submitHarness(() => jsonResponse(200, { ...payload, importMount })).conn
+      await expect(invalid.fetchMountLocations()).rejects.toThrow('malformed import mount')
+    }
     const missingActive = submitHarness(() => jsonResponse(200, { mounts: payload.mounts })).conn
     expect(await missingActive.fetchMountLocations()).toEqual({ mounts: payload.mounts })
     const malformed = submitHarness(() => jsonResponse(200, { ...payload, activeMounts: [{ ...active, mode: 'readonly' }] })).conn

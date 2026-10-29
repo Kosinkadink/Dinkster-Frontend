@@ -143,8 +143,9 @@ async function installImageDropBackend(page: Page, uploadDigest: string, deferre
     }).backendForTab(app.activeTab()!)
     backend.protocol = 'dinkster'
     const plates = { id: 'plates', path: '/studio/plates', mode: 'readwrite', state: 'ready' }
-    backend.connection.fetchMountSettings = async () => ({ mounts: [plates], mountChangesAllowed: false })
-    backend.connection.fetchMountLocations = async () => ({ mounts: [plates], activeMounts: [plates] })
+    const incoming = { id: 'camera-imports', path: '/studio/incoming', mode: 'readwrite', state: 'ready' }
+    backend.connection.fetchMountSettings = async () => ({ mounts: [plates, incoming], outputMount: 'plates', mountChangesAllowed: false })
+    backend.connection.fetchMountLocations = async () => ({ mounts: [plates, incoming], activeMounts: [plates, incoming], importMount: 'camera-imports' })
     backend.connection.fetchAssetLocations = async () => ['/studio/plates/canonical-image-2.png']
     backend.connection.onMountsChanged = () => () => {}
     const state = window as unknown as { __imageDropUploads: unknown[] }
@@ -426,8 +427,13 @@ test('canvas import confirms each destination and remembers only successful expl
   const drop = () => dropBytes(page, pngBytes(), 'original.png', 'image/png')
   await drop()
   await expect(dialog).toContainText('Nothing is uploaded until you confirm')
+  await expect(dialog).toContainText('Destination root: /studio/incoming')
+  await expect(dialog).not.toContainText('Destination root: /studio/plates')
   expect(await uploads()).toEqual([])
   await page.screenshot({ path: testInfo.outputPath('canvas-import-default.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: testInfo.outputPath('canvas-import-default-narrow.png') })
+  await page.setViewportSize({ width: 1440, height: 900 })
   await folder.fill('cancelled-draft')
   await remember.click()
   await dialog.locator('footer').getByRole('button', { name: 'Cancel import', exact: true }).click()
@@ -481,6 +487,20 @@ test('canvas import confirms each destination and remembers only successful expl
   await page.screenshot({ path: testInfo.outputPath('canvas-import-error.png') })
   await drop()
   await expect(folder).toHaveValue('remembered-scene')
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => {
+    localStorage.clear()
+    const app = window.__dinksterTest!.app
+    const backend = (app as unknown as { backendForTab(tab: unknown): { connection: { fetchMountLocations: () => Promise<unknown> } } }).backendForTab(app.activeTab()!)
+    const plates = { id: 'plates', path: '/studio/plates', mode: 'readwrite', state: 'ready' }
+    backend.connection.fetchMountLocations = async () => ({ mounts: [plates], activeMounts: [plates], importMount: 'camera-imports' })
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await drop()
+  await expect(dialog).toContainText('standard import destination is unavailable or not advertised')
+  await expect(dialog).not.toContainText('Destination root:')
+  expect(await uploads()).toHaveLength(3)
+  await page.screenshot({ path: testInfo.outputPath('canvas-import-default-unavailable-narrow.png') })
   await page.keyboard.press('Escape')
 })
 

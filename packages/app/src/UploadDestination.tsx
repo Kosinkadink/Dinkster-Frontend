@@ -41,7 +41,7 @@ export function UploadDestination(props: {
   })
   const writable = () => locations()?.activeMounts?.filter((mount) => mount.mode === 'readwrite' && mount.state !== 'failed' &&
     settings()?.mounts.some((configured) => configured.id === mount.id && configured.mode === 'readwrite')) ?? []
-  const selected = () => writable().find((mount) => mount.id === props.value.mount)
+  const selected = () => writable().find((mount) => mount.id === (props.value.mount || locations()?.importMount))
   const unavailable = () => Boolean(props.value.mount) && selected() === undefined
   return <section class="runtime-settings-body upload-destination" data-testid="upload-destination">
     <ProductField controlId={`${id}-mount`} label={message('uploadDestination.folder')} layout="stack"
@@ -65,6 +65,7 @@ export function UploadDestination(props: {
         onChange={(remember) => props.onChange({ ...props.value, remember })} />
     </ProductField>
     <Show when={selected()} keyed>{(mount) => <ProductNotice tone="info">{message('uploadDestination.selected', { path: mount.path, folder: props.value.folder ?? '' })}</ProductNotice>}</Show>
+    <Show when={locations() && !props.value.mount && !selected()}><ProductNotice tone="warning">{message('uploadDestination.defaultUnavailable')}</ProductNotice></Show>
     <Show when={settings()?.restartRequired}><ProductNotice tone="warning">{message('uploadDestination.restart')}</ProductNotice></Show>
     <Show when={unavailable()}><ProductNotice tone="error">{message('uploadDestination.missing', { mount: props.value.mount! })}</ProductNotice></Show>
     <Show when={error()}><ProductNotice tone="warning">{error()} <ProductButton type="button" disabled={props.disabled} onClick={() => void load()}>{message('projectFolders.refresh')}</ProductButton></ProductNotice></Show>

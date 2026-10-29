@@ -10,6 +10,7 @@
   "uploadDestination.folder": "Import destination",
   "uploadDestination.machine": "Files are imported on {machine}, not necessarily this computer.",
   "uploadDestination.default": "Standard imports folder (server default)",
+  "uploadDestination.defaultUnavailable": "The standard import destination is unavailable or not advertised. Choose an active writable folder.",
   "uploadDestination.subfolder": "Subfolder (relative, optional)",
   "uploadDestination.remember": "Remember for this project",
   "uploadDestination.selected": "Destination root: {path}. Relative subfolder: {folder}",

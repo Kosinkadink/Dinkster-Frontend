@@ -948,6 +948,7 @@ export interface MountGrantOptions {
 export interface MountLocations {
   readonly mounts: readonly { readonly id: string; readonly path: string }[]
   readonly activeMounts?: readonly (MountDescriptor & { readonly path: string })[]
+  readonly importMount?: string | null
 }
 
 export interface MountSettings {
@@ -2811,8 +2812,10 @@ export class DinksterConnection {
   async fetchMountLocations(): Promise<MountLocations> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations`)
     if (!res.ok) throw new Error(`GET /api/mounts/locations failed: ${res.status}`)
-    const payload = await res.json() as { mounts?: unknown; activeMounts?: unknown }
+    const payload = await res.json() as { mounts?: unknown; activeMounts?: unknown; importMount?: unknown }
     if (!Array.isArray(payload.mounts)) throw new Error('GET /api/mounts/locations: malformed response')
+    if (payload.importMount !== undefined && payload.importMount !== null &&
+        (typeof payload.importMount !== 'string' || payload.importMount === '')) throw new Error('GET /api/mounts/locations: malformed import mount')
     const location = (value: unknown) => {
       const row = value as Record<string, unknown> | null
       if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
@@ -2825,7 +2828,8 @@ export class DinksterConnection {
       if ((row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
       return { ...path, mode: row['mode'], state: row['state'] }
     })
-    return { mounts: payload.mounts.map(location), ...(activeMounts !== undefined ? { activeMounts } : {}) }
+    return { mounts: payload.mounts.map(location), ...(activeMounts !== undefined ? { activeMounts } : {}),
+      ...(payload.importMount !== undefined ? { importMount: payload.importMount as string | null } : {}) }
   }
 
   async updateProjectFolders(mounts: readonly string[], outputMount: string | null): Promise<void> {

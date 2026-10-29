@@ -681,6 +681,9 @@ subfolder, and name the owning backend machine. The default omits the mount
 parameter so the server chooses its standard imports folder. The selector
 offers only active writable mounts that remain members of the current
 project; configured-only changes are not treated as active before restart.
+The standard destination displays the active root identified by the server's
+importMount, never the output folder or a guessed imports grant. A missing,
+revoked or unadvertised standard destination shows a warning instead.
 Operator roots appear only in this local control, never in the stored AssetRef.
 If operator location access is unavailable, the control says so rather than
 guessing a physical path. The server still enforces import permissions.
