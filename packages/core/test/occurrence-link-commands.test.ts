@@ -364,7 +364,7 @@ describe('occurrence-local link commands', () => {
       kind: 'connect', owner: target, bodyGraph: 'body',
       from: body({ node: 'producerOne', port: 'out' }), to: ghost,
     })
-    expect(plan.ok, !plan.ok && JSON.stringify(plan.diagnostics)).toBe(true)
+    expect(plan.ok, plan.ok ? undefined : JSON.stringify(plan.diagnostics)).toBe(true)
     if (!plan.ok) return
     const applied = store.dispatch(plan.invocation)
     expect(applied.ok, JSON.stringify(applied.diagnostics)).toBe(true)
@@ -378,7 +378,7 @@ describe('occurrence-local link commands', () => {
       to: { ...ghost, address: { port: asPortId(`${construct}.notOffered`) } },
     }).ok).toBe(false)
     const compiled = compile({ document: store.doc, revision: store.revision, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('c'), schemaHash: 'canonical-ghost' })
-    expect(compiled.ok, !compiled.ok && JSON.stringify(compiled.diagnostics)).toBe(true)
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
     if (compiled.ok) {
       const prefix = chained ? 'outer.inner' : 'a'
       expect(compiled.artifact.prompt[`${prefix}.sink`]!.inputs).toEqual({ [`items.${names[1]}`]: [`${prefix}.producerOne`, 0] })

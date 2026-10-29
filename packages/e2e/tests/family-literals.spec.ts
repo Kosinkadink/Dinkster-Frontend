@@ -21,6 +21,9 @@ for (const named of [false, true]) {
               widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
           },
         }],
+      }, {
+        type: 'CanonicalSource', displayName: 'Number source', category: 'proof', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
       }] as never)
       const graph = (id: string, nodes: unknown, boundary?: unknown) => ({
         id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3, ...(boundary ? { boundary } : {}),
@@ -29,10 +32,15 @@ for (const named of [false, true]) {
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'canonical-drilled-proof', root: 'g0',
         graphs: {
           g0: graph('g0', { instance: { id: 'instance', type: '#sub', values: { [`forwarded.${names[1]}`]: 22 }, dynamic: { forwarded: { members: [names[1]] } } } }),
-          sub: graph('sub', { n: { id: 'n', type: 'CanonicalProof', values: { [`weights.${names[0]}`]: 11 }, dynamic: { weights: { members: [names[0]] } } } },
+          sub: graph('sub', {
+            source: { id: 'source', type: 'CanonicalSource', values: {} },
+            n: { id: 'n', type: 'CanonicalProof', values: { [`weights.${names[0]}`]: 11 }, dynamic: { weights: { members: [names[0]] } } },
+          },
             { inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'weights' } }], outputs: [] }),
         },
-        view: { graphs: { g0: { nodes: { instance: { position: { x: 250, y: 160 } } } }, sub: { nodes: { n: { position: { x: 250, y: 160 } } } } } },
+        view: { graphs: { g0: { nodes: { instance: { position: { x: 250, y: 160 } } } }, sub: { nodes: {
+          n: { position: { x: 250, y: 160 } }, source: { position: { x: 50, y: 360 } },
+        } } } },
       } as never, 'Canonical family proof')
       if (diagnostics.length) throw new Error(JSON.stringify(diagnostics))
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
@@ -59,6 +67,21 @@ for (const named of [false, true]) {
       await expect.poll(() => page.evaluate(({ name }) => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.instance!.values[`forwarded.${name}`], { name: names[index] })).toBe(value)
     }
     await expect.poll(() => page.evaluate(({ name }) => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.sub!.nodes.n!.values[`weights.${name}`], { name: names[0] })).toBe(11)
+    const from = await nodePoint(page, 'source', { kind: 'pin', direction: 'out', portId: 'out' })
+    const to = await nodePoint(page, 'n', { kind: 'pin', direction: 'in', portId: `weights.${names[3]}` })
+    await drag(page, named ? to : from, named ? from : to)
+    await expect.poll(() => page.evaluate(() => {
+      const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+      return {
+        members: doc.graphs.g0!.nodes.instance!.dynamic?.forwarded?.members,
+        links: Object.values(doc.occurrenceTopologies ?? {}).flatMap((topology) => Object.values(topology.links)).length,
+        prefix: doc.graphs.sub!.nodes.n!.dynamic?.weights?.members,
+      }
+    })).toEqual({ members: names.slice(1), links: 1, prefix: [names[0]] })
+    await page.keyboard.press('Control+Z')
+    await expect.poll(() => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.occurrenceTopologies ?? {}).flatMap((topology) => Object.values(topology.links)).length)).toBe(0)
+    await page.keyboard.press('Control+Shift+Z')
+    await expect.poll(() => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.occurrenceTopologies ?? {}).flatMap((topology) => Object.values(topology.links)).length)).toBe(1)
     await page.screenshot({ path: testInfo.outputPath(`canonical-drilled-${named ? 'named' : 'numeric'}.png`) })
   })
 }
