@@ -1,8 +1,8 @@
 """Show native 16-64 px exports beside an exact nearest-neighbor enlargement."""
 
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
 
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 

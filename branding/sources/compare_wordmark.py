@@ -14,6 +14,8 @@ def main():
     parser.add_argument("--prefix", default="")
     parser.add_argument("--caption", default="Reference-traced e; selected D unchanged")
     parser.add_argument("--dark-reference-only", action="store_true")
+    parser.add_argument("--letter-scale", type=float, default=1.0)
+    parser.add_argument("--baseline-shift", type=float, default=0.0)
     args = parser.parse_args()
     reference = Image.open(args.reference).convert("RGB")
     if args.dark_reference_only:
@@ -54,7 +56,11 @@ def main():
     for draft in drafts:
         guide_draw = ImageDraw.Draw(draft)
         for offset in (0, 506):
-            for (_, color), y in zip(guides, (244, 272, 356)):
+            positions = tuple(
+                2 * (178 + args.baseline_shift + (y - 178) * args.letter_scale)
+                for y in (122, 136, 178)
+            )
+            for (_, color), y in zip(guides, positions):
                 guide_draw.line((280, y + offset, 870, y + offset), fill=color, width=1)
     comparison = Image.new("RGB", (1844, 1670), "#E4E8EC")
     draw = ImageDraw.Draw(comparison)

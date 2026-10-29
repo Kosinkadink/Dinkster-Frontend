@@ -1,9 +1,8 @@
 """Check token parity and print the WCAG 2 contrast table for the brand README."""
 
 import json
-from pathlib import Path
 import re
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 

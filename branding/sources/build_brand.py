@@ -1,7 +1,6 @@
 """Build editable brand geometry. Rendering is performed by export_brand.py."""
 
 import argparse
-import io
 import math
 import shlex
 import subprocess
@@ -10,12 +9,9 @@ from copy import deepcopy
 from pathlib import Path
 
 import build_d as geometry
-import cairosvg
-import numpy as np
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
-from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 SVG = "http://www.w3.org/2000/svg"
@@ -36,7 +32,7 @@ I_CUT_SLOPE = 0.7
 I_FACE_GAP = 4 / math.hypot(1, 8 / 19)
 I_STEM_TOP = 16 + I_FACE_GAP * math.hypot(1, I_CUT_SLOPE)
 LETTERS = {
-    "i": f"M2 0H17V{16 - 17 * I_CUT_SLOPE}L0 16V2Z M0 {I_STEM_TOP}L15 {I_STEM_TOP - 15 * I_CUT_SLOPE}V49L8 56H0Z",
+    "i": f"M2 0H17V{16 - 17 * I_CUT_SLOPE}L0 16V2Z M0 {I_STEM_TOP}L15 {I_STEM_TOP - 15 * I_CUT_SLOPE}V47L6 56H0Z",
     "n": "M0 56V25L12 14H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z",
     "k": f"M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V{K_ARM_TOP - 21}L{K_ARM_TOP - 14} 14H49L30 33L67 70H{70 - K_LEG_INNER}L{K_JOIN_X} {63 - K_JOIN_X}L7 56Z",
     "s": "M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z",
@@ -62,6 +58,15 @@ HEAVIER_POSITIONS = {
     "t": 320,
     "e": 357,
     "r": 403,
+}
+HEAVIER_WORDMARK_POSITIONS = {
+    "i": 154.91302371541502,
+    "n": 181.20104743083004,
+    "k": 232.86407114624507,
+    "s": 285.1520948616601,
+    "t": 334.8151185770751,
+    "e": 378.35314229249013,
+    "r": 430.26616600790516,
 }
 D_REFERENCE_SCALE = (
     840 / (geometry.RIGHT - (geometry.LEG_DIAG - geometry.BOTTOM)) * 0.139
@@ -144,7 +149,8 @@ def construction_geometry(parent):
     group = node(
         "g",
         {
-            "id": "d-named-construction",
+            "id": "historical-d-named-construction",
+            "style": "display:none",
             "transform": f"translate({dx} {dy}) scale({scale})",
             "fill": "none",
             "stroke": "#FF7468",
@@ -266,6 +272,8 @@ def construction_geometry(parent):
 
 
 def symbol_path(size=None, trim_radius=None, reference=False):
+    if not reference and trim_radius is None:
+        return geometry.approved_trace_path()
     gap = {16: 4, 24: 8}.get(size)
     adjustments = (
         {
@@ -327,6 +335,17 @@ def main():
     ).text = "Approved D source: dinkster-d.svg. Wordmark direction: wrapper notes/reference/branding/wordmark-monochrome-reference.png."
     construction = layer(master, "01_Construction")
     reference_transform = construction_geometry(construction)
+    node(
+        "path",
+        {
+            "id": "reference-trace-construction",
+            "d": geometry.approved_trace_path(),
+            "fill": "none",
+            "stroke": "#32B7CB",
+            "stroke-width": "1",
+        },
+        construction,
+    )
     scaffold = node(
         "g",
         {"id": "outfit-scaffold", "transform": "translate(120 800) scale(.12 -.12)"},
@@ -464,8 +483,7 @@ def main():
                 },
                 clipped,
             )
-    # A uniform transform preserves the approved D while matching the reference
-    # symbol height and its optical overshoot below the letters' baseline.
+    # The native reference transform keeps the traced D at its original size.
     for index, (variant, color) in enumerate(
         (
             ("mono", "#1F242A"),
@@ -519,43 +537,17 @@ def main():
                 elif letter == "k":
                     path.set("clip-path", "url(#k-beam-baseline)")
 
-    def ink_profile(element):
-        svg = node("svg", {"viewBox": "-10 0 180 200", "color": "#000000"})
-        svg.append(deepcopy(defs))
-        svg.append(deepcopy(element))
-        raster = cairosvg.svg2png(
-            bytestring=ET.tostring(svg), output_width=1440, output_height=1600
-        )
-        mask = np.asarray(Image.open(io.BytesIO(raster)))[:, :, 3] >= 128
-        rows = mask.any(axis=1)
-        left = np.argmax(mask, axis=1) / 8 - 10
-        right = (mask.shape[1] - np.argmax(mask[:, ::-1], axis=1)) / 8 - 10
-        return rows, left, right
-
     for variant in ("mono", "dark", "light", "heavier-dark", "heavier-light"):
-        heavier = variant.startswith("heavier")
-        if not heavier:
-            for letter, position in REGULAR_WORDMARK_POSITIONS.items():
-                element = next(
-                    e for e in master.iter() if e.get("id") == f"{variant}-{letter}"
-                )
-                element.set("transform", f"translate({position} 122)")
-            continue
-        gap = HEAVIER_GAP
-        d = next(e for e in master.iter() if e.get("id") == f"wordmark-{variant}-d")
-        symbol = node("g", {"transform": "translate(16.9 76.6) scale(.139)"})
-        symbol.append(deepcopy(d))
-        previous_rows, _, previous_right = ink_profile(symbol)
-        for letter in LETTERS:
+        positions = (
+            HEAVIER_WORDMARK_POSITIONS
+            if variant.startswith("heavier")
+            else REGULAR_WORDMARK_POSITIONS
+        )
+        for letter, position in positions.items():
             element = next(
                 e for e in master.iter() if e.get("id") == f"{variant}-{letter}"
             )
-            element.set("transform", "translate(0 122)")
-            rows, left, right = ink_profile(element)
-            shared = rows & previous_rows
-            position = float(np.max(previous_right[shared] - left[shared])) + gap
             element.set("transform", f"translate({position} 122)")
-            previous_rows, previous_right = rows, right + position
     write(ROOT / "sources/Dinkster_Master.svg", master)
     command = [args.inkscape, str(ROOT / "sources/Dinkster_Master.svg"), "--query-all"]
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL)

@@ -1,10 +1,11 @@
 # Dinkster vector brand
 
 The approved D is `sources/dinkster-d.svg`. Its path is copied unchanged
-into `sources/Dinkster_Master.svg`. `sources/build_d.py` constructs the
-selected -30 percent reshaped counter, 62 percent nose and partial r24
-lower corner from named constants. The wordmark lettering is a proposed
-custom outline, not yet a user-approved production asset. Application
+into `sources/Dinkster_Master.svg`. `sources/build_d.py --export-master`
+copies the exact selected dark-on-light trace from `sources/reference-d.svg`.
+The analytic construction is historical, not the active silhouette.
+The regular e is accepted; the i bottom cut and wordmark size/position are
+review proposals, not yet production selections. Application
 header and favicon assets are not changed here.
 
 ## Editing and export
@@ -44,7 +45,10 @@ untouched. These commands are recorded in `wordmark-export-commands.txt`.
 `--wordmarks-only` regenerates both wordmark weights without exporting
 production symbol SVGs, rasters or platform assets. Those assets remain
 at the earlier geometry until production export resumes; the layered
-master and both wordmark weights use the selected D.
+master uses the selected D. Heavier exports remain paused, with their
+letter contours and placements frozen independently of D geometry changes.
+The master small-size objects currently copy the unadjusted trace; the
+historical optical corrections do not apply to the new silhouette.
 Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
 k arm), and 56 (baseline); only the k's lower leg descends to 70.
 The enlarged k also carries its x + y = 63 cut/arm continuation guide.
@@ -58,6 +62,21 @@ horizontal span. The i's opposing faces have slope -0.7 and retain the
 accepted 4/sqrt(1+(8/19)^2) perpendicular clearance (about 3.687 units).
 Its dot extends 2 units beyond the 15-unit stem on the right. The t's
 lower-right face runs from (23,44) to (29,56).
+The i bottom slice runs from (15,47) to (6,56), moving its 45-degree line
+2 units left without changing the dot, accepted top gap or any other letter.
+
+`sources/compare_wordmark_sizes.py /path/to/wordmark-monochrome-reference.png
+--inkscape /path/to/inkscape` renders the color junction and four size proofs.
+The control retains the existing regular-letter baseline at native y178.
+The aligned variants translate it down 10 px to the traced D's exact y188
+bottom (20 px at 2x). Larger variants uniformly scale the regular contours
+by 1.05 about (147.75,178), preserving aspect ratio, relative stroke weight
+and tracking proportions; there is no added stroke or heavier contour.
+The D never scales or moves. All non-control transforms are preview-only.
+`size-export-commands.txt` records the Inkscape build and each export.
+The color enlargement retains the existing plane boundaries, including
+the small yellow sliver at the body's lower-left tip. It does not bridge
+the negative-space channel; no plane-boundary correction is applied.
 
 `sources/trace_reference_e.py /path/to/wordmark-monochrome-reference.png
 --potrace /path/to/potrace` rebuilds the regular e from the light-on-dark
@@ -93,21 +112,20 @@ exports 1024 and 64 px proofs, not production raster assets. The single
 mono/color at both sizes, plus per-option nose and stroke measurements.
 `nose-export-commands.txt` records the renderer and sixteen CLI exports.
 These historical option sheets do not change the master or constants.
-The selected 62 percent option is now the master geometry; both wordmark
-weights derive from it, while the regular letter contours remain under
-user review.
+The 62 percent option is historical, retained in `constructed-d.svg` for
+reproducing the counter-only comparison rather than as the active master.
 
 `sources/trace_reference_d.py /path/to/wordmark-monochrome-reference.png
 --potrace /path/to/potrace --inkscape /path/to/inkscape` generates review-only
 D candidates under `previews/`. Only the dark-on-light reference D is
 sampled, at 2x and threshold red < 128. Candidate A is the complete trace,
 registered to the native reference with no optical corrections. Candidate
-B retains the approved exterior SVG arcs and edges, replacing the inner
+B retains the historical constructed exterior SVG arcs and edges, replacing the inner
 body and inward island faces with the traced segments. Straight joins at
 the splice boundaries remain visible; no fitting or smoothing conceals
 them. The island's exterior leg edge and baseline remain approved geometry.
-The source D, layered master, letter paths/placements, heavier artwork and
-production exports are not rewritten. The full-trace IoU overlay and both
+The script does not rewrite the source D, layered master, letter paths/placements,
+heavier artwork or production exports. The full-trace IoU overlay and both
 regular comparison sheets use only the dark-on-light D; its upper
 comparison appearance is an explicitly labeled inversion of that source,
 not the different light-on-dark drawing. Potrace/Inkscape versions and
@@ -119,8 +137,8 @@ The historical native and nearest-neighbor sheets show mono, cyan and
 clipped color on both backgrounds, with the original body and both
 unselected bottom-left trims. The comparison explicitly uses the original
 reference outline so those earlier proofs remain reproducible. Only
-16/24 px use the narrower-cut optical objects; production
-32 px and larger exports retain the approved full gap. The geometry notes
+16/24 px in these historical proofs use narrower-cut optical objects;
+they are not current master revisions. The geometry notes
 list the parameters; `geometry-export-commands.txt` records each CLI render.
 
 The weight comparison retains the revised current-weight outlines and a

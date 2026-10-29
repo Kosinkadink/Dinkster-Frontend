@@ -73,7 +73,7 @@ def main():
     full = SVGPathPen(None)
     trace.replay(full)
     approved = RecordingPen()
-    approved_path = ET.parse(ROOT / "sources/dinkster-d.svg").getroot()[0].get("d")
+    approved_path = ET.parse(ROOT / "sources/constructed-d.svg").getroot()[0].get("d")
     parse_path(approved_path, approved)
     # These spans retain the exterior through the selected partial r24, then
     # reverse the traced inner boundary from the lower channel to upper lip.

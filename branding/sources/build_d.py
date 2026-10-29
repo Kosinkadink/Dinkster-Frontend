@@ -1,4 +1,4 @@
-"""Constructed vector of the Dinkster D, measured from the A+ reference.
+"""Export the approved reference trace; retain historical analytic comparisons.
 
 The D silhouette is the union of the cyan, coral and yellow planes of
 references/A-plus-two-variants.png (left half). Geometry is defined once in
@@ -6,15 +6,17 @@ reference-image pixel coordinates (straight edges, one bowl arc, and a fillet
 radius per corner), then mapped to a 1000x1000 viewBox. The stem and leg stay
 a separate island, as in the reference.
 
-The approved counter reshapes an n=3.2 squircle to 70 percent reference
-area, with its nose 62 percent down the counter. --faceted, --stadium and
---echo keep the rejected reference alternatives for comparison.
+The active master is the exact dark-on-light trace in reference-d.svg.
+The analytic counter below is historical, not the active master.
+--faceted, --stadium and --echo retain historical alternatives for comparison.
 Run with --fit to re-estimate every fillet radius against the reference.
 """
 
 import io
 import math
 import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import cairosvg
 import numpy as np
@@ -22,6 +24,12 @@ from PIL import Image, ImageDraw
 from scipy import ndimage
 
 REF = "A-plus-two-variants.png"  # run from this directory
+TRACE_SOURCE = Path(__file__).with_name("reference-d.svg")
+
+
+def approved_trace_path():
+    return ET.parse(TRACE_SOURCE).getroot()[0].get("d")
+
 
 # Measured reference geometry (source pixels). Lines at 45 degrees are given
 # as x - y = c (rising to the right) or x + y = c (falling to the right).
@@ -391,6 +399,15 @@ def fit_radii(ref):
 
 def main():
     export_master = "--export-master" in sys.argv
+    if export_master:
+        destination = sys.argv[sys.argv.index("--export-master") + 1]
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">\n'
+            f'  <path id="dinkster-d" fill="#32E6C5" fill-rule="evenodd" d="{approved_trace_path()}"/>\n'
+            "</svg>\n"
+        )
+        Path(destination).write_text(svg, encoding="ascii")
+        return
     if not export_master or "--fit" in sys.argv:
         ref = reference_mask()
     radii = fit_radii(ref) if "--fit" in sys.argv else RADII
@@ -408,11 +425,6 @@ def main():
         f'  <path id="dinkster-d" fill="#32E6C5" d="{d}"/>\n'
         "</svg>\n"
     )
-    if export_master:
-        destination = sys.argv[sys.argv.index("--export-master") + 1]
-        with open(destination, "w", encoding="ascii") as f:
-            f.write(svg)
-        return
     with open("dinkster-d-draft.svg", "w") as f:
         f.write(svg)
 
