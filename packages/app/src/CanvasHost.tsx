@@ -5289,12 +5289,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         await props.app.importWorkflowFile({ name: `${origin === 'drop' ? 'dropped' : 'pasted'}-workflow.json`, text: async () => JSON.stringify(document) }, ownerLive)
         finish()
       }
-      const loadLatent = async (metadata: LatentMetadata): Promise<void> => {
+      const loadLatent = async (metadata: LatentMetadata, existing?: AssetRef): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         setFileDropSurface({
           state: 'uploading',
           title: 'Adding latent',
-          detail: 'Uploading the latent and preparing Load Latent.',
+          detail: existing ? 'Using the existing file and preparing Load Latent.' : 'Uploading the latent and preparing Load Latent.',
           cancelable: true,
         })
         const outcome = await insertDroppedLatent({
@@ -5308,7 +5308,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           document: () => tab.store.doc,
           schemas: () => props.app.registryForTab(tab)?.schemas.values(),
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
-          upload: (body) => backend.protocol === 'dinkster'
+          upload: (body) => existing ? Promise.resolve(existing) : backend.protocol === 'dinkster'
             ? backend.connection.uploadLatentAsset(body, { scope: 'local', name: 'dropped-latent.latent', signal: abort.signal })
             : Promise.reject(new Error('latent upload requires a Dinkster backend')),
           dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
@@ -5319,13 +5319,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!reportable) return
         if (outcome === 'inserted') {
           const facts = [
+            ...(existing ? [{ label: message('canvasImport.machine'), value: backend.label }, { label: message('canvasImport.file'), value: existing.virtualPath }] : []),
             ...(metadata.vaeHint === undefined ? [] : [{ label: 'VAE source', value: metadata.vaeHint }]),
             ...(metadata.latentSpace === undefined ? [] : [{ label: 'Latent space', value: metadata.latentSpace }]),
           ]
           presentFileDropResult({
             state: 'success',
             title: 'Latent added',
-            detail: 'Load Latent was inserted without running the workflow.',
+            detail: existing ? 'Using existing file; no copy made. Load Latent was inserted without running the workflow.' : 'Load Latent was inserted without running the workflow.',
+            ...(existing && backend.protocol === 'dinkster' ? { location: { backend, digest: existing.digest, project } } : {}),
             ...(facts.length === 0 ? {} : { facts }),
           })
         } else if (outcome === 'upload-failed') report('fileDrop.latentUploadFailed', 'Dropped latent upload failed; no node was inserted', 'Latent could not be added')
@@ -5410,14 +5412,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!ownerLive()) { finish(); return }
         setEmbeddedDropChoice(undefined)
         if (backend.protocol !== 'dinkster') { finish(); report('fileDrop.uploadFailed', 'Asset uploads require a native Dinkster backend'); return }
-        try {
-          const existing = await resolveDroppedAsset(backend.baseUrl, file, ownerLive)
-          if (!ownerLive()) return
-          if (existing) { await uploadImage(mediaType, undefined, existing); return }
-        } catch {
-          if (ownerLive()) { finish(); report('fileDrop.nativeResolutionFailed', 'Could not resolve the existing file. Nothing was uploaded.') }
-          return
-        }
         setFileDropSurface(undefined)
         setCanvasDestination(readUploadDestination(String(backend.id), activeProjectId()))
         const choice = singleUseFileDropChoice(() => setCanvasImportChoice(undefined))
@@ -5427,7 +5421,30 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           cancel: () => { choice.run(finish) },
         })
       }
-      void classifyDroppedFile(file).then((classification) => {
+      void (async () => {
+        if (backend.protocol === 'dinkster') {
+          let existing: AssetRef | undefined
+          try { existing = await resolveDroppedAsset(backend.baseUrl, file, ownerLive) }
+          catch {
+            if (ownerLive()) { finish(); report('fileDrop.nativeResolutionFailed', 'Could not resolve the existing file. Nothing was uploaded.') }
+            return
+          }
+          if (!ownerLive()) return
+          if (existing) {
+            if (existing.mediaType === 'image/png' || existing.mediaType === 'image/jpeg' || existing.mediaType === 'image/webp') {
+              await uploadImage(existing.mediaType, undefined, existing)
+            } else if (existing.mediaType === 'application/x-comfy-latent') {
+              await loadLatent({}, existing)
+            } else {
+              finish()
+              report('fileDrop.unsupportedNativeAsset', 'The existing file is not a supported image or latent; no node was inserted. Nothing was uploaded.')
+            }
+            return
+          }
+        }
+        return classifyDroppedFile(file)
+      })().then((classification) => {
+        if (classification === undefined) return
         if (fileDropRequest !== request || !ownerLive()) {
           finish()
           return

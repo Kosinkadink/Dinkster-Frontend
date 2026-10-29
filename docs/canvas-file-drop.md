@@ -1,9 +1,17 @@
 # Safe canvas file drop
 
-The graph canvas accepts one local file at a time. Classification uses bounded
-file bytes. Names and extensions select the bounded latent parser but are never
-trusted as file authority. Browser MIME claims, URLs, and local paths remain
-untrusted. The data-only handlers are:
+The graph canvas accepts one local file at a time. On a capability-confirmed
+managed Desktop connection, it first passes the original File to the trusted
+native bridge. A resolved mounted image or latent reference inserts its loader
+unchanged without reading browser bytes, recovering embedded workflows, or
+uploading. The result names the machine and location with "no copy made".
+Unsupported resolved media and bridge errors fail without copying. Cancellation
+or loss of the owning tab, graph, project or backend discards late replies.
+
+Missing native support or an explicit refusal uses bounded byte classification
+and the existing import flow below. Names and extensions select the bounded
+latent parser but are never trusted as file authority. Browser MIME claims,
+URLs, and local paths remain untrusted. The data-only handlers are:
 
 - UTF-8 JSON, opened through the existing workflow-file import pipeline.
 - PNG, JPEG, and WebP signatures.

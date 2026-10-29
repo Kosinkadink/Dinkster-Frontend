@@ -396,6 +396,7 @@
 
 @media (max-width: 520px) {
   .canvas-file-drop-surface { padding: var(--dinkster-space-8); }
+  .canvas-file-drop-surface[data-has-location='true'] { padding-top: calc(var(--dinkster-space-32) * 3); }
   .canvas-file-drop-card { grid-template-columns: auto minmax(0, 1fr); padding: var(--dinkster-space-12); }
   .canvas-file-drop-action { grid-column: 2; justify-self: start; }
   .canvas-file-drop-facts { grid-template-columns: minmax(0, 1fr); }

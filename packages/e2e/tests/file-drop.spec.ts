@@ -307,7 +307,7 @@ test('native image resolution preserves mounted identity without upload and only
     await page.evaluate((mode) => { (window as unknown as { nativeDropMode: string }).nativeDropMode = mode }, mode)
     await dropBytes(page, pngBytes(), 'native.png', 'image/png')
     if (mode === 'incompatible') {
-      await expect(surface).toContainText('incomplete asset reference; no node was inserted')
+      await expect(surface).toContainText('not a supported image or latent; no node was inserted')
       await expect(page.getByTestId('canvas-import-confirm')).toHaveCount(0)
       expect(await page.evaluate(() => {
         const doc = window.__dinksterTest!.app.activeTab()!.store.doc
@@ -337,6 +337,79 @@ test('native image resolution preserves mounted identity without upload and only
   await page.evaluate(() => (window as unknown as { completeNativeDrop: () => void }).completeNativeDrop())
   await expect(page.getByTestId('canvas-import-dialog')).toHaveCount(0)
   expect(await page.evaluate(() => (window as unknown as { __imageDropUploads: unknown[] }).__imageDropUploads)).toEqual([])
+})
+
+test('native image and latent references bypass browser byte reads and ignore late resolution after tab loss', async ({ page }, testInfo) => {
+  await installImageDropBackend(page, `blake3:${'1'.repeat(64)}`)
+  await installLatentDropBackend(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const backend = (app as unknown as { backendForTab(tab: unknown): { connection: { fetchAssetLocations: () => Promise<readonly string[]> } } }).backendForTab(app.activeTab()!)
+    backend.connection.fetchAssetLocations = async () => ['/studio/plates/nested/verified.latent']
+  })
+  const preferences = await page.evaluate(() => JSON.stringify(localStorage))
+  for (const mediaType of ['image/png', 'application/x-comfy-latent']) {
+    await page.getByTestId('graph-canvas').evaluate((canvas, mediaType) => {
+      const file = new File([new Uint8Array([1, 2, 3])], 'untrusted.bin', { type: 'text/html' })
+      const state = window as unknown as { nativeByteReads: number; dinksterDesktop: unknown }
+      state.nativeByteReads = 0
+      const refuseRead = () => { state.nativeByteReads += 1; throw new Error('Browser bytes must not be read') }
+      Object.defineProperties(file, { arrayBuffer: { value: refuseRead }, slice: { value: refuseRead } })
+      state.dinksterDesktop = {
+        fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false, resolvePath: true }),
+        resolveDroppedFile: async (_url: string, original: File) => {
+          if (original !== file) throw new Error('File identity changed')
+          const latent = mediaType === 'application/x-comfy-latent'
+          return { status: 'resolved', asset: {
+            digest: `blake3:${(latent ? '2' : '3').repeat(64)}`, name: latent ? 'verified.latent' : 'verified.png',
+            size: latent ? 456 : 123, mediaType, virtualPath: `mounts/plates/nested/verified.${latent ? 'latent' : 'png'}`,
+          } }
+        },
+      }
+      const transfer = new DataTransfer()
+      transfer.items.add(file)
+      canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: 420, clientY: 320, dataTransfer: transfer }))
+    }, mediaType)
+    const surface = page.getByTestId('canvas-file-drop-surface')
+    await expect(surface).toContainText(mediaType === 'image/png' ? 'Image added' : 'Latent added')
+    await expect(surface).toContainText('Using existing file; no copy made.')
+    await expect(surface).toContainText('mounts/plates/nested/verified.')
+    expect(await page.evaluate(() => (window as unknown as { nativeByteReads: number }).nativeByteReads)).toBe(0)
+  }
+  expect(await page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return Object.values(doc.graphs[doc.root]!.nodes).map((node) => ({ type: node.type, values: node.values }))
+  })).toEqual([
+    { type: 'dinkster.load_image', values: { image: { digest: `blake3:${'3'.repeat(64)}`, name: 'verified.png', size: 123, mediaType: 'image/png', virtualPath: 'mounts/plates/nested/verified.png' } } },
+    { type: 'dinkster.load_latent', values: { latent: { digest: `blake3:${'2'.repeat(64)}`, name: 'verified.latent', size: 456, mediaType: 'application/x-comfy-latent', virtualPath: 'mounts/plates/nested/verified.latent' } } },
+  ])
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).toBe(preferences)
+  await page.screenshot({ path: testInfo.outputPath('native-latent-no-copy.png') })
+  await closeRightRail(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.getByTestId('canvas-file-drop-surface').evaluate((surface) => {
+    const card = surface.querySelector('.canvas-file-drop-card')!.getBoundingClientRect()
+    const toolbar = document.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    return card.top >= toolbar.bottom
+  })).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('native-latent-no-copy-narrow.png') })
+  await page.evaluate(() => {
+    const bridge = (window as unknown as { dinksterDesktop: { resolveDroppedFile: () => Promise<unknown> } }).dinksterDesktop
+    bridge.resolveDroppedFile = () => new Promise((resolve) => {
+      ;(window as unknown as { finishStaleNativeDrop: () => void }).finishStaleNativeDrop = () => resolve({ status: 'refused', reason: 'not-resolvable' })
+    })
+  })
+  await dropBytes(page, pngBytes(), 'late.png', 'image/png')
+  await page.waitForFunction(() => typeof (window as unknown as { finishStaleNativeDrop?: unknown }).finishStaleNativeDrop === 'function')
+  await page.evaluate(() => { (window.__dinksterTest!.app as unknown as { createWorkflow(): unknown }).createWorkflow() })
+  await page.evaluate(() => (window as unknown as { finishStaleNativeDrop: () => void }).finishStaleNativeDrop())
+  await expect(page.getByTestId('canvas-import-dialog')).toHaveCount(0)
+  expect(await page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return Object.keys(doc.graphs[doc.root]!.nodes).length
+  })).toBe(0)
+  expect(await page.evaluate(() => (window as unknown as { __imageDropUploads: unknown[] }).__imageDropUploads)).toEqual([])
+  expect(await page.evaluate(() => (window as unknown as { __latentUploads: number }).__latentUploads)).toBe(0)
 })
 
 test('canvas import confirms each destination and remembers only successful explicit choices', async ({ context, page }, testInfo) => {
