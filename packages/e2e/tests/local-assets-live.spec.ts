@@ -50,6 +50,10 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
       view: { graphs: { g0: { nodes: {
         existing: { position: { x: 100, y: 100 } }, absent: { position: { x: 100, y: 300 } },
       } } } },
+      meta: { ext: { 'dinkster.assetLocations': { version: 1, observations: [{
+        graph: 'g0', node: 'absent', input: 'file', index: 0, digest: missing.digest,
+        machine: 'Original workstation', paths: ['/recorded/location/workflow-presence.bin'],
+      }] } } },
     } as never, 'Saved asset references')
   }, { available, missing })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
@@ -60,6 +64,8 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
   await expect(problem).toContainText(missing.name)
   await expect(problem).toContainText('g0/absent/file [1]')
   await problem.locator('summary').click()
+  await expect(problem).toContainText('Original workstation')
+  await expect(problem).toContainText('/recorded/location/workflow-presence.bin')
   for (const width of [1440, 600]) {
     await page.setViewportSize({ width, height: 900 })
     await expect(problem).toBeVisible()

@@ -295,6 +295,82 @@ describe('workflow asset presence', () => {
     }, links: {} } },
   }
 
+  it('exports last-known paths per occurrence and displays them read-only after reopen on an empty library', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'available' },
+    ])
+    vi.spyOn(backend.connection, 'fetchAssetLocations').mockImplementation(async (digest) =>
+      digest === first.digest ? ['/original/portrait.png', '/relocated/portrait.png'] : ['/other/portrait.png'])
+    app.openDocument({ ...document, meta: { ext: { unrelated: { keep: true } } } }, 'Assets')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    const before = JSON.stringify(tab.store.doc)
+    await vi.waitFor(() => expect(app.exportDocument(tab.id)?.meta?.ext?.['dinkster.assetLocations']).toEqual({
+      version: 1, observations: [
+        { graph: 'g0', node: 'n0', input: 'a', index: 0, digest: first.digest,
+          machine: 'Native', paths: ['/original/portrait.png', '/relocated/portrait.png'] },
+        { graph: 'g0', node: 'n0', input: 'b', index: 0, digest: other.digest,
+          machine: 'Native', paths: ['/other/portrait.png'] },
+        { graph: 'g0', node: 'n0', input: 'b', index: 1, digest: first.digest,
+          machine: 'Native', paths: ['/original/portrait.png', '/relocated/portrait.png'] },
+      ],
+    }))
+    const saved = app.exportDocument(tab.id)!
+    expect(saved.meta?.ext?.['unrelated']).toEqual({ keep: true })
+    expect(JSON.stringify(tab.store.doc)).toBe(before)
+    expect(tab.store.revision).toBe(0)
+    const empty = app.addBackend('http://empty:8000', 'Empty library', false, 'dinkster')!
+    if (empty.protocol !== 'dinkster') throw new Error('native backend required')
+    vi.spyOn(empty.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(empty.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
+    ])
+    const paths = vi.spyOn(empty.connection, 'fetchAssetLocations')
+    app.openDocument(saved, 'Reopened')
+    const reopened = app.activeTab()!
+    const reopenedBefore = JSON.stringify(reopened.store.doc)
+    app.setTabTarget(reopened.id, empty.id)
+    await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'asset.availability.missing')).toHaveLength(3))
+    const hint = app.problems.get().find((entry) => entry.data?.['input'] === 'a')
+    expect(hint?.data).toMatchObject({ name: 'portrait.png', backend: 'Empty library',
+      lastKnownMachine: 'Native', lastKnownPaths: ['/original/portrait.png', '/relocated/portrait.png'] })
+    expect(paths).not.toHaveBeenCalled()
+    expect(JSON.stringify(reopened.store.doc)).toBe(reopenedBefore)
+    expect(reopened.store.revision).toBe(0)
+    expect(reopened.store.doc.graphs['g0']!.nodes['n0']!.values).toEqual(document.graphs.g0.nodes.n0.values)
+    app.dispose()
+  })
+
+  it('discards stale path reads after retarget and ignores hints for a different digest', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'available' },
+    ])
+    const pending = deferred<readonly string[]>()
+    const paths = vi.spyOn(backend.connection, 'fetchAssetLocations').mockReturnValue(pending.promise)
+    app.openDocument({ ...document, meta: { ext: { 'dinkster.assetLocations': { version: 1, observations: [{
+      graph: 'g0', node: 'n0', input: 'a', index: 0, digest: other.digest, machine: 'Wrong identity', paths: ['/do/not/read'],
+    }] } } } }, 'Assets')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await callStarted(paths)
+    const empty = app.addBackend('http://empty:8000', 'Empty library', false, 'dinkster')!
+    if (empty.protocol !== 'dinkster') throw new Error('native backend required')
+    vi.spyOn(empty.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(empty.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
+    ])
+    app.setTabTarget(tab.id, empty.id)
+    pending.resolve(['/stale/location'])
+    await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'asset.availability.missing')).toHaveLength(3))
+    expect(app.problems.get().some((entry) => entry.data?.['lastKnownMachine'] !== undefined)).toBe(false)
+    expect(JSON.stringify(app.exportDocument(tab.id))).not.toContain('/stale/location')
+    app.dispose()
+  })
+
   it('checks exact identities on reopen and retarget without mutating refs or unrelated problems', async () => {
     const { backend } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')

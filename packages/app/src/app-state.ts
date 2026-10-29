@@ -202,6 +202,7 @@ import { createCoreLensRegistry } from './lenses.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
+import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -3890,16 +3891,12 @@ export class AppState {
     readonly status: ConnectionStatus
     readonly controller: AbortController
   }>()
+  private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
 
   private refreshWorkflowAssets(tab: Tab): void {
     if (this.disposed || tab.execution) return
     const backend = this.backendForTab(tab)
-    const occurrences = Object.values(tab.store.doc.graphs).flatMap((graph) =>
-      Object.values(graph.nodes).flatMap((node) => Object.entries(node.values).flatMap(([input, value]) => {
-        const values = Array.isArray(value) ? value : [value]
-        return values.flatMap((asset, index) => isAssetRef(asset)
-          ? [{ graph: graph.id, node: node.id, input, index, asset }] : [])
-      })))
+    const occurrences = workflowAssetOccurrences(tab.store.doc)
     const signature = JSON.stringify(occurrences)
     const status = backend.connection.status.get()
     const previous = this.workflowAssetChecks.get(tab.store)
@@ -3907,9 +3904,11 @@ export class AppState {
     previous?.controller.abort()
     const check = { backend, signature, status, controller: new AbortController() }
     this.workflowAssetChecks.set(tab.store, check)
+    const isCurrent = (): boolean => !this.disposed && !check.controller.signal.aborted &&
+      this.workflowAssetChecks.get(tab.store) === check && this.tabs.get().includes(tab) &&
+      this.backendForTab(tab) === backend
     const publish = (diagnostics: readonly Diagnostic[]): void => {
-      if (this.disposed || check.controller.signal.aborted || this.workflowAssetChecks.get(tab.store) !== check ||
-          !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return
+      if (!isCurrent()) return
       this.problems.update((problems) => problems.filter((problem) => problem.owner !== tab.id ||
         (problem.code !== 'asset.availability.missing' && problem.code !== 'asset.availability.unchecked')))
       this.reportProblems(tab.id, diagnostics)
@@ -3926,13 +3925,26 @@ export class AppState {
       scope: 'local', signal: check.controller.signal,
     }).then((rows) => {
       const missing = new Set(rows.filter((row) => row.status === 'missing').map((row) => row.digest))
-      publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map(({ graph, node, input, index, asset }) =>
-        diag('warning', 'validation', 'asset.availability.missing',
+      publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map((occurrence) => {
+        const { graph, node, input, index, asset } = occurrence
+        const hint = this.workflowAssetLocations.get(tab.store)?.get(asset.digest) ?? savedAssetLocation(tab.store.doc, occurrence)
+        return diag('warning', 'validation', 'asset.availability.missing',
           `${asset.name} is missing on ${backend.label}: ${graph}/${node}/${input} [${index + 1}].`, {
             refs: [{ graphId: graph, nodeId: node, valueKey: input, direction: 'input' }],
             data: { name: asset.name, backend: backend.label, graph, node, input,
-              digest: asset.digest, virtualPath: asset.virtualPath, index },
-          })))
+              digest: asset.digest, virtualPath: asset.virtualPath, index,
+              ...(hint ? { lastKnownMachine: hint.machine, lastKnownPaths: [...hint.paths] } : {}) },
+          })
+      }))
+      if (!isCurrent()) return
+      for (const digest of new Set(rows.filter((row) => row.status === 'available').map((row) => row.digest))) {
+        void backend.connection.fetchAssetLocations(digest).then((paths) => {
+          if (!isCurrent() || paths.length === 0) return
+          let observed = this.workflowAssetLocations.get(tab.store)
+          if (!observed) this.workflowAssetLocations.set(tab.store, observed = new Map())
+          observed.set(digest, { machine: backend.label, paths: [...paths] })
+        }).catch(() => undefined) // Operator location access is optional; presence remains authoritative.
+      }
     }, unchecked)
   }
 
@@ -6638,8 +6650,8 @@ export class AppState {
   }
 
   private stampedDocumentOf(tab: Tab): WorkflowDocument {
-    const doc = tab.store.doc
-    if (tab.execution) return doc
+    if (tab.execution) return tab.store.doc
+    const doc = stampAssetLocations(tab.store.doc, this.workflowAssetLocations.get(tab.store))
     const reg = this.registryForTab(tab)
     if (!reg) return doc
     const stamp = stampEnvironment(doc, {
