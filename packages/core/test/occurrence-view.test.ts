@@ -161,6 +161,39 @@ describe('occurrenceDynamicView', () => {
     })
   })
 
+  it.each([false, true])('maps retained canonical suffixes and the elaborated ghost without member arrays (named=%s)', (named) => {
+    const names = named ? ['head', 'middle', 'tail', 'last'] : ['item0', 'item1', 'item2', 'item3']
+    const canonical: NodeSchema = { ...familySchema, type: 'Canonical', items: [{
+      ...familySchema.items[0] as InputSpec,
+      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+        template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: true }],
+        naming: named ? { kind: 'names', names } : { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
+      },
+    }] }
+    const doc = { ...docOf(), graphs: {
+      g0: graph('g0', { s: { id: 's', type: '#outer', values: {}, dynamic: { outside: { members: [names[2]] } } } }),
+      outer: graph('outer', { i: { id: 'i', type: '#sub', values: {}, dynamic: { forwarded: { members: [names[1]] } } } }, {
+        inputs: [{ id: 'outside', binds: { kind: 'family', node: 'i', port: 'forwarded' } }], outputs: [],
+      }),
+      sub: graph('sub', { n: { id: 'n', type: 'Canonical', values: {}, dynamic: { items: { members: [names[0]] } } } }, {
+        inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'items' } }], outputs: [],
+      }),
+    } } as unknown as WorkflowDocument
+    const resolver = (type: string) => type === 'Canonical' ? canonical : resolve(type)
+    const view = occurrenceDynamicView(doc, resolver, ['s', 'i'])
+    const owner = view.familyOwners.get('n')!.get('items')!
+    expect(occurrenceFamilyEndpoint(owner, `items.${names[0]}`, undefined)).toBeUndefined()
+    expect(occurrenceFamilyEndpoint(owner, `items.${names[1]}`, undefined)).toMatchObject({
+      occurrence: { instancePath: ['s'], node: 'i' }, address: { port: `forwarded.${names[1]}` },
+    })
+    expect(occurrenceFamilyEndpoint(owner, `items.${names[2]}`, undefined)).toMatchObject({
+      occurrence: { instancePath: [], node: 's' }, address: { port: `outside.${names[2]}` },
+    })
+    const ghost = occurrenceFamilyEndpoint(owner, `items.${names[3]}`, undefined, names[3])
+    expect(ghost).toMatchObject({ occurrence: { instancePath: [], node: 's' }, address: { port: `outside.${names[3]}` } })
+    expect(ghost?.kind === 'boundary' && ghost.address.members).toBeUndefined()
+  })
+
   it('reverses a nested suffix coordinate and allocates a ghost from the owner high-water mark', () => {
     const route = [{
       graph: asGraphDefId('sub'), boundaryId: 'forwarded',

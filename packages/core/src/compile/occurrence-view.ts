@@ -38,20 +38,33 @@ export interface FamilyOwner extends SelectorOwner {
   readonly occurrence: OccurrenceRef
   /** Inner occurrence construct receiving the forwarded family. */
   readonly familyPath: string
+  /** Canonical single-leaf inputs carry the suffix in the dotted port id. */
+  readonly optionalAfterMinimum?: true
   /** Derived inner id -> persisted id on the owning instance. */
   readonly suffixMembers: ReadonlyMap<string, string>
   /** Route from the immediate owner boundary to the projected family. */
   readonly route: readonly BoundaryRouteLeg[]
   /** Exact source owner and route for every projected suffix member. */
   readonly suffixOwners: ReadonlyMap<string, FamilyMemberOwner>
-  /** Exact source owner and next persisted id for the trailing ghost. */
-  readonly ghostOwner: FamilyMemberOwner
+  /** Source owner; canonical ghost ids come from the elaborated address. */
+  readonly ghostOwner: Omit<FamilyMemberOwner, 'sourceMember'> & { readonly sourceMember?: string }
 }
 
 export interface FamilyMemberOwner extends SelectorOwner {
   readonly occurrence: OccurrenceRef
   readonly sourceMember: string
   readonly route: readonly BoundaryRouteLeg[]
+}
+
+/** Exact persisted owner of a retained projected member, excluding definition members. */
+export function occurrenceFamilyMemberOwner(owner: FamilyOwner, port: string, members: readonly string[] | undefined): FamilyMemberOwner | undefined {
+  if (port !== owner.familyPath && !port.startsWith(`${owner.familyPath}.`)) return undefined
+  if (owner.optionalAfterMinimum) return owner.suffixOwners.get(port.slice(owner.familyPath.length + 1))
+  const matches = (members ?? []).flatMap((member) => {
+    const source = owner.suffixOwners.get(member)
+    return source === undefined ? [] : [source]
+  })
+  return matches.length === 1 ? matches[0] : undefined
 }
 
 /** Resolve a derived family pin back to its persisted occurrence coordinate. */
@@ -62,21 +75,22 @@ export function occurrenceFamilyEndpoint(
   predictedMember?: string,
 ): OccurrenceLinkEndpoint | undefined {
   if (port !== owner.familyPath && !port.startsWith(`${owner.familyPath}.`)) return undefined
-  const owned = (members ?? [])
-    .map((member, index) => ({ index, owner: owner.suffixOwners.get(member) }))
-    .filter((entry): entry is { readonly index: number; readonly owner: FamilyMemberOwner } => entry.owner !== undefined)
-  if (owned.length > 1) return undefined
-  const predictedIndex = predictedMember === undefined ? -1 : (members ?? []).lastIndexOf(predictedMember)
-  const source = owned[0]?.owner ?? (predictedIndex < 0 ? undefined : owner.ghostOwner)
+  const retained = occurrenceFamilyMemberOwner(owner, port, members)
+  const predictedIndex = predictedMember === undefined ? -1 : owner.optionalAfterMinimum
+    ? port === `${owner.familyPath}.${predictedMember}` ? 0 : -1
+    : (members ?? []).lastIndexOf(predictedMember)
+  const source = retained ?? (predictedIndex < 0 ? undefined : owner.ghostOwner)
   if (source === undefined) return undefined
-  const memberIndex = owned[0]?.index ?? predictedIndex
+  const sourceMember = source.sourceMember ?? predictedMember
+  if (sourceMember === undefined) return undefined
+  const memberIndex = retained === undefined ? predictedIndex : (members ?? []).findIndex((member) => owner.suffixOwners.get(member) === retained)
   return {
     kind: 'boundary',
     occurrence: source.occurrence,
     address: {
       port: asPortId(`${source.route[0]?.boundaryId ?? owner.boundaryId}${port.slice(owner.familyPath.length)}`),
-      ...(members !== undefined ? {
-        members: [source.sourceMember, ...members.slice(memberIndex + 1)].map(asDynamicMemberId),
+      ...(!owner.optionalAfterMinimum && members !== undefined ? {
+        members: [sourceMember, ...members.slice(memberIndex + 1)].map(asDynamicMemberId),
       } : {}),
     },
     route: source.route,
@@ -288,12 +302,12 @@ export function occurrenceDynamicView(
           node: asNodeId(hop),
         }
         const inheritedGhost = inherited?.ghostOwner
-        const ghostOwner: FamilyMemberOwner = inheritedGhost === undefined ? {
+        const ghostOwner: FamilyOwner['ghostOwner'] = inheritedGhost === undefined ? {
           graphId: def.id,
           nodeId: hop,
           boundaryId: crossing.boundaryId,
           occurrence,
-          sourceMember: nextFamilyMember(instanceDynamic?.[crossing.boundaryId]),
+          ...(!crossing.optionalAfterMinimum ? { sourceMember: nextFamilyMember(instanceDynamic?.[crossing.boundaryId]) } : {}),
           route: [routeLeg],
         } : { ...inheritedGhost, route: [...inheritedGhost.route, routeLeg] }
         for (const [persistedAtThisLevel, inner] of persistedToInner) {
@@ -321,6 +335,7 @@ export function occurrenceDynamicView(
           boundaryId: crossing.boundaryId,
           occurrence,
           familyPath: crossing.familyPath,
+          ...(crossing.optionalAfterMinimum ? { optionalAfterMinimum: true } : {}),
           suffixMembers,
           route: [routeLeg],
           suffixOwners,
