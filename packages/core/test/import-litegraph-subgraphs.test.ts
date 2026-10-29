@@ -115,12 +115,20 @@ describe('LiteGraph subgraphs', () => {
       items: [{ kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
         widget: { widgetType: 'BOOLEAN', options: {}, default: false } }],
     }
-    const def = definition()
+    const def = { ...definition(), inputs: [{ id: 'in', name: 'value', type: 'INT', linkIds: [1767] }],
+      links: [link(1767, -10, 0, 1, 0), link(2, 1, 0, -20, 0)] }
     const raw = { nodes: [instance(10)], links: [], definitions: { subgraphs: [{ ...def,
-      nodes: [...def.nodes, { id: 2, type: 'Toggle', inputs: [{ name: 'enabled', widget: { name: 'enabled' }, link: 3 }], widgets_values: [false] }],
-      links: [{ ...link(3, -10, 0, 2, 0), type: 'BOOLEAN' }, ...def.links],
+      nodes: [...def.nodes, { id: 2, type: 'Toggle', inputs: [{ name: 'enabled', widget: { name: 'enabled' }, link: 368 }], widgets_values: [false] }],
+      links: [{ ...link(368, -10, 0, 2, 0), type: 'BOOLEAN' }, ...def.links],
     }] } }
     const resolver = (type: string) => type === 'Toggle' ? toggle : resolve(type)
+    const original = JSON.parse(JSON.stringify(raw))
+    const result = importLitegraph(raw as unknown as JsonObject, resolver)
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'warning', code: 'import.subgraphs.boundaryTypeConflict',
+      data: { graphId: 'inner', boundaryId: 'in', promotedLink: 1767, conflictingLinks: [368] },
+    }))
+    expect(raw).toEqual(original)
     const doc = imported(raw, resolver)
     const body = doc.graphs['inner']!
     expect(body.boundary!.inputs[0]).toMatchObject({ promoted: true,
@@ -133,10 +141,14 @@ describe('LiteGraph subgraphs', () => {
     expect(Object.keys(body.nodes).sort()).toEqual(['n1', 'n2'])
     expect(body.nodes.n2!.values).toEqual({ enabled: false })
     expect(doc.ext!['importer.litegraphDefinitions']).toEqual(raw.definitions)
-    expect(raw.definitions.subgraphs[0]!.links[0]!.id).toBe(3)
+    expect(raw.definitions.subgraphs[0]!.links[0]!.id).toBe(368)
     const compiled = prompt(doc, resolver)
     expect(compiled['n10.n1']!.inputs['value']).toBe(19)
     expect(compiled['n10.n2']!.inputs['enabled']).toBe(19)
+    const matching = JSON.parse(JSON.stringify(raw))
+    matching.definitions.subgraphs[0].links[0].type = 'INT'
+    expect(importLitegraph(matching, resolver).diagnostics.map((item) => item.code))
+      .not.toContain('import.subgraphs.boundaryTypeConflict')
   })
 
   it('retains recursive definition catalogs and nested instances', () => {

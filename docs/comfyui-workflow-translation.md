@@ -240,6 +240,9 @@ For direct widget-backed input deliveries, the first widget in the boundary's
 saved `linkIds` supplies the promoted type and default. Other raw deliveries,
 including links absent from that list, remain fan-out targets; promotion does
 not prune the authored graph. The original definitions remain in import metadata.
+An unlisted delivery with a different declared type produces
+`import.subgraphs.boundaryTypeConflict`, identifying the promoted and conflicting
+links without rewriting their types, stored values or destinations.
 
 Output boundaries trace reroute chains back to their unique producing port,
 retaining the internal reroute vertices, links and positions. Dangling or cyclic
