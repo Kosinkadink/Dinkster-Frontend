@@ -417,7 +417,8 @@
     "text:, successKey?: string): Promise",
     "text:= 1024 && unit",
     "text:Promise",
-    "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise"
+    "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise",
+    "text:props.connection) const [info, setInfo] = createSignal"
   ],
   "DesktopSetup.tsx": [
     "text:D",
@@ -634,7 +635,8 @@
     "text:Rendering 3D preview..."
   ],
   "MountFolderForm.tsx": [
-    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal"
+    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal",
+    "text:props.backendUrl) const [mountPath, setMountPath] = createSignal('') const [mountId, setMountId] = createSignal('') const [mode, setMode] = createSignal"
   ],
   "NodePalette.tsx": [
     "text:() const duplicates = new Set",

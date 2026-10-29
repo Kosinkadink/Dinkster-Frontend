@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import type { MountDescriptor, MountSettings } from '@dinkster/client'
 import {
   DESKTOP_ENGINE_ACCELERATORS,
@@ -41,6 +41,7 @@ const formatBytes = (bytes: number): string => {
 export function DesktopManagementDialog(props: { readonly connection: DesktopMountConnection | undefined; readonly backendUrl?: string }) {
   const bridge = desktopBridge()
   const message = useAppMessage()
+  const currentConnection = createMemo(() => props.connection)
   const [info, setInfo] = createSignal<DesktopInfo>()
   const [busy, setBusy] = createSignal(false)
   const [statusMessage, setStatusMessage] = createSignal<StatusMessage>()
@@ -99,18 +100,18 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
   }
 
   const refreshMounts = (): void => {
-    const connection = props.connection
+    const connection = currentConnection()
     void connection?.fetchMountSettings().then((settings) => {
-      if (connection !== props.connection) return
+      if (connection !== currentConnection()) return
       setMounts(settings.mounts)
       setMountChangesAllowed(settings.mountChangesAllowed)
     }).catch(() => {
-      if (connection === props.connection) setMountChangesAllowed(false)
+      if (connection === currentConnection()) setMountChangesAllowed(false)
     })
   }
 
   createEffect(() => {
-    props.connection
+    currentConnection()
     setMounts([])
     setMountChangesAllowed(false)
     refreshMounts()
@@ -268,7 +269,7 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                 <h3>{message('desktopManagement.folders.title')}</h3>
                 <p>{message('desktopManagement.folders.description')}</p>
               </div>
-              <Show when={props.connection} fallback={<p class="desktop-management-note">{message('desktopManagement.folders.unavailable')}</p>}>
+              <Show when={currentConnection()} fallback={<p class="desktop-management-note">{message('desktopManagement.folders.unavailable')}</p>}>
                 {(connection) => <>
                   <Show when={mountChangesAllowed()}>
                     <MountFolderForm
