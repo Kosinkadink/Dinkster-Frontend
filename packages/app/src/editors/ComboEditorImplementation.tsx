@@ -1,4 +1,5 @@
 import type { CommandInvocation, WidgetSpec } from '@dinkster/core'
+import { isComboValue } from '@dinkster/core'
 import { Check, ChevronLeft, ChevronRight, Folder, X } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type Component } from 'solid-js'
 import { comboOptions, remoteComboRefreshCanAdvance } from '../app-view-rows.js'
@@ -49,8 +50,8 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
   const availableOptions = (): readonly ComboOption[] => {
     const state = remote()
     const available = state?.state === 'ready' || state?.state === 'stale' ? state.options : comboOptions(spec)
-    if (!spec.remote || typeof ed.initial !== 'string' || available.some((option) => option.value === ed.initial)) return available
-    return [{ value: ed.initial, label: ed.initial }, ...available]
+    if (!spec.remote || !isComboValue(ed.initial) || available.some((option) => option.value === ed.initial)) return available
+    return [{ value: ed.initial, label: String(ed.initial) }, ...available]
   }
   const load = (refresh = false): void => {
     const sourceSpec = spec.remote
@@ -119,7 +120,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     const state = remote()
     if (state?.state !== 'ready' || remoteHighlight) return
     remoteHighlight = true
-    if (query() === '') setIndex(Math.max(0, state.options.findIndex((option) => option.value === String(ed.initial))))
+    if (query() === '') setIndex(Math.max(0, availableOptions().findIndex((option) => option.value === ed.initial)))
   })
   const openFolder = (path: readonly string[]) => { highlightSource = 'programmatic'; setFolder(path); setIndex(0) }
   const choose = (option: ComboOption) => multi
@@ -140,11 +141,11 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     } else if (event.key === 'Backspace' && query() === '' && folder().length > 0) { event.preventDefault(); openFolder(folder().slice(0, -1)) }
   }
   const memberIds = ed.target.kind === 'input' ? ed.target.inputFamilyOwner?.memberIds : undefined
-  const familyOptions = spec.optionSource ? comboOptions(spec) : []
+  const familyOptions = spec.optionSource ? comboOptions(spec).filter((option): option is ComboOption & { readonly value: string } => typeof option.value === 'string') : []
   const editableFamily = memberIds ? familyOptions.filter((option) => memberIds[String(option.value)] !== undefined) : familyOptions
   const [labels, setLabels] = createSignal<Record<string, string>>(Object.fromEntries(familyOptions.map((option) => [option.value, option.label])))
   const labelError = createMemo(() => { const all = Object.values(labels()).map((label) => label.trim()); return all.some((label) => label === '') ? message('inputFamily.error.emptyLabel') : new Set(all).size !== all.length ? message('inputFamily.labels.duplicate') : undefined })
-  const memberId = (value: string | number) => memberIds?.[String(value)] ?? String(value)
+  const memberId = (value: string) => memberIds?.[value] ?? value
   const labelsChanged = createMemo(() => editableFamily.some((option) => labels()[option.value]?.trim() !== option.label))
   const commitLabels = () => {
     if (ed.target.kind !== 'input' || !spec.optionSource || labelError()) return

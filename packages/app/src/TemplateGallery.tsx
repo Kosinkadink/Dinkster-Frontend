@@ -187,7 +187,7 @@ export function TemplateGallery(props: {
                 hint={message('desktopManagement.folders.description')}
               />
               <Show when={allowedMountConnection()}>
-                {(connection) => <MountFolderForm connection={connection()} onGranted={() => setMountRefresh((value) => value + 1)} />}
+                {(connection) => <MountFolderForm connection={connection()} {...(props.app.libraryBackend() ? { backendUrl: props.app.libraryBackend()!.baseUrl } : {})} onGranted={() => setMountRefresh((value) => value + 1)} />}
               </Show>
             </div>
           </Show>

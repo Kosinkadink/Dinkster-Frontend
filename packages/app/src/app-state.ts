@@ -211,7 +211,7 @@ import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
-import { scopedSharedName, scopedStorageKey } from './projects.js'
+import { activeProjectId, scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -4142,7 +4142,7 @@ export class AppState {
       return () => unsubs.forEach((u) => u())
     }
     if (protocol === 'dinkster') {
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl })
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId() })
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -6345,7 +6345,37 @@ export class AppState {
     this.drainLegacyBooleans() // immediate when schemas are already loaded
     this.drainUpgrades()
     if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
+    const planBackend = importVia ?? this.backendForTab(tab)
+    if (planBackend.protocol === 'dinkster' && planBackend.connection.status.get() === 'connected') {
+      void this.planOpenedWorkflow(tab, planBackend)
+    }
     return []
+  }
+
+  private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {
+    const document = tab.store.doc
+    const revision = tab.store.revision
+    const bytes = JSON.stringify(document)
+    const stillOwned = () => {
+      const live = this.liveTabContinuing(tab.store)
+      return live !== undefined && tab.store.revision === revision &&
+        JSON.stringify(live.store.doc) === bytes && this.backends.get().includes(backend)
+    }
+    try {
+      const plan = await backend.connection.planWorkflowRequirements(document)
+      if (!stillOwned() || (plan.packs.length === 0 && plan.assets.length === 0 && plan.errors.length === 0)) return
+      this.reportProblems(tab.id, [diag(
+        'warning', 'validation', 'workflow.requirements',
+        `Requirements: ${plan.packs.length} packs, ${plan.assets.length} assets, ${plan.errors.length} errors.`,
+        { data: { ...plan } },
+      )])
+    } catch (error) {
+      if (!stillOwned()) return
+      this.reportProblems(tab.id, [diag(
+        'warning', 'validation', 'workflow.requirementsUnavailable',
+        `Workflow requirement plan unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      )])
+    }
   }
 
   private legacyAssetReferences(tab: Tab, backend: Backend): readonly ImportAssetReference[] {

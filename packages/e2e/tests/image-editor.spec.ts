@@ -446,6 +446,14 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
 
   await expect(page.getByRole('button', { name: 'Apply mask to graph' })).toBeEnabled()
   await page.getByRole('button', { name: 'Clear' }).click()
+  await expect(page.getByRole('button', { name: 'Undo mask edit' })).toBeEnabled()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      editorSplits: { layout: { update(change: (layout: object) => object): void } }
+    }
+    app.editorSplits.layout.update((layout) => ({ ...layout }))
+  })
+  await expect(page.getByRole('button', { name: 'Apply mask to graph' })).toBeEnabled()
   await page.screenshot({ path: `${PROOF}/09-graph-mask-apply.png` })
   await page.getByRole('button', { name: 'Apply mask to graph' }).click()
   const first = await page.evaluate(() => {
