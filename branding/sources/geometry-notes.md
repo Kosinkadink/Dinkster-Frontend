@@ -167,3 +167,30 @@ for these proofs; the fully tangent alternative is not selected. The
 master is not replaced until the user selects the new counter. All
 proposals are proof-only SVGs and PNGs with matching mono/color alpha;
 the master and production symbol exports stay unchanged.
+
+## Lifted nose proofs
+
+`compare_geometry.py --nose-options` uses the selected -30 percent
+counter-area target and partial r24 corner without replacing the master.
+The nose is defined as the maximum-right sample of the counter boundary,
+not the center of the D or the counter's area centroid. Counter height is
+measured from its upper flat y=157 to its lower flat y=269. The selected
+profile's nose is at y=246.6321, or about 80.03 percent down that height.
+
+The three nose heights are 70, 62 and 55 percent, at y=235.40, 226.44 and
+218.60. Let v=(y-157)/112 and let c be the selected nose's height fraction.
+The vertical warp is y'=157+112*v**p, with p=log(target)/log(c). This keeps
+both flats fixed and lifts the tapered shoulder and nose continuously.
+The horizontal profile scale is recalculated for each warp to retain the
+same -30 percent sampled-area target, rather than accepting an area
+change as a side effect of the nose lift. All noses remain below the
+counter's vertical center y=213.
+
+The original left radii, channel/island geometry, outer corners, partial
+r24 and color planes are unchanged. Flat-reference strokes remain 89/91
+source units. The sheet additionally measures top/bottom strokes on the
+same x=338 pixel scan per option, using alpha below 128 for the counter
+boundary. These measurements include raster threshold error and do not
+claim uniform ring thickness. Native 64 px proofs use the same full-gap
+geometry with no optical substitution. Sixteen Inkscape commands and the
+renderer version are recorded in `nose-export-commands.txt`.

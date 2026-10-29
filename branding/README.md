@@ -62,6 +62,15 @@ vertically shallower, bottom-biased rounded counter at unchanged, -10,
 renderer and every CLI export. See `geometry-notes.md` for the corner's
 channel-intersection constraint and the counter-area measurement.
 
+`compare_geometry.py --nose-options --inkscape /path/to/inkscape` keeps
+the selected -30 percent area and partial r24 corner, comparing its
+current nose with heights 70, 62 and 55 percent down the counter. It
+exports 1024 and 64 px proofs, not production raster assets. The single
+`previews/nose-height-options.png` sheet includes both backgrounds and
+mono/color at both sizes, plus per-option nose and stroke measurements.
+`nose-export-commands.txt` records the renderer and sixteen CLI exports.
+No option changes the master or `build_d.py` constants.
+
 For the small-size comparison, run `sources/compare_geometry.py --inkscape
 /path/to/inkscape` with Python, then `python sources/compare_small.py`.
 The native and nearest-neighbor sheets show mono, cyan and clipped color

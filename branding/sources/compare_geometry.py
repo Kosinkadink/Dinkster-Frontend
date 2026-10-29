@@ -13,8 +13,10 @@ from PIL import Image, ImageDraw, ImageFont
 from build_brand import ROOT, SVG, node, symbol_path, write
 
 
-def counter_options(inkscape):
-    output = ROOT / "previews/counter-options"
+def counter_options(inkscape, nose_options=False):
+    output = ROOT / (
+        "previews/nose-options" if nose_options else "previews/counter-options"
+    )
     output.mkdir(exist_ok=True)
     scale = 840 / (geometry.RIGHT - (geometry.LEG_DIAG - geometry.BOTTOM))
     transform = geometry.Transform(
@@ -57,16 +59,27 @@ def counter_options(inkscape):
             / 2
         )
 
-    base_area = counter_area(1)
-    area_slope = (counter_area(1.2) - base_area) / 0.2
+    original_profile = reshaped
+    nose_fraction = (max(reshaped, key=lambda point: point[0])[1] - 157) / 112
     commands = [subprocess.check_output([inkscape, "--version"], text=True).strip()]
     font = ImageFont.truetype("DejaVuSans.ttf", 23)
-    sheet = Image.new("RGB", (5248, 4350), "#E4E8EC")
+    options = (None, 0.70, 0.62, 0.55) if nose_options else (0, 0, 10, 20, 30)
+    sheet = Image.new(
+        "RGB", (8 + len(options) * 1048, 4560 if nose_options else 4350), "#E4E8EC"
+    )
     draw = ImageDraw.Draw(sheet)
-    for column, reduction in enumerate((0, 0, 10, 20, 30)):
+    for column, option in enumerate(options):
+        reduction = 30 if nose_options else option
+        if nose_options:
+            power = math.log(option) / math.log(nose_fraction) if option else 1
+            reshaped = [
+                (x, 157 + 112 * ((y - 157) / 112) ** power) for x, y in original_profile
+            ]
+        base_area = counter_area(1)
+        area_slope = (counter_area(1.2) - base_area) / 0.2
         factor = 1 + (area * (1 - reduction / 100) - base_area) / area_slope
         contour = geometry.outline()
-        if column:
+        if column or nose_options:
             contour = [
                 ("poly", [(298 + (x - 298) * factor, y) for x, y in reshaped])
                 if vertex[0] == "poly"
@@ -75,7 +88,7 @@ def counter_options(inkscape):
                 else vertex
                 for vertex in contour
             ]
-        if column:
+        if column or nose_options:
             # The channel cuts off this circle before its x=232 tangent.
             # Keep that non-tangent join visible rather than overlap the arc.
             radius = 24
@@ -98,7 +111,9 @@ def counter_options(inkscape):
             transform,
         )
         name = (
-            "current"
+            (f"nose-{round(option * 100)}" if option else "current-selected")
+            if nose_options
+            else "current"
             if not column
             else "counter-reshaped"
             if not reduction
@@ -113,27 +128,62 @@ def counter_options(inkscape):
                 if element.get("d") == approved:
                     element.set("d", path)
             svg = output / f"{name}-{variant}.svg"
-            png = svg.with_suffix(".png")
             write(svg, source)
-            command = [
-                inkscape,
-                str(svg),
-                "--export-type=png",
-                "--export-width=1024",
-                "--export-height=1024",
-                f"--export-filename={png}",
-            ]
-            subprocess.run(command, check=True)
-            commands.append(shlex.join(command))
+            for size in (1024, 64) if nose_options else (1024,):
+                png = svg.with_name(svg.stem + ("-64" if size == 64 else "") + ".png")
+                command = [
+                    inkscape,
+                    str(svg),
+                    "--export-type=png",
+                    f"--export-width={size}",
+                    f"--export-height={size}",
+                    f"--export-filename={png}",
+                ]
+                subprocess.run(command, check=True)
+                commands.append(shlex.join(command))
         x = 12 + column * 1048
         title = (
-            "CURRENT"
+            (
+                f"NOSE AT {round(option * 100)}% / AREA -30%"
+                if option
+                else "CURRENT SELECTED / AREA -30%"
+            )
+            if nose_options
+            else "CURRENT"
             if not column
             else "RESHAPED / SAME AREA / PARTIAL R24"
             if not reduction
             else f"RESHAPED / AREA -{reduction}% / PARTIAL R24"
         )
         draw.text((x, 12), title, font=font, fill="#1F242A")
+        if nose_options:
+            nose_y = max(reshaped, key=lambda point: point[0])[1]
+            alpha = Image.open(output / f"{name}-mono.png").getchannel("A")
+            scan_x = round(transform(338, 0)[0] * 1.024)
+            empty = [
+                row
+                for row in range(
+                    round(transform(0, 145)[1] * 1.024),
+                    round(transform(0, 300)[1] * 1.024),
+                )
+                if alpha.getpixel((scan_x, row)) < 128
+            ]
+            top_stroke = (min(empty) / 1.024 - transform.dy) / scale - geometry.TOP
+            bottom_stroke = (
+                geometry.BOTTOM - (max(empty) / 1.024 - transform.dy) / scale
+            )
+            draw.text(
+                (x, 38),
+                f"Nose {(nose_y - 157) / 112:.2%}, y={nose_y:.2f}; x338 top/bottom {top_stroke:.2f}/{bottom_stroke:.2f} source units",
+                font=ImageFont.truetype("DejaVuSans.ttf", 18),
+                fill="#1F242A",
+            )
+            draw.text(
+                (x, 62),
+                "Flat-reference top/bottom strokes: 89/91 source units; partial R24 retained",
+                font=ImageFont.truetype("DejaVuSans.ttf", 18),
+                fill="#1F242A",
+            )
         for row, (variant, background, foreground) in enumerate(
             (
                 ("mono", "#111316", "#F2F4F5"),
@@ -149,28 +199,59 @@ def counter_options(inkscape):
                 icon = ink
             panel = Image.new("RGBA", icon.size, background)
             panel.alpha_composite(icon)
-            y = 60 + row * 1060
+            y = (90 if nose_options else 60) + row * 1060
             sheet.paste(panel.convert("RGB"), (x, y))
             draw.text(
                 (x, y + 1026), f"{variant} - native 1024 px", font=font, fill="#1F242A"
             )
+            if nose_options:
+                small = Image.open(output / f"{name}-{variant}-64.png").convert("RGBA")
+                if variant == "mono":
+                    ink = Image.new("RGBA", small.size, foreground)
+                    ink.putalpha(small.getchannel("A"))
+                    small = ink
+                tile = Image.new("RGBA", (240, 140), background)
+                tile.alpha_composite(small, (88, 12))
+                ImageDraw.Draw(tile).text(
+                    (12, 100),
+                    f"64 px {variant} / {'dark' if row < 2 else 'light'}",
+                    font=ImageFont.truetype("DejaVuSans.ttf", 17),
+                    fill=foreground,
+                )
+                sheet.paste(tile.convert("RGB"), (x + row * 250, 4390))
+        if nose_options:
+            draw.text(
+                (x, 4350),
+                "NATIVE 64 PX - same geometry, no optical substitution",
+                font=font,
+                fill="#1F242A",
+            )
         print(
-            f"{name}: horizontal profile factor={factor if column else 1:.9f}; "
-            f"right={max(298 + (x - 298) * factor for x, _ in reshaped) if column else 388:.6f}"
+            f"{name}: horizontal profile factor={factor if column or nose_options else 1:.9f}; "
+            f"right={max(298 + (x - 298) * factor for x, _ in reshaped) if column or nose_options else 388:.6f}"
         )
-    sheet.save(output.parent / "counter-size-options.png")
-    (ROOT / "sources/counter-export-commands.txt").write_text(
-        "\n".join(commands) + "\n", encoding="ascii"
+    sheet.save(
+        output.parent
+        / ("nose-height-options.png" if nose_options else "counter-size-options.png")
     )
+    (
+        ROOT
+        / (
+            "sources/nose-export-commands.txt"
+            if nose_options
+            else "sources/counter-export-commands.txt"
+        )
+    ).write_text("\n".join(commands) + "\n", encoding="ascii")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inkscape", default="inkscape")
     parser.add_argument("--counter-options", action="store_true")
+    parser.add_argument("--nose-options", action="store_true")
     args = parser.parse_args()
-    if args.counter_options:
-        counter_options(args.inkscape)
+    if args.counter_options or args.nose_options:
+        counter_options(args.inkscape, args.nose_options)
         return
     master = ET.parse(ROOT / "sources/Dinkster_Master.svg").getroot()
     approved = ET.parse(ROOT / "sources/dinkster-d.svg").getroot()[0].get("d")
