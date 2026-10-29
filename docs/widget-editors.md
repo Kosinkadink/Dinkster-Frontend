@@ -778,7 +778,8 @@ because the unresolved import supplies no digest query.
 
 Desktop file selection and canvas image ingress first ask the optional
 `resolveDroppedFile(backendUrl, File)` bridge on a capability-confirmed managed
-connection. A resolved mounted reference is used unchanged, reports the machine
+connection with `fileCapabilities(backendUrl).resolvePath === true`; folder
+choice is a separate capability. A resolved mounted reference is used unchanged, reports the machine
 and location with "no copy made", and does not change destination preferences.
 Explicit refusal or a missing bridge permits the normal upload controls;
 canvas copying still requires destination confirmation. Native resolution

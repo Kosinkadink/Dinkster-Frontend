@@ -101,7 +101,7 @@ export interface DinksterDesktopBridge {
   selectEngine(commit: string, variant: DesktopEngineAccelerator): Promise<void>
   checkForUpdates(): Promise<void>
   installUpdate(): Promise<void>
-  fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean }>
+  fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean; readonly resolvePath?: boolean }>
   chooseDirectory(backendUrl: string): Promise<string | undefined>
   revealFile?(backendUrl: string, asset: { readonly digest: string; readonly scope: 'local'; readonly project: string }): Promise<{ readonly mode: 'selected' | 'folder' }>
   resolveDroppedFile?(backendUrl: string, file: File): Promise<
@@ -170,8 +170,9 @@ export async function resolveDroppedAsset(backendUrl: string, file: File, isCurr
   const url = new URL(backendUrl || '/', window.location.href).href
   try {
     const capabilities = await bridge.fileCapabilities(url)
-    if (typeof capabilities?.nativeFolderChoice !== 'boolean') throw new Error('Invalid native capability response')
-    if (!isCurrent() || !capabilities.nativeFolderChoice) return undefined
+    if (typeof capabilities?.nativeFolderChoice !== 'boolean' || typeof capabilities.reveal !== 'boolean' ||
+        (capabilities.resolvePath !== undefined && typeof capabilities.resolvePath !== 'boolean')) throw new Error('Invalid native capability response')
+    if (!isCurrent() || capabilities.resolvePath !== true) return undefined
     const result = await bridge.resolveDroppedFile(url, file)
     if (!isCurrent()) return undefined
     if (result?.status === 'refused' && Object.keys(result).length === 2 &&

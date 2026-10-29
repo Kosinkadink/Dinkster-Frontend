@@ -276,14 +276,14 @@ test('native image resolution preserves mounted identity without upload and only
     const state = window as unknown as { nativeDropMode: string; nativeDropUrl?: string; dinksterDesktop: unknown }
     state.nativeDropMode = 'resolved'
     state.dinksterDesktop = {
-      fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: false }),
+      fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false, resolvePath: true }),
       resolveDroppedFile: async (url: string, file: File) => {
         state.nativeDropUrl = url
         if (file.name !== 'native.png') throw new Error('Expected original File')
         if (state.nativeDropMode === 'error') throw new Error('/private/native/path')
         if (state.nativeDropMode === 'malformed') return { status: 'refused', reason: 'unknown' }
-        if (state.nativeDropMode !== 'resolved') return { status: 'refused', reason: state.nativeDropMode }
-        return { status: 'resolved', asset: { digest, name: 'native.png', size: 23, mediaType: 'image/png', virtualPath: 'mounts/plates/nested/native.png' } }
+        if (state.nativeDropMode !== 'resolved' && state.nativeDropMode !== 'incompatible') return { status: 'refused', reason: state.nativeDropMode }
+        return { status: 'resolved', asset: { digest, name: 'native.png', size: 23, mediaType: state.nativeDropMode === 'incompatible' ? 'text/plain' : 'image/png', virtualPath: 'mounts/plates/nested/native.png' } }
       },
     }
   }, digest)
@@ -303,10 +303,17 @@ test('native image resolution preserves mounted identity without upload and only
   await closeRightRail(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: testInfo.outputPath('native-drop-no-copy-narrow.png') })
-  for (const mode of ['not-resolvable', 'not-native-file', 'unsupported-backend', 'error', 'malformed']) {
+  for (const mode of ['not-resolvable', 'not-native-file', 'unsupported-backend', 'error', 'malformed', 'incompatible']) {
     await page.evaluate((mode) => { (window as unknown as { nativeDropMode: string }).nativeDropMode = mode }, mode)
     await dropBytes(page, pngBytes(), 'native.png', 'image/png')
-    if (mode === 'error' || mode === 'malformed') {
+    if (mode === 'incompatible') {
+      await expect(surface).toContainText('incomplete asset reference; no node was inserted')
+      await expect(page.getByTestId('canvas-import-confirm')).toHaveCount(0)
+      expect(await page.evaluate(() => {
+        const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+        return Object.keys(doc.graphs[doc.root]!.nodes).length
+      })).toBe(1)
+    } else if (mode === 'error' || mode === 'malformed') {
       await expect(surface).toContainText('Could not resolve the existing file. Nothing was uploaded.')
       await expect(surface).not.toContainText('/private/native/path')
       await expect(page.getByTestId('canvas-import-confirm')).toHaveCount(0)

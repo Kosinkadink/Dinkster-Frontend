@@ -8,15 +8,24 @@ const digest = `blake3:${'a'.repeat(64)}`
 afterEach(() => { delete window.dinksterDesktop; document.body.replaceChildren(); vi.restoreAllMocks() })
 
 describe('exact asset location actions', () => {
-  it('does not send a File to a nonmanaged connection and fails closed on capability errors', async () => {
+  it.each([undefined, false])('does not send a File when resolvePath is %s and fails closed on capability errors', async (resolvePath) => {
     const resolveDroppedFile = vi.fn()
     const file = new File(['original'], 'original.png', { type: 'image/png' })
-    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false }), resolveDroppedFile } as unknown as DinksterDesktopBridge
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: false, resolvePath }), resolveDroppedFile } as unknown as DinksterDesktopBridge
     expect(await resolveDroppedAsset('http://remote.test', file, () => true)).toBeUndefined()
     expect(resolveDroppedFile).not.toHaveBeenCalled()
     window.dinksterDesktop.fileCapabilities = async () => { throw new Error('/private/path') }
     await expect(resolveDroppedAsset('', file, () => true)).rejects.toThrow('Could not resolve the existing file. Nothing was uploaded.')
     expect(resolveDroppedFile).not.toHaveBeenCalled()
+  })
+
+  it('resolves the original File with resolvePath even when native folder choice is unavailable', async () => {
+    const file = new File(['original'], 'original.png', { type: 'image/png' })
+    const asset = { digest, name: 'original.png', size: 0, mediaType: 'image/png', virtualPath: 'mounts/input/nested/original.png' }
+    const resolveDroppedFile = vi.fn().mockResolvedValue({ status: 'resolved', asset })
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false, resolvePath: true }), resolveDroppedFile } as unknown as DinksterDesktopBridge
+    expect(await resolveDroppedAsset('', file, () => true)).toEqual(asset)
+    expect(resolveDroppedFile).toHaveBeenCalledWith(`${window.location.origin}/`, file)
   })
 
   it.each(['/imports/scene-2.png', '/vault/aa/asset'])('reveals identity, not operator path %s, and preserves copy after a rejection', async (path) => {
