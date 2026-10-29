@@ -24,7 +24,7 @@ describe('defaultTokens', () => {
         widgetAffordance: canvasSemanticTokens.text.disabled,
         widgetAffordanceActive: canvasSemanticTokens.meaning.accent.border,
         widgetRangeFill: canvasSemanticTokens.interaction.selectedOverlay,
-        linkDefault: canvasSemanticTokens.text.muted,
+        linkDefault: '#8d9aa5',
         selection: canvasSemanticTokens.meaning.accent.border,
         dropTarget: canvasSemanticTokens.border.selected,
         modifiedIndicator: canvasSemanticTokens.meaning.warning.border,
