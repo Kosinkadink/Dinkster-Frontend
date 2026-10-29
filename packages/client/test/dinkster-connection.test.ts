@@ -803,6 +803,88 @@ describe('principal permissions transport', () => {
   })
 })
 
+describe('local asset catalog and availability', () => {
+  const digest = `blake3:${'a'.repeat(64)}`
+  const other = `blake3:${'b'.repeat(64)}`
+  const asset = { digest, name: 'final.png', size: 17, mediaType: 'image/png', virtualPath: 'mounts/imports/final.png' }
+  const observation = { id: 'upload-1', asset, originalName: 'original.png', kind: 'media/image', origin: { kind: 'upload' }, project: 'film', created: 123.5 }
+  const entry = { asset, aliases: ['original.png', 'final.png'], observations: [observation] }
+  const harness = () => {
+    const requests: { url: string; init?: RequestInit }[] = []
+    let payload: unknown = { assets: [entry], cursor: 'next/page' }
+    let status = 200
+    const conn = new DinksterConnection({ id: C0, project: 'film', baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike,
+      fetchFn: async (url, init) => {
+        requests.push({ url: String(url), ...(init ? { init } : {}) })
+        return jsonResponse(status, payload)
+      },
+    })
+    return { conn, requests, reply: (value: unknown, code = 200) => { payload = value; status = code } }
+  }
+
+  it('preserves project-scoped aliases, provenance and canonical refs across catalog pages', async () => {
+    const { conn, requests, reply } = harness()
+    const signal = new AbortController().signal
+    const options = { scope: 'local', q: 'original name', kind: 'media/image', origin: 'upload', since: 0, until: 125, limit: 1, signal }
+    const first = await conn.listLocalAssets(options)
+    expect(first).toEqual({ assets: [entry], cursor: 'next/page' })
+    expect(Object.fromEntries(new URL(requests[0]!.url).searchParams)).toEqual({
+      scope: 'local', project: 'film', q: 'original name', kind: 'media/image', origin: 'upload', since: '0', until: '125', limit: '1',
+    })
+    expect(requests[0]!.init?.signal).toBe(signal)
+    reply({ assets: [{ ...entry, asset: { ...asset, digest: other }, observations: [{ ...observation, asset: { ...asset, digest: other } }] }] })
+    expect(await conn.listLocalAssets({ ...options, cursor: first.cursor! })).toEqual({ assets: [{
+      ...entry, asset: { ...asset, digest: other }, observations: [{ ...observation, asset: { ...asset, digest: other } }],
+    }] })
+    expect(new URL(requests[1]!.url).searchParams.get('cursor')).toBe('next/page')
+    expect(requests.every((request) => request.init?.method === undefined)).toBe(true)
+  })
+
+  it('rejects malformed and cross-project catalog responses instead of treating them as empty', async () => {
+    const { conn, reply } = harness()
+    for (const payload of [null, {}, { assets: [null] }, { assets: [entry], cursor: 3 },
+      { assets: [{ ...entry, aliases: [42] }] },
+      { assets: [{ ...entry, asset: { ...asset, size: -1 } }] },
+      ...[{ project: 'other' }, { asset: { ...asset, digest: other } }, { created: 'yesterday' }, { origin: { kind: 3 } }]
+        .map((change) => ({ assets: [{ ...entry, observations: [{ ...observation, ...change }] }] })),
+    ]) {
+      reply(payload)
+      await expect(conn.listLocalAssets({ scope: 'local' })).rejects.toThrow('malformed')
+    }
+    reply({}, 403)
+    await expect(conn.listLocalAssets({ scope: 'local' })).rejects.toThrow('403')
+  })
+
+  it('checks each exact digest once without project, names, acquisition or writes', async () => {
+    const { conn, requests, reply } = harness()
+    reply({ assets: [{ digest: other, status: 'missing' }, { digest, status: 'available' }] })
+    const signal = new AbortController().signal
+    expect(await conn.checkAssetAvailability([digest, other, digest], { scope: 'local', signal })).toEqual([
+      { digest, status: 'available' }, { digest: other, status: 'missing' },
+    ])
+    expect([...new URL(requests[0]!.url).searchParams]).toEqual([['scope', 'local'], ['digest', digest], ['digest', other]])
+    expect(requests[0]!.init).toEqual({ signal })
+    expect(await conn.checkAssetAvailability([], { scope: 'local' })).toEqual([])
+    expect(requests).toHaveLength(1)
+  })
+
+  it('keeps absent, duplicate, foreign and invalid availability replies distinct from missing bytes', async () => {
+    const { conn, reply } = harness()
+    for (const payload of [null, {}, { assets: [] }, { assets: [null] },
+      { assets: [{ digest: other, status: 'available' }] },
+      { assets: [{ digest, status: 'pending' }] },
+      { assets: [{ digest, status: 'missing' }, { digest, status: 'available' }] },
+    ]) {
+      reply(payload)
+      await expect(conn.checkAssetAvailability([digest], { scope: 'local' })).rejects.toThrow(/malformed|incomplete/)
+    }
+    for (const status of [401, 403, 404, 500]) {
+      reply({}, status)
+      await expect(conn.checkAssetAvailability([digest], { scope: 'local' })).rejects.toThrow(String(status))
+    }
+  })
+})
+
 describe('asset name guesses', () => {
   it('decodes both candidate flavors, empty lists, future tiers, and sequential batches', async () => {
     const calls: string[][] = []
