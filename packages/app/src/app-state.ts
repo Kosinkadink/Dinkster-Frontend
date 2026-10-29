@@ -211,7 +211,7 @@ import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
-import { scopedSharedName, scopedStorageKey } from './projects.js'
+import { activeProjectId, scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -3769,7 +3769,7 @@ export class AppState {
 
   private startWorkspaceTabPromotion(tab: Tab): Promise<void> {
     const existing = this.workspacePromotions.get(tab.id)
-    if (existing?.tab === tab) return existing.promise
+    if (existing?.tab.store === tab.store) return existing.promise
     const generation = this.workspaceAuthorityGeneration
     const promise = this.promoteWorkspaceTab(tab, generation).finally(() => {
       if (this.workspacePromotions.get(tab.id)?.promise === promise) this.workspacePromotions.delete(tab.id)
@@ -3805,7 +3805,7 @@ export class AppState {
           ]),
         },
         this.workspacePortFactory,
-        () => this.tabs.get().find((candidate) => candidate.id === tab.id) === tab ? tab.store.doc : undefined,
+        () => this.tabs.get().find((candidate) => candidate.id === tab.id)?.store === tab.store ? tab.store.doc : undefined,
         this.workspaceReplacements.has(tab),
       )
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
@@ -3813,9 +3813,9 @@ export class AppState {
       const sameDocument = JSON.stringify(session.doc) === JSON.stringify(tab.store.doc)
       const latestWasAdopted = !sourceChanged || sameDocument
       if (generation !== this.workspaceAuthorityGeneration || !this.workspaceAuthorityEnabled ||
-        live !== tab || this.collabTabs.get().has(tab.id) || !latestWasAdopted) {
+        live?.store !== tab.store || this.collabTabs.get().has(tab.id) || !latestWasAdopted) {
         session.close()
-        if (live === tab && sourceChanged) {
+        if (live?.store === tab.store && sourceChanged) {
           this.reportProblems(tab.id, [diag(
             'error', 'command', 'workspace.authority.changedDuringOpen',
             'The workflow changed while its shared workspace was opening; the local edit was kept.',
@@ -3830,7 +3830,7 @@ export class AppState {
       // established the workspace first) invalidates the records, so they
       // stay behind.
       if (sameDocument) session.adoptHistory(tab.store.historySnapshot())
-      const replacement: Tab = { ...tab, store: session }
+      const replacement: Tab = { ...live, store: session }
       // The swap strands in-flight advancement plans keyed to the old store
       // identity (combo refresh responses, queued run completions); record
       // the continuation so they follow the live session instead of dying,
@@ -3841,7 +3841,7 @@ export class AppState {
       this.reconcileDocumentPersistenceRevision(tab.id, tab.store.doc, session.doc)
       reconcileGraphNavigation(replacement)
       this.workspaceSessions.set(tab.id, { tab: replacement, session })
-      this.tabs.set(this.tabs.get().map((candidate) => candidate === tab ? replacement : candidate))
+      this.tabs.set(this.tabs.get().map((candidate) => candidate === live ? replacement : candidate))
     } catch (error) {
       session?.close()
       this.reportProblems(tab.id, [diag(
@@ -4142,7 +4142,7 @@ export class AppState {
       return () => unsubs.forEach((u) => u())
     }
     if (protocol === 'dinkster') {
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl })
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId() })
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -6345,7 +6345,37 @@ export class AppState {
     this.drainLegacyBooleans() // immediate when schemas are already loaded
     this.drainUpgrades()
     if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
+    const planBackend = importVia ?? this.backendForTab(tab)
+    if (planBackend.protocol === 'dinkster' && planBackend.connection.status.get() === 'connected') {
+      void this.planOpenedWorkflow(tab, planBackend)
+    }
     return []
+  }
+
+  private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {
+    const document = tab.store.doc
+    const revision = tab.store.revision
+    const bytes = JSON.stringify(document)
+    const stillOwned = () => {
+      const live = this.liveTabContinuing(tab.store)
+      return live !== undefined && tab.store.revision === revision &&
+        JSON.stringify(live.store.doc) === bytes && this.backends.get().includes(backend)
+    }
+    try {
+      const plan = await backend.connection.planWorkflowRequirements(document)
+      if (!stillOwned() || (plan.packs.length === 0 && plan.assets.length === 0 && plan.errors.length === 0)) return
+      this.reportProblems(tab.id, [diag(
+        'warning', 'validation', 'workflow.requirements',
+        `Requirements: ${plan.packs.length} packs, ${plan.assets.length} assets, ${plan.errors.length} errors.`,
+        { data: { ...plan } },
+      )])
+    } catch (error) {
+      if (!stillOwned()) return
+      this.reportProblems(tab.id, [diag(
+        'warning', 'validation', 'workflow.requirementsUnavailable',
+        `Workflow requirement plan unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      )])
+    }
   }
 
   private legacyAssetReferences(tab: Tab, backend: Backend): readonly ImportAssetReference[] {

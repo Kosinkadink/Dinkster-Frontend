@@ -32,15 +32,15 @@ async function decodeRgba(page: Page, bytes: Buffer): Promise<readonly number[]>
 }
 
 async function openEditor(page: Page, nodeId: string, action: 'Apply mask to graph' | 'Bake to asset'): Promise<void> {
-  await page.evaluate((id) => {
+  await expect.poll(() => page.evaluate(({ id, graphApply }) => {
     const app = window.__dinksterTest!.app as unknown as {
       activeTab(): unknown
-      imageTargetForInput(tab: unknown, graphId: string, nodeId: string, inputId: string): unknown
+      imageTargetForInput(tab: unknown, graphId: string, nodeId: string, inputId: string): { maskPaint?: unknown } | undefined
       openImageEditor(target: unknown): boolean
     }
     const target = app.imageTargetForInput(app.activeTab(), 'g0', id, 'image')
-    if (!target || !app.openImageEditor(target)) throw new Error(`image editor refused ${id}`)
-  }, nodeId)
+    return target && (!graphApply || target.maskPaint) ? app.openImageEditor(target) : false
+  }, { id: nodeId, graphApply: action === 'Apply mask to graph' })).toBe(true)
   await expect(page.getByTestId('image-editor')).toBeVisible()
   await expect(page.getByRole('button', { name: action })).toBeEnabled({ timeout: 15_000 })
   await expect(page.getByText('Loading source image...')).toBeHidden({ timeout: 15_000 })

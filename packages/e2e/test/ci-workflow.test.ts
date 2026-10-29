@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import playwrightConfig from '../playwright.config.js'
 
 const root = resolve(import.meta.dirname, '../../..')
 const yaml = createRequire(import.meta.url)('js-yaml') as {
@@ -116,6 +117,7 @@ describe('fast pull-request and full validation workflows', () => {
 
   it('requires product screenshots and bounded fast checks without a PR label path', () => {
     expect(fast.on).toEqual({
+      push: { branches: ['main'] },
       pull_request: null,
       merge_group: null,
       workflow_dispatch: {
@@ -131,10 +133,11 @@ describe('fast pull-request and full validation workflows', () => {
       },
     })
     expect(fast.concurrency).toEqual({
-      group: 'ci-${{ github.workflow }}-${{ github.ref }}',
+      group:
+        "ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}",
       'cancel-in-progress': true,
     })
-    expect(Object.keys(fast.jobs)).toEqual(['fast', 'visual'])
+    expect(Object.keys(fast.jobs)).toEqual(['fast', 'visual', 'bundle'])
     const job = fast.jobs['fast']!
     expect(job.needs).toBe('visual')
     expect(job.if).toBe('always()')
@@ -174,6 +177,34 @@ describe('fast pull-request and full validation workflows', () => {
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
     )
+  })
+
+  it('publishes content-addressed bundles only after the fast gate', () => {
+    const job = fast.jobs['bundle']!
+    expect(job.needs).toBe('fast')
+    expect(job.if).toBe(
+      "github.event_name == 'push' || github.event_name == 'pull_request'",
+    )
+    const steps = job.steps!
+    expect(
+      steps.find((step) => step.uses === 'actions/checkout@v4')?.with?.['ref'],
+    ).toBe('${{ github.event.pull_request.head.sha || github.sha }}')
+    expect(steps.flatMap((step) => step.run ?? [])).toContain(
+      'pnpm --filter @dinkster/app build',
+    )
+    expect(steps.find((step) => step.id === 'archive')?.run).toContain(
+      'python3 scripts/bundle_artifact.py --output .ci/bundle',
+    )
+    expect(steps.at(-1)).toEqual({
+      uses: 'actions/upload-artifact@v4',
+      with: {
+        name: '${{ steps.archive.outputs.name }}',
+        path: '.ci/bundle/',
+        'if-no-files-found': 'error',
+        'retention-days': 90,
+      },
+    })
+    expect(script).toContain('scripts/bundle_artifact_test.py')
   })
 
   it('runs every heavy lane through one guarded reusable workflow', async () => {
@@ -219,9 +250,7 @@ describe('fast pull-request and full validation workflows', () => {
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
       "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '' },",
-      "{ name: 'native without V1 1/3', project: 'native-without-v1', shard: '--shard=1/3' },",
-      "{ name: 'native without V1 2/3', project: 'native-without-v1', shard: '--shard=2/3' },",
-      "{ name: 'native without V1 3/3', project: 'native-without-v1', shard: '--shard=3/3' },",
+      "{ name: 'native without V1', project: 'native-without-v1', shard: '' },",
     ])
     for (const required of [
       "context.eventName !== 'schedule'",
@@ -284,7 +313,7 @@ describe('fast pull-request and full validation workflows', () => {
     }
     const pushPlan = await executePlan('push', [])
     expect(pushPlan.requests).toBe(0)
-    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(13)
+    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(11)
     expect(pushPlan.outputs['run-heavy']).toBe('true')
     const durablePlan = await executePlan('schedule', [
       { event: 'push', head_sha: 'head' },
@@ -293,7 +322,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(durablePlan.requests).toBe(1)
     expect(durablePlan.outputs['run-heavy']).toBe('false')
     expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
-      13,
+      11,
     )
     expect(
       (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
@@ -401,7 +430,11 @@ describe('fast pull-request and full validation workflows', () => {
           })
           expect(step.with).not.toHaveProperty('ssh-key')
           expect(step.with).not.toHaveProperty('token')
-          if (!step.with?.['repository'])
+          if (job === fast.jobs['bundle'])
+            expect(step.with?.['ref']).toBe(
+              '${{ github.event.pull_request.head.sha || github.sha }}',
+            )
+          else if (!step.with?.['repository'])
             expect(step.with).not.toHaveProperty('ref')
         }
       }
@@ -493,38 +526,21 @@ describe('fast pull-request and full validation workflows', () => {
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(baseConfig).toContain("name: 'v1-compatibility'")
     expect(baseConfig).toContain("name: 'native-without-v1'")
-    const nativeWithoutV1Specs =
-      /const NATIVE_WITHOUT_V1_SPECS = \[([\s\S]*?)\n\]/.exec(baseConfig)?.[1]
-    expect(nativeWithoutV1Specs).toBeDefined()
-    for (const spec of [
-      'audit-float-paste-live.spec.ts',
-      'audit-noodle-live.spec.ts',
-      'audit-tap-boundary-live.spec.ts',
-      'audit-widget-parity-live.spec.ts',
-      'fixture-discovery.spec.ts',
-      'midgraph-preview-live.spec.ts',
-      'native-catalog-decode.spec.ts',
-      'native-catalog-presentation.spec.ts',
-      'native-family-port-quality.spec.ts',
-      'node-help.spec.ts',
-      'rowj-live.spec.ts',
-      'widget-representations-wire17.spec.ts',
-      'widget-value-presentation.spec.ts',
-      'wire43-input-family-combo.spec.ts',
-    ]) {
-      expect(nativeWithoutV1Specs).toContain(`'${spec}'`)
-    }
-    for (const spec of [
-      'import-legacy.spec.ts',
-      'link-drop.spec.ts',
-      'palette-filters.spec.ts',
-    ]) {
-      expect(nativeWithoutV1Specs).not.toContain(`'${spec}'`)
-    }
-    expect(baseConfig.match(/'output-mount-live\.spec\.ts'/g)).toHaveLength(2)
-    expect(baseConfig.match(/'pack-assets-settings\.spec\.ts'/g)).toHaveLength(
-      1,
-    )
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'native-without-v1',
+      )!.testMatch,
+    ).toEqual(['tests/startup-discovery.spec.ts'])
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'parallel-safe',
+      )!.testIgnore,
+    ).toContain('tests/product-surface-visuals.spec.ts')
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'backend-serial',
+      )!.testMatch,
+    ).toContain('tests/output-mount-live.spec.ts')
     expect(hostedConfig).toContain(
       "const probeV1 = stubV1Entry === '1' ? '0' : '1'",
     )

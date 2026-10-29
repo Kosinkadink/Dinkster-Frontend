@@ -14,6 +14,7 @@ import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProjectFolderSettings } from './ProjectFolderSettings.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 type SourceSectionKey = 'assets.source.section.models' | 'assets.source.section.media' | 'assets.source.section.inputOutput' | 'assets.source.section.other'
@@ -189,6 +190,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [discoveryError, setDiscoveryError] = createSignal<string>()
   const [retryTick, setRetryTick] = createSignal(0)
+  const [foldersOpen, setFoldersOpen] = createSignal(false)
   const [sourceFailures, setSourceFailures] = createSignal<Readonly<Record<string, AssetSourceFailurePresentation>>>({})
   let live = true
   let discoveryGeneration = 0
@@ -229,10 +231,15 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       if (outputTimer !== undefined) clearTimeout(outputTimer)
       outputTimer = setTimeout(() => { void discover() }, 0)
     })
+    const unsubscribeMounts = connection.onMountsChanged(() => {
+      if (timer !== undefined) clearTimeout(timer)
+      void discover()
+    })
     void discover()
     onCleanup(() => {
       active = false
       unsubscribe()
+      unsubscribeMounts()
       if (timer !== undefined) clearTimeout(timer)
       if (outputTimer !== undefined) clearTimeout(outputTimer)
     })
@@ -265,6 +272,12 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
 
   return (
     <div class="assets-panel" data-testid="assets-overlay">
+      <details class="asset-project-folders" onToggle={(event) => setFoldersOpen(event.currentTarget.open)}>
+        <summary>{message('projectFolders.title')}</summary>
+        <Show when={foldersOpen()}>
+          <ProjectFolderSettings connection={props.connection} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} backendLabel={props.baseUrl || props.backendId} onChanged={() => setRetryTick((tick) => tick + 1)} />
+        </Show>
+      </details>
       <Show
         when={discoveryError()}
         fallback={

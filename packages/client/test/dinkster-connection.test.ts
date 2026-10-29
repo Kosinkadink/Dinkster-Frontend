@@ -498,17 +498,79 @@ describe('mount listing decode', () => {
     expect(requests[1]).toMatchObject({ url: 'http://native/api/mounts/shared-models', init: { method: 'DELETE' } })
   })
 
-  it('selects the default output mount with the settings route', async () => {
+  it.each([undefined, 'default', 'film'])('persists the output for project %s without changing another project', async (project) => {
     const requests: { url: string; init?: RequestInit }[] = []
-    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', ...(project === undefined ? {} : { project }), webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
       requests.push({ url: String(url), ...(init ? { init } : {}) })
-      return jsonResponse(200, { outputMount: 'renders' })
+      return jsonResponse(200, { mounts: [{ id: 'renders', mode: 'readwrite', state: 'ready' }], outputMount: null, activeOutputMount: null, restartRequired: true, pendingRemovals: ['old'] })
     } })
     await connection.selectOutputMount('renders')
-    expect(requests).toEqual([{
-      url: 'http://native/api/mounts/output',
-      init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'renders' }) },
-    }])
+    expect(requests).toEqual([
+      { url: `http://native/api/mounts${project === 'film' ? '?project=film' : ''}`, init: { signal: expect.any(AbortSignal) } },
+      ...(project === 'film' ? [] : [{
+        url: 'http://native/api/mounts/output',
+        init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'renders' }) },
+      }]),
+      {
+        url: `http://native/api/mounts/projects/${project ?? 'default'}`,
+        init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mounts: ['renders'], outputMount: 'renders' }) },
+      },
+    ])
+  })
+
+  it('keeps operator configured and active locations distinct across pending changes', async () => {
+    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
+    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates' }], activeMounts: [active], importMount: 'plates' }
+    const { conn } = submitHarness(() => jsonResponse(200, payload))
+    expect(await conn.fetchMountLocations()).toEqual(payload)
+    const unconfigured = submitHarness(() => jsonResponse(200, { ...payload, importMount: null })).conn
+    expect(await unconfigured.fetchMountLocations()).toEqual({ ...payload, importMount: null })
+    for (const importMount of ['', false, 12, {}]) {
+      const invalid = submitHarness(() => jsonResponse(200, { ...payload, importMount })).conn
+      await expect(invalid.fetchMountLocations()).rejects.toThrow('malformed import mount')
+    }
+    const missingActive = submitHarness(() => jsonResponse(200, { mounts: payload.mounts })).conn
+    expect(await missingActive.fetchMountLocations()).toEqual({ mounts: payload.mounts })
+    const malformed = submitHarness(() => jsonResponse(200, { ...payload, activeMounts: [{ ...active, mode: 'readonly' }] })).conn
+    await expect(malformed.fetchMountLocations()).rejects.toThrow('malformed active mount')
+    const forbidden = submitHarness(() => jsonResponse(403, {})).conn
+    await expect(forbidden.fetchMountLocations()).rejects.toThrow('403')
+  })
+
+  it('queries exact asset locations with local scope and the connection project, rejecting failed or malformed responses', async () => {
+    const digest = `blake3:${'a'.repeat(64)}`
+    const urls: string[] = []
+    let response = jsonResponse(200, { locations: [{ storage: 'mount', path: '/imports/final-2.png' }, { storage: 'vault', path: '/vault/aa/file' }] })
+    const conn = new DinksterConnection({ id: C0, project: 'p-film', baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url) => {
+      urls.push(String(url))
+      return response
+    } })
+    expect(await conn.fetchAssetLocations(digest)).toEqual(['/imports/final-2.png', '/vault/aa/file'])
+    const query = new URL(urls[0]!).searchParams
+    expect(Object.fromEntries(query)).toEqual({ digest, scope: 'local', project: 'p-film' })
+    response = jsonResponse(403, {})
+    await expect(conn.fetchAssetLocations(digest)).rejects.toThrow('403')
+    response = jsonResponse(200, { mounts: [] })
+    await expect(conn.fetchAssetLocations(digest)).rejects.toThrow('malformed response')
+  })
+
+  it('keeps concurrent project folder reads and writes independent', async () => {
+    const orders = new Map([['film-a', ['plates', 'renders']], ['film-b', ['renders', 'plates']]])
+    const connection = (project: string) => new DinksterConnection({ id: C0, project, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike,
+      fetchFn: async (url, init) => {
+        const parsed = new URL(String(url))
+        const owner = parsed.searchParams.get('project') ?? parsed.pathname.split('/').at(-1)!
+        if (init?.method === 'PUT') orders.set(owner, JSON.parse(String(init.body)).mounts)
+        return jsonResponse(200, { mounts: orders.get(owner)!.map((id) => ({ id, mode: 'readwrite', state: 'ready' })), outputMount: null, activeOutputMount: null, restartRequired: false, pendingRemovals: [] })
+      },
+    })
+    const a = connection('film-a'), b = connection('film-b')
+    const [left, right] = await Promise.all([a.fetchMountSettings(), b.fetchMountSettings()])
+    expect(left.mounts.map((row) => row.id)).toEqual(['plates', 'renders'])
+    expect(right.mounts.map((row) => row.id)).toEqual(['renders', 'plates'])
+    await a.updateProjectFolders(['plates'], null)
+    expect((await b.fetchMountSettings()).mounts.map((row) => row.id)).toEqual(['renders', 'plates'])
+    expect(await a.fetchMountSettings()).toMatchObject({ restartRequired: false, pendingRemovals: [] })
   })
 })
 
@@ -1368,7 +1430,7 @@ describe('targetsForArtifact', () => {
 // Submit
 // ---------------------------------------------------------------------------
 
-function submitHarness(respond: (url: string, init?: RequestInit) => Response | undefined) {
+function submitHarness(respond: (url: string, init?: RequestInit) => Response | undefined, project?: string) {
   const requests: { url: string; init?: RequestInit }[] = []
   const fetchFn: FetchLike = async (url, init) => {
     requests.push({ url, ...(init ? { init } : {}) })
@@ -1382,6 +1444,7 @@ function submitHarness(respond: (url: string, init?: RequestInit) => Response | 
     clientId: 'cid',
     fetchFn,
     jobIdFactory: () => 'job-fixed',
+    ...(project !== undefined ? { project } : {}),
   })
   return { conn, requests }
 }
@@ -3389,6 +3452,20 @@ describe('websocket', () => {
     expect(events[0]).toMatchObject({ kind: 'schemaChanged', connection: C0, epoch: 4 })
   })
 
+  it('invalidates folder snapshots on mount pings without emitting asset or execution data', () => {
+    const { conn, ws, events } = connected()
+    let changes = 0
+    const unsubscribe = conn.onMountsChanged(() => { changes++ })
+    ws.onopen?.({})
+    ws.onmessage?.({ data: JSON.stringify({ type: 'mounts_changed' }) })
+    expect(changes).toBe(1)
+    expect(events).toEqual([])
+    unsubscribe()
+    ws.onmessage?.({ data: JSON.stringify({ type: 'mounts_changed' }) })
+    expect(changes).toBe(1)
+    conn.disconnect()
+  })
+
   it('decodes self-describing binary frames into attributed previews', () => {
     const { ws, events } = connected()
     ws.onopen?.({})
@@ -3671,6 +3748,55 @@ describe('workflow library wire', () => {
     const headers = new Headers(request.init?.headers)
     expect(headers.get('Content-Type')).toBe('image/png')
     expect(headers.get('X-Dinkster-Digest')).toBe(DIGEST)
+  })
+
+  it.each(['named', 'media'] as const)('%s upload preserves the project destination and collision-safe server reference', async (route) => {
+    const body = new File(['different bytes'], 'proof.png', { type: 'image/png' })
+    const asset = { ...MEDIA_ASSET, name: 'proof (2).png', size: 19, virtualPath: 'mounts/imports/plates/scene A/proof (2).png' }
+    const { conn, requests } = submitHarness(() => jsonResponse(201, {
+      digest: DIGEST, asset: { ...asset, hostPath: '/private/not-an-asset-field' }, kind: 'media/image',
+    }), 'project-b')
+    const controller = new AbortController()
+    const options = { scope: 'team', name: body.name, mount: 'imports', folder: 'plates/scene A', signal: controller.signal }
+    const result = route === 'named'
+      ? await conn.uploadNamedAsset(body, options)
+      : await conn.uploadMediaAsset(body, { ...options, kind: 'media/image' })
+    expect(result).toEqual(asset)
+    const request = requests[0]!
+    const url = new URL(request.url)
+    expect(url.pathname).toBe(route === 'named' ? '/api/assets' : '/api/assets/media')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      scope: 'team', project: 'project-b', name: 'proof.png', mount: 'imports', folder: 'plates/scene A',
+      ...(route === 'media' ? { kind: 'media/image' } : {}),
+    })
+    expect(request.init?.body).toBe(body)
+    expect(request.init?.signal).toBe(controller.signal)
+  })
+
+  it('named upload leaves the default destination to the server without changing anonymous vault uploads', async () => {
+    const body = new File(['weights'], 'model.safetensors')
+    const asset = { ...MEDIA_ASSET, name: body.name, mediaType: 'application/octet-stream', virtualPath: 'mounts/imports/model.safetensors' }
+    const { conn, requests } = submitHarness(() => jsonResponse(201, { digest: DIGEST, asset }))
+    await expect(conn.uploadNamedAsset(body, { scope: 'local', name: body.name })).resolves.toEqual(asset)
+    expect(Object.fromEntries(new URL(requests[0]!.url).searchParams)).toEqual({ scope: 'local', name: 'model.safetensors' })
+    expect(new Headers(requests[0]?.init?.headers).get('Content-Type')).toBe('application/octet-stream')
+    expect(await conn.uploadAsset(body)).toBe(DIGEST)
+    expect(requests[1]?.url).toBe('http://test/api/assets')
+  })
+
+  it.each([
+    { digest: 'blake3:' + 'b'.repeat(64), asset: MEDIA_ASSET },
+    { digest: DIGEST, asset: { ...MEDIA_ASSET, virtualPath: undefined } },
+    { digest: DIGEST },
+  ])('named upload rejects a malformed or inconsistent server reference', async (payload) => {
+    const { conn } = submitHarness(() => jsonResponse(201, payload))
+    await expect(conn.uploadNamedAsset(new File(['x'], 'x'), { scope: 'local', name: 'x' })).rejects.toThrow('malformed response')
+  })
+
+  it('named upload surfaces a rejected destination without retrying into the vault', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(403, { error: 'read-only mount' }))
+    await expect(conn.uploadNamedAsset(new File(['x'], 'x'), { scope: 'local', name: 'x', mount: 'readonly' })).rejects.toThrow('403')
+    expect(requests).toHaveLength(1)
   })
 
   it('uploadMediaAsset sends a video File directly without reading or copying it in JavaScript', async () => {
@@ -4288,4 +4414,22 @@ describe('memory telemetry transport', () => {
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { queue: {} }) })
     await expect(connection.fetchMemoryStatus()).rejects.toThrow('malformed response')
   })
+})
+
+it('reads workflow plans without sending a hardware guess or acquisition consent', async () => {
+  const workflow = loadDocument(readJson('fixtures/workflows/minimal.json')).document
+  expect(workflow).toBeDefined()
+  const plan = {
+    packs: [{ pack: 'tools-a', version: '1.2.3' }],
+    assets: [{ digest: `blake3:${'a'.repeat(64)}`, name: 'first.bin', sources: ['https://models.example.test/first'], packagedFrom: ['starter'] }],
+    errors: [],
+  }
+  let payload: unknown = plan
+  const { conn, requests } = submitHarness(() => jsonResponse(200, payload))
+  await expect(conn.planWorkflowRequirements(workflow!)).resolves.toEqual(plan)
+  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ workflows: [workflow] })
+  payload = { ...plan, packs: [{ pack: 'tools-a', version: 123 }] }
+  await expect(conn.planWorkflowRequirements(workflow!)).rejects.toThrow('invalid workflow requirement plan')
+  payload = { ...plan, assets: [{ ...plan.assets[0], sources: 'not-a-list' }] }
+  await expect(conn.planWorkflowRequirements(workflow!)).rejects.toThrow('invalid workflow requirement plan')
 })
