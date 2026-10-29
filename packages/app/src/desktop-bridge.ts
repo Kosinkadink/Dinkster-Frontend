@@ -100,6 +100,7 @@ export interface DinksterDesktopBridge {
   checkForUpdates(): Promise<void>
   installUpdate(): Promise<void>
   chooseDirectory(): Promise<string | undefined>
+  revealFile(path: string): Promise<void>
   exportSnapshot(): Promise<string | undefined>
   importSnapshot(): Promise<unknown | undefined>
   systemCheck(): Promise<DesktopSystemCheck>

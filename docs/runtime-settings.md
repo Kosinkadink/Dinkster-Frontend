@@ -21,6 +21,12 @@ belong to that server; each backend has an independent section. The section
 fetches when opened and can be updated with **Refresh**. It does not poll, and
 a refresh leaves previously loaded values visible if the new request fails.
 
+Native backend cards also provide **Saved image location**. Choose any
+read-write library mount to change where Save Image writes when its target is
+not set. Applying the selection persists it in the backend's `mounts.toml`.
+Execution output details show the mounted path immediately after a save. The
+Desktop app can reveal that path in the operating system's file browser.
+
 Every category displays its effective JSON value, source, and server-reported
 mutability. `on-worker-restart` means an edit applies to workers started after
 the change, not workers that are already running. Categories unknown to this

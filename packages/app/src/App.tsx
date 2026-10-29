@@ -108,7 +108,8 @@ import {
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { ExecutedImageFacts, ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
-import { executedImageInventory, executedImageLabel } from './executed-image-inventory.js'
+import { canRevealOutput, revealExecutedImage } from './output-file.js'
+import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
 import {
   beginTabDragModel,
   moveTabDragModel,
@@ -2891,6 +2892,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     backendTick()
     return executionOutputProvenance(props.execution, props.app.backendFor(props.execution.ref.connection))
   }
+  const reveal = (image: ExecutedImage): void => {
+    const backend = props.app.backendFor(props.execution.ref.connection)
+    if (backend?.protocol === 'dinkster') void revealExecutedImage(backend.connection, image)
+  }
   const markFailed = (key: string): void => {
     setFailed((current) => new Set(current).add(key))
   }
@@ -2996,7 +3001,9 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         </For>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()}
+          {...(canRevealOutput() ? { onReveal: reveal } : {})}
+          onRequestClose={() => setViewerIndex(undefined)} />
       </Show>
     </>
   )

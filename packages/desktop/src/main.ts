@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, screen, session, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, screen, session, shell, Tray } from 'electron'
 import updater from 'electron-updater'
 import {
   clearEngineOperation,
@@ -27,7 +27,7 @@ import { configuredEngineAccelerator, isEngineAccelerator } from './accelerator.
 import { changeEngineTransaction } from './engine-transaction.js'
 import { acquireLifecycleLease, type LifecycleLease } from './lifecycle-lease.js'
 import { LifecycleQueue } from './lifecycle-queue.js'
-import { isTrustedDesktopIpc } from './ipc-security.js'
+import { isSafeRevealPath, isTrustedDesktopIpc } from './ipc-security.js'
 import { CredentialStore, credentialOrigin, hasAuthorizationHeader, type CredentialCipher } from './credential-store.js'
 import { deepLinkFromArgv, parseDeepLink } from './deep-link.js'
 import { RotatingLog } from './rotating-log.js'
@@ -887,6 +887,11 @@ ipcMain.handle('desktop:choose-directory', async (event) => {
   trustedIpc(event)
   const result = await dialog.showOpenDialog(window!, { title: 'Choose an existing model folder', properties: ['openDirectory'] })
   return result.canceled ? undefined : result.filePaths[0]
+})
+ipcMain.handle('desktop:reveal-file', (event, path: unknown) => {
+  trustedIpc(event)
+  if (!isSafeRevealPath(path)) throw new Error('invalid file path')
+  shell.showItemInFolder(resolve(path))
 })
 ipcMain.handle('desktop:export-snapshot', (event) => serializeLifecycle(async () => {
   trustedIpc(event)

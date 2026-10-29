@@ -20,6 +20,7 @@ export interface ExecutedImage {
   readonly load?: (signal: AbortSignal) => Promise<RenditionResult>
   readonly name?: string
   readonly digest?: string
+  readonly virtualPath?: string
   readonly subfolder?: string
   readonly fileType?: string
 }
@@ -28,6 +29,7 @@ interface ImageAssetRef {
   readonly digest: string
   readonly mediaType: string
   readonly name?: string
+  readonly virtualPath?: string
 }
 
 const CAS_DIGEST = /^blake3:[0-9a-f]{64}$/
@@ -53,7 +55,8 @@ function imageAssetRefsInOrder(descriptor: unknown): readonly ImageAssetRef[] {
       digest !== undefined && CAS_DIGEST.test(digest) && mediaType?.startsWith('image/') === true
     ) {
       const name = typeof meta?.['name'] === 'string' ? meta['name'] : undefined
-      refs.push({ digest, mediaType, ...(name === undefined ? {} : { name }) })
+      const virtualPath = typeof meta?.['virtualPath'] === 'string' ? meta['virtualPath'] : undefined
+      refs.push({ digest, mediaType, ...(name === undefined ? {} : { name }), ...(virtualPath === undefined ? {} : { virtualPath }) })
     }
     const elements = item['elements']
     if (Array.isArray(elements)) {
@@ -123,6 +126,7 @@ export function executedImageInventory(
           mediaType: ref.mediaType,
           digest: ref.digest,
           ...(ref.name === undefined ? {} : { name: ref.name }),
+          ...(ref.virtualPath === undefined ? {} : { virtualPath: ref.virtualPath }),
         })
       }
     }
