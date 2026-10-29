@@ -1,5 +1,17 @@
 # App shell
 
+## Brand assets
+
+The product menu uses the outlined color wordmark, dark or light according
+to the document theme. Boot discovery uses the same wordmark and the D
+symbol; Desktop preparation and shared empty/loading cards use the symbol.
+All reference the accepted SVGs at `/branding/svg/`. Vite serves and emits
+the canonical files directly, without editable copies in the app package.
+The HTML head references the accepted ICO, 32px PNG, SVG and 256px touch
+icon. `/manifest.webmanifest` uses the accepted 256/512px PNGs for installed
+web apps. Platform containers are at `/branding/platform/`; every published
+byte comes from `branding/`, including unedited exact-source 16/24px frames.
+
 The shell is everything around the center region: topbar, tab strip, icon
 sidebar, the left dock, the tabbed right zone, the bottom panel, the status bar,
 and the settings dialog. This document pins the layout contract so panels

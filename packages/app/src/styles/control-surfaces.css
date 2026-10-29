@@ -3,9 +3,9 @@
 .surface {
   margin: 8px 0;
   padding: 6px 8px;
-  border: 1px solid #2e2e2e;
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 4px;
-  background: #1d1d1d;
+  background: var(--dinkster-surface-inset);
 }
 
 .surface-header {
@@ -17,20 +17,20 @@
 
 .surface-title {
   font-size: 12px;
-  color: #d0d0d0;
+  color: var(--dinkster-text-primary);
 }
 
 .surface-remove {
   background: none;
   border: none;
-  color: #808080;
+  color: var(--dinkster-text-secondary);
   cursor: pointer;
   font: 11px/1 var(--dinkster-font-family);
   padding: 2px 4px;
 }
 
 .surface-remove:hover {
-  color: #e08080;
+  color: var(--dinkster-danger-foreground);
 }
 
 .surface-bindings {
@@ -64,4 +64,3 @@
   opacity: 0.45;
   cursor: default;
 }
-

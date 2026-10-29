@@ -262,9 +262,9 @@
 }
 
 .collection-source {
-  background: #2b2b2b;
-  color: #b8b8b8;
-  border: 1px solid #3c3c3c;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-secondary);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 5px;
   padding: 4px 12px;
   font-weight: 600;
@@ -272,9 +272,9 @@
 }
 
 .collection-source.active {
-  background: #343434;
-  color: #fff;
-  border-color: #5b5b5b;
+  background: var(--dinkster-interaction-selected);
+  color: var(--dinkster-text-primary);
+  border-color: var(--dinkster-border-strong);
 }
 
 .asset-source-control {
@@ -457,9 +457,9 @@
 .collection-source-select.product-select { min-height: 32px; }
 
 .collection-mode {
-  background: #2b2b2b;
-  color: #b8b8b8;
-  border: 1px solid #3c3c3c;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-secondary);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 5px;
   padding: 4px 10px;
   cursor: pointer;
@@ -485,7 +485,7 @@
 
 .collection-folders button {
   background: none;
-  color: #b8b8b8;
+  color: var(--dinkster-text-secondary);
   border: none;
   border-radius: 3px;
   padding: 1px 4px;
@@ -493,24 +493,24 @@
 }
 
 .collection-folders button:hover {
-  color: #e0e0e0;
+  color: var(--dinkster-text-primary);
   text-decoration: underline;
 }
 
 .collection-folders button[aria-current='page'] {
-  color: #e0e0e0;
+  color: var(--dinkster-text-primary);
   cursor: default;
   text-decoration: none;
 }
 
 .collection-folder-separator {
-  color: #6a6a6a;
+  color: var(--dinkster-text-secondary);
   user-select: none;
 }
 
 .collection-error {
   margin: 0 0 8px;
-  color: #ef9a9a;
+  color: var(--dinkster-danger-foreground);
 }
 
 /* Items and an optional host-owned detail rail share one row; the rail
@@ -545,12 +545,12 @@
   padding-bottom: 4px;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  scrollbar-color: #888 #141414;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
 .collection-items::-webkit-scrollbar { width: 8px; }
-.collection-items::-webkit-scrollbar-track { background: #141414; }
-.collection-items::-webkit-scrollbar-thumb { background: #888; border: 1px solid #141414; }
+.collection-items::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+.collection-items::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border: 1px solid var(--scrollbar-track); }
 
 .collection-items.list {
   display: flex;
@@ -570,20 +570,20 @@
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
-  border: 1px solid #333;
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 6px;
-  background: #232323;
+  background: var(--dinkster-surface-raised);
   cursor: pointer;
   flex-wrap: wrap;
 }
 
 .collection-entry:hover {
-  border-color: #4a4a4a;
+  border-color: var(--dinkster-border-strong);
 }
 
 .collection-entry.selected {
   border-color: var(--dinkster-border-focus);
-  background: #343434;
+  background: var(--dinkster-interaction-selected);
   box-shadow: inset 0 0 0 1px var(--dinkster-border-focus);
 }
 
@@ -591,7 +591,7 @@
 
 .collection-entry.collection-child {
   margin-left: 24px;
-  border-left-color: #58758c;
+  border-left-color: var(--dinkster-info-border);
 }
 
 .collection-group {
@@ -656,8 +656,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #31414f;
-  color: #9fc6e8;
+  background: var(--dinkster-info-background);
+  color: var(--dinkster-info-foreground);
   font: 700 12px/1 var(--dinkster-font-family);
 }
 
@@ -670,7 +670,7 @@
 }
 
 .collection-title {
-  color: #d8d8d8;
+  color: var(--dinkster-text-primary);
   font: 600 13px/1.3 var(--dinkster-font-family);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -686,7 +686,7 @@
 }
 
 .collection-subtitle {
-  color: #909090;
+  color: var(--dinkster-text-secondary);
   font: 11px/1.3 var(--dinkster-font-family);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -705,8 +705,8 @@
 }
 
 .collection-badge {
-  background: #2f2f2f;
-  color: #a8a8a8;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-secondary);
   border-radius: 4px;
   padding: 1px 6px;
   font: 10px/1.5 var(--dinkster-font-family);
@@ -722,17 +722,17 @@
   gap: 2px 10px;
   margin: 4px 0 0;
   padding-top: 6px;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--dinkster-border-subtle);
   text-align: left;
 }
 
 .collection-details dt {
-  color: #808080;
+  color: var(--dinkster-text-secondary);
   font: 11px/1.4 var(--dinkster-font-family);
 }
 
 .collection-details dd {
-  color: #c0c0c0;
+  color: var(--dinkster-text-primary);
   font: 11px/1.4 var(--dinkster-font-family);
   margin: 0;
   overflow-wrap: anywhere;
@@ -746,9 +746,9 @@
 }
 
 .collection-action {
-  background: #2b2b2b;
-  color: #c08080;
-  border: 1px solid #4a3535;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-primary);
+  border: 1px solid var(--dinkster-border-strong);
   border-radius: 5px;
   padding: 3px 9px;
   font: 11px/1.4 var(--dinkster-font-family);
@@ -756,9 +756,9 @@
 }
 
 .collection-source-action {
-  background: #2b2b2b;
-  color: #c08080;
-  border: 1px solid #4a3535;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-primary);
+  border: 1px solid var(--dinkster-border-strong);
   border-radius: 5px;
   padding: 4px 10px;
   cursor: pointer;
@@ -773,7 +773,7 @@
   gap: 10px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #343434;
+  border-top: 1px solid var(--dinkster-border-subtle);
 }
 
 .assets-panel .collection-footer {
@@ -783,14 +783,14 @@
 }
 
 .collection-total {
-  color: #909090;
+  color: var(--dinkster-text-secondary);
   font: 11px/1.4 var(--dinkster-font-family);
 }
 
 .collection-more {
-  background: #2b2b2b;
-  color: #b8b8b8;
-  border: 1px solid #3c3c3c;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-secondary);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 5px;
   padding: 3px 10px;
   cursor: pointer;
@@ -804,4 +804,3 @@
 @media (max-width: 520px) {
   .assets-panel .asset-source-health { flex: 1 0 100%; }
 }
-

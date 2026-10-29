@@ -169,6 +169,7 @@ import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
+import { registerThemeSetting } from './theme.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -2951,6 +2952,7 @@ export class AppState {
     this.workspaceEvents?.addEventListener('message', this.receiveWorkspaceEvent)
     this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
     registerLocaleSetting(this.settings)
+    registerThemeSetting(this.settings)
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.scrollBehavior',

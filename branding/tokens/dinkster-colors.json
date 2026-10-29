@@ -1,0 +1,76 @@
+{
+  "brand": {
+    "cyan": {
+      "$type": "color",
+      "$value": "#32E6C5"
+    },
+    "coral": {
+      "$type": "color",
+      "$value": "#FF7468"
+    },
+    "yellow": {
+      "$type": "color",
+      "$value": "#FFD86B"
+    },
+    "offWhite": {
+      "$type": "color",
+      "$value": "#F2F4F5"
+    },
+    "ink": {
+      "$type": "color",
+      "$value": "#1F242A"
+    }
+  },
+  "dark": {
+    "bg": {
+      "canvas": "#111316",
+      "surface": "#1C1F23",
+      "raised": "#282C31",
+      "hover": "#343940"
+    },
+    "border": {
+      "default": "#3B4148"
+    },
+    "text": {
+      "primary": "#F2F4F5",
+      "secondary": "#AAB3BC",
+      "muted": "#7D8792"
+    },
+    "action": {
+      "primaryBg": "#32E6C5",
+      "primaryText": "#111316"
+    },
+    "status": {
+      "success": "#32E6A5",
+      "info": "#32E6C5",
+      "warning": "#F5BF69",
+      "danger": "#FF7468"
+    }
+  },
+  "light": {
+    "bg": {
+      "canvas": "#F7F8FA",
+      "surface": "#FFFFFF",
+      "raised": "#EDEFF2",
+      "hover": "#E4E8EC"
+    },
+    "border": {
+      "default": "#D3D9DE"
+    },
+    "text": {
+      "primary": "#20252A",
+      "secondary": "#58636D",
+      "muted": "#69737E"
+    },
+    "action": {
+      "primaryBg": "#32E6C5",
+      "primaryText": "#111316"
+    },
+    "status": {
+      "success": "#087A54",
+      "info": "#087F76",
+      "warning": "#956000",
+      "danger": "#B93630"
+    }
+  }
+}

@@ -44,6 +44,7 @@ for (const args of [
     'test/format.schema.test.ts',
     'test/dinkster-graph.test.ts',
     'test/dinkster-inline-value.test.ts',
+    'test/design-tokens.test.ts',
   ],
   [
     '--filter',

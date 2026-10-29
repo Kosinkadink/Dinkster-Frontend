@@ -4,6 +4,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import { BrandMark } from './BrandMark.js'
 import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, sha256Hex, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
 import type { AssetDtoV1WireContract, ExecutionState } from '@dinkster/client'
 import Database from 'lucide-solid/icons/database'
@@ -266,7 +267,7 @@ export function DinksterAppMenu(props: {
           }
         }}
       >
-        <span>Dinkster</span><span class="app-menu-caret" aria-hidden="true" />
+        <BrandMark /><span class="app-menu-caret" aria-hidden="true" />
       </ProductButton>
       <Show when={open()}>
         <ContextMenu
