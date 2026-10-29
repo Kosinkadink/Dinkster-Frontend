@@ -6,6 +6,7 @@ import { assetCollectionSource } from './asset-browser/collection-adapter.js'
 import { allAssetsCollectionSource, mountPresentationKey, type AssetSourceFailure } from './asset-browser/cross-mount-collection-source.js'
 import { VIEW_PREFERENCE_KEY } from './asset-browser/helpers.js'
 import { mountAssetSources } from './asset-browser/mountAssetSource.js'
+import { localAssetSource } from './asset-browser/localAssetSource.js'
 import { AssetEntryFallback } from './asset-browser/presentation.js'
 import { AssetEntrySelection } from './asset-browser/rail.js'
 import type { AssetSourceAdapter } from './asset-browser/types.js'
@@ -124,6 +125,11 @@ function AssetSourceControl(props: {
   const ready = () => props.presentations.filter(({ mount }) => mount.state === 'ready' && mount.entryCount !== 0)
   const sourceOptions = () => [
     ...(props.sources[0] ? [{ id: props.sources[0].id, label: props.sources[0].id === 'all-assets' ? props.message('assets.source.all') : props.sources[0].label, value: props.sources[0].id }] : []),
+    ...props.sources.slice(1).filter((source) => !source.id.startsWith('mount:')).map((source) => ({
+      id: source.id, label: source.id === 'local-assets' ? props.message('assets.source.local')
+        : source.id === 'federated-assets' ? props.message('assets.source.federatedCatalog') : source.label,
+      value: source.id,
+    })),
     ...ready().flatMap((row) => {
       const source = sourceById().get(`mount:${row.mount.id}`)
       return source ? [{ id: source.id, label: `${props.message(row.sectionKey)} / ${presentationLabel(row, props.message)}`, value: source.id }] : []
@@ -213,7 +219,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         const descriptors = await connection.listMounts()
         const browsable = await mountAssetSources(connection, undefined, descriptors)
         if (!live || !active || generation !== discoveryGeneration) return
-        setAdapters(browsable)
+        setAdapters([localAssetSource(connection), ...browsable])
         setMounts(descriptors)
         setDiscoveryError(undefined)
         scanPolling = descriptors.some((mount) => mount.state === 'pending' || mount.state === 'scanning')
@@ -258,15 +264,17 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       if (!live || healthGeneration !== discoveryGeneration) return
       setSourceFailures(Object.fromEntries(failures.map((failure) => [failure.sourceId, { label: failure.label, message: failure.message }])))
     }
-    const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, { onSourceFailures: reportFailures })
+    const federated = props.federatedContract
+      ? { ...federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), () => undefined), id: 'federated-assets', label: 'Federated catalog' }
+      : undefined
+    const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, {
+      onSourceFailures: reportFailures,
+      ...(federated ? { additionalSources: [federated] } : {}),
+    })
     return [
-      props.federatedContract
-        ? federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), (message) => {
-            if (!live || healthGeneration !== discoveryGeneration) return
-            setSourceFailures(message === undefined ? {} : { 'all-assets': { label: 'Federated catalog', message } })
-          })
-        : local,
+      local,
       ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
+      ...(federated ? [federated] : []),
     ]
   })
 

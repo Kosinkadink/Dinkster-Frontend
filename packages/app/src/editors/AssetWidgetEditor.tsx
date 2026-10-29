@@ -5,6 +5,7 @@ import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
 import { assetSourcesStatus, committableAssetRef, formatSize, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
+import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from '../asset-browser/logical-model-merge.js'
 import { candidateLogicalModelAdapter } from '../asset-browser/candidate-logical-model.js'
@@ -379,8 +380,9 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     } else {
       void mountAssetSources(backend.connection, assetBrowseKind()).then((sources) => {
         if (!live) return
-        setAssetSources(sources)
-        void loadLogicalModels(sources)
+        const combined = [localAssetSource(backend.connection), ...sources]
+        setAssetSources(combined)
+        void loadLogicalModels(combined)
       }).catch((reason: unknown) => { if (live) setAssetSourcesError(reason instanceof Error ? reason.message : String(reason)) })
     }
   }

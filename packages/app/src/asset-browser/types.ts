@@ -5,6 +5,7 @@ export interface AssetBrowserItem {
   readonly mediaType?: string
   readonly size?: number
   readonly digest?: string
+  readonly availability?: 'available' | 'missing'
   readonly source: { readonly id: string; readonly label: string; readonly path?: string }
   readonly virtualPath?: string
   readonly folder?: boolean

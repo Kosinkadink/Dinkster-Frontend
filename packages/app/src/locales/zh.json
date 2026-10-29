@@ -179,6 +179,7 @@
   "assets.source.kind.vae": "VAE",
   "assets.source.kind.video": "视频",
   "assets.source.label": "源文件",
+  "assets.source.local": "本地资源",
   "assets.source.mountDetail": "挂载 {id}",
   "assets.source.scanProgress": "已索引 {filesDone}/{filesTotal} 个文件，{bytesDone}/{bytesTotal}，已用 {elapsed} 秒",
   "assets.source.section.inputOutput": "输入/输出",

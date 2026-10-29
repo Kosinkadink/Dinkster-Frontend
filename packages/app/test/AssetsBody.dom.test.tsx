@@ -19,6 +19,8 @@ afterEach(() => {
 const stubConnection = <T extends object>(members: T): DinksterConnection => ({
   onEvent: vi.fn(() => () => undefined),
   onMountsChanged: vi.fn(() => () => undefined),
+  listLocalAssets: vi.fn().mockResolvedValue({ assets: [] }),
+  checkAssetAvailability: vi.fn().mockResolvedValue([]),
   ...members,
 } as unknown as DinksterConnection)
 
@@ -100,7 +102,7 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it('uses only an injected federated contract for All assets and renders its human title', async () => {
+  it('uses the injected federated contract alongside local assets and renders its human title', async () => {
     registerCatalog('de-DE', {
       'assets.details.title': '[Details DE]',
       'assets.fact.source': '[Quelle DE]',
@@ -128,7 +130,7 @@ describe('Assets dock body', () => {
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" baseUrl="https://backend.example" federatedContract={contract} />, root)
     await vi.waitFor(() => expect(root.textContent).toContain('Federated Alpha.safetensors'))
-    expect(root.textContent).not.toContain('local.safetensors')
+    expect(root.textContent).toContain('local.safetensors')
     expect(root.querySelector('[data-testid="asset-source-select"]')?.getAttribute('data-selected-id')).toBe('all-assets')
     expect(root.querySelector('[data-testid="collection-search"]')?.getAttribute('placeholder')).toBe('Search assets')
     expect(root.querySelector('[data-testid="asset-entry-fallback"]')?.getAttribute('data-kind')).toBe('model')
@@ -407,6 +409,7 @@ describe('Assets dock body', () => {
     const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'broken', mode: 'read', state: 'ready' }]),
       listMountEntries: vi.fn().mockRejectedValue(new Error('index unavailable')),
+      listLocalAssets: vi.fn().mockRejectedValue(new Error('local catalog unavailable')),
       assetUrl: (digest: string) => `/assets/${digest}`,
       fetchAssetMetadata: vi.fn(),
     })

@@ -4,9 +4,39 @@ import { assetSourcesStatus, committableAssetRef, isBrowserPreviewable, isCompat
 import { assetCollectionSource, assetEntryKindOf, assetEntryOf, assetEntryPickable, assetItemOf, assetKindOf } from '../src/asset-browser/collection-adapter.js'
 import { clearMetadataCache, inspectAssetMetadata } from '../src/asset-browser/metadata.js'
 import { mountAssetSource, mountAssetSources, normalizeMountEntry } from '../src/asset-browser/mountAssetSource.js'
+import { localAssetSource } from '../src/asset-browser/localAssetSource.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../src/asset-browser/types.js'
 
 const item = normalizeMountEntry('mount:m', 'm', { virtualPath: 'images/a.png', name: 'a.png', digest: 'blake3:a', size: 12, mediaType: 'image/png', kind: 'media/image' })
+describe('local recorded asset source', () => {
+  it('retains aliases and job provenance, but never picks or previews missing bytes', async () => {
+    const held = { ...item, digest: `blake3:${'a'.repeat(64)}`, name: 'same.png' }
+    const missing = { ...held, digest: `blake3:${'b'.repeat(64)}` }
+    const listLocalAssets = vi.fn().mockResolvedValue({ assets: [held, missing].map((asset) => ({
+      asset, aliases: ['original.png', 'same.png'], observations: [{
+        id: 'job', asset, originalName: 'original.png', kind: 'media/image', project: 'default', created: 100,
+        origin: { kind: 'produced', job: 'job-123', node: 'save' },
+      }],
+    })), cursor: 'next' })
+    const source = localAssetSource({ listLocalAssets,
+      checkAssetAvailability: vi.fn().mockResolvedValue([{ digest: held.digest, status: 'available' }, { digest: missing.digest, status: 'missing' }]),
+    } as unknown as DinksterConnection)
+    const page = await source.page({ query: 'original', kind: 'media/*', limit: 24 })
+    expect(page.cursor).toBe('next')
+    expect(listLocalAssets).toHaveBeenCalledWith({ scope: 'local', q: 'original', limit: 24 })
+    expect(page.items.map((row) => row.id)).toEqual([`local-assets:${held.digest}`, `local-assets:${missing.digest}`])
+    expect(committableAssetRef(page.items[0]!)).toEqual({ digest: held.digest, name: held.name, size: held.size, mediaType: held.mediaType, virtualPath: held.virtualPath })
+    expect(page.items[0]!.details).toContainEqual({ label: 'Origin job', text: 'job-123' })
+    expect(page.items[0]!.details).toContainEqual({ label: 'Aliases', text: 'original.png, same.png' })
+    const absent = assetEntryOf(page.items[1]!, (digest) => `/assets/${digest}`)
+    expect(absent.badges).toContain('missing')
+    expect(absent.thumbUrl).toBeUndefined()
+    expect(absent.thumbRender).toBeUndefined()
+    expect(assetEntryPickable(['image/*'], 'media/image')(absent)).toBe(false)
+    expect(committableAssetRef(page.items[1]!)).toBeUndefined()
+  })
+})
+
 describe('asset browser helpers', () => {
   it('normalizes mount identity from adapter and virtual path', () => expect(item.id).toBe('mount:m:images/a.png'))
   it('intersects MIME and semantic kind and rejects unprovable rows', () => {

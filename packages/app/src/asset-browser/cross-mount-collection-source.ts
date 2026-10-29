@@ -67,15 +67,13 @@ export function allAssetsCollectionSource(
     readonly fixedKind?: string
     readonly failWhenAllSourcesFail?: boolean
     readonly onSourceFailures?: (failures: readonly AssetSourceFailure[]) => void
+    readonly additionalSources?: readonly CollectionSource[]
   } = {},
 ): CollectionSource {
-  const sources = adapters.map((adapter) => ({
-    adapter,
-    source: assetCollectionSource(adapter, {
+  const sources = [...adapters.map((adapter) => assetCollectionSource(adapter, {
       ...(assetUrl ? { assetUrl } : {}),
       ...(options.fixedKind ? { fixedKind: options.fixedKind } : {}),
-    }),
-  }))
+    })), ...(options.additionalSources ?? [])]
   let generation = 0
   let activeSignature = ''
   const activeSourceFailures = new Map<string, AssetSourceFailure>()
@@ -83,6 +81,7 @@ export function allAssetsCollectionSource(
     id: options.id ?? 'all-assets',
     label: options.label ?? 'All assets',
     folders: true,
+    filters: (options.additionalSources ?? []).flatMap((source) => source.filters ?? []),
     page: async (req) => {
       const signature = requestSignature(req)
       const cursor = req.cursor === undefined ? undefined : decodeCursor(req.cursor, signature)
@@ -94,18 +93,20 @@ export function allAssetsCollectionSource(
         if (activeSignature !== signature) throw new Error('stale All assets cursor')
         requestGeneration = generation
       }
-      const results = await Promise.all(sources.map(async ({ adapter, source }) => {
-        const mountCursor = cursor?.cursors[adapter.id]
-        if (cursor !== undefined && mountCursor === undefined) return { adapter, page: undefined }
+      const results = await Promise.all(sources.map(async (source) => {
+        const mountCursor = cursor?.cursors[source.id]
+        if (cursor !== undefined && mountCursor === undefined) return { source, page: undefined }
+        if (Object.entries(req.filters ?? {}).some(([key, value]) => value && key !== 'kind' &&
+          !source.filters?.some((filter) => filter.id === key))) return { source, page: undefined }
         try {
           const page = await source.page({
             ...req,
             ...(mountCursor !== undefined ? { cursor: mountCursor } : {}),
           })
-          return { adapter, page }
+          return { source, page }
         } catch (reason) {
           if (req.signal?.aborted === true) throw reason
-          return { adapter, error: errorText(reason) }
+          return { source, error: errorText(reason) }
         }
       }))
       if (requestGeneration !== generation || activeSignature !== signature) {
@@ -114,12 +115,12 @@ export function allAssetsCollectionSource(
       req.signal?.throwIfAborted()
       const sourceFailures = results.flatMap((result) => result.error === undefined
         ? []
-        : [{ sourceId: result.adapter.id, label: result.adapter.label, message: result.error }])
+        : [{ sourceId: result.source.id, label: result.source.label, message: result.error }])
       if (req.cursor === undefined) activeSourceFailures.clear()
       for (const result of results) {
         if (result.page === undefined && result.error === undefined) continue
-        if (result.error === undefined) activeSourceFailures.delete(result.adapter.id)
-        else activeSourceFailures.set(result.adapter.id, { sourceId: result.adapter.id, label: result.adapter.label, message: result.error })
+        if (result.error === undefined) activeSourceFailures.delete(result.source.id)
+        else activeSourceFailures.set(result.source.id, { sourceId: result.source.id, label: result.source.label, message: result.error })
       }
       options.onSourceFailures?.([...activeSourceFailures.values()])
       if ((options.failWhenAllSourcesFail === true || options.onSourceFailures !== undefined)
@@ -133,12 +134,12 @@ export function allAssetsCollectionSource(
         : req.cursor === undefined ? unavailable.map((mount) => errorEntry(mount.id, mount.id, mount.state)) : []
       for (const result of results) {
         if (result.error !== undefined) {
-          if (options.onSourceFailures === undefined) errors.push(errorEntry(result.adapter.id, result.adapter.label, result.error))
+          if (options.onSourceFailures === undefined) errors.push(errorEntry(result.source.id, result.source.label, result.error))
           continue
         }
         if (result.page === undefined) continue
         items.push(...result.page.items)
-        if (result.page.cursor !== undefined) nextCursors[result.adapter.id] = result.page.cursor
+        if (result.page.cursor !== undefined) nextCursors[result.source.id] = result.page.cursor
       }
       items.sort((left, right) => {
         const byName = left.title < right.title ? -1 : left.title > right.title ? 1 : 0
