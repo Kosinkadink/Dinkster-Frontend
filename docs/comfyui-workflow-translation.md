@@ -236,6 +236,11 @@ Schema-v1 object links and v0.4 tuple links are accepted. Competing definition
 links follow LiteGraph's load rule: prefer the inner input's serialized `link`,
 otherwise retain the first delivery in document order.
 
+For direct widget-backed input deliveries, the first widget in the boundary's
+saved `linkIds` supplies the promoted type and default. Other raw deliveries,
+including links absent from that list, remain fan-out targets; promotion does
+not prune the authored graph. The original definitions remain in import metadata.
+
 Output boundaries trace reroute chains back to their unique producing port,
 retaining the internal reroute vertices, links and positions. Dangling or cyclic
 chains refuse import rather than guessing a source. Input boundaries through

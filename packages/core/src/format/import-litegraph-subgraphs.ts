@@ -409,6 +409,19 @@ export function importLitegraphSubgraphs(
         slot['link'] = remapped.get(slot['link'])
       }
     }
+    // Saved linkIds choose the promoted widget, but raw links still carry every delivery.
+    for (const [index, slot] of def.raw['inputs'].entries()) {
+      const listed = slot['linkIds']?.map((id: number) => def.raw['links'].find((link: any[]) =>
+        link[0] === id && link[1] === def.inputNode && link[2] === index)) ?? []
+      const primary = listed.find((link: any[] | undefined) => {
+        const target = link && def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(link[3]))
+        return Boolean(target?.['inputs']?.[link?.[4] ?? -1]?.['widget'])
+      })
+      if (!primary) continue
+      const first = def.raw['links'].findIndex((link: any[]) => link[1] === def.inputNode && link[2] === index)
+      def.raw['links'].splice(def.raw['links'].indexOf(primary), 1)
+      def.raw['links'].splice(first, 0, primary)
+    }
     def.raw['nodes'].push(
       { id: def.inputNode, type: probeType, outputs: def.raw['inputs'].map((_: unknown, index: number) => ({ name: `i${index}` })) },
       { id: def.outputNode, type: probeType, inputs: def.raw['outputs'].map((_: unknown, index: number) => ({ name: `o${index}` })) },

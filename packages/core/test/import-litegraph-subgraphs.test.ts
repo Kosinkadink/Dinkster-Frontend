@@ -109,6 +109,36 @@ describe('LiteGraph subgraphs', () => {
     expect(imported(raw)).toEqual(doc)
   })
 
+  it('uses the listed promoted widget without dropping unlisted input deliveries', () => {
+    const toggle: NodeSchema = {
+      type: 'Toggle', displayName: 'Toggle', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
+        widget: { widgetType: 'BOOLEAN', options: {}, default: false } }],
+    }
+    const def = definition()
+    const raw = { nodes: [instance(10)], links: [], definitions: { subgraphs: [{ ...def,
+      nodes: [...def.nodes, { id: 2, type: 'Toggle', inputs: [{ name: 'enabled', widget: { name: 'enabled' }, link: 3 }], widgets_values: [false] }],
+      links: [{ ...link(3, -10, 0, 2, 0), type: 'BOOLEAN' }, ...def.links],
+    }] } }
+    const resolver = (type: string) => type === 'Toggle' ? toggle : resolve(type)
+    const doc = imported(raw, resolver)
+    const body = doc.graphs['inner']!
+    expect(body.boundary!.inputs[0]).toMatchObject({ promoted: true,
+      binds: { kind: 'port', node: 'n1', port: 'value' },
+      alsoBinds: [{ kind: 'port', node: 'n2', port: 'enabled' }],
+    })
+    const derived = deriveBoundarySchema(body, resolver)
+    expect(derived.schema!.items[0]).toMatchObject({ type: { kind: 'concrete', name: 'INT' },
+      widget: { widgetType: 'INT', default: 7 } })
+    expect(Object.keys(body.nodes).sort()).toEqual(['n1', 'n2'])
+    expect(body.nodes.n2!.values).toEqual({ enabled: false })
+    expect(doc.ext!['importer.litegraphDefinitions']).toEqual(raw.definitions)
+    expect(raw.definitions.subgraphs[0]!.links[0]!.id).toBe(3)
+    const compiled = prompt(doc, resolver)
+    expect(compiled['n10.n1']!.inputs['value']).toBe(19)
+    expect(compiled['n10.n2']!.inputs['enabled']).toBe(19)
+  })
+
   it('retains recursive definition catalogs and nested instances', () => {
     const outer = { ...definition('outer'), nodes: [instance(1)], definitions: { subgraphs: [definition()] } }
     const doc = imported({ nodes: [instance(1, 'outer')], links: [], definitions: { subgraphs: [outer] } })
