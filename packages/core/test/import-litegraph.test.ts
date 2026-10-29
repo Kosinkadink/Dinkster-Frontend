@@ -831,6 +831,20 @@ describe('versioned node widget upgrades', () => {
         })
       }
     }
+    const widgets_values = {
+      filename_prefix: 'video/keyed', format: 'mp4', 'format.codec': codec,
+      ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }),
+      codec: 'av1', 'codec.encoding': 'auto',
+    }
+    const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: '0.3.68' }, widgets_values })])
+    const before = JSON.stringify(source)
+    const imported = importLitegraph(source, localResolve)
+    expect(JSON.stringify(source)).toBe(before)
+    expect(imported.diagnostics).toEqual([])
+    const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-video-keyed' })
+    expect(compiled.ok).toBe(true)
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs).toEqual(widgets_values)
   })
 
   it('selects the saved class and version without rewriting nodes, links or source JSON', () => {
