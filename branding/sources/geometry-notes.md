@@ -23,11 +23,15 @@ at `BODY_TIP_HANDLE_SCALE` = 0.35 of each retained endpoint handle vector.
 All other traced spans and the complete stem/leg island are unchanged.
 The original trace remains available for an exact comparison.
 
-Color clips use master coordinates rather than the historical frame:
+The yellow clip uses master coordinates rather than the historical frame:
 `YELLOW_PLANE_X` = 331.6546762589928 matches the island's left vertical;
 `YELLOW_PLANE_TOP` = 395 excludes the top body and falls in empty space
-left of that vertical; `CORAL_PLANE_X` = 758.4 retains the existing
-right-side cut's central position. Both visible seams are vertical.
+left of that vertical. The yellow seam is vertical. Coral retains the
+band's reference-frame points (343,68), (424,149), (424,299), (363,360),
+closed outside the silhouette through (600,360), (600,40), (343,40).
+The `right_top`/`right_bottom` turns keep radius 45. The path maps by
+translate(-180.07905138339925,26.32411067193675) scale(2.2134387351778657),
+with no fit to the new body tip and no new coral contour.
 The corrected body has no intersection with the yellow plane.
 
 The historical analytic construction remains hidden inside the construction
@@ -108,8 +112,8 @@ sampling and the unchanged master path remain distinct editable objects.
 ## Color planes
 
 The base is the full cyan D. Coral and yellow are copies of its exact
-path, each clipped by the vertical rectangles defined above in master
-coordinates. No gradient, blur, stroke expansion or second silhouette is
+path, clipped by the yellow rectangle or the coral band defined above.
+No gradient, blur, stroke expansion or second silhouette is
 introduced. All planes share the corrected master silhouette.
 
 The export object applies the master silhouette as one outer clip to

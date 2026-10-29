@@ -8,6 +8,8 @@ import xml.etree.ElementTree as ET
 from copy import deepcopy
 from pathlib import Path
 
+import numpy as np
+from build_brand import REGULAR_WORDMARK_POSITIONS
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.svgLib.path import parse_path
 from PIL import Image, ImageDraw, ImageFont
@@ -32,12 +34,8 @@ def main():
     bounds = BoundsPen(None)
     parse_path(contour, bounds)
     bottom = 76.6 + 0.139 * bounds.bounds[3]
-    letter_bottom = 178
-    for element in master.iter():
-        if element.get("id") in {f"dark-{letter}" for letter in "inkster"}:
-            letter_bounds = BoundsPen(None)
-            parse_path(element.get("d"), letter_bounds)
-            letter_bottom = max(letter_bottom, 122 + letter_bounds.bounds[3])
+    baseline_shift = bottom - 178
+    letter_origin = REGULAR_WORDMARK_POSITIONS["i"]
     commands = [
         subprocess.check_output([args.inkscape, "--version"], text=True).strip()
     ]
@@ -84,13 +82,13 @@ def main():
     draw = ImageDraw.Draw(sheet)
     draw.text(
         (24, 18),
-        "CORRECTED D - rounded body tip; straight vertical color boundaries",
+        "CORRECTED D - round 10 coral band; round 11 yellow and rounded tip",
         fill="#1F242A",
         font=title,
     )
     draw.text(
         (24, 54),
-        "No yellow on the body; yellow and coral meet teal along straight vertical cuts.",
+        "No yellow on the body. Coral geometry restored unchanged; see marked 12x endpoints.",
         fill="#1F242A",
         font=font,
     )
@@ -122,22 +120,47 @@ def main():
         )
         sheet.paste(junction, (x + 72, 452), junction)
     sheet.save(ROOT / "previews/d-selected-color-junction.png")
+    pixels = np.asarray(image)
+    coral = (pixels[:, :, :3] == (255, 116, 104)).all(axis=2) & (pixels[:, :, 3] >= 128)
+    rows = np.flatnonzero(coral.any(axis=1))
+    endpoints = tuple(
+        (float(np.flatnonzero(coral[y]).mean()) / 8, float(y) / 8)
+        for y in (rows[0], rows[-1])
+    )
+    ends = Image.new("RGB", (1640, 1500), "#E4E8EC")
+    annotations = ImageDraw.Draw(ends)
+    annotations.text(
+        (24, 18),
+        "ROUND 10 CORAL BAND - top and bottom ends marked at 12x native size",
+        fill="#1F242A",
+        font=title,
+    )
+    for column, background in enumerate(("#111316", "#F7F8FA")):
+        x = 20 + column * 810
+        foreground = "#F2F4F5" if column == 0 else "#1F242A"
+        annotations.rectangle((x, 60, x + 789, 1480), fill=background)
+        band = image.crop((88 * 8, 88 * 8, 148 * 8, 196 * 8)).resize(
+            (720, 1296), Image.Resampling.LANCZOS
+        )
+        ends.paste(band, (x + 35, 125), band)
+        for label, (px, py), label_y in zip(
+            ("Coral TOP end", "Coral BOTTOM end"), endpoints, (86, 1440)
+        ):
+            point = (x + 35 + (px - 88) * 12, 125 + (py - 88) * 12)
+            annotations.text((x + 20, label_y), label, fill=foreground, font=font)
+            annotations.line((x + 210, label_y + 12, *point), fill="#4A9EFF", width=2)
+            annotations.ellipse(
+                (point[0] - 6, point[1] - 6, point[0] + 6, point[1] + 6),
+                outline="#4A9EFF",
+                width=2,
+            )
+    ends.save(ROOT / "previews/d-coral-band-ends.png")
     if not args.junction_only:
         variants = (
-            ("115-current", "1.15x / current baseline", 1.15, 0.0),
-            (
-                "115-bottoms",
-                "1.15x / letter bottoms aligned",
-                1.15,
-                bottom - (178 + (letter_bottom - 178) * 1.15),
-            ),
             ("125-current", "1.25x / current baseline", 1.25, 0.0),
-            (
-                "125-bottoms",
-                "1.25x / letter bottoms aligned",
-                1.25,
-                bottom - (178 + (letter_bottom - 178) * 1.25),
-            ),
+            ("125-baseline", "1.25x / baseline at D bottom", 1.25, baseline_shift),
+            ("135-current", "1.35x / current baseline", 1.35, 0.0),
+            ("135-baseline", "1.35x / baseline at D bottom", 1.35, baseline_shift),
         )
         for name, label, scale, dy in variants:
             for variant, y in (("dark", 1000), ("light", 2000)):
@@ -153,7 +176,7 @@ def main():
                 letters = next(e for e in wordmark if e.get("fill") == "currentColor")
                 letters.set(
                     "transform",
-                    f"translate(147.75 {178 + dy}) scale({scale}) translate(-147.75 -178)",
+                    f"translate({letter_origin} {178 + dy}) scale({scale}) translate({-letter_origin} -178)",
                 )
                 source = output / f"{name}-{variant}.svg"
                 ET.ElementTree(tree).write(
@@ -177,7 +200,7 @@ def main():
                     "--prefix",
                     name + "-",
                     "--caption",
-                    f"{label}; shift {dy:+.2f}px; e/r +2 units",
+                    f"{label}; shift {dy:+.2f}px; D/i closer",
                     "--dark-reference-only",
                     "--letter-scale",
                     str(scale),
@@ -238,7 +261,7 @@ def main():
         "\n".join(commands) + "\n", encoding="ascii"
     )
     print(
-        f"D bottom: {bottom:.9f}px; letter bottom before scaling: {letter_bottom}; scales: 1.15, 1.25"
+        f"D bottom: {bottom:.9f}px; baseline shift: {baseline_shift:+.9f}px; scales: 1.25, 1.35"
     )
 
 

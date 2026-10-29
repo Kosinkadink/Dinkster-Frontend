@@ -70,21 +70,29 @@ The i bottom slice runs from (15,47) to (6,56), moving its 45-degree line
 `sources/compare_wordmark_sizes.py /path/to/wordmark-monochrome-reference.png
 --inkscape /path/to/inkscape` renders the color junction and four size proofs.
 The control retains the existing regular-letter baseline at native y178.
-The larger variants uniformly scale the regular contours by 1.15 and 1.25
-about (147.75,178), preserving aspect ratio, relative stroke weight
+The larger variants uniformly scale the regular contours by 1.25 and 1.35
+about (145.75,178), preserving aspect ratio, relative stroke weight
 and tracking proportions; there is no added stroke or heavier contour.
-Each scale is shown at the current baseline and with the actual lowest
-letter ink (the k descender, not the yellow baseline) aligned to the D's
-y188 bottom. This requires a 6.1 px upward shift at 1.15 and 7.5 px upward
-at 1.25 (12.2/15 px at 2x). The D never scales or moves across variants.
+Each scale is shown at the current baseline y178 and with the yellow
+regular-letter baseline aligned to the D's y188 bottom. The latter moves
+letters down 10 native px (20 px at 2x), leaving the k leg below the D.
+The ink-bottom alignment is not a supported variant. The D never scales
+or moves across variants.
 The comparison frame adds 54 native pixels of right padding, not a scale
-change, so the 1.25 lettering is not clipped. All size transforms are preview-only.
+change, so the 1.35 lettering is not clipped. All size transforms are preview-only.
 `size-export-commands.txt` records the Inkscape build and each export.
-The color cuts are vertical at master x331.6546762589928 (yellow) and
-x758.4 (coral). The yellow starts at y395, above the lower-left accent
+The yellow cut is vertical at master x331.6546762589928.
+The yellow starts at y395, above the lower-left accent
 but below the top body, so its hidden horizontal boundary cannot create
 a visible step. The body tip is locally rounded above the yellow plane;
 no yellow falls on the body, and the negative-space channel stays open.
+Coral retains the reference-frame band through (343,68), (424,149),
+(424,299) and (363,360), with the two radius-45 turns. It is mapped by
+the historical construction transform without fitting or displacement.
+`previews/d-coral-band-ends.png` shows the unchanged band at 12x native
+size, with labeled top/bottom ends for visual review. Marker locations
+use the first/last coral raster rows with at least half alpha coverage
+in the 8x native CLI render; they do not modify the plane geometry.
 
 `sources/trace_reference_e.py /path/to/wordmark-monochrome-reference.png
 --potrace /path/to/potrace` rebuilds the regular e from the light-on-dark
@@ -100,6 +108,8 @@ not exact raster identity. Regular letter placements are explicit:
 the traced e retains the 3-unit clearance from t; every other regular
 letter retains its established placement except r, shifted 2 units right
 to increase the sampled e-to-r clearance from about 1.5 to 3.5 units.
+The complete regular-letter group sits 2 units closer to the D, preserving
+that e/r opening and all other inter-letter spacing rather than moving i alone.
 Heavier contours and placements remain unchanged.
 Reference-image guides are measured raster estimates, not vector
 constraints imposed on or alterations to the supplied image.

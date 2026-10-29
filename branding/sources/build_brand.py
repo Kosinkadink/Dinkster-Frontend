@@ -42,17 +42,16 @@ LETTERS = {
 }
 POSITIONS = {"i": 149, "n": 167, "k": 212, "s": 263, "t": 302, "e": 331, "r": 374}
 REGULAR_WORDMARK_POSITIONS = {
-    "i": 147.75,
-    "n": 165.75,
-    "k": 203.75,
-    "s": 247.875,
-    "t": 287.375,
-    "e": 313.625,
-    "r": 359.125,
+    "i": 145.75,
+    "n": 163.75,
+    "k": 201.75,
+    "s": 245.875,
+    "t": 285.375,
+    "e": 311.625,
+    "r": 357.125,
 }
 YELLOW_PLANE_X = 331.6546762589928
 YELLOW_PLANE_TOP = 395.0
-CORAL_PLANE_X = 758.4
 HEAVIER_POSITIONS = {
     "i": 149,
     "n": 172,
@@ -337,7 +336,7 @@ def main():
         "desc", parent=reference
     ).text = "Approved D source: dinkster-d.svg. Wordmark direction: wrapper notes/reference/branding/wordmark-monochrome-reference.png."
     construction = layer(master, "01_Construction")
-    construction_geometry(construction)
+    reference_transform = construction_geometry(construction)
     node(
         "path",
         {
@@ -399,14 +398,34 @@ def main():
     outline_copy = deepcopy(approved)
     outline_copy.set("id", "silhouette-clip-path")
     silhouette_clip.append(outline_copy)
+    coral_boundary = [
+        ("start", 343, 68),
+        ("right_top", 424, 149),
+        ("right_bottom", 424, 299),
+        ("end", 363, 360),
+        ("outside_bottom", 600, 360),
+        ("outside_top", 600, 40),
+        ("outside_left", 343, 40),
+    ]
+    coral_commands, _ = geometry.build(
+        coral_boundary,
+        {name: geometry.RADII[name] for name in ("right_top", "right_bottom")},
+    )
     for name, contour in (
-        ("coral", f"M{CORAL_PLANE_X} 0H1000V1000H{CORAL_PLANE_X}Z"),
+        ("coral", geometry.to_svg([coral_commands], geometry.Transform(1, 0, 0))),
         ("yellow", f"M0 {YELLOW_PLANE_TOP}H{YELLOW_PLANE_X}V1000H0Z"),
     ):
         clip = node(
             "clipPath", {"id": f"plane-{name}", "clipPathUnits": "userSpaceOnUse"}, defs
         )
-        node("path", {"d": contour}, clip)
+        node(
+            "path",
+            {
+                "d": contour,
+                **({"transform": reference_transform} if name == "coral" else {}),
+            },
+            clip,
+        )
     for label, color, name in (
         ("03_Chromatic_Cyan", "#32E6C5", "cyan"),
         ("04_Chromatic_Coral", "#FF7468", "coral"),
