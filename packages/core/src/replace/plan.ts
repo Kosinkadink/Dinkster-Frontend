@@ -178,11 +178,13 @@ export interface NodeReplacePlan {
     readonly side: 'input' | 'output'
     /** The port the binding held when the plan was computed (stale check). */
     readonly fromPort: string
+    readonly fromMembers?: readonly string[]
     readonly port: string
+    readonly members?: readonly string[]
     readonly alsoIndex?: number
   }>
   /**
-   * EVERY static boundary binding on this node at plan time - including
+   * Every fixed-port boundary binding on this node at plan time - including
    * identity-mapped ones that need no rewire - with the primary input
    * binding's promoted flag. The apply-time staleness guard compares this
    * against the CURRENT boundary exactly: a binding added, retargeted, or
@@ -194,6 +196,7 @@ export interface NodeReplacePlan {
     readonly item: string
     readonly side: 'input' | 'output'
     readonly port: string
+    readonly members?: readonly string[]
     readonly alsoIndex?: number
     readonly promoted?: boolean
   }>
@@ -794,6 +797,9 @@ export function planReplacement(
       const endpoints = [
         ...Object.values(def.links).flatMap((link) => isPortEndpoint(link.to) ? [link.to] : []),
         ...Object.values(def.nets).flatMap((net) => net.sinks),
+        ...(def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
+          .flatMap((binding) => binding.kind === 'port' ? [{ node: binding.node, port: binding.port,
+            ...(binding.members === undefined ? {} : { members: binding.members }) }] : []),
       ].filter((endpoint) => endpoint.node === nodeId)
       const inputPorts = endpoints.flatMap((endpoint) => {
         if (endpoint.members === undefined) return [endpoint.port]
@@ -1336,6 +1342,7 @@ export function planReplacement(
   const preservedMemberInputLinks = new Set<string>()
   const preservedMemberInputNetSinks = new Set<string>()
   const memberInputNetMoves = new Map<string, { from: PortRef; to: PortRef }[]>()
+  const inputEndpointMoves: { from: PortRef; to: PortRef; target: TargetAddress }[] = []
   /** Source inputs whose CONNECTION a mapping consumed (moves are exclusive). */
   const consumedConnections = new Set<string>()
   /** Source controllers copied to at least one target widget. */
@@ -1611,6 +1618,7 @@ export function planReplacement(
               node: asNodeId(destination.nodeId), port: asPortId(targetFamily.memberPort ?? destination.port),
               ...(targetFamily.memberPort === undefined ? {} : { members: [asDynamicMemberId(member)] }),
             }
+            inputEndpointMoves.push({ from, to, target: destination })
             for (const link of Object.values(def.links)) {
               if (!isPortEndpoint(link.to) || !samePortRef(link.to, from)) continue
               const rewire = { link: link.id, port: to.port,
@@ -1937,18 +1945,32 @@ export function planReplacement(
 
   // -- Boundary bindings: follow the mapping exactly like link endpoints -----
   // The node id survives replacement, so a binding whose port is preserved
-  // under the same id needs nothing. Family/member boundary bindings are not
-  // represented by the replacement vocabulary, and a bound port the rule does
-  // not map has no destination. Both are hard errors so a rule never silently
-  // rewrites a subgraph's external interface.
-  const boundaryRewires: { item: string; side: 'input' | 'output'; fromPort: string; port: string; alsoIndex?: number }[] = []
+  // under the same id needs nothing. Fixed member bindings follow explicit
+  // endpoint mappings; whole-family forwarding remains unsupported. An
+  // unmapped binding is an error, never a silent external interface change.
+  const boundaryRewires: NonNullable<NodeReplacePlan['boundaryRewires']>[number][] = []
   const migrateBinding = (side: 'input' | 'output', itemId: string, b: BoundaryBinding, alsoIndex?: number): void => {
     if (b.node !== nodeId) return
     const label = alsoIndex === undefined ? `boundary ${side} '${itemId}'` : `boundary ${side} '${itemId}' alsoBinds[${alsoIndex}]`
-    if (b.kind !== 'port' || b.members !== undefined) {
+    const memberMove = side === 'input' && b.kind === 'port'
+      ? inputEndpointMoves.find((move) => samePortRef(move.from, b)) : undefined
+    if (b.kind !== 'port' || (b.members !== undefined && memberMove === undefined)) {
       errors.push(
         diag('error', 'replace.boundary.dynamic', `${label}: replacement cannot map the dynamic binding to '${nodeId}'`),
       )
+      return
+    }
+    if (memberMove !== undefined) {
+      if (memberMove.to.node !== nodeId) {
+        errors.push(diag('error', 'replace.boundary.helper', `replace: ${label} would move to a helper node`))
+        return
+      }
+      if (!samePortRef(memberMove.from, memberMove.to)) boundaryRewires.push({
+        item: itemId, side, fromPort: b.port, port: memberMove.to.port,
+        ...(b.members === undefined ? {} : { fromMembers: b.members }),
+        ...(memberMove.to.members === undefined ? {} : { members: memberMove.to.members }),
+        ...(alsoIndex === undefined ? {} : { alsoIndex }),
+      })
       return
     }
     const to = side === 'input' ? connectionMoves.get(b.port) : sourceToTarget.get(b.port)
@@ -1976,7 +1998,9 @@ export function planReplacement(
   for (const item of def.boundary?.inputs ?? []) {
     migrateBinding('input', item.id, item.binds)
     if (item.binds.node === nodeId && item.promoted === true) {
-      const to = item.binds.kind === 'port' ? connectionMoves.get(item.binds.port) : undefined
+      const to = item.binds.kind === 'port'
+        ? inputEndpointMoves.find((move) => samePortRef(move.from, item.binds as PortRef))?.target
+          ?? connectionMoves.get(item.binds.port) : undefined
       if (to !== undefined && to.nodeId === nodeId && activeTargetInput(to)?.widget === undefined)
         errors.push(
           diag('error', 'replace.boundary.promoted', `replace: boundary input '${item.id}' promotes a widget, but target input '${to.port}' has no widget`),
@@ -1986,17 +2010,19 @@ export function planReplacement(
   }
   for (const item of def.boundary?.outputs ?? []) migrateBinding('output', item.id, item.binds)
 
-  // The guard snapshot: every static binding of this node, rewired or not,
-  // plus the primary input bindings' promoted flags. Dynamic bindings need
-  // no entry - migrateBinding already made them plan-blocking errors.
-  const boundaryGuard: { item: string; side: 'input' | 'output'; port: string; alsoIndex?: number; promoted?: boolean }[] = []
+  // Snapshot every fixed binding, including member ancestry and primary
+  // input promotion. Forwarding bindings already make the plan invalid.
+  const boundaryGuard: NonNullable<NodeReplacePlan['boundaryGuard']>[number][] = []
   for (const item of def.boundary?.inputs ?? []) {
-    if (item.binds.node === nodeId && item.binds.kind === 'port' && item.binds.members === undefined) {
-      boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port, ...(item.promoted === true ? { promoted: true } : {}) })
+    if (item.binds.node === nodeId && item.binds.kind === 'port') {
+      boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port,
+        ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
+        ...(item.promoted === true ? { promoted: true } : {}) })
     }
     item.alsoBinds?.forEach((a, i) => {
-      if (a.node === nodeId && a.kind === 'port' && a.members === undefined) {
-        boundaryGuard.push({ item: item.id, side: 'input', port: a.port, alsoIndex: i })
+      if (a.node === nodeId && a.kind === 'port') {
+        boundaryGuard.push({ item: item.id, side: 'input', port: a.port, alsoIndex: i,
+          ...(a.members === undefined ? {} : { members: a.members }) })
       }
     })
   }

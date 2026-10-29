@@ -1189,6 +1189,57 @@ describe('input family replacement', () => {
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
 
+  it.each([false, true])('migrates boundary-only historical member bindings (flat=%s)', (flat) => {
+    const target = schemaOf('BoundFamily', [{
+      ...familyInput('values', []),
+      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+        template: [input('value')], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
+      },
+    }])
+    const rule: ReplacementRule = { from: 'BoundFamily', migration: { historicalInputs: ['values'] }, cases: [{
+      to: 'BoundFamily', inputFamilies: { values: {
+        kind: 'copy', sourceFamily: 'values', memberIds: 'targetPositions',
+        sourceTemplate: { inputs: ['value'], ...(flat ? { memberPort: 'values.values' } : {}) },
+        inputs: { value: { kind: 'copy', input: 'value' } },
+      } },
+    }] }
+    const oldEndpoint = flat ? mport('old', 'values.values', 'oldB') : port('old', 'values.oldB')
+    const original = doc({ g0: graph({ id: 'g0', nodes: { old: node('old', 'BoundFamily'), other: node('other', 'BoundFamily') },
+      boundary: { inputs: [{ id: 'exposed', binds: { kind: 'port', ...oldEndpoint },
+        alsoBinds: [{ kind: 'port', ...port('other', 'values.item3') }, { kind: 'port', ...oldEndpoint }],
+      }], outputs: [] },
+    }) })
+    const resolve = (type: string) => type === 'BoundFamily' ? target : undefined
+    const result = planReplacement(original, 'g0', 'old', rule, resolve)
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
+    expect(result.plan).toBeDefined()
+    if (!result.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    expect(store.dispatch({ command: 'node.replace', params: { plan: result.plan } as unknown as Json }).ok).toBe(true)
+    const item = store.doc.graphs.g0!.boundary!.inputs[0]!
+    expect(item.binds).toEqual({ kind: 'port', ...port('old', 'values.item0') })
+    expect(item.alsoBinds).toEqual([{ kind: 'port', ...port('other', 'values.item3') }, item.binds])
+    expect(store.doc.graphs.g0!.nodes.old!.dynamic!.values!.members).toEqual(['item0'])
+    expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+    const changed = { ...original, graphs: { ...original.graphs, g0: { ...original.graphs.g0!, boundary: {
+      ...original.graphs.g0!.boundary!, inputs: [{ ...original.graphs.g0!.boundary!.inputs[0]!,
+        binds: { kind: 'port' as const, ...mport('old', 'values.values', 'oldA') },
+      }],
+    } } } }
+    const stale = new DocumentStore(changed, coreCommandRegistry())
+    expect(stale.dispatch({ command: 'node.replace', params: { plan: result.plan } as unknown as Json }).ok).toBe(false)
+    expect(stale.doc).toEqual(changed)
+    const promoted = { ...original, graphs: { ...original.graphs, g0: { ...original.graphs.g0!, boundary: {
+      ...original.graphs.g0!.boundary!, inputs: [{ ...original.graphs.g0!.boundary!.inputs[0]!, promoted: true }],
+    } } } }
+    const invalidPromotion = planReplacement(promoted, 'g0', 'old', rule, resolve)
+    expect(invalidPromotion.plan).toBeUndefined()
+    expect(invalidPromotion.diagnostics.map((diagnostic) => diagnostic.code)).toContain('replace.boundary.promoted')
+  })
+
   it.each([false, true].flatMap((flat) => [false, true].flatMap((named) =>
     (named ? [false] : [false, true]).flatMap((targetFlat) =>
       [false, true].map((sameType) => ({ flat, named, targetFlat, sameType }))),
