@@ -394,6 +394,8 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
   await expect(page.locator('.node-media-overlay').filter({ has: page.locator('[src]') })).toHaveCount(5)
   await page.screenshot({ path: `${proofDir}/01-ready-mp4-webm-wav-list-failure.png`, animations: 'disabled' })
 
+  // Keep the one-second fixture playing until the transport assertions pause it.
+  await page.locator('.node-media-overlay[data-media-kind="audio"]').getByRole('checkbox', { name: 'Loop', exact: true }).check()
   const play = page.getByRole('button', { name: 'Play audio' })
   await play.focus()
   await page.keyboard.press('Enter')
