@@ -78,9 +78,11 @@ ambiguity; the importer never silently shifts a following boolean input.
 
 The importer owns `COMFY_NODE_UPGRADES`, keyed first by the authored ComfyUI
 class name and then by the exact version saved in the node's `properties.ver`.
-The table is empty while native widget contracts match ComfyUI. A rule upgrades
-only the saved widget values before positional decoding; it cannot insert
-nodes, change class identities, or rewrite links. Missing or unmatched versions
+SaveVideo version `0.3.68` three-value arrays retain their prefix, container
+and codec while adding explicit automatic encoding and fallback codec choices
+required by the current schema. Keyed values and already-expanded arrays stay
+unchanged. A rule upgrades only saved widget values before positional decoding;
+it cannot insert nodes, change class identities, or rewrite links. Missing or unmatched versions
 use the ordinary import path. Root nodes and subgraph definitions use the same
 table. These source versions are not the workflow format's `version` field.
 

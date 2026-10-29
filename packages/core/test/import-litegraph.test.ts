@@ -797,6 +797,42 @@ describe('serialized output slot identity', () => {
 // -- widget value mapping -----------------------------------------------------
 
 describe('versioned node widget upgrades', () => {
+  it.each(['auto', 'h264', 'av1'])('upgrades SaveVideo 0.3.68 %s choices without shifting the prefix or changing the source', (codec) => {
+    const encoding: InputSpec = {
+      ...sdInput('encoding', 'COMBO'), optional: true,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
+    }
+    const codecInput: InputSpec = {
+      ...sdInput('codec', 'COMBO'), optional: true,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'auto', inputs: [] }, { key: 'h264', inputs: [encoding] }, { key: 'av1', inputs: [encoding] },
+      ] },
+    }
+    const schema = sdSchema('SaveVideo', 'SaveVideo', [
+      sdInput('filename_prefix', 'STRING', 'STRING'),
+      { ...sdInput('format', 'COMBO'), dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'mp4', inputs: [codecInput] }] } },
+      codecInput,
+    ], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    for (const version of ['0.3.68', 'unknown']) for (const expanded of [false, true]) {
+      const widgets_values = ['video/Kandinsky5', 'mp4', codec, ...(expanded ? [...(codec === 'auto' ? [] : ['auto']), 'auto'] : [])]
+      const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: version }, widgets_values })])
+      const before = JSON.stringify(source)
+      const imported = importLitegraph(source, localResolve)
+      expect(JSON.stringify(source)).toBe(before)
+      const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-video-upgrade' })
+      expect(compiled.ok).toBe(version === '0.3.68' || expanded)
+      if (compiled.ok) {
+        expect(imported.diagnostics).toEqual([])
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual({
+          filename_prefix: 'video/Kandinsky5', format: 'mp4', 'format.codec': codec,
+          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }), codec: 'auto',
+        })
+      }
+    }
+  })
+
   it('selects the saved class and version without rewriting nodes, links or source JSON', () => {
     const producer: NodeSchema = {
       type: 'UpgradeSource', displayName: 'Upgrade source', category: 'test', source: 'v3', isOutputNode: false,

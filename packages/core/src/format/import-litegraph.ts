@@ -92,8 +92,17 @@ export type ComfyNodeUpgradeTable = ReadonlyMap<string, ReadonlyMap<string,
   (values: LgNode['widgets_values']) => NonNullable<LgNode['widgets_values']>
 >>
 
-/** Empty until a native node's widget contract diverges from its source version. */
-export const COMFY_NODE_UPGRADES: ComfyNodeUpgradeTable = new Map()
+/** Saved source versions whose widget streams predate the current node schema. */
+export const COMFY_NODE_UPGRADES: ComfyNodeUpgradeTable = new Map([
+  ['SaveVideo', new Map([
+    ['0.3.68', (values: LgNode['widgets_values']) => {
+      if (!Array.isArray(values) || values.length !== 3 || !['auto', 'h264', 'av1'].includes(values[2] as string)) return values ?? []
+      // Older streams omit both the codec's encoding mode and the optional
+      // top-level codec fallback. Store their automatic choices explicitly.
+      return [...values, ...(values[2] === 'auto' ? [] : ['auto']), 'auto']
+    }],
+  ])],
+])
 
 /** [id, fromNode, fromSlot, toNode, toSlot, type] */
 type LgLink = readonly [number, number, number, number, number, ...unknown[]]

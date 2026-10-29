@@ -563,7 +563,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 183,
+      "line": 192,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -571,7 +571,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 183,
+      "line": 192,
       "column": 44,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -579,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 190,
+      "line": 199,
       "column": 8,
       "symbol": "widgetType:FLOAT",
       "issue": 122
