@@ -498,18 +498,24 @@ describe('mount listing decode', () => {
     expect(requests[1]).toMatchObject({ url: 'http://native/api/mounts/shared-models', init: { method: 'DELETE' } })
   })
 
-  it('selects the project output without changing global output preferences', async () => {
+  it.each([undefined, 'default', 'film'])('persists the output for project %s without changing another project', async (project) => {
     const requests: { url: string; init?: RequestInit }[] = []
-    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', ...(project === undefined ? {} : { project }), webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
       requests.push({ url: String(url), ...(init ? { init } : {}) })
       return jsonResponse(200, { mounts: [{ id: 'renders', mode: 'readwrite', state: 'ready' }], outputMount: null, activeOutputMount: null, restartRequired: true, pendingRemovals: ['old'] })
     } })
     await connection.selectOutputMount('renders')
-    expect(requests[0]?.url).toBe('http://native/api/mounts')
-    expect(requests[1]).toEqual({
-      url: 'http://native/api/mounts/projects/default',
-      init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mounts: ['renders'], outputMount: 'renders' }) },
-    })
+    expect(requests).toEqual([
+      { url: `http://native/api/mounts${project === 'film' ? '?project=film' : ''}`, init: { signal: expect.any(AbortSignal) } },
+      ...(project === 'film' ? [] : [{
+        url: 'http://native/api/mounts/output',
+        init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'renders' }) },
+      }]),
+      {
+        url: `http://native/api/mounts/projects/${project ?? 'default'}`,
+        init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mounts: ['renders'], outputMount: 'renders' }) },
+      },
+    ])
   })
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
@@ -1632,7 +1638,11 @@ describe('fetchSchemas payload validation (CL5)', () => {
     const { conn } = submitHarness((url) =>
       url.includes('/api/nodes') ? jsonResponse(200, payload) : undefined,
     )
-    await expect(conn.fetchSchemas()).resolves.toBeDefined()
+    const registry = await conn.fetchSchemas()
+    expect(registry.schemas.size).toBe(0)
+    expect(registry.server).toEqual({ version: '0.1.0', schemaWire: 1 })
+    expect(registry.diagnostics).toEqual([])
+    expect(conn.currentRegistry).toBe(registry)
   })
 
   it('rejects a malformed nodes table instead of installing an empty registry', async () => {

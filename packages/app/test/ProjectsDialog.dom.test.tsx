@@ -41,6 +41,14 @@ describe('ProjectsDialog', () => {
     expect(actionButton(defaultRow!, 'Switch').disabled).toBe(true)
     expect(actionButton(defaultRow!, 'Rename').closest('.product-action-buttons')).not.toBeNull()
     expect(root.querySelector('[data-testid="projects-create"]')?.getAttribute('data-variant')).toBe('primary')
+    for (const button of root.querySelectorAll('button')) {
+      expect(button.classList.contains('product-button')).toBe(true)
+      expect(button.type).toBe('button')
+    }
+    const draft = root.querySelector<HTMLInputElement>('input[aria-label="New project name"]')!
+    expect(draft.classList.contains('product-text-input')).toBe(true)
+    draft.focus()
+    expect(document.activeElement).toBe(draft)
     unmount()
   })
 
@@ -68,6 +76,8 @@ describe('ProjectsDialog', () => {
     actionButton(rows(root)[0]!, 'Rename').click()
     await flush()
     const input = root.querySelector<HTMLInputElement>('input[aria-label^="Rename"]')!
+    expect(input.classList.contains('product-text-input')).toBe(true)
+    expect(document.activeElement).toBe(input)
     input.value = 'Main studio'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))

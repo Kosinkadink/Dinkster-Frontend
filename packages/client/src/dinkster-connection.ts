@@ -2986,6 +2986,16 @@ export class DinksterConnection {
 
   async selectOutputMount(id: string): Promise<void> {
     const settings = await this.fetchMountSettings()
+    if (this.project === undefined || this.project === 'default') {
+      const res = await this.fetchFn(`${this.baseUrl}/api/mounts/output`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (!res.ok) throw new Error(`PUT /api/mounts/output failed: ${res.status}`)
+    }
+    // Folder ordering can already have pinned the default project's output.
+    // Keep that override in sync with the persisted library default.
     await this.updateProjectFolders(settings.mounts.map((mount) => mount.id), id)
   }
 

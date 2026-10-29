@@ -170,6 +170,7 @@ describe('ProblemsPanel', () => {
     expect(summary).not.toContain('[error]')
     expect(detail).toContain('<code>runtime.exploded</code>')
     expect(detail).toContain('line one\nline two')
+    expect(detail).not.toContain('runtime-error-hint')
   })
 
   it('solver diagnostic activation requests focus while an anchorless row stays inert', () => {

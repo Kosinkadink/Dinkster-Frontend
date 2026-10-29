@@ -330,7 +330,7 @@
 /* An open settings popover must paint over the stage's floating chrome
    (the top toolbar row sits at z-index 7 outside this stacking context). */
 .canvas-corner-controls:has(.minimap-menu) { z-index: 9; }
-.minimap-setting-row { gap: 8px; width: 100%; min-height: 36px; text-align: left; }
+.minimap-menu .minimap-setting-row { gap: 8px; width: 100%; min-height: 36px; text-align: left; }
 .minimap-setting-row > svg { width: 15px; height: 15px; color: var(--dinkster-text-muted); }
 .minimap-setting-row > span { flex: 1; }
 .minimap-setting-row > .minimap-switch { position: relative; flex: none; width: 30px; height: 17px; border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }

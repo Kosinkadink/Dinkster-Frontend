@@ -17,6 +17,9 @@ async function addNativeBackend(page: Page): Promise<void> {
   await page.getByTestId('backends-toggle').click()
   await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
   await page.getByTestId('backend-add').click()
+  // Initial socket connection retires settings fetched before its handshake.
+  await expect(page.getByTestId('backend-row').filter({ hasText: NATIVE_BACKEND }).locator('.backend-status'))
+    .toHaveAttribute('data-status', 'connected')
   await expect(page.getByTestId('tab-target')).toBeVisible()
   await selectProductOption(page, page.getByTestId('tab-target'), NATIVE_BACKEND)
 }
@@ -106,12 +109,4 @@ test('live gallery pins carry the full socket-variant vocabulary', async ({ page
     Object.values(entry).some((p) => p.kind === 'variable'))
   expect(matchOpen).toBeDefined()
   expect(allPins.some((p) => p.optional)).toBe(true)
-})
-
-test('visual artifact: live gallery screenshot', async ({ page }, testInfo) => {
-  // Not a pixel assertion - the real-server twin of gallery.spec.ts's
-  // artifact, so fixture and live renderings can be compared side by side.
-  const path = testInfo.outputPath('gallery-live.png')
-  await page.getByTestId('graph-canvas').screenshot({ path })
-  await testInfo.attach('gallery-live', { path, contentType: 'image/png' })
 })

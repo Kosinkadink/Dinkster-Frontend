@@ -52,6 +52,7 @@ const BACKEND_SERIAL_SPECS = [
   // clears the whole local scope.
   'workflow-library.spec.ts',
   'asset-widget.spec.ts',
+  'audit-widget-parity-live.spec.ts',
   'run-history.spec.ts',
   'peek-preview.spec.ts',
   'native-imagery-live.spec.ts',
@@ -81,55 +82,16 @@ const BACKEND_SERIAL_SPECS = [
 
 const PERFORMANCE_SPECS = ['perf.spec.ts']
 const V1_COMPATIBILITY_SPECS = ['smoke.spec.ts']
-const NATIVE_WITHOUT_V1_SPECS = [
-  'app-view-queue-buttons-native.spec.ts',
-  'asset-widget.spec.ts',
-  'audit-float-paste-live.spec.ts',
-  'audit-noodle-live.spec.ts',
-  'audit-tap-boundary-live.spec.ts',
-  'audit-widget-parity-live.spec.ts',
-  'audio-recording-live.spec.ts',
-  'collab-noodle-presence.spec.ts',
-  'compositor-editor.spec.ts',
-  'curve-editor.spec.ts',
-  'dynamic-combo-native-live.spec.ts',
-  'executable-examples-live.spec.ts',
-  'fixture-discovery.spec.ts',
-  'gallery-live.spec.ts',
-  'glsl-shader.spec.ts',
-  'image-document-graph-live.spec.ts',
-  'image-editor.spec.ts',
-  'image-mask-graph-live.spec.ts',
-  'image-upload-byte-proof.spec.ts',
-  'midgraph-preview-live.spec.ts',
-  'missing-model-ux.spec.ts',
-  'native-catalog-decode.spec.ts',
-  'native-catalog-presentation.spec.ts',
-  'native-family-port-quality.spec.ts',
-  'native-imagery-live.spec.ts',
-  'node-help.spec.ts',
-  'output-mount-live.spec.ts',
-  'pack-assets-settings.spec.ts',
-  'peek-preview.spec.ts',
-  'rowj-live.spec.ts',
-  'run-history.spec.ts',
-  'save-video-dynamic-native.spec.ts',
-  'starter-templates-live.spec.ts',
-  'startup-discovery.spec.ts',
-  'string-split-output-lifecycle.spec.ts',
-  'video-document-editor.spec.ts',
-  'video-edit.spec.ts',
-  'widget-representations-wire17.spec.ts',
-  'widget-value-presentation.spec.ts',
-  'wire43-input-family-combo.spec.ts',
-  'workflow-library.spec.ts',
-]
+const NATIVE_WITHOUT_V1_SPECS = ['startup-discovery.spec.ts']
 
 export default defineConfig({
   testDir: './tests',
   snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}{ext}',
   timeout: 60_000,
-  reporter: [[process.env['CI'] ? 'dot' : 'list'], ['./custom-widget-server-reporter.ts']],
+  reporter: [
+    [process.env['CI'] ? 'dot' : 'list'],
+    ['./custom-widget-server-reporter.ts'],
+  ],
   // SH3 (amended 2026-07-27): every worker shares ONE dev server and ONE
   // live backend per protocol. The dev server tolerates concurrent
   // clients, but specs that execute prompts or write server state
@@ -152,6 +114,7 @@ export default defineConfig({
         ...BACKEND_SERIAL_SPECS,
         ...PERFORMANCE_SPECS,
         'extension-contract-pack.spec.ts',
+        'product-surface-visuals.spec.ts',
       ].map((f) => `tests/${f}`),
     },
     {
