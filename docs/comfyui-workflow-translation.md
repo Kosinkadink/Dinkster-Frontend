@@ -13,6 +13,9 @@ traces each occurrence's parent input without deleting reroutes or bypassing
 their links. Widget promotion follows the downstream schema input, including
 nested instances. Parent delivery suppression is occurrence-local and removes
 the effective junction driver without changing a sibling instance.
+Import asset lookup includes promoted ASSET filenames on subgraph instances
+as well as definition defaults. Accepting a match updates only literals with
+that filename in one undo step; sibling overrides and other defaults remain intact.
 The drilled canvas draws the Inputs noodle into the actual junction dot;
 retained fan-out noodles continue from that dot to their authored destinations.
 Flattening and extraction preserve junction identity, geometry and fan-out.

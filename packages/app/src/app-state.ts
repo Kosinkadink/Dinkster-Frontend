@@ -6167,9 +6167,10 @@ export class AppState {
   private legacyAssetReferences(tab: Tab, backend: Backend): readonly ImportAssetReference[] {
     const registry = backend.registry.get()
     if (!registry) return []
+    const resolve = documentResolver(tab.store.doc, registry.resolve)
     const refs: ImportAssetReference[] = []
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
-      const schema = registry.resolve(node.type)
+      const schema = resolve(node.type)
       if (!schema) continue
       for (const item of schema.items) {
         if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue

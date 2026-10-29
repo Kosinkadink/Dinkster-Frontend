@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { asNodeId } from '@dinkster/core'
 import type { DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalRegistry } from './historical-schemas.js'
@@ -69,6 +70,59 @@ const imageWorkflow = {
 }
 
 describe('authored workflows on a native backend', () => {
+  it('resolves promoted instance assets without replacing sibling overrides or definition defaults', async () => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1,
+      nodes: { ModelFile: { outputNode: true, interface: [
+        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+          widget: { type: 'ASSET', accept: [] } },
+        { role: 'output', id: 'MODEL', type: { kind: 'concrete', types: ['MODEL'] } },
+      ] } },
+    }))
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'turbo.safetensors', held: true,
+      confidence: 'other' as const, virtualPath: 'models/turbo.safetensors', size: 17,
+      mediaType: 'application/octet-stream' }
+    vi.spyOn(backend.connection, 'guessAssets').mockImplementation(async (names) => names.map((query) => ({
+      query, candidates: query === 'turbo.safetensors' ? [asset] : [],
+    })))
+    const instance = (id: number, name: string) => ({ id, type: 'model-body',
+      inputs: [{ name: 'file', type: 'ASSET', widget: { name: 'file' } }],
+      outputs: [{ name: 'MODEL', type: 'MODEL' }], widgets_values: [name] })
+    expect(app.openDocument({ version: 0.4,
+      nodes: [instance(1, 'turbo.safetensors'), instance(2, 'sibling.safetensors')], links: [],
+      definitions: { subgraphs: [{ id: 'model-body', name: 'Model', version: 1,
+        nodes: [{ id: 3, type: 'ModelFile', inputs: [{ name: 'file', widget: { name: 'file' }, link: 1 }],
+          outputs: [{ name: 'MODEL', type: 'MODEL' }], widgets_values: ['base.safetensors'] }],
+        inputs: [{ id: 'file-boundary', name: 'file', type: 'ASSET', linkIds: [1] }],
+        outputs: [{ id: 'model-boundary', name: 'MODEL', type: 'MODEL', linkIds: [2] }],
+        links: [
+          { id: 1, origin_id: -10, origin_slot: 0, target_id: 3, target_slot: 0, type: 'ASSET' },
+          { id: 2, origin_id: 3, origin_slot: 0, target_id: -20, target_slot: 0, type: 'MODEL' },
+        ],
+      }] },
+    }, 'Promoted models')).toEqual([])
+    const tab = app.activeTab()!
+    const before = structuredClone(tab.store.doc)
+    await vi.waitFor(() => expect(app.importAssetResolution.get()?.matches.map((match) => match.query).sort()).toEqual([
+      'base.safetensors', 'sibling.safetensors', 'turbo.safetensors',
+    ]))
+    expect(tab.store.doc).toEqual(before)
+    expect(tab.store.canUndo).toBe(false)
+    app.importAssetResolution.get()!.accept(new Map([['turbo.safetensors', asset]]))
+    const accepted = { digest: asset.digest, name: asset.name, virtualPath: asset.virtualPath,
+      size: asset.size, mediaType: asset.mediaType }
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.values['file-boundary']).toEqual(accepted)
+    expect(tab.store.doc.graphs.g0!.nodes.n2!.values['file-boundary']).toBe('sibling.safetensors')
+    expect(tab.store.doc.graphs['model-body']!.nodes.n3!.values.file).toBe('base.safetensors')
+    const compiled = app.compileTab(tab, { kind: 'partial', targets: [{ instancePath: [asNodeId('n1')], node: asNodeId('n3') }] })
+    expect(compiled?.ok, JSON.stringify(compiled)).toBe(true)
+    if (compiled?.ok) expect(Object.values(compiled.artifact.prompt).map((node) => node.inputs.file)).toEqual([accepted])
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc).toEqual(before)
+    expect(tab.store.canUndo).toBe(false)
+  })
+
   it('imports exact native classes and links without inserting or rewriting nodes', () => {
     loadNativeSchemas()
     expect(app.openDocument(imageWorkflow, 'Image workflow')).toEqual([])
