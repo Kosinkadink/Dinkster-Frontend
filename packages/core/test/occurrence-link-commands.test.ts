@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { planClipboardPaste, serializeSelection } from '../src/clipboard.js'
 import { compile } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology, occurrenceBoundaryTargets, type EffectiveLinkIdentity } from '../src/compile/effective-topology.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
@@ -354,6 +355,9 @@ describe('occurrence-local link commands', () => {
     const outerBinding = { kind: 'family' as const, node: asNodeId('inner'), port: asPortId('ingest') }
     if (chained) (initial.graphs.mid!.boundary as unknown as { inputs: BoundaryItem[] }).inputs = [{ id: 'outerIngest' as never, binds: outerBinding }]
     const construct = chained ? 'outerIngest' : 'ingest'
+    ;(initial.view.graphs as Record<string, unknown>).root = { nodes: {
+      [sourceOwner.node]: { position: { x: 0, y: 0 } },
+    } }
     const ghost: OccurrenceLinkEndpoint = {
       kind: 'boundary', occurrence: sourceOwner, address: { port: asPortId(`${construct}.${names[1]}`) },
       route: [...(chained ? [{ graph: asGraphDefId('mid'), boundaryId: 'outerIngest', binding: outerBinding }] : []),
@@ -383,12 +387,47 @@ describe('occurrence-local link commands', () => {
       const prefix = chained ? 'outer.inner' : 'a'
       expect(compiled.artifact.prompt[`${prefix}.sink`]!.inputs).toEqual({ [`items.${names[1]}`]: [`${prefix}.producerOne`, 0] })
     }
+    if (!named && chained) {
+      const legacy: NodeSchema = { ...canonical, items: [{
+        kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: true,
+        dynamic: { kind: 'autogrow', materialization: 'wire15',
+          template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
+          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 3 },
+        },
+      }] }
+      const legacyResolver = (type: string) => type === 'CanonicalSink' ? legacy : resolve(type)
+      const invalid = compile({ document: store.doc, revision: store.revision, resolve: legacyResolver, scope: { kind: 'full' }, connection: asConnectionId('c'), schemaHash: 'legacy-dotted-route' })
+      expect(invalid.ok).toBe(false)
+      if (!invalid.ok) expect(invalid.diagnostics.map((item) => item.code)).toContain('compile.boundary.forwardMemberMissing')
+      expect(planOccurrenceLinkMutation(store.doc, legacyResolver, {
+        kind: 'connect', owner: target, bodyGraph: 'body', from: body({ node: 'producerOne', port: 'out' }), to: ghost,
+      }).ok).toBe(false)
+    }
     expect(store.undo()).toBe(true)
     expect(source().dynamic?.[construct]?.members ?? []).toEqual([])
     expect(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links).toEqual({})
     expect(store.redo()).toBe(true)
     expect(source().dynamic?.[construct]?.members).toEqual([names[1]])
     expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links)).toHaveLength(1)
+
+    const envelope = serializeSelection(store.doc, 'root', { nodes: [sourceOwner.node], reroutes: [] })!
+    const paste = planClipboardPaste(store.doc, 'root', envelope)
+    expect(paste).toBeDefined()
+    if (!paste) return
+    expect(store.dispatch(paste.invocation).ok).toBe(true)
+    const pasted = paste.nodeIds[0]!
+    const pastedOwner = chained ? owner('inner', [pasted]) : owner(pasted)
+    expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(pastedOwner)]!.links)).toHaveLength(1)
+    const copiedCompile = compile({ document: store.doc, revision: store.revision, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('c'), schemaHash: 'canonical-copy' })
+    expect(copiedCompile.ok, copiedCompile.ok ? undefined : JSON.stringify(copiedCompile.diagnostics)).toBe(true)
+    if (copiedCompile.ok) {
+      const prefix = chained ? `${pasted}.inner` : pasted
+      expect(copiedCompile.artifact.prompt[`${prefix}.sink`]!.inputs).toEqual({ [`items.${names[1]}`]: [`${prefix}.producerOne`, 0] })
+    }
+    expect(store.undo()).toBe(true)
+    expect(store.doc.occurrenceTopologies![occurrenceKey(pastedOwner)]).toBeUndefined()
+    expect(store.redo()).toBe(true)
+    expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(pastedOwner)]!.links)).toHaveLength(1)
   })
 
   it('allows ordinary edits to distinct members while occurrence and whole-family drivers stay guarded', () => {

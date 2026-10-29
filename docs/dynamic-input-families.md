@@ -21,6 +21,7 @@ In drilled views, retained suffix widgets edit their owning instance, and both
 retained and trailing ghost sockets keep that instance's boundary address.
 Connecting a forwarded ghost creates its member on that owning instance and
 its occurrence-local link in one undo step, including across chained boundaries.
+Copying the owning instance preserves these connections and their nested routes.
 Families without the opt-in retain their existing behavior.
 
 Fresh nodes persist every required minimum member when they are placed. While
