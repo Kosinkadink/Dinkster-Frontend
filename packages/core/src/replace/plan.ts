@@ -572,7 +572,7 @@ const WIRE15_MEMBER_ID = /^[A-Za-z0-9_-]+$/
 const familyMembersAreAdmitted = (family: Wire15InputFamily, members: readonly string[]): boolean => {
   const { min, max } = autogrowBounds(family.spec)
   if (
-    members.length < min ||
+    (family.spec.optionalAfterMinimum !== true && members.length < min) ||
     members.length > max ||
     new Set(members).size !== members.length ||
     members.some((member) => !WIRE15_MEMBER_ID.test(member))
@@ -1192,7 +1192,7 @@ export function planReplacement(
     })
   }
 
-  if (rule.migration !== undefined && !migrationEvidence) return { diagnostics: [] }
+  if (rule.migration !== undefined && !migrationEvidence) return { diagnostics: errors }
 
   const activeInputs = new Map<string, ReadonlyMap<string, ElaboratedInput>>()
   const targetKey = (localId: string | undefined): string => localId ?? ''

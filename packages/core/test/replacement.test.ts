@@ -1339,6 +1339,56 @@ describe('input family replacement', () => {
     },
   )
 
+  it.each(['nested', 'sparse', 'legacy'] as const)('checks historical family migration with %s sibling state', (state) => {
+    const target = schemaOf('FamilySame', ['values', 'keep'].map((id) => ({
+      ...familyInput(id, []),
+      dynamic: { kind: 'autogrow' as const, materialization: 'wire15' as const, optionalAfterMinimum: state !== 'legacy',
+        template: [input('value')], naming: { kind: 'prefix' as const, prefix: 'item', min: 2, max: 6 },
+      },
+    })))
+    const mapping = (sourceFamily: string) => ({
+      kind: 'copy' as const, sourceFamily, memberIds: 'targetPositions' as const,
+      sourceTemplate: { inputs: ['value'] }, inputs: { value: { kind: 'copy' as const, input: 'value' } },
+    })
+    const rule: ReplacementRule = { from: 'FamilySame', migration: { historicalInputs: ['values', 'keep'] }, cases: [{
+      to: 'FamilySame', inputFamilies: { values: mapping('values'), keep: mapping('keep') },
+    }] }
+    const original = doc({ g0: graph({ id: 'g0', nodes: {
+      src: node('src', 'Producer'),
+      old: node('old', 'FamilySame', {}, { dynamic: {
+        values: state === 'nested'
+          ? { members: ['oldB', 'oldA'], memberState: { oldB: { child: { members: ['nested'] } } } }
+          : { members: ['oldB', 'oldA'] },
+        keep: { members: ['item3'] },
+      } }),
+    }, links: { kept: link('kept', port('src', 'out'), port('old', 'keep.item3')) } }) })
+    const resolve = (type: string) => type === 'FamilySame' ? target : schemas[type]
+    const planned = planReplacement(original, 'g0', 'old', rule, resolve)
+    if (state === 'nested') {
+      expect(planned.plan).toBeUndefined()
+      expect(planned.diagnostics.map((diagnostic) => diagnostic.code)).toContain('replace.source.familyNested')
+      return
+    }
+    if (state === 'legacy') {
+      expect(planned.plan).toBeUndefined()
+      expect(planned.diagnostics.map((diagnostic) => diagnostic.code)).toContain('replace.target.familyMembers')
+      return
+    }
+    expect(planned.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
+    expect(planned.plan).toBeDefined()
+    if (!planned.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.dynamic).toMatchObject({
+      values: { members: ['item0', 'item1'] }, keep: { members: ['item3'] },
+    })
+    expect(store.doc.graphs.g0!.links.kept!.to).toEqual(port('old', 'keep.item3'))
+    expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+  })
+
   it.each([false, true])('preserves flat prefix links and net sinks with historical template=%s', (historical) => {
     const flatFamily = (type: string): NodeSchema => schemaOf(type, [{
       kind: 'input',
