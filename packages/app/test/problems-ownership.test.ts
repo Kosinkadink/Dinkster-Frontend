@@ -343,6 +343,28 @@ describe('workflow asset presence', () => {
     app.dispose()
   })
 
+  it('anchors a missing shared-definition input to a reachable instance', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([{ digest: first.digest, status: 'missing' }])
+    expect(app.openDocument({ ...CHAIN_DOC, graphs: {
+      g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+        left: { id: 'left', type: '#child', values: {} }, right: { id: 'right', type: '#child', values: {} },
+      }, links: {} },
+      child: { ...CHAIN_DOC.graphs.g0, id: 'child', nodes: {
+        reader: { id: 'reader', type: 'std.math.add_ints', values: { a: first } },
+      }, links: {} },
+    }, view: { graphs: {} } }, 'Nested missing asset')).toEqual([])
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'asset.availability.missing')).toHaveLength(1))
+    expect(app.problems.get().find((entry) => entry.code === 'asset.availability.missing')?.anchor).toEqual({
+      occurrence: { instancePath: ['left'], node: 'reader' },
+    })
+    expect(tab.store.revision).toBe(0)
+    app.dispose()
+  })
+
   it('discards stale path reads after retarget and ignores hints for a different digest', async () => {
     const { backend } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')

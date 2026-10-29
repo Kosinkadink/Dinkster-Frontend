@@ -1103,6 +1103,7 @@
   "palette.typeFilter.selected": "{count} 选中",
   "problems.action.showInFocused": "显示在聚焦状态",
   "problems.action.showOnCanvas": "显示在画布上",
+  "problems.action.locateAsset": "定位或替换",
   "problems.action.open": "显示问题",
   "problems.action.dismiss": "关闭",
   "problems.section.execution": "执行",

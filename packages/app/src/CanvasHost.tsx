@@ -4205,6 +4205,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const link = scene.links.find((candidate) => candidate.id === focusPlan.linkId)
         if (node) {
           controller.setSelection([node.id])
+          const input = focusRequest?.openAssetInput
+          const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
+            candidate.kind === 'widget' && candidate.valueKey === input)
+          if (row?.kind === 'widget' && hostFocused()) {
+            const snapshot = tab.store.doc
+            queueMicrotask(() => {
+              if (!canvasEl.isConnected || activeTab() !== tab || tab.store.doc !== snapshot || currentGraphId(tab) !== graphId ||
+                  props.app.diagnosticFocus.get() !== undefined) return
+              openWidgetEditor({
+                kind: 'widget', node, row, x: node.x + row.inset, y: node.y + row.y,
+                width: node.layout.width - row.inset * 2, height: row.height, localX: 0, localY: 0,
+              }, focusRequest?.missingAssetDigest)
+            })
+          }
           camera.animateTo(viewportCenteredOnNode(
             renderer.getViewport(),
             { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
@@ -4744,7 +4758,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     // -- widget editor overlay ----------------------------------------------
 
-    function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>): void {
+    function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string): void {
       const tab = activeTab()
       if (!tab || tab.execution) return // frozen views are read-only
       const graphId = currentGraphId(tab)
@@ -4896,6 +4910,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           height: hit.height,
         },
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
+        ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
         ...(descriptors !== undefined ? { outputDescriptors: {
           spec: descriptors,
           asset: outputDescriptorAssetOf(descriptors, descriptorValues),

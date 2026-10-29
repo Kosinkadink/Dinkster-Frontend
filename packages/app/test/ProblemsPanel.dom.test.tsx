@@ -184,6 +184,20 @@ describe('ProblemsPanel browser interactions', () => {
     unmount()
   })
 
+  it('routes an explicit missing-asset action to its input without editing the document', () => {
+    const missing = diag('warning', 'validation', 'asset.availability.missing', 'Missing exact file', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n2') } },
+      data: { input: 'image', digest: 'blake3:' + 'a'.repeat(64) },
+    })
+    const { root, diagnosticFocus, unmount } = mountPanel(undefined, () => [missing])
+    const button = [...root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Locate or replace')!
+    expect(button).toBeDefined()
+    button.click()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: missing.anchor, openAssetInput: 'image' })
+    expect(workflow.graphs['g0']!.nodes['n2']!.values).toEqual({})
+    unmount()
+  })
+
   it('offers Show in Focused beside Show on canvas only when the host wires it', () => {
     const plain = mountPanel()
     expect(plain.root.querySelector('.problem-show-in-context')).toBeNull()

@@ -306,7 +306,8 @@ describe('ASSET widget modal integration', () => {
     const backend = { protocol: 'dinkster', id: 'native', connection }
     const app = { backendForTab: () => backend, dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
     const ed: WidgetEditorState = {
-      ...widgetState('ASSET', { accept: ['image/png'] }, null),
+      ...widgetState('ASSET', { accept: ['image/png'] }, missing),
+      missingAssetDigest: missing.digest,
       spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } },
     }
     for (const offline of [false, true]) {
@@ -315,6 +316,7 @@ describe('ASSET widget modal integration', () => {
       document.body.append(root)
       const dispose = render(() => <WidgetEditor app={app} ed={ed} federatedAssets={contract} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
       await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(offline ? 2 : 3))
+      expect(connection.fetchAssetBytes).not.toHaveBeenCalled()
       const names = [...root.querySelectorAll('[data-testid="collection-entry"]')].map((entry) => entry.textContent)
       expect(names.some((name) => name?.includes('federated.png'))).toBe(true)
       expect(names.some((name) => name?.includes('local.png'))).toBe(true)
@@ -328,6 +330,7 @@ describe('ASSET widget modal integration', () => {
       })
       dispose()
       root.remove()
+      connection.fetchAssetBytes.mockClear()
     }
     expect(encodeRequest).toHaveBeenCalledWith(expect.objectContaining({ assetKind: 'media/image' }))
   })

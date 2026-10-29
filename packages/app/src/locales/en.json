@@ -1101,6 +1101,7 @@
   "palette.typeFilter.selected": "{count} selected",
   "problems.action.showInFocused": "Show in Focused",
   "problems.action.showOnCanvas": "Show on canvas",
+  "problems.action.locateAsset": "Locate or replace",
   "problems.action.open": "Show Problems",
   "problems.action.dismiss": "Dismiss",
   "problems.section.execution": "Execution",

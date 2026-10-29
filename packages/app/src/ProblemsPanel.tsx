@@ -28,13 +28,16 @@ export function createProblemsDisclosure(): ProblemsDisclosure {
   }
 }
 
-export function activateProblem(app: AppState, diagnostic: Diagnostic): void {
+export function activateProblem(app: AppState, diagnostic: Diagnostic, openAssetInput?: string): void {
   const target = diagnosticFocusTarget(app.tabs.get(), app.activeTabId.get(), diagnostic)
   if (!target || !diagnostic.anchor) return
   app.activeTabId.set(target.tab.id)
   app.diagnosticFocus.set({
     tab: target.tab,
     anchor: diagnostic.anchor,
+    ...(openAssetInput === undefined ? {} : { openAssetInput }),
+    ...(openAssetInput !== undefined && typeof diagnostic.data?.['digest'] === 'string'
+      ? { missingAssetDigest: diagnostic.data['digest'] } : {}),
     ...(diagnostic.anchor.occurrence === undefined ? { portInstancePath: target.plan.instancePath } : {}),
   })
 }
@@ -109,6 +112,12 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                           <code>{diagnostic.code}</code>
                           <Show when={diagnostic.data}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
                           <Show when={diagnostic.anchor !== undefined}>
+                            <Show when={diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'}>
+                              <ProductButton type="button" variant="secondary" size="compact"
+                                onClick={() => activateProblem(props.app, diagnostic, diagnostic.data!['input'] as string)}>
+                                {message('problems.action.locateAsset')}
+                              </ProductButton>
+                            </Show>
                             <ProductButton type="button" variant="secondary" size="compact" class="problem-show-on-canvas"
                               onClick={() => activateProblem(props.app, diagnostic)}>
                               {message('problems.action.showOnCanvas')}

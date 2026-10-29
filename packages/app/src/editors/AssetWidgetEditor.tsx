@@ -380,7 +380,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   if (ed.spec?.widgetType === 'ASSET') {
     const backend = props.app.backendForTab(ed.tab)
     const asset = isAssetRef(ed.initial) ? ed.initial : isAssetRefArray(ed.initial) ? ed.initial[0] : undefined
-    if (asset !== undefined) void publishAssetRefPreview(asset)
+    if (asset !== undefined && asset.digest !== ed.missingAssetDigest) void publishAssetRefPreview(asset)
     if (backend.protocol !== 'dinkster') {
       setAssetSourcesError('Asset browsing requires a native Dinkster backend')
     } else {

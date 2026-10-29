@@ -1185,6 +1185,8 @@ export interface WidgetFocus {
 export interface DiagnosticFocusRequest {
   readonly tab: Tab
   readonly anchor: DiagnosticAnchor
+  readonly openAssetInput?: string
+  readonly missingAssetDigest?: string
   /** Current view context for solver anchors that carry only a port. */
   readonly portInstancePath?: readonly string[]
 }
@@ -3934,6 +3936,9 @@ export class AppState {
         return diag('warning', 'validation', 'asset.availability.missing',
           `${asset.name} is missing on ${backend.label}: ${graph}/${node}/${input} [${index + 1}].`, {
             refs: [{ graphId: graph, nodeId: node, valueKey: input, direction: 'input' }],
+            ...(occurrence.instancePath === undefined ? {} : { anchor: {
+              occurrence: { instancePath: occurrence.instancePath.map(asNodeId), node: asNodeId(node) },
+            } }),
             data: { name: asset.name, backend: backend.label, graph, node, input,
               digest: asset.digest, virtualPath: asset.virtualPath, index,
               ...(hint ? { lastKnownMachine: hint.machine, lastKnownPaths: [...hint.paths] } : {}) },

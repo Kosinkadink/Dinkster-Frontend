@@ -1,4 +1,4 @@
-import type { AssetRef, Json, WorkflowDocument } from '@dinkster/core'
+import { subgraphDefIdOf, type AssetRef, type Json, type WorkflowDocument } from '@dinkster/core'
 import { isAssetRef } from './image-editor.js'
 
 const EXT_KEY = 'dinkster.assetLocations'
@@ -9,6 +9,7 @@ export interface WorkflowAssetOccurrence {
   readonly input: string
   readonly index: number
   readonly asset: AssetRef
+  readonly instancePath?: readonly string[]
 }
 
 export interface AssetLocationHint {
@@ -17,11 +18,22 @@ export interface AssetLocationHint {
 }
 
 export function workflowAssetOccurrences(doc: WorkflowDocument): readonly WorkflowAssetOccurrence[] {
+  const paths = new Map<string, readonly string[]>()
+  const visit = (graphId: string, path: readonly string[]): void => {
+    if (paths.has(graphId)) return
+    paths.set(graphId, path)
+    for (const node of Object.values(doc.graphs[graphId]?.nodes ?? {})) {
+      const child = subgraphDefIdOf(node.type)
+      if (child !== undefined) visit(child, [...path, node.id])
+    }
+  }
+  visit(doc.root, [])
   return Object.values(doc.graphs).flatMap((graph) => Object.values(graph.nodes).flatMap((node) =>
     Object.entries(node.values).flatMap(([input, value]) => {
       const values = Array.isArray(value) ? value : [value]
       return values.flatMap((asset, index) => isAssetRef(asset)
-        ? [{ graph: graph.id, node: node.id, input, index, asset }] : [])
+        ? [{ graph: graph.id, node: node.id, input, index, asset,
+            ...(paths.has(graph.id) ? { instancePath: paths.get(graph.id)! } : {}) }] : [])
     })))
 }
 

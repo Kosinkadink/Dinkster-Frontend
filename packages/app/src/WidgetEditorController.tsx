@@ -114,6 +114,8 @@ export interface WidgetEditorState {
   /** Editor anchor rect in canvas world coordinates. */
   readonly rect: { x: number; y: number; width: number; height: number }
   readonly initial: Json | undefined
+  /** A known-missing stored ref must not issue an initial preview byte read. */
+  readonly missingAssetDigest?: string
   readonly outputDescriptors?: {
     readonly spec: OutputDescriptorsSpec
     readonly asset: unknown
