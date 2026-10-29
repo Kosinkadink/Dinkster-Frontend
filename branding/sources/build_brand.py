@@ -52,6 +52,8 @@ REGULAR_WORDMARK_POSITIONS = {
 }
 YELLOW_PLANE_X = 331.6546762589928
 YELLOW_PLANE_TOP = 395.0
+REGULAR_WORDMARK_SCALE = 1.35
+REGULAR_WORDMARK_BASELINE = 188.0
 HEAVIER_POSITIONS = {
     "i": 149,
     "n": 172,
@@ -516,7 +518,19 @@ def main():
         d.set("id", f"wordmark-{variant}-d")
         d.set("fill", "currentColor")
         symbol.append(d)
-        lettering(wordmark, prefix=variant, heavier=variant.startswith("heavier"))
+        heavier = variant.startswith("heavier")
+        origin = REGULAR_WORDMARK_POSITIONS["i"]
+        lettering(
+            wordmark,
+            prefix=variant,
+            heavier=heavier,
+            transform=(
+                None
+                if heavier
+                else f"translate({origin} {REGULAR_WORDMARK_BASELINE}) "
+                f"scale({REGULAR_WORDMARK_SCALE}) translate({-origin} -178)"
+            ),
+        )
     sheet = node(
         "g", {"id": "letter-sheet", "transform": "translate(0 7000)"}, artboards
     )

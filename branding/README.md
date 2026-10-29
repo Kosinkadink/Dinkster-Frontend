@@ -6,9 +6,9 @@ derives the silhouette from the selected dark-on-light trace in
 `sources/reference-d.svg`, with a local upward rounding at the body's
 bottom-left tip. The original traced input remains unchanged.
 The analytic construction is historical, not the active silhouette.
-The regular e is accepted; the i bottom cut and wordmark size/position are
-review proposals, not yet production selections. Application
-header and favicon assets are not changed here.
+The regular e is accepted. The master regular wordmark uses the selected
+1.35x lettering with its baseline at the D bottom; the k leg descends below
+the D. Application header and favicon assets are not changed here.
 
 ## Editing and export
 
@@ -37,7 +37,8 @@ export. PNG wordmarks use a fixed reference-sized frame rather than
 tight-cropping, to preserve comparison scale and alignment. All production
 wordmark lettering is outlined; no font must be installed to render it.
 
-`sources/compare_wordmark.py /path/to/wordmark-monochrome-reference.png`
+`sources/compare_wordmark.py /path/to/wordmark-monochrome-reference.png
+--native-width 500 --letter-scale 1.35 --baseline-shift 10 --dark-reference-only`
 composes the repeatable review sheet from the exported PNGs. The reference
 stays an external input, not a production SVG raster dependency.
 
@@ -79,7 +80,9 @@ letters down 10 native px (20 px at 2x), leaving the k leg below the D.
 The ink-bottom alignment is not a supported variant. The D never scales
 or moves across variants.
 The comparison frame adds 54 native pixels of right padding, not a scale
-change, so the 1.35 lettering is not clipped. All size transforms are preview-only.
+change, so the 1.35 lettering is not clipped. The 1.35/y188 transform is
+also applied to all three regular master wordmarks and SVG exports.
+Other size transforms remain historical preview options.
 `size-export-commands.txt` records the Inkscape build and each export.
 The yellow cut is vertical at master x331.6546762589928.
 The yellow starts at y395, above the lower-left accent
@@ -93,6 +96,19 @@ the historical construction transform without fitting or displacement.
 size, with labeled top/bottom ends for visual review. Marker locations
 use the first/last coral raster rows with at least half alpha coverage
 in the 8x native CLI render; they do not modify the plane geometry.
+
+`sources/compare_coral.py /path/to/wordmark-monochrome-reference.png
+--inkscape /path/to/inkscape` compares the current band with two thinner
+proposals without changing the master coral clip. Both proposals continue
+the upper inner diagonal beyond the D top, removing the short visible
+vertical closure. The inner boundary moves right by 12 or 20 historical
+reference units (about 3.69 or 6.15 native pixels); the outer D, yellow
+and all lettering remain fixed. At native y145 near the counter nose,
+the right-bowl split is about 49/51 or 41/59 coral/teal by raster width.
+The comparison shows native, 2x and a 12x top-end detail on both backgrounds,
+followed by color wordmark sheets at the selected 1.35x/y188 placement.
+`coral-export-commands.txt` records every Inkscape export. The proposals
+are not master selections until the user picks their geometry.
 
 `sources/trace_reference_e.py /path/to/wordmark-monochrome-reference.png
 --potrace /path/to/potrace` rebuilds the regular e from the light-on-dark
@@ -179,7 +195,7 @@ its descending leg. `sources/layout-command.txt` records the final
 Inkscape bounds query that checks the generated document.
 The heavier comparison frame is wider, not scaled down: both weights
 retain the same D scale and the reference-size/2x row layout.
-Neither proposed weight is selected by this document. The enlarged
+The heavier weight remains unselected. The enlarged
 letters are exported from the same master, not a separate SVG source.
 
 ## Palette

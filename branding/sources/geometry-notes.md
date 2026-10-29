@@ -13,8 +13,11 @@ Potrace coordinates map to native wordmark coordinates by
 (0.005,0,0,-0.005,22,193), then to the 1000-unit master by the inverse of
 translate(16.9,76.6) scale(0.139). No fit-to-bounds or optical correction
 is applied to the source trace. Only the body bottom-left tip is locally
-rounded in the derived master. The exact master bounds map to a native bottom y188; the
-regular baseline y178 is therefore 10 px above it.
+rounded in the derived master. The exact master bounds map to a native bottom y188.
+The regular wordmark uses `REGULAR_WORDMARK_SCALE` = 1.35 about x145.75,
+with `REGULAR_WORDMARK_BASELINE` = 188. Its unscaled baseline y178 moves
+down 10 native pixels, so the k leg descends below the D. Letter paths
+and their internal placements remain unchanged beneath that transform.
 
 `BODY_TIP_INCOMING_T` = 0.78 and `BODY_TIP_OUTGOING_T` = 0.40 split the
 two cubics adjacent to the body tip by de Casteljau subdivision. Their

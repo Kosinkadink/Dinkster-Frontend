@@ -35,7 +35,7 @@ def main():
         if args.regular_wordmark_only and variant.startswith("heavier"):
             continue
         y = (index if index < 3 else index + 1) * 1000
-        width = 1024 if variant.startswith("heavier") else 892
+        width = 1024 if variant.startswith("heavier") else 1000
         options = (
             f"--export-id=wordmark-{variant}",
             "--export-id-only",

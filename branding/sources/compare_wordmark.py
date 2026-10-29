@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--letter-scale", type=float, default=1.0)
     parser.add_argument("--baseline-shift", type=float, default=0.0)
     parser.add_argument("--native-width", type=int, default=446)
+    parser.add_argument("--color", action="store_true")
     args = parser.parse_args()
     reference = Image.open(args.reference).convert("RGB")
     if args.dark_reference_only:
@@ -49,8 +50,9 @@ def main():
         light = Image.open(ROOT / f"previews/wordmark-{prefix}light-2x.png")
         draft.paste(dark, (0, 0), dark)
         draft.paste(light, (0, 506), light)
-        draw.text((140, 490), "MONOCHROME (LIGHT ON DARK)", fill="#F2F4F5", font=font)
-        draw.text((140, 966), "MONOCHROME (DARK ON LIGHT)", fill="#1F242A", font=font)
+        treatment = "COLOR" if args.color else "MONOCHROME"
+        draw.text((140, 490), f"{treatment} (LIGHT ON DARK)", fill="#F2F4F5", font=font)
+        draw.text((140, 966), f"{treatment} (DARK ON LIGHT)", fill="#1F242A", font=font)
         drafts.append(draft)
     guides = (
         ("upper: i top / k,t slope start", "#32B7CB"),
