@@ -129,11 +129,11 @@
 .modal-surface[data-modal='widget-video-document'] { width: min(780px, calc(100vw - 16px)); max-height: min(860px, calc(100vh - 16px)); }
 .modal-surface[data-modal='widget-video-document'] .widget-modal-help { flex: none; padding: var(--dinkster-space-12) var(--dinkster-space-12) 0; }
 .customize-layout { padding: 14px; }
-.customize-layout-intro { margin: 0 0 12px; color: #aaa; }
+.customize-layout-intro { margin: 0 0 12px; color: var(--dinkster-text-secondary); }
 .customize-layout fieldset { margin: 0; padding: 0; border: 0; }
-.customize-layout legend { margin-bottom: 6px; color: #ddd; font-weight: 600; }
-.layout-visibility-row { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 0 8px; border-bottom: 1px solid #333; cursor: pointer; }
-.layout-visibility-row:hover { background: #292929; }
+.customize-layout legend { margin-bottom: 6px; color: var(--dinkster-text-primary); font-weight: 600; }
+.layout-visibility-row { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 0 8px; border-bottom: 1px solid var(--dinkster-border-subtle); cursor: pointer; }
+.layout-visibility-row:hover { background: var(--dinkster-interaction-hover); }
 .layout-visibility-row .product-checkbox { margin: -3px; }
 .projects-dialog { box-sizing: border-box; width: min(480px, calc(100vw - 32px)); min-width: 0; max-width: 100%; padding: var(--dinkster-space-12); }
 .projects-dialog-intro { margin: 0 0 var(--dinkster-space-12); color: var(--dinkster-text-secondary); }
@@ -231,8 +231,8 @@
 .product-action-buttons button:not(.product-button).danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
 
 .queue-button {
-  background: #2e7d32;
-  color: #fff;
+  background: var(--dinkster-action-primary-bg);
+  color: var(--dinkster-action-primary-text);
   border: none;
   border-radius: 5px;
   padding: 6px 18px;
@@ -241,18 +241,18 @@
 }
 
 .queue-button:disabled {
-  background: #3a3a3a;
-  color: #808080;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-disabled);
   cursor: default;
 }
 
-.queue-button:hover:not(:disabled) { background: #388e3c; }
+.queue-button:hover:not(:disabled) { background: var(--dinkster-action-primary-bg); }
 
 .lens-button,
 .view-toggle-button {
-  background: #2b2b2b;
-  color: #b8b8b8;
-  border: 1px solid #3c3c3c;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-secondary);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 5px;
   padding: 5px 12px;
   font-weight: 600;
@@ -261,14 +261,14 @@
 
 .lens-button[aria-pressed='true'],
 .view-toggle-button[aria-pressed='true'] {
-  background: #343434;
-  color: #fff;
-  border-color: #5b5b5b;
+  background: var(--dinkster-interaction-selected);
+  color: var(--dinkster-text-primary);
+  border-color: var(--dinkster-border-strong);
 }
 
 .lens-button:disabled,
 .view-toggle-button:disabled {
-  color: #606060;
+  color: var(--dinkster-text-disabled);
   cursor: default;
 }
 
@@ -411,11 +411,11 @@
   gap: 10px;
   width: min(340px, calc(100vw - 24px));
   padding: 10px 12px;
-  border: 1px solid #b45b5b;
+  border: 1px solid var(--dinkster-danger-border);
   border-radius: 7px;
-  background: #321f1ff2;
-  color: #f4dede;
-  box-shadow: 0 6px 20px #000a;
+  background: var(--dinkster-danger-background);
+  color: var(--dinkster-danger-foreground);
+  box-shadow: var(--dinkster-elevation-high);
   pointer-events: auto;
 }
 
@@ -433,6 +433,6 @@
   color: inherit;
   cursor: pointer;
 }
-.gesture-refusal-toast button:hover { background: #ffffff1a; }
-.gesture-refusal-toast button:focus-visible { outline: 2px solid #ef9a9a; outline-offset: 1px; }
+.gesture-refusal-toast button:hover { background: var(--dinkster-interaction-hover); }
+.gesture-refusal-toast button:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 1px; }
 .gesture-refusal-toast svg { width: 15px; height: 15px; }

@@ -85,8 +85,11 @@ export function createBootIndicatorElement(): {
   el.className = 'boot-indicator'
   el.innerHTML = [
     '<div class="boot-indicator-inner">',
-    '<div class="boot-indicator-pulse"></div>',
-    '<div class="boot-indicator-name">Dinkster</div>',
+    '<img class="brand-symbol boot-indicator-pulse" src="/branding/svg/dinkster-symbol-color.svg" alt="" />',
+    '<div class="brand-wordmark boot-indicator-name">',
+    '<img class="brand-on-dark" src="/branding/svg/dinkster-wordmark-color-dark.svg" alt="Dinkster" />',
+    '<img class="brand-on-light" src="/branding/svg/dinkster-wordmark-color-light.svg" alt="Dinkster" />',
+    '</div>',
     '<div class="boot-indicator-waiting" hidden>Waiting for backend discovery...</div>',
     '</div>',
   ].join('')

@@ -11,6 +11,7 @@ import {
 } from './desktop-bridge.js'
 import { MountFolderForm } from './MountFolderForm.js'
 import { useAppMessage } from './locale.js'
+import { BrandMark } from './BrandMark.js'
 import { ProductButton, ProductTextArea, ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 
@@ -211,6 +212,7 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
 
   return (
     <section class="desktop-management" aria-live="polite">
+      <BrandMark />
       <Show when={bridge} fallback={<p>{message('desktopManagement.unavailable')}</p>}>
         <Show when={info()} fallback={<p>{message('desktopManagement.loading')}</p>}>
           {(current) => <>

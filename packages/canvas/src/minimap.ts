@@ -296,11 +296,14 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
   if (vp) {
     const rect = minimapViewportRect(tf, vp, width, height)
     if (rect.width > 0 && rect.height > 0) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
+      ctx.fillStyle = t.colors.nodeSelectedBorder
+      ctx.globalAlpha = 0.2
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'
+      ctx.strokeStyle = t.colors.nodeSelectedBorder
+      ctx.globalAlpha = 0.9
       ctx.lineWidth = 2
       ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
+      ctx.globalAlpha = 1
     }
   }
 

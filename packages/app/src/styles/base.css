@@ -55,7 +55,7 @@ textarea {
   place-items: center;
   padding: 32px;
   background:
-    radial-gradient(circle at 50% 20%, rgb(44 87 96 / 35%), transparent 42%),
+    radial-gradient(circle at 50% 20%, var(--dinkster-interaction-hover), transparent 42%),
     var(--dinkster-surface-canvas);
 }
 
@@ -65,7 +65,7 @@ textarea {
   border: 1px solid var(--dinkster-border-subtle);
   border-radius: 16px;
   background: var(--dinkster-surface-panel);
-  box-shadow: 0 24px 80px rgb(0 0 0 / 40%);
+  box-shadow: var(--dinkster-elevation-high);
 }
 
 .desktop-setup-mark {
@@ -162,10 +162,10 @@ html,
 body,
 #root {
   --scrollbar-track: var(--dinkster-surface-canvas);
-  --scrollbar-thumb: #444;
-  --scrollbar-thumb-hover: #555;
-  --image-canvas-checker: #292929;
-  --image-canvas-background: #202020;
+  --scrollbar-thumb: var(--dinkster-border-strong);
+  --scrollbar-thumb-hover: var(--dinkster-text-secondary);
+  --image-canvas-checker: var(--dinkster-surface-raised);
+  --image-canvas-background: var(--dinkster-surface-panel);
   --image-tool-rail-width: 150px;
   margin: 0;
   height: 100%;
@@ -190,6 +190,15 @@ body,
   font-weight: var(--dinkster-weight-semibold);
   letter-spacing: 0.06em;
 }
+
+.brand-wordmark { display: inline-flex; width: 110px; vertical-align: middle; }
+.brand-wordmark img { display: block; width: 100%; height: auto; }
+.brand-wordmark .brand-on-light { display: none; }
+[data-theme='light'] .brand-wordmark .brand-on-dark { display: none; }
+[data-theme='light'] .brand-wordmark .brand-on-light { display: block; }
+.brand-symbol { display: block; width: 32px; height: 32px; object-fit: contain; }
+.desktop-setup-mark.brand-symbol { width: 52px; height: 52px; padding: 0; background: none; }
+.boot-indicator-name.brand-wordmark { width: 200px; }
 
 .app-menu { position: relative; }
 .app-menu-button.product-button {

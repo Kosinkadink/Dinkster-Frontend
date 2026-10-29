@@ -8,6 +8,7 @@ import { createBootIndicatorElement, startBootIndicator } from './boot-indicator
 import { DesktopSetup } from './DesktopSetup.js'
 import { desktopBridge, type DesktopLifecycleStatus } from './desktop-bridge.js'
 import { bindLocale, bindPersistedLocale } from './locale.js'
+import { bindTheme, bindPersistedTheme } from './theme.js'
 import { initializeProjectScope, projectIdFromSearch } from './projects.js'
 import type { CanvasTestHandles } from './test-bridge.js'
 import './fonts.css'
@@ -18,6 +19,7 @@ import './styles.css'
 // that touches storage) constructs, and it never changes within a page:
 // switching projects reloads the window.
 initializeProjectScope(projectIdFromSearch(globalThis.location?.search ?? ''))
+const disposeBootTheme = bindPersistedTheme()
 
 // Boot indicator: #root is blank while discoverBackend() awaits (up to the
 // probe timeout on a slow/dead origin). Show a minimal centered indicator so
@@ -113,6 +115,8 @@ async function bootstrap(): Promise<void> {
   })
   hideBoot()
   app = new AppState({ defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster' })
+  disposeBootTheme()
+  bindTheme(app.settings)
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
   await app.enableWorkspaceAuthority()
   const desktopWindow = desktop

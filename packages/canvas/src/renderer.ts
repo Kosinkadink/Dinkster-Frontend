@@ -806,7 +806,7 @@ export class CanvasRenderer {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly tokens: DesignTokens,
+    private tokens: DesignTokens,
     private readonly paintWidget: WidgetPainter = defaultWidgetPainter,
   ) {
     this.loop = this.loop.bind(this)
@@ -899,6 +899,15 @@ export class CanvasRenderer {
     if (this.reducedMotion === reduced) return
     this.reducedMotion = reduced
     this.invalidate()
+  }
+
+  setColors(colors: DesignTokens['colors']): void {
+    this.tokens = { ...this.tokens, colors }
+    this.invalidate()
+  }
+
+  getTokens(): DesignTokens {
+    return this.tokens
   }
 
   private companions: CompanionMap = {}

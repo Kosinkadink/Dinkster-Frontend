@@ -1,6 +1,28 @@
 import { defineConfig } from 'vite'
 import solid from 'vite-plugin-solid'
 import { semanticCssRoot } from '../core/src/ui/tokens.js'
+import { readFileSync, readdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { extname } from 'node:path'
+
+const brandRoot = new URL('../../branding/', import.meta.url)
+const brandFiles = ['svg', 'raster/color', 'platform'].flatMap((directory) =>
+  readdirSync(new URL(`${directory}/`, brandRoot)).map(
+    (name) => `${directory}/${name}`,
+  ),
+)
+const manifest = JSON.stringify({
+  name: 'Dinkster',
+  short_name: 'Dinkster',
+  start_url: './',
+  display: 'standalone',
+  icons: [256, 512].map((size) => ({
+    src: `./branding/raster/color/${size}.png`,
+    sizes: `${size}x${size}`,
+    type: 'image/png',
+    purpose: 'any',
+  })),
+})
 
 // Dev proxy: the app runs same-origin (no CORS flags) against up to two
 // backends.
@@ -18,7 +40,9 @@ import { semanticCssRoot } from '../core/src/ui/tokens.js'
 // (default http://127.0.0.1:8199; DINKSTER_BACKEND kept as a legacy alias).
 const NATIVE = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:3639'
 const V1 =
-  process.env['DINKSTER_V1_BACKEND'] ?? process.env['DINKSTER_BACKEND'] ?? 'http://127.0.0.1:8199'
+  process.env['DINKSTER_V1_BACKEND'] ??
+  process.env['DINKSTER_BACKEND'] ??
+  'http://127.0.0.1:8199'
 const STUB_V1_ENTRY = process.env['DINKSTER_STUB_V1_ENTRY'] === '1'
 const V1_STUB_ID = '\0dinkster-v1-connection-kind-stub'
 
@@ -30,10 +54,55 @@ const nativeHttp = { target: NATIVE, changeOrigin: true }
 export default defineConfig({
   plugins: [
     {
+      name: 'dinkster-brand-assets',
+      configureServer(server) {
+        server.middlewares.use((request, response, next) => {
+          const path = request.url?.split('?')[0]
+          if (path === '/manifest.webmanifest') {
+            response.setHeader('Content-Type', 'application/manifest+json')
+            response.end(manifest)
+            return
+          }
+          const relative = path?.startsWith('/branding/')
+            ? path.slice('/branding/'.length)
+            : ''
+          if (!brandFiles.includes(relative)) return next()
+          response.setHeader(
+            'Content-Type',
+            {
+              '.svg': 'image/svg+xml',
+              '.png': 'image/png',
+              '.ico': 'image/x-icon',
+              '.icns': 'application/octet-stream',
+            }[extname(relative)] ?? 'application/octet-stream',
+          )
+          response.end(readFileSync(new URL(relative, brandRoot)))
+        })
+      },
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'manifest.webmanifest',
+          source: manifest,
+        })
+        for (const path of brandFiles)
+          this.emitFile({
+            type: 'asset',
+            fileName: `branding/${path}`,
+            source: readFileSync(new URL(path, brandRoot)),
+          })
+      },
+    },
+    {
       name: 'dinkster-v1-connection-kind-stub',
       enforce: 'pre',
       resolveId(source, importer) {
-        if (STUB_V1_ENTRY && source === './v1-connection-kind.js' && importer?.endsWith('/app-state.ts')) return V1_STUB_ID
+        if (
+          STUB_V1_ENTRY &&
+          source === './v1-connection-kind.js' &&
+          importer?.endsWith('/app-state.ts')
+        )
+          return V1_STUB_ID
         return null
       },
       load(id) {
@@ -52,12 +121,14 @@ export default defineConfig({
       name: 'dinkster-semantic-tokens',
       transformIndexHtml: {
         order: 'pre',
-        handler: () => [{
-          tag: 'style',
-          attrs: { 'data-dinkster-semantic-tokens': '' },
-          children: semanticCssRoot,
-          injectTo: 'head-prepend',
-        }],
+        handler: () => [
+          {
+            tag: 'style',
+            attrs: { 'data-dinkster-semantic-tokens': '' },
+            children: semanticCssRoot,
+            injectTo: 'head-prepend',
+          },
+        ],
       },
     },
     solid(),
@@ -66,7 +137,7 @@ export default defineConfig({
     port: 5199,
     fs: {
       // Allow importing golden workflow fixtures from @dinkster/core.
-      allow: ['..'],
+      allow: ['..', fileURLToPath(brandRoot)],
     },
     proxy: {
       // Native engine: whole surfaces, never SPA fallthrough.
@@ -86,7 +157,12 @@ export default defineConfig({
       '/history': v1Http,
       '/queue': v1Http,
       '/system_stats': v1Http,
-      '/ws': { target: V1, ws: true, changeOrigin: true, headers: { origin: V1 } },
+      '/ws': {
+        target: V1,
+        ws: true,
+        changeOrigin: true,
+        headers: { origin: V1 },
+      },
       // Second same-origin route to the SAME v1 backend. E2e registers
       // '/b2' as an additional backend (distinct connection id/base url)
       // without needing a second ComfyUI server.
