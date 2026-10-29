@@ -128,17 +128,32 @@ proof variants are not production selections.
 ## Counter and larger-corner proposals
 
 `compare_geometry.py --counter-options` retains the approved geometry and
-renders full D proposals at 1024 px. The three smaller counters keep
-the y=157/285 flats, symmetry about y=221, n=3.2 superellipse exponent,
-left radii 26, island and channel gaps unchanged. Only the horizontal
-radius of the superellipse half is reduced, with its left endpoint
-x=324 fixed. The area metric closes the counter at the island's straight
-right edge x=298; it excludes the open channel. The sampled right-half
-area plus the fixed 26x128 flat rectangle gives horizontal radius
-factors 0.854588344, 0.709176687 and 0.563765031 for 10/20/30 percent
-less area. The resulting right extremes are 378.693654, 369.387308 and
-360.080962. Vertical size is deliberately retained to preserve the gaps
-and left corners; these are aspect-ratio proposals, not chosen geometry.
+renders full D proposals at 1024 px. The reshaped counter reduces the
+157..285 vertical range to 157..269. Its upper shoulder tapers into a
+lower-biased rounded nose, rather than a symmetric squircle. It starts
+from the n=3.2 sample points (x,y), with u=(y-157)/128, then maps them to
+(324+16*u+(x-324)*(0.5+0.5*u), 157+112*u). This warp is the explicit
+counter shape change; the unchanged reference still uses the unwarped
+n=3.2 profile. The left corner radii remain 26; the bottom-left vertex
+moves along the existing channel to (314,269). Island and channel lines,
+their gaps and outer radii stay unchanged.
+
+The sampled counter-area metric closes at the island's straight right
+edge x=298, excluding the open channels. It includes the new bottom-left
+fillet before measuring. A horizontal scale around x=298 is solved from
+the area target, showing unchanged, -10, -20 and -30 percent area versus
+the current counter. All four use the same vertical profile. Maintaining
+the old area with less height requires a wider counter; the sheet shows
+that explicitly, rather than silently discarding the same-area option.
+
+At the horizontal flats, the current top stroke is 157-68 = 89 source
+units and the bottom stroke is 360-285 = 75. The proposals keep top 89
+and increase bottom to 360-269 = 91. The hole's maximum vertical span
+between the central flats reduces from 128 to 112 units; the left
+channel still follows its unchanged line. At common interior source x=338, the
+counter upper shoulder changes the actual vertical clearances; the
+checkpoint comment reports those measured per-option stroke thicknesses
+as well as these flat-reference values.
 
 The x=232 trim's corner uses a real radius-24 circle centered at
 (256,336). The old vertical trim segment is only 9 units tall, so a full
@@ -147,11 +162,8 @@ The proposal ends the circle at its exact intersection with x+y=583,
 approximately (235.1369,347.8631). The arc is tangent to the baseline but
 not to the channel; no self-overlapping vertical/arc segment is inserted.
 The x=232 trim line is therefore a construction boundary rather than a
-surviving straight segment. The comparison explicitly shows a second,
-fully tangent radius-24 alternative on the original baseline/channel
-intersection. That alternative's leftmost point is about x=256.94,
-farther right than the requested trim. Neither corner construction is
-silently treated as the user's selection. The current shape and an
-unchanged-counter rounded proposal isolate the corner from the counter
-change. All are proof-only SVGs and PNGs, with matching mono/color alpha;
+surviving straight segment. The partial arc is the selected construction
+for these proofs; the fully tangent alternative is not selected. The
+master is not replaced until the user selects the new counter. All
+proposals are proof-only SVGs and PNGs with matching mono/color alpha;
 the master and production symbol exports stay unchanged.

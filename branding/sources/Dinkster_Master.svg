@@ -94,11 +94,11 @@
   </g>
   <g id="06_Wordmark_inkster" inkscape:groupmode="layer" inkscape:label="06_Wordmark_inkster" style="display:none">
     <g fill="#1F242A" transform="translate(-300 -640) scale(4)">
-      <path id="editable-i" d="M2 0H19V8L0 16V2Z M0 20L15 12V49L8 56H0Z" transform="translate(149 122)" fill-rule="evenodd" />
+      <path id="editable-i" d="M2 0H19V8L0 16V2Z M0 20L15 13.68421052631579V49L8 56H0Z" transform="translate(149 122)" fill-rule="evenodd" />
       <path id="editable-n" d="M0 56V25L12 14H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z" transform="translate(167 122)" fill-rule="evenodd" />
-      <path id="editable-k" d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22L29 14H49L30 33L67 70H44L18.5 44.5L7 56Z" transform="translate(212 122)" fill-rule="evenodd" />
+      <path id="editable-k" d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22.201010126776666L29.201010126776666 14H49L30 33L67 70H47.201010126776666L20.100505063388333 42.89949493661167L7 56Z" transform="translate(212 122)" fill-rule="evenodd" />
       <path id="editable-s" d="M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z" transform="translate(263 122)" fill-rule="evenodd" />
-      <path id="editable-t" d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H29V56H12L0 44Z" transform="translate(302 122)" fill-rule="evenodd" />
+      <path id="editable-t" d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H23L29 56H12L0 44Z" transform="translate(302 122)" fill-rule="evenodd" />
       <path id="editable-e" d="M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z" transform="translate(331 122)" fill-rule="evenodd" />
       <path id="editable-r" d="M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z" transform="translate(374 122)" fill-rule="evenodd" />
     </g>
@@ -169,13 +169,13 @@
         <path id="wordmark-mono-d" fill="currentColor" d="M156.4 176.8 L680.0 176.8 A62.0 62.0 0 0 1 723.4 194.5 L890.1 357.8 A99.6 99.6 0 0 1 920.0 429.0 L920.0 584.9 A99.6 99.6 0 0 1 890.8 655.3 L738.6 807.6 A53.1 53.1 0 0 1 701.0 823.2 L313.5 823.2 L462.7 674.0 A57.5 57.5 0 0 1 503.4 657.2 L537.1 657.2 L553.8 657.1 L562.8 657.0 L570.3 656.7 L576.8 656.4 L582.6 656.0 L588.1 655.4 L593.2 654.8 L597.9 654.1 L602.5 653.3 L606.8 652.4 L610.9 651.4 L614.8 650.3 L618.5 649.1 L622.2 647.8 L625.6 646.5 L628.9 645.0 L632.1 643.4 L635.2 641.7 L638.1 639.9 L641.0 638.1 L643.7 636.1 L646.3 634.0 L648.8 631.8 L651.1 629.6 L653.4 627.2 L655.6 624.7 L657.7 622.1 L659.7 619.4 L661.5 616.5 L663.3 613.6 L665.0 610.5 L666.6 607.3 L668.0 604.0 L669.4 600.6 L670.7 597.0 L671.9 593.2 L673.0 589.3 L674.0 585.2 L674.9 580.9 L675.7 576.4 L676.4 571.6 L677.0 566.5 L677.5 561.1 L678.0 555.2 L678.3 548.7 L678.5 541.3 L678.7 532.2 L678.7 515.5 L678.7 498.8 L678.5 489.7 L678.3 482.3 L678.0 475.8 L677.5 469.9 L677.0 464.5 L676.4 459.4 L675.7 454.6 L674.9 450.1 L674.0 445.8 L673.0 441.7 L671.9 437.8 L670.7 434.0 L669.4 430.4 L668.0 427.0 L666.6 423.6 L665.0 420.4 L663.3 417.4 L661.5 414.4 L659.7 411.6 L657.7 408.9 L655.6 406.3 L653.4 403.8 L651.1 401.4 L648.8 399.1 L646.3 397.0 L643.7 394.9 L641.0 392.9 L638.1 391.0 L635.2 389.3 L632.1 387.6 L628.9 386.0 L625.6 384.5 L622.2 383.2 L618.5 381.9 L614.8 380.7 L610.9 379.6 L606.8 378.6 L602.5 377.7 L597.9 376.9 L593.2 376.2 L588.1 375.5 L582.6 375.0 L576.8 374.6 L570.3 374.3 L562.8 374.0 L553.8 373.9 L537.1 373.8 L377.2 373.8 A57.5 57.5 0 0 1 336.5 357.0 Z M333.4 431.4 A17.7 17.7 0 0 1 351.1 413.7 L457.4 413.7 A22.1 22.1 0 0 1 479.5 435.8 L479.5 591.5 A22.1 22.1 0 0 1 473.0 607.2 L257.1 823.2 L112.1 823.2 A13.3 13.3 0 0 1 102.7 800.5 L333.4 569.7 Z" />
       </g>
       <g fill="currentColor">
-        <path id="mono-i" d="M2 0H19V8L0 16V2Z M0 20L15 12V49L8 56H0Z" transform="translate(147.75 122)" fill-rule="evenodd" />
+        <path id="mono-i" d="M2 0H19V8L0 16V2Z M0 20L15 13.68421052631579V49L8 56H0Z" transform="translate(147.75 122)" fill-rule="evenodd" />
         <path id="mono-n" d="M0 56V25L12 14H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z" transform="translate(165.75 122)" fill-rule="evenodd" />
-        <path id="mono-k" d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22L29 14H49L30 33L67 70H44L18.5 44.5L7 56Z" transform="translate(203.75 122)" fill-rule="evenodd" />
+        <path id="mono-k" d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22.201010126776666L29.201010126776666 14H49L30 33L67 70H47.201010126776666L20.100505063388333 42.89949493661167L7 56Z" transform="translate(203.75 122)" fill-rule="evenodd" />
         <path id="mono-s" d="M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z" transform="translate(247.875 122)" fill-rule="evenodd" />
-        <path id="mono-t" d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H29V56H12L0 44Z" transform="translate(287.375 122)" fill-rule="evenodd" />
-        <path id="mono-e" d="M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z" transform="translate(318.75 122)" fill-rule="evenodd" />
-        <path id="mono-r" d="M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z" transform="translate(359.75 122)" fill-rule="evenodd" />
+        <path id="mono-t" d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H23L29 56H12L0 44Z" transform="translate(287.375 122)" fill-rule="evenodd" />
+        <path id="mono-e" d="M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z" transform="translate(316.125 122)" fill-rule="evenodd" />
+        <path id="mono-r" d="M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z" transform="translate(357.125 122)" fill-rule="evenodd" />
       </g>
     </g>
     <g id="wordmark-dark" transform="translate(-60 750) scale(3.4)" color="#F2F4F5">
@@ -183,13 +183,13 @@
         <path id="wordmark-dark-d" fill="currentColor" d="M156.4 176.8 L680.0 176.8 A62.0 62.0 0 0 1 723.4 194.5 L890.1 357.8 A99.6 99.6 0 0 1 920.0 429.0 L920.0 584.9 A99.6 99.6 0 0 1 890.8 655.3 L738.6 807.6 A53.1 53.1 0 0 1 701.0 823.2 L313.5 823.2 L462.7 674.0 A57.5 57.5 0 0 1 503.4 657.2 L537.1 657.2 L553.8 657.1 L562.8 657.0 L570.3 656.7 L576.8 656.4 L582.6 656.0 L588.1 655.4 L593.2 654.8 L597.9 654.1 L602.5 653.3 L606.8 652.4 L610.9 651.4 L614.8 650.3 L618.5 649.1 L622.2 647.8 L625.6 646.5 L628.9 645.0 L632.1 643.4 L635.2 641.7 L638.1 639.9 L641.0 638.1 L643.7 636.1 L646.3 634.0 L648.8 631.8 L651.1 629.6 L653.4 627.2 L655.6 624.7 L657.7 622.1 L659.7 619.4 L661.5 616.5 L663.3 613.6 L665.0 610.5 L666.6 607.3 L668.0 604.0 L669.4 600.6 L670.7 597.0 L671.9 593.2 L673.0 589.3 L674.0 585.2 L674.9 580.9 L675.7 576.4 L676.4 571.6 L677.0 566.5 L677.5 561.1 L678.0 555.2 L678.3 548.7 L678.5 541.3 L678.7 532.2 L678.7 515.5 L678.7 498.8 L678.5 489.7 L678.3 482.3 L678.0 475.8 L677.5 469.9 L677.0 464.5 L676.4 459.4 L675.7 454.6 L674.9 450.1 L674.0 445.8 L673.0 441.7 L671.9 437.8 L670.7 434.0 L669.4 430.4 L668.0 427.0 L666.6 423.6 L665.0 420.4 L663.3 417.4 L661.5 414.4 L659.7 411.6 L657.7 408.9 L655.6 406.3 L653.4 403.8 L651.1 401.4 L648.8 399.1 L646.3 397.0 L643.7 394.9 L641.0 392.9 L638.1 391.0 L635.2 389.3 L632.1 387.6 L628.9 386.0 L625.6 384.5 L622.2 383.2 L618.5 381.9 L614.8 380.7 L610.9 379.6 L606.8 378.6 L602.5 377.7 L597.9 376.9 L593.2 376.2 L588.1 375.5 L582.6 375.0 L576.8 374.6 L570.3 374.3 L562.8 374.0 L553.8 373.9 L537.1 373.8 L377.2 373.8 A57.5 57.5 0 0 1 336.5 357.0 Z M333.4 431.4 A17.7 17.7 0 0 1 351.1 413.7 L457.4 413.7 A22.1 22.1 0 0 1 479.5 435.8 L479.5 591.5 A22.1 22.1 0 0 1 473.0 607.2 L257.1 823.2 L112.1 823.2 A13.3 13.3 0 0 1 102.7 800.5 L333.4 569.7 Z" />
       </g>
       <g fill="currentColor">
-        <path id="dark-i" d="M2 0H19V8L0 16V2Z M0 20L15 12V49L8 56H0Z" transform="translate(147.75 122)" fill-rule="evenodd" />
+        <path id="dark-i" d="M2 0H19V8L0 16V2Z M0 20L15 13.68421052631579V49L8 56H0Z" transform="translate(147.75 122)" fill-rule="evenodd" />
         <path id="dark-n" d="M0 56V25L12 14H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z" transform="translate(165.75 122)" fill-rule="evenodd" />
-        <path id="dark-k" d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22L29 14H49L30 33L67 70H44L18.5 44.5L7 56Z" transform="translate(203.75 122)" fill-rule="evenodd" />
+        <path id="dark-k" d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22.201010126776666L29.201010126776666 14H49L30 33L67 70H47.201010126776666L20.100505063388333 42.89949493661167L7 56Z" transform="translate(203.75 122)" fill-rule="evenodd" />
         <path id="dark-s" d="M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z" transform="translate(247.875 122)" fill-rule="evenodd" />
-        <path id="dark-t" d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H29V56H12L0 44Z" transform="translate(287.375 122)" fill-rule="evenodd" />
-        <path id="dark-e" d="M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z" transform="translate(318.75 122)" fill-rule="evenodd" />
-        <path id="dark-r" d="M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z" transform="translate(359.75 122)" fill-rule="evenodd" />
+        <path id="dark-t" d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H23L29 56H12L0 44Z" transform="translate(287.375 122)" fill-rule="evenodd" />
+        <path id="dark-e" d="M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z" transform="translate(316.125 122)" fill-rule="evenodd" />
+        <path id="dark-r" d="M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z" transform="translate(357.125 122)" fill-rule="evenodd" />
       </g>
     </g>
     <g id="wordmark-light" transform="translate(-60 1750) scale(3.4)" color="#1F242A">
@@ -197,13 +197,13 @@
         <path id="wordmark-light-d" fill="currentColor" d="M156.4 176.8 L680.0 176.8 A62.0 62.0 0 0 1 723.4 194.5 L890.1 357.8 A99.6 99.6 0 0 1 920.0 429.0 L920.0 584.9 A99.6 99.6 0 0 1 890.8 655.3 L738.6 807.6 A53.1 53.1 0 0 1 701.0 823.2 L313.5 823.2 L462.7 674.0 A57.5 57.5 0 0 1 503.4 657.2 L537.1 657.2 L553.8 657.1 L562.8 657.0 L570.3 656.7 L576.8 656.4 L582.6 656.0 L588.1 655.4 L593.2 654.8 L597.9 654.1 L602.5 653.3 L606.8 652.4 L610.9 651.4 L614.8 650.3 L618.5 649.1 L622.2 647.8 L625.6 646.5 L628.9 645.0 L632.1 643.4 L635.2 641.7 L638.1 639.9 L641.0 638.1 L643.7 636.1 L646.3 634.0 L648.8 631.8 L651.1 629.6 L653.4 627.2 L655.6 624.7 L657.7 622.1 L659.7 619.4 L661.5 616.5 L663.3 613.6 L665.0 610.5 L666.6 607.3 L668.0 604.0 L669.4 600.6 L670.7 597.0 L671.9 593.2 L673.0 589.3 L674.0 585.2 L674.9 580.9 L675.7 576.4 L676.4 571.6 L677.0 566.5 L677.5 561.1 L678.0 555.2 L678.3 548.7 L678.5 541.3 L678.7 532.2 L678.7 515.5 L678.7 498.8 L678.5 489.7 L678.3 482.3 L678.0 475.8 L677.5 469.9 L677.0 464.5 L676.4 459.4 L675.7 454.6 L674.9 450.1 L674.0 445.8 L673.0 441.7 L671.9 437.8 L670.7 434.0 L669.4 430.4 L668.0 427.0 L666.6 423.6 L665.0 420.4 L663.3 417.4 L661.5 414.4 L659.7 411.6 L657.7 408.9 L655.6 406.3 L653.4 403.8 L651.1 401.4 L648.8 399.1 L646.3 397.0 L643.7 394.9 L641.0 392.9 L638.1 391.0 L635.2 389.3 L632.1 387.6 L628.9 386.0 L625.6 384.5 L622.2 383.2 L618.5 381.9 L614.8 380.7 L610.9 379.6 L606.8 378.6 L602.5 377.7 L597.9 376.9 L593.2 376.2 L588.1 375.5 L582.6 375.0 L576.8 374.6 L570.3 374.3 L562.8 374.0 L553.8 373.9 L537.1 373.8 L377.2 373.8 A57.5 57.5 0 0 1 336.5 357.0 Z M333.4 431.4 A17.7 17.7 0 0 1 351.1 413.7 L457.4 413.7 A22.1 22.1 0 0 1 479.5 435.8 L479.5 591.5 A22.1 22.1 0 0 1 473.0 607.2 L257.1 823.2 L112.1 823.2 A13.3 13.3 0 0 1 102.7 800.5 L333.4 569.7 Z" />
       </g>
       <g fill="currentColor">
-        <path id="light-i" d="M2 0H19V8L0 16V2Z M0 20L15 12V49L8 56H0Z" transform="translate(147.75 122)" fill-rule="evenodd" />
+        <path id="light-i" d="M2 0H19V8L0 16V2Z M0 20L15 13.68421052631579V49L8 56H0Z" transform="translate(147.75 122)" fill-rule="evenodd" />
         <path id="light-n" d="M0 56V25L12 14H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z" transform="translate(165.75 122)" fill-rule="evenodd" />
-        <path id="light-k" d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22L29 14H49L30 33L67 70H44L18.5 44.5L7 56Z" transform="translate(203.75 122)" fill-rule="evenodd" />
+        <path id="light-k" d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22.201010126776666L29.201010126776666 14H49L30 33L67 70H47.201010126776666L20.100505063388333 42.89949493661167L7 56Z" transform="translate(203.75 122)" fill-rule="evenodd" />
         <path id="light-s" d="M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z" transform="translate(247.875 122)" fill-rule="evenodd" />
-        <path id="light-t" d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H29V56H12L0 44Z" transform="translate(287.375 122)" fill-rule="evenodd" />
-        <path id="light-e" d="M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z" transform="translate(318.75 122)" fill-rule="evenodd" />
-        <path id="light-r" d="M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z" transform="translate(359.75 122)" fill-rule="evenodd" />
+        <path id="light-t" d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H23L29 56H12L0 44Z" transform="translate(287.375 122)" fill-rule="evenodd" />
+        <path id="light-e" d="M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z" transform="translate(316.125 122)" fill-rule="evenodd" />
+        <path id="light-r" d="M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z" transform="translate(357.125 122)" fill-rule="evenodd" />
       </g>
     </g>
     <g id="wordmark-heavier-dark" transform="translate(-60 3750) scale(3.4)" color="#F2F4F5">
@@ -236,11 +236,11 @@
     </g>
     <g id="letter-sheet" transform="translate(0 7000)">
       <rect width="560" height="260" opacity="0" />
-      <path d="M2 0H19V8L0 16V2Z M0 20L15 12V49L8 56H0Z" fill="#1F242A" fill-rule="evenodd" transform="translate(8 20)" />
+      <path d="M2 0H19V8L0 16V2Z M0 20L15 13.68421052631579V49L8 56H0Z" fill="#1F242A" fill-rule="evenodd" transform="translate(8 20)" />
       <path d="M0 56V25L12 14H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z" fill="#1F242A" fill-rule="evenodd" transform="translate(88 20)" />
-      <path d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22L29 14H49L30 33L67 70H44L18.5 44.5L7 56Z" fill="#1F242A" fill-rule="evenodd" transform="translate(168 20)" />
+      <path d="M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V22.201010126776666L29.201010126776666 14H49L30 33L67 70H47.201010126776666L20.100505063388333 42.89949493661167L7 56Z" fill="#1F242A" fill-rule="evenodd" transform="translate(168 20)" />
       <path d="M36 14L30 26H15L32 37Q39 42 35 49Q32 56 23 56H12L0 44H22L5 33Q-2 28 2 21Q6 14 15 14Z" fill="#1F242A" fill-rule="evenodd" transform="translate(248 20)" />
-      <path d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H29V56H12L0 44Z" fill="#1F242A" fill-rule="evenodd" transform="translate(328 20)" />
+      <path d="M0 0L14 -11V14H30L24 27H14V39Q14 44 20 44H23L29 56H12L0 44Z" fill="#1F242A" fill-rule="evenodd" transform="translate(328 20)" />
       <path d="M40 25L16 43H38L31 56H18Q0 56 0 38V26A12 12 0 0 1 12 14H25Q34 14 40 25Z M14 34V28A2 2 0 0 1 16 26H25Z" fill="#1F242A" fill-rule="evenodd" transform="translate(408 20)" />
       <path d="M0 56V29L17 14H33L21 27H17L14 30V49L7 56Z" fill="#1F242A" fill-rule="evenodd" transform="translate(488 20)" />
       <path d="M0 0H17V6.933333L-2 17.066667V2Z M0 28.28999209486166L15 20.28999209486166V49L8 56H0Z" fill="#1F242A" fill-rule="evenodd" transform="translate(8 150)" stroke="#1F242A" stroke-width="5.306086956521742" stroke-linejoin="miter" />

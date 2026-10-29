@@ -44,17 +44,21 @@ The regular e joins flat top/left segments with a 12-unit circular arc.
 The blue line is the start of the k/t top slopes, not their highest
 point; the i dot's top edge ends on that line and never rises above it.
 The regular k beam ends in a triangle at (7,56), with its cut
-meeting the lower leg at (18.5,44.5). The i dot/stem separation is reduced
-by moving the stem top up four units. The e counter joins its flat top
-and left with a tangent 2-unit arc.
+meeting the lower leg at approximately (20.1005,42.8995). Both diagonal
+strokes have the bar's 14-unit perpendicular thickness, not a 14-unit
+horizontal span. The i's opposing faces have slope -8/19 and a four-unit
+vertical separation; its dot shape is unchanged. The t's lower-right
+face runs from (23,44) to (29,56). The e counter joins its flat top and
+left with a tangent 2-unit arc.
 Reference-image guides are measured raster estimates, not vector
 constraints imposed on or alterations to the supplied image.
 
 `compare_geometry.py --counter-options --inkscape /path/to/inkscape`
 renders the full-size counter proposals without changing the approved
-source or master. The comparison includes the current shape, the x=232
-trim with a 24-unit corner arc, three smaller counters, and a tangent
-24-unit corner alternative. `counter-export-commands.txt` records the
+source or master. The comparison includes the current shape and a
+vertically shallower, bottom-biased rounded counter at unchanged, -10,
+-20 and -30 percent area, each with the partial radius-24 x=232 corner.
+`counter-export-commands.txt` records the
 renderer and every CLI export. See `geometry-notes.md` for the corner's
 channel-intersection constraint and the counter-area measurement.
 

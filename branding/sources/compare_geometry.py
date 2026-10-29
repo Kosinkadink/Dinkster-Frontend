@@ -23,7 +23,6 @@ def counter_options(inkscape):
         (1000 - (geometry.BOTTOM - geometry.TOP) * scale) / 2 - geometry.TOP * scale,
     )
     bowl = geometry.bowl_side()[0][1]
-    left = bowl[0][0]
     # Counter area is measured right of the island's straight stem edge.
     points = [
         (geometry.STEM_R, geometry.APERTURE_BOTTOM),
@@ -34,24 +33,49 @@ def counter_options(inkscape):
         sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(points, points[1:] + points[:1]))
         / 2
     )
-    fixed = (left - geometry.STEM_R) * (
-        geometry.APERTURE_BOTTOM - geometry.APERTURE_TOP
-    )
+    # Retain n=3.2 corner sampling, but taper the upper shoulder and bias the
+    # rounded nose downward. The top stays fixed to preserve the island gap.
+    reshaped = []
+    for x, y in bowl:
+        u = (y - 157) / 128
+        reshaped.append((324 + 16 * u + (x - 324) * (0.5 + 0.5 * u), 157 + 112 * u))
+
+    def counter_area(factor):
+        profile = [(298 + (x - 298) * factor, y) for x, y in reshaped]
+        contour = [
+            ("aperture_bl", 314, 269),
+            ("poly", profile),
+            ("close_top", 298, 157),
+            ("close_bottom", 298, 285),
+        ]
+        polygon = geometry.build(contour, geometry.RADII)[1]
+        return abs(
+            sum(
+                a[0] * b[1] - b[0] * a[1]
+                for a, b in zip(polygon, polygon[1:] + polygon[:1])
+            )
+            / 2
+        )
+
+    base_area = counter_area(1)
+    area_slope = (counter_area(1.2) - base_area) / 0.2
     commands = [subprocess.check_output([inkscape, "--version"], text=True).strip()]
     font = ImageFont.truetype("DejaVuSans.ttf", 23)
-    sheet = Image.new("RGB", (6296, 4350), "#E4E8EC")
+    sheet = Image.new("RGB", (5248, 4350), "#E4E8EC")
     draw = ImageDraw.Draw(sheet)
-    for column, reduction in enumerate((0, 0, 10, 20, 30, 0)):
-        factor = (area * (1 - reduction / 100) - fixed) / (area - fixed)
+    for column, reduction in enumerate((0, 0, 10, 20, 30)):
+        factor = 1 + (area * (1 - reduction / 100) - base_area) / area_slope
         contour = geometry.outline()
-        if reduction:
+        if column:
             contour = [
-                ("poly", [(left + (x - left) * factor, y) for x, y in vertex[1]])
+                ("poly", [(298 + (x - 298) * factor, y) for x, y in reshaped])
                 if vertex[0] == "poly"
+                else ("aperture_bl", 314, 269)
+                if vertex[0] == "aperture_bl"
                 else vertex
                 for vertex in contour
             ]
-        if 0 < column < 5:
+        if column:
             # The channel cuts off this circle before its x=232 tangent.
             # Keep that non-tangent join visible rather than overlap the arc.
             radius = 24
@@ -66,10 +90,9 @@ def counter_options(inkscape):
                 else vertex
                 for vertex in contour
             ]
-        radii = {**geometry.RADII, "bottom_channel": 24 if column == 5 else 0}
         path = geometry.to_svg(
             [
-                geometry.build(contour, radii)[0],
+                geometry.build(contour, geometry.RADII)[0],
                 geometry.build(geometry.stem(), geometry.RADII)[0],
             ],
             transform,
@@ -77,9 +100,7 @@ def counter_options(inkscape):
         name = (
             "current"
             if not column
-            else "tangent-round"
-            if column == 5
-            else "round-only"
+            else "counter-reshaped"
             if not reduction
             else f"counter-minus-{reduction}"
         )
@@ -108,11 +129,9 @@ def counter_options(inkscape):
         title = (
             "CURRENT"
             if not column
-            else "ALTERNATIVE - TANGENT R24"
-            if column == 5
-            else "X232 CONSTRUCTION / PARTIAL R24"
+            else "RESHAPED / SAME AREA / PARTIAL R24"
             if not reduction
-            else f"COUNTER AREA -{reduction}% / PARTIAL R24"
+            else f"RESHAPED / AREA -{reduction}% / PARTIAL R24"
         )
         draw.text((x, 12), title, font=font, fill="#1F242A")
         for row, (variant, background, foreground) in enumerate(
@@ -136,7 +155,8 @@ def counter_options(inkscape):
                 (x, y + 1026), f"{variant} - native 1024 px", font=font, fill="#1F242A"
             )
         print(
-            f"{name}: horizontal squircle factor={factor:.9f}; right={left + 64 * factor:.6f}"
+            f"{name}: horizontal profile factor={factor if column else 1:.9f}; "
+            f"right={max(298 + (x - 298) * factor for x, _ in reshaped) if column else 388:.6f}"
         )
     sheet.save(output.parent / "counter-size-options.png")
     (ROOT / "sources/counter-export-commands.txt").write_text(
