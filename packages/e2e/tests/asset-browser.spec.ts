@@ -252,6 +252,100 @@ test('click and keyboard Enter stage the pick; Apply commits the complete AssetR
   expect(writes).toEqual([])
 })
 
+test('native picker references stage exact identity and never copy on errors or after cancellation', async ({ page }, testInfo) => {
+  const mounted = { digest: SECOND_DIGEST, name: 'mounted.png', size: 9876, mediaType: 'image/png', virtualPath: 'mounts/input/nested/mounted.png' }
+  await page.evaluate((mounted) => {
+    const app = window.__dinksterTest!.app
+    const backend = (app as unknown as { backendForTab(tab: unknown): { connection: {
+      fetchMountSettings: () => Promise<unknown>; fetchMountLocations: () => Promise<unknown>
+      fetchAssetLocations: () => Promise<readonly string[]>; uploadNamedAsset: (file: File) => Promise<unknown>
+    } } }).backendForTab(app.activeTab()!)
+    const mount = { id: 'input', path: '/studio/input', mode: 'readwrite', state: 'ready' }
+    backend.connection.fetchMountSettings = async () => ({ mounts: [mount], mountChangesAllowed: false })
+    backend.connection.fetchMountLocations = async () => ({ mounts: [mount], activeMounts: [mount] })
+    backend.connection.fetchAssetLocations = async () => ['/studio/input/nested/mounted.png']
+    const state = window as unknown as { nativePickerMode: string; pickerUploads: number; dinksterDesktop: unknown; completeNativePick?: () => void }
+    state.nativePickerMode = 'resolved'
+    state.pickerUploads = 0
+    backend.connection.uploadNamedAsset = async (file) => {
+      state.pickerUploads += 1
+      return { digest: `blake3:${'7'.repeat(64)}`, name: file.name, size: file.size, mediaType: file.type, virtualPath: `imports/${file.name}` }
+    }
+    state.dinksterDesktop = {
+      fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false, resolvePath: true }),
+      resolveDroppedFile: async (_url: string, file: File) => {
+        if (!(file instanceof File) || file.name !== 'selected.png') throw new Error('Expected original selected File')
+        if (state.nativePickerMode.startsWith('pending-')) return new Promise((resolve) => {
+          const resolved = state.nativePickerMode === 'pending-resolved'
+          state.completeNativePick = () => resolve(resolved ? { status: 'resolved', asset: { ...mounted, digest: `blake3:${'8'.repeat(64)}` } } : { status: 'refused', reason: 'not-resolvable' })
+        })
+        if (state.nativePickerMode === 'error') throw new Error('/private/native/path')
+        if (state.nativePickerMode === 'malformed') return { status: 'refused', reason: 'unknown' }
+        if (state.nativePickerMode === 'incompatible') return { status: 'resolved', asset: { ...mounted, mediaType: 'text/plain' } }
+        if (state.nativePickerMode !== 'resolved') return { status: 'refused', reason: state.nativePickerMode }
+        return { status: 'resolved', asset: mounted }
+      },
+    }
+  }, mounted)
+  await openAsset(page)
+  const editor = page.getByTestId('asset-editor')
+  const preferences = () => page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.startsWith('dinkster.uploadDestination.'))))
+  const before = await preferences()
+  await editor.getByTestId('upload-destination-remember').click()
+  await editor.locator('input[type=file]').setInputFiles({ name: 'selected.png', mimeType: 'text/html', buffer: Buffer.from('not image bytes') })
+  await expect(editor).toContainText('Using existing file; no copy made.')
+  await expect(editor.getByTestId('asset-selection-summary')).toContainText('mounted.png')
+  expect(await value(page)).toBeNull()
+  expect(await preferences()).toEqual(before)
+  expect(await page.evaluate(() => (window as unknown as { pickerUploads: number }).pickerUploads)).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('native-picker-no-copy.png') })
+  await editor.getByTestId('asset-apply').click()
+  await expect(editor).not.toBeVisible()
+  expect(await value(page)).toEqual(mounted)
+  await openAsset(page)
+  for (const mode of ['error', 'malformed', 'incompatible']) {
+    await page.evaluate((mode) => { (window as unknown as { nativePickerMode: string }).nativePickerMode = mode }, mode)
+    await editor.locator('input[type=file]').setInputFiles({ name: 'selected.png', mimeType: 'image/png', buffer: WIDE_PNG })
+    await expect(editor).toContainText(mode === 'incompatible' ? 'not compatible with this input' : 'Nothing was uploaded.')
+    await expect(editor).not.toContainText('/private/native/path')
+    expect(await value(page)).toEqual(mounted)
+    expect(await page.evaluate(() => (window as unknown as { pickerUploads: number }).pickerUploads)).toBe(0)
+    expect(await preferences()).toEqual(before)
+  }
+  await editor.locator('.asset-error').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('native-picker-error.png') })
+  for (const mode of ['not-resolvable', 'not-native-file', 'unsupported-backend']) {
+    await page.evaluate((mode) => { (window as unknown as { nativePickerMode: string }).nativePickerMode = mode }, mode)
+    await editor.locator('input[type=file]').setInputFiles({ name: 'selected.png', mimeType: 'image/png', buffer: WIDE_PNG })
+    await expect(editor).toContainText('imports/selected.png')
+    await expect(editor.getByTestId('asset-upload-trigger')).toBeEnabled()
+    expect(await value(page)).toEqual(mounted)
+  }
+  expect(await page.evaluate(() => (window as unknown as { pickerUploads: number }).pickerUploads)).toBe(3)
+  for (const mode of ['pending-resolved', 'pending-refused']) {
+    await page.evaluate((mode) => {
+      const state = window as unknown as { nativePickerMode: string; completeNativePick?: () => void }
+      state.nativePickerMode = mode
+      delete state.completeNativePick
+    }, mode)
+    await editor.locator('input[type=file]').setInputFiles({ name: 'selected.png', mimeType: 'image/png', buffer: WIDE_PNG })
+    await page.waitForFunction(() => typeof (window as unknown as { completeNativePick?: unknown }).completeNativePick === 'function')
+    await closeAsset(page)
+    await page.evaluate(() => (window as unknown as { completeNativePick: () => void }).completeNativePick())
+    await openAsset(page)
+    await expect(editor.getByTestId('asset-upload-trigger')).toBeEnabled()
+    await expect(editor.getByTestId('asset-selection-summary')).toContainText('mounted.png')
+    await expect(editor).not.toContainText('imports/selected.png')
+    await editor.getByTestId('asset-apply').click()
+    await expect(editor).not.toBeVisible()
+    expect(await value(page)).toEqual(mounted)
+    await openAsset(page)
+  }
+  expect(await page.evaluate(() => (window as unknown as { pickerUploads: number }).pickerUploads)).toBe(3)
+  expect(await value(page)).toEqual(mounted)
+  expect(await preferences()).toEqual(before)
+})
+
 test('selected image assets preview immediately inside the node and follow import, change, clear, reload, and failure', async ({ page }) => {
   const pageErrors: Error[] = []
   page.on('pageerror', (error) => pageErrors.push(error))
