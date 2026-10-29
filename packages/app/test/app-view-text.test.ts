@@ -19,15 +19,20 @@ describe('restricted App view text', () => {
   })
 
   it('scans large malformed marker runs in linear time', () => {
-    const brackets = '['.repeat(100_000)
-    const repeatedUnsafeLink = `${'['.repeat(50_000)}](${'x'.repeat(50_000)})`
-    const sources = [brackets, '*'.repeat(100_001), '[*'.repeat(50_000), repeatedUnsafeLink]
-    const started = performance.now()
-    const parsed = sources.map(parseAppViewText)
-
-    expect(performance.now() - started).toBeLessThan(2_000)
-    expect(parsed[0]).toEqual([{ text: brackets }])
-    expect(parsed.map((segments) => segments.reduce((length, segment) => length + segment.text.length, 0))
-      .every((length, index) => length <= sources[index]!.length)).toBe(true)
+    const measurements = [25_000, 50_000].map((size) => {
+      const sources = ['['.repeat(2 * size), '*'.repeat(2 * size + 1), '[*'.repeat(size), `${'['.repeat(size)}](${'x'.repeat(size)})`]
+      return sources.map((source) => {
+        let scanned = 0
+        const parsed = parseAppViewText(source, (characters) => { scanned += characters })
+        expect(parsed.reduce((length, segment) => length + segment.text.length, 0)).toBeLessThanOrEqual(source.length)
+        expect(scanned).toBeGreaterThanOrEqual(source.length)
+        expect(scanned).toBeLessThanOrEqual(3 * source.length)
+        return { parsed, scanned }
+      })
+    })
+    expect(measurements[1]![0]!.parsed).toEqual([{ text: '['.repeat(100_000) }])
+    for (let index = 0; index < 4; index += 1) {
+      expect(measurements[1]![index]!.scanned).toBeLessThanOrEqual(3 * measurements[0]![index]!.scanned)
+    }
   })
 })

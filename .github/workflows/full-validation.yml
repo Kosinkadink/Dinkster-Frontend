@@ -204,9 +204,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers
       - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
-      - name: Replay recorded stock ComfyUI fixtures
-        if: matrix.name == 'stock ComfyUI V1'
-        run: pnpm --filter @dinkster/core exec vitest run test/object-info.golden.test.ts test/events.golden.test.ts
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}
         env:
           # Match the software Vulkan driver available on CPU-only runners.

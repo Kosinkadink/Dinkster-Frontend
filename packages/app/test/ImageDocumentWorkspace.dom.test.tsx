@@ -31,6 +31,7 @@ const rgba = new Uint8ClampedArray([
 
 afterEach(() => {
   document.body.replaceChildren()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   setLocale('en')
@@ -465,6 +466,7 @@ describe('ImageDocumentWorkspace', () => {
       render: renderImageDocument.mock.calls.length,
       upload: uploadMediaAsset.mock.calls.length,
     }
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     setLocale('de-DE')
 
     await vi.waitFor(() => expect(root.textContent).toContain('[Ebenen]'))
@@ -484,11 +486,12 @@ describe('ImageDocumentWorkspace', () => {
     ]) {
       expect(root.querySelector(`[aria-label="${ariaLabel}"]`)).not.toBeNull()
     }
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await vi.runOnlyPendingTimersAsync()
     expect(adoptImageDocument).toHaveBeenCalledTimes(callsBeforeLocale.adopt)
     expect(fetchAssetBytes).toHaveBeenCalledTimes(callsBeforeLocale.fetch)
     expect(renderImageDocument).toHaveBeenCalledTimes(callsBeforeLocale.render)
     expect(uploadMediaAsset).toHaveBeenCalledTimes(callsBeforeLocale.upload)
+    vi.useRealTimers()
 
     root.querySelector<HTMLElement>('[role="slider"][aria-label="[Ebenendeckkraft]"]')!
       .dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))

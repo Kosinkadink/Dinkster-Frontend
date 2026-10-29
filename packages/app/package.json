@@ -6,7 +6,7 @@
   "description": "Dinkster shell (M0): SolidJS validation spike - tabs, queue rail, canvas host, live backend loop.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node --import tsx ../../scripts/check-production-build.mjs",
     "preview": "vite preview",
     "test": "vitest run && vitest run --config vitest.component.config.ts",
     "test:watch": "vitest",
