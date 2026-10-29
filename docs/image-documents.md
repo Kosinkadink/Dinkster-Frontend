@@ -46,9 +46,10 @@ through the same command history. All 27 declared blend modes are retained.
 
 ## Graph documents
 
-The Outputs panel offers **Open layers** for `LAYERS` and `comfy.LAYERS`
-values. Opening uses the selected execution, runtime node and output identity
-on the value's owning connection and explicitly requests the `document`
+The Outputs panel offers **Open layers** for `dinkster.layers` values, not
+the `LAYERS` or `comfy.LAYERS` tensor mappings. Opening uses the selected
+execution, runtime node and output identity on the value's owning connection
+and explicitly requests the `document`
 rendition. The response must identify the selected type and fingerprint, report
 the `document` rendition, and use
 `application/vnd.dinkster.image-document+json`. The client adopts the exact
@@ -69,7 +70,7 @@ original graph source nor publishes a library record.
 
 Documents opened from an executed native layer output also offer **Export
 editable recipe**. It branches `dinkster.layers.edit` -> `dinkster.layers.flatten` ->
-`dinkster.save_image` from the original `LAYERS` output without replacing or
+`dinkster.save_image` from the original `dinkster.layers` output without replacing or
 rewiring that source. The edit node receives canonical document commands;
 format and quality are explicit save-node values. PNG, JPEG, and WebP are
 supported, quality is 0-100, and PNG remains lossless. Output policy is
