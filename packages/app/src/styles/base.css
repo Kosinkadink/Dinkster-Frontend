@@ -191,7 +191,7 @@ body,
   letter-spacing: 0.06em;
 }
 
-.brand-wordmark { display: inline-flex; width: 110px; vertical-align: middle; }
+.brand-wordmark { display: inline-flex; width: 110px; aspect-ratio: 1559.7712 / 472.60001; vertical-align: middle; }
 .brand-wordmark img { display: block; width: 100%; height: auto; }
 .brand-wordmark .brand-on-light { display: none; }
 [data-theme='light'] .brand-wordmark .brand-on-dark { display: none; }
