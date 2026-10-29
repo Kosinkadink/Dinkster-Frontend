@@ -1229,9 +1229,14 @@ export function App(props: {
   // from the registry, so moving a surface is a descriptor change, not a
   // JSX rewrite. Bodies stay local components so they can close over App
   // state.
-  const BackendMetadataState = (props: { readonly children: JSX.Element }) => {
+  const BackendMetadataState = (props: { readonly children: JSX.Element; readonly independentMounts?: boolean }) => {
     const [retrying, setRetrying] = createSolidSignal(false)
-    const error = () => { backendsTick(); return backendMetadataError(activeBackend()) }
+    const error = () => {
+      backendsTick()
+      const backend = activeBackend()
+      if (props.independentMounts && backend.schemaState.get().status !== 'error') return undefined
+      return backendMetadataError(backend)
+    }
     const retry = async (): Promise<void> => {
       if (retrying()) return
       const backend = activeBackend()
@@ -1271,12 +1276,12 @@ export function App(props: {
   const AssetsPanelBody = () => {
     const backend = activeBackend()
     return backend.protocol === 'dinkster'
-      ? <AssetsBody
+      ? <BackendMetadataState independentMounts><AssetsBody
           connection={backend.connection}
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
           {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
-        />
+        /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
   }
   const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
