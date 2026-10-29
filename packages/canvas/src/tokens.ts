@@ -4,7 +4,7 @@
  * first pass; the token SET is the commitment, the values are tunable.
  */
 
-import { canvasSemanticTokens, canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Minimum zoom for text detail and transient media DOM. */
 export const CANVAS_DETAIL_MIN_SCALE = 0.5
@@ -219,6 +219,36 @@ export const defaultTokens: DesignTokens = {
     skipped: canvasSemanticTokens.text.muted,
   },
   progressBar: canvasSemanticTokens.meaning.info.border,
+}
+
+export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['colors'] {
+  const tokens = semanticTokensForTheme(theme)
+  return {
+    ...defaultTokens.colors,
+    canvasBackground: tokens.surface.canvas,
+    gridDot: tokens.border.subtle,
+    nodeBody: tokens.surface.raised,
+    nodeHeader: tokens.surface.panel,
+    nodeOutline: tokens.border.strong,
+    nodeBorder: tokens.border.subtle,
+    nodeSelectedBorder: tokens.border.selected,
+    groupDefault: tokens.border.strong,
+    title: tokens.text.primary,
+    label: tokens.text.secondary,
+    value: tokens.text.primary,
+    widgetBackground: tokens.surface.inset,
+    widgetAffordance: tokens.text.disabled,
+    widgetAffordanceActive: tokens.border.focus,
+    widgetRangeFill: tokens.interaction.selectedOverlay,
+    selection: tokens.border.focus,
+    dropTarget: tokens.border.selected,
+    modifiedIndicator: tokens.meaning.warning.border,
+    companionValue: tokens.text.secondary,
+    companionUnproven: tokens.meaning.info.foreground,
+    companionEstimate: tokens.meaning.success.foreground,
+    error: tokens.meaning.danger.border,
+    blockingWarning: tokens.meaning.warning.border,
+  }
 }
 
 /**

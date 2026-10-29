@@ -2,12 +2,23 @@
 
 ## Source of truth
 
-`packages/core/src/ui/tokens.ts` owns the semantic token values. It exports:
+`branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
+identity values. `packages/core/src/ui/tokens.ts` imports that source and
+projects it into the existing semantic roles. It exports:
 
 - `semanticDesignTokens`, the host token model;
 - `semanticCssVariables` and `semanticCssRoot`, the CSS projection injected
   into the document head before application modules; and
 - `canvasSemanticTokens`, the bounded typed subset available to Canvas code.
+
+The document's `data-theme="light"` selects the light CSS projection; dark
+is the default. Settings -> Dinkster -> Theme switches both DOM and canvas
+chrome immediately and persists across startup and Desktop preparation.
+Primary actions use cyan with ink text, never white text on
+cyan. Semantic danger reads the theme's danger entry, not identity coral.
+Status foregrounds use their semantic status colors on panel surfaces.
+Muted text on raised surfaces retains the brand guide's documented contrast
+exception (dark 3.85:1, light 4.19:1); normal body copy uses secondary text.
 
 Redesigned components consume semantic roles rather than copying token values.
 Literal colors and dimensions are reserved for user data, media content,

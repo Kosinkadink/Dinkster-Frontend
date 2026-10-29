@@ -4,6 +4,7 @@ import {
   semanticCssRoot,
   semanticCssVariables,
   semanticDesignTokens,
+  semanticTokensForTheme,
 } from '../src/ui/tokens.js'
 
 const luminance = (hex: string): number => {
@@ -51,10 +52,13 @@ describe('semantic design tokens', () => {
     })
   })
 
-  it('emits every CSS variable exactly once in the root stylesheet', () => {
+  it('emits every CSS variable for both themes', () => {
     const projectedNames = [...semanticCssRoot.matchAll(/(--dinkster-[\w-]+):/g)].map((match) => match[1])
-    expect(projectedNames).toEqual(Object.keys(semanticCssVariables))
-    expect(new Set(projectedNames).size).toBe(projectedNames.length)
+    expect(projectedNames).toEqual([...Object.keys(semanticCssVariables), ...Object.keys(semanticCssVariables)])
+    expect(semanticTokensForTheme('dark').surface.canvas).toBe('#111316')
+    expect(semanticTokensForTheme('light').surface.canvas).toBe('#F7F8FA')
+    expect(semanticTokensForTheme('light').meaning.danger.foreground).toBe('#B93630')
+    expect(semanticTokensForTheme('light').action.primaryBg).toBe('#32E6C5')
   })
 
   it('projects the Canvas subset without a second token source', () => {

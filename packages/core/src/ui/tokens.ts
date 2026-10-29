@@ -1,3 +1,5 @@
+import palette from '../../../../branding/tokens/dinkster-colors.json'
+
 export interface TypeToken {
   readonly fontSize: number
   readonly lineHeight: number
@@ -16,6 +18,8 @@ const deepFreeze = <T>(value: T): T => {
   Object.freeze(value)
   return value
 }
+
+export const brandColors = deepFreeze(palette.brand)
 
 export interface SemanticDesignTokens {
   readonly space: {
@@ -67,6 +71,10 @@ export interface SemanticDesignTokens {
     readonly danger: MeaningToken
     readonly info: MeaningToken
   }
+  readonly action: {
+    readonly primaryBg: string
+    readonly primaryText: string
+  }
   readonly shape: {
     readonly small: number
     readonly control: number
@@ -94,7 +102,12 @@ export interface SemanticDesignTokens {
   }
 }
 
-export const semanticDesignTokens = deepFreeze({
+export const semanticTokensForTheme = (theme: 'dark' | 'light'): SemanticDesignTokens => {
+  const colors = palette[theme]
+  const meaning = (foreground: string): MeaningToken => ({
+    foreground, background: colors.bg.surface, border: foreground,
+  })
+  return deepFreeze({
   space: {
     4: 4,
     8: 8,
@@ -113,33 +126,34 @@ export const semanticDesignTokens = deepFreeze({
     weight: { regular: 400, medium: 500, semibold: 600 },
   },
   surface: {
-    canvas: '#181818',
-    panel: '#202020',
-    inset: '#1c1c1c',
-    raised: '#262626',
-    selected: '#315a84',
+    canvas: colors.bg.canvas,
+    panel: colors.bg.surface,
+    inset: colors.bg.canvas,
+    raised: colors.bg.raised,
+    selected: colors.bg.hover,
   },
   text: {
-    primary: '#e0e0e0',
-    secondary: '#b8b8b8',
-    muted: '#8d9aa5',
-    disabled: '#777777',
-    inverse: '#181818',
-    onSelected: '#ffffff',
+    primary: colors.text.primary,
+    secondary: colors.text.secondary,
+    muted: colors.text.muted,
+    disabled: colors.text.muted,
+    inverse: colors.action.primaryText,
+    onSelected: colors.text.primary,
   },
   border: {
-    subtle: '#303030',
-    strong: '#555555',
-    focus: '#78aee5',
-    selected: '#ffffff',
+    subtle: colors.border.default,
+    strong: colors.text.muted,
+    focus: colors.status.info,
+    selected: colors.text.primary,
   },
   meaning: {
-    accent: { foreground: '#d6ebff', background: '#234d75', border: '#78aee5' },
-    success: { foreground: '#d7f5dc', background: '#1f4428', border: '#66bb6a' },
-    warning: { foreground: '#ffe3b0', background: '#513612', border: '#e0b45a' },
-    danger: { foreground: '#ffd7d5', background: '#51211f', border: '#ef5350' },
-    info: { foreground: '#d6efff', background: '#173e52', border: '#4fc3f7' },
+    accent: meaning(colors.status.info),
+    success: meaning(colors.status.success),
+    warning: meaning(colors.status.warning),
+    danger: meaning(colors.status.danger),
+    info: meaning(colors.status.info),
   },
+  action: colors.action,
   shape: {
     small: 4,
     control: 6,
@@ -150,9 +164,9 @@ export const semanticDesignTokens = deepFreeze({
     compactControlHeight: 32,
     primaryInputHeight: 40,
     focusRingWidth: 2,
-    hoverOverlay: 'rgba(255, 255, 255, 0.06)',
-    pressedOverlay: 'rgba(255, 255, 255, 0.1)',
-    selectedOverlay: 'rgba(120, 174, 229, 0.18)',
+    hoverOverlay: colors.bg.hover,
+    pressedOverlay: colors.bg.raised,
+    selectedOverlay: colors.bg.hover,
     disabledOpacity: 0.45,
   },
   motion: {
@@ -165,7 +179,10 @@ export const semanticDesignTokens = deepFreeze({
     low: '0 4px 12px rgba(0, 0, 0, 0.28)',
     high: '0 12px 32px rgba(0, 0, 0, 0.42)',
   },
-} as const satisfies SemanticDesignTokens)
+  } as const satisfies SemanticDesignTokens)
+}
+
+export const semanticDesignTokens = semanticTokensForTheme('dark')
 
 export interface CanvasSemanticTokenProjection {
   readonly space: SemanticDesignTokens['space']
@@ -203,7 +220,9 @@ const ms = (value: number): string => `${value}ms`
 
 export type SemanticCssVariableName = `--dinkster-${string}`
 
-export const semanticCssVariables = deepFreeze({
+export const semanticCssVariablesForTheme = (semanticDesignTokens: SemanticDesignTokens) => deepFreeze({
+  '--dinkster-action-primary-bg': semanticDesignTokens.action.primaryBg,
+  '--dinkster-action-primary-text': semanticDesignTokens.action.primaryText,
   '--dinkster-space-4': px(semanticDesignTokens.space[4]),
   '--dinkster-space-8': px(semanticDesignTokens.space[8]),
   '--dinkster-space-12': px(semanticDesignTokens.space[12]),
@@ -276,6 +295,10 @@ export const semanticCssVariables = deepFreeze({
   '--dinkster-elevation-high': semanticDesignTokens.elevation.high,
 } as const satisfies Readonly<Record<SemanticCssVariableName, string>>)
 
-export const semanticCssRoot = `:root {\n${Object.entries(semanticCssVariables)
+export const semanticCssVariables = semanticCssVariablesForTheme(semanticDesignTokens)
+
+const cssDeclarations = (theme: 'dark' | 'light') => Object.entries(semanticCssVariablesForTheme(semanticTokensForTheme(theme)))
   .map(([name, value]) => `  ${name}: ${value};`)
-  .join('\n')}\n}`
+  .join('\n')
+
+export const semanticCssRoot = `:root { color-scheme: dark;\n${cssDeclarations('dark')}\n}\n[data-theme="light"] { color-scheme: light;\n${cssDeclarations('light')}\n}`

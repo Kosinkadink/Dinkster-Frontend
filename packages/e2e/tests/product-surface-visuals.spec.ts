@@ -52,6 +52,33 @@ const closeGallery = async (page: Page): Promise<void> => {
   await expect(page.getByTestId('template-gallery')).toBeHidden()
 }
 
+for (const theme of ['dark', 'light'] as const) {
+  test(`brand assets and persisted ${theme} theme`, async ({ page }) => {
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+    }, theme)
+    await boot(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await expect(page.getByTestId('dinkster-menu-button').getByRole('img', { name: 'Dinkster' })).toBeVisible()
+    const expectedCanvas = theme === 'dark' ? 'rgb(17, 19, 22)' : 'rgb(247, 248, 250)'
+    await expect(page.locator('body')).toHaveCSS('background-color', expectedCanvas)
+    const manifest = await (await page.request.get('/manifest.webmanifest')).json()
+    expect(manifest.name).toBe('Dinkster')
+    for (const icon of manifest.icons) {
+      const response = await page.request.get(new URL(icon.src, page.url()).href)
+      expect(response.ok()).toBe(true)
+      expect(response.headers()['content-type']).toContain('image/png')
+    }
+    await screenshot(page, `brand-gallery-${theme}`)
+    await closeGallery(page)
+    await screenshot(page, `brand-shell-${theme}`)
+    await page.evaluate((selected) => {
+      window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
+    }, theme)
+    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(17, 19, 22)')
+  })
+}
+
 const openDock = async (page: Page, testId: string): Promise<void> => {
   const toggle = page.getByTestId(testId)
   if ((await toggle.getAttribute('aria-pressed')) !== 'true')

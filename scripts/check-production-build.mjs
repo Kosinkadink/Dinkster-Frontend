@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import {
   semanticCssRoot,
   semanticCssVariables,
@@ -30,4 +30,22 @@ assert.ok(
   readFileSync(new URL(entry[1].replace(/^\//, ''), output)).length > 0,
   'app entry must not be empty',
 )
-console.log('Production entry and inline semantic tokens verified')
+const branding = new URL('../branding/', import.meta.url)
+for (const directory of ['svg', 'raster/color', 'platform']) {
+  for (const name of readdirSync(new URL(`${directory}/`, branding))) {
+    assert.deepEqual(
+      readFileSync(new URL(`branding/${directory}/${name}`, output)),
+      readFileSync(new URL(`${directory}/${name}`, branding)),
+      `published brand asset must equal its canonical source: ${directory}/${name}`,
+    )
+  }
+}
+const manifest = JSON.parse(readFileSync(new URL('manifest.webmanifest', output), 'utf8'))
+assert.equal(manifest.name, 'Dinkster')
+for (const icon of manifest.icons) {
+  assert.ok(readFileSync(new URL(icon.src, output)).length > 0)
+}
+for (const icon of html.matchAll(/<link\b[^>]*rel="(?:icon|apple-touch-icon|manifest)"[^>]*href="([^"]+)"/g)) {
+  assert.ok(readFileSync(new URL(icon[1].replace(/^\//, ''), output)).length > 0)
+}
+console.log('Production entry, semantic tokens and canonical brand assets verified')
