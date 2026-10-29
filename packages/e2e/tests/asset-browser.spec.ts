@@ -219,6 +219,10 @@ test('server search resets query-bound paging and paging appends page two', asyn
 })
 
 test('click and keyboard Enter stage the pick; Apply commits the complete AssetRef', async ({ page }) => {
+  const writes: string[] = []
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && new URL(request.url()).pathname.startsWith('/api/assets')) writes.push(request.url())
+  })
   await openAsset(page)
   await page.getByRole('option', { name: /sunset\.png/ }).click()
   // Staging alone must not commit or close.
@@ -237,7 +241,15 @@ test('click and keyboard Enter stage the pick; Apply commits the complete AssetR
   await expect(page.getByTestId('asset-selection-summary')).toContainText('style.safetensors')
   await page.getByTestId('asset-apply').click()
   await expect(page.getByTestId('asset-editor')).not.toBeVisible()
-  expect((await value(page))?.digest).toBe(MODEL_DIGEST)
+  const model = { digest: MODEL_DIGEST, name: 'style.safetensors', size: 4096, mediaType: 'application/x-safetensors', virtualPath: 'photos/style.safetensors' }
+  expect(await value(page)).toEqual(model)
+
+  await openAsset(page)
+  await page.getByRole('option', { name: /sunset\.png/ }).click()
+  await expect(page.getByTestId('asset-selection-summary')).toContainText('sunset.png')
+  await closeAsset(page)
+  expect(await value(page)).toEqual(model)
+  expect(writes).toEqual([])
 })
 
 test('selected image assets preview immediately inside the node and follow import, change, clear, reload, and failure', async ({ page }) => {
@@ -342,7 +354,18 @@ test('selected image assets preview immediately inside the node and follow impor
   await expect(accessiblePreview).toHaveCount(0)
   await captureProof(page, 'cleared')
 
-  await openAsset(page)
+  await openAsset(page, false)
+  await captureProof(page, 'empty-picker')
+  await page.getByRole('option', { name: /^photos/ }).click({ trial: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('option', { name: /^photos/ }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: `${PROOF_DIR}/empty-picker-390x844.png` })
+  await page.getByTestId('asset-apply').scrollIntoViewIfNeeded()
+  await expect(page.getByTestId('asset-apply')).toBeVisible()
+  await page.screenshot({ path: `${PROOF_DIR}/empty-picker-footer-390x844.png` })
+  await page.getByRole('option', { name: /^photos/ }).click()
+  await expect(page.getByRole('button', { name: 'photos' })).toBeVisible()
+  await page.setViewportSize({ width: 1366, height: 768 })
   await page.getByRole('option', { name: /sunset\.png/ }).click()
   await page.getByTestId('asset-apply').click()
   await expect.poll(async () => (await previewState()).preview?.width).toBe(320)

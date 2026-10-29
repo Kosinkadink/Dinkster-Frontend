@@ -695,6 +695,11 @@ uploads adopt the server's complete collision-safe AssetRef and show its final
 virtual path with the backend label; anonymous workflow saves retain their
 separate vault route. Latent uploads retain their classified vault behavior.
 
+The browse list keeps its content height with or without a staged selection.
+The editor scrolls to reach destination controls and actions rather than
+shrinking the folder rows underneath them. Picking a mounted file stages its
+existing reference without an upload; Cancel preserves the previous value.
+
 The shared action footer presents upload status separately from Upload,
 Cancel, and the primary commit button (`Use asset`, or a staged count under
 multi-select). Removing the whole staged selection is a `Remove` action inside
