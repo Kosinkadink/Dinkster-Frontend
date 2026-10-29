@@ -9,6 +9,7 @@ import { ProductButton, ProductTextInput } from './ProductControls.js'
 import { ProductPanelHeader } from './ProductSurfaces.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import { OutputMountSettings } from './OutputMountSettings.js'
+import { ProjectFolderSettings } from './ProjectFolderSettings.js'
 import { useSignal } from './solid-adapter.js'
 
 function BackendCard(props: {
@@ -143,6 +144,7 @@ function BackendCard(props: {
 
       <Show when={props.backend.protocol === 'dinkster' ? props.backend : undefined}>
         {(native) => <>
+          <ProjectFolderSettings connection={native().connection} backendUrl={native().baseUrl} backendLabel={props.backend.label} />
           <OutputMountSettings connection={native().connection} />
           <RuntimeSettingsPanel connection={native().connection} backendLabel={props.backend.label} />
           <AgentPermissionsPanel connection={native().connection} backendLabel={props.backend.label} />

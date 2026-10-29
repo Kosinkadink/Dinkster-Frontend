@@ -18,3 +18,69 @@
 @import './styles/collaboration.css';
 @import './styles/boot.css';
 @import './styles/image-editor.css';
+
+.project-folder-list {
+  margin: 0;
+  padding-inline-start: 24px;
+}
+.project-folder-list li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--dinkster-border-subtle);
+}
+.project-folder-facts {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-folder-facts code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.project-folder-actions, .project-folder-shared {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.project-folder-grant-options, .project-folder-removal {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.asset-project-folders {
+  flex: none;
+  min-width: 0;
+  padding: 8px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.assets-panel {
+  flex-direction: column;
+}
+.project-folder-settings {
+  min-width: 0;
+}
+.project-folder-settings .runtime-settings-toolbar {
+  flex-wrap: wrap;
+}
+.project-folder-settings .runtime-settings-toolbar > div {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+.project-folder-settings .runtime-settings-body {
+  padding-bottom: var(--dinkster-space-16);
+}
+.asset-file-location code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.asset-file-location {
+  flex: none;
+}
+.asset-file-location-path {
+  display: grid;
+  min-width: 0;
+  gap: var(--dinkster-space-8);
+}

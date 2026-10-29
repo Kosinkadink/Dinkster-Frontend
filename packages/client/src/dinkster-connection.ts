@@ -755,6 +755,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly baseUrl: string
   /** Stable per-session client id; jobs and WS routing are keyed by it. */
   readonly clientId: string
+  /** Immutable window project; folder preferences never change global priorities. */
+  readonly project?: string
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
   readonly wsUrl?: string
   readonly fetchFn?: FetchLike
@@ -937,9 +939,24 @@ export interface MountDescriptor {
   readonly scanProgress?: MountScanProgress
 }
 
+export interface MountGrantOptions {
+  readonly project?: string
+  readonly shared?: boolean
+  readonly kind?: string
+}
+
+export interface MountLocations {
+  readonly mounts: readonly { readonly id: string; readonly path: string }[]
+  readonly activeMounts?: readonly (MountDescriptor & { readonly path: string })[]
+  readonly importMount?: string | null
+}
+
 export interface MountSettings {
   readonly mounts: readonly MountDescriptor[]
   readonly outputMount?: string
+  readonly activeOutputMount?: string
+  readonly restartRequired?: boolean
+  readonly pendingRemovals?: readonly string[]
   /**
    * Server's gate on mutating mount configuration (add/remove grants,
    * select the output mount). A response that omits it (an older backend)
@@ -1009,24 +1026,29 @@ export interface MediaAssetRef extends JsonObject {
   readonly virtualPath: string
 }
 
-const classifiedAssetRef = (payload: unknown, kind: string, endpoint: string): MediaAssetRef => {
+export interface AssetUploadDestination {
+  readonly mount?: string
+  readonly folder?: string
+}
+
+const uploadedAssetRef = (payload: unknown, kind: string | undefined, endpoint: string): MediaAssetRef => {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new Error(`${endpoint}: malformed response`)
   }
   const body = payload as Record<string, unknown>
   const asset = body['asset']
-  if (body['kind'] !== kind || typeof asset !== 'object' || asset === null || Array.isArray(asset)) {
+  if ((kind !== undefined && body['kind'] !== kind) || typeof asset !== 'object' || asset === null || Array.isArray(asset)) {
     throw new Error(`${endpoint}: malformed response`)
   }
   const value = asset as Record<string, unknown>
-  if (!/^blake3:[0-9a-f]{64}$/.test(String(value['digest'])) ||
+  if (typeof value['digest'] !== 'string' || !/^blake3:[0-9a-f]{64}$/.test(value['digest']) ||
       typeof value['name'] !== 'string' || value['name'] === '' ||
       typeof value['size'] !== 'number' || !Number.isSafeInteger(value['size']) || value['size'] < 0 ||
       typeof value['mediaType'] !== 'string' || value['mediaType'] === '' ||
       typeof value['virtualPath'] !== 'string') {
     throw new Error(`${endpoint}: malformed response`)
   }
-  return value as unknown as MediaAssetRef
+  return { digest: value['digest'], name: value['name'], size: value['size'], mediaType: value['mediaType'], virtualPath: value['virtualPath'] }
 }
 
 const GUESS_CONFIDENCE = new Set<AssetGuessConfidence>(['digest', 'path', 'name', 'name-insensitive', 'stem'])
@@ -1600,6 +1622,7 @@ export class DinksterConnection {
   readonly id: ConnectionId
   private readonly baseUrl: string
   private readonly clientId: string
+  private readonly project: string | undefined
   private readonly fetchFn: FetchLike
   private readonly normalizer: DinksterNormalizer
   private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
@@ -1607,6 +1630,7 @@ export class DinksterConnection {
   private readonly problemListeners = new Set<(problem: Diagnostic) => void>()
   private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
+  private readonly mountListeners = new Set<() => void>()
   private readonly socket: ReconnectingSocket
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
@@ -1643,6 +1667,7 @@ export class DinksterConnection {
     this.id = config.id
     this.baseUrl = config.baseUrl
     this.clientId = config.clientId
+    this.project = config.project
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
@@ -1722,11 +1747,21 @@ export class DinksterConnection {
     return () => this.memoryListeners.delete(listener)
   }
 
+  /** Mount notifications invalidate the project snapshot, never carry host paths. */
+  onMountsChanged(listener: () => void): () => void {
+    this.mountListeners.add(listener)
+    return () => this.mountListeners.delete(listener)
+  }
+
   private emit(events: readonly NormalizedEvent[]): void {
     for (const e of events) for (const l of [...this.listeners]) l(e)
   }
 
   private emitRaw(raw: DinksterRawMessage, live: boolean): void {
+    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'mounts_changed') {
+      for (const listener of [...this.mountListeners]) listener()
+      return
+    }
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
     const events = this.normalizer.normalize(raw)
     this.emit(events)
@@ -2172,6 +2207,7 @@ export class DinksterConnection {
     const jobId = this.jobIdFactory()
     const body = {
       clientId: this.clientId,
+      ...(this.project !== undefined ? { project: this.project } : {}),
       jobId,
       targets,
       graph: graph as unknown as Json,
@@ -2466,6 +2502,27 @@ export class DinksterConnection {
     return payload.digest
   }
 
+  /** Import a named file into the current project's writable folder, not the workflow vault. */
+  async uploadNamedAsset(
+    file: File,
+    options: AssetUploadDestination & { readonly scope: string; readonly name: string; readonly signal?: AbortSignal },
+  ): Promise<MediaAssetRef> {
+    const query = new URLSearchParams({ scope: options.scope, name: options.name,
+      ...(this.project !== undefined ? { project: this.project } : {}),
+      ...(options.mount !== undefined ? { mount: options.mount } : {}),
+      ...(options.folder !== undefined ? { folder: options.folder } : {}),
+    })
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets?${query}`, {
+      method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
+    if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    const asset = uploadedAssetRef(payload, undefined, 'POST /api/assets')
+    if ((payload as Record<string, unknown>)['digest'] !== asset.digest) throw new Error('POST /api/assets: malformed response')
+    return asset
+  }
+
   /** Validate and adopt canonical ImageDocument bytes plus their scoped dependencies. */
   async adoptImageDocument(
     bytes: Blob | ArrayBuffer | Uint8Array | string,
@@ -2546,7 +2603,7 @@ export class DinksterConnection {
   /** Upload classified source media and return only the server-authored AssetRef. */
   async uploadMediaAsset(
     file: File,
-    options: {
+    options: AssetUploadDestination & {
       readonly scope: string
       readonly kind: 'media/image' | 'media/audio' | 'media/video'
       readonly name: string
@@ -2554,7 +2611,11 @@ export class DinksterConnection {
       readonly signal?: AbortSignal
     },
   ): Promise<MediaAssetRef> {
-    const query = new URLSearchParams({ scope: options.scope, kind: options.kind, name: options.name })
+    const query = new URLSearchParams({ scope: options.scope, kind: options.kind, name: options.name,
+      ...(this.project !== undefined ? { project: this.project } : {}),
+      ...(options.mount !== undefined ? { mount: options.mount } : {}),
+      ...(options.folder !== undefined ? { folder: options.folder } : {}),
+    })
     const headers = new Headers({ 'Content-Type': file.type })
     if (options.expectedDigest !== undefined) headers.set('X-Dinkster-Digest', options.expectedDigest)
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/media?${query}`, {
@@ -2564,7 +2625,7 @@ export class DinksterConnection {
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!res.ok) throw new Error(`POST /api/assets/media failed: ${res.status}`)
-    return classifiedAssetRef(await res.json(), options.kind, 'POST /api/assets/media')
+    return uploadedAssetRef(await res.json(), options.kind, 'POST /api/assets/media')
   }
 
   /** Upload a validated safetensors latent and adopt the server-authored AssetRef. */
@@ -2580,7 +2641,7 @@ export class DinksterConnection {
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!res.ok) throw new Error(`POST /api/assets/latent failed: ${res.status}`)
-    return classifiedAssetRef(await res.json(), 'data/latent', 'POST /api/assets/latent')
+    return uploadedAssetRef(await res.json(), 'data/latent', 'POST /api/assets/latent')
   }
 
   /** Resolve legacy asset names without acquiring bytes or changing a document. */
@@ -2690,9 +2751,10 @@ export class DinksterConnection {
   }
 
   private async readMountSettings(signal: AbortSignal): Promise<MountSettings> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts`, { signal })
+    const query = this.project && this.project !== 'default' ? `?${new URLSearchParams({ project: this.project })}` : ''
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts${query}`, { signal })
     if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
-    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; mountChangesAllowed?: unknown }
+    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
     // Compatibility: a response without the field (older backend) decodes
     // as false - read-only; a present non-boolean is a protocol error.
     if (payload.mountChangesAllowed !== undefined && typeof payload.mountChangesAllowed !== 'boolean') {
@@ -2719,12 +2781,68 @@ export class DinksterConnection {
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
-    if (payload.outputMount !== undefined && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
+    if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
+    if (payload.activeOutputMount != null && typeof payload.activeOutputMount !== 'string') throw new Error('GET /api/mounts: malformed active output mount')
+    if (payload.restartRequired !== undefined && typeof payload.restartRequired !== 'boolean') throw new Error('GET /api/mounts: malformed restartRequired')
+    if (payload.pendingRemovals !== undefined && (!Array.isArray(payload.pendingRemovals) || !payload.pendingRemovals.every((id) => typeof id === 'string'))) throw new Error('GET /api/mounts: malformed pendingRemovals')
     return {
       mounts,
       mountChangesAllowed: payload.mountChangesAllowed === undefined ? false : payload.mountChangesAllowed,
       ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}),
+      ...(typeof payload.activeOutputMount === 'string' ? { activeOutputMount: payload.activeOutputMount } : {}),
+      ...(typeof payload.restartRequired === 'boolean' ? { restartRequired: payload.restartRequired } : {}),
+      ...(Array.isArray(payload.pendingRemovals) ? { pendingRemovals: payload.pendingRemovals as string[] } : {}),
     }
+  }
+
+  async fetchAssetLocations(digest: string): Promise<readonly string[]> {
+    const query = new URLSearchParams({ digest, scope: 'local', project: this.project ?? 'default' })
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations?${query}`)
+    if (!res.ok) throw new Error(`GET asset locations failed: ${res.status}`)
+    const payload = await res.json() as { locations?: unknown }
+    if (!Array.isArray(payload.locations)) throw new Error('GET asset locations: malformed response')
+    return payload.locations.map((value: unknown) => {
+      if (typeof value !== 'object' || value === null || typeof (value as Record<string, unknown>)['path'] !== 'string') {
+        throw new Error('GET asset locations: malformed location')
+      }
+      return (value as { path: string }).path
+    })
+  }
+
+  async fetchMountLocations(): Promise<MountLocations> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations`)
+    if (!res.ok) throw new Error(`GET /api/mounts/locations failed: ${res.status}`)
+    const payload = await res.json() as { mounts?: unknown; activeMounts?: unknown; importMount?: unknown }
+    if (!Array.isArray(payload.mounts)) throw new Error('GET /api/mounts/locations: malformed response')
+    if (payload.importMount !== undefined && payload.importMount !== null &&
+        (typeof payload.importMount !== 'string' || payload.importMount === '')) throw new Error('GET /api/mounts/locations: malformed import mount')
+    const location = (value: unknown) => {
+      const row = value as Record<string, unknown> | null
+      if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
+      return { id: row['id'], path: row['path'] }
+    }
+    if (payload.activeMounts !== undefined && !Array.isArray(payload.activeMounts)) throw new Error('GET /api/mounts/locations: malformed active mounts')
+    const activeMounts = (payload.activeMounts as unknown[] | undefined)?.map((value): MountDescriptor & { readonly path: string } => {
+      const path = location(value)
+      const row = value as Record<string, unknown>
+      if ((row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
+      return { ...path, mode: row['mode'], state: row['state'] }
+    })
+    return { mounts: payload.mounts.map(location), ...(activeMounts !== undefined ? { activeMounts } : {}),
+      ...(payload.importMount !== undefined ? { importMount: payload.importMount as string | null } : {}) }
+  }
+
+  async updateProjectFolders(mounts: readonly string[], outputMount: string | null): Promise<void> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/projects/${encodeURIComponent(this.project ?? 'default')}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mounts, outputMount }),
+    })
+    if (!res.ok) throw new Error(`PUT project folders failed: ${res.status}`)
+  }
+
+  async retryMount(id: string): Promise<void> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(id)}/retry`, { method: 'POST' })
+    if (!res.ok) throw new Error(`POST mount retry failed: ${res.status}`)
   }
 
   async listMounts(): Promise<readonly MountDescriptor[]> {
@@ -2735,7 +2853,7 @@ export class DinksterConnection {
     if (!['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(kind)) {
       throw new Error('Unsupported asset selection kind')
     }
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind })}`, signal === undefined ? undefined : { signal })
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind, ...(this.project !== undefined ? { project: this.project } : {}) })}`, signal === undefined ? undefined : { signal })
     if (!res.ok) throw new Error(`GET asset selections failed: ${res.status}`)
     const payload: unknown = await res.json()
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed asset selections')
@@ -2757,19 +2875,15 @@ export class DinksterConnection {
   }
 
   async selectOutputMount(id: string): Promise<void> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/output`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-    if (!res.ok) throw new Error(`PUT /api/mounts/output failed: ${res.status}`)
+    const settings = await this.fetchMountSettings()
+    await this.updateProjectFolders(settings.mounts.map((mount) => mount.id), id)
   }
 
-  async addMount(id: string, path: string, mode: 'read' | 'readwrite' = 'read'): Promise<MountDescriptor> {
+  async addMount(id: string, path: string, mode: 'read' | 'readwrite' = 'read', options: MountGrantOptions = {}): Promise<MountDescriptor> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, path, mode }),
+      body: JSON.stringify({ id, path, mode, ...(this.project !== undefined ? { project: this.project } : {}), ...options }),
     })
     if (!res.ok) throw new Error(`POST /api/mounts failed: ${res.status}`)
     const value = await res.json() as Record<string, unknown>

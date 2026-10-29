@@ -100,7 +100,7 @@
   ],
   "AssetsBody.tsx": [
     "text:() const [mounts, setMounts] = createSignal",
-    "text:() const [retryTick, setRetryTick] = createSignal(0) const [sourceFailures, setSourceFailures] = createSignal",
+    "text:() const [retryTick, setRetryTick] = createSignal(0) const [foldersOpen, setFoldersOpen] = createSignal(false) const [sourceFailures, setSourceFailures] = createSignal",
     "text:([]) const [discoveryError, setDiscoveryError] = createSignal",
     "text:= 1024 && unit",
     "text:if (state.kind === 'error') return",
@@ -214,6 +214,8 @@
     "attribute:title:File could not be added",
     "attribute:title:Selector missing.",
     "attribute:title:Value source missing.",
+    "text:() const [canvasDestination, setCanvasDestination] = createSolidSignal",
+    "text:() const [canvasImportChoice, setCanvasImportChoice] = createSolidSignal",
     "text:() const [fileDropSurface, setFileDropSurface] = createSolidSignal",
     "text:() let gestureRefusalId = 0 let gestureRefusalTimer: ReturnType",
     "text:([]) const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal",
@@ -410,8 +412,8 @@
     "text:() const [removingWorker, setRemovingWorker] = createSignal",
     "text:() const [workerName, setWorkerName] = createSignal('') const [workerEndpoint, setWorkerEndpoint] = createSignal('') const [workerTokenFile, setWorkerTokenFile] = createSignal('') const [workerTokenFileGrant, setWorkerTokenFileGrant] = createSignal",
     "text:() const [workerTlsCaFile, setWorkerTlsCaFile] = createSignal('') const [workerTlsCaFileGrant, setWorkerTlsCaFileGrant] = createSignal",
+    "text:([]) const [mountChangesAllowed, setMountChangesAllowed] = createSignal(false) const [workers, setWorkers] = createSignal",
     "text:([]) const [workerFormOpen, setWorkerFormOpen] = createSignal(false) const [editingWorker, setEditingWorker] = createSignal",
-    "text:([]) const [workers, setWorkers] = createSignal",
     "text:, successKey?: string): Promise",
     "text:= 1024 && unit",
     "text:Promise",
@@ -632,7 +634,7 @@
     "text:Rendering 3D preview..."
   ],
   "MountFolderForm.tsx": [
-    "text:Promise"
+    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal"
   ],
   "NodePalette.tsx": [
     "text:() const duplicates = new Set",
@@ -684,6 +686,13 @@
   "ProductTabs.tsx": [
     "text:) return (",
     "text:tab.id === fromId) const next = direction === 'first' ? available[0] : direction === 'last' ? available.at(-1) : available[(current + direction + available.length) % available.length] tablist.querySelector"
+  ],
+  "ProjectFolderSettings.tsx": [
+    "text:() const [busy, setBusy] = createSignal(false) const [error, setError] = createSignal('') const [locationError, setLocationError] = createSignal('') const [removing, setRemoving] = createSignal",
+    "text:() const [locations, setLocations] = createSignal",
+    "text:): Promise",
+    "text:Promise",
+    "text:busy() || settings()?.mountChangesAllowed !== true return"
   ],
   "ProjectsDialog.tsx": [
     "attribute:aria-label:New project name",
@@ -765,6 +774,11 @@
     "text:keyOf(row) === selected()) return found",
     "text:results?.querySelector",
     "text:visible()[selectedIndex()] === undefined ? undefined : optionId(selectedIndex()) const activeResult = (): Extract"
+  ],
+  "UploadDestination.tsx": [
+    "text:() const [error, setError] = createSignal('') let generation = 0 const load = async (): Promise",
+    "text:() const [locations, setLocations] = createSignal",
+    "text:Boolean(props.value.mount) && selected() === undefined return"
   ],
   "VideoDocumentEditor.tsx": [
     "text:(error() === undefined ? undefined : '$raw') const setObject = (next: Record",
