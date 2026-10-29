@@ -765,6 +765,11 @@ describe('dynamic layout on plain nodes', () => {
     expect(rows.find((row) => row.valueKey === `weights.${names[1]}`)!.familyOwner).toEqual({
       graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: `forwarded.${names[1]}`,
     })
+    const ghostRow = rows.find((row) => row.valueKey === `weights.${names[2]}`)!
+    expect(ghostRow.familyOwner).toEqual({
+      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: `forwarded.${names[2]}`,
+    })
+    expect(ghostRow.materialize).toEqual([{ construct: 'forwarded', members: [names[2]] }])
     for (const [index, ghost] of [[1, false], [2, true]] as const) {
       const pin = pinsOf(scene, 'n', 'in').find((candidate) => candidate.address.port === `weights.${names[index]}`)!
       expect(pin.ghost === true).toBe(ghost)

@@ -1275,7 +1275,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const rowFamilyOwner = (row: Extract<typeof baseLayout.rows[number], { kind: 'widget' }>) => {
       for (const [familyPath, owner] of input.occurrenceView?.familyOwners?.get(node.id) ?? []) {
         if (owner.optionalAfterMinimum) {
-          const source = occurrenceFamilyMemberOwner(owner, row.address.port, row.address.members)
+          const frame = row.materialize?.at(-1)
+          const predicted = frame?.construct === familyPath && row.address.port === `${familyPath}.${frame.members.at(-1)}`
+          const source = occurrenceFamilyMemberOwner(owner, row.address.port, row.address.members) ?? (predicted ? owner.ghostOwner : undefined)
           if (!source) continue
           return {
             graphId: source.graphId, nodeId: source.nodeId, construct: source.boundaryId,
@@ -1324,7 +1326,13 @@ export function buildScene(input: BuildSceneInput): Scene {
             }
             if (row.kind === 'widget') {
               const owner = rowFamilyOwner(row)
-              if (owner !== undefined) return { ...row, familyOwner: owner }
+              if (owner !== undefined) {
+                const construct = row.materialize?.at(-1)?.construct
+                const canonical = construct !== undefined && familyOwnerFor(construct)?.optionalAfterMinimum
+                return { ...row, familyOwner: owner,
+                  ...(canonical ? { materialize: row.materialize!.map((frame) => frame.construct === construct ? { ...frame, construct: owner.construct } : frame) } : {}),
+                }
+              }
               const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.valueKey)
               if (valueOwner !== undefined) {
                 return {
