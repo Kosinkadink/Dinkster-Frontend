@@ -53,7 +53,7 @@ dialog only after Load image, not when opening the workflow.
 
 The destination selector names the backend machine and shows explicit active
 roots, pending-change warnings, and unavailable-location errors. Standard
-imports uses the server's advertised importMount, matched to an active writable
+imports uses the server's advertised importMount, matched to a ready writable
 project folder for physical-root display. It never infers that root from the
 output folder or a folder name. Unadvertised, revoked or unavailable defaults
 show a warning instead of a guessed root. The success surface keeps the returned

@@ -493,7 +493,8 @@ test('canvas import confirms each destination and remembers only successful expl
     const app = window.__dinksterTest!.app
     const backend = (app as unknown as { backendForTab(tab: unknown): { connection: { fetchMountLocations: () => Promise<unknown> } } }).backendForTab(app.activeTab()!)
     const plates = { id: 'plates', path: '/studio/plates', mode: 'readwrite', state: 'ready' }
-    backend.connection.fetchMountLocations = async () => ({ mounts: [plates], activeMounts: [plates], importMount: 'camera-imports' })
+    const pending = { id: 'camera-imports', path: '/studio/incoming', mode: 'readwrite', state: 'pending' }
+    backend.connection.fetchMountLocations = async () => ({ mounts: [plates, pending], activeMounts: [plates, pending], importMount: 'camera-imports' })
   })
   await page.setViewportSize({ width: 390, height: 844 })
   await drop()

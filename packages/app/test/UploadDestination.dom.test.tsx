@@ -22,12 +22,12 @@ describe('import destination', () => {
     expect(readUploadDestination('server-a', 'alpha', localStorage)).toEqual({ mount: '', folder: '', remember: true })
   })
 
-  it.each(['capture', null, undefined, 'revoked', 'readonly', 'outside-project'])('shows only the advertised active writable standard import root (%s)', async (importMount) => {
-    const mount = (id: string, mode: 'read' | 'readwrite' = 'readwrite') => ({ id, mode, state: 'ready', path: `/live/${id}` })
+  it.each(['capture', null, undefined, 'revoked', 'readonly', 'outside-project', 'pending'])('shows only the advertised active writable standard import root (%s)', async (importMount) => {
+    const mount = (id: string, mode: 'read' | 'readwrite' = 'readwrite') => ({ id, mode, state: id === 'pending' ? 'pending' : 'ready', path: `/live/${id}` })
     const connection = {
       onMountsChanged: () => () => {},
-      fetchMountSettings: async () => ({ mountChangesAllowed: false, outputMount: 'renders', mounts: [mount('capture'), mount('imports'), mount('renders'), mount('revoked'), mount('readonly', 'read')] }),
-      fetchMountLocations: async () => ({ ...(importMount !== undefined ? { importMount } : {}), mounts: [{ id: 'capture', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('capture'), mount('imports'), mount('renders'), mount('readonly', 'read'), mount('outside-project')] }),
+      fetchMountSettings: async () => ({ mountChangesAllowed: false, outputMount: 'renders', mounts: [mount('capture'), mount('imports'), mount('renders'), mount('revoked'), mount('readonly', 'read'), mount('pending')] }),
+      fetchMountLocations: async () => ({ ...(importMount !== undefined ? { importMount } : {}), mounts: [{ id: 'capture', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('capture'), mount('imports'), mount('renders'), mount('readonly', 'read'), mount('outside-project'), mount('pending')] }),
     }
     const root = document.createElement('div')
     document.body.append(root)
@@ -40,6 +40,7 @@ describe('import destination', () => {
       expect(root.textContent).not.toContain('Destination root: /live/renders')
       expect(root.textContent).not.toContain('Destination root: /live/readonly')
       expect(root.textContent).not.toContain('Destination root: /live/outside-project')
+      expect(root.textContent).not.toContain('Destination root: /live/pending')
     } finally { dispose() }
   })
 
@@ -48,7 +49,7 @@ describe('import destination', () => {
     const connection = {
       onMountsChanged: () => () => {},
       fetchMountSettings: async () => ({ mountChangesAllowed: false, restartRequired: true, outputMount: 'output', mounts: [mount('plates'), mount('pending'), mount('readonly', 'read')] }),
-      fetchMountLocations: async () => ({ mounts: [{ id: 'plates', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('plates'), mount('other-project'), mount('readonly', 'read')] }),
+      fetchMountLocations: async () => ({ mounts: [{ id: 'plates', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('plates'), { ...mount('pending'), state: 'pending' }, mount('other-project'), mount('readonly', 'read')] }),
     }
     const [value, setValue] = createSignal<UploadDestinationChoice>({ remember: false })
     const root = document.createElement('div')

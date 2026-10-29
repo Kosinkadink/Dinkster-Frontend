@@ -39,7 +39,7 @@ export function UploadDestination(props: {
     onCleanup(() => { generation++ })
     untrack(() => { void load() })
   })
-  const writable = () => locations()?.activeMounts?.filter((mount) => mount.mode === 'readwrite' && mount.state !== 'failed' &&
+  const writable = () => locations()?.activeMounts?.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' &&
     settings()?.mounts.some((configured) => configured.id === mount.id && configured.mode === 'readwrite')) ?? []
   const selected = () => writable().find((mount) => mount.id === (props.value.mount || locations()?.importMount))
   const unavailable = () => Boolean(props.value.mount) && selected() === undefined

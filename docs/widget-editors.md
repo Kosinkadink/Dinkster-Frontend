@@ -679,7 +679,7 @@ upload is disabled, so model dialogs do not advertise an upload limit.
 Non-latent file and media uploads offer an import destination and relative
 subfolder, and name the owning backend machine. The default omits the mount
 parameter so the server chooses its standard imports folder. The selector
-offers only active writable mounts that remain members of the current
+offers only ready writable mounts that remain members of the current
 project; configured-only changes are not treated as active before restart.
 The standard destination displays the active root identified by the server's
 importMount, never the output folder or a guessed imports grant. A missing,
