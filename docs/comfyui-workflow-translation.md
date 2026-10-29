@@ -248,6 +248,9 @@ Modern instance widget arrays follow promoted-input order without implicit
 seed-controller entries, even when the instance socket array omits widget-only
 inputs. Socket links keep their instance indices and resolve boundary identities
 by their unique names rather than shifting across omitted inputs.
+Unmatched or ambiguous sparse sockets remain unresolved: invalid inputs block
+compilation and invalid linked outputs report an import error, without remapping
+them by display labels or ordinal positions in the flat decoder.
 Legacy `proxyWidgets` references promote matching
 inner widgets; missing host values inherit the definition's saved values.
 Unresolved widget state stays under `importer.subgraphWidgets` with a warning.

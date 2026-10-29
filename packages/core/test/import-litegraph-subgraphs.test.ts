@@ -374,8 +374,44 @@ describe('LiteGraph subgraphs', () => {
     const compiled = prompt(doc)
     expect(compiled['n1.n1']!.inputs['value']).toBe(19)
     expect(compiled['n1.n2']!.inputs['value']).toBe(360)
-    expect(compiled['n1.n3']!.inputs['value']).toEqual(socket === 'audio' ? ['n4', 0] : 71)
+    expect(compiled['n1.n3']!.inputs['value']).toEqual(['n4', 0])
     expect(doc.graphs.g0!.nodes.n1!.values).toEqual({ in: 19, duration: 360, audio: 71 })
+  })
+
+  it.each([
+    ['inputs', 'missing'], ['inputs', 'shared'],
+    ['outputs', 'missing'], ['outputs', 'shared'], ['outputs', 'second'],
+  ] as const)('resolves sparse %s socket %s only by a unique boundary identity', (side, socket) => {
+    const def = definition()
+    def.nodes.push(relay(2))
+    def[side][0]!.name = 'shared'
+    def[side].push({ id: 'second', name: 'shared', type: 'INT', linkIds: [3] })
+    def.links.push(side === 'inputs' ? link(3, -10, 1, 2, 0) : link(3, 2, 0, -20, 1))
+    const host = { ...instance(1),
+      inputs: side === 'inputs' ? [{ name: socket, link: 9 }] : [{ name: 'value', widget: { name: 'value' } }],
+      outputs: side === 'outputs' ? [{ name: socket, links: [9] }] : [{ name: 'result' }],
+      widgets_values: [19, 31],
+    }
+    const external = { ...relay(4), inputs: side === 'outputs' ? [{ name: 'value', link: 9 }] : [], widgets_values: [53] }
+    const raw = { nodes: [host, external], definitions: { subgraphs: [def] },
+      links: [side === 'inputs' ? link(9, 4, 0, 1, 0) : link(9, 1, 0, 4, 0)],
+    }
+    if (socket === 'second') {
+      expect(prompt(imported(raw))['n4']!.inputs['value']).toEqual(['n1.n2', 0])
+      return
+    }
+    if (side === 'outputs') {
+      const result = importLitegraph(raw as JsonObject, resolve)
+      expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', code: 'import.link.outputSlot' }))
+      return
+    }
+    const doc = imported(raw)
+    const result = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' },
+      connection: asConnectionId('test'), schemaHash: 'test' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'compile.boundary.missingInput',
+    }))
   })
 
   it('keeps modern promoted seed values separate from implicit controller entries', () => {

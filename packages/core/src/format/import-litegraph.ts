@@ -543,6 +543,7 @@ const inputPortForSchema = (node: LgNode, slot: number, schema: NodeSchema): str
     : inputs.find((input) => input.id === foreignName)
   if (named !== undefined) return named.id
   if (foreignInput.widget !== undefined) return widgetName ?? foreignName
+  if (schema.source === 'subgraph') return foreignName
   const sockets = inputs.filter((input) => input.widget === undefined || input.forceInput === true)
   const ordinal = (node.inputs ?? [])
     .slice(0, slot + 1)
@@ -564,6 +565,7 @@ const staticOutputPortForSchema = (
   const outputs = outputsOf(schema).filter((output) => output.dynamic === undefined)
   const exact = outputs.filter((output) => output.id === foreignName)
   if (exact.length > 0) return exact[occurrence]?.id
+  if (schema.source === 'subgraph') return undefined
   const displayed = outputs.filter((output) => output.displayName === foreignName)
   if (displayed.length > 0) return displayed[occurrence]?.id
   const foldedName = foreignName.toLowerCase()
