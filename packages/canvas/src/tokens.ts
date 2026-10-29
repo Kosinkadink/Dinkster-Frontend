@@ -208,7 +208,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,
     // Link and execution-mode semantics do not change with shell themes.
-    linkDefault: canvasSemanticTokens.text.muted,
+    linkDefault: '#8d9aa5',
     mutedBadge: '#4a4a5e',
     bypassedBadge: '#69449a',
     bypassWash: 'rgba(147, 88, 220, 0.28)',

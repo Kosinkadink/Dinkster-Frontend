@@ -81,6 +81,18 @@ for (const theme of ['dark', 'light'] as const) {
     await screenshot(page, `brand-gallery-${theme}`)
     await closeGallery(page)
     await screenshot(page, `brand-shell-${theme}`)
+    await page.evaluate(() => Object.assign(window, { dinksterDesktop: {
+      info: async () => ({ appVersion: '0.2.0', engineCommit: 'brand-visual', variant: 'cuda', storageBytes: 0, releases: [], update: { state: 'current', detail: 'Current' } }),
+      onInfo: () => () => undefined,
+      systemCheck: async () => ({ platform: 'linux', architecture: 'x64', freeBytes: 1, totalBytes: 2, engineReady: true, engineDetail: 'Ready', gpu: { available: false } }),
+      remoteWorkers: async () => [],
+    } }))
+    await openModal(page, 'desktop-management')
+    await expect(page.locator('.desktop-management')).toContainText('0.2.0')
+    await screenshot(page, `brand-version-${theme}`)
+    await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
+      readonly modalPanel: { set(value: string): void }
+    }).modalPanel.set(''))
     await page.evaluate((selected) => {
       window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
     }, theme)
