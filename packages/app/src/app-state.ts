@@ -3890,6 +3890,7 @@ export class AppState {
     readonly signature: string
     readonly status: ConnectionStatus
     readonly controller: AbortController
+    completion: Promise<void>
   }>()
   private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
 
@@ -3902,7 +3903,7 @@ export class AppState {
     const previous = this.workflowAssetChecks.get(tab.store)
     if (previous?.backend === backend && previous.signature === signature && previous.status === status) return
     previous?.controller.abort()
-    const check = { backend, signature, status, controller: new AbortController() }
+    const check = { backend, signature, status, controller: new AbortController(), completion: Promise.resolve() }
     this.workflowAssetChecks.set(tab.store, check)
     const isCurrent = (): boolean => !this.disposed && !check.controller.signal.aborted &&
       this.workflowAssetChecks.get(tab.store) === check && this.tabs.get().includes(tab) &&
@@ -3921,9 +3922,11 @@ export class AppState {
       unchecked()
       return
     }
-    void backend.connection.checkAssetAvailability(occurrences.map(({ asset }) => asset.digest), {
-      scope: 'local', signal: check.controller.signal,
-    }).then((rows) => {
+    const signal = AbortSignal.any([check.controller.signal, AbortSignal.timeout(5000)])
+    const observation = backend.connection.checkAssetAvailability(occurrences.map(({ asset }) => asset.digest), {
+      scope: 'local', signal,
+    }).then(async (rows) => {
+      if (signal.aborted) return unchecked()
       const missing = new Set(rows.filter((row) => row.status === 'missing').map((row) => row.digest))
       publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map((occurrence) => {
         const { graph, node, input, index, asset } = occurrence
@@ -3937,15 +3940,19 @@ export class AppState {
           })
       }))
       if (!isCurrent()) return
-      for (const digest of new Set(rows.filter((row) => row.status === 'available').map((row) => row.digest))) {
-        void backend.connection.fetchAssetLocations(digest).then((paths) => {
-          if (!isCurrent() || paths.length === 0) return
+      await Promise.all([...new Set(rows.filter((row) => row.status === 'available').map((row) => row.digest))].map((digest) =>
+        backend.connection.fetchAssetLocations(digest, signal).then((paths) => {
+          if (!isCurrent() || signal.aborted || paths.length === 0) return
           let observed = this.workflowAssetLocations.get(tab.store)
           if (!observed) this.workflowAssetLocations.set(tab.store, observed = new Map())
           observed.set(digest, { machine: backend.label, paths: [...paths] })
-        }).catch(() => undefined) // Operator location access is optional; presence remains authoritative.
-      }
+        }).catch(() => undefined))) // Operator location access is optional; presence remains authoritative.
     }, unchecked)
+    // Cancellation also settles saves when a transport ignores its signal.
+    check.completion = new Promise<void>((resolve) => {
+      signal.addEventListener('abort', () => resolve(), { once: true })
+      void observation.then(resolve, resolve)
+    })
   }
 
   /** Rebind document watchers when a tab id starts naming a different session. */
@@ -6551,14 +6558,17 @@ export class AppState {
   }
 
   /** Download a live tab through the same freshly-stamped export path as save. */
-  exportWorkflow(tabId: string): boolean {
+  async exportWorkflow(tabId: string): Promise<boolean> {
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!tab || tab.execution) return false
     const filename = workflowExportFilename(tab.title)
+    const backend = this.backendForTab(tab)
+    const snapshot = await this.documentWithAssetLocations(tab)
+    if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
     let url: string | undefined
     let anchor: HTMLAnchorElement | undefined
     try {
-      const blob = new Blob([`${JSON.stringify(this.stampedDocumentOf(tab), null, 2)}\n`], {
+      const blob = new Blob([`${JSON.stringify(snapshot, null, 2)}\n`], {
         type: WORKFLOW_MEDIA_TYPE,
       })
       url = URL.createObjectURL(blob)
@@ -6661,6 +6671,16 @@ export class AppState {
       frontendVersion: FRONTEND_VERSION,
     })
     return stamp !== undefined ? { ...doc, environment: stamp } : doc
+  }
+
+  private async documentWithAssetLocations(tab: Tab): Promise<WorkflowDocument> {
+    const snapshot = this.stampedDocumentOf(tab)
+    const check = this.workflowAssetChecks.get(tab.store)
+    if (!check) return snapshot
+    await check.completion
+    if (this.disposed || check.controller.signal.aborted || this.workflowAssetChecks.get(tab.store) !== check ||
+        !this.tabs.get().includes(tab) || this.backendForTab(tab) !== check.backend) return snapshot
+    return stampAssetLocations(snapshot, this.workflowAssetLocations.get(tab.store))
   }
 
   // -- Workflow library -------------------------------------------------------
@@ -6800,9 +6820,10 @@ export class AppState {
     // the replacement and must be neither patched nor deleted by this save.
     // Everything written back after the awaits is validated against these.
     const revision = tab.store.revision
-    const payload = JSON.stringify(this.stampedDocumentOf(tab))
+    const snapshot = this.documentWithAssetLocations(tab)
     const link = this.libraryLinks.get(tab.id)
     try {
+      const payload = JSON.stringify(await snapshot)
       const digest = await backend.connection.uploadAsset(payload)
       let record: LibraryRecord | undefined
       // A link made on a DIFFERENT backend is not ours to patch: saving a

@@ -397,7 +397,12 @@ index. Failed or offline checks report unknown presence, not missing bytes.
 These checks never acquire files, resolve filenames or rewrite stored refs;
 late results from replaced checks, closed tabs and old targets are discarded.
 Successful current operator location reads are held as session observations.
-Save/export stamps completed observations into `meta.ext.dinkster.assetLocations`
+Save/download captures the submitted document before waiting for its current
+presence and location lookup (up to five seconds total for that lookup).
+Edits or target/session changes cancel the wait; failed or timed-out optional
+reads do not block saving or replace existing hints. The synchronous
+`exportDocument` snapshot includes only already completed observations.
+Save/download stamps observations into `meta.ext.dinkster.assetLocations`
 with a version, exact digest, machine label, physical paths and graph/node/input
 occurrence. Other extension data is preserved; the live document and its undo
 history are unchanged. Reopened missing-asset details show matching last-known

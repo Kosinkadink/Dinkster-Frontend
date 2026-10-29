@@ -2905,9 +2905,9 @@ export class DinksterConnection {
     }
   }
 
-  async fetchAssetLocations(digest: string): Promise<readonly string[]> {
+  async fetchAssetLocations(digest: string, signal?: AbortSignal): Promise<readonly string[]> {
     const query = new URLSearchParams({ digest, scope: 'local', project: this.project ?? 'default' })
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations?${query}`)
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations?${query}`, signal === undefined ? undefined : { signal })
     if (!res.ok) throw new Error(`GET asset locations failed: ${res.status}`)
     const payload = await res.json() as { locations?: unknown }
     if (!Array.isArray(payload.locations)) throw new Error('GET asset locations: malformed response')

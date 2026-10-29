@@ -712,6 +712,54 @@ describe('cascading context menus', () => {
 })
 
 describe('workflow file commands', () => {
+  it.each(['complete', 'closed'] as const)('waits for early download locations or cancels a %s session', async (outcome) => {
+    const app = new AppState()
+    const backend = app.addBackend('http://native:8000', 'Original machine', false, 'dinkster')!
+    if (backend.protocol !== 'dinkster') throw new Error('native backend required')
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    const asset = { digest: 'blake3:' + 'c'.repeat(64), name: 'download.png', size: 23,
+      mediaType: 'image/png', virtualPath: 'input/download.png' }
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([{ digest: asset.digest, status: 'available' }])
+    let resolve!: (paths: readonly string[]) => void
+    const pending = new Promise<readonly string[]>((done) => { resolve = done })
+    const paths = vi.spyOn(backend.connection, 'fetchAssetLocations').mockReturnValue(pending)
+    const base = app.activeTab()!.store.doc
+    expect(app.openDocument({ ...base, lineage: 'early-download', graphs: {
+      [base.root]: { ...base.graphs[base.root], nodes: {
+        ...base.graphs[base.root]!.nodes,
+        download: { id: 'download', type: 'std.math.add_ints', values: { a: asset } },
+      } },
+    } }, 'Early download')).toEqual([])
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    let blob: Blob | undefined
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation((value) => {
+      blob = value as Blob
+      return 'blob:early-download'
+    })
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const downloading = app.exportWorkflow(tab.id)
+    await vi.waitFor(() => expect(paths).toHaveBeenCalled())
+    expect(createUrl).not.toHaveBeenCalled()
+    if (outcome === 'closed') app.closeTab(tab.id)
+    else resolve(['/original/download.png'])
+    expect(await downloading).toBe(outcome === 'complete')
+    if (outcome === 'complete') {
+      const saved = JSON.parse(await blob!.text())
+      expect(saved.graphs[base.root].nodes.download.values.a).toEqual(asset)
+      expect(saved.meta.ext['dinkster.assetLocations']).toEqual({ version: 1, observations: [{
+        graph: base.root, node: 'download', input: 'a', index: 0, digest: asset.digest,
+        machine: 'Original machine', paths: ['/original/download.png'],
+      }] })
+      expect(tab.store.revision).toBe(0)
+    } else {
+      expect(createUrl).not.toHaveBeenCalled()
+      resolve(['/stale/download.png'])
+    }
+    app.dispose()
+  })
+
   it('sanitizes export filenames and falls back for an empty title', () => {
     expect(workflowExportFilename('  My: Flow?/Final.  ')).toBe('My- Flow--Final.json')
     expect(workflowExportFilename('fun-flow-01')).toBe('fun-flow-01.json')
@@ -739,7 +787,7 @@ describe('workflow file commands', () => {
     })
 
     expect(app.commands.get('workflow.export')?.enabled?.()).toBe(true)
-    expect(app.exportWorkflow(tab.id)).toBe(true)
+    expect(await app.exportWorkflow(tab.id)).toBe(true)
     expect(createUrl).toHaveBeenCalledOnce()
     expect(clickAnchor).toHaveBeenCalledOnce()
     expect(download).toBe('fun-flow--01.json')
@@ -751,14 +799,14 @@ describe('workflow file commands', () => {
     expect(revokeUrl).toHaveBeenCalledWith('blob:workflow-export')
   })
 
-  it('revokes a failed export URL and reports the failure visibly', () => {
+  it('revokes a failed export URL and reports the failure visibly', async () => {
     vi.useFakeTimers()
     const app = new AppState()
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:failed-export')
     const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => { throw new Error('download blocked') })
 
-    expect(app.exportWorkflow(app.activeTab()!.id)).toBe(false)
+    expect(await app.exportWorkflow(app.activeTab()!.id)).toBe(false)
     expect(app.problems.get().some((problem) => problem.code === 'workflow.exportFailed')).toBe(true)
     expect(app.transientStatus.get()).toContain('download blocked')
     vi.runOnlyPendingTimers()
