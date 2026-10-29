@@ -173,7 +173,8 @@ controls continue to reach the graph.
 Canvas view and lens menus, minimap and zoom actions, output preview actions,
 breadcrumbs, and canvas dialogs use `ProductButton`. Compact ghost buttons
 serve menu rows and icon actions; primary styling marks the image-load action.
-Surface CSS retains menu placement and the corner bar's 36-pixel hit targets.
+Surface CSS retains menu placement and 36-pixel hit targets for the corner
+bar and minimap settings rows, including compact buttons.
 View, lens, and minimap controls inherit Product colors, borders, focus, and
 disabled states.
 

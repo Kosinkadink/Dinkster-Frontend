@@ -2,14 +2,20 @@ import { expect, test, type Page } from './fixtures.js'
 
 type Edge = 'left' | 'right' | 'top' | 'bottom'
 
-async function openFixture(page: Page): Promise<number> {
+async function openFixture(page: Page, tall = false): Promise<number> {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  return page.evaluate(() => {
+  return page.evaluate((tall) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'OutlineEdgeE2E', displayName: 'Outline Edge E2E', category: 'test', source: 'v3', isOutputNode: false,
-      items: [],
+      items: tall ? Array.from({ length: 36 }, (_, index) => ({
+        kind: 'input' as const,
+        id: `value_${index}`,
+        type: { kind: 'concrete' as const, name: 'FLOAT' },
+        optional: false,
+        widget: { widgetType: 'FLOAT' as const, options: { min: 0, max: 1 }, default: index / 36 },
+      })) : [],
     }])
     test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'outline-edge-e2e', root: 'root',
@@ -21,7 +27,7 @@ async function openFixture(page: Page): Promise<number> {
       view: { graphs: { root: { nodes: { edge: { position: { x: 100, y: 100 } } } } } },
     }, 'Outline Edge E2E')
     return test.app.activeTab()!.store.revision
-  })
+  }, tall)
 }
 
 async function selectNode(page: Page): Promise<void> {
@@ -82,9 +88,9 @@ async function putNodeUnderOverlay(page: Page, edge: 'top' | 'bottom', selector:
   }, { edge, selector })
 }
 
-async function coveredOutlineSlices(page: Page, edge: Edge): Promise<number> {
+async function coveredOutlineSlices(page: Page, edge: Edge, inset = 0): Promise<number> {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
-  return page.evaluate((edge) => {
+  return page.evaluate(({ edge, inset }) => {
     const renderer = window.__dinksterTest!.renderer!
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=graph-canvas]')!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'edge')!
@@ -97,7 +103,7 @@ async function coveredOutlineSlices(page: Page, edge: Edge): Promise<number> {
     const sy = canvas.height / canvas.clientHeight
     const band = 7
     const cssRect = edge === 'left'
-      ? { x: 0, y: y + 7, width: band, height: height - 14 }
+      ? { x: inset, y: y + 7, width: band, height: height - 14 }
       : edge === 'right'
         ? { x: canvas.clientWidth - band, y: y + 7, width: band, height: height - 14 }
         : edge === 'top'
@@ -135,7 +141,7 @@ async function coveredOutlineSlices(page: Page, edge: Edge): Promise<number> {
       if (bright) covered++
     }
     return covered
-  }, edge)
+  }, { edge, inset })
 }
 
 test('selected outline clips naturally at every viewport edge across DPR and zoom', async ({ browser }) => {
@@ -148,6 +154,14 @@ test('selected outline clips naturally at every viewport edge across DPR and zoo
     expect(await coveredOutlineSlices(page, 'left')).toBe(0)
     await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene())
     await selectNode(page)
+
+    // A missing selection outline must fail, not pass every absence check.
+    await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'edge')!
+      renderer.setViewport({ x: 20 - node.x, y: 100 - node.y, scale: 1 })
+    })
+    expect(await coveredOutlineSlices(page, 'left', 16)).toBe(5)
 
     for (const scale of [0.75, 1.75]) {
       for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
@@ -191,4 +205,23 @@ test('selected outline clips naturally at every viewport edge across DPR and zoo
 
     await context.close()
   }
+})
+
+test('a selected tall node clips at the viewport without a false bottom outline', async ({ page }) => {
+  await openFixture(page, true)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'edge')?.layout.height ?? 0,
+  )).toBeGreaterThan(850)
+  await page.evaluate(() => {
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    window.__dinksterTest!.controller!.setSelection(['edge'])
+  })
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  const geometry = await page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'edge')!
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=graph-canvas]')!
+    return { bottom: node.y + node.layout.height, viewport: canvas.clientHeight }
+  })
+  expect(geometry.bottom).toBeGreaterThan(geometry.viewport)
+  expect(await coveredOutlineSlices(page, 'bottom')).toBe(0)
 })

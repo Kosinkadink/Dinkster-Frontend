@@ -177,10 +177,6 @@ const compileInput = (document: WorkflowDocument): CompileInput => ({
 })
 
 describe('coexistence: all constructs in one document', () => {
-  it('loads with no error diagnostics', () => {
-    loadCoexistence()
-  })
-
   it('solves cleanly: no diagnostics, no mismatch verdicts, types cross every junction', () => {
     const doc = loadCoexistence()
     const resolve = documentResolver(doc, resolveBase)

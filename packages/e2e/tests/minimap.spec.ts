@@ -223,13 +223,28 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
   await expect(menu).toContainText('Reroutes')
   await expect(menu).toContainText('Render Error State')
   await expect(menu).toContainText('Bookmarks')
+  for (const label of ['Node Colors', 'Render Bypass State', 'Show Links', 'Show Frames/Groups', 'Reroutes', 'Render Error State']) {
+    const row = menu.getByRole('switch', { name: label, exact: true })
+    await expect(row).toHaveAttribute('aria-checked', 'true')
+    await expect(row).not.toHaveAttribute('data-tooltip-label')
+    await expect(row).not.toHaveAttribute('title')
+    expect(await row.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(36)
+  }
+  const bookmarks = menu.getByRole('switch', { name: 'Bookmarks. Show bookmark numbers on the minimap', exact: true })
+  await expect(bookmarks).toHaveAttribute('data-tooltip-label', 'Show bookmark numbers on the minimap')
+  await expect(bookmarks).not.toHaveAttribute('title')
+  await expect(bookmarks).toHaveAttribute('aria-checked', 'true')
+  await bookmarks.focus()
+  await expect(bookmarks).toBeFocused()
   await page.getByTestId('minimap-toggle-nodes').click()
   await page.getByTestId('minimap-toggle-bypass').click()
   await page.getByTestId('minimap-toggle-noodles').click()
   await page.getByTestId('minimap-toggle-groups').click()
   await page.getByTestId('minimap-toggle-reroutes').click()
   await page.getByTestId('minimap-toggle-errors').click()
-  await page.getByTestId('minimap-marker-toggle').click()
+  await bookmarks.focus()
+  await page.keyboard.press('Space')
+  await expect(bookmarks).toHaveAttribute('aria-checked', 'false')
   const minimap = page.getByTestId('minimap')
   await expect(minimap).toHaveAttribute('data-node-colors', 'false')
   await expect(minimap).toHaveAttribute('data-bypass', 'false')
@@ -261,9 +276,13 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
   const minimapHandle = await page.getByTestId('minimap').elementHandle()
   const toggle = page.getByTestId('minimap-toggle')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAccessibleName('Hide minimap')
+  await expect(toggle).toHaveAttribute('data-tooltip-label', 'Hide minimap')
   await toggle.click()
   await expect(page.getByTestId('minimap')).toBeHidden()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAccessibleName('Show minimap')
+  await expect(toggle).toHaveAttribute('data-tooltip-label', 'Show minimap')
   for (const size of [{ width: 1440, height: 900 }, { width: 640, height: 520 }]) {
     await page.setViewportSize(size)
     const [toggleBox, zoom] = await Promise.all([
@@ -280,6 +299,7 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
   await toggle.click()
   await expect(page.getByTestId('minimap')).toBeVisible()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAccessibleName('Hide minimap')
   expect(await minimapHandle!.evaluate((canvas) => canvas.isConnected)).toBe(true)
   const restoredHandle = await page.getByTestId('minimap').elementHandle()
   expect(await minimapHandle!.evaluate((canvas, restored) => canvas === restored, restoredHandle)).toBe(true)
@@ -312,8 +332,27 @@ test('ordinary and narrow layouts keep controls disjoint and canvas interaction 
     // At 640px the open side panel leaves no stage room beside the cluster,
     // so the settings popover must open above it instead.
     { size: { width: 640, height: 520 }, menuPlacement: 'above' as const },
+    { size: { width: 480, height: 900 }, menuPlacement: 'above' as const },
   ]) {
     await page.setViewportSize(size)
+    if (size.width <= 520) await page.getByRole('button', { name: 'Toggle right rail', exact: true }).click()
+    await expect(page.getByRole('group', { name: 'Minimap controls', exact: true })).toBeVisible()
+    await expect(page.getByRole('group', { name: 'Canvas view controls', exact: true })).toBeVisible()
+    for (const [id, tooltip] of [
+      ['minimap-settings', 'Minimap settings'],
+      ['canvas-zoom-out', 'Zoom out'],
+      ['canvas-zoom-level', 'Reset zoom to 100%'],
+      ['canvas-fit-view', 'Fit graph to view'],
+      ['canvas-zoom-in', 'Zoom in'],
+    ] as const) {
+      const control = page.getByTestId(id)
+      await expect(control).toHaveAttribute('data-tooltip-label', tooltip)
+      await expect(control).toHaveClass(/\bproduct-button\b/)
+      await expect(control).not.toHaveAttribute('title')
+    }
+    const cluster = page.locator('.canvas-corner-controls')
+    await expect(cluster).toHaveCSS('pointer-events', 'none')
+    await expect(page.getByTestId('minimap')).toHaveCSS('height', size.width <= 520 ? '122px' : '150px')
     const [panel, toggle, settings, bar] = await Promise.all([
       page.getByTestId('minimap').boundingBox(),
       page.getByTestId('minimap-toggle').boundingBox(),
@@ -343,9 +382,17 @@ test('ordinary and narrow layouts keep controls disjoint and canvas interaction 
       expect(button.height).toBeGreaterThanOrEqual(36)
       if (index > 0) expect(zoomButtons[index - 1]!.x + zoomButtons[index - 1]!.width).toBeLessThanOrEqual(button.x)
     }
+    await page.keyboard.press('Tab')
     await page.getByTestId('minimap-settings').focus()
+    await expect(page.getByTestId('minimap-settings')).toHaveCSS('outline-style', 'solid')
+    expect(await page.getByTestId('minimap-settings').evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).outlineWidth),
+    )).toBeGreaterThan(0)
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('minimap-toggle-nodes')).toBeFocused()
+    expect(await cluster.evaluate((element) => Number(getComputedStyle(element).zIndex))).toBeGreaterThan(
+      await page.locator('.canvas-stage-toolbar').evaluate((element) => Number(getComputedStyle(element).zIndex)),
+    )
     // The settings popover opens beside the cluster when the stage has room
     // and above it when a side panel or narrow window leaves none; either
     // way it stays in the viewport and never covers the minimap or the bar
@@ -367,6 +414,11 @@ test('ordinary and narrow layouts keep controls disjoint and canvas interaction 
     expect(menu.x + menu.width).toBeLessThanOrEqual(size.width)
     expect(menu.y + menu.height).toBeLessThanOrEqual(size.height)
     await expect(page.locator('.canvas-zoom-controls')).toBeVisible()
+    const lastSetting = page.getByTestId('minimap-marker-toggle')
+    await lastSetting.scrollIntoViewIfNeeded()
+    const lastBox = (await lastSetting.boundingBox())!
+    expect(lastBox.y).toBeGreaterThanOrEqual(menu.y)
+    expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(menu.y + menu.height)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('minimap-settings')).toBeFocused()
   }
@@ -414,6 +466,14 @@ test('corner zoom controls are keyboard reachable, truthful, and preserve the do
   }
   const center = await worldCenter()
 
+  const zoomIn = page.getByTestId('canvas-zoom-in')
+  await zoomIn.hover()
+  const restingBackground = await zoomIn.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await page.mouse.down()
+  await expect.poll(() => zoomIn.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(restingBackground)
+  await page.mouse.move(0, 0)
+  await page.mouse.up()
+  expect((await viewport(page)).scale).toBe(initial.scale)
   await page.getByTestId('canvas-zoom-in').focus()
   await page.keyboard.press('Enter')
   const zoomed = await viewport(page)

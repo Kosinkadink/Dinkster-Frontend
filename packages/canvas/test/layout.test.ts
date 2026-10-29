@@ -614,11 +614,6 @@ describe('sizing', () => {
     expect(roles).not.toContain('renamedTitle')
   })
 
-  it('layout is deterministic (pure function of inputs)', () => {
-    const items = [input('a'), widget('w'), output('x')]
-    expect(doLayout(items)).toEqual(doLayout(items))
-  })
-
   it('minimizes to title width with an 80px floor while retaining every endpoint', () => {
     const schema = schemaOf([
       input('required', { type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } } }),

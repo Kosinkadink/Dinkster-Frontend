@@ -112,7 +112,21 @@ describe('SurfacePanel locale boundary', () => {
     const panel = root.querySelector<HTMLElement>('[data-testid="surface-panel"]')!
     const surface = root.querySelector<HTMLElement>('[data-testid="surface-rawSurface"]')!
     const firstBinding = root.querySelector<HTMLElement>('[data-testid="surface-binding-rawSurface-0"]')!
+    const remove = root.querySelector<HTMLButtonElement>('[data-testid="surface-remove-rawSurface"]')!
+    const unbind = root.querySelector<HTMLButtonElement>('[data-testid="surface-unbind-rawSurface-0"]')!
+    expect(remove.getAttribute('data-tooltip-label')).toBe('Delete surface')
+    expect(unbind.getAttribute('data-tooltip-label')).toBe('Remove binding')
+    expect(root.querySelector('[title]')).toBeNull()
+    const warning = root.querySelector<HTMLElement>('.mode-binding-warning')!
+    expect(warning.tabIndex).toBe(0)
+    expect(warning.getAttribute('data-tooltip-label')).toBe("binding kind 'future' is not supported by this build")
+    expect(warning.getAttribute('aria-label')).toBe(warning.getAttribute('data-tooltip-label'))
+    warning.focus()
+    expect(document.activeElement).toBe(warning)
     const groupSelect = root.querySelector<HTMLButtonElement>('[data-testid="surface-bind-group-rawSurface"]')!
+    expect(groupSelect.tagName).toBe('BUTTON')
+    expect(groupSelect.getAttribute('aria-haspopup')).toBe('listbox')
+    expect(root.querySelector('select')).toBeNull()
     groupSelect.focus()
     groupSelect.click()
     await flush()
@@ -130,6 +144,8 @@ describe('SurfacePanel locale boundary', () => {
     expect(root.querySelector('[data-testid="surface-apply-bypassed-rawSurface"]')?.textContent).toBe('[UMGEHEN]')
     expect(root.querySelector('[data-testid="surface-remove-rawSurface"]')?.getAttribute('aria-label')).toBe('[OBERFLACHE LOSCHEN]')
     expect(root.querySelector('[data-testid="surface-unbind-rawSurface-0"]')?.getAttribute('aria-label')).toBe('[BINDUNG ENTFERNEN]')
+    expect(remove.getAttribute('data-tooltip-label')).toBe('[OBERFLACHE LOSCHEN]')
+    expect(unbind.getAttribute('data-tooltip-label')).toBe('[BINDUNG ENTFERNEN]')
     expect(root.textContent).toContain('Raw surface title')
     expect(root.textContent).toContain('Raw node title')
     expect(root.textContent).toContain('[GRUPPE: Raw group title]')

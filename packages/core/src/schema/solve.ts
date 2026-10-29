@@ -262,6 +262,8 @@ const resolutionOfRoot = (root: VarRecord): VarResolution => {
 // ---------------------------------------------------------------------------
 
 export interface SolveOptions extends ElaborateOptions {
+  /** Observe node, elaborated-port and type-pair visits without timing the host. */
+  readonly onWork?: (kind: 'node' | 'port' | 'constraint') => void
   /** Resolve a concrete node when its schema depends on occurrence-local data. */
   readonly resolveNode?: (node: NodeData) => NodeSchema | undefined
   /** Optional occurrence-aware connectivity used by scene projections. */
@@ -306,6 +308,7 @@ export function solveGraphTypes(
   const optionalOutputs = new Map<NodeId, Set<string>>()
   const failInputs = new Map<NodeId, Set<string>>()
   for (const node of Object.values(def.nodes) as NodeData[]) {
+    options.onWork?.('node')
     const schema = options.resolveNode === undefined
       ? resolve(node.type)
       : options.resolveNode(node)
@@ -319,6 +322,7 @@ export function solveGraphTypes(
       readonly source: SlotBindingSource
     }[] = []
     for (const item of elabInputsOf(e)) {
+      options.onWork?.('port')
       const key = elabKeyOf(item.address)
       inputs.set(key, item.spec.type)
       if (item.origin.kind === 'slot' && item.origin.selected !== undefined) {
@@ -343,6 +347,7 @@ export function solveGraphTypes(
       }
     }
     for (const item of elabOutputsOf(e)) {
+      options.onWork?.('port')
       const key = elabKeyOf(item.address)
       outputs.set(key, item.spec.type)
       if (item.spec.optional) {
@@ -494,6 +499,7 @@ export function solveGraphTypes(
     allowCoercion = true,
     fromVariableKeys?: ReadonlyMap<string, VarKey>,
   ): void => {
+    options.onWork?.('constraint')
     if (fromType.kind === 'wildcard' || toType.kind === 'wildcard') {
       setVerdict(source, 'ok') // no constraint, no capture
       return

@@ -40,10 +40,28 @@ The subset uses synthetic inputs and checked-in fixtures:
 - Core `dinkster-inline-value.test.ts`: scalar event decoding and invalid inputs.
 - E2E `ci-workflow.test.ts`: workflow triggers, unit selection, credentials
   and browser-isolation contracts.
-- App `extension-dogfooding.test.ts`: built-in widget, command, and editor
-  registrations use the same public doors available to packs.
+- App `extension-dogfooding.test.ts`: built-in widget registration, command
+  inventory/actions, background grid drawing and node-mode decorations through
+  their public registries.
+- App `disabled-features.dom.test.tsx`, using the component config: mounted
+  editor registration, App-view feature gating and shell cleanup, alongside
+  template-surface gating, backend targeting, review toggles and live
+  shared-session tooltip hints. Only the graph canvas is stubbed, not the shell.
+- `scripts/check-host-ui-contract.test.mjs`: removed extension UI symbols
+  stay absent and the widget environment exposes only its scoped client.
 - `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
   and `scripts/check-path-case.test.mjs`: regression tests for source checks.
+
+Node script tests use `--test-isolation=none` in the fast lane. Recorded
+core schema and event goldens run in fast and full unit suites, not again
+in the stock-backend browser job. `pnpm --filter @dinkster/app build`
+checks its emitted HTML, nonempty module entry and inline semantic-token
+content/order after Vite builds once; unit tests do not invoke a second build.
+The widget document-value matrix runs in core alongside its store contract.
+Execution and backend component tests check mounted labels, ownership and
+actions; the tooltip AST check only bans native HTML titles. The existing
+settings multiwindow browser keeper checks hover and keyboard focus on missing
+panel and workflow return controls rather than matching stylesheet text.
 
 Selection does not depend on changed files, labels, model availability or a
 running service. The required `CI_RUNNERS` repository variable controls every
@@ -92,8 +110,13 @@ gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <
 The dispatch ref selects both the workflow and frontend checkout. Main pushes,
 scheduled runs, called runs, and dispatched runs all use the complete matrix.
 Parallel-safe runs as six shards, backend-serial as two, and native startup
-as one isolated job. Every lane installs and checks the software Vulkan
-driver selected by `VK_DRIVER_FILES`. All 10 E2E jobs may run concurrently on
+as one isolated job. Every E2E lane installs
+and checks the software Vulkan driver selected by `VK_DRIVER_FILES`, including
+browser WebGL and native headless rendering.
+The product-surface visual matrix runs only in the fast visual job; its
+route-mocked screenshots do not require a second run against hosted backends.
+Synthetic noodle and boundary interaction proofs run only in parallel-safe.
+All 10 E2E lanes may run concurrently on
 GitHub-hosted Linux. The jobs retain their existing assertions and dependency
 pins:
 

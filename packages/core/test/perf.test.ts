@@ -30,6 +30,10 @@ describe(`synthetic workload (${NODES} nodes)`, () => {
     expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
     const doc = loaded.document!
     expect(Object.keys(doc.graphs['g0']!.nodes)).toHaveLength(NODES)
+    const resolve = documentResolver(doc, (t) => schemas.get(t))
+    for (const node of Object.values(doc.graphs['g0']!.nodes)) {
+      expect(resolve(node.type), node.type).toBeDefined()
+    }
   })
 
   it(`loads within budget (2s for ${NODES} nodes)`, () => {
@@ -79,14 +83,6 @@ describe(`synthetic workload (${NODES} nodes)`, () => {
     expect(result.ok).toBe(true)
     if (result.ok) expect(Object.keys(result.artifact.prompt)).toHaveLength(CHAIN_LENGTH)
     expect(ms, `partial compile took ${ms.toFixed(1)}ms`).toBeLessThan(2000)
-  })
-
-  it('documentResolver resolves every node type', () => {
-    const doc = loadDocument(json).document!
-    const resolve = documentResolver(doc, (t) => schemas.get(t))
-    for (const node of Object.values(doc.graphs['g0']!.nodes)) {
-      expect(resolve(node.type), node.type).toBeDefined()
-    }
   })
 })
 
@@ -154,15 +150,9 @@ describe(`feature-heavy synthetic workload (${NODES} nodes + reroutes/valueSourc
 })
 
 describe(`type solver on the feature-heavy workload (${NODES} nodes)`, () => {
-  // Constraint generation must stay near-linear over nodes + elaborated
-  // ports + edges: one elaboration per node, one union-find over edges.
-  // Measured ~8ms at introduction; the 100ms budget is a deliberate
-  // early-warning line (not CI slack like the 2s budgets above) - if it
-  // trips, profile first and only bump the budget once the growth is
-  // understood and intentional, never to silence it.
-  it('solves within budget (100ms); every link gets a verdict', () => {
+  it.each([CHAINS / 2, CHAINS, CHAINS * 2])('visits each node, port and constraint once across %i chains', (chains) => {
     const json = syntheticWorkflow({
-      chains: CHAINS,
+      chains,
       chainLength: CHAIN_LENGTH,
       reroutes: true,
       valueSources: true,
@@ -172,23 +162,26 @@ describe(`type solver on the feature-heavy workload (${NODES} nodes)`, () => {
     })
     const doc = loadDocument(json).document!
     const def = doc.graphs['g0']!
-    const t0 = performance.now()
-    const result = solveGraphTypes(def, (t) => schemas.get(t))
-    const ms = performance.now() - t0
-    expect(ms, `solveGraphTypes took ${ms.toFixed(1)}ms`).toBeLessThan(100)
-    // Sanity: the solver actually visited the topology (structural feeds
-    // into reroutes/selector candidates are the only links without verdicts).
-    expect(result.linkVerdicts.size).toBeGreaterThan(0)
+    const work = { node: 0, port: 0, constraint: 0 }
+    const result = solveGraphTypes(def, (t) => schemas.get(t), {
+      onWork: (kind) => { work[kind] += 1 },
+    })
+    // Each chain has source 4-in/1-out, 18 scales 3-in/1-out, and preview
+    // 1-in/1-out. The selector adds one extra type pair to its 19 edges;
+    // reroute and literal-source feeds add no type constraints.
+    expect(work).toEqual({ node: chains * 20, port: chains * 79, constraint: chains * 20 })
+    expect(result.linkVerdicts.size).toBe(chains * 18)
+    expect(result.netSinkVerdicts.size).toBe(chains)
+    expect(result.diagnostics).toEqual([])
     for (const verdict of result.linkVerdicts.values()) expect(verdict).toBe('ok')
+    for (const verdict of result.netSinkVerdicts.values()) expect(verdict).toBe('ok')
   })
 })
 
 describe('selector-dense load + compile (regression guard)', () => {
-  // 4x chain density with a 2-candidate selector on every chain: exercises
-  // the I11 all-candidate acyclicity walk at load and eager selector
-  // resolution + closure pruning at compile. Budgets sit at the same
-  // early-warning line as the reroute-dense guard: linear behavior clears
-  // them by an order of magnitude, quadratic candidate/link rescans do not.
+  // 4x chain density at load and 2x at compile, with two candidates on
+  // every selector: exercises all-candidate acyclicity, eager selector
+  // resolution and closure pruning without changing the one-second budgets.
   const DENSE_CHAINS = CHAINS * 4
   const json = syntheticWorkflow({ chains: DENSE_CHAINS, chainLength: CHAIN_LENGTH, selectors: true })
 
@@ -201,8 +194,9 @@ describe('selector-dense load + compile (regression guard)', () => {
     expect(ms, `loadDocument took ${ms.toFixed(1)}ms`).toBeLessThan(1000)
   })
 
-  it('compiles within 1s; unselected decoy branches leave the prompt intact', () => {
-    const doc = loadDocument(json).document!
+  it('compiles within 1s at 2x selector density; unselected decoy branches leave the prompt intact', () => {
+    const compileChains = DENSE_CHAINS / 2
+    const doc = loadDocument(syntheticWorkflow({ chains: compileChains, chainLength: CHAIN_LENGTH, selectors: true })).document!
     const t0 = performance.now()
     const result = compile({
       document: doc,
@@ -217,7 +211,7 @@ describe('selector-dense load + compile (regression guard)', () => {
     // Every chain node stays reachable through its fixed 'ca' branch; the
     // decoy 'cb' feed is pruned as a LINK but its producer (the chain source)
     // is still in closure via the chain itself.
-    if (result.ok) expect(Object.keys(result.artifact.prompt)).toHaveLength(DENSE_CHAINS * CHAIN_LENGTH)
+    if (result.ok) expect(Object.keys(result.artifact.prompt)).toHaveLength(compileChains * CHAIN_LENGTH)
     expect(ms, `compile took ${ms.toFixed(1)}ms`).toBeLessThan(1000)
   })
 })

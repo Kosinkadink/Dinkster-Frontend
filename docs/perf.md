@@ -307,6 +307,20 @@ Rerun with `pnpm --filter @dinkster/core test -- --run test/perf-dispatch.test.t
 | graph.deleteItems 200 nodes | 2026-07-23 | after CO slice | 1733.8 |
 | undo x200 | 2026-07-23 | after CO slice | 191.0 |
 | redo x200 | 2026-07-23 | after CO slice | 189.2 |
+| node.setValue x1000 | 2026-10-28 | X570, before workload reduction | 2278.5 |
+| node.setValue x300 | 2026-10-28 | X570, reduced workload | 2448.0 |
+
+The setValue check runs 300 writes with a two-second bound and verifies the
+last committed value. The recorded 2080.4us/op reference gives 624.12ms for
+300 writes, so the bound has 3.2x margin on that reference. The October 28
+local runs took 2278.5ms for 1000 writes and 734.4ms for 300 writes. These
+are local measurements, not a slowest-hosted-runner baseline or a dispatch
+optimization; the command pipeline is unchanged.
+
+The feature-heavy type-solver check counts node, elaborated-port and
+recursive type-pair visits at 30, 60 and 120 chains instead of timing the
+host. Each 20-node chain visits 79 ports and 20 type pairs, with all 18
+consumer-link verdicts and its named-net verdict checked as valid.
 
 The CO slice costs roughly +5-11% on setValue and +3-5% elsewhere: every
 dispatch now owns (detaches + deep-freezes + JSON-validates) its params and

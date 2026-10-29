@@ -9,7 +9,7 @@
     "check:raw-controls:write": "node scripts/check-raw-controls.mjs --write",
     "ci:fast": "node scripts/ci-fast.mjs",
     "test:visual": "pnpm --filter @dinkster/e2e exec playwright test --config=playwright.visual.config.ts",
-    "test": "pnpm --workspace-concurrency=1 -r test && node --import tsx --test scripts/comfy-subgraph-coverage.test.mjs && node --test scripts/check-extension-literals.test.mjs scripts/check-raw-controls.test.mjs scripts/check-ui-strings.test.mjs scripts/check-path-case.test.mjs",
+    "test": "pnpm --workspace-concurrency=1 -r test && node --import tsx --test scripts/comfy-subgraph-coverage.test.mjs && node --test scripts/check-host-ui-contract.test.mjs scripts/check-extension-literals.test.mjs scripts/check-raw-controls.test.mjs scripts/check-ui-strings.test.mjs scripts/check-path-case.test.mjs",
     "check:extension-literals": "node scripts/check-extension-literals.mjs",
     "check:extension-literals:write": "node scripts/check-extension-literals.mjs --write",
     "check:ui-strings": "node scripts/check-ui-strings.mjs",

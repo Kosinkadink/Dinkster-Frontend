@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import playwrightConfig from '../playwright.config.js'
 
 const root = resolve(import.meta.dirname, '../../..')
 const yaml = createRequire(import.meta.url)('js-yaml') as {
@@ -155,15 +156,17 @@ describe('fast pull-request and full validation workflows', () => {
     expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
     expect(script).toContain("['typecheck']")
+    expect(script).toContain("'scripts/check-host-ui-contract.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")
-    expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.ts/g)).toEqual([
+    expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.tsx?/g)).toEqual([
       'test/format.schema.test.ts',
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
+      'test/disabled-features.dom.test.tsx',
     ])
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
@@ -540,6 +543,11 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_PORT: '15420',
           DINKSTER_E2E_NATIVE_PORT: '15421',
         })
+        expect(
+          steps.filter((step) =>
+            /vitest.*(?:object-info|events)\.golden/.test(step.run ?? ''),
+          ),
+        ).toEqual([])
       }
     }
     expect(appMain).not.toContain('discoverBackend')
@@ -551,6 +559,21 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).not.toContain('DINKSTER_STUB_V1_ENTRY')
     expect(hostedConfig).not.toContain('DINKSTER_E2E_FIXTURE_MODE')
     expect(hostedConfig).not.toContain('VITE_DINKSTER_E2E_PROBE_V1')
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'native-startup',
+      )!.testMatch,
+    ).toEqual(['tests/startup-discovery.spec.ts'])
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'parallel-safe',
+      )!.testIgnore,
+    ).toContain('tests/product-surface-visuals.spec.ts')
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'backend-serial',
+      )!.testMatch,
+    ).toContain('tests/output-mount-live.spec.ts')
     expect(hostedConfig).toContain(
       "process.env['DINKSTER_E2E_PROJECT'] = argumentProject",
     )

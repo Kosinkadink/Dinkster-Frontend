@@ -32,6 +32,23 @@ function replay(name: string): { store: ExecutionStore; fixture: StreamFixture }
 const promptIdOf = (f: StreamFixture, i = 0): string =>
   f.submits[i]!.body['prompt_id'] as string
 
+describe('connection queue status', () => {
+  it('keeps exact native queue counts per connection across empty and missing updates', () => {
+    const store = new ExecutionStore()
+    const first = asConnectionId('first')
+    const second = asConnectionId('second')
+    const firstNormalizer = new DinksterNormalizer(first)
+    const secondNormalizer = new DinksterNormalizer(second)
+    for (const event of firstNormalizer.normalize({ type: 'queue_state', queued: 5 })) store.apply(event)
+    for (const event of secondNormalizer.normalize({ type: 'queue_state', queued: 2 })) store.apply(event)
+    expect(store.queueRemaining.get()).toEqual(new Map([[first, 5], [second, 2]]))
+    for (const event of firstNormalizer.normalize({ type: 'queue_state', queued: 0 })) store.apply(event)
+    for (const event of secondNormalizer.normalize({ type: 'queue_state' })) store.apply(event)
+    expect(store.queueRemaining.get()).toEqual(new Map([[first, 0], [second, 2]]))
+    expect(store.executions.get().size).toBe(0)
+  })
+})
+
 describe('attributed previews', () => {
   const C0 = asConnectionId('c0')
   const exec = (prompt: string) => ({ connection: C0, prompt: asPromptId(prompt) })
@@ -710,11 +727,6 @@ describe('recorded stream replay', () => {
   it('validation_error: rejected before execution - store sees no execution', () => {
     const { store } = replay('validation_error')
     expect(store.executions.get().size).toBe(0)
-  })
-
-  it('status events feed the queueRemaining entry for their connection', () => {
-    const { store } = replay('success')
-    expect(store.queueRemaining.get().get(asConnectionId('c0'))).toBeDefined()
   })
 
   it('register after events (fast/cached run) merges, never clobbers state', () => {

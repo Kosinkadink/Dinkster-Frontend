@@ -107,11 +107,3 @@ test('live gallery pins carry the full socket-variant vocabulary', async ({ page
   expect(matchOpen).toBeDefined()
   expect(allPins.some((p) => p.optional)).toBe(true)
 })
-
-test('visual artifact: live gallery screenshot', async ({ page }, testInfo) => {
-  // Not a pixel assertion - the real-server twin of gallery.spec.ts's
-  // artifact, so fixture and live renderings can be compared side by side.
-  const path = testInfo.outputPath('gallery-live.png')
-  await page.getByTestId('graph-canvas').screenshot({ path })
-  await testInfo.attach('gallery-live', { path, contentType: 'image/png' })
-})
