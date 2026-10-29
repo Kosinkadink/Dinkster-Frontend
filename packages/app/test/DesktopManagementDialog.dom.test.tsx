@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
+import { createSignal } from 'solid-js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { DinksterConnection, type FetchLike, type WebSocketLike } from '@dinkster/client'
@@ -22,7 +23,8 @@ const info: DesktopInfo = {
   update: { state: 'current', detail: 'Dinkster Desktop is up to date' },
 }
 
-function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterDesktopBridge> = {}) {
+function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterDesktopBridge> = {}, backendUrl = 'http://managed.test') {
+  const [currentConnection, setConnection] = createSignal(connection)
   const selectEngine = vi.fn(async () => undefined)
   const exportSupportReport = vi.fn(async () => 'C:\\reports\\dinkster.json')
   const saveRemoteWorker = vi.fn(async () => undefined)
@@ -35,8 +37,8 @@ function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterD
     selectEngine,
     checkForUpdates: vi.fn(async () => undefined),
     installUpdate: vi.fn(async () => undefined),
+    fileCapabilities: vi.fn(async () => ({ nativeFolderChoice: true, reveal: false })),
     chooseDirectory: vi.fn(async () => 'D:\\Shared Models'),
-    revealFile: vi.fn(async () => undefined),
     exportSnapshot: vi.fn(async () => 'C:\\snapshots\\dinkster.json'),
     importSnapshot: vi.fn(async () => ({ format: 1 })),
     systemCheck: vi.fn(async () => ({
@@ -71,8 +73,8 @@ function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterD
   window.dinksterDesktop = bridge
   const root = document.createElement('div')
   document.body.append(root)
-  const unmount = render(() => <DesktopManagementDialog connection={connection} />, root)
-  return { root, selectEngine, exportSupportReport, saveRemoteWorker, removeRemoteWorker, bridge, unmount }
+  const unmount = render(() => <DesktopManagementDialog connection={currentConnection()} backendUrl={backendUrl} />, root)
+  return { root, selectEngine, exportSupportReport, saveRemoteWorker, removeRemoteWorker, bridge, unmount, setConnection }
 }
 
 function enter(control: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -143,17 +145,102 @@ describe('DesktopManagementDialog', () => {
     const fetchMountSettings = vi.fn()
       .mockResolvedValueOnce({ mounts: [], mountChangesAllowed: true })
       .mockResolvedValueOnce({ mounts: [{ id: 'shared-models', mode: 'read', state: 'pending' }], mountChangesAllowed: true })
-    const { root, unmount } = mount({ addMount, fetchMountSettings })
-    await flush()
+    const { root, bridge, unmount } = mount({ addMount, fetchMountSettings })
+    await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
     const choose = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Choose folder') as HTMLButtonElement
     choose.click()
     await flush()
+    expect(bridge.fileCapabilities).toHaveBeenCalledWith('http://managed.test/')
+    expect(bridge.chooseDirectory).toHaveBeenCalledWith('http://managed.test/')
     expect(root.textContent).toContain('D:\\Shared Models')
     root.querySelector<HTMLFormElement>('.desktop-mount-form')!.requestSubmit()
     await flush()
-    expect(addMount).toHaveBeenCalledWith('shared-models', 'D:\\Shared Models', 'read')
+    expect(addMount).toHaveBeenCalledWith('shared-models', 'D:\\Shared Models', 'read', { project: 'default', shared: false, kind: '' })
     expect(root.textContent).toContain('Test GPU')
     expect(root.textContent).toContain('10.0 GB free of 20.0 GB')
+    unmount()
+  })
+
+  it('does not offer native choice without reported capability or any grant form when policy disables changes', async () => {
+    const connection = { addMount: vi.fn(), fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: true }) }
+    const { root, bridge, unmount } = mount(connection, {
+      fileCapabilities: vi.fn(async () => ({ nativeFolderChoice: false, reveal: false })),
+    })
+    await vi.waitFor(() => expect(root.querySelector('.desktop-mount-form-typed')).not.toBeNull())
+    expect(root.textContent).not.toContain('Choose folder')
+    expect(bridge.chooseDirectory).not.toHaveBeenCalled()
+    unmount()
+    const disabled = mount({ ...connection, fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }) })
+    await flush()
+    expect(disabled.root.querySelector('form.desktop-mount-form')).toBeNull()
+    expect(disabled.root.textContent).not.toContain('Choose folder')
+    disabled.unmount()
+  })
+
+  it.each([false, true])('ignores old folder policy responses after switching connections (reject: %s)', async (rejectOld) => {
+    let settleOld!: () => void
+    const pending = new Promise<Awaited<ReturnType<DesktopMountConnection['fetchMountSettings']>>>((resolve, reject) => {
+      settleOld = () => rejectOld ? reject(new Error('Old settings request failed')) : resolve({ mounts: [{ id: 'old-models', mode: 'read', state: 'ready' }], mountChangesAllowed: false })
+    })
+    const { root, unmount, setConnection } = mount({ addMount: vi.fn(), fetchMountSettings: () => pending })
+    try {
+      setConnection({ addMount: vi.fn(), fetchMountSettings: async () => ({ mounts: [{ id: 'current-models', mode: 'read' as const, state: 'ready' }], mountChangesAllowed: true }) })
+      await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
+      expect(root.textContent).toContain('current-models')
+      settleOld()
+      await pending.catch(() => {})
+      await flush()
+      expect(root.textContent).toContain('Choose folder')
+      expect(root.textContent).toContain('current-models')
+      expect(root.textContent).not.toContain('old-models')
+    } finally { unmount() }
+  })
+
+  it('uses the same-origin root for an empty connection on a query-bearing Desktop page', async () => {
+    const previous = window.location.href
+    window.history.replaceState({}, '', '/?dinksterWindow=child&dinksterWindowKind=workflow&dinksterProject=plates#editor')
+    const rootUrl = `${window.location.origin}/`
+    try {
+      const { root, bridge, unmount } = mount({ addMount: vi.fn(), fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: true }) }, {}, '')
+      try {
+        await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
+        ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Choose folder')!.click()
+        await vi.waitFor(() => expect(root.textContent).toContain('Shared Models'))
+        expect(bridge.fileCapabilities).toHaveBeenCalledWith(rootUrl)
+        expect(bridge.chooseDirectory).toHaveBeenCalledWith(rootUrl)
+      } finally { unmount() }
+    } finally { window.history.replaceState({}, '', previous) }
+  })
+
+  it.each([
+    'http://remote.test:5151/',
+    'http://managed.test/proxy',
+    'http://managed.test/?project=plates',
+    'http://managed.test/#editor',
+    'http://operator:example@managed.test/',
+  ])('does not rewrite explicit connection %s into a privileged local root', async (backendUrl) => {
+    const fileCapabilities = vi.fn(async () => ({ nativeFolderChoice: false, reveal: false }))
+    const { root, bridge, unmount } = mount({ addMount: vi.fn(), fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: true }) }, { fileCapabilities }, backendUrl)
+    try {
+      await vi.waitFor(() => expect(fileCapabilities).toHaveBeenCalledWith(backendUrl))
+      expect(root.textContent).not.toContain('Choose folder')
+      expect(bridge.chooseDirectory).not.toHaveBeenCalled()
+    } finally { unmount() }
+  })
+
+  it('does not grant after picker cancellation and displays picker errors', async () => {
+    const addMount = vi.fn()
+    const chooseDirectory = vi.fn< DinksterDesktopBridge['chooseDirectory'] >()
+      .mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('Folder picker unavailable'))
+    const { root, unmount } = mount({ addMount, fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: true }) }, { chooseDirectory })
+    await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
+    const choose = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Choose folder')!
+    choose.click()
+    await vi.waitFor(() => expect(choose.disabled).toBe(false))
+    expect(root.querySelector('form.desktop-mount-form')).toBeNull()
+    choose.click()
+    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toContain('Folder picker unavailable'))
+    expect(addMount).not.toHaveBeenCalled()
     unmount()
   })
 
@@ -326,7 +413,7 @@ describe('DesktopManagementDialog', () => {
     await click(section('\u73b0\u6709\u6a21\u578b\u6587\u4ef6\u5939'), '\u9009\u62e9\u6587\u4ef6\u5939')
     await vi.waitFor(() => expect(root.querySelector('.desktop-mount-form')).not.toBeNull())
     root.querySelector<HTMLFormElement>('.desktop-mount-form')!.requestSubmit()
-    await vi.waitFor(() => expect(addMount).toHaveBeenCalledWith('shared-models', 'D:\\Shared Models', 'read'))
+    await vi.waitFor(() => expect(addMount).toHaveBeenCalledWith('shared-models', 'D:\\Shared Models', 'read', { project: 'default', shared: false, kind: '' }))
     await vi.waitFor(() => expect([...section('\u8fdc\u7a0b\u5de5\u4f5c\u8282\u70b9').querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent === '\u79fb\u9664')?.disabled).toBe(false))
     await click(section('\u8fdc\u7a0b\u5de5\u4f5c\u8282\u70b9'), '\u79fb\u9664')

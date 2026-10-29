@@ -292,6 +292,10 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
     graphs: { g0: { id: 'g0', name: 'Target', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
     view: { graphs: { g0: { nodes: {} } } },
   }, 'Subgraph Target'))
+  await page.waitForFunction(() => {
+    const tab = window.__dinksterTest!.app.activeTab()
+    return tab?.store.doc.lineage === 'clipboard-subgraph-target' && 'status' in tab.store
+  })
   await page.mouse.move(620, 360)
   await page.keyboard.press('Control+v')
 

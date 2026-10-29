@@ -45,6 +45,23 @@ Native backend pack failures are restored from the process-lifetime
 healthy snapshot clears only that backend's pack failures, leaving unrelated
 app and document problems intact.
 
+Saving records each used node type's host-attributed pack and the pack's
+version in the workflow's `environment.nodes` and `environment.packs` tables.
+When a used node is unavailable on the current backend, saving retains its
+last recorded attribution and pack version rather than losing that information.
+Available types refresh from the live catalog; removed types and packs are not
+included in a refreshed stamp. These records do not grant install or download
+permission and do not change the workflow's execution identity.
+
+Opening a live workflow on a connected native backend requests a read-only
+requirement plan using that backend's declared engine variant. Missing packs
+with their saved versions, asset digests and resolver leads appear together
+in one expandable workflow notice. An empty plan adds no notice or prompt.
+Opening never grants installation or acquisition consent and never changes
+the saved document. Unavailable plans are reported as warnings; historical
+stamps remain advisory rather than an execution gate. A response for a closed,
+replaced or edited tab is discarded.
+
 A pack that declared samplers or schedulers but composed with no native
 sampling worker live keeps its nodes, routes and events and reports its
 inference surface as unavailable. `/api/diagnostics` carries one

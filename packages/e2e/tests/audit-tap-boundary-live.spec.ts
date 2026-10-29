@@ -1,8 +1,6 @@
 /**
- * Runs against the standing :5199 dev server and real native :8765 catalog
- * (no webServer, no catalog mocks). Backend
- * mutation routes are intercepted defensively; the scenarios never submit
- * jobs or upload assets.
+ * Synthetic boundary interaction proofs. Backend mutation routes are
+ * intercepted defensively; the scenarios never submit jobs or upload assets.
  *
  * Proven in the deployed app: dragging a widget-tap producer onto a
  * subgraph boundary Outputs panel (fresh drag and Alt fan-out, existing
@@ -12,8 +10,7 @@
  * canvas/test/interaction.test.ts ("modifier parity across link endpoint
  * kinds").
  */
-import { expect, test, type Page } from '@playwright/test'
-import { openRailPanel, skipWithoutNativeCatalog } from './fixtures.js'
+import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-live-proof'
 const ADD_SLOT = '__add__'
@@ -159,8 +156,7 @@ const pageErrors: string[] = []
 let assetPosts = 0
 let jobPosts = 0
 
-test.beforeEach(async ({ page, request }, testInfo) => {
-  await skipWithoutNativeCatalog(request, testInfo)
+test.beforeEach(async ({ page }) => {
   pageErrors.length = 0
   assetPosts = 0
   jobPosts = 0
@@ -175,9 +171,6 @@ test.beforeEach(async ({ page, request }, testInfo) => {
     jobPosts += 1
     await route.fulfill({ status: 202, json: { jobRef: 'audit-live-mocked-job' } })
   })
-  const catalog = await page.request.get('/api/nodes')
-  expect(catalog.ok()).toBe(true)
-  expect(((await catalog.json()) as { dinkster?: { schemaWire?: number } }).dinkster?.schemaWire).toBeGreaterThan(0)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0,

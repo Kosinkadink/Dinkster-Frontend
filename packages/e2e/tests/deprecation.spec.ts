@@ -44,7 +44,7 @@ const deprecationIds = (): DeprecationIds => {
       targetType: nativeCatalog.emptyMinimaxH3Av.type,
       sourceOutput: nativeCatalog.emptyLatent.outputs[0],
       sinkType: nativeCatalog.vaeDecode.type,
-      targetBatchInput: 'frame_count',
+      targetBatchInput: 'length',
     }
   }
   return {

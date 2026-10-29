@@ -115,19 +115,22 @@ gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <
 The dispatch ref selects both the workflow and frontend checkout. Main pushes,
 scheduled runs, called runs, and dispatched runs all use the complete matrix.
 Parallel-safe runs as six shards, backend-serial as two, and native-without-V1
-as three so each job fits the 20-minute main budget. Every E2E lane installs
+as one startup-discovery job that proves V1 absence. Every E2E lane installs
 and checks the software Vulkan driver selected by `VK_DRIVER_FILES`, including
 browser WebGL and native headless rendering. Legacy import, link-drop, and
 palette-filter specs run in parallel-safe, where their V1 fixture exists,
 rather than replaying that fixture against the native-only catalog.
-All 13 E2E lanes may run concurrently on
+The product-surface visual matrix runs only in the fast visual job; its
+route-mocked screenshots do not require a second run against hosted backends.
+Synthetic noodle and boundary interaction proofs run only in parallel-safe.
+All 11 E2E lanes may run concurrently on
 GitHub-hosted Linux. The jobs retain their existing assertions and dependency
 pins:
 
 | Job           | Checks                                                                                                                                                                                                                                                   |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ci`          | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                             |
-| `e2e-suite`   | Six parallel-safe shards, two backend-serial shards, three native-without-V1 shards, stock V1 compatibility, and the performance browser job. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
+| `e2e-suite`   | Six parallel-safe shards, two backend-serial shards, one native-without-V1 startup-discovery job, stock V1 compatibility, and the performance browser job. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
 | `e2e`         | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                              |
 | `main-status` | Uploads one lane-result JSON artifact and fails unless every selected main lane passed                                                                                                                                                                   |
 
@@ -173,6 +176,10 @@ Base, hosted and audit Playwright servers explicitly enable the v1
 compatibility probe required by
 route-mocked specs; production startup remains native-only. No standing
 development server is reused or stopped.
+Hosted native launches declare `--engine-variant linux-cpu`. After composition,
+global setup requires an empty workflow to return an empty requirement plan
+without a request variant. Mock-only native fixtures explicitly answer that
+read-only plan request; live native cases use the pinned backend route.
 The hosted native server also accepts the `localhost` Host alias so the
 run-history backend-switch test can address the same server through two
 distinct backend identities without an HTTP 421 schema rejection.

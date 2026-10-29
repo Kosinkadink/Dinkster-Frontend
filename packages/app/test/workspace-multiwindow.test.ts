@@ -563,6 +563,63 @@ describe('AppState multi-window workspace', () => {
     expect(other.doc.graphs.g0!.nodes.n1!.title).toBe('Kept locally')
   })
 
+  it('keeps edits and undo when switching editor while authority promotion is opening', async () => {
+    const authority = new SharedWorkerDocumentAuthority()
+    const renderers: MemoryPort[] = []
+    let opened!: () => void
+    const openResponse = new Promise<void>((resolve) => { opened = resolve })
+    let pause = true
+    const factory: SharedWorkerPortFactory = () => {
+      const renderer = new MemoryPort()
+      const worker = new MemoryPort()
+      renderer.paused = pause
+      renderer.peer = worker
+      worker.peer = renderer
+      const post = worker.postMessage.bind(worker)
+      worker.postMessage = (message) => {
+        post(message)
+        if (isRecord(message) && message['kind'] === 'response' && message['id'] === 1) opened()
+      }
+      renderers.push(renderer)
+      authority.connect(worker)
+      return renderer
+    }
+    const app = new AppState()
+    app.settings.set('features.appView.enabled', true)
+    app.openDocument(workflow(), 'Shared workflow')
+    const tab = app.activeTab()!
+    const workspace = authorityFactories().workspace
+    const promotion = app.enableWorkspaceAuthority(factory, workspace)
+    try {
+      await openResponse
+      expect(tab.store.dispatch({
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 23.976 },
+      }).ok).toBe(true)
+      expect(tab.store.dispatch({
+        command: 'params.expose', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount' },
+      }).ok).toBe(true)
+      app.setTabEditorKind(tab.id, 'app')
+      pause = false
+      for (const renderer of renderers) renderer.release()
+      await promotion
+      await app.enableWorkspaceAuthority(factory, workspace)
+      const live = app.activeTab()!
+      expect('status' in live.store).toBe(true)
+      expect(live.editorKind).toBe('app')
+      expect(live.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(23.976)
+      expect(live.store.doc.ext?.['dinkster.exposed']).toEqual([
+        { graphId: 'g0', nodeId: 'n1', inputId: 'amount' },
+      ])
+      expect(live.store.undo()).toBe(true)
+      expect(live.store.doc.ext?.['dinkster.exposed']).toBeUndefined()
+      expect(live.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(23.976)
+      expect(live.store.undo()).toBe(true)
+      expect(live.store.doc.graphs.g0!.nodes.n1!.values.amount).toBeUndefined()
+    } finally {
+      app.dispose()
+    }
+  })
+
   it('keeps the undo history of a local edit made while authority promotion is opening', async () => {
     const authority = new SharedWorkerDocumentAuthority()
     const renderers: MemoryPort[] = []
@@ -1028,7 +1085,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       items: [
         { kind: 'input', id: 'document', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: {} } },
-        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' } },
+        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } },
       ],
     }
     const flattenSchema: NodeSchema = {
@@ -1036,7 +1093,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       type: 'SyntheticLayersFlatten',
       editorRole: 'layers-flatten',
       items: [
-        { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'LAYERS' }, optional: false },
+        { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
         { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
           widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
       ],
