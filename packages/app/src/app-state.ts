@@ -6563,11 +6563,11 @@ export class AppState {
     if (!tab || tab.execution) return false
     const filename = workflowExportFilename(tab.title)
     const backend = this.backendForTab(tab)
-    const snapshot = await this.documentWithAssetLocations(tab)
-    if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
     let url: string | undefined
     let anchor: HTMLAnchorElement | undefined
     try {
+      const snapshot = await this.documentWithAssetLocations(tab)
+      if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
       const blob = new Blob([`${JSON.stringify(snapshot, null, 2)}\n`], {
         type: WORKFLOW_MEDIA_TYPE,
       })

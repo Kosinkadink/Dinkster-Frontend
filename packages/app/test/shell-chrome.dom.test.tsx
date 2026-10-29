@@ -799,6 +799,17 @@ describe('workflow file commands', () => {
     expect(revokeUrl).toHaveBeenCalledWith('blob:workflow-export')
   })
 
+  it('reports a snapshot failure without rejecting the download command', async () => {
+    const app = new AppState()
+    vi.spyOn(app, 'registryForTab').mockImplementation(() => { throw new Error('snapshot unavailable') })
+
+    expect(await app.exportWorkflow(app.activeTab()!.id)).toBe(false)
+    expect(app.problems.get().some((problem) => problem.code === 'workflow.exportFailed')).toBe(true)
+    expect(app.transientStatus.get()).toContain('snapshot unavailable')
+    expect(document.querySelector('a[download]')).toBeNull()
+    app.dispose()
+  })
+
   it('revokes a failed export URL and reports the failure visibly', async () => {
     vi.useFakeTimers()
     const app = new AppState()
