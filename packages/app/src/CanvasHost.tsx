@@ -4540,10 +4540,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setBadges(decorations.badges)
       renderer.setNodeDecorations(decorations.presentation)
       renderer.setPortProblems(model.portProblems)
+      const nodeOutputTexts = lens.id === 'standard' ? model.outputTexts : {}
+      renderer.setNodeOutputTexts(nodeOutputTexts)
+      renderer.setNodePreviews(model.previews)
       // Background overlay updates must not dismiss a still-valid user decision.
       setBadgePopover((anchor) => {
         if (!anchor || anchor.owner !== JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])) return undefined
-        const node = scene.nodes.find((candidate) => candidate.id === anchor.nodeId)
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === anchor.nodeId)
         const badges = decorations.badges[anchor.nodeId] ?? []
         const index = badges.findIndex((badge) => badge.id === anchor.badge.id)
         if (!node || index === -1) return undefined
@@ -4553,9 +4556,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             anchor.y !== (rect.y + rect.height) * vp.scale + vp.y + 6) return undefined
         return { ...anchor, badge: badges[index]! }
       })
-      const nodeOutputTexts = lens.id === 'standard' ? model.outputTexts : {}
-      renderer.setNodeOutputTexts(nodeOutputTexts)
-      renderer.setNodePreviews(model.previews)
       setSemanticSource({
         owner: `${tab.id}:${gid}`,
         source: {

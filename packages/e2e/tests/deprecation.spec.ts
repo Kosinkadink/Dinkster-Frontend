@@ -335,10 +335,20 @@ test('a lossy plan never auto-applies; its badge popover shows the warning', asy
 
   expect(await openDeprecatedDoc(page, { lineage: 'dep-lossy-other', lossy: true })).toEqual([])
   await expect(popover).not.toBeVisible()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.dispatchTo(app.activeTab()!, { command: 'view.setNodeCollapsed', params: { graphId: 'g0', nodeIds: ['old'], collapsed: true } })
+  })
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'old')?.layout.minimized,
+  )).toBe(true)
   await identityViewport(page)
   const other = await badgePoint(page, 'old')
   await page.mouse.click(other.x, other.y)
   await expect(popover).toContainText('warning:')
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', true))
+  await expect(popover).toContainText('warning:')
+  await page.screenshot({ path: testInfo.outputPath('minimized-warning-after-overlay-refresh.png') })
 
   // Applying anyway is an explicit, informed choice - and still works.
   await popover.getByTestId('badge-apply-replacement').click()

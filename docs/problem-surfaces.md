@@ -47,9 +47,10 @@ app and document problems intact.
 
 Node badge popovers stay open through background overlay updates while the
 same document, graph occurrence, badge and on-screen anchor remain valid.
-Moving or removing the badge, changing its document or graph, or dismissing
-the popover closes it. A deprecation warning therefore remains available for
-an explicit replacement decision even when previews or diagnostics refresh.
+This applies to expanded and minimized nodes. Moving or removing the badge,
+changing its document or graph, or dismissing the popover closes it. A
+deprecation warning therefore remains available for an explicit replacement
+decision even when previews or diagnostics refresh.
 
 Saving records each used node type's host-attributed pack and the pack's
 version in the workflow's `environment.nodes` and `environment.packs` tables.
