@@ -109,7 +109,6 @@ import {
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { ExecutedImageFacts, ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
-import { canRevealOutput, revealExecutedImage } from './output-file.js'
 import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
 import {
   beginTabDragModel,
@@ -1566,7 +1565,7 @@ export function App(props: {
       id: 'desktop-management', get title() { return message('shell.panel.desktop.title') },
       get description() { return message('shell.panel.desktop.description') }, get ariaLabel() { return message('shell.panel.desktop.ariaLabel') },
       placement: 'modal', allowedPlacements: ['modal'], order: 16,
-      component: () => <DesktopManagementDialog connection={desktopManagementConnection()} />,
+      component: () => <DesktopManagementDialog connection={desktopManagementConnection()} backendUrl={activeBackend().baseUrl} />,
     }),
     registerBuiltinPanel({
       id: 'projects', get title() { return message('shell.panel.projects.title') },
@@ -3053,10 +3052,6 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     const backend = props.app.backendFor(props.execution.ref.connection)
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
-  const reveal = (image: ExecutedImage): void => {
-    const backend = props.app.backendFor(props.execution.ref.connection)
-    if (backend?.protocol === 'dinkster') void revealExecutedImage(backend.connection, image)
-  }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()
     const layers = new Set<string>()
@@ -3228,7 +3223,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         </For>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} {...(canRevealOutput() ? { onReveal: reveal } : {})} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>
     </>
   )

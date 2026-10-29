@@ -23,6 +23,7 @@ const canonicalC = {
   ...canonicalA,
   digest: `blake3:${'c'.repeat(64)}`,
   name: 'canonical-c.png',
+  virtualPath: 'mounts/plates/scene-17/canonical-c.png',
 }
 const canonicalVideo = {
   digest: videoDigest,
@@ -87,7 +88,16 @@ test('source media upload adopts canonical refs and preserves list and cancel se
     } },
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
-  await page.route('/api/mounts*', (route) => route.fulfill({ json: { mounts: [] } }))
+  const plates = { id: 'plates', mode: 'readwrite', state: 'ready', path: '/studio/plates' }
+  await page.route('/api/mounts*', (route) => route.fulfill({ json: { mounts: [plates], mountChangesAllowed: false } }))
+  await page.route('/api/mounts/locations', (route) => route.fulfill({ json: { mounts: [plates], activeMounts: [plates] } }))
+  await page.route('/api/mounts/locations?*', (route) => {
+    const query = new URL(route.request().url()).searchParams
+    expect(query.get('scope')).toBe('local')
+    expect(query.get('project')).toBe('default')
+    const path = query.get('digest') === canonicalC.digest ? '/studio/plates/scene-17/canonical-c.png' : '/studio/vault/verified-file'
+    return route.fulfill({ json: { locations: [{ path }] } })
+  })
   await page.route('/api/assets/media*', async (route) => {
     uploads.push({
       url: route.request().url(),
@@ -137,7 +147,20 @@ test('source media upload adopts canonical refs and preserves list and cancel se
         video: { position: { x: 800, y: 100 } },
       } } } },
     }, 'Source Upload')
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.renderer !== undefined)).toBe(true)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+  await page.evaluate(() => {
+    let calls = 0
+    const desktopWindow = window as unknown as { dinksterDesktop: unknown }
+    desktopWindow.dinksterDesktop = {
+      fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: true }),
+      revealFile: async (url: string, identity: unknown) => {
+        localStorage.setItem('reveal-request', JSON.stringify({ url, identity }))
+        if (++calls > 1) throw new Error('Exact asset authorization changed')
+        return { mode: 'selected' }
+      },
+    }
   })
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   await openAsset(page)
@@ -166,7 +189,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
     const url = new URL(upload.url)
     expect(url.pathname).toBe('/api/assets/media')
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      scope: 'local', kind: 'media/image', name: index === 1 ? 'b.png' : 'a.png',
+      scope: 'local', project: 'default', kind: 'media/image', name: index === 1 ? 'b.png' : 'a.png',
     })
   }
   await expect(page.getByTestId('asset-chip')).toHaveCount(3)
@@ -186,18 +209,46 @@ test('source media upload adopts canonical refs and preserves list and cancel se
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.source!.values.files)).toEqual([canonicalA, canonicalA])
 
   await openAsset(page, 'scalar', 'file')
+  await page.getByTestId('upload-destination-mount').click()
+  await page.getByRole('option').filter({ hasText: 'plates - /studio/plates' }).click()
+  await page.getByTestId('upload-destination-folder').fill('scene-17')
+  await page.getByTestId('upload-destination-remember').click()
   await page.getByTestId('asset-editor').locator('input[type=file]').setInputFiles({
     name: 'c.png', mimeType: 'image/png', buffer: bytesA,
   })
   // The finished upload stages the canonical ref; Apply commits it.
   await expect(page.getByTestId('asset-selection-summary')).toContainText('c.png')
+  expect(Object.fromEntries(new URL(uploads.at(-1)!.url).searchParams)).toEqual({
+    scope: 'local', project: 'default', kind: 'media/image', name: 'c.png', mount: 'plates', folder: 'scene-17',
+  })
+  await expect(page.getByText('mounts/plates/scene-17/canonical-c.png', { exact: false })).toBeVisible()
+  const location = page.getByTestId('asset-file-location')
+  await expect(location.getByText('/studio/plates/scene-17/canonical-c.png', { exact: true })).toBeVisible()
+  await location.getByRole('button', { name: 'Show file on this computer' }).click()
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('reveal-request')!))).toEqual({
+    url: new URL('/', page.url()).href, identity: { digest: canonicalC.digest, scope: 'local', project: 'default' },
+  })
+  await page.getByTestId('asset-editor').screenshot({ path: testInfo.outputPath('exact-reveal-ready.png') })
+  await location.getByRole('button', { name: 'Show file on this computer' }).click()
+  await expect(location).toContainText('Exact asset authorization changed')
+  await expect(location.getByRole('button', { name: 'Copy server path' })).toBeEnabled()
+  await page.getByTestId('asset-editor').screenshot({ path: testInfo.outputPath('exact-reveal-error.png') })
   await page.getByTestId('asset-apply').click()
   await expect(page.getByTestId('asset-editor')).toBeHidden()
   expect(await page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.scalar!.values.file)).toEqual(canonicalC)
 
   const scalarRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+  await page.evaluate(() => {
+    const desktopWindow = window as unknown as { dinksterDesktop: unknown }
+    desktopWindow.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false }) }
+  })
   await openAsset(page, 'scalar', 'file')
+  await expect(page.getByTestId('asset-file-location').getByRole('button', { name: 'Copy server path' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Show file on this computer' })).toHaveCount(0)
+  await page.getByTestId('asset-editor').screenshot({ path: testInfo.outputPath('exact-reveal-fallback.png') })
+  await expect(page.getByTestId('upload-destination-folder')).toHaveValue('scene-17')
+  await page.getByTestId('upload-destination-folder').fill('cancelled-draft')
   await page.getByTestId('asset-editor').locator('input[type=file]').setInputFiles({
     name: 'slow.png', mimeType: 'image/png', buffer: bytesA,
   })
@@ -215,6 +266,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.scalar!.values.file)).toEqual(canonicalC)
 
   await openAsset(page, 'video', 'video')
+  await expect(page.getByTestId('upload-destination-folder')).toHaveValue('scene-17')
   const uploadCount = uploads.length
   const videoInput = page.getByTestId('asset-editor').locator('input[type=file]')
   await videoInput.setInputFiles({ name: 'wrong.png', mimeType: 'image/png', buffer: bytesA })
@@ -232,7 +284,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   expect(videoUpload.bytes.equals(videoBytes)).toBe(true)
   expect(videoUpload.contentType).toBe('video/webm')
   expect(Object.fromEntries(new URL(videoUpload.url).searchParams)).toEqual({
-    scope: 'local', kind: 'media/video', name: 'visible-2s.webm',
+    scope: 'local', project: 'default', kind: 'media/video', name: 'visible-2s.webm', mount: 'plates', folder: 'scene-17',
   })
   expect(await page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.video!.values.video)).toEqual(canonicalVideo)

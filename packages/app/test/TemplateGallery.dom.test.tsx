@@ -158,7 +158,7 @@ describe('TemplateGallery', () => {
     enter(form.querySelector<HTMLInputElement>('#desktop-mount-path')!, '/tmp/dinkster-shared-models')
     enter(form.querySelector<HTMLInputElement>('#desktop-mount-id')!, 'shared-models')
     form.requestSubmit()
-    await vi.waitFor(() => expect(addMount).toHaveBeenCalledWith('shared-models', '/tmp/dinkster-shared-models', 'read'))
+    await vi.waitFor(() => expect(addMount).toHaveBeenCalledWith('shared-models', '/tmp/dinkster-shared-models', 'read', { project: 'default', shared: false, kind: '' }))
     await vi.waitFor(() => expect(fetchMountSettings).toHaveBeenCalledTimes(2))
     dispose()
   })

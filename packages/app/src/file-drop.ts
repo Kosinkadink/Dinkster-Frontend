@@ -228,8 +228,6 @@ export async function classifyDroppedFile(file: Pick<File, 'name' | 'size' | 'sl
 export type ImageInsertOutcome = 'inserted' | 'upload-failed' | 'invalid-asset' | 'stale-tab' | 'stale-graph' | 'frozen' | 'schema-missing' | 'rejected'
 export type LatentInsertOutcome = ImageInsertOutcome
 
-const imageName = (mediaType: string): string => `dropped-image.${mediaType === 'image/jpeg' ? 'jpg' : mediaType.slice('image/'.length)}`
-
 const loaderForMediaType = (
   schemas: Iterable<NodeSchema>,
   mediaType: string,
@@ -254,10 +252,8 @@ const loaderForMediaType = (
 
 /** Upload and atomically insert a catalog loader for the image MIME type. */
 export async function insertDroppedImage(p: {
-  readonly file: Pick<File, 'size'> & Blob
+  readonly file: File
   readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'
-  /** Overrides the default dropped-image asset name (e.g. for pasted images). */
-  readonly assetName?: string
   readonly graphId: string
   readonly position: { readonly x: number; readonly y: number }
   readonly tabStillOpen: () => boolean
@@ -267,27 +263,28 @@ export async function insertDroppedImage(p: {
   readonly document: () => WorkflowDocument
   readonly schemas: () => Iterable<NodeSchema> | undefined
   readonly predictedNodeId: () => string | undefined
-  readonly upload: (body: Blob) => Promise<string>
+  readonly upload: (body: File) => Promise<AssetRef>
   readonly dispatch: (invocation: CommandInvocation) => boolean
   readonly onInserted: (nodeId: string) => void
 }): Promise<ImageInsertOutcome> {
   if (!p.tabStillOpen()) return 'stale-tab'
   if (!p.graphStillOwned() || p.currentGraphId() !== p.graphId || p.document().graphs[p.graphId] === undefined) return 'stale-graph'
   if (p.frozen()) return 'frozen'
-  let digest: string
-  try { digest = await p.upload(p.file) }
+  let asset: AssetRef
+  try { asset = await p.upload(p.file) }
   catch { return 'upload-failed' }
   if (!p.tabStillOpen()) return 'stale-tab'
   if (!p.graphStillOwned() || p.currentGraphId() !== p.graphId || p.document().graphs[p.graphId] === undefined) return 'stale-graph'
   if (p.frozen()) return 'frozen'
-  if (!/^blake3:[0-9a-f]{64}$/.test(digest)) return 'invalid-asset'
+  if (!/^blake3:[0-9a-f]{64}$/.test(asset.digest) || asset.name === '' ||
+    !Number.isSafeInteger(asset.size) || asset.size < 0 || asset.mediaType !== p.mediaType ||
+    typeof asset.virtualPath !== 'string') return 'invalid-asset'
   const schemas = p.schemas()
   const loader = schemas === undefined ? undefined : loaderForMediaType(schemas, p.mediaType)
   if (loader === undefined) return 'schema-missing'
   const { schema, input: assetInput } = loader
   const nodeId = p.predictedNodeId()
   if (nodeId === undefined) return 'stale-graph'
-  const asset = { digest, name: p.assetName ?? imageName(p.mediaType), size: p.file.size, mediaType: p.mediaType, virtualPath: '' }
   const values = { ...(defaultValuesOf(schema) as Record<string, Json>), [assetInput.id]: asset as unknown as Json }
   const invocation: CommandInvocation = {
     command: 'batch',

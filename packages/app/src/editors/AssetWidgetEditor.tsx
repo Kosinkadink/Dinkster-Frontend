@@ -26,7 +26,11 @@ import { assetGuessCandidateToRef } from '../dialog-requests.js'
 import { SearchState } from '../SearchSurface.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import { AssetSelectionEditor } from './AssetSelectionEditor.js'
+import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
+import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
+import { AssetFileLocation } from '../AssetFileLocation.js'
+import { resolveDroppedAsset } from '../desktop-bridge.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -124,6 +128,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [assetSelectedModel, setAssetSelectedModel] = createSolidSignal<LogicalModelPickDetail | undefined>(undefined)
   const [assetError, setAssetError] = createSolidSignal<string | undefined>(undefined)
   const [assetUploading, setAssetUploading] = createSolidSignal(false)
+  const uploadBackend = props.app.backendForTab(ed.tab)
+  const project = activeProjectId()
+  const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
+  const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
   let assetUploadInput: HTMLInputElement | undefined
   let assetUploadTrigger: HTMLButtonElement | undefined
   const restoreAssetUploadFocus = (): void => {
@@ -394,27 +402,42 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     // 3D files (.glb, .ply) get their type inferred from the name so accept
     // validation and the committed ref carry a previewable media type.
     const effectiveType = model3dMimeFor(file.name, file.type) ?? file.type
-    if (accept.length > 0 && !mediaAcceptsFile(accept, effectiveType) && !(classifiedLatent && file.type === '')) {
-      setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
-      return false
-    }
-    if (file.size > assetUploadMaxBytes) {
-      setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
-      return false
-    }
     const backend = props.app.backendForTab(ed.tab)
     if (backend.protocol !== 'dinkster') {
       setAssetError('Asset uploads require a native Dinkster backend')
       return false
     }
+    if (backend !== uploadBackend) return false
     setAssetError(undefined)
     publishLocalAssetPreview(file)
+    const current = (): boolean => live && !assetUploadAbort?.signal.aborted &&
+      props.app.backendForTab(ed.tab) === backend && activeProjectId() === project
     try {
-      const canonical = classifiedMediaKind !== undefined
+      const existing = await resolveDroppedAsset(backend.baseUrl, file, current)
+      if (!current()) return false
+      if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType)) {
+        setAssetError('The existing file is not compatible with this input. Nothing was uploaded.')
+        return false
+      }
+      if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType) && !(classifiedLatent && file.type === '')) {
+        setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
+        return false
+      }
+      if (!existing && file.size > assetUploadMaxBytes) {
+        setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
+        return false
+      }
+      const choice = destination()
+      const uploadDestination = {
+        ...(choice.mount ? { mount: choice.mount } : {}),
+        ...(choice.folder ? { folder: choice.folder } : {}),
+      }
+      const ref = existing ?? (classifiedMediaKind !== undefined
         ? await backend.connection.uploadMediaAsset(file, {
             scope: 'local',
             kind: classifiedMediaKind,
             name: mediaUploadName(file.name),
+            ...uploadDestination,
             ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
           })
         : classifiedLatent
@@ -423,18 +446,17 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               name: mediaUploadName(file.name),
               ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
             })
-        : undefined
-      const digest = canonical === undefined
-        ? await backend.connection.uploadAsset(file, assetUploadAbort?.signal)
-        : canonical.digest
-      if (!live) return false
-      const ref: AssetRef = canonical ?? {
-          digest,
-          name: file.name,
-          size: file.size,
-          mediaType: effectiveType,
-          virtualPath: '',
+        : await backend.connection.uploadNamedAsset(file, {
+            scope: 'local', name: mediaUploadName(file.name), ...uploadDestination,
+            ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
+          }))
+      if (!current()) return false
+      if (!classifiedLatent || existing) {
+        setUploadedLocation(`${existing ? 'Using existing file; no copy made. ' : ''}${backend.label}: ${ref.virtualPath}`)
+        if (!existing) {
+          try { saveUploadDestination(String(backend.id), project, choice) } catch { /* A successful import remains usable when preference storage is full. */ }
         }
+      }
       // Uploads stage into the selection like browsed picks; the footer
       // Apply button commits. The local file preview is already showing.
       if (assetMulti) {
@@ -447,7 +469,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       setAssetSelectedModel(undefined)
       return true
     } catch (error) {
-      if (live) {
+      if (current()) {
         setAssetError(error instanceof Error ? error.message : String(error))
       }
       return false
@@ -891,6 +913,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               </Show>
             </section>
             </div>
+            <Show when={uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
+              {(backend) => <For each={assetSelection()}>{(ref) => <AssetFileLocation connection={backend.connection}
+                backendUrl={backend.baseUrl} digest={ref.digest} project={project}
+                isCurrent={() => live && props.app.backendForTab(ed.tab) === backend && activeProjectId() === project} />}</For>}
+            </Show>
             <Show when={classifiedMediaKind === 'media/audio' && ed.spec?.allowUpload === true}>
               <AudioRecorder disabled={assetUploading()} onSave={async (file) => {
                 const abort = new AbortController()
@@ -899,10 +926,18 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 try { return await pickAsset(file) }
                 finally {
                   if (assetUploadAbort === abort) assetUploadAbort = undefined
-                  if (live) setAssetUploading(false)
+                  if (live) {
+                    setAssetUploading(false)
+                    setDestination(readUploadDestination(String(uploadBackend.id), project))
+                  }
                 }
               }} />
             </Show>
+            <Show when={!classifiedLatent && !usesLogicalModelSource() && uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
+              {(backend) => <UploadDestination connection={backend.connection} machine={backend.label} value={destination()}
+                disabled={assetUploading()} onChange={setDestination} />}
+            </Show>
+            <Show when={uploadedLocation()}><ProductNotice tone="status">{uploadedLocation()}</ProductNotice></Show>
             <ProductActionFooter
               status={<span role="status">{assetUploading() ? `Uploading ${assetVocabulary().uploadPlural}...` : assetUploadLimitLabel !== undefined ? `Uploads up to ${assetUploadLimitLabel}` : ''}</span>}
             >
@@ -924,7 +959,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 multiple={assetMulti}
                 accept={Array.isArray(ed.spec?.options['accept']) ? (ed.spec!.options['accept'] as string[]).join(',') : ''}
                 disabled={assetUploading() || usesLogicalModelSource()}
-                onCancel={restoreAssetUploadFocus}
+                onCancel={() => {
+                  setDestination(readUploadDestination(String(uploadBackend.id), project))
+                  restoreAssetUploadFocus()
+                }}
                 onChange={(event) => {
                   const files = Array.from(event.currentTarget.files ?? [])
                   event.currentTarget.value = ''
@@ -944,6 +982,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                       if (assetUploadAbort === abort) assetUploadAbort = undefined
                       if (live) {
                         setAssetUploading(false)
+                        setDestination(readUploadDestination(String(uploadBackend.id), project))
                         restoreAssetUploadFocus()
                       }
                     }

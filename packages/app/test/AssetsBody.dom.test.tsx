@@ -18,6 +18,7 @@ afterEach(() => {
 
 const stubConnection = <T extends object>(members: T): DinksterConnection => ({
   onEvent: vi.fn(() => () => undefined),
+  onMountsChanged: vi.fn(() => () => undefined),
   ...members,
 } as unknown as DinksterConnection)
 
