@@ -16,6 +16,7 @@ import {
   boundarySceneId,
   CANVAS_DETAIL_MIN_SCALE,
   CanvasRenderer,
+  canvasColorsForTheme,
   createRegistryPainter,
   defaultTokens,
   hitTest,
@@ -2524,6 +2525,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       defaultTokens,
       (args) => widgetPainter()(args),
     )
+    const updateTheme = () => {
+      renderer.setColors(canvasColorsForTheme(
+        document.documentElement.dataset['theme'] === 'light' ? 'light' : 'dark',
+      ))
+      repaintMinimap?.()
+    }
+    updateTheme()
+    const themeObserver = new MutationObserver(updateTheme)
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    onCleanup(() => themeObserver.disconnect())
     const reducedMotionQuery = typeof window.matchMedia === 'function'
       ? window.matchMedia('(prefers-reduced-motion: reduce)')
       : undefined

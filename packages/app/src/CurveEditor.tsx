@@ -392,7 +392,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
             <path class="curve-grid" d="M0 150H1000M0 300H1000M0 450H1000M250 0V600M500 0V600M750 0V600" />
             <path class="curve-line" d={curvePath()} />
             <Show when={(matchingAudioPlayhead()?.duration ?? 0) > 0}>
-              <rect data-testid="curve-audio-playhead" x={curveX(matchingAudioPlayhead()!.time) - 1.5} y="0" width="3" height="600" fill="#8fc7ff" pointer-events="none" />
+              <rect data-testid="curve-audio-playhead" x={curveX(matchingAudioPlayhead()!.time) - 1.5} y="0" width="3" height="600" fill="var(--dinkster-border-focus)" pointer-events="none" />
             </Show>
             <Index each={displayedCurve()?.points}>{(point, index) => <circle
               classList={{ selected: selected() === index }}

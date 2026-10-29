@@ -27,6 +27,7 @@ import { graphAllocator } from './alloc.js'
 import type { CommandDefinition, CommandInvocation } from './contract.js'
 import {
   REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY,
+  replacementSourceStateHash,
   type NodeReplacePlan,
 } from '../replace/plan.js'
 import { occurrenceEndpointReferencesDefinition } from '../compile/effective-topology.js'
@@ -275,6 +276,7 @@ const nodeReplace: CommandDefinition = {
       !isStringArray(p.dropNets) ||
       (p.dynamic !== undefined && !isDynamicScope(p.dynamic)) ||
       (p.sourceCountGuards !== undefined && !isSourceCountGuards(p.sourceCountGuards)) ||
+      (p.sourceStateGuard !== undefined && typeof p.sourceStateGuard !== 'string') ||
       (p.targetSchemaGuards !== undefined && !targetSchemaGuardsValid) ||
       (planHasDynamicSelection && p.targetSchemaGuards === undefined) ||
       (p.controllers !== undefined && !isObj(p.controllers)) ||
@@ -304,6 +306,9 @@ const nodeReplace: CommandDefinition = {
     // THE staleness guard: the plan was computed against this exact type.
     if (node.type !== p.from)
       return [err('replace.stale', `node.replace: node '${p.nodeId}' is '${node.type}', plan expected '${p.from}'`)]
+
+    if (p.sourceStateGuard !== undefined && replacementSourceStateHash(def, node) !== p.sourceStateGuard)
+      return [err('replace.stale', `node.replace: source state of '${p.nodeId}' changed since planning`)]
 
     if (targetSchemaGuards !== undefined) {
       if (context.kind === 'initial') {

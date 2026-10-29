@@ -13,11 +13,12 @@
   cursor: pointer;
 }
 .product-button[data-size='compact'] { min-height: var(--dinkster-control-compact-height); padding-inline: var(--dinkster-space-8); }
-.product-button[data-variant='primary'] { border-color: var(--dinkster-border-selected); color: var(--dinkster-text-on-selected); background: var(--dinkster-accent-background); }
+.product-button[data-variant='primary'] { border-color: var(--dinkster-accent-border); color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); }
 .product-button[data-variant='danger'] { border-color: var(--dinkster-danger-border); color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); }
 .product-button[data-variant='ghost'] { border-color: transparent; background: transparent; }
 .product-button:hover:not(:disabled) { border-color: var(--dinkster-border-focus); background: var(--dinkster-interaction-hover); }
 .product-button:active:not(:disabled) { background: var(--dinkster-interaction-pressed); }
+.product-button[data-variant='primary']:is(:hover, :active):not(:disabled) { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); }
 .product-button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 
 .product-text-input,
@@ -68,6 +69,7 @@
 .product-list-row-copy { min-width: 0; grid-column: 2; }
 .product-list-row-primary { color: inherit; overflow-wrap: anywhere; }
 .product-list-row-secondary { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); overflow-wrap: anywhere; }
+.product-list-row.selected .product-list-row-secondary { color: inherit; }
 .product-list-row-actions { display: flex; grid-column: 3; flex-wrap: wrap; gap: var(--dinkster-space-4); }
 
 .product-table-scroll { max-width: 100%; overflow: auto; }
@@ -249,4 +251,3 @@
 .product-color-popover input { min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); font: inherit; }
 .product-color-grid { display: grid; grid-template-columns: repeat(4, var(--dinkster-space-32)); gap: var(--dinkster-space-8); margin: var(--dinkster-space-12) 0; }
 .product-color-grid button { width: var(--dinkster-space-32); height: var(--dinkster-space-32); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); cursor: pointer; }
-

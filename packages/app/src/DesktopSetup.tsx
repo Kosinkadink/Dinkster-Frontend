@@ -1,5 +1,6 @@
 import { desktopEngineAcceleratorLabel, type DesktopLifecycleStatus } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
+import { BrandMark } from './BrandMark.js'
 
 export interface DesktopSetupProps {
   readonly status: DesktopLifecycleStatus
@@ -12,7 +13,7 @@ export function DesktopSetup(props: DesktopSetupProps) {
   return (
     <main class="desktop-setup" aria-live="polite" aria-busy={!failed()}>
       <section class="desktop-setup-card" aria-labelledby="desktop-setup-title">
-        <div class="desktop-setup-mark" aria-hidden="true">D</div>
+        <BrandMark symbol class="desktop-setup-mark" />
         <p class="desktop-setup-eyebrow">{message('desktopSetup.eyebrow')}</p>
         <h1 id="desktop-setup-title">{failed() ? message('desktopSetup.titleFailed') : message('desktopSetup.titlePreparing')}</h1>
         <p class="desktop-setup-detail">{props.status.detail}</p>

@@ -52,6 +52,80 @@ const closeGallery = async (page: Page): Promise<void> => {
   await expect(page.getByTestId('template-gallery')).toBeHidden()
 }
 
+for (const theme of ['dark', 'light'] as const) {
+  test(`brand assets and persisted ${theme} theme`, async ({ page }) => {
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+    }, theme)
+    await boot(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await expect(page.getByTestId('dinkster-menu-button').getByRole('img', { name: 'Dinkster' })).toBeVisible()
+    const expectedCanvas = theme === 'dark' ? 'rgb(17, 19, 22)' : 'rgb(247, 248, 250)'
+    await expect(page.locator('body')).toHaveCSS('background-color', expectedCanvas)
+    const manifest = await (await page.request.get('/manifest.webmanifest')).json()
+    expect(manifest.name).toBe('Dinkster')
+    for (const icon of manifest.icons) {
+      const response = await page.request.get(new URL(icon.src, page.url()).href)
+      expect(response.ok()).toBe(true)
+      expect(response.headers()['content-type']).toContain('image/png')
+    }
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app as unknown as {
+        readonly backends: { get(): readonly { readonly templatesEnabled: { set(value: boolean): void } }[] }
+        readonly templateGalleryOpen: { set(value: boolean): void }
+      }
+      app.backends.get()[0]!.templatesEnabled.set(true)
+      app.templateGalleryOpen.set(true)
+    })
+    await expect(page.getByTestId('template-gallery')).toBeVisible()
+    await screenshot(page, `brand-gallery-${theme}`)
+    await closeGallery(page)
+    await screenshot(page, `brand-shell-${theme}`)
+    await page.evaluate(() => Object.assign(window, { dinksterDesktop: {
+      info: async () => ({ appVersion: '0.2.0', engineCommit: 'brand-visual', variant: 'cuda', storageBytes: 0, releases: [], update: { state: 'current', detail: 'Current' } }),
+      onInfo: () => () => undefined,
+      systemCheck: async () => ({ platform: 'linux', architecture: 'x64', freeBytes: 1, totalBytes: 2, engineReady: true, engineDetail: 'Ready', gpu: { available: false } }),
+      remoteWorkers: async () => [],
+    } }))
+    await openModal(page, 'desktop-management')
+    await expect(page.locator('.desktop-management')).toContainText('0.2.0')
+    await screenshot(page, `brand-version-${theme}`)
+    await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
+      readonly modalPanel: { set(value: string): void }
+    }).modalPanel.set(''))
+    await page.evaluate((selected) => {
+      window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
+    }, theme)
+    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(17, 19, 22)')
+  })
+
+  test(`brand boot and Desktop setup ${theme} theme`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+      let resolveLocale: (locale: string) => void
+      const locale = new Promise<string>((resolve) => { resolveLocale = resolve })
+      Object.assign(window, {
+        __resolveBrandLocale: () => resolveLocale('en'),
+        dinksterDesktop: {
+          locale: () => locale,
+          onLog: () => () => undefined,
+          status: async () => ({ phase: 'installing', detail: 'Installing locked CUDA environment', variant: 'cuda' }),
+          onStatus: () => () => undefined,
+          retry: async () => undefined,
+        },
+      })
+    }, theme)
+    await page.goto('/')
+    await expect(page.locator('.boot-indicator').getByRole('img', { name: 'Dinkster' })).toBeVisible()
+    await screenshot(page, `brand-boot-${theme}`, true)
+    await page.evaluate(() => (window as unknown as { __resolveBrandLocale(): void }).__resolveBrandLocale())
+    await expect(page.locator('.desktop-setup').getByRole('img', { name: 'Dinkster' })).toBeVisible()
+    await expect(page.locator('.desktop-setup')).toContainText('Preparing your local studio')
+    await screenshot(page, `brand-desktop-setup-${theme}`)
+  })
+}
+
 const openDock = async (page: Page, testId: string): Promise<void> => {
   const toggle = page.getByTestId(testId)
   if ((await toggle.getAttribute('aria-pressed')) !== 'true')

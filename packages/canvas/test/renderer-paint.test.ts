@@ -2407,7 +2407,7 @@ describe('node chrome paint on the live renderer', () => {
     expect(minusGlyph(connected, connectedRow)!.globalAlpha).toBeLessThan(minusGlyph(free, freeRow)!.globalAlpha)
   })
 
-  it('a selected node paints a WHITE selection outline (never the blue accent)', () => {
+  it('a selected node paints a near-white selection outline rather than the action accent', () => {
     const scene = fixtureScene('clean')
     const n = nodeOf(scene, 'c1')
     const calls = paintWith(scene, (r) => r.setOverlay({ selection: new Set(['c1']) }))
@@ -2417,7 +2417,7 @@ describe('node chrome paint on the live renderer', () => {
     expect(haloIdx).toBeGreaterThanOrEqual(0)
     const stroke = paintedAfter(calls, haloIdx, 'stroke')
     expect(stroke?.strokeStyle).toBe(defaultTokens.colors.nodeSelectedBorder)
-    expect(stroke?.strokeStyle).toBe('#ffffff')
+    expect(stroke?.strokeStyle).toBe('#F2F4F5')
     expect(stroke?.strokeStyle).not.toBe(SEL)
     expect(stroke?.lineWidth).toBe(2)
   })
@@ -2526,8 +2526,8 @@ describe('node chrome paint on the live renderer', () => {
       nodes: base.nodes.map((node) => node.id === 'c1' ? { ...node, color: '#355c7d' } : node),
     }
     const calls = paint(scene)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#293036' && call.globalAlpha === 1)).toBe(true)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#2f4b63' && call.globalAlpha === 1)).toBe(true)
+    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#2a353f' && call.globalAlpha === 1)).toBe(true)
+    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#2e4b64' && call.globalAlpha === 1)).toBe(true)
   })
 
   it('keeps state outline precedence on a colored node', () => {
@@ -2580,7 +2580,7 @@ describe('node chrome paint on the live renderer', () => {
     expect(outputRow).toBeDefined()
     if (outputRow?.kind !== 'ports' || outputRow.output === undefined) throw new Error('fixture needs an output row')
     const typeLabel = presentedType(defaultTokens, outputRow.output.type).label
-    const header = calls.findIndex((call) => call.method === 'fill' && call.fillStyle === '#2f4b63')
+    const header = calls.findIndex((call) => call.method === 'fill' && call.fillStyle === '#2e4b64')
     const title = calls.findIndex((call) => call.method === 'fillText' && call.fillStyle === defaultTokens.colors.title &&
       call.args[1] === node.x + defaultTokens.padX)
     const dataPanelOffset = calls.slice(header + 1)
@@ -2592,7 +2592,7 @@ describe('node chrome paint on the live renderer', () => {
     expect(title).toBeGreaterThan(header)
     expect(dataPanel).toBeGreaterThan(header)
     expect(overlay).toBeGreaterThan(dataPanel)
-    expect(calls.filter((call) => call.method === 'fill' && call.fillStyle === '#2f4b63')).toHaveLength(1)
+    expect(calls.filter((call) => call.method === 'fill' && call.fillStyle === '#2e4b64')).toHaveLength(1)
   })
 
   it('muted and bypassed dim the whole node; bypassed also gets the purple wash', () => {
@@ -2641,8 +2641,8 @@ describe('node chrome paint on the live renderer', () => {
     const bodyIdx = calls.findIndex(
       (c) => c.method === 'roundRect' && c.args[0] === n.x && c.args[1] === n.y && c.args[3] === n.layout.height,
     )
-    expect(paintedAfter(calls, bodyIdx, 'fill')?.fillStyle).toBe('#4e2f2e')
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#683231')).toBe(true)
+    expect(paintedAfter(calls, bodyIdx, 'fill')?.fillStyle).toBe('#533a3c')
+    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#6b3d3b')).toBe(true)
     expect(nodeBorder(calls, n)).toMatchObject({
       strokeStyle: defaultTokens.colors.error,
       lineWidth: 3.75,
@@ -2663,8 +2663,8 @@ describe('node chrome paint on the live renderer', () => {
       call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.error && call.lineWidth === 3.75)
     const selectionStrokeIndex = calls.findIndex((call) =>
       call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.nodeSelectedBorder && call.lineWidth === 2)
-    const bodyFill = calls.find((call) => call.method === 'fill' && call.fillStyle === '#4e2f2e')
-    const headerFill = calls.find((call) => call.method === 'fill' && call.fillStyle === '#683231')
+    const bodyFill = calls.find((call) => call.method === 'fill' && call.fillStyle === '#533a3c')
+    const headerFill = calls.find((call) => call.method === 'fill' && call.fillStyle === '#6b3d3b')
     const errorStroke = calls[errorStrokeIndex]
     const selectionStroke = calls[selectionStrokeIndex]
     const titleIndex = calls.findIndex((call) => call.method === 'fillText' && call.args[1] === node.x + defaultTokens.padX)
@@ -2685,16 +2685,16 @@ describe('node chrome paint on the live renderer', () => {
         : node),
     }
     const calls = paint(scene)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#4e2f2e')).toBe(true)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#683231')).toBe(true)
-    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#293036' || call.fillStyle === '#2f4b63'))).toBe(false)
+    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#533a3c')).toBe(true)
+    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#6b3d3b')).toBe(true)
+    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#2a353f' || call.fillStyle === '#2e4b64'))).toBe(false)
   })
 
   it('a recognized node paints no unrecognized error color', () => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
     const calls = paint(scene)
-    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#4e2f2e' || call.fillStyle === '#683231'))).toBe(false)
+    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#533a3c' || call.fillStyle === '#6b3d3b'))).toBe(false)
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.nodeOutline)
   })
 

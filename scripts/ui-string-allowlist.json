@@ -25,7 +25,6 @@
     "text:Array.from(element.querySelectorAll",
     "text:Backend",
     "text:Backend ID",
-    "text:Dinkster",
     "text:Execution",
     "text:Execution owner removed or disconnected. Retained output routes are used when available.",
     "text:Image unavailable",
@@ -186,6 +185,11 @@
     "text:autogrow",
     "text:continuation",
     "text:t.id === activeTabId()) // The ACTIVE tab's backend schema registry (same routing as CanvasHost). const registry = (): ReturnType"
+  ],
+  "BrandMark.tsx": [
+    "attribute:alt:Dinkster",
+    "attribute:alt:Dinkster",
+    "attribute:alt:Dinkster"
   ],
   "CanvasHost.tsx": [
     "attribute:aria-label:Bookmarks. Show bookmark numbers on the minimap",
@@ -421,7 +425,6 @@
     "text:props.connection) const [info, setInfo] = createSignal"
   ],
   "DesktopSetup.tsx": [
-    "text:D",
     "text:props.status.phase === 'failed' return ("
   ],
   "ExecutedImageViewer.tsx": [
