@@ -101,6 +101,12 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
 
 for (const state of ['retired', 'inactive', 'linked'] as const) {
   test(`missing ${state} asset reports unavailable replacement without editing its stored value`, async ({ page }, info) => {
+    let finishPlan: (() => Promise<void>) | undefined
+    if (state === 'inactive') await page.route('**/api/workflows/plan', async (route) => {
+      if (!route.request().postData()?.includes('unavailable-asset-inactive')) return route.continue()
+      const response = await route.fetch()
+      finishPlan = () => route.fulfill({ response })
+    })
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.schemaState.get().status)).toBe('ready')
@@ -146,7 +152,13 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
     await openRailPanel(page, 'Problems')
     const problem = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'is missing on' })
     await expect(problem).toHaveCount(1)
+    if (state === 'inactive') await expect.poll(() => finishPlan !== undefined).toBe(true)
     await problem.locator('summary').click()
+    if (state === 'inactive') {
+      await finishPlan!()
+      await expect(page.getByTestId('problems-panel')).toContainText('workflow.requirementsUnavailable')
+      await expect(problem).toHaveJSProperty('open', true)
+    }
     await problem.getByRole('button', { name: 'Locate or replace', exact: true }).click()
     await expect(page.getByTestId('gesture-refusal-toast')).toContainText('This stored asset has no editable ASSET row')
     await expect(page.getByTestId('asset-editor')).toHaveCount(0)

@@ -198,6 +198,27 @@ describe('ProblemsPanel browser interactions', () => {
     unmount()
   })
 
+  it('keeps an expanded missing-asset repair available when another execution problem arrives', () => {
+    const missing = diag('warning', 'validation', 'asset.availability.missing', 'Missing exact file', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n2') } },
+      data: { input: 'image', digest: 'blake3:' + 'a'.repeat(64) },
+    })
+    const [entries, setEntries] = createSolidSignal<readonly Diagnostic[]>([missing])
+    const { root, diagnosticFocus, unmount } = mountPanel(undefined, entries)
+    root.querySelector('details.problem summary')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    setEntries([missing, diag('error', 'validation', 'workflow.plan.failed', 'Planning failed')])
+    expect(root.querySelector('.problems-group')!.getAttribute('data-severity')).toBe('error')
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    const button = [...root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Locate or replace')!
+    button.click()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: missing.anchor, openAssetInput: 'image' })
+    setEntries([missing])
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    expect(root.querySelector('.problems-group')!.getAttribute('data-severity')).toBe('warning')
+    unmount()
+  })
+
   it('offers Show in Focused beside Show on canvas only when the host wires it', () => {
     const plain = mountPanel()
     expect(plain.root.querySelector('.problem-show-in-context')).toBeNull()

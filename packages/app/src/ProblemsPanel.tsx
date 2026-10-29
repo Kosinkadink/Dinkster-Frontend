@@ -2,7 +2,7 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 import { diag, type Diagnostic } from '@dinkster/core'
 import type { CompatSkip, PackInferenceUnavailable } from '@dinkster/client'
 import { diagnosticFocusTarget, type AppState } from './app-state.js'
-import { groupProblemDiagnostics, type ProblemGroup } from './problem-display.js'
+import { groupProblemDiagnostics } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
@@ -61,44 +61,37 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
       { data: { providers: pack.providers } },
     )),
   ])
-  const groups = createMemo<readonly ProblemGroup[]>((previous) => {
-    const next = groupProblemDiagnostics([...props.diagnostics(), ...packDiagnostics()], props.app.activeTab()?.store.doc)
-    return next.map((group) => {
-      const existing = previous.find((candidate) => candidate.key === group.key)
-      return existing !== undefined && existing.title === group.title &&
-        existing.severity === group.severity && existing.diagnostics.length === group.diagnostics.length &&
-        existing.diagnostics.every((diagnostic, index) => diagnostic === group.diagnostics[index])
-        ? existing
-        : group
-    })
-  }, [])
+  const groups = createMemo(() => {
+    return groupProblemDiagnostics([...props.diagnostics(), ...packDiagnostics()], props.app.activeTab()?.store.doc)
+  })
 
   return (
     <section class="rail-section" data-testid="problems-panel" data-native-text-scope>
       <ProductPanelHeader title={message('shell.panel.problems.title')} />
       <Show when={groups().length > 0} fallback={<ProductEmptyState title={message('problems.empty')} />}>
-        <For each={groups()}>
-          {(group, index) => {
+        <For each={groups().map((group) => group.key)}>
+          {(key, index) => {
+            const group = () => groups().find((candidate) => candidate.key === key)!
             const contentId = () => `problems-group-${index()}`
             return (
-              <section class="problems-group" data-section={group.title} data-severity={group.severity}>
+              <section class="problems-group" data-section={group().title} data-severity={group().severity}>
                 <ProductButton
                   type="button" variant="ghost" size="compact" class="problems-group-header"
-                  aria-expanded={disclosure.expanded(group.key)} aria-controls={contentId()}
-                  onClick={() => disclosure.toggle(group.key)}
+                  aria-expanded={disclosure.expanded(key)} aria-controls={contentId()}
+                  onClick={() => disclosure.toggle(key)}
                 >
-                  <span class="problems-group-disclosure" aria-hidden="true">{disclosure.expanded(group.key) ? 'v' : '>'}</span>
-                  <span class="problems-group-title">{message(`problems.section.${group.title}`)}</span>
-                  <span class="problems-group-count">{group.diagnostics.length}</span>
+                  <span class="problems-group-disclosure" aria-hidden="true">{disclosure.expanded(key) ? 'v' : '>'}</span>
+                  <span class="problems-group-title">{message(`problems.section.${group().title}`)}</span>
+                  <span class="problems-group-count">{group().diagnostics.length}</span>
                 </ProductButton>
-                <Show when={group.title === 'upgrade'}>
+                <Show when={group().title === 'upgrade'}>
                   <ProductButton type="button" variant="ghost" size="compact" class="problems-dismiss"
                     onClick={() => props.app.dismissImportProblems()}>
                     {message('problems.action.dismiss')}
                   </ProductButton>
                 </Show>
-                <div id={contentId()} class="problems-group-items" hidden={!disclosure.expanded(group.key)}>
-                  <For each={group.diagnostics}>
+                <div id={contentId()} class="problems-group-items" hidden={!disclosure.expanded(key)}>
+                  <For each={group().diagnostics}>
                     {(diagnostic) => (
                       <details class="problem" data-severity={diagnostic.severity}
                         data-activatable={diagnostic.anchor !== undefined ? true : undefined}>
