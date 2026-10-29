@@ -296,12 +296,21 @@ test('review mode holds the plan; the badge popover applies it manually', async 
   await expect(popover.getByTestId('badge-replace-target')).toContainText(`Replace with '${targetType}'`)
   await expect(popover.getByTestId('badge-replace-target')).toContainText('renamed upstream')
 
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.dispatchTo(app.activeTab()!, { command: 'node.move', params: { graphId: 'g0', positions: { old: { x: 410, y: 180 } } } })
+  })
+  await expect(popover).not.toBeVisible()
+  const moved = await badgePoint(page, 'old')
+  await page.mouse.click(moved.x, moved.y)
+  await expect(popover.getByTestId('badge-replace-target')).toContainText(`Replace with '${targetType}'`)
+
   await popover.getByTestId('badge-apply-replacement').click()
   await expect(popover).not.toBeVisible()
   expect((await rootTypes(page)).old).toBe(targetType)
 })
 
-test('a lossy plan never auto-applies; its badge popover shows the warning', async ({ page }) => {
+test('a lossy plan never auto-applies; its badge popover shows the warning', async ({ page }, testInfo) => {
   const { sourceType, targetType, sinkType } = deprecationIds()
   expect(await openDeprecatedDoc(page, { lineage: 'dep-lossy', lossy: true })).toEqual([])
   const types = await rootTypes(page)
@@ -315,6 +324,20 @@ test('a lossy plan never auto-applies; its badge popover shows the warning', asy
   await expect(popover).toBeVisible()
   await expect(popover).toHaveAttribute('data-badge', 'core.deprecated')
   await expect(popover.getByTestId('badge-replace-target')).toBeVisible()
+  await expect(popover).toContainText('warning:')
+
+  await page.evaluate(() => {
+    const settings = window.__dinksterTest!.app.settings
+    settings.set('execution.mirrorPreviews', !settings.get<boolean>('execution.mirrorPreviews'))
+  })
+  await expect(popover).toContainText('warning:')
+  await page.screenshot({ path: testInfo.outputPath('warning-after-overlay-refresh.png') })
+
+  expect(await openDeprecatedDoc(page, { lineage: 'dep-lossy-other', lossy: true })).toEqual([])
+  await expect(popover).not.toBeVisible()
+  await identityViewport(page)
+  const other = await badgePoint(page, 'old')
+  await page.mouse.click(other.x, other.y)
   await expect(popover).toContainText('warning:')
 
   // Applying anyway is an explicit, informed choice - and still works.

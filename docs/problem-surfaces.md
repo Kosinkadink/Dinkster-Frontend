@@ -45,6 +45,12 @@ Native backend pack failures are restored from the process-lifetime
 healthy snapshot clears only that backend's pack failures, leaving unrelated
 app and document problems intact.
 
+Node badge popovers stay open through background overlay updates while the
+same document, graph occurrence, badge and on-screen anchor remain valid.
+Moving or removing the badge, changing its document or graph, or dismissing
+the popover closes it. A deprecation warning therefore remains available for
+an explicit replacement decision even when previews or diagnostics refresh.
+
 Saving records each used node type's host-attributed pack and the pack's
 version in the workflow's `environment.nodes` and `environment.packs` tables.
 When a used node is unavailable on the current backend, saving retains its
