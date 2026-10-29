@@ -160,6 +160,10 @@ outgoing value tap, runtime type, default, positional slot and compile value.
 Nested branches and family members retain the flag in their own scopes.
 It does not change registry identity and cannot be combined with `forceInput`.
 
+Subgraph boundaries can promote inputs from the selected native DynamicCombo
+branch using their materialized input paths. The promoted widget inherits its
+stored value; inputs from inactive branches remain unavailable.
+
 Native save inputs keep `filename_prefix` as a STRING and append an optional
 STRING `mount` with the closed widget descriptor `{"type":"MOUNT"}`. Null or
 omitted mount uses the backend's snapshot default output mount; an explicit

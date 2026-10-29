@@ -370,7 +370,7 @@ export function resolveBoundaryRoute(
     const elaborated = elaborateInterface(schema, { values: (values ?? {}) as NodeData['values'], dynamic }, undefined, { promoteGhosts: false })
     if (!elaborated.diagnostics.some((item) => item.severity === 'error')) {
       for (const input of elabInputsOf(elaborated)) {
-        if (input.wire15Materialization !== true || input.origin.kind !== 'member' ||
+        if (input.wire15Materialization !== true || (input.origin.kind !== 'member' && input.origin.kind !== 'branch') ||
             input.apiName === undefined || input.materialize !== undefined ||
             portAddressKey(input.address.port, input.address.members) !== portAddressKey(binding.port, binding.members)) continue
         matches.push({ side: 'input', topItem: input.spec, hops: [], terminal: { kind: 'port', slot: input.spec } })
