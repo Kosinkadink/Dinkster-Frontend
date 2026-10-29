@@ -4546,7 +4546,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const node = scene.nodes.find((candidate) => candidate.id === anchor.nodeId)
         const badges = decorations.badges[anchor.nodeId] ?? []
         const index = badges.findIndex((badge) => badge.id === anchor.badge.id)
-        if (!node || index < 0) return undefined
+        if (!node || index === -1) return undefined
         const rect = badgeRect(node, index, badges)
         const vp = renderer.getViewport()
         if (anchor.x !== rect.x * vp.scale + vp.x ||
