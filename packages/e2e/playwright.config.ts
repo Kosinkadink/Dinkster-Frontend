@@ -74,6 +74,7 @@ const BACKEND_SERIAL_SPECS = [
   'app-view-queue-buttons-native.spec.ts',
   'output-mount-live.spec.ts',
   'browser-mount-live.spec.ts',
+  'local-assets-live.spec.ts',
   // Environment-conditional live discovery probe.
   'startup-discovery.spec.ts',
 ]

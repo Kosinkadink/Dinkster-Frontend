@@ -76,8 +76,11 @@ describe('All assets collection source', () => {
 
     const first = await source.page({ query: '', limit: 24 })
     expect(first.items.map((entry) => `${entry.title}:${assetItemOf(entry)?.virtualPath}`)).toEqual([
-      'a.png:a.png', 'same.png:a/same.png', 'same.png:z/same.png', 'z.png:z.png',
+      'a.png:a.png', 'same.png:z/same.png', 'z.png:z.png',
     ])
+    expect(first.items.find((entry) => entry.title === 'same.png')?.details).toEqual(expect.arrayContaining([
+      { label: 'Location', text: 'left: z/same.png' }, { label: 'Location', text: 'right: a/same.png' },
+    ]))
     // Compact rows: the mount path lives in the detail rail, not on the row.
     expect(first.items.every((entry) => entry.subtitle === undefined)).toBe(true)
     expect(first.cursor).toBeTypeOf('string')
@@ -85,6 +88,28 @@ describe('All assets collection source', () => {
     expect(second.items.map((entry) => entry.title)).toEqual(['b.png'])
     expect(left).toHaveBeenNthCalledWith(2, expect.objectContaining({ cursor: 'left-2' }))
     expect(right).toHaveBeenCalledTimes(1)
+  })
+
+  it('groups exact identities across pages without hiding different bytes with the same name', async () => {
+    const original = { ...asset('local-assets', 'hero.png'), availability: 'missing' as const }
+    const relocated = { ...asset('mount:live', 'renamed.png'), digest: original.digest }
+    const different = { ...asset('mount:live', 'hero.png'), digest: 'blake3:different' }
+    const source = allAssetsCollectionSource([
+      adapter('local-assets', async () => ({ items: [original] })),
+      adapter('mount:live', vi.fn().mockResolvedValueOnce({ items: [different], cursor: 'next' })
+        .mockResolvedValueOnce({ items: [relocated] })),
+    ])
+    const first = await source.page({ query: '', limit: 1 })
+    expect(first.items).toHaveLength(2)
+    const second = await source.page({ query: '', limit: 1, cursor: first.cursor! })
+    const revised = second.items[0]!
+    expect(revised.id).toBe(first.items.find((entry) => assetItemOf(entry)?.digest === original.digest)?.id)
+    expect(assetItemOf(revised)?.virtualPath).toBe('renamed.png')
+    expect(assetItemOf(revised)?.availability).toBeUndefined()
+    expect(revised.details).toEqual(expect.arrayContaining([
+      { label: 'Observed name', text: 'hero.png' }, { label: 'Observed name', text: 'renamed.png' },
+      { label: 'Location', text: 'local-assets: hero.png' }, { label: 'Location', text: 'mount:live: renamed.png' },
+    ]))
   })
 
   it('binds composite cursors to the exact query and refuses stale pages', async () => {
@@ -194,7 +219,7 @@ describe('All assets collection source', () => {
     const first = await source.page({ query: '', limit: 24 })
     const second = await source.page({ query: '', limit: 24, cursor: first.cursor! })
     expect([...first.items, ...second.items].map((entry) => entry.id)).toEqual([
-      'ready:one.png', 'all-assets:error:offline', 'ready:two.png',
+      'all-assets:blake3:one.png', 'all-assets:error:offline', 'all-assets:blake3:two.png',
     ])
   })
 })

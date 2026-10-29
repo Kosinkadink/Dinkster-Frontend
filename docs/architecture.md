@@ -373,6 +373,10 @@ The Assets dock's All assets source combines recorded local assets, readable
 mounts and the configured federated catalog. Local assets remain available as
 a separate source, including when no filesystem mount exists. Recorded rows
 show aliases, dates and ingest provenance in the existing Details disclosure.
+All assets groups equal digests across sources and pages, retaining observed
+names, virtual locations and provenance in Details. Different bytes remain
+separate even when their names match; a live location can satisfy an older
+missing observation. Later pages update existing row identities in place.
 Exact byte availability is checked before presenting local results: missing
 rows remain inspectable but cannot be picked and never request thumbnails or
 model metadata. Compatible ASSET pickers share this adapter; directory, pair

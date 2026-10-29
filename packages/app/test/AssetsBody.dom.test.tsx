@@ -238,7 +238,7 @@ describe('Assets dock body', () => {
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
 
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-health"]')).not.toBeNull())
-    await vi.waitFor(() => expect(root.querySelector('[data-entry="mount:models:checkpoints/indexed.ckpt"]')).not.toBeNull())
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('indexed.ckpt'))
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-source="mount:models"]')?.getAttribute('data-state')).toBe('scanning')
     expect(root.querySelector('[data-source="mount:models"]')?.textContent).toContain(
@@ -278,11 +278,12 @@ describe('Assets dock body', () => {
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('1 issue')
     expect(root.querySelector('[data-source="mount:offline"]')?.textContent).toContain('offline')
-    const preview = root.querySelector<HTMLImageElement>('[data-entry="mount:input:images/a.png"] .collection-thumb')!
+    const row = root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!
+    const preview = row.querySelector<HTMLImageElement>('.collection-thumb')!
     preview.dispatchEvent(new Event('error'))
-    expect(root.querySelector('[data-entry="mount:input:images/a.png"] [data-testid="asset-entry-fallback"]')?.getAttribute('data-kind')).toBe('image')
+    expect(row.querySelector('[data-testid="asset-entry-fallback"]')?.getAttribute('data-kind')).toBe('image')
     expect(root.querySelector('[data-testid="asset-selection-empty"]')?.textContent).toContain('Click an asset')
-    root.querySelector<HTMLElement>('[data-entry="mount:input:images/a.png"]')!.click()
+    row.click()
     const selection = root.querySelector<HTMLElement>('[data-testid="asset-selection-summary"]')!
     expect(selection.querySelector('h3')?.textContent).toBe('a.png')
     const selectedPreview = selection.querySelector<HTMLImageElement>('img')!
