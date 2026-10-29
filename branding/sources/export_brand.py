@@ -15,6 +15,7 @@ def main():
     wordmarks = parser.add_mutually_exclusive_group()
     wordmarks.add_argument("--regular-wordmark-only", action="store_true")
     wordmarks.add_argument("--wordmarks-only", action="store_true")
+    wordmarks.add_argument("--small-icons-only", action="store_true")
     args = parser.parse_args()
     commands = []
 
@@ -39,6 +40,8 @@ def main():
         ("color-dark", 8000),
         ("color-light", 9000),
     ):
+        if args.small_icons_only:
+            continue
         if args.regular_wordmark_only and variant.startswith("heavier"):
             continue
         width = 1024 if variant.startswith("heavier") else 1000
@@ -71,14 +74,17 @@ def main():
             "--export-id-only",
             "--export-area=0:3000:1000:4000",
         )
-        export(
-            master,
-            ROOT / f"svg/dinkster-symbol-{variant}.svg",
-            "--export-type=svg",
-            "--export-plain-svg",
-            *options,
-        )
+        if not args.small_icons_only:
+            export(
+                master,
+                ROOT / f"svg/dinkster-symbol-{variant}.svg",
+                "--export-type=svg",
+                "--export-plain-svg",
+                *options,
+            )
         for size in (16, 24, 32, 48, 64, 128, 256, 512, 1024):
+            if args.small_icons_only and size not in (16, 24):
+                continue
             destination = ROOT / f"raster/{variant}/{size}.png"
             destination.parent.mkdir(parents=True, exist_ok=True)
             raster_options = options
@@ -95,20 +101,25 @@ def main():
                 f"--export-height={size}",
                 *raster_options,
             )
-    export(
-        master,
-        ROOT / "previews/letters-enlarged.png",
-        "--export-type=png",
-        "--export-id=letter-sheet",
-        "--export-id-only",
-        "--export-area=0:7000:560:7260",
-        "--export-width=1680",
-        "--export-height=780",
-    )
+    if not args.small_icons_only:
+        export(
+            master,
+            ROOT / "previews/letters-enlarged.png",
+            "--export-type=png",
+            "--export-id=letter-sheet",
+            "--export-id-only",
+            "--export-area=0:7000:560:7260",
+            "--export-width=1680",
+            "--export-height=780",
+        )
     record = (
-        "wordmark-export-commands.txt"
-        if args.regular_wordmark_only or args.wordmarks_only
-        else "export-commands.txt"
+        "small-export-commands.txt"
+        if args.small_icons_only
+        else (
+            "wordmark-export-commands.txt"
+            if args.regular_wordmark_only or args.wordmarks_only
+            else "export-commands.txt"
+        )
     )
     (ROOT / "sources" / record).write_text(
         version + "\n" + "\n".join(commands) + "\n", encoding="ascii"

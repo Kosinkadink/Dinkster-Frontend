@@ -50,11 +50,20 @@ symbol SVGs, rasters or platform assets. The full command regenerates all
 assets, including color wordmarks for both themes and platform containers.
 Heavier lettering is historical and unselected; its contours and placements
 remain frozen. The regular 1.35x wordmark is the production selection.
-The separate 16/24 objects currently copy the selected silhouette exactly;
-no optical change has been applied to them. Their channels do not satisfy
-the full-background-pixel requirement at both sizes. Keep them provisional
-until that small-size acceptance question is resolved; do not wire them
-into the product merely because a file exists.
+Separate 16/24 objects retain the selected path under editable vector cut
+masks that open its upper and lower stem/bowl channels. Mask cuts are
+documented in `sources/geometry-notes.md`; only these small objects use them.
+The 16 px color object omits yellow because it cannot retain a fully
+covered yellow pixel. The 24 px object keeps yellow; coral is retained at
+both sizes. Mono, cyan and color use the same alpha mask.
+`export_brand.py --small-icons-only --inkscape /path/to/inkscape` regenerates
+only these PNGs and the ICO/ICNS containers, leaving all other exports
+byte-identical. Commands are recorded in `small-export-commands.txt`.
+`compare_small_optical.py` checks component counts and trapped transparent
+pixels, then renders the exact-source/optical native and 12x comparison
+on both themes. Exact-source frames are preserved in
+`previews/small-exact-source/`; the new optical comparison and JSON report
+are separate from the historical exact-source sheets.
 Letter guides are at y = 0 (i-dot/t upper line), 14 (n/s/e/r tops and
 k arm), and 56 (baseline); only the k's lower leg descends to 70.
 The enlarged k also carries its x + y = 63 cut/arm continuation guide.
@@ -118,7 +127,8 @@ comparison files are historical, not additional production selections.
   Color has the same silhouette as mono, with no effect required for recognition.
 - Raster: 16, 24, 32, 48, 64, 128, 256, 512 and 1024 px in `raster/color/`,
   `cyan/`, `mono/`, `white/`, `dark/` (white) and `light/` (ink).
-  The 16/24 exports retain the unresolved small-size limitation above.
+  The 16/24 exports use separate optical objects; 32 px and larger retain
+  the unchanged selected master silhouette.
 - Windows/favicon container: `platform/dinkster.ico`, with 16, 24, 32, 48,
   64, 128 and 256 px color PNG entries. Apple: `platform/dinkster.icns`,
   16 through 1024 px including 2x representations. `sources/package_icons.py`

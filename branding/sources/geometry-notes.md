@@ -43,10 +43,22 @@ The corrected body has no intersection with the yellow plane.
 The historical analytic construction remains hidden inside the construction
 layer. Its constants define the
 paused heavier proposal, but no longer construct the approved silhouette.
-The separate 16/24 master objects currently copy the selected silhouette;
-historical optical corrections must not silently replace its geometry.
-The current exports do not provide full-background-pixel channels at both
-sizes. This acceptance gap requires a small-size ruling before integration.
+The separate 16/24 objects keep the selected path under a vector luminance
+mask with two black channel cuts on a white field. `SMALL_CHANNEL_CUTS`
+defines the upper horizontal centerline (240,374)-(570,374) and the lower
+diagonal centerline (240,850)-(570,520) in the 1000-unit master frame.
+`SMALL_CHANNEL_WIDTHS` is 150 units at 16 px and 125 units at 24 px
+(2.4 and 3 native pixels respectively). Butt caps terminate the cuts inside
+the open counter or outside the D, not inside a surviving stroke.
+This preserves the original outer contour except where the channel mouths
+open. No full-size path, color boundary or wordmark changes.
+Both sizes retain two foreground components even counting any nonzero
+alpha with 8-neighbor connectivity; fully transparent pixels form one
+4-connected component with no trapped interior. The retained exact-source
+frames fail these checks and provide the before control.
+The 16 px color object omits yellow after cutting because no fully covered
+yellow pixel survives; 24 px retains yellow. These optical objects apply
+only to the 16/24 PNGs and their platform-container representations.
 
 ## Historical analytic constants
 

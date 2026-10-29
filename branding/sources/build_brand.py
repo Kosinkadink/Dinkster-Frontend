@@ -54,6 +54,8 @@ YELLOW_PLANE_X = 331.6546762589928
 YELLOW_PLANE_TOP = 395.0
 REGULAR_WORDMARK_SCALE = 1.35
 REGULAR_WORDMARK_BASELINE = 188.0
+SMALL_CHANNEL_WIDTHS = {16: 150, 24: 125}
+SMALL_CHANNEL_CUTS = "M240 374H570 M240 850L570 520"
 HEAVIER_POSITIONS = {
     "i": 149,
     "n": 172,
@@ -439,6 +441,30 @@ def main():
         if name != "cyan":
             copy.set("clip-path", f"url(#plane-{name})")
         plane.append(copy)
+    for size, width in SMALL_CHANNEL_WIDTHS.items():
+        mask = node(
+            "mask",
+            {
+                "id": f"small-channels-{size}",
+                "maskUnits": "userSpaceOnUse",
+                "x": "0",
+                "y": "0",
+                "width": "1000",
+                "height": "1000",
+            },
+            defs,
+        )
+        node("rect", {"width": "1000", "height": "1000", "fill": "white"}, mask)
+        node(
+            "path",
+            {
+                "d": SMALL_CHANNEL_CUTS,
+                "stroke": "black",
+                "stroke-width": str(width),
+                "fill": "none",
+            },
+            mask,
+        )
     letters = layer(master, "06_Wordmark_inkster")
     lettering(letters, "#1F242A", "translate(-300 -640) scale(4)", "editable")
     artboards = layer(master, "07_Exports_Artboards", True)
@@ -460,7 +486,12 @@ def main():
             node("rect", {"width": "1000", "height": "1000", "opacity": "0"}, optical)
             node(
                 "path",
-                {"id": f"optical-{size}-{name}", "d": symbol_path(size), "fill": fill},
+                {
+                    "id": f"optical-{size}-{name}",
+                    "d": symbol_path(size),
+                    "fill": fill,
+                    "mask": f"url(#small-channels-{size})",
+                },
                 optical,
             )
     for size in (None, 16, 24):
@@ -481,8 +512,12 @@ def main():
         )
         node("rect", {"width": "1000", "height": "1000", "opacity": "0"}, color_symbol)
         clipped = node("g", {"clip-path": f"url(#{clip_id})"}, color_symbol)
+        if size is not None:
+            clipped.set("mask", f"url(#small-channels-{size})")
         node("rect", {"width": "1000", "height": "1000", "fill": "#32E6C5"}, clipped)
         for name, fill in (("coral", "#FF7468"), ("yellow", "#FFD86B")):
+            if size == 16 and name == "yellow":
+                continue
             node(
                 "rect",
                 {
