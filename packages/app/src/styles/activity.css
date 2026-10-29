@@ -163,19 +163,19 @@
   gap: 6px;
   padding: 4px 6px;
   border: 0;
-  border-left: 3px solid #78909c;
+  border-left: 3px solid var(--dinkster-border-strong);
   color: inherit;
-  background: #202020;
+  background: var(--dinkster-surface-panel);
   text-align: left;
   cursor: pointer;
 }
 
 .problems-group[data-severity='error'] > .problems-group-header {
-  border-left-color: #ef5350;
+  border-left-color: var(--dinkster-danger-border);
 }
 
 .problems-group[data-severity='warning'] > .problems-group-header {
-  border-left-color: #ffa726;
+  border-left-color: var(--dinkster-warning-border);
 }
 
 .problems-group-title {
@@ -186,7 +186,7 @@
 
 .problems-group-count,
 .problems-group-severity {
-  color: #aaa;
+  color: var(--dinkster-text-secondary);
   font-size: 11px;
 }
 
@@ -214,16 +214,16 @@
   padding: 4px 6px;
   min-width: 0;
   border-radius: 4px;
-  background: #262626;
+  background: var(--dinkster-surface-raised);
   overflow-wrap: anywhere;
 }
 
 .problem[data-severity='error'] {
-  border-left: 3px solid #ef5350;
+  border-left: 3px solid var(--dinkster-danger-border);
 }
 
 .problem[data-severity='warning'] {
-  border-left: 3px solid #ffa726;
+  border-left: 3px solid var(--dinkster-warning-border);
 }
 
 .problem summary {
@@ -478,8 +478,8 @@
 .runtime-error-hints {
   margin: 6px 0;
   padding-left: 8px;
-  border-left: 2px solid #5a5a5a;
-  color: #c7c7c7;
+  border-left: 2px solid var(--dinkster-border-strong);
+  color: var(--dinkster-text-primary);
   font-size: 11px;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -491,7 +491,7 @@
 
 .runtime-error-hint-code,
 .runtime-error-hint-suggestion {
-  color: #999;
+  color: var(--dinkster-text-secondary);
 }
 
 .runtime-error-hint-suggestion {
@@ -504,7 +504,7 @@
   overflow-wrap: anywhere;
   word-break: break-word;
   font-size: 11px;
-  color: #ce9178;
+  color: var(--dinkster-danger-foreground);
   max-height: 200px;
   max-width: 100%;
   overflow: auto;
@@ -605,18 +605,18 @@
   padding: 1px 6px;
   border-radius: 8px;
   font-size: 11px;
-  background: #33363d;
-  color: #ffa726;
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-warning-foreground);
 }
 
 .engine-chip[data-state='failed'] {
-  color: #ef5350;
+  color: var(--dinkster-danger-foreground);
 }
 
 .engine-chip[data-state='stopped'] {
-  color: #9e9e9e;
+  color: var(--dinkster-text-secondary);
 }
 
 .engine-chip.composing {
-  color: #64b5f6;
+  color: var(--dinkster-info-foreground);
 }

@@ -20,8 +20,8 @@
   position: absolute;
   z-index: 10;
   width: 200px;
-  background: #252525f2;
-  border: 1px solid #3a3a3a;
+  background: var(--dinkster-surface-panel);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -29,8 +29,8 @@
 .net-prompt input {
   width: 100%;
   box-sizing: border-box;
-  background: #1a1a1a;
-  color: #e0e0e0;
+  background: var(--dinkster-surface-inset);
+  color: var(--dinkster-text-primary);
   border: none;
   font: 12px/1.4 var(--dinkster-font-family);
   padding: 6px 8px;
@@ -234,14 +234,14 @@
   z-index: 30;
   min-width: 150px;
   padding: 4px;
-  background: #252525;
-  border: 1px solid #555;
+  background: var(--dinkster-surface-panel);
+  border: 1px solid var(--dinkster-border-strong);
   border-radius: 6px;
-  box-shadow: 0 8px 24px #0009;
+  box-shadow: var(--dinkster-elevation-high);
 }
 .link-menu-layer { position: fixed; inset: 0; z-index: 29; outline: none; }
-.link-double-click-menu button { display: block; width: 100%; padding: 7px 9px; border: 0; background: transparent; color: #ddd; text-align: left; }
-.link-double-click-menu button:hover, .link-double-click-menu button:focus { background: #39434c; outline: none; }
+.link-double-click-menu button { display: block; width: 100%; padding: 7px 9px; border: 0; background: transparent; color: var(--dinkster-text-primary); text-align: left; }
+.link-double-click-menu button:hover, .link-double-click-menu button:focus { background: var(--dinkster-interaction-hover); outline: none; }
 
 .palette-results {
   position: relative;
@@ -415,4 +415,3 @@
 .widget-editor input:where(:not(.product-text-input)):focus-visible,
 .widget-editor textarea:where(:not(.product-text-area)):focus-visible,
 .widget-editor select:focus-visible { border-color: var(--dinkster-border-focus); box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected); }
-

@@ -5,7 +5,7 @@
  * dispose. Canvas, renderer, and settings are all injected fakes.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { minimapToWorld, minimapTransform, type CanvasRenderer, type MinimapInput } from '@dinkster/canvas'
+import { defaultTokens, minimapToWorld, minimapTransform, type CanvasRenderer, type MinimapInput } from '@dinkster/canvas'
 import type { NodeProgress } from '@dinkster/core'
 import { setupMinimap } from '../src/minimap.js'
 import type { SettingsRegistry } from '../src/settings.js'
@@ -72,6 +72,7 @@ function harness(opts?: {
     getScene: () => opts?.scene ?? ({ nodes: [], groups: [], links: [], reroutes: [] }),
     getViewport: () => ({ x: 0, y: 0, scale: 1 }),
     getPresence: () => [],
+    getTokens: () => defaultTokens,
     setViewport,
     onViewportChange: () => vi.fn(),
   } as unknown as CanvasRenderer

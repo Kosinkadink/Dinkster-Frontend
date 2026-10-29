@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import playwrightConfig from '../playwright.config.js'
 
 const root = resolve(import.meta.dirname, '../../..')
 const yaml = createRequire(import.meta.url)('js-yaml') as {
@@ -160,10 +161,11 @@ describe('fast pull-request and full validation workflows', () => {
     expect(script).toContain("['check:ui-strings']")
     expect(script).toContain("['check:v1-boundary']")
     expect(script).toContain("['typecheck']")
+    expect(script).toContain("'scripts/check-host-ui-contract.test.mjs'")
     expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")
-    expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.ts/g)).toEqual([
+    expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.tsx?/g)).toEqual([
       'test/format.schema.test.ts',
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
@@ -172,6 +174,7 @@ describe('fast pull-request and full validation workflows', () => {
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
       'test/extension-world.test.ts',
+      'test/disabled-features.dom.test.tsx',
     ])
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
@@ -249,9 +252,7 @@ describe('fast pull-request and full validation workflows', () => {
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
       "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '' },",
-      "{ name: 'native without V1 1/3', project: 'native-without-v1', shard: '--shard=1/3' },",
-      "{ name: 'native without V1 2/3', project: 'native-without-v1', shard: '--shard=2/3' },",
-      "{ name: 'native without V1 3/3', project: 'native-without-v1', shard: '--shard=3/3' },",
+      "{ name: 'native without V1', project: 'native-without-v1', shard: '' },",
     ])
     for (const required of [
       "context.eventName !== 'schedule'",
@@ -314,7 +315,7 @@ describe('fast pull-request and full validation workflows', () => {
     }
     const pushPlan = await executePlan('push', [])
     expect(pushPlan.requests).toBe(0)
-    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(13)
+    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(11)
     expect(pushPlan.outputs['run-heavy']).toBe('true')
     const durablePlan = await executePlan('schedule', [
       { event: 'push', head_sha: 'head' },
@@ -323,7 +324,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(durablePlan.requests).toBe(1)
     expect(durablePlan.outputs['run-heavy']).toBe('false')
     expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
-      13,
+      11,
     )
     expect(
       (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
@@ -510,14 +511,11 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_PORT: '15420',
           DINKSTER_E2E_NATIVE_PORT: '15421',
         })
-        const recordedFixtures = steps.find(
-          (step) => step.name === 'Replay recorded stock ComfyUI fixtures',
-        )!
-        expect(recordedFixtures.if).toBe("matrix.name == 'stock ComfyUI V1'")
-        expect(recordedFixtures.run).toContain(
-          'test/object-info.golden.test.ts',
-        )
-        expect(recordedFixtures.run).toContain('test/events.golden.test.ts')
+        expect(
+          steps.filter((step) =>
+            /vitest.*(?:object-info|events)\.golden/.test(step.run ?? ''),
+          ),
+        ).toEqual([])
       }
     }
     expect(appMain).toContain(
@@ -527,38 +525,21 @@ describe('fast pull-request and full validation workflows', () => {
     expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
     expect(baseConfig).toContain("name: 'v1-compatibility'")
     expect(baseConfig).toContain("name: 'native-without-v1'")
-    const nativeWithoutV1Specs =
-      /const NATIVE_WITHOUT_V1_SPECS = \[([\s\S]*?)\n\]/.exec(baseConfig)?.[1]
-    expect(nativeWithoutV1Specs).toBeDefined()
-    for (const spec of [
-      'audit-float-paste-live.spec.ts',
-      'audit-noodle-live.spec.ts',
-      'audit-tap-boundary-live.spec.ts',
-      'audit-widget-parity-live.spec.ts',
-      'fixture-discovery.spec.ts',
-      'midgraph-preview-live.spec.ts',
-      'native-catalog-decode.spec.ts',
-      'native-catalog-presentation.spec.ts',
-      'native-family-port-quality.spec.ts',
-      'node-help.spec.ts',
-      'rowj-live.spec.ts',
-      'widget-representations-wire17.spec.ts',
-      'widget-value-presentation.spec.ts',
-      'wire43-input-family-combo.spec.ts',
-    ]) {
-      expect(nativeWithoutV1Specs).toContain(`'${spec}'`)
-    }
-    for (const spec of [
-      'import-legacy.spec.ts',
-      'link-drop.spec.ts',
-      'palette-filters.spec.ts',
-    ]) {
-      expect(nativeWithoutV1Specs).not.toContain(`'${spec}'`)
-    }
-    expect(baseConfig.match(/'output-mount-live\.spec\.ts'/g)).toHaveLength(2)
-    expect(baseConfig.match(/'pack-assets-settings\.spec\.ts'/g)).toHaveLength(
-      1,
-    )
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'native-without-v1',
+      )!.testMatch,
+    ).toEqual(['tests/startup-discovery.spec.ts'])
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'parallel-safe',
+      )!.testIgnore,
+    ).toContain('tests/product-surface-visuals.spec.ts')
+    expect(
+      playwrightConfig.projects!.find(
+        (project) => project.name === 'backend-serial',
+      )!.testMatch,
+    ).toContain('tests/output-mount-live.spec.ts')
     expect(hostedConfig).toContain(
       "const probeV1 = stubV1Entry === '1' ? '0' : '1'",
     )

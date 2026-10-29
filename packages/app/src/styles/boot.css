@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #181818;
+  background: var(--dinkster-surface-canvas);
   z-index: 99999;
 }
 .boot-indicator-inner {
@@ -18,25 +18,25 @@
   gap: 14px;
 }
 .boot-indicator-pulse {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #4a9;
-  opacity: 0.35;
+  width: 64px;
+  height: 64px;
   animation: dinkster-boot-pulse 1.4s ease-in-out infinite;
 }
 @keyframes dinkster-boot-pulse {
-  0%, 100% { transform: scale(0.6); opacity: 0.2; }
-  50% { transform: scale(1); opacity: 0.5; }
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
 }
 .boot-indicator-name {
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.5px;
-  color: #ccc;
+  color: var(--dinkster-text-primary);
 }
 .boot-indicator-waiting {
   font-size: 11px;
-  color: #777;
+  color: var(--dinkster-text-secondary);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .boot-indicator-pulse { animation: none; }
+}

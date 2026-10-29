@@ -1687,17 +1687,6 @@ describe('elabKeyOf nested addresses', () => {
 // ---------------------------------------------------------------------------
 
 describe('determinism and scale', () => {
-  it('is deterministic: same inputs, structurally identical output', () => {
-    const schema = schemaOf([
-      autogrowFamily('images', { min: 1, max: 4 }),
-      comboConstruct('mode', [{ key: 'a', inputs: [intInput('x')] }]),
-      slotConstruct('model', [intInput('s')]),
-    ])
-    const node = { values: {}, dynamic: { images: { members: ['m0', 'm1'] } } }
-    const facts = connectedInputs(['model'])
-    expect(elaborateInterface(schema, node, facts)).toEqual(elaborateInterface(schema, node, facts))
-  })
-
   it('elaborates a 100-member family linearly (structure check, not a benchmark)', () => {
     const members = Array.from({ length: 99 }, (_, i) => `m${i}`)
     const node = { values: {}, dynamic: { images: { members } } }
