@@ -124,6 +124,7 @@ test('documented node context Help renders its immutable Markdown page', async (
 test('live wire-42 backend serves descriptor metadata separately from the Markdown body', async ({ page }) => {
   test.skip(process.env['DINKSTER_E2E_USE_NATIVE'] !== '1', 'requires the local Dinkster wire-42 docs backend')
   await page.goto('/')
+  await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status === 'ready')
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest?.app.backends.get()[0]
     return {
