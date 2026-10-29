@@ -24,7 +24,7 @@
 import type { Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import type { BoundaryBinding, DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
-import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
+import { asDynamicMemberId, asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { normalizedComboOptions } from '../schema/combo-options.js'
 import { canonicalCompatTypeIdOf } from '../schema/type-compatibility.js'
 import {
@@ -98,7 +98,14 @@ export interface NodeReplacePlan {
   /** An unmatched same-type migration case that must auto-apply best effort. */
   readonly migrationFallback?: true
   /** Links whose `to` moves to a target input id (same node). */
-  readonly inputRewires: ReadonlyArray<{ readonly link: string; readonly port: string; readonly node?: string }>
+  readonly inputRewires: ReadonlyArray<{
+    readonly link: string
+    readonly port: string
+    readonly node?: string
+    readonly members?: readonly string[]
+    readonly fromPort?: string
+    readonly fromMembers?: readonly string[]
+  }>
   /** Historical per-input view choices that follow active migrated inputs. */
   readonly inputViewRewires?: ReadonlyArray<{ readonly fromInput: string; readonly input: string }>
   /** Historical per-input view choices with no active destination. */
@@ -1006,6 +1013,7 @@ export function planReplacement(
     targetAddress: TargetAddress
     targetFamily: Wire15InputFamily
     members: readonly string[]
+    sourceMembers?: readonly string[]
     sourceFamily?: Wire15InputFamily
   }>()
   for (const [targetFamilyId, mapping] of Object.entries(matched.inputFamilies ?? {})) {
@@ -1057,6 +1065,13 @@ export function planReplacement(
       members = mapping.members.map((member) => member.suffix)
     }
 
+    const sourceMembers = members
+    if (mapping.kind === 'copy' && mapping.memberIds === 'targetPositions') {
+      const naming = targetFamily.spec.naming
+      members = sourceMembers.map((_, index) => naming.kind === 'names'
+        ? naming.names[index] ?? ''
+        : naming.kind === 'prefix' ? `${naming.prefix}${index}` : '')
+    }
     if (!familyMembersAreAdmitted(targetFamily, members)) {
       errors.push(
         diag(
@@ -1073,11 +1088,18 @@ export function planReplacement(
     targetDynamic[familyAddress.port] = {
       ...targetDynamic[familyAddress.port],
       ...familyDynamicState(members, sourceFamilyState),
+      ...(mapping.kind === 'copy' && mapping.memberIds === 'targetPositions' && sourceFamilyState?.memberLabels !== undefined
+        ? { memberLabels: Object.fromEntries(sourceMembers.flatMap((member, index) => {
+            const label = sourceFamilyState.memberLabels![member]
+            return label === undefined ? [] : [[members[index]!, label]]
+          })) }
+        : {}),
     }
     preparedInputFamilies.set(targetFamilyId, {
       targetAddress: familyAddress,
       targetFamily,
       members,
+      ...(mapping.kind === 'copy' ? { sourceMembers } : {}),
       ...(sourceFamily !== undefined ? { sourceFamily } : {}),
     })
   }
@@ -1219,10 +1241,11 @@ export function planReplacement(
       } else complete[targetValueKey(address)] = value
     }
   }
-  const inputRewires: { link: string; port: string; node?: string }[] = []
+  const inputRewires: NodeReplacePlan['inputRewires'][number][] = []
   const netSinkMoves = new Map<string, { fromPort: string; to: TargetAddress }[]>()
   const preservedMemberInputLinks = new Set<string>()
   const preservedMemberInputNetSinks = new Set<string>()
+  const memberInputNetMoves = new Map<string, { from: PortRef; to: PortRef }[]>()
   /** Source inputs whose CONNECTION a mapping consumed (moves are exclusive). */
   const consumedConnections = new Set<string>()
   /** Source controllers copied to at least one target widget. */
@@ -1439,13 +1462,15 @@ export function planReplacement(
   for (const [targetFamilyId, mapping] of Object.entries(matched.inputFamilies ?? {})) {
     const prepared = preparedInputFamilies.get(targetFamilyId)
     if (prepared === undefined) continue
-    const { targetAddress: familyAddress, targetFamily, members, sourceFamily } = prepared
+    const { targetAddress: familyAddress, targetFamily, members, sourceMembers, sourceFamily } = prepared
 
     if (mapping.kind === 'copy') {
       const copied = mapping as Extract<InputFamilyMapping, { kind: 'copy' }>
-      for (const member of members) {
+      for (const [index, member] of members.entries()) {
+        const sourceMember = sourceMembers![index]!
         if (
-          sourceFamily?.memberPort !== undefined
+          copied.memberIds === undefined
+          && sourceFamily?.memberPort !== undefined
           && targetFamily.memberPort === sourceFamily.memberPort
           && familyAddress.nodeId === nodeId
         ) {
@@ -1472,7 +1497,7 @@ export function planReplacement(
         applyFamilyMember(familyAddress, targetFamily, member, copied.inputs, (source) => {
           const sourceSlot = sourceFamily!.template.find((candidate) => candidate.id === source.input)
           if (sourceSlot !== undefined)
-            return wire15FamilyInputPath(sourceFamily!, member, source.input)
+            return wire15FamilyInputPath(sourceFamily!, sourceMember, source.input)
           errors.push(
             diag(
               'error',
@@ -1482,6 +1507,40 @@ export function planReplacement(
           )
           return undefined
         })
+        if (copied.memberIds === 'targetPositions') {
+          for (const slot of sourceFamily!.template) {
+            const sourceInput = wire15FamilyInputPath(sourceFamily!, sourceMember, slot.id)
+            const destination = connectionMoves.get(sourceInput)
+            if (destination === undefined) continue
+            const from: PortRef = sourceFamily!.memberPort === undefined
+              ? { node: asNodeId(nodeId), port: asPortId(sourceInput) }
+              : { node: asNodeId(nodeId), port: asPortId(sourceFamily!.memberPort), members: [asDynamicMemberId(sourceMember)] }
+            const to: PortRef = {
+              node: asNodeId(destination.nodeId), port: asPortId(targetFamily.memberPort ?? destination.port),
+              ...(targetFamily.memberPort === undefined ? {} : { members: [asDynamicMemberId(member)] }),
+            }
+            for (const link of Object.values(def.links)) {
+              if (!isPortEndpoint(link.to) || !samePortRef(link.to, from)) continue
+              const rewire = { link: link.id, port: to.port,
+                ...(to.node === nodeId ? {} : { node: to.node }),
+                ...(to.members === undefined ? {} : { members: to.members }),
+                fromPort: from.port, ...(from.members === undefined ? {} : { fromMembers: from.members }),
+              }
+              const existing = inputRewires.findIndex((entry) => entry.link === link.id)
+              if (existing < 0) inputRewires.push(rewire)
+              else inputRewires[existing] = rewire
+              if (from.members !== undefined) preservedMemberInputLinks.add(link.id)
+            }
+            for (const net of Object.values(def.nets)) {
+              if (!net.sinks.some((sink) => samePortRef(sink, from))) continue
+              if (from.members !== undefined)
+                preservedMemberInputNetSinks.add(JSON.stringify([net.id, from.port, from.members]))
+              const moves = memberInputNetMoves.get(net.id) ?? []
+              moves.push({ from, to })
+              memberInputNetMoves.set(net.id, moves)
+            }
+          }
+        }
       }
     } else {
       for (const member of mapping.members)
@@ -2067,7 +2126,7 @@ export function planReplacement(
   // -- Net sink arrays: full replacements (move + drop in one pass) ----------
   const netSinks: { net: string; sinks: PortRef[] }[] = []
   const netSinkEdits: { net: string; from: PortRef; to?: PortRef }[] = []
-  const touchedNets = new Set<string>([...netSinkMoves.keys()])
+  const touchedNets = new Set<string>([...netSinkMoves.keys(), ...memberInputNetMoves.keys()])
   for (const [input, netIds] of state.netsIn) {
     if (droppedSinkPorts.has(input)) for (const id of netIds) touchedNets.add(id)
   }
@@ -2093,6 +2152,12 @@ export function planReplacement(
     for (const sink of net.sinks) {
       if (sink.node !== nodeId) {
         sinks.push(sink)
+        continue
+      }
+      const memberMove = memberInputNetMoves.get(netId)?.find((move) => samePortRef(move.from, sink))
+      if (memberMove !== undefined) {
+        sinks.push(memberMove.to)
+        edits.push({ net: netId, from: sink, to: memberMove.to })
         continue
       }
       if (sink.members !== undefined) {

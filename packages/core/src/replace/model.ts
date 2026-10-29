@@ -72,10 +72,12 @@ export interface InputFamilyMember {
 }
 
 export type InputFamilyMapping =
-  /** Preserve every source suffix and its authored order one-for-one. */
+  /** Copy source members in authored order, preserving suffixes by default. */
   | {
       readonly kind: 'copy'
       readonly sourceFamily: string
+      /** Map authored source order to the target's canonical naming positions. */
+      readonly memberIds?: 'targetPositions'
       /** Target template-local input id -> source template-local mapping. */
       readonly inputs: Readonly<Record<string, MappingSource>>
     }
@@ -228,12 +230,14 @@ const isInputFamilyMapping = (v: unknown): v is InputFamilyMapping => {
     return (
       typeof v.sourceFamily === 'string' &&
       STRUCTURAL_ID.test(v.sourceFamily) &&
+      (v.memberIds === undefined || v.memberIds === 'targetPositions') &&
       isObj(v.inputs) &&
       Object.keys(v.inputs).length > 0 &&
       Object.entries(v.inputs).every(([id, mapping]) => STRUCTURAL_ID.test(id) && isMapping(mapping))
     )
   }
   if (v.kind === 'members') {
+    if (v.memberIds !== undefined) return false
     if (!Array.isArray(v.members) || v.members.length === 0) return false
     const suffixes = new Set<string>()
     for (const member of v.members) {

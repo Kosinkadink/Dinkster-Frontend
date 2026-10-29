@@ -153,7 +153,9 @@ const strictSlotVariants = (value: unknown, where: string): void => {
 const strictFamilyMapping = (value: unknown, where: string): void => {
   const item = object(value, where)
   if (item['kind'] === 'copy') {
-    fields(item, where, ['kind', 'sourceFamily', 'inputs'])
+    fields(item, where, ['kind', 'sourceFamily', 'inputs'], ['memberIds'])
+    if (item['memberIds'] !== undefined && item['memberIds'] !== 'targetPositions')
+      throw new Error(`${where}.memberIds is invalid`)
     strictMappings(item['inputs'], `${where}.inputs`)
     return
   }

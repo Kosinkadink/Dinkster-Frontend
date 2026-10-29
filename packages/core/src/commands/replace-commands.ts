@@ -63,7 +63,7 @@ const isMemberPath = (v: Json | undefined): v is string[] =>
 const sameMembers = (actual: readonly string[] | undefined, expected: readonly string[] | undefined): boolean =>
   actual !== undefined && expected !== undefined &&
   actual.length === expected.length && actual.every((member, index) => member === expected[index])
-const isOutputRewire = (v: Json): v is JsonObject & {
+const isLinkRewire = (v: Json): v is JsonObject & {
   link: string
   port: string
   node?: string
@@ -258,12 +258,12 @@ const nodeReplace: CommandDefinition = {
       typeof p.to !== 'string' ||
       !isObj(p.values) ||
       !Array.isArray(p.inputRewires) ||
-      !p.inputRewires.every(isRewire) ||
+      !p.inputRewires.every(isLinkRewire) ||
       (p.tapRewires !== undefined && !(Array.isArray(p.tapRewires) && p.tapRewires.every(isTapRewire))) ||
       (p.inputViewRewires !== undefined && !(Array.isArray(p.inputViewRewires) && p.inputViewRewires.every(isInputViewRewire))) ||
       (p.dropInputViews !== undefined && !isStringArray(p.dropInputViews)) ||
       !Array.isArray(p.outputRewires) ||
-      !p.outputRewires.every(isOutputRewire) ||
+      !p.outputRewires.every(isLinkRewire) ||
       (p.tapGuards !== undefined && !(Array.isArray(p.tapGuards) && p.tapGuards.every(isTapGuard))) ||
       (p.viewRewires !== undefined && !(Array.isArray(p.viewRewires) && p.viewRewires.every(isViewRewire))) ||
       !isStringArray(p.dropLinks) ||
@@ -448,12 +448,16 @@ const nodeReplace: CommandDefinition = {
 
     // Validate every referenced link/net still exists AND still touches this
     // node on the expected side - anything else means the plan is stale.
-    // Rewires address memberless endpoints; setting `port` while a legacy
-    // member ancestry remains would corrupt the endpoint.
     for (const r of p.inputRewires) {
       const link = def.links[r.link]
-      if (!link || !isPortEndpoint(link.to) || link.to.node !== p.nodeId || link.to.members !== undefined)
-        return [err('replace.stale', `node.replace: link '${r.link}' no longer feeds a memberless input of node '${p.nodeId}'`)]
+      if (!link || !isPortEndpoint(link.to) || link.to.node !== p.nodeId ||
+          (r.fromPort === undefined
+            ? link.to.members !== undefined
+            : link.to.port !== r.fromPort ||
+              (r.fromMembers === undefined
+                ? link.to.members !== undefined
+                : !sameMembers(link.to.members, r.fromMembers))))
+        return [err('replace.stale', `node.replace: link '${r.link}' no longer feeds the planned input of node '${p.nodeId}'`)]
     }
     for (const r of p.outputRewires) {
       const link = def.links[r.link]
@@ -614,8 +618,12 @@ const nodeReplace: CommandDefinition = {
 
     // -- Connections ----------------------------------------------------------
     for (const r of p.inputRewires) {
+      const currentTo = def.links[r.link]!.to
       if (r.node !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'to', 'node'], r.node)
       tx.set(['graphs', graphId, 'links', r.link, 'to', 'port'], r.port)
+      if (r.members !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'to', 'members'], r.members)
+      else if (isPortEndpoint(currentTo) && currentTo.members !== undefined)
+        tx.remove(['graphs', graphId, 'links', r.link, 'to', 'members'])
     }
     for (const r of p.outputRewires) {
       const currentFrom = def.links[r.link]!.from

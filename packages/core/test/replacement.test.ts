@@ -321,6 +321,18 @@ describe('isReplacementRule', () => {
     ]) expect(isReplacementRule(replacement(mapping))).toBe(false)
   })
 
+  it('rejects invalid positional input-family options', () => {
+    for (const mapping of [
+      { kind: 'copy', sourceFamily: 'source', memberIds: true, inputs: { value: { kind: 'copy', input: 'value' } } },
+      { kind: 'copy', sourceFamily: 'source', memberIds: 'unknown', inputs: { value: { kind: 'copy', input: 'value' } } },
+      { kind: 'members', memberIds: 'targetPositions', members: [{ suffix: 'a', inputs: { value: { kind: 'constant', value: 1 } } }] },
+    ]) {
+      const rule = { from: 'A', cases: [{ to: 'B', inputFamilies: { target: mapping } }] }
+      expect(isReplacementRule(rule)).toBe(false)
+      expect(() => parseComfyReplacement(rule, 'replacement')).toThrow()
+    }
+  })
+
   it('strictly decodes Comfy output family vocabulary', () => {
     const valid = {
       from: 'A',
@@ -1176,6 +1188,81 @@ describe('input family replacement', () => {
     ]),
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
+
+  it.each([false, true].flatMap((flat) => [false, true].flatMap((named) =>
+    (named ? [false] : [false, true]).map((targetFlat) => ({ flat, named, targetFlat })),
+  )))('maps authored family order to canonical target positions (flat=$flat, named=$named, targetFlat=$targetFlat)', ({ flat, named, targetFlat }) => {
+    const oldMembers = ['oldB', 'oldA', 'oldC']
+    const newMembers = named ? ['head', 'middle', 'tail'] : ['item0', 'item1', 'item2']
+    const source = schemaOf('OrderedOld', [{
+      ...familyInput('source', oldMembers),
+      dynamic: { kind: 'autogrow',
+        ...(flat ? {} : { materialization: 'wire15' as const }),
+        template: [widgetInput(flat ? 'source' : 'value', 0, {
+          widget: { widgetType: 'number', options: {}, default: 0, controller: 'after_generate' },
+        })],
+        naming: { kind: 'prefix', prefix: 'old', min: 0, max: 5 },
+      },
+    }])
+    const target = schemaOf('OrderedNew', [{
+      ...familyInput('target', newMembers),
+      dynamic: { kind: 'autogrow', ...(targetFlat ? {} : { materialization: 'wire15' as const, optionalAfterMinimum: true }),
+        template: [widgetInput(targetFlat ? 'target' : 'value', 0, {
+          widget: { widgetType: 'number', options: {}, default: 0, controller: 'after_generate' },
+        })],
+        naming: named ? { kind: 'names', names: newMembers, min: 1 } : { kind: 'prefix', prefix: 'item', min: 1, max: 3 },
+      },
+    }])
+    const resolver = (type: string) => type === 'OrderedOld' ? source : type === 'OrderedNew' ? target : resolve(type)
+    const oldEndpoint = (member: string) => flat ? mport('old', 'source.source', member) : port('old', `source.${member}`)
+    const newEndpoint = (member: string) => targetFlat ? mport('old', 'target.target', member) : port('old', `target.${member}`)
+    const original = doc({ g0: graph({ id: 'g0', nodes: {
+      src: node('src', 'Producer'), dst: node('dst', 'Consumer'),
+      old: node('old', 'OrderedOld', { 'source.oldB': 11, 'source.oldA': 29, 'source.oldC': 47 }, {
+        controllers: { 'source.oldC': 'decrement' },
+        dynamic: { source: { members: oldMembers, memberLabels: { oldB: 'First', oldC: 'Unconnected' } } },
+      }),
+    }, links: { linked: link('linked', port('src', 'out'), oldEndpoint('oldB')) },
+    nets: { routed: net('routed', port('src', 'out'), [oldEndpoint('oldA'), port('dst', 'other')]) } }) })
+    const rule = { from: 'OrderedOld', cases: [{ to: 'OrderedNew', inputFamilies: {
+      target: { kind: 'copy', sourceFamily: 'source', memberIds: 'targetPositions', inputs: { value: { kind: 'copy', input: 'value' } } },
+    } }] } satisfies ReplacementRule
+    expect(isReplacementRule(rule)).toBe(true)
+    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
+    const planned = planReplacement(original, 'g0', 'old', rule, resolver)
+    expect(planned.diagnostics).toEqual([])
+    expect(planned.plan).toBeDefined()
+    if (!planned.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    const invocation = { command: 'node.replace', params: { plan: planned.plan } as unknown as Json }
+    expect(store.dispatch(invocation).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old).toMatchObject({
+      dynamic: { target: { members: newMembers, memberLabels: { [newMembers[0]!]: 'First', [newMembers[2]!]: 'Unconnected' } } },
+      values: { [`target.${newMembers[0]}`]: 11, [`target.${newMembers[1]}`]: 29, [`target.${newMembers[2]}`]: 47 },
+      controllers: { [`target.${newMembers[2]}`]: 'decrement' },
+    })
+    expect(store.doc.graphs.g0!.links.linked!.to).toEqual(newEndpoint(newMembers[0]!))
+    expect(store.doc.graphs.g0!.nets.routed!.sinks).toEqual([newEndpoint(newMembers[1]!), port('dst', 'other')])
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs.g0!.links.linked!.to).toEqual(newEndpoint(newMembers[0]!))
+    const stale = structuredClone(original)
+    ;(stale.graphs.g0!.links as Record<string, GraphDef['links'][string]>).linked = link('linked', port('src', 'out'), oldEndpoint('oldA'))
+    const staleStore = new DocumentStore(stale, coreCommandRegistry())
+    expect(staleStore.dispatch(invocation).ok).toBe(false)
+    expect(staleStore.doc).toEqual(stale)
+    const overflowTarget = schemaOf('OrderedNew', [{
+      ...familyInput('target', []),
+      dynamic: { kind: 'autogrow', materialization: 'wire15',
+        template: [widgetInput('value', 0)],
+        naming: named ? { kind: 'names', names: ['head', 'middle'], min: 0 } : { kind: 'prefix', prefix: 'item', min: 0, max: 2 },
+      },
+    }])
+    const overflow = planReplacement(original, 'g0', 'old', rule, (type) => type === 'OrderedNew' ? overflowTarget : resolver(type))
+    expect(overflow.plan).toBeUndefined()
+    expect(overflow.diagnostics.some((diagnostic) => diagnostic.code === 'replace.target.familyMembers')).toBe(true)
+  })
 
   it('preserves identity-mapped links and net sinks on flat prefix families', () => {
     const flatFamily = (type: string): NodeSchema => schemaOf(type, [{
