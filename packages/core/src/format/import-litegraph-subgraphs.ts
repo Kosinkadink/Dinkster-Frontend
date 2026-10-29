@@ -388,6 +388,7 @@ export function importLitegraphSubgraphs(
       if (previous === undefined) deliveries.set(key, link)
       else {
         if (link[3] === def.outputNode) {
+          if (link[1] === previous[1] && link[2] === previous[2] && link[5] === previous[5]) continue
           fail('import.subgraphs.boundaryUnsupported', `subgraph '${id}' has multiple drivers for an output boundary`)
           return
         }

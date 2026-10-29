@@ -434,12 +434,28 @@ describe('LiteGraph subgraphs', () => {
     expect(prompt(doc, resolver)['n1.n1']!.inputs['value']).toBe(19)
   })
 
-  it('fails instead of selecting one of multiple virtual-output drivers', () => {
+  it('imports repeated output links from the same socket without changing the producer', () => {
+    const def = definition()
+    def.links.push(link(3, 1, 0, -20, 0))
+    def.outputs[0]!.linkIds = [3]
+    const raw = { nodes: [instance(10), { ...relay(20), inputs: [{ name: 'value', link: 9 }] }],
+      links: [link(9, 10, 0, 20, 0)], definitions: { subgraphs: [def] } }
+    const before = JSON.stringify(raw)
+    const doc = imported(raw)
+    expect(doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
+    expect(prompt(doc).n20!.inputs.value).toEqual(['n10.n1', 0])
+    expect(JSON.stringify(raw)).toBe(before)
+  })
+
+  it.each([false, true])('fails instead of selecting one of multiple virtual-output drivers (same node: %s)', (sameNode) => {
     const def = definition()
     def.nodes.push(relay(2))
     def.nodes[0]!.inputs[0]!.link = 4
-    def.links.push(link(3, 2, 0, -20, 0), link(4, 2, 0, 1, 0))
-    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    def.links.push(link(3, sameNode ? 1 : 2, sameNode ? 1 : 0, -20, 0), link(4, 2, 0, 1, 0))
+    const resolver = (type: string) => type === 'Relay' ? { ...schema, items: [
+      ...schema.items, { kind: 'output' as const, id: 'second', type: { kind: 'concrete' as const, name: 'INT' } },
+    ] } : undefined
+    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolver)
     expect(result.document).toBeUndefined()
     expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
       .toEqual(['import.subgraphs.boundaryUnsupported'])

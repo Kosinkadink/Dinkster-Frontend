@@ -257,6 +257,9 @@ decoder.
 Legacy `proxyWidgets` references promote matching
 inner widgets; missing host values inherit the definition's saved values.
 Unresolved widget state stays under `importer.subgraphWidgets` with a warning.
+Repeated links from the same producer socket to one output boundary represent
+one route. Distinct producer sockets or declared link types still refuse import
+rather than choosing an output driver.
 
 An authored definition and its nested instances remain real subgraphs whether
 the current catalog lacks a node schema or exposes an incompatible port. Its
