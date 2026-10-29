@@ -546,7 +546,7 @@ describe('fast pull-request and full validation workflows', () => {
         })
         expect(
           steps.filter((step) =>
-            /vitest.*(?:object-info|events)\.golden/.test(step.run ?? ''),
+            /\bvitest(?:\s|$)/.test(step.run ?? ''),
           ),
         ).toEqual([])
       }
