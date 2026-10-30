@@ -85,21 +85,25 @@ SaveVideo version `0.3.68` three-value arrays retain their prefix, container
 and codec while adding explicit automatic encoding and fallback codec choices
 required by the current schema. Keyed values and already-expanded arrays stay
 unchanged. A rule upgrades only saved widget values before positional decoding;
-it cannot insert nodes, change class identities, or rewrite links. Missing or unmatched versions
-use the ordinary import path. Root nodes and subgraph definitions use the same
-table. These source versions are not the workflow format's `version` field.
+it cannot insert nodes, change class identities, or rewrite links. Root nodes
+and subgraph definitions use the same table. These source versions are not the
+workflow format's `version` field.
 
-Separately, a SaveVideo node without `properties.ver` can carry the recognized
-three-widget layout: string filename prefix, supported container, supported codec.
+For SaveVideo versions not listed in the table, including absent versions, the
+layout is authoritative without numeric or lexical version comparison. A node
+can carry the recognized three-widget layout: string filename prefix,
+supported container, supported codec.
 The served positional consumers must have that order, with only the canonical
 optional appended mount allowed after them. Reordered or extra consumers do not
 qualify.
 When the served schema accepts those choices, import stores the codec explicitly
 in both the container branch and fallback codec input, including automatic
-encoding choices. It records `importer.versionlessWidgetLayout` on the imported
-node and emits `import.widgets.versionlessLayout`; the original source stays
-unchanged and no version is invented. Other versionless layouts use ordinary
-decoding and retain its diagnostics. Compilation still requires stored choices.
+encoding choices. It records `importer.inferredWidgetLayout` with the layout and
+stored source version (null when absent), and emits `import.widgets.layoutInferred`
+with that version as given. The original source stays unchanged and no version
+is invented. Listed versions use their exact table entry, never layout inference.
+Other layouts or invalid choices use ordinary decoding and retain its failure
+without inferred provenance. Compilation still requires stored choices.
 
 Primitive producers inside imported subgraphs remain first-class value sources,
 not runtime helper nodes. Native `valueSource` boundary bindings retain the

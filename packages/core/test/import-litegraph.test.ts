@@ -797,7 +797,7 @@ describe('serialized output slot identity', () => {
 // -- widget value mapping -----------------------------------------------------
 
 describe('versioned node widget upgrades', () => {
-  it.each([['auto', 'auto'], ['mp4', 'h264'], ['webm', 'av1']])('recognizes versionless SaveVideo %s/%s layout without inventing a source version', (format, codec) => {
+  it.each([['auto', 'auto'], ['mp4', 'h264'], ['webm', 'av1']])('recognizes unlisted SaveVideo %s/%s layouts without inventing a source version', (format, codec) => {
     const encoding: InputSpec = {
       ...sdInput('encoding', 'COMBO'), optional: true,
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
@@ -819,18 +819,27 @@ describe('versioned node widget upgrades', () => {
       { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true, adjacentTo: 'filename_prefix' },
     ], true)
     const localResolve = (type: string) => type === schema.type ? schema : undefined
-    for (const { widgets_values, recognized } of [
+    for (const version of [undefined, '0.28.0', 'unknown']) for (const { widgets_values, recognized } of [
       { widgets_values: ['video/unversioned', format, codec], recognized: true },
       { widgets_values: ['video/unversioned', 'mp4'], recognized: false },
       { widgets_values: ['video/unversioned', 'webm', 'h264'], recognized: false },
+      { widgets_values: ['video/unversioned', 'avi', codec], recognized: false },
+      { widgets_values: ['video/unversioned', format, 'vp9'], recognized: false },
+      { widgets_values: [format, 'video/unversioned', codec], recognized: false },
+      { widgets_values: ['extra', 'video/unversioned', format, codec], recognized: false },
     ]) {
-      const source = workflow([lgNode(1, 'SaveVideo', { widgets_values })])
+      const source = workflow([lgNode(1, 'SaveVideo', { properties: version === undefined ? {} : { ver: version }, widgets_values })])
       const before = JSON.stringify(source)
       const imported = importLitegraph(source, localResolve)
       expect(JSON.stringify(source)).toBe(before)
       expect(imported.document!.ext!['importer.comfyWorkflow']).toEqual(source)
       expect(Object.keys(imported.document!.graphs.g0!.nodes)).toEqual(['n1'])
-      expect(codesOf(imported.diagnostics).includes('import.widgets.versionlessLayout')).toBe(recognized)
+      expect(codesOf(imported.diagnostics).includes('import.widgets.layoutInferred')).toBe(recognized)
+      const marker = imported.document!.graphs.g0!.nodes.n1!.ext?.['importer.inferredWidgetLayout']
+      if (recognized) {
+        expect(marker).toEqual({ layout: 'SaveVideo:filename_prefix,format,codec', sourceVersion: version ?? null })
+        expect(imported.diagnostics.find(d => d.code === 'import.widgets.layoutInferred')!.message).toContain(version === undefined ? 'absent' : JSON.stringify(version))
+      } else expect(marker).toBeUndefined()
       const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
         scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'versionless-save-video' })
       expect(compiled.ok).toBe(recognized)
@@ -839,7 +848,6 @@ describe('versioned node widget upgrades', () => {
           filename_prefix: 'video/unversioned', format, 'format.codec': codec, codec,
           ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto', 'codec.encoding': 'auto' }),
         })
-        expect(imported.document!.graphs.g0!.nodes.n1!.ext!['importer.versionlessWidgetLayout']).toBe('SaveVideo:filename_prefix,format,codec')
       }
     }
     for (const items of [
@@ -849,10 +857,10 @@ describe('versioned node widget upgrades', () => {
     ]) {
       const drifted = { ...schema, items }
       const resolveDrifted = (type: string) => type === schema.type ? drifted : undefined
-      const source = workflow([lgNode(1, 'SaveVideo', { widgets_values: ['video/unversioned', format, codec] })])
+      const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: '0.28.0' }, widgets_values: ['video/unversioned', format, codec] })])
       const imported = importLitegraph(source, resolveDrifted)
-      expect(codesOf(imported.diagnostics)).not.toContain('import.widgets.versionlessLayout')
-      expect(imported.document!.graphs.g0!.nodes.n1!.ext?.['importer.versionlessWidgetLayout']).toBeUndefined()
+      expect(codesOf(imported.diagnostics)).not.toContain('import.widgets.layoutInferred')
+      expect(imported.document!.graphs.g0!.nodes.n1!.ext?.['importer.inferredWidgetLayout']).toBeUndefined()
       const compiled = compile({ document: imported.document!, revision: 1, resolve: resolveDrifted,
         scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'drifted-save-video' })
       expect(compiled.ok).toBe(false)
@@ -884,12 +892,14 @@ describe('versioned node widget upgrades', () => {
       expect(JSON.stringify(source)).toBe(before)
       const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
         scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-video-upgrade' })
-      expect(compiled.ok).toBe(version === '0.3.68' || expanded)
+      expect(compiled.ok).toBe(true)
       if (compiled.ok) {
-        expect(imported.diagnostics).toEqual([])
+        const inferred = version === 'unknown' && !expanded
+        expect(codesOf(imported.diagnostics)).toEqual(inferred ? ['import.widgets.layoutInferred'] : [])
         expect(compiled.artifact.prompt.n1!.inputs).toEqual({
           filename_prefix: 'video/Kandinsky5', format: 'mp4', 'format.codec': codec,
-          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }), codec: 'auto',
+          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }), codec: inferred ? codec : 'auto',
+          ...(inferred && codec !== 'auto' ? { 'codec.encoding': 'auto' } : {}),
         })
       }
     }

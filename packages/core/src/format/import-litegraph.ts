@@ -1476,9 +1476,10 @@ function importLitegraphGraph(
       if (n.widgets_values !== undefined) ext['importer.rawWidgetValues'] = n.widgets_values as Json
     } else if (Array.isArray(n.widgets_values)) {
       let raw = n.widgets_values
-      if (n.type === 'SaveVideo' && n.properties?.['ver'] === undefined && raw.length === 3 &&
-        typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string' &&
-        ['auto', 'mp4', 'mkv', 'webm'].includes(raw[1]) && ['auto', 'h264', 'av1'].includes(raw[2])) {
+      const sourceVersion = n.properties?.['ver']
+      const hasExactUpgrade = typeof sourceVersion === 'string' && upgrades.get(n.type)?.has(sourceVersion) === true
+      if (n.type === 'SaveVideo' && !hasExactUpgrade && raw.length === 3 &&
+        typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string') {
         const positional = schema.items.filter((item): item is InputSpec => item.kind === 'input' &&
           (item.dynamic !== undefined || item.widget !== undefined && item.forceInput !== true))
         const [prefix, format, codec, mount] = positional
@@ -1495,12 +1496,12 @@ function importLitegraphGraph(
           codec.dynamic.options.some((option) => option.key === raw[2]) &&
           nestedCodec?.dynamic?.kind === 'dynamicCombo' && nestedCodec.dynamic.materialization === 'wire15' &&
           nestedCodec.dynamic.options.some((option) => option.key === raw[2])) {
-          // The three-widget layout has no source version. Store both codec
-          // choices explicitly without changing the authored source metadata.
+          // The served layout, not an unlisted version, establishes the two
+          // codec choices. Preserve the authored version in the import record.
           const encoding = raw[2] === 'auto' ? [] : ['auto']
           raw = [...raw, ...encoding, raw[2], ...encoding]
-          ext['importer.versionlessWidgetLayout'] = 'SaveVideo:filename_prefix,format,codec'
-          diags.push(imp('info', 'import.widgets.versionlessLayout', `node ${n.id} ('SaveVideo'): recognized the three-widget layout without a recorded version`))
+          ext['importer.inferredWidgetLayout'] = { layout: 'SaveVideo:filename_prefix,format,codec', sourceVersion: sourceVersion ?? null }
+          diags.push(imp('info', 'import.widgets.layoutInferred', `node ${n.id} ('SaveVideo'): recognized the three-widget layout; stored version ${sourceVersion === undefined ? 'absent' : JSON.stringify(sourceVersion)}`))
         }
       }
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
