@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import {
   canvasSemanticTokens,
@@ -22,6 +23,18 @@ const contrast = (foreground: string, background: string): number => {
 }
 
 describe('semantic design tokens', () => {
+  it('loads both palettes through native Node ESM without a bundler', () => {
+    const url = new URL('../src/ui/tokens.ts', import.meta.url).href
+    const output = execFileSync(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      `const { semanticTokensForTheme } = await import(${JSON.stringify(url)});
+       console.log(JSON.stringify(['dark', 'light'].map(theme =>
+         semanticTokensForTheme(theme).surface.canvas)));`,
+    ], { encoding: 'utf8' })
+    expect(JSON.parse(output)).toEqual(['#111316', '#F7F8FA'])
+  })
+
   it('pins the approved spacing and type scales', () => {
     expect(Object.values(semanticDesignTokens.space)).toEqual([4, 8, 12, 16, 24, 32])
     expect(semanticDesignTokens.type).toMatchObject({
