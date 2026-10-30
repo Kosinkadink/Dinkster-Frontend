@@ -29,7 +29,13 @@ async function selectSource(page: Page, source: string): Promise<void> {
   const sourceTab = library.locator(`[data-testid=collection-source][data-source=${source}]`)
   await expect(sourceTab).toHaveCount(1)
   if (await sourceTab.isVisible()) await sourceTab.click()
-  else await selectProductOption(page, library.getByTestId('library-source-select'), source)
+  else {
+    const control = library.getByTestId('library-source-select')
+    await control.click()
+    const listboxId = await control.getAttribute('aria-controls')
+    await page.locator(`[id="${listboxId}"] [role="option"][data-option-id="${source}"]`).click()
+    await expect(control).toHaveAttribute('data-selected-id', source)
+  }
 }
 
 test.beforeEach(async ({ page }) => {
