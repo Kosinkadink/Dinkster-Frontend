@@ -47,7 +47,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       if (backend.protocol !== 'dinkster') throw new Error(message('load3dWidget.native'))
       const file3d = object(node?.values.model_3d)
       const model = object(file3d.source ?? node?.values.model_file)
-      const assetUrl = async (ref: Record<string, Json>): Promise<string> => {
+      const assetUrl = async (ref: Record<string, Json>) => {
         if (typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
         const bytes = await backend.connection.fetchAssetBytes(ref.digest)
         if (!live || !bytes) throw new Error(message('load3dWidget.unavailable'))
