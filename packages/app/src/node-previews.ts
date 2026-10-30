@@ -794,12 +794,15 @@ export function createPreviewLoader(deps: {
           }
       const artifacts = exec.artifacts.filter((artifact) =>
         matches(artifact.nodeId) && (
+          artifact.preview?.mediaType.startsWith('image/') === true ||
           artifact.mediaType.startsWith('image/') ||
           artifact.mediaType.startsWith('audio/') ||
           isModel3dMime(artifact.mediaType)))
       const artifactIndex = Math.max(0, Math.min(Math.trunc(outputIndex), Math.max(0, artifacts.length - 1)))
       const artifact = artifacts[artifactIndex]
-      const artifactKind = artifact?.mediaType.startsWith('image/') === true
+      const associatedPreview = artifact?.preview?.mediaType.startsWith('image/') === true
+        ? artifact.preview : undefined
+      const artifactKind = associatedPreview !== undefined || artifact?.mediaType.startsWith('image/') === true
         ? 'image'
         : artifact?.mediaType.startsWith('audio/') === true
           ? 'audio'
@@ -817,28 +820,37 @@ export function createPreviewLoader(deps: {
           artifact.name,
           downloadNameForRendition(artifact.nodeId, artifact.mediaType),
         )
+        const previewUrl = associatedPreview === undefined ? undefined
+          : deps.assetUrlForExecution(exec.ref, associatedPreview.digest)
+        const download = {
+          src: artifactUrl, name: downloadName,
+          load: async (signal: AbortSignal) => {
+            const response = await (deps.fetchRecordedOutput ?? fetch)(artifactUrl, { signal })
+            if (!response.ok) throw new Error(`Recorded output request failed (${response.status})`)
+            return new Blob([await response.arrayBuffer()], { type: artifact.mediaType })
+          },
+        }
         artifactSource = {
-          key: recordedMediaKey(artifact.digest, artifact.mediaType, artifactUrl, downloadName),
-          failureKey: `asset-url:${artifactUrl}`,
+          key: recordedMediaKey(artifact.digest, artifact.mediaType, artifactUrl, downloadName) +
+            (associatedPreview === undefined ? '' : `:preview:${associatedPreview.digest}:${associatedPreview.mediaType}:${previewUrl}`),
+          failureKey: `asset-url:${previewUrl ?? artifactUrl}`,
           runtimeId: artifact.nodeId,
           mediaKind: artifactKind,
           output: { index: artifactIndex, count: artifacts.length },
-          load: () => artifactKind === 'audio' ? Promise.resolve({
-            kind: 'audio', mime: artifact.mediaType, src: '',
-            download: {
-              src: artifactUrl, name: downloadName,
-              load: async (signal: AbortSignal) => {
-                const response = await (deps.fetchRecordedOutput ?? fetch)(artifactUrl, { signal })
-                if (!response.ok) throw new Error(`Recorded output request failed (${response.status})`)
-                return new Blob([await response.arrayBuffer()], { type: artifact.mediaType })
-              },
-            },
-          }) : recordedOutputPreview(
-            artifactUrl,
-            downloadName,
-            artifact.mediaType,
-            artifactKind,
-          ),
+          load: async () => {
+            if (associatedPreview !== undefined && previewUrl !== undefined) {
+              try {
+                return {
+                  ...await recordedOutputPreview(previewUrl, associatedPreview.name, associatedPreview.mediaType, 'image'),
+                  download,
+                }
+              } catch {
+                return { kind: 'image', status: 'failed', statusMessage: 'Preview unavailable', download }
+              }
+            }
+            if (artifactKind === 'audio') return { kind: 'audio', mime: artifact.mediaType, src: '', download }
+            return recordedOutputPreview(artifactUrl, downloadName, artifact.mediaType, artifactKind)
+          },
         }
       }
 
