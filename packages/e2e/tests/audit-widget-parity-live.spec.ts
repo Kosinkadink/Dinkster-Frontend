@@ -5,9 +5,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
 import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
-// Backend 2daa7ad6 and ComfyUI 15eb748b: 279 pack declarations plus 620 translated nodes.
+// Backend e4a7c233 and ComfyUI 15eb748b: 279 pack declarations plus 620 translated nodes.
 const canonicalCatalogSha256 =
-  '7463897b718667d256db419d522aabd2f266290b0b236a4f3046cd1519f8d764'
+  '5d338fe0ca0e14973d5ecb54a7665f41289eaedb1f62ce5a91dc40c5bee8dd76'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 

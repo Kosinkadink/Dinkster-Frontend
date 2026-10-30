@@ -110,6 +110,7 @@ jobs:
             -e .ci/Dinkster/packages/dinkster-nodes-media-io \
             -e .ci/Dinkster/packages/dinkster-nodes-remote \
             -e .ci/Dinkster/packages/dinkster-nodes-comfy \
+            -e .ci/Dinkster/packages/dinkster-nodes-dev \
             -e .ci/Dinkster/packages/dinkster-nodes-vision
       - name: Verify generated fixtures are current
         env:
@@ -201,6 +202,7 @@ jobs:
             -e .ci/Dinkster/packages/dinkster-nodes-media-io \
             -e .ci/Dinkster/packages/dinkster-nodes-remote \
             -e .ci/Dinkster/packages/dinkster-nodes-comfy \
+            -e .ci/Dinkster/packages/dinkster-nodes-dev \
             -e .ci/Dinkster/packages/dinkster-nodes-vision
       - name: Install hosted compatibility dependencies
         run: |
