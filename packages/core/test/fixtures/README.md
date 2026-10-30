@@ -12,3 +12,8 @@ compatibility decoder or runtime parity claim. Production discovery continues
 to use the native schema wire. Tests of native decoding use native wire
 payloads separately; ordinary graph regressions do not need a legacy protocol
 parser to reconstruct their inputs.
+
+`synthetic-schemas.json` is the native interface subset for generated image
+workloads: `EmptyImage` and `ImageScaleBy` expose `IMAGE`, while `PreviewImage`
+exposes `images`. Core compiler and canvas performance tests share these records.
+They model port contracts, not a complete catalog or runtime parity capture.

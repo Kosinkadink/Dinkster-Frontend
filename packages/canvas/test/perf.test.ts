@@ -1,6 +1,6 @@
 /**
  * Scene-build performance budgets on the synthetic 1k+ node workload, with
- * recorded historical schemas. Generous budgets - these catch quadratic blowups in
+ * native image interfaces. Generous budgets - these catch quadratic blowups in
  * CI, not micro-regressions. Real frame times are measured by the Playwright
  * perf spec against a live renderer.
  */
@@ -11,7 +11,7 @@ import {
   syntheticWorkflow,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { historicalSchemas as schemas } from './historical-schemas.js'
+import { syntheticSchemas as schemas } from './historical-schemas.js'
 import { buildScene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'

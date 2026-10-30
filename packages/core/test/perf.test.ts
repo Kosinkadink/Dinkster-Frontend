@@ -14,7 +14,7 @@ import { syntheticWorkflow } from '../src/format/synthetic.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { elaborateInterface } from '../src/schema/elaborate.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
-import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
+import { syntheticSchemas as schemas } from './fixtures/historical-schemas.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 // 60 chains x 20 nodes = 1200 nodes, 1140 links.
