@@ -54,10 +54,6 @@ const hostedConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.hosted.config.ts'),
   'utf8',
 )
-const liveVitestSetup = await readFile(
-  resolve(root, 'packages/e2e/hosted-live-vitest-setup.ts'),
-  'utf8',
-)
 const extensionContractConfig = await readFile(
   resolve(root, 'packages/e2e/playwright.extension-contract.config.ts'),
   'utf8',
@@ -160,18 +156,14 @@ describe('fast pull-request and full validation workflows', () => {
     ])
     expect(script).toContain('gen_extension_contribution_kinds.py')
     expect(script).toContain("['check:ui-strings']")
-    expect(script).toContain("['check:v1-boundary']")
     expect(script).toContain("['typecheck']")
     expect(script).toContain("'scripts/check-host-ui-contract.test.mjs'")
-    expect(script).toContain("'scripts/check-v1-boundary.test.mjs'")
     expect(script).toContain("'prettier'")
     expect(script).toContain("'--check'")
     expect(script.match(/(?<!\/)test\/[\w.-]+\.test\.tsx?/g)).toEqual([
       'test/format.schema.test.ts',
       'test/dinkster-graph.test.ts',
       'test/dinkster-inline-value.test.ts',
-      'test/object-info.golden.test.ts',
-      'test/events.golden.test.ts',
       'test/design-tokens.test.ts',
       'test/ci-workflow.test.ts',
       'test/extension-dogfooding.test.ts',
@@ -305,8 +297,7 @@ describe('fast pull-request and full validation workflows', () => {
       "{ name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2' },",
       "{ name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },",
       "{ name: 'performance', project: 'performance', shard: '' },",
-      "{ name: 'stock ComfyUI V1', project: 'v1-compatibility', shard: '' },",
-      "{ name: 'native without V1', project: 'native-without-v1', shard: '' },",
+      "{ name: 'native startup', project: 'native-startup', shard: '' },",
     ])
     for (const required of [
       "context.eventName !== 'schedule'",
@@ -369,7 +360,7 @@ describe('fast pull-request and full validation workflows', () => {
     }
     const pushPlan = await executePlan('push', [])
     expect(pushPlan.requests).toBe(0)
-    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(11)
+    expect(JSON.parse(pushPlan.outputs['e2e-matrix']!).include).toHaveLength(10)
     expect(pushPlan.outputs['run-heavy']).toBe('true')
     const durablePlan = await executePlan('schedule', [
       { event: 'push', head_sha: 'head' },
@@ -378,7 +369,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(durablePlan.requests).toBe(1)
     expect(durablePlan.outputs['run-heavy']).toBe('false')
     expect(JSON.parse(durablePlan.outputs['e2e-matrix']!).include).toHaveLength(
-      11,
+      10,
     )
     expect(
       (await executePlan('schedule', [{ event: 'push', head_sha: 'head' }]))
@@ -395,7 +386,6 @@ describe('fast pull-request and full validation workflows', () => {
       'pnpm exec prettier --check --single-quote --no-semi scripts/ci-fast.mjs packages/e2e/test/ci-workflow.test.ts',
     )
     expect(mainCommands).toContain('pnpm check:extension-literals')
-    expect(mainCommands).toContain('pnpm check:v1-boundary')
     expect(full.jobs['e2e-suite']!.needs).toBe('validation-plan')
     expect(full.jobs['e2e-suite']!.if).toBe(
       "needs.validation-plan.outputs.run-heavy == 'true'",
@@ -447,30 +437,72 @@ describe('fast pull-request and full validation workflows', () => {
     expect(statusScript).toContain('test "$E2E_RESULT" = success')
   })
 
-  it('runs live Vitest once inside the stock lane server lifetime', () => {
-    expect(hostedConfig).toContain(
-      "globalSetup: stockV1Only\n    ? './hosted-live-vitest-setup.ts'\n    : './hosted-global-setup.ts'",
-    )
-    expect(liveVitestSetup).toContain('await waitForNativeComposition()')
-    for (const file of [
-      'test/live.integration.test.ts',
-      'test/collab-live.integration.test.ts',
-      'test/loop-templates.live.test.ts',
-      'test/executable-examples.test.ts',
-      'test/regions-live.integration.test.ts',
+  it('keeps native startup separate without duplicating the native browser suite', async () => {
+    const config = (await import('../playwright.config.js')).default
+    const projects = config.projects!
+    expect(projects.map((project) => project.name)).toEqual([
+      'parallel-safe',
+      'backend-serial',
+      'performance',
+      'native-startup',
     ])
-      expect(liveVitestSetup.split(`'${file}'`)).toHaveLength(2)
-    expect(liveVitestSetup).toContain('DINKSTER_LIVE_URL: suite.backend')
-    expect(liveVitestSetup).toContain('DINKSTER_COLLAB_LIVE_URL: native')
-    expect(liveVitestSetup).toContain("'--maxWorkers=1'")
-    expect(liveVitestSetup).toContain("'--no-file-parallelism'")
-    expect(liveVitestSetup).toContain("'--testNamePattern=^live '")
-    expect(script).not.toContain('hosted-live-vitest')
+    expect(
+      projects.find((project) => project.name === 'native-startup')?.testMatch,
+    ).toEqual(['tests/startup-discovery.spec.ts'])
+    const serial = projects.find(
+      (project) => project.name === 'backend-serial',
+    )!
+    const parallel = projects.find(
+      (project) => project.name === 'parallel-safe',
+    )!
+    expect(serial.testMatch).not.toContain('tests/startup-discovery.spec.ts')
+    expect(parallel.testIgnore).toContain('tests/startup-discovery.spec.ts')
+    for (const file of [
+      'audit-widget-parity-live.spec.ts',
+      'output-mount-live.spec.ts',
+      'run-history.spec.ts',
+    ]) {
+      expect(serial.testMatch).toContain(`tests/${file}`)
+      expect(parallel.testIgnore).toContain(`tests/${file}`)
+    }
+    expect(parallel.testIgnore).toContain(
+      'tests/product-surface-visuals.spec.ts',
+    )
+    for (const file of [
+      'import-legacy.spec.ts',
+      'native-catalog-decode.spec.ts',
+      'widget-representations-wire17.spec.ts',
+    ])
+      expect(parallel.testIgnore).not.toContain(`tests/${file}`)
+  })
+
+  it('runs the thirteen native live Vitest cases in the native startup server lifetime', async () => {
+    const setup = await readFile(
+      resolve(root, 'packages/e2e/hosted-live-vitest-setup.ts'),
+      'utf8',
+    )
+    expect(hostedConfig).toContain('globalSetup: nativeStartup')
+    expect(hostedConfig).toContain("? './hosted-live-vitest-setup.ts'")
+    for (const file of [
+      'collab-live.integration.test.ts',
+      'loop-templates.live.test.ts',
+      'executable-examples.test.ts',
+      'regions-live.integration.test.ts',
+    ])
+      expect(setup).toContain(`test/${file}`)
+    expect(setup).toContain('count: 11')
+    expect(setup).toContain('count: 2')
+    expect(setup).toContain("'--maxWorkers=1'")
+    expect(setup).toContain("'--no-file-parallelism'")
+    expect(setup).toContain("'--testNamePattern=^live '")
+    expect(setup).toContain('live.length,')
+    expect(setup).toContain("test.status === 'passed'")
     const reports = full.jobs['e2e-suite']!.steps!.find(
       (step) => step.name === 'Retain live Vitest results',
     )!
-    expect(reports.if).toBe("always() && matrix.name == 'stock ComfyUI V1'")
+    expect(reports.if).toBe("always() && matrix.name == 'native startup'")
     expect(reports.with?.['path']).toBe('.ci/live-vitest/*.json')
+    expect(hostedConfig).not.toContain('main.py --cpu')
   })
 
   it('retains clean checkouts, ref selection, read-only credentials and isolated browser ports', () => {
@@ -566,22 +598,22 @@ describe('fast pull-request and full validation workflows', () => {
           DINKSTER_E2E_NATIVE_PORT: '15421',
         })
         expect(
-          steps.filter((step) =>
-            /vitest.*(?:object-info|events)\.golden/.test(step.run ?? ''),
-          ),
+          steps.filter((step) => /\bvitest(?:\s|$)/.test(step.run ?? '')),
         ).toEqual([])
       }
     }
-    expect(appMain).toContain(
-      "probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1'",
-    )
-    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '1'")
-    expect(baseConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
-    expect(baseConfig).toContain("name: 'v1-compatibility'")
-    expect(baseConfig).toContain("name: 'native-without-v1'")
+    expect(appMain).not.toContain('discoverBackend')
+    expect(appMain).toContain('new AppState()')
+    expect(appMain).not.toContain('legacyFixture')
+    expect(baseConfig).not.toContain('VITE_DINKSTER_E2E_PROBE_V1')
+    expect(baseConfig).not.toContain("name: 'v1-compatibility'")
+    expect(baseConfig).toContain("name: 'native-startup'")
+    expect(hostedConfig).not.toContain('DINKSTER_STUB_V1_ENTRY')
+    expect(hostedConfig).not.toContain('DINKSTER_E2E_FIXTURE_MODE')
+    expect(hostedConfig).not.toContain('VITE_DINKSTER_E2E_PROBE_V1')
     expect(
       playwrightConfig.projects!.find(
-        (project) => project.name === 'native-without-v1',
+        (project) => project.name === 'native-startup',
       )!.testMatch,
     ).toEqual(['tests/startup-discovery.spec.ts'])
     expect(
@@ -595,22 +627,12 @@ describe('fast pull-request and full validation workflows', () => {
       )!.testMatch,
     ).toContain('tests/output-mount-live.spec.ts')
     expect(hostedConfig).toContain(
-      "const probeV1 = stubV1Entry === '1' ? '0' : '1'",
-    )
-    expect(hostedConfig).toContain('VITE_DINKSTER_E2E_PROBE_V1: probeV1')
-    expect(hostedConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
-    expect(hostedConfig).toContain('DINKSTER_STUB_V1_ENTRY: stubV1Entry')
-    expect(hostedConfig).toContain("process.env['DINKSTER_E2E_FIXTURE_MODE'] =")
-    expect(hostedConfig).toContain(
-      "selectedProject === 'native-without-v1' ? 'native' : 'legacy'",
-    )
-    expect(hostedConfig).toContain(
       "process.env['DINKSTER_E2E_PROJECT'] = argumentProject",
     )
     expect(hostedConfig).toContain(
       "argumentProject ?? process.env['DINKSTER_E2E_PROJECT']",
     )
-    expect(hostedConfig).toContain("selectedProject === 'v1-compatibility'")
+    expect(hostedConfig).toContain("selectedProject === 'native-startup'")
     expect(baseConfig).toContain("'extension-contract-pack.spec.ts'")
     expect(extensionContractConfig).toContain(
       "testMatch: ['extension-contract-pack.spec.ts']",
@@ -623,15 +645,16 @@ describe('fast pull-request and full validation workflows', () => {
       'rmSync(nativeLibrary, { recursive: true, force: true })',
     )
     expect(hostedConfig).toContain(
-      "stubV1Entry === '1' ? nativeFrontendPort : frontendPort",
+      'nativeStartup ? nativeFrontendPort : frontendPort',
     )
     expect(hostedConfig).toContain(
       '`--allow-origin http://127.0.0.1:${nativeFrontendPort}`',
     )
     expect(hostedConfig).not.toContain("'--no-default-packs'")
-    expect(hostedConfig).toContain(
-      '`--comfy-root ${JSON.stringify(comfyRoot)}`',
-    )
+    expect(hostedConfig).not.toContain('--comfy-root')
+    expect(hostedConfig).not.toContain('DINKSTER_E2E_COMFY_ROOT')
+    expect(hostedConfig).toContain('[mounts.checkpoints]')
+    expect(hostedConfig).toContain('kind = "model/checkpoint"')
     expect(hostedConfig).toContain(
       "`--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`",
     )
@@ -652,7 +675,7 @@ describe('fast pull-request and full validation workflows', () => {
       "requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')",
     )
     expect(auditConfig).toContain("globalSetup: './hosted-global-setup.ts'")
-    expect(auditConfig).toContain("VITE_DINKSTER_E2E_PROBE_V1: '0'")
+    expect(auditConfig).not.toContain('VITE_DINKSTER_E2E_PROBE_V1')
     expect(auditConfig).not.toContain("'--development-pack'")
     expect(auditConfig).toContain(
       'packages/dinkster-nodes-dev/dinkster-pack.toml',

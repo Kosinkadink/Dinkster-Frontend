@@ -36,6 +36,7 @@ test('node, link, group, and state hierarchy remains legible at typed detail bou
   expect(diagnostics).toEqual([])
   await expect(page.getByTestId('tab-bar').locator('.tab', { hasText: 'Hierarchy proof' })).toBeVisible()
   await settlePaint(page)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().links.length)).toBe(6)
 
   const baseline = await page.evaluate(() => {
     const bridge = window.__dinksterTest!

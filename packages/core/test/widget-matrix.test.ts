@@ -12,7 +12,7 @@ const values: Array<[string, Json]> = [
   ['COLORS', ['#A1B2C3dd', '#f00', '#A1B2C3dd']],
   ['BOOLEAN', true], ['COMBO static', 'euler'], ['COMBO remote', 'server-model'],
   ['COMBO static plus remote', 'fresh-model'], ['COLOR', '#12345678'], ['ASSET', asset],
-  ['SAVE_TARGET', { mount: 'output', prefix: 'jobs/dog' }],
+  ['MOUNT', 'output'],
 ]
 
 const document = (): WorkflowDocument => ({
@@ -50,15 +50,15 @@ describe.each(values)('%s document value matrix', (_kind, value) => {
   })
 })
 
-it('SAVE_TARGET dormant value and concrete producer link survive save and reopen together', () => {
+it('MOUNT dormant value and concrete producer link survive save and reopen together', () => {
   const doc = document()
   const graph = doc.graphs.g0!
   ;(graph.nodes as Record<string, typeof graph.nodes[string]>)['producer'] = {
     id: asNodeId('producer'),
-    type: 'SaveTargetProducer',
+    type: 'MountProducer',
     values: {},
   }
-  ;(graph.nodes.n0!.values as Record<string, Json>)['value_key'] = { mount: 'output', prefix: 'jobs/cat' }
+  ;(graph.nodes.n0!.values as Record<string, Json>)['value_key'] = 'output'
   ;(graph.links as Record<string, typeof graph.links[string]>)['target-link'] = {
     id: asLinkId('target-link'),
     from: { node: asNodeId('producer'), port: asPortId('target') },
@@ -67,7 +67,7 @@ it('SAVE_TARGET dormant value and concrete producer link survive save and reopen
 
   const loaded = loadDocument(JSON.parse(JSON.stringify(doc)))
   expect(loaded.document, JSON.stringify(loaded.diagnostics)).toBeDefined()
-  expect(loaded.document!.graphs.g0!.nodes.n0!.values.value_key).toEqual({ mount: 'output', prefix: 'jobs/cat' })
+  expect(loaded.document!.graphs.g0!.nodes.n0!.values.value_key).toBe('output')
   expect(loaded.document!.graphs.g0!.links['target-link']).toEqual({
     id: 'target-link',
     from: { node: 'producer', port: 'target' },

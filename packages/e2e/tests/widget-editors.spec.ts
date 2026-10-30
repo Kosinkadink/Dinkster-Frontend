@@ -34,6 +34,47 @@ test('mixed scalar COMBO keeps typed native choices through dropdown edits', asy
   }
 })
 
+test('socketless native color keeps its editor and neighboring input socket', async ({ page }, testInfo) => {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'socketless-fixture', schemaWire: 1 },
+    nodes: { SocketlessFixture: { displayName: 'Socketless color fixture', outputNode: true, interface: [
+      { role: 'input', id: 'style', type: { kind: 'concrete', types: ['STRING'] }, default: 'solid' },
+      { role: 'dynamicCombo', id: 'padding', options: [{ key: 'color', inputs: [
+        { role: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', socketless: true, widget: { type: 'COLOR' } },
+        { role: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      ] }] },
+    ] } },
+  } }))
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'SocketlessFixture', widgets_values: ['solid', 'color', '#abcdef', 19] }], links: [] }, 'Socketless fixture')
+    window.__dinksterTest!.renderer!.setViewport({ x: 100, y: 100, scale: 1 })
+  })
+  await expect.poll(() => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'n1')
+    return node?.layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)
+  })).toEqual(['style', 'padding', 'padding.color', 'padding.amount'])
+  const pins = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'n1')!.layout.pins.map((pin) => ({ id: pin.portId, direction: pin.direction, tap: pin.widgetTap === true })))
+  expect(pins).not.toContainEqual({ id: 'padding.color', direction: 'in', tap: false })
+  expect(pins).toContainEqual({ id: 'padding.amount', direction: 'in', tap: false })
+  expect(pins).toContainEqual({ id: 'padding.color', direction: 'out', tap: true })
+  await page.screenshot({ path: testInfo.outputPath('socketless-row.png') })
+  const point = await nodeRowPoint(page, 'n1', 'padding.color')
+  await page.mouse.click(point.x, point.y)
+  await expect(page.getByTestId('color-editor')).toBeVisible()
+  await expect(page.getByTestId('color-text')).toHaveValue('#abcdef')
+  await page.getByTestId('color-text').fill('#123456')
+  await page.getByTestId('color-editor').getByRole('button', { name: 'Commit' }).click()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values['padding.color'])).toBe('#123456')
+  await page.setViewportSize({ width: 600, height: 700 })
+  await page.getByRole('button', { name: /^Toggle right rail/ }).click()
+  const narrow = await nodeRowPoint(page, 'n1', 'padding.color')
+  await page.mouse.click(narrow.x, narrow.y)
+  await expect(page.getByTestId('color-text')).toHaveValue('#123456')
+  await page.screenshot({ path: testInfo.outputPath('socketless-narrow-editor.png') })
+})
+
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
 async function rowPoint(page: Page, inputId: string): Promise<{ x: number; y: number }> {
@@ -880,7 +921,7 @@ test('FR15 Enter during an IME composition never commits an editor', async ({ pa
 
 test('FR15 a composing Enter never commits the COMBO, multiline, or COLOR editors', async ({ page }) => {
   // Each surface wires its own Enter handler, so each guard is pinned
-  // through its own rendered editor (SAVE_TARGET lives in save-target.spec.ts).
+  // through its own rendered editor.
   const values = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values
 
   // COMBO: a composing Enter selects the IME candidate, not the highlighted option.

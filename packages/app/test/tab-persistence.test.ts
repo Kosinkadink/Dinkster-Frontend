@@ -7,6 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_SCALE, MIN_SCALE } from '@dinkster/canvas'
 import { AppState } from '../src/app-state.js'
+import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
+import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -32,6 +34,11 @@ const g = globalThis as { localStorage?: Storage }
 beforeEach(() => {
   vi.useFakeTimers()
   g.localStorage = fakeStorage()
+  g.localStorage.setItem(TABS_KEY, JSON.stringify({
+    v: 1,
+    active: seedBasic.lineage,
+    tabs: [{ title: 'Basic', doc: seedBasic }, { title: 'Subgraph', doc: seedSubgraph }],
+  }))
 })
 
 afterEach(() => {
@@ -45,11 +52,11 @@ const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
   it('rechecks workspace revision inside the cross-window commit lock', async () => {
-    const seed = new AppState({ defaultProtocol: 'dinkster' })
+    const seed = new AppState()
     flush()
     const first = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as Record<string, unknown>
     g.localStorage!.setItem(TABS_KEY, JSON.stringify({ ...first, workspaceRevision: 1 }))
-    const stale = new AppState({ defaultProtocol: 'dinkster' })
+    const stale = new AppState()
     flush()
     const newer = {
       ...JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as Record<string, unknown>,
@@ -85,7 +92,8 @@ describe('open-tab persistence', () => {
   })
 
   it('starts native mode with one schema-independent blank workflow', () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    g.localStorage!.removeItem(TABS_KEY)
+    const app = new AppState()
     expect(app.tabs.get().map((tab) => tab.title)).toEqual(['Untitled'])
     const tab = app.activeTab()!
     expect(Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)).toEqual([])
@@ -321,21 +329,21 @@ describe('open-tab persistence', () => {
     expect(second.activeTabId.get()).toBe('lineage-imported')
   })
 
-  it('falls back to fixture tabs on a corrupt payload', () => {
+  it('falls back to a blank workflow on a corrupt payload', () => {
     g.localStorage!.setItem(TABS_KEY, '{not json')
     const app = new AppState()
-    expect(app.tabs.get().map((t) => t.title)).toEqual(['Basic', 'Subgraph'])
+    expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
   })
 
-  it('falls back to fixture tabs on an unknown envelope version', () => {
+  it('falls back to a blank workflow on an unknown envelope version', () => {
     g.localStorage!.setItem(TABS_KEY, JSON.stringify({ v: 2, active: '', tabs: [] }))
     const app = new AppState()
-    expect(app.tabs.get().map((t) => t.title)).toEqual(['Basic', 'Subgraph'])
+    expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
   })
 
   it('falls back to a blank workflow for a corrupt native snapshot', () => {
     g.localStorage!.setItem(TABS_KEY, '{not json')
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
     const tab = app.activeTab()!
     expect(Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)).toEqual([])

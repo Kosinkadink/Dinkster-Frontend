@@ -41,8 +41,6 @@ import {
   type OutputSpec,
 } from '../schema/model.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from '../schema/elaborate.js'
-import type { ComfyGroupCatalog, ComfyGroupRecord } from '../schema/comfy-group.js'
-import { normalizeComboOption, normalizedComboOptions } from '../schema/combo-options.js'
 import {
   FORMAT_VERSION,
   type ControllerMode,
@@ -58,7 +56,7 @@ import { ownJson } from './json.js'
 import { validateDocumentShape } from './validate.js'
 import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
-import { isAssetRefValue, isSaveTargetValue } from '../schema/widget-defaults.js'
+import { isAssetRefValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
 import { convertLitegraphLists, convertLitegraphLoops, convertLitegraphListConsumers } from './import-litegraph-loops.js'
 
@@ -89,6 +87,23 @@ interface LgNode {
   readonly bgcolor?: string
 }
 
+/** Widget upgrades are keyed by class name, then the saved node properties.ver. */
+export type ComfyNodeUpgradeTable = ReadonlyMap<string, ReadonlyMap<string,
+  (values: LgNode['widgets_values']) => NonNullable<LgNode['widgets_values']>
+>>
+
+/** Saved source versions whose widget streams predate the current node schema. */
+export const COMFY_NODE_UPGRADES: ComfyNodeUpgradeTable = new Map([
+  ['SaveVideo', new Map([
+    ['0.3.68', (values: LgNode['widgets_values']) => {
+      if (!Array.isArray(values) || values.length !== 3 || !['auto', 'h264', 'av1'].includes(values[2] as string)) return values ?? []
+      // Older streams omit both the codec's encoding mode and the optional
+      // top-level codec fallback. Store their automatic choices explicitly.
+      return [...values, ...(values[2] === 'auto' ? [] : ['auto']), 'auto']
+    }],
+  ])],
+])
+
 /** [id, fromNode, fromSlot, toNode, toSlot, type] */
 type LgLink = readonly [number, number, number, number, number, ...unknown[]]
 
@@ -101,7 +116,6 @@ interface LgWire {
 }
 
 const CONTROLLER_MODES: ReadonlySet<string> = new Set(['fixed', 'increment', 'decrement', 'randomize'])
-const MAX_COMFY_GROUP_MATCH_STATES = 2048
 const MAX_UE_LINKS = 1024
 
 /** Frontend-only litegraph node types with dedicated translations. */
@@ -173,50 +187,20 @@ interface DiscoveredAutogrowMembers {
 function normalizeLegacyWidgetValue(
   item: InputSpec,
   value: Json,
-  key: string,
-  nodeLabel: string,
-  diags: Diagnostic[],
 ): Json {
-  if (item.dynamic === undefined && item.widget?.widgetType === 'COMBO') {
-    const options = normalizedComboOptions(item.widget)
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      const text = String(value)
-      if (!options.some((option) => option.value === value) && options.some((option) => option.value === text)) return text
-    }
-    if (typeof value === 'string' && !options.some((option) => option.value === value)) {
-      const declared = item.widget.options['options']
-      const structured = Array.isArray(declared) ? declared.flatMap((option) => {
-        if (Array.isArray(option) || typeof option !== 'object' || option === null) return []
-        const normalized = normalizeComboOption(option)
-        return normalized === undefined ? [] : [normalized]
-      }) : []
-      const matches = [...new Set(structured.filter((option) => option.label === value).map((option) => option.value))]
-      if (matches.length === 1) return matches[0]!
-    }
-  }
   if (typeof value !== 'string') return value
-  if (item.widget?.widgetType === 'INT' || item.widget?.widgetType === 'FLOAT') {
+  const floating = item.widget?.widgetType === 'FLOAT'
+  if (item.widget?.widgetType === 'INT' || floating) {
     const numericText = value.trim()
     const numeric = Number(numericText)
     const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(numericText)
     if (
       decimal &&
       Number.isFinite(numeric) &&
-      (item.widget.widgetType === 'FLOAT' || Number.isSafeInteger(numeric))
+      (floating || Number.isSafeInteger(numeric))
     ) return numeric
     return value
   }
-  if (item.widget?.widgetType !== 'SAVE_TARGET') return value
-  const declared = item.widget.default
-  if (isSaveTargetValue(declared)) {
-    const migrated = { mount: declared.mount, prefix: value }
-    if (isSaveTargetValue(migrated)) return migrated
-  }
-  diags.push(imp(
-    'warning',
-    'import.saveTarget.invalidLegacy',
-    `${nodeLabel}: legacy save target '${key}' could not be safely migrated; raw string kept for review`,
-  ))
   return value
 }
 
@@ -229,7 +213,6 @@ function decodeKeyedWidgets(
   nodeLabel: string,
   diags: Diagnostic[],
   known: Set<string>,
-  flatAutogrow = false,
 ): void {
   for (const item of items) {
     if (item.kind !== 'input') continue
@@ -252,7 +235,6 @@ function decodeKeyedWidgets(
           nodeLabel,
           diags,
           known,
-          flatAutogrow,
         )
       }
       continue
@@ -263,7 +245,7 @@ function decodeKeyedWidgets(
         for (const slot of item.dynamic.template) {
           if (slot.dynamic !== undefined || slot.widget === undefined || slot.forceInput === true) continue
           const stateMember = joinValuePath(stateKey, member)
-          const wireMember = flatAutogrow ? member : joinValuePath(wireKey, member)
+          const wireMember = joinValuePath(wireKey, member)
           const stateInput = item.dynamic.template.length === 1
             ? stateMember
             : joinValuePath(stateMember, slot.id)
@@ -272,14 +254,14 @@ function decodeKeyedWidgets(
             : joinValuePath(wireMember, slot.id)
           if (!Object.prototype.hasOwnProperty.call(raw, wireInput)) continue
           known.add(wireInput)
-          state.values[stateInput] = normalizeLegacyWidgetValue(slot, raw[wireInput]!, stateInput, nodeLabel, diags)
+          state.values[stateInput] = normalizeLegacyWidgetValue(slot, raw[wireInput]!)
         }
       }
       continue
     }
     if (item.widget !== undefined && Object.prototype.hasOwnProperty.call(raw, wireKey)) {
       known.add(wireKey)
-      state.values[stateKey] = normalizeLegacyWidgetValue(item, raw[wireKey]!, stateKey, nodeLabel, diags)
+      state.values[stateKey] = normalizeLegacyWidgetValue(item, raw[wireKey]!)
     }
   }
 }
@@ -320,11 +302,10 @@ function activeAutogrowFamilies(
 function matchAutogrowWire(
   name: string,
   family: AutogrowFamilyImport,
-  flat = false,
 ): AutogrowWireMatch | undefined {
   const prefix = `${family.wirePath}.`
-  if (!flat && !name.startsWith(prefix)) return undefined
-  const relative = name.startsWith(prefix) ? name.slice(prefix.length) : name
+  if (!name.startsWith(prefix)) return undefined
+  const relative = name.slice(prefix.length)
   const { naming, template } = family.spec
   if (naming.kind === 'native') return undefined
 
@@ -365,7 +346,6 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
 const discoverAutogrowMembers = (
   inputs: readonly { readonly name?: string }[],
   families: readonly AutogrowFamilyImport[],
-  preserveSuffixes: boolean,
   targetedSlots: ReadonlySet<number>,
 ): DiscoveredAutogrowMembers => {
   const allocated = new Map<string, Map<string, string>>()
@@ -380,7 +360,7 @@ const discoverAutogrowMembers = (
     }
     const existing = familyMembers.get(match.memberKey)
     if (existing !== undefined) return existing
-    const memberId = preserveSuffixes || match.family.spec.optionalAfterMinimum || match.family.spec.naming.kind === 'names'
+    const memberId = match.family.spec.optionalAfterMinimum || match.family.spec.naming.kind === 'names'
       ? match.memberKey
       : `m${familyMembers.size}`
     familyMembers.set(match.memberKey, memberId)
@@ -390,7 +370,7 @@ const discoverAutogrowMembers = (
   for (const [slotIndex, input] of inputs.entries()) {
     if (typeof input.name !== 'string') continue
     const candidates = families
-      .map((family) => matchAutogrowWire(input.name!, family, preserveSuffixes))
+      .map((family) => matchAutogrowWire(input.name!, family))
       .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
     if (candidates.length !== 1) continue
     const match = candidates[0]!
@@ -422,9 +402,8 @@ const discoverAutogrowMembers = (
         if (!members.includes(name)) members.push(name)
       }
     } else if (family.spec.naming.kind === 'prefix') {
-      let ordinal = family.spec.ordinalOffset ?? 0
       while (members.length < minimum) {
-        const member = preserveSuffixes ? `${family.spec.naming.prefix}${ordinal++}` : `m${members.length}`
+        const member = `m${members.length}`
         if (!members.includes(member)) members.push(member)
       }
     }
@@ -442,6 +421,7 @@ const decodePositionalFamilyWidgets = (
 ): void => {
   for (const member of members) {
     for (const item of family.spec.template) {
+      if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
       if (item.dynamic !== undefined) {
         state.stopped = true
         diags.push(imp('warning', 'import.dynamic.autogrowUnsupported', `${nodeLabel}: dynamic autogrow '${family.statePath}' has a nested dynamic template; remaining positional values kept for review`))
@@ -454,7 +434,7 @@ const decodePositionalFamilyWidgets = (
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
         continue
       }
-      state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json, key, nodeLabel, diags)
+      state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
       if (item.widget.controller !== undefined && state.index < raw.length) {
         const mode = raw[state.index]
         if (typeof mode === 'string' && CONTROLLER_MODES.has(mode)) {
@@ -479,10 +459,13 @@ function decodePositionalWidgets(
   prefix: string,
   nodeLabel: string,
   diags: Diagnostic[],
+  following: readonly InterfaceItem[] = [],
 ): void {
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     if (state.stopped) return
     if (item.kind !== 'input') continue
+    // ComfyUI's resolution preview is display-only and serializes no value.
+    if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
     const key = joinValuePath(prefix, item.id)
     const dynamic = item.dynamic
 
@@ -501,6 +484,7 @@ function decodePositionalWidgets(
             dynamic.materialization === 'wire15' ? key : comboBranchValuePath(key, branch.key),
             nodeLabel,
             diags,
+            [...items.slice(index + 1), ...following],
           )
         }
         continue
@@ -524,6 +508,7 @@ function decodePositionalWidgets(
         dynamic.materialization === 'wire15' ? key : comboBranchValuePath(key, branch.key),
         nodeLabel,
         diags,
+        [...items.slice(index + 1), ...following],
       )
       continue
     }
@@ -536,14 +521,24 @@ function decodePositionalWidgets(
       if (state.index >= raw.length) {
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
       } else {
-        state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json, key, nodeLabel, diags)
+        state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
         if (item.widget.controller !== undefined && state.index < raw.length) {
           const mode = raw[state.index]
-          if (typeof mode === 'string' && CONTROLLER_MODES.has(mode)) {
-            state.controllers[key] = mode as ControllerMode
+          if (typeof mode === 'boolean') {
+            const next = [...items.slice(index + 1), ...following].find((candidate) => candidate.kind === 'input' &&
+              !(candidate.type.kind === 'concrete' && candidate.type.name === 'RESOLUTION_PREVIEW') &&
+              (candidate.dynamic !== undefined || (candidate.widget !== undefined && candidate.forceInput !== true)))
+            if (next?.kind === 'input' && (next.dynamic !== undefined || next.type.kind !== 'concrete' || next.type.name === 'BOOLEAN')) {
+              state.stopped = true
+              diags.push(imp('error', 'import.controller.ambiguousBoolean', `${nodeLabel}: boolean after '${key}' could be a controller or the next widget value; use an explicit controller mode or a versioned widget upgrade`))
+              return
+            }
+          }
+          if (typeof mode === 'boolean' || (typeof mode === 'string' && CONTROLLER_MODES.has(mode))) {
+            state.controllers[key] = typeof mode === 'boolean' ? (mode ? 'randomize' : 'fixed') : mode as ControllerMode
             state.index++
           }
-          // Not a mode string: leave it for the next widget rather than
+          // Not a controller value: leave it for the next widget rather than
           // guessing, including for widgets nested under a combo branch.
         }
       }
@@ -562,39 +557,6 @@ function decodePositionalWidgets(
   }
 }
 
-interface StaticNodeDecode {
-  readonly values: Readonly<Record<string, Json>>
-  readonly controllers: Readonly<Record<string, ControllerMode>>
-}
-
-interface ComfyGroupMatch {
-  readonly record: ComfyGroupRecord
-  readonly assignment: ReadonlyMap<string, number>
-  readonly decoded: ReadonlyMap<string, StaticNodeDecode>
-}
-
-interface ComfyGroupMatchSearch {
-  readonly matches: readonly ComfyGroupMatch[]
-  readonly capped: boolean
-}
-
-interface StrictNodeSurface {
-  readonly inputs: ReadonlyMap<number, string>
-  readonly outputs: ReadonlyMap<number, string>
-}
-
-interface ComfyGroupPreparation {
-  readonly prepared: ReadonlyMap<number, StaticNodeDecode>
-  readonly sourceSchemas: ReadonlyMap<number, NodeSchema>
-}
-
-const litegraphMode = (node: LgNode): 'active' | 'muted' | 'bypassed' | undefined => {
-  if (node.mode === undefined || node.mode === 0 || node.mode === 1) return 'active'
-  if (node.mode === 2) return 'muted'
-  if (node.mode === 4) return 'bypassed'
-  return undefined
-}
-
 const inputPortForSchema = (node: LgNode, slot: number, schema: NodeSchema): string | undefined => {
   const foreignInput = node.inputs?.[slot]
   if (foreignInput === undefined) return undefined
@@ -606,6 +568,7 @@ const inputPortForSchema = (node: LgNode, slot: number, schema: NodeSchema): str
     : inputs.find((input) => input.id === foreignName)
   if (named !== undefined) return named.id
   if (foreignInput.widget !== undefined) return widgetName ?? foreignName
+  if (schema.source === 'subgraph') return foreignName
   const sockets = inputs.filter((input) => input.widget === undefined || input.forceInput === true)
   const ordinal = (node.inputs ?? [])
     .slice(0, slot + 1)
@@ -627,6 +590,7 @@ const staticOutputPortForSchema = (
   const outputs = outputsOf(schema).filter((output) => output.dynamic === undefined)
   const exact = outputs.filter((output) => output.id === foreignName)
   if (exact.length > 0) return exact[occurrence]?.id
+  if (schema.source === 'subgraph') return undefined
   const displayed = outputs.filter((output) => output.displayName === foreignName)
   if (displayed.length > 0) return displayed[occurrence]?.id
   const foldedName = foreignName.toLowerCase()
@@ -636,367 +600,6 @@ const staticOutputPortForSchema = (
   if (!allowPositional || outputsOf(schema).some((output) => output.dynamic !== undefined)) return undefined
   const positional = outputsOf(schema)[slot]
   return positional?.id
-}
-
-const strictNodeSurfaceForSchema = (
-  node: LgNode,
-  schema: NodeSchema,
-): StrictNodeSurface | undefined => {
-  const expectedInputs = inputsOf(schema)
-    .filter((input) => input.dynamic === undefined)
-    .filter((input) => input.widget === undefined || input.forceInput === true)
-  if (
-    inputsOf(schema).some((input) => input.dynamic !== undefined) ||
-    outputsOf(schema).some((output) => output.dynamic !== undefined) ||
-    (node.inputs?.length ?? 0) !== expectedInputs.length ||
-    (node.outputs?.length ?? 0) !== outputsOf(schema).length
-  ) return undefined
-  const inputIds = new Set(expectedInputs.map((input) => input.id))
-  const inputs = new Map<number, string>()
-  for (const [slot, input] of (node.inputs ?? []).entries()) {
-    if (
-      typeof input.name !== 'string' ||
-      !inputIds.has(input.name) ||
-      (input.widget?.name !== undefined && input.widget.name !== input.name) ||
-      [...inputs.values()].includes(input.name)
-    ) return undefined
-    inputs.set(slot, input.name)
-  }
-  const outputs = new Map<number, string>()
-  for (const [slot] of (node.outputs ?? []).entries()) {
-    const port = staticOutputPortForSchema(node, slot, schema, false)
-    if (port === undefined || [...outputs.values()].includes(port)) return undefined
-    outputs.set(slot, port)
-  }
-  return { inputs, outputs }
-}
-
-const decodeStaticNode = (node: LgNode, schema: NodeSchema): StaticNodeDecode | undefined => {
-  const inputs = inputsOf(schema)
-  if (inputs.some((input) => input.dynamic !== undefined)) return undefined
-  const values: Record<string, Json> = {}
-  const controllers: Record<string, ControllerMode> = {}
-  const widgets = inputs.filter((input) => input.widget !== undefined && input.forceInput !== true)
-  const raw = node.widgets_values
-  const assign = (input: InputSpec, value: Json): void => {
-    values[input.id] = normalizeLegacyWidgetValue(input, value, input.id, `node ${node.id}`, [])
-  }
-  if (Array.isArray(raw)) {
-    let index = 0
-    for (const input of widgets) {
-      if (index < raw.length) assign(input, raw[index++] as Json)
-      else if (input.widget?.default !== undefined) assign(input, input.widget.default as Json)
-      if (input.widget?.controller !== undefined && index < raw.length) {
-        const controller = raw[index]
-        if (typeof controller === 'string' && CONTROLLER_MODES.has(controller)) {
-          controllers[input.id] = controller as ControllerMode
-          index++
-        }
-      }
-    }
-    if (index !== raw.length) return undefined
-  } else if (raw !== undefined) {
-    if (typeof raw !== 'object' || raw === null) return undefined
-    const keyed = raw as Readonly<Record<string, Json>>
-    const known = new Set(widgets.map((input) => input.id))
-    if (Object.keys(keyed).some((key) => !known.has(key))) return undefined
-    for (const input of widgets) {
-      if (Object.prototype.hasOwnProperty.call(keyed, input.id)) assign(input, keyed[input.id]!)
-      else if (input.widget?.default !== undefined) assign(input, input.widget.default as Json)
-    }
-  } else {
-    for (const input of widgets) {
-      if (input.widget?.default !== undefined) assign(input, input.widget.default as Json)
-    }
-  }
-  return { values, controllers }
-}
-
-const groupAddress = (value: string): { readonly node: string; readonly port: string } => {
-  const split = value.indexOf(':')
-  return { node: value.slice(0, split), port: value.slice(split + 1) }
-}
-
-const findGroupMatches = (
-  record: ComfyGroupRecord,
-  byId: ReadonlyMap<number, LgNode>,
-  wires: ReadonlyMap<number, LgWire>,
-  catalog: ComfyGroupCatalog,
-): ComfyGroupMatchSearch => {
-  const schemas = new Map<string, NodeSchema>()
-  const candidates = new Map<string, readonly number[]>()
-  for (const [localId, patternNode] of record.pattern.nodes) {
-    const schema = catalog.sourceSchemas.get(patternNode.source.nodeType)
-    if (schema === undefined) return { matches: [], capped: false }
-    schemas.set(localId, schema)
-    candidates.set(localId, [...byId.values()]
-      .filter((node) =>
-        node.type === patternNode.source.nodeClass &&
-        litegraphMode(node) === patternNode.mode &&
-        strictNodeSurfaceForSchema(node, schema) !== undefined)
-      .map((node) => node.id)
-      .sort((left, right) => left - right))
-  }
-
-  const edgeTouches = (edge: { readonly from: string; readonly to: string }, localId: string): boolean =>
-    groupAddress(edge.from).node === localId || groupAddress(edge.to).node === localId
-  const order = [record.pattern.anchor]
-  const queued = new Set(order)
-  while (order.length < record.pattern.nodes.size) {
-    const next = [...record.pattern.nodes.keys()]
-      .filter((localId) => !queued.has(localId))
-      .filter((localId) => record.pattern.edges.some((edge) => {
-        if (!edgeTouches(edge, localId)) return false
-        const from = groupAddress(edge.from).node
-        const to = groupAddress(edge.to).node
-        return queued.has(from === localId ? to : from)
-      }))
-      .sort((left, right) => (candidates.get(left)!.length - candidates.get(right)!.length) || left.localeCompare(right))[0]
-    if (next === undefined) return { matches: [], capped: false }
-    queued.add(next)
-    order.push(next)
-  }
-
-  const edgeExists = (
-    edge: { readonly from: string; readonly to: string },
-    assignment: ReadonlyMap<string, number>,
-  ): boolean => {
-    const from = groupAddress(edge.from)
-    const to = groupAddress(edge.to)
-    const fromId = assignment.get(from.node)
-    const toId = assignment.get(to.node)
-    if (fromId === undefined || toId === undefined) return true
-    const fromSchema = schemas.get(from.node)!
-    const toSchema = schemas.get(to.node)!
-    const fromNode = byId.get(fromId)!
-    const toNode = byId.get(toId)!
-    const fromSurface = strictNodeSurfaceForSchema(fromNode, fromSchema)
-    const toSurface = strictNodeSurfaceForSchema(toNode, toSchema)
-    if (fromSurface === undefined || toSurface === undefined) return false
-    return [...wires.values()].some((wire) =>
-      wire.fromNode === fromId &&
-      wire.toNode === toId &&
-      fromSurface.outputs.get(wire.fromSlot) === from.port &&
-      toSurface.inputs.get(wire.toSlot) === to.port)
-  }
-
-  const validate = (assignment: ReadonlyMap<string, number>): ComfyGroupMatch | undefined => {
-    const localByNode = new Map([...assignment].map(([localId, nodeId]) => [nodeId, localId]))
-    const decoded = new Map<string, StaticNodeDecode>()
-    const surfaces = new Map<string, StrictNodeSurface>()
-    for (const [localId, nodeId] of assignment) {
-      const node = byId.get(nodeId)!
-      const schema = schemas.get(localId)!
-      const value = decodeStaticNode(node, schema)
-      const surface = strictNodeSurfaceForSchema(node, schema)
-      if (value === undefined || surface === undefined) return undefined
-      decoded.set(localId, value)
-      surfaces.set(localId, surface)
-    }
-    const expectedEdges = new Set(record.pattern.edges.map((edge) => `${edge.from}\0${edge.to}`))
-    const actualEdges = new Set<string>()
-    const inputCounts = new Map<string, number>()
-    for (const wire of wires.values()) {
-      const fromLocal = localByNode.get(wire.fromNode)
-      const toLocal = localByNode.get(wire.toNode)
-      if (toLocal !== undefined) {
-        const port = surfaces.get(toLocal)!.inputs.get(wire.toSlot)
-        if (port === undefined) return undefined
-        const target = `${toLocal}:${port}`
-        inputCounts.set(target, (inputCounts.get(target) ?? 0) + 1)
-        if (fromLocal === undefined && ![...record.pattern.inputs.values()].includes(target)) return undefined
-      }
-      if (fromLocal !== undefined) {
-        const port = surfaces.get(fromLocal)!.outputs.get(wire.fromSlot)
-        if (port === undefined) return undefined
-        const source = `${fromLocal}:${port}`
-        if (toLocal === undefined && ![...record.pattern.outputs.values()].includes(source)) return undefined
-        if (toLocal !== undefined) {
-          const targetPort = surfaces.get(toLocal)!.inputs.get(wire.toSlot)
-          const key = `${source}\0${toLocal}:${targetPort}`
-          if (!expectedEdges.has(key) || actualEdges.has(key)) return undefined
-          actualEdges.add(key)
-        }
-      }
-    }
-    if (actualEdges.size !== expectedEdges.size || [...inputCounts.values()].some((count) => count > 1)) {
-      return undefined
-    }
-    for (const target of record.pattern.disconnected) {
-      if (inputCounts.has(target)) return undefined
-      const parsed = groupAddress(target)
-      const node = byId.get(assignment.get(parsed.node)!)!
-      const slot = [...surfaces.get(parsed.node)!.inputs].find(([, port]) => port === parsed.port)?.[0]
-      if (slot === undefined) return undefined
-      const declaredLink = node.inputs?.[slot]?.link
-      if (declaredLink !== undefined && declaredLink !== null) return undefined
-    }
-    for (const [rawAddress, expected] of record.pattern.constants) {
-      const parsed = groupAddress(rawAddress)
-      const source = decoded.get(parsed.node)!
-      const sourceValues = source.values
-      if (!Object.prototype.hasOwnProperty.call(sourceValues, parsed.port)) return undefined
-      const actual = sourceValues[parsed.port]
-      if (canonicalJson(actual) !== canonicalJson(expected)) return undefined
-      const sourceInput = inputsOf(schemas.get(parsed.node)!).find((input) => input.id === parsed.port)!
-      if (sourceInput.widget?.controller !== undefined) {
-        const controller = source.controllers[parsed.port] ?? sourceInput.widget.controllerInitial ?? 'randomize'
-        if (controller !== 'fixed') return undefined
-      }
-    }
-    return { record, assignment: new Map(assignment), decoded }
-  }
-
-  const matches: ComfyGroupMatch[] = []
-  const assignment = new Map<string, number>()
-  const used = new Set<number>()
-  let visitedStates = 0
-  let capped = false
-  const search = (index: number): void => {
-    if (capped) return
-    if (index === order.length) {
-      const matched = validate(assignment)
-      if (matched !== undefined) matches.push(matched)
-      return
-    }
-    const localId = order[index]!
-    for (const nodeId of candidates.get(localId)!) {
-      if (used.has(nodeId)) continue
-      visitedStates++
-      if (visitedStates > MAX_COMFY_GROUP_MATCH_STATES) {
-        capped = true
-        return
-      }
-      assignment.set(localId, nodeId)
-      used.add(nodeId)
-      if (record.pattern.edges.every((edge) => edgeExists(edge, assignment))) search(index + 1)
-      used.delete(nodeId)
-      assignment.delete(localId)
-    }
-  }
-  search(0)
-  return { matches: capped ? [] : matches, capped }
-}
-
-const collapseComfyGroups = (
-  byId: Map<number, LgNode>,
-  wires: Map<number, LgWire>,
-  catalog: ComfyGroupCatalog,
-  diags: Diagnostic[],
-  shouldCollapse: (record: ComfyGroupRecord, anchorId: number) => boolean,
-): ComfyGroupPreparation => {
-  const candidates: ComfyGroupMatch[] = []
-  for (const record of [...catalog.records].sort((left, right) => left.id.localeCompare(right.id))) {
-    const result = findGroupMatches(record, byId, wires, catalog)
-    candidates.push(...result.matches)
-    if (result.capped) {
-      diags.push(imp(
-        'warning',
-        'import.comfyGroup.searchLimit',
-        `ComfyUI group '${record.id}' exceeded the bounded match search and was left unchanged for review`,
-      ))
-    }
-  }
-  const claims = new Map<number, ComfyGroupMatch[]>()
-  for (const match of candidates) for (const nodeId of match.assignment.values()) {
-    const holders = claims.get(nodeId) ?? []
-    holders.push(match)
-    claims.set(nodeId, holders)
-  }
-  const conflicted = new Set(candidates.filter((match) =>
-    [...match.assignment.values()].some((nodeId) => claims.get(nodeId)!.length > 1)))
-  if (conflicted.size > 0) {
-    diags.push(imp(
-      'warning',
-      'import.comfyGroup.ambiguous',
-      `${conflicted.size} overlapping or ambiguous ComfyUI group match(es) were left unchanged for review`,
-    ))
-  }
-  const accepted = candidates.filter((match) => !conflicted.has(match))
-  const sourceSchemas = new Map<number, NodeSchema>()
-  for (const match of accepted) {
-    for (const [localId, nodeId] of match.assignment) {
-      const nodeType = match.record.pattern.nodes.get(localId)!.source.nodeType
-      sourceSchemas.set(nodeId, catalog.sourceSchemas.get(nodeType)!)
-    }
-  }
-  const selected = accepted.filter((match) => {
-    const anchorId = match.assignment.get(match.record.pattern.anchor)!
-    return shouldCollapse(match.record, anchorId)
-  })
-  const prepared = new Map<number, StaticNodeDecode>()
-  for (const match of selected) {
-    const { record } = match
-    const anchorId = match.assignment.get(record.pattern.anchor)!
-    const anchor = byId.get(anchorId)!
-    const memberIds = new Set(match.assignment.values())
-    const groupSchema = catalog.groupSchemas.get(record.pattern.groupType)!
-    const groupInputs = inputsOf(groupSchema)
-    const groupOutputs = outputsOf(groupSchema)
-    const values: Record<string, Json> = {}
-    const controllers: Record<string, ControllerMode> = {}
-    for (const entries of [record.pattern.inputs, record.pattern.parameters]) {
-      for (const [groupInput, rawAddress] of entries) {
-        const parsed = groupAddress(rawAddress)
-        const source = match.decoded.get(parsed.node)!
-        if (Object.prototype.hasOwnProperty.call(source.values, parsed.port)) {
-          values[groupInput] = source.values[parsed.port]!
-        }
-        if (Object.prototype.hasOwnProperty.call(source.controllers, parsed.port)) {
-          controllers[groupInput] = source.controllers[parsed.port]!
-        }
-      }
-    }
-    const inputByAddress = new Map(
-      [...record.pattern.inputs].map(([groupInput, rawAddress]) => [rawAddress, groupInput]),
-    )
-    const outputByAddress = new Map(
-      [...record.pattern.outputs].map(([groupOutput, rawAddress]) => [rawAddress, groupOutput]),
-    )
-    const localByNode = new Map([...match.assignment].map(([localId, nodeId]) => [nodeId, localId]))
-    for (const [linkId, wire] of [...wires]) {
-      const fromLocal = localByNode.get(wire.fromNode)
-      const toLocal = localByNode.get(wire.toNode)
-      if (fromLocal !== undefined && toLocal !== undefined) {
-        wires.delete(linkId)
-        continue
-      }
-      if (toLocal !== undefined) {
-        const sourceSchema = catalog.sourceSchemas.get(record.pattern.nodes.get(toLocal)!.source.nodeType)!
-        const sourcePort = strictNodeSurfaceForSchema(byId.get(wire.toNode)!, sourceSchema)!.inputs.get(wire.toSlot)!
-        const groupPort = inputByAddress.get(`${toLocal}:${sourcePort}`)!
-        wire.toNode = anchorId
-        wire.toSlot = groupInputs.findIndex((input) => input.id === groupPort)
-      }
-      if (fromLocal !== undefined) {
-        const sourceSchema = catalog.sourceSchemas.get(record.pattern.nodes.get(fromLocal)!.source.nodeType)!
-        const sourcePort = strictNodeSurfaceForSchema(byId.get(wire.fromNode)!, sourceSchema)!.outputs.get(wire.fromSlot)!
-        const groupPort = outputByAddress.get(`${fromLocal}:${sourcePort}`)!
-        wire.fromNode = anchorId
-        wire.fromSlot = groupOutputs.findIndex((output) => output.id === groupPort)
-      }
-    }
-    for (const nodeId of memberIds) byId.delete(nodeId)
-    const mode = litegraphMode(anchor) === 'muted' ? 2 : litegraphMode(anchor) === 'bypassed' ? 4 : 0
-    byId.set(anchorId, {
-      id: anchorId,
-      type: record.pattern.groupType,
-      ...(anchor.title !== undefined ? { title: anchor.title } : {}),
-      ...(anchor.pos !== undefined ? { pos: anchor.pos } : {}),
-      mode,
-      inputs: groupInputs.map((input) => ({ name: input.id })),
-      outputs: groupOutputs.map((output) => ({ name: output.id })),
-    })
-    prepared.set(anchorId, { values, controllers })
-  }
-  if (selected.length > 0) {
-    diags.push(imp(
-      'info',
-      'import.comfyGroup.collapsed',
-      `${selected.length} maintained ComfyUI node group(s) collapsed for native replacement`,
-    ))
-  }
-  return { prepared, sourceSchemas }
 }
 
 /** FNV-1a 32-bit hash, hex-encoded. Deterministic lineage for imports. */
@@ -1011,10 +614,7 @@ const fnv1a = (s: string): string => {
 
 /**
  * Translate a legacy litegraph workflow into a v1 dinkster document. `resolve`
- * supplies the schemas used to decode each authored class. The optional alias
- * predicate identifies maintained ComfyUI source snapshots whose dynamic
- * member suffixes must survive for replacement planning. The optional group
- * catalog collapses exact connected patterns before node materialization.
+ * supplies the ordinary schemas used to decode each authored class.
  * Positional widget and port mapping is impossible without a schema, so
  * unresolved node types remain raw with their values parked under ext for
  * later review.
@@ -1022,18 +622,22 @@ const fnv1a = (s: string): string => {
 export function importLitegraph(
   input: JsonObject,
   resolve: (type: string) => NodeSchema | undefined,
-  isMaintainedAlias: (authoredType: string, schema: NodeSchema) => boolean = () => false,
-  comfyGroups?: ComfyGroupCatalog,
-  shouldCollapseComfyGroup: (record: ComfyGroupRecord, anchorId: number) => boolean = () => true,
+  upgrades: ComfyNodeUpgradeTable = COMFY_NODE_UPGRADES,
 ): ImportLitegraphResult {
   const ingress = ownJson(input)
   if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
-  const result = importLitegraphSubgraphs(ingress.value as JsonObject, resolve, (graph, localResolve, definitions) =>
-    importLitegraphGraph(graph, localResolve, isMaintainedAlias, comfyGroups, shouldCollapseComfyGroup, definitions))
+  const result = importLitegraphSubgraphs(ingress.value as JsonObject, (type) => {
+    const schema = resolve(type)
+    return schema?.type === type ? schema : undefined
+  }, (graph, localResolve, definitions) =>
+    importLitegraphGraph(graph, localResolve, definitions, upgrades))
   if (!result.document) return result
-  return { ...result, document: Object.freeze({ ...result.document,
+  const retained = ownJson({ ...result.document,
     lineage: `lg-${fnv1a(JSON.stringify(ingress.value))}` as WorkflowDocument['lineage'],
-  }) }
+    ext: { ...result.document.ext, 'importer.comfyWorkflow': ingress.value },
+  })
+  if (!retained.ok) return { diagnostics: [...result.diagnostics, imp('error', 'import.notJson', `workflow provenance rejected: ${retained.reason}`)] }
+  return { ...result, document: retained.value as unknown as WorkflowDocument }
 }
 
 export interface ImportedAssetLiteral {
@@ -1105,10 +709,8 @@ export function resolveImportedAssetLiterals(
 function importLitegraphGraph(
   input: JsonObject,
   resolve: (type: string) => NodeSchema | undefined,
-  isMaintainedAlias: (authoredType: string, schema: NodeSchema) => boolean,
-  comfyGroups: ComfyGroupCatalog | undefined,
-  shouldCollapseComfyGroup: (record: ComfyGroupRecord, anchorId: number) => boolean,
   definitions: WorkflowDocument['graphs'],
+  upgrades: ComfyNodeUpgradeTable,
 ): ImportLitegraphResult {
   // Ownership boundary (CO1/CO9): the workflow is foreign input. Owning it
   // up front rejects accessors/proxies/cycles/non-finite numbers (e.g. an
@@ -1277,7 +879,10 @@ function importLitegraphGraph(
       diags.push(imp('error', 'import.node.geometry', `node ${nodeId} ('${n.type}') has a non-finite or malformed position or size`))
       continue
     }
-    byId.set(nodeId, nodeId === n.id ? n : { ...n, id: nodeId })
+    const version = n.properties?.['ver']
+    const upgrade = typeof version === 'string' ? upgrades.get(n.type)?.get(version) : undefined
+    const node = upgrade === undefined ? n : { ...n, widgets_values: upgrade(n.widgets_values) }
+    byId.set(nodeId, nodeId === node.id ? node : { ...node, id: nodeId })
   }
   for (const node of byId.values()) {
     const ueConvert = node.properties?.['ue_convert']
@@ -1451,18 +1056,12 @@ function importLitegraphGraph(
     }
     ueTargets.set(key, entry)
   }
-  const groupPreparation = comfyGroups === undefined
-    ? { prepared: new Map<number, StaticNodeDecode>(), sourceSchemas: new Map<number, NodeSchema>() }
-    : collapseComfyGroups(byId, wires, comfyGroups, diags, shouldCollapseComfyGroup)
-  const preparedGroupNodes = groupPreparation.prepared
   const importedNodeType = (node: LgNode): string =>
     node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt' : node.type
   const resolveImported = (node: LgNode): NodeSchema | undefined =>
     node.type === 'CreateList' || node.type === 'GetItemFromList'
       ? undefined
-      : preparedGroupNodes.has(node.id)
-      ? comfyGroups?.groupSchemas.get(node.type)
-      : groupPreparation.sourceSchemas.get(node.id) ?? resolve(importedNodeType(node))
+      : resolve(importedNodeType(node))
 
   // -- Upstream resolution (net sources only) -----------------------------------
   // Named nets are port-only: a net's source must be a real producing output.
@@ -1864,19 +1463,17 @@ function importLitegraphGraph(
       continue
     }
     const schema = resolveImported(n)
-    const preparedGroup = preparedGroupNodes.get(n.id)
-    const values: Record<string, Json> = { ...preparedGroup?.values }
-    const controllers: Record<string, ControllerMode> = { ...preparedGroup?.controllers }
+    const values: Record<string, Json> = {}
+    const controllers: Record<string, ControllerMode> = {}
     const dynamic: Record<string, Json> = {}
     const ext: Record<string, Json> = {}
-    const preserveAliasSuffixes = schema !== undefined && isMaintainedAlias(n.type, schema)
     const targetedSlots = new Set<number>()
     for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
     for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
 
     if (schema !== undefined) {
       const families = activeAutogrowFamilies(schema.items, dynamic)
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes, targetedSlots)
+      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, targetedSlots)
       for (const [familyPath, members] of discovered.order) {
         const minted = members
           .map((member) => /^m(\d{1,15})$/.exec(member)?.[1])
@@ -1892,15 +1489,43 @@ function importLitegraphGraph(
     if (schema === undefined) {
       diags.push(imp('warning', 'import.schema.missing', `node ${n.id} ('${n.type}'): no such node type is installed; widget values kept raw for review`))
       if (n.widgets_values !== undefined) ext['importer.rawWidgetValues'] = n.widgets_values as Json
-    } else if (preparedGroup === undefined && Array.isArray(n.widgets_values)) {
-      const raw = n.widgets_values
+    } else if (Array.isArray(n.widgets_values)) {
+      let raw = n.widgets_values
+      const sourceVersion = n.properties?.['ver']
+      const hasExactUpgrade = typeof sourceVersion === 'string' && upgrades.get(n.type)?.has(sourceVersion) === true
+      if (n.type === 'SaveVideo' && !hasExactUpgrade && raw.length === 3 &&
+        typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string') {
+        const positional = schema.items.filter((item): item is InputSpec => item.kind === 'input' &&
+          (item.dynamic !== undefined || item.widget !== undefined && item.forceInput !== true))
+        const [prefix, format, codec, mount] = positional
+        const layoutMatches = prefix?.id === 'filename_prefix' && prefix.type.kind === 'concrete' && prefix.type.name === 'STRING' &&
+          prefix.widget?.widgetType === 'STRING' && prefix.widget.controller === undefined && prefix.dynamic === undefined &&
+          format?.id === 'format' && codec?.id === 'codec' &&
+          (positional.length === 3 || positional.length === 4 && mount?.id === 'mount' && mount.optional &&
+            mount.type.kind === 'concrete' && mount.type.name === 'STRING' && mount.widget !== undefined &&
+            mount.widget.controller === undefined && mount.adjacentTo === 'filename_prefix' && mount.dynamic === undefined)
+        const branch = layoutMatches && format?.dynamic?.kind === 'dynamicCombo' && format.dynamic.materialization === 'wire15'
+          ? format.dynamic.options.find((option) => option.key === raw[1]) : undefined
+        const nestedCodec = branch?.inputs.find((item) => item.id === 'codec')
+        if (codec?.dynamic?.kind === 'dynamicCombo' && codec.dynamic.materialization === 'wire15' &&
+          codec.dynamic.options.some((option) => option.key === raw[2]) &&
+          nestedCodec?.dynamic?.kind === 'dynamicCombo' && nestedCodec.dynamic.materialization === 'wire15' &&
+          nestedCodec.dynamic.options.some((option) => option.key === raw[2])) {
+          // The served layout, not an unlisted version, establishes the two
+          // codec choices. Preserve the authored version in the import record.
+          const encoding = raw[2] === 'auto' ? [] : ['auto']
+          raw = [...raw, ...encoding, raw[2], ...encoding]
+          ext['importer.inferredWidgetLayout'] = { layout: 'SaveVideo:filename_prefix,format,codec', sourceVersion: sourceVersion ?? null }
+          diags.push(imp('info', 'import.widgets.layoutInferred', `node ${n.id} ('SaveVideo'): recognized the three-widget layout; stored version ${sourceVersion === undefined ? 'absent' : JSON.stringify(sourceVersion)}`))
+        }
+      }
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
       decodePositionalWidgets(schema.items, raw, state, '', `node ${n.id} ('${n.type}')`, diags)
       if (state.index < raw.length) {
         diags.push(imp('warning', 'import.widgets.excess', `node ${n.id} ('${n.type}'): ${raw.length - state.index} positional widget value(s) beyond the current schema; kept raw for review`))
         ext['importer.excessWidgetValues'] = raw.slice(state.index) as Json
       }
-    } else if (preparedGroup === undefined && n.widgets_values !== undefined) {
+    } else if (n.widgets_values !== undefined) {
       // Object form (newer serializations): traverse the current schema so
       // active DynamicCombo branch widgets receive the same normalization as
       // positional values. Park every unrecognized key for review.
@@ -1916,7 +1541,6 @@ function importLitegraphGraph(
         `node ${n.id} ('${n.type}')`,
         diags,
         known,
-        preserveAliasSuffixes,
       )
       const unknown: Record<string, Json> = {}
       for (const [k, v] of Object.entries(keyed)) {
@@ -1931,7 +1555,7 @@ function importLitegraphGraph(
     if (schema !== undefined) {
       const families = activeAutogrowFamilies(schema.items, dynamic)
       const endpoints = new Map<number, JsonObject>()
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, preserveAliasSuffixes, targetedSlots)
+      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, targetedSlots)
 
       // LiteGraph inputs are an ordered array. This first-observation walk is
       // the identity policy: sparse/out-of-order foreign ordinals are labels,
@@ -1941,24 +1565,19 @@ function importLitegraphGraph(
         const found = discovered.slots.get(slotIndex)
         if (found === undefined) {
           const candidates = families
-            .map((family) => matchAutogrowWire(input.name!, family, preserveAliasSuffixes))
+            .map((family) => matchAutogrowWire(input.name!, family))
             .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
           const staticInput = schema.items.some((item) =>
             item.kind === 'input' && item.dynamic === undefined && item.id === input.name)
           const familyScoped = families.some((family) => input.name!.startsWith(`${family.wirePath}.`))
-          const scoped = !staticInput && (preserveAliasSuffixes || familyScoped)
+          const scoped = !staticInput && familyScoped
           if (scoped) {
             diags.push(imp(
               'warning',
               candidates.length === 0 ? 'import.dynamic.autogrowWireUnknown' : 'import.dynamic.autogrowWireAmbiguous',
               `node ${n.id} ('${n.type}'): linked input '${input.name}' does not identify exactly one declared Autogrow member; endpoint left unresolved`,
             ))
-            // Only a wire inside a declared autogrow family scope is a member
-            // mismatch with no meaningful endpoint; drop it. A promoted
-            // widget input (matched by alias suffixes alone) keeps the
-            // synthesized raw-name port so replacement planning can route
-            // the link by its value path.
-            if (familyScoped) unresolvedInputEndpoints.add(`${n.id}:${slotIndex}`)
+            unresolvedInputEndpoints.add(`${n.id}:${slotIndex}`)
           }
           continue
         }
@@ -2114,7 +1733,7 @@ function importLitegraphGraph(
 
     nodes[id] = {
       id,
-      type: schema?.type ?? n.type,
+      type: importedNodeType(n),
       values,
       ...(Object.keys(controllers).length > 0 ? { controllers } : {}),
       ...(Object.keys(dynamic).length > 0 ? { dynamic } : {}),

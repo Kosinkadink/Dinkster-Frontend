@@ -1,0 +1,682 @@
+{
+  "success": {
+    "scenario": "success",
+    "submits": [
+      {
+        "status": 200,
+        "body": {
+          "prompt_id": "f4c1367d-082a-487c-a20e-d1bb27b6798b",
+          "number": 0,
+          "node_errors": {}
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 8,
+        "queueRemaining": 0
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 8,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 8,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "started",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 8
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 9,
+        "nodes": {
+          "1": {
+            "state": "running",
+            "value": 0,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 9,
+        "nodes": {
+          "1": {
+            "state": "running"
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 9,
+        "nodes": {
+          "1": {
+            "state": "done",
+            "value": 1,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 9,
+        "nodes": {
+          "1": {
+            "state": "done",
+            "value": 1,
+            "max": 1
+          },
+          "2": {
+            "state": "running",
+            "value": 0,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 9,
+        "nodes": {
+          "1": {
+            "state": "done"
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 9,
+        "nodes": {
+          "2": {
+            "state": "running"
+          }
+        }
+      },
+      {
+        "kind": "nodeOutput",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 9,
+        "runtimeNodeId": "2",
+        "output": {
+          "images": [
+            {
+              "filename": "ComfyUI_temp_zvcsn_00001_.png",
+              "subfolder": "",
+              "type": "temp"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 10,
+        "nodes": {
+          "1": {
+            "state": "done",
+            "value": 1,
+            "max": 1
+          },
+          "2": {
+            "state": "done",
+            "value": 1,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "completed",
+        "execution": {
+          "connection": "c0",
+          "prompt": "f4c1367d-082a-487c-a20e-d1bb27b6798b"
+        },
+        "timestamp": 10
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 10,
+        "queueRemaining": 0
+      }
+    ]
+  },
+  "cached": {
+    "scenario": "cached",
+    "submits": [
+      {
+        "status": 200,
+        "body": {
+          "prompt_id": "be7b2281-c667-4f7f-909d-63201cc7415b",
+          "number": 1,
+          "node_errors": {}
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "prompt_id": "1114d16f-8b35-4410-b7b1-992669f0f225",
+          "number": 2,
+          "node_errors": {}
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 2,
+        "queueRemaining": 0
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 3,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 3,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "started",
+        "execution": {
+          "connection": "c0",
+          "prompt": "be7b2281-c667-4f7f-909d-63201cc7415b"
+        },
+        "timestamp": 3
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "be7b2281-c667-4f7f-909d-63201cc7415b"
+        },
+        "timestamp": 3,
+        "nodes": {
+          "1": {
+            "state": "cached"
+          },
+          "2": {
+            "state": "cached"
+          }
+        }
+      },
+      {
+        "kind": "nodeOutput",
+        "execution": {
+          "connection": "c0",
+          "prompt": "be7b2281-c667-4f7f-909d-63201cc7415b"
+        },
+        "timestamp": 3,
+        "runtimeNodeId": "2",
+        "output": {
+          "images": [
+            {
+              "filename": "ComfyUI_temp_zvcsn_00001_.png",
+              "subfolder": "",
+              "type": "temp"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "be7b2281-c667-4f7f-909d-63201cc7415b"
+        },
+        "timestamp": 3,
+        "nodes": {
+          "2": {
+            "state": "done",
+            "value": 1,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "completed",
+        "execution": {
+          "connection": "c0",
+          "prompt": "be7b2281-c667-4f7f-909d-63201cc7415b"
+        },
+        "timestamp": 4
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 4,
+        "queueRemaining": 0
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 605,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 605,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "started",
+        "execution": {
+          "connection": "c0",
+          "prompt": "1114d16f-8b35-4410-b7b1-992669f0f225"
+        },
+        "timestamp": 606
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "1114d16f-8b35-4410-b7b1-992669f0f225"
+        },
+        "timestamp": 606,
+        "nodes": {
+          "1": {
+            "state": "cached"
+          },
+          "2": {
+            "state": "cached"
+          }
+        }
+      },
+      {
+        "kind": "nodeOutput",
+        "execution": {
+          "connection": "c0",
+          "prompt": "1114d16f-8b35-4410-b7b1-992669f0f225"
+        },
+        "timestamp": 606,
+        "runtimeNodeId": "2",
+        "output": {
+          "images": [
+            {
+              "filename": "ComfyUI_temp_zvcsn_00001_.png",
+              "subfolder": "",
+              "type": "temp"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "1114d16f-8b35-4410-b7b1-992669f0f225"
+        },
+        "timestamp": 606,
+        "nodes": {
+          "2": {
+            "state": "done",
+            "value": 1,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "completed",
+        "execution": {
+          "connection": "c0",
+          "prompt": "1114d16f-8b35-4410-b7b1-992669f0f225"
+        },
+        "timestamp": 606
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 606,
+        "queueRemaining": 0
+      }
+    ]
+  },
+  "runtime_error": {
+    "scenario": "runtime_error",
+    "submits": [
+      {
+        "status": 200,
+        "body": {
+          "prompt_id": "ce25530a-7e75-417f-8342-0df497342991",
+          "number": 3,
+          "node_errors": {}
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 1,
+        "queueRemaining": 0
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 2,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 2,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "started",
+        "execution": {
+          "connection": "c0",
+          "prompt": "ce25530a-7e75-417f-8342-0df497342991"
+        },
+        "timestamp": 2
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "ce25530a-7e75-417f-8342-0df497342991"
+        },
+        "timestamp": 3,
+        "nodes": {
+          "1": {
+            "state": "cached"
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "ce25530a-7e75-417f-8342-0df497342991"
+        },
+        "timestamp": 3,
+        "nodes": {
+          "2": {
+            "state": "running",
+            "value": 0,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "ce25530a-7e75-417f-8342-0df497342991"
+        },
+        "timestamp": 3,
+        "nodes": {
+          "2": {
+            "state": "running"
+          }
+        }
+      },
+      {
+        "kind": "error",
+        "execution": {
+          "connection": "c0",
+          "prompt": "ce25530a-7e75-417f-8342-0df497342991"
+        },
+        "timestamp": 5,
+        "runtimeNodeId": "2",
+        "detail": {
+          "exceptionType": "RuntimeError",
+          "exceptionMessage": "dinkster fixture error\n",
+          "traceback": [
+            "  File \"/home/kosin/comfy-vibe-station/pr-tracker/stations/station9/ComfyUI/execution.py\", line 543, in execute\n    output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)\n                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
+            "  File \"/home/kosin/comfy-vibe-station/pr-tracker/stations/station9/ComfyUI/execution.py\", line 342, in get_output_data\n    return_values = await _async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
+            "  File \"/home/kosin/comfy-vibe-station/pr-tracker/stations/station9/ComfyUI/execution.py\", line 316, in _async_map_node_over_list\n    await process_inputs(input_dict, i)\n",
+            "  File \"/home/kosin/comfy-vibe-station/pr-tracker/stations/station9/ComfyUI/execution.py\", line 304, in process_inputs\n    result = f(**inputs)\n             ^^^^^^^^^^^\n",
+            "  File \"/home/kosin/comfy-vibe-station/pr-tracker/stations/station9/ComfyUI/custom_nodes/dinkster_test_nodes/__init__.py\", line 24, in run\n    raise RuntimeError(message)\n"
+          ],
+          "currentInputs": {
+            "image": [
+              "tensor([[[[0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.],\n          ...,\n          [0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.]],\n\n         [[0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.],\n          ...,\n          [0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.]],\n\n         [[0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.],\n          ...,\n          [0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.]],\n\n         ...,\n\n         [[0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.],\n          ...,\n          [0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.]],\n\n         [[0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.],\n          ...,\n          [0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.]],\n\n         [[0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.],\n          ...,\n          [0., 0., 0.],\n          [0., 0., 0.],\n          [0., 0., 0.]]]])"
+            ],
+            "message": [
+              "dinkster fixture error"
+            ]
+          },
+          "currentOutputs": [
+            "1",
+            "2",
+            "3"
+          ]
+        }
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 5,
+        "queueRemaining": 0
+      }
+    ]
+  },
+  "interrupted": {
+    "scenario": "interrupted",
+    "submits": [
+      {
+        "status": 200,
+        "body": {
+          "prompt_id": "745213b8-1ee5-4577-8c7c-07994ab50a4e",
+          "number": 4,
+          "node_errors": {}
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 2,
+        "queueRemaining": 0
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 3,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 3,
+        "queueRemaining": 1
+      },
+      {
+        "kind": "started",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 3
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 3,
+        "nodes": {
+          "1": {
+            "state": "cached"
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 3,
+        "nodes": {
+          "2": {
+            "state": "running",
+            "value": 0,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 3,
+        "nodes": {
+          "2": {
+            "state": "running"
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 8004,
+        "nodes": {
+          "2": {
+            "state": "done",
+            "value": 1,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 8004,
+        "nodes": {
+          "2": {
+            "state": "done",
+            "value": 1,
+            "max": 1
+          },
+          "3": {
+            "state": "running",
+            "value": 0,
+            "max": 1
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 8190,
+        "nodes": {
+          "2": {
+            "state": "done"
+          }
+        }
+      },
+      {
+        "kind": "nodeStates",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 8190,
+        "nodes": {
+          "3": {
+            "state": "running"
+          }
+        }
+      },
+      {
+        "kind": "interrupted",
+        "execution": {
+          "connection": "c0",
+          "prompt": "745213b8-1ee5-4577-8c7c-07994ab50a4e"
+        },
+        "timestamp": 8191
+      },
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 8191,
+        "queueRemaining": 0
+      }
+    ]
+  },
+  "validation_error": {
+    "scenario": "validation_error",
+    "submits": [
+      {
+        "status": 400,
+        "body": {
+          "error": {
+            "type": "prompt_no_outputs",
+            "message": "Prompt has no outputs",
+            "details": "",
+            "extra_info": {}
+          },
+          "node_errors": {}
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "status",
+        "connection": "c0",
+        "timestamp": 1,
+        "queueRemaining": 0
+      }
+    ]
+  }
+}

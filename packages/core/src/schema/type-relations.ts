@@ -1,54 +1,12 @@
 /**
- * Type compatibility. Advisory, not load-bearing: the UI uses it to
+ * Native type relations. Advisory, not load-bearing: the UI uses them to
  * highlight legal drop targets and diagnostics use it to warn, but documents
  * are never rejected on type grounds (dynamic types can drift; a stale doc
  * must stay loadable and fixable). Structural invariants (one driver per
  * input, endpoints resolve) are what commands enforce.
  */
 
-import { assetTypeId, canonicalTypeIdOf, cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, parseTupleTypeId, streamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
-
-/**
- * Type ids that denote the same values on both sides of the comfy-compat
- * boundary. Compatibility arithmetic collapses legacy Comfy spellings to
- * the wire vocabulary at the entry into atom-set math.
- *
- * Exported read-only so the native-type coverage audit can walk the decided
- * aliases; runtime compatibility logic must go through canonicalCompatTypeId.
- */
-export const INTERCHANGEABLE_TYPE_IDS: Readonly<Record<string, string>> = Object.freeze(
-  Object.assign(Object.create(null) as Record<string, string>, {
-    'comfy.IMAGE': 'IMAGE',
-    'comfy.MASK': 'MASK',
-  }),
-)
-
-/** Canonical spelling of one atom name for compatibility arithmetic. */
-const canonicalAtom = (name: string): string => INTERCHANGEABLE_TYPE_IDS[name] ?? name
-
-/**
- * Canonical spelling of a closed type id for equality comparisons across the
- * comfy-compat boundary (e.g. "do all selector branches agree on one type"):
- * interchangeable atoms collapse to one spelling while list/asset wrappers
- * are preserved. Comparison and presentation only - never persist the result.
- */
-export const canonicalCompatTypeId = (typeId: string): string => {
-  const positions = parseTupleTypeId(typeId)
-  if (positions !== undefined) return `tuple<${positions.map(canonicalCompatTypeId).join(',')}>`
-  const listInner = parseListTypeId(typeId)
-  if (listInner !== undefined) return listTypeId(canonicalCompatTypeId(listInner))
-  const assetInner = parseAssetTypeId(typeId)
-  if (assetInner !== undefined) return assetTypeId(canonicalCompatTypeId(assetInner))
-  const streamInner = parseStreamTypeId(typeId)
-  if (streamInner !== undefined) return streamTypeId(canonicalCompatTypeId(streamInner))
-  return canonicalAtom(typeId)
-}
-
-/** canonicalTypeIdOf with interchangeable atoms collapsed to one spelling. */
-export const canonicalCompatTypeIdOf = (t: TypeExpr): string | undefined => {
-  const id = canonicalTypeIdOf(t)
-  return id === undefined ? undefined : canonicalCompatTypeId(id)
-}
+import { cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
 
 /**
  * The concrete atom names a type expression can denote; undefined means
@@ -63,9 +21,9 @@ export const canonicalCompatTypeIdOf = (t: TypeExpr): string | undefined => {
 export const atomNamesOf = (t: TypeExpr): readonly string[] | undefined => {
   switch (t.kind) {
     case 'concrete':
-      return [canonicalAtom(t.name)]
+      return [t.name]
     case 'union':
-      return t.names.map(canonicalAtom)
+      return t.names
     case 'wildcard':
       return undefined // matches anything
     case 'variable':

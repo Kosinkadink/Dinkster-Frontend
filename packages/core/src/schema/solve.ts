@@ -55,7 +55,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { GraphDef, LinkData, NodeData } from '../format/document.js'
 import { asPortId, isPortEndpoint, type LinkId, type NodeId, type PortRef } from '../ids.js'
 import { buildRerouteIndex, traceEndpointAll } from '../reroute.js'
-import { assetCoercible, atomNamesOf, canonicalCompatTypeIdOf, coercionTargetsOf, typesCompatible } from './type-compatibility.js'
+import { assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
 import type { SchemaResolver } from './derive-boundary.js'
 import {
   buildGraphConnectivity,
@@ -66,7 +66,7 @@ import {
   type Connectivity,
   type ElaborateOptions,
 } from './elaborate.js'
-import { cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type TypeExpr } from './model.js'
+import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type TypeExpr } from './model.js'
 
 /** Every variable occurring in `t`, including inside list/asset elements. */
 function* nestedVariablesOf(t: TypeExpr): Generator<TypeExpr & { kind: 'variable' }> {
@@ -371,7 +371,7 @@ export function solveGraphTypes(
       vars.ensure(key, { kind: 'variable', templateId: binding.templateId }, {
         kind: 'node', node: node.id, templateId: binding.templateId,
       })
-      const typeId = canonicalCompatTypeIdOf(binding.type)
+      const typeId = canonicalTypeIdOf(binding.type)
       if (typeId !== undefined) vars.bind(key, typeId, binding.source)
     }
     if (slotBindings.length > 0) {

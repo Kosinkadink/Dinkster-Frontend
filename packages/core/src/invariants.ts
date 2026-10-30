@@ -37,6 +37,7 @@
 import { diag, type Diagnostic } from './diagnostics.js'
 import {
   boundaryBindingKey,
+  isNodeBoundaryBinding,
   isSubtreeBinding,
   regionContractShapeProblems,
   resolveDynamicAddress,
@@ -158,12 +159,14 @@ function routeContainsNul(route: readonly BoundaryRouteLeg[]): boolean {
   return route.some((leg) =>
     containsNul(leg.graph) ||
     containsNul(leg.boundaryId) ||
-    containsNul(leg.binding.node) ||
+    (leg.binding.kind === 'valueSource' && containsNul(leg.binding.valueSource)) ||
+    (isNodeBoundaryBinding(leg.binding) && (containsNul(leg.binding.node) ||
     (leg.binding.kind === 'widgetTap'
       ? containsNul(leg.binding.tap)
       : containsNul(leg.binding.port) ||
+        (leg.binding.viaReroute !== undefined && containsNul(leg.binding.viaReroute)) ||
         leg.binding.members?.some(containsNul) === true ||
-        leg.binding.slots?.some(containsNul) === true))
+        leg.binding.slots?.some(containsNul) === true))))
 }
 
 function occurrenceEndpointContainsNul(endpoint: OccurrenceLinkEndpoint): boolean {
@@ -228,6 +231,15 @@ export function routeMatchesOwnerChain(
     if (bindingMatches.length !== 1)
       return false
     const binding = bindingMatches[0]!
+    if (binding.kind === 'valueSource') {
+      if (side !== 'from' || offset + 1 !== route.length || graph.valueSources?.[binding.valueSource] === undefined)
+        return false
+      continue
+    }
+    if (!isNodeBoundaryBinding(binding)) return false
+    if (binding.viaReroute !== undefined &&
+        (side !== 'to' || offset + 1 !== route.length || graph.reroutes[binding.viaReroute] === undefined))
+      return false
     const targetNode = graph.nodes[binding.node]
     if (targetNode === undefined ||
         binding.kind !== 'widgetTap' && resolveDynamicAddress(binding, targetNode.dynamic).kind === 'missing')
@@ -767,6 +779,8 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
   // I7: boundary bindings
   if (def.boundary) {
     const boundaryIds = new Set<string>()
+    const boundaryReroutes = new Set<string>()
+    const boundaryValueSourceInputs = new Set<string>()
     for (const side of ['inputs', 'outputs'] as const) {
       for (const item of def.boundary[side]) {
         if (boundaryIds.has(item.id)) {
@@ -774,7 +788,27 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
         }
         boundaryIds.add(item.id)
         for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
-          if (!nodeExists(b.node)) {
+          if (b.kind === 'unbound') {
+            if (item.alsoBinds !== undefined || item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.unbound', where(`unattached boundary '${item.id}' cannot fan out or promote a widget`)))
+            continue
+          }
+          if (b.kind === 'valueSource') {
+            if (!def.valueSources?.[b.valueSource]) diags.push(diag('error', 'invariant', 'doc.boundary.dangling', where(`boundary '${item.id}' binds missing value source '${b.valueSource}'`)))
+            if (item.alsoBinds !== undefined || side === 'outputs' && item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.valueSource', where(`value source boundary '${item.id}' cannot fan out or promote an output`)))
+            if (side === 'inputs') {
+              if (boundaryValueSourceInputs.has(b.valueSource)) diags.push(diag('error', 'invariant', 'doc.boundary.valueSourceConflict', where(`multiple input boundaries bind value source '${b.valueSource}'`)))
+              boundaryValueSourceInputs.add(b.valueSource)
+            }
+            continue
+          }
+          if (b.viaReroute !== undefined) {
+            if (side !== 'inputs' || b.kind !== 'port' ||
+                def.reroutes[b.viaReroute] === undefined || drivenReroutes.has(b.viaReroute) || boundaryReroutes.has(b.viaReroute)) {
+              diags.push(diag('error', 'invariant', 'doc.boundary.rerouteInvalid', where(`boundary '${item.id}' has an invalid or multiply driven junction attachment`)))
+            }
+            boundaryReroutes.add(b.viaReroute)
+          }
+          if (isNodeBoundaryBinding(b) && !nodeExists(b.node)) {
             diags.push(
               diag('error', 'invariant', 'doc.boundary.dangling', where(`boundary ${side.slice(0, -1)} '${item.id}' binds missing node '${b.node}'`)),
             )

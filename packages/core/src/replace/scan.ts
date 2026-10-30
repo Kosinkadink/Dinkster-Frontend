@@ -1,8 +1,8 @@
 /**
  * Replacement orchestration: document scan + apply helpers over the rule
  * registry and planner. Pure functions - the app decides WHEN to scan
- * (document open, schemas loaded) and WHICH plans to dispatch (auto-apply
- * safe plans by default; a review toggle drops everything to review).
+ * (document open, schemas loaded) and WHICH plans to dispatch. The app
+ * auto-applies applicable migrations unless review mode is selected.
  *
  * Rules CHAIN: A's rule migrates to B, and B is itself migrated by another
  * rule to C. A hop can transform values and move links, so a chain is never
@@ -23,7 +23,7 @@
  * earlier writes).
  */
 
-import { createTransactionBuilder, type CommandInvocation } from '../commands/contract.js'
+import { createTransactionBuilder } from '../commands/contract.js'
 import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
 import type { Diagnostic } from '../diagnostics.js'
 import type { Json, WorkflowDocument } from '../format/document.js'
@@ -31,6 +31,8 @@ import type { NodeSchema } from '../schema/model.js'
 import type { ReplacementRule } from './model.js'
 import { planReplacement, type NodeReplacePlan, type ReplacementSchemaResolver } from './plan.js'
 import type { ReplacementRegistry } from './registry.js'
+
+export { replacementInvocation } from './plan.js'
 
 /** The one command that applies plans - reused here to scratch-apply hops. */
 const nodeReplaceCommand = REPLACE_COMMANDS.find((c) => c.id === 'node.replace')!
@@ -238,9 +240,9 @@ function planChain(
  * Find every node a registry rule can migrate and plan its full chain.
  * Subgraph instances ('#...') are never scanned: their schema is derived,
  * not deprecated. Deterministic: graphs and nodes in document iteration
- * order. Chains are planned per node against the ORIGINAL document - nodes
- * are independent (each chain only ever rewrites its own node), so plans
- * from one scan compose in a single batch.
+ * order. Chains are planned per node against the original document for
+ * review. replacementInvocation composes the selected rule hops against
+ * intermediate document states before producing one atomic batch.
  */
 export function scanReplacements(
   document: WorkflowDocument,
@@ -257,36 +259,4 @@ export function scanReplacements(
     }
   }
   return items
-}
-
-// ---------------------------------------------------------------------------
-// Apply
-// ---------------------------------------------------------------------------
-
-/**
- * Build the dispatch for a set of scan items: one `node.replace` invocation
- * per planned HOP in chain order, batched when there are several (one
- * revision, one undo step, all-or-nothing - the batch command runs each
- * sub-invocation against the working copy, so hop N's staleness guard sees
- * hop N-1's type change). Batched plans use node-owned net sink updates so
- * independently planned nodes cannot restore one another's stale endpoints.
- * Items without hops are ignored; a blocked item
- * contributes its planned prefix - filter with `safe` upstream to implement
- * "apply without review".
- */
-export function replacementInvocation(
-  items: readonly ReplacementScanItem[],
-): CommandInvocation | undefined {
-  const plans = items.flatMap((i) => i.hops.map((h) => h.plan))
-  if (plans.length === 0) return undefined
-  if (plans.length === 1) return { command: 'node.replace', params: { plan: plans[0]! } as unknown as Json }
-  const composablePlans = plans.map((plan) =>
-    plan.createdNodes === undefined ? { ...plan, createdNodes: [] } : plan,
-  )
-  return {
-    command: 'batch',
-    params: {
-      invocations: composablePlans.map((plan) => ({ command: 'node.replace', params: { plan } })),
-    } as unknown as Json,
-  }
 }

@@ -5,23 +5,17 @@ import { resolve } from 'node:path'
 import waitForNativeComposition from './hosted-global-setup.js'
 
 export default async function runLiveVitest(): Promise<void> {
-  const v1 = process.env['DINKSTER_E2E_COMFY_BACKEND']
   const native = process.env['DINKSTER_NATIVE_BACKEND']
-  if (!v1 || !native)
-    throw new Error('Both hosted backends must be configured for live Vitest')
+  if (!native)
+    throw new Error(
+      'The hosted native backend must be configured for live Vitest',
+    )
   await waitForNativeComposition()
 
   const root = resolve(import.meta.dirname, '../..')
   const reports = resolve(root, '.ci/live-vitest')
   await mkdir(reports, { recursive: true })
   const suites = [
-    {
-      name: 'v1-client',
-      package: '@dinkster/client',
-      files: ['test/live.integration.test.ts'],
-      backend: v1,
-      count: 2,
-    },
     {
       name: 'native-client',
       package: '@dinkster/client',
@@ -30,14 +24,12 @@ export default async function runLiveVitest(): Promise<void> {
         'test/loop-templates.live.test.ts',
         'test/executable-examples.test.ts',
       ],
-      backend: native,
       count: 11,
     },
     {
       name: 'native-app',
       package: '@dinkster/app',
       files: ['test/regions-live.integration.test.ts'],
-      backend: native,
       count: 2,
     },
   ]
@@ -62,7 +54,7 @@ export default async function runLiveVitest(): Promise<void> {
       stdio: 'inherit',
       env: {
         ...process.env,
-        DINKSTER_LIVE_URL: suite.backend,
+        DINKSTER_LIVE_URL: native,
         DINKSTER_COLLAB_LIVE_URL: native,
       },
     })

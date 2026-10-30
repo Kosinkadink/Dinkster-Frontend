@@ -99,12 +99,23 @@ const widgetTapRef = {
 const boundaryBinding = {
   oneOf: [
     {
+      type: 'object', required: ['kind', 'valueSource', 'type'],
+      properties: { kind: { const: 'valueSource' }, valueSource: { type: 'string', minLength: 1 }, type: { $ref: '#/$defs/typeExpr' } },
+      not: { anyOf: ['node', 'port', 'tap', 'members', 'slots', 'viaReroute'].map((field) => ({ required: [field] })) },
+    },
+    {
+      type: 'object', required: ['kind', 'type'],
+      properties: { kind: { const: 'unbound' }, type: { $ref: '#/$defs/typeExpr' } },
+      not: { anyOf: ['node', 'port', 'tap', 'members', 'slots', 'viaReroute'].map((field) => ({ required: [field] })) },
+    },
+    {
       type: 'object',
       required: ['kind', 'node', 'port'],
       properties: {
         kind: { enum: ['port', 'family', 'slot', 'dynamicCombo'] },
         node: { type: 'string', minLength: 1 },
         port: { type: 'string', minLength: 1 },
+        viaReroute: { type: 'string', minLength: 1 },
         members: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
         slots: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1, pattern: '^[^.]+(\\.[^.]+)*$' } },
       },
@@ -114,6 +125,7 @@ const boundaryBinding = {
         required: ['kind'],
       },
       then: { not: { required: ['slots'] } },
+      allOf: [{ if: { required: ['viaReroute'] }, then: { properties: { kind: { const: 'port' } } } }],
     },
     {
       type: 'object',
@@ -123,7 +135,7 @@ const boundaryBinding = {
         node: { type: 'string', minLength: 1 },
         tap: { type: 'string', minLength: 1 },
       },
-      not: { anyOf: [{ required: ['port'] }, { required: ['members'] }, { required: ['slots'] }] },
+      not: { anyOf: [{ required: ['port'] }, { required: ['members'] }, { required: ['slots'] }, { required: ['viaReroute'] }] },
     },
   ],
 } as const
@@ -145,7 +157,14 @@ const boundaryItem = {
   allOf: [
     {
       if: {
-        properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'slot', 'dynamicCombo'] } }, required: ['kind'] } },
+        properties: { binds: { type: 'object', properties: { kind: { const: 'valueSource' } }, required: ['kind'] } },
+        required: ['binds'],
+      },
+      then: { not: { required: ['alsoBinds'] } },
+    },
+    {
+      if: {
+        properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'slot', 'dynamicCombo', 'unbound'] } }, required: ['kind'] } },
         required: ['binds'],
       },
       then: {
@@ -457,6 +476,18 @@ export const WORKFLOW_SCHEMA = {
         ext: { $ref: '#/$defs/extData' },
       },
     },
+    typeExpr: {
+      oneOf: [
+        { type: 'object', required: ['kind', 'name'], properties: { kind: { const: 'concrete' }, name: { type: 'string', minLength: 1 } } },
+        { type: 'object', required: ['kind', 'names'], properties: { kind: { const: 'union' }, names: { type: 'array', minItems: 2, items: { type: 'string', minLength: 1 } } } },
+        { type: 'object', required: ['kind'], properties: { kind: { const: 'wildcard' } } },
+        { type: 'object', required: ['kind', 'templateId'], properties: { kind: { const: 'variable' }, templateId: { type: 'string', minLength: 1 }, allowedTypes: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
+        { type: 'object', required: ['kind', 'element'], properties: { kind: { enum: ['list', 'asset', 'stream'] }, element: { $ref: '#/$defs/typeExpr' } } },
+        { type: 'object', required: ['kind', 'elements'], properties: { kind: { const: 'tuple' }, elements: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
+        { type: 'object', required: ['kind', 'input'], properties: { kind: { const: 'family_tuple' }, input: { type: 'string', minLength: 1 } } },
+        { type: 'object', required: ['kind', 'index'], properties: { kind: { const: 'tuple_element' }, input: { type: 'string' }, element: { $ref: '#/$defs/typeExpr' }, index: { type: ['string', 'number'] } } },
+      ],
+    },
     boundaryBinding,
     boundaryItem,
     // Recursive: nested per-member dynamic state (memberState[memberId][construct])
@@ -664,7 +695,8 @@ export const WORKFLOW_SCHEMA = {
                 allOf: [
                   { $ref: '#/$defs/boundaryItem' },
                   { not: { required: ['alsoBinds'] } },
-                  { properties: { binds: { properties: { kind: { enum: ['port', 'family', 'widgetTap'] } } } } },
+                  { properties: { binds: { not: { required: ['viaReroute'] } } } },
+                  { properties: { binds: { properties: { kind: { enum: ['port', 'family', 'widgetTap', 'unbound'] } } } } },
                 ],
               },
             },

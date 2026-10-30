@@ -5,22 +5,25 @@
  * exactly the recognized tokens to real booleans; anything else is left for
  * the badValue advisory (value-never-hostage).
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { ObjectInfoEntry } from '@dinkster/core/comfy-v1'
+import { buildDinksterRegistry } from '@dinkster/client'
+import { DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload } from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
-import { buildSchemaRegistry } from '../src/v1-connection-kind.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const objectInfo = JSON.parse(readFileSync(join(root, 'fixtures/object_info.json'), 'utf8')) as Record<
-  string,
-  ObjectInfoEntry
->
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    GrowMask: { interface: [
+      { role: 'input', id: 'mask', type: { kind: 'concrete', types: ['MASK'] }, required: true },
+      { role: 'input', id: 'expand', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 0 },
+      { role: 'input', id: 'tapered_corners', type: { kind: 'concrete', types: ['BOOLEAN'] }, required: true, default: true },
+      { role: 'output', id: 'MASK', type: { kind: 'concrete', types: ['MASK'] } },
+    ] },
+  },
+}
 
 let app: AppState
 
@@ -30,7 +33,7 @@ beforeEach(() => {
 
 const loadSchemas = (): void => {
   const backend = app.backends.get()[0]!
-  backend.registry.set(buildSchemaRegistry(backend.id, objectInfo))
+  backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
 }
 
 /** GrowMask.tapered_corners is a BOOLEAN-widget input in the fixture. */
@@ -94,7 +97,7 @@ describe('legacy boolean normalization on open', () => {
     // Open against a registry where the node type does NOT resolve: the pass
     // runs (a registry exists), converts nothing, and is consumed.
     const backend = app.backends.get()[0]!
-    backend.registry.set(buildSchemaRegistry(backend.id, {}))
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...nodesPayload, nodes: {} }))
     expect(app.openDocument(docJson('lin-lb-d', { tapered_corners: 'enable' }), 'T')).toEqual([])
     const tab = app.activeTab()!
     expect(valueOf(tab, 'g0')).toBe('enable')

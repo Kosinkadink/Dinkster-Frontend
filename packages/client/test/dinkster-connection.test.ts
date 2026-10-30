@@ -73,6 +73,12 @@ it('reads live source selections from the editing connection and rejects malform
     webSocketFactory: () => ({}) as WebSocketLike })
   expect(await connection.listAssetSelections('model/vae')).toEqual((payload as { options: unknown }).options)
   expect(fetchFn.mock.calls[0]?.[0]).toBe('/native/api/assets/selections?kind=model%2Fvae')
+  const projectConnection = new DinksterConnection({ id: C0, baseUrl: '/native', clientId: 'project-selection', project: 'connection-project', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  await projectConnection.listAssetSelections('model/vae')
+  expect(new URL(String(fetchFn.mock.calls.at(-1)?.[0]), 'http://native').searchParams.get('project')).toBe('connection-project')
+  await projectConnection.listAssetSelections('model/vae', undefined, 'editing-project')
+  expect(new URL(String(fetchFn.mock.calls.at(-1)?.[0]), 'http://native').searchParams.get('project')).toBe('editing-project')
   payload = { kind: 'directory/input', options: [{ name: 'train/set', shape: 'directory' }] }
   expect(await connection.listAssetSelections('directory/input')).toEqual([{ name: 'train/set', shape: 'directory' }])
   for (const invalid of [
@@ -416,6 +422,14 @@ describe('mount listing decode', () => {
       mountChangesAllowed: true,
       mounts: [{ id: 'output', mode: 'readwrite', state: 'ready', path: '/library/output' }],
     })
+    for (const unset of [undefined, null]) {
+      await expect(connectionWith([
+        { id: 'output', mode: 'readwrite', state: 'ready' },
+      ], unset).fetchMountSettings()).resolves.toEqual({
+        mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }],
+        mountChangesAllowed: true,
+      })
+    }
     await expect(connectionWith([], 42).fetchMountSettings()).rejects.toThrow('malformed output mount')
   })
 
@@ -1020,6 +1034,20 @@ function chainArtifact(): CompileArtifact {
 }
 
 describe('native schema registry', () => {
+  it('keeps socketless presentation outside registry identity without dropping input values', () => {
+    const field = { role: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', widget: { type: 'COLOR' } }
+    for (const scoped of [false, true]) {
+      const payload = (socketless: boolean, value = '#123456') => ({ schemaVersion: 1, nodes: { ColorFixture: { interface: scoped
+        ? [{ role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs: [{ ...field, default: value, socketless }] }] }]
+        : [{ ...field, default: value, socketless }] } } })
+      const ordinary = buildDinksterRegistry(C0, payload(false))
+      const socketless = buildDinksterRegistry(C0, payload(true))
+      expect(socketless.diagnostics).toEqual([])
+      expect(socketless.hash).toBe(ordinary.hash)
+      expect(buildDinksterRegistry(C0, payload(true, '#abcdef')).hash).not.toBe(socketless.hash)
+    }
+  })
+
   it('parses the real /api/nodes fixture with a stable hash', () => {
     const again = buildDinksterRegistry(C0, nodesPayload)
     expect(registry.schemas.size).toBeGreaterThan(0)
@@ -1072,15 +1100,15 @@ describe('native schema registry', () => {
     expect(bad.composing).toBeUndefined()
   })
 
-  it('resolves legacy names through schema aliases; canonical ids stay primary', () => {
+  it('resolves only registered node IDs, ignoring historical alias metadata', () => {
     const comfy = buildDinksterRegistry(C0, readJson('fixtures/dinkster-nodes-comfy.json') as DinksterNodesPayload)
     expect(comfy.resolve('comfy.EmptyImage')?.type).toBe('comfy.EmptyImage')
-    expect(comfy.resolve('EmptyImage')?.type).toBe('comfy.EmptyImage')
-    expect(comfy.resolve('PreviewImage')?.type).toBe('comfy.PreviewImage')
+    expect(comfy.resolve('EmptyImage')).toBeUndefined()
+    expect(comfy.resolve('PreviewImage')).toBeUndefined()
     expect(comfy.resolve('NotANode')).toBeUndefined()
   })
 
-  it('an alias colliding with a canonical id is ignored; an ambiguous alias resolves to neither', () => {
+  it('alias claims neither override exact IDs nor add resolution diagnostics', () => {
     const payload = readJson('fixtures/dinkster-nodes-comfy.json') as DinksterNodesPayload
     const nodes = payload.nodes as Record<string, Record<string, unknown>>
     const doctored = {
@@ -1095,11 +1123,11 @@ describe('native schema registry', () => {
       },
     } as DinksterNodesPayload
     const reg = buildDinksterRegistry(C0, doctored)
-    // Canonical 'EmptyImage' wins over comfy.EmptyImage's alias claim.
     expect(reg.resolve('EmptyImage')?.type).toBe('EmptyImage')
-    // Ambiguity stays loud: no winner, one warning diagnostic.
     expect(reg.resolve('Legacy')).toBeUndefined()
-    expect(reg.diagnostics.some((d) => d.code === 'schema.dinkster.aliasCollision')).toBe(true)
+    expect(reg.resolve('comfy.A')?.type).toBe('comfy.A')
+    expect(reg.resolve('comfy.B')?.type).toBe('comfy.B')
+    expect(reg.diagnostics).toEqual([])
   })
 })
 
@@ -4331,7 +4359,7 @@ describe('workflow library wire', () => {
     })
   })
 
-  it('submit stamps sourceDocument when provided, omits it otherwise', async () => {
+  it('submit preserves original export metadata separately from sourceDocument and compiled prompt', async () => {
     const jobsRoute = (url: string, init?: RequestInit): Response | undefined =>
       nodesRoute(url) ??
       (url.endsWith('/api/jobs') && init?.method === 'POST'
@@ -4340,15 +4368,29 @@ describe('workflow library wire', () => {
 
     const stamped = submitHarness(jobsRoute)
     await stamped.conn.fetchSchemas()
-    expect((await stamped.conn.submit(chainArtifact(), { sourceDocument: DIGEST })).ok).toBe(true)
+    const exportSnapshot = { prompt: { 'original-7': { class_type: 'Original', inputs: { seed: 17 } } }, extraPnginfo: { workflow: { nodes: [] } } }
+    expect((await stamped.conn.submit(chainArtifact(), { sourceDocument: DIGEST, exportSnapshot })).ok).toBe(true)
     const post = stamped.requests.find((r) => r.init?.method === 'POST')!
     expect((JSON.parse(post.init!.body as string) as Record<string, unknown>)['sourceDocument']).toBe(DIGEST)
+    expect(JSON.parse(post.init!.body as string).exportSnapshot).toEqual(exportSnapshot)
+
+    const workflowOnly = submitHarness(jobsRoute)
+    await workflowOnly.conn.fetchSchemas()
+    const workflowSnapshot = { extraPnginfo: { workflow: { nodes: [{ id: 9 }] } } }
+    expect((await workflowOnly.conn.submit(chainArtifact(), { exportSnapshot: workflowSnapshot })).ok).toBe(true)
+    expect(JSON.parse(workflowOnly.requests.find((r) => r.init?.method === 'POST')!.init!.body as string).exportSnapshot).toEqual(workflowSnapshot)
+
+    const emptyOriginal = submitHarness(jobsRoute)
+    await emptyOriginal.conn.fetchSchemas()
+    expect((await emptyOriginal.conn.submit(chainArtifact(), { exportSnapshot: { prompt: {} } })).ok).toBe(true)
+    expect(JSON.parse(emptyOriginal.requests.find((r) => r.init?.method === 'POST')!.init!.body as string).exportSnapshot).toEqual({ prompt: {} })
 
     const plain = submitHarness(jobsRoute)
     await plain.conn.fetchSchemas()
     expect((await plain.conn.submit(chainArtifact())).ok).toBe(true)
     const plainPost = plain.requests.find((r) => r.init?.method === 'POST')!
     expect('sourceDocument' in (JSON.parse(plainPost.init!.body as string) as Record<string, unknown>)).toBe(false)
+    expect(JSON.parse(plainPost.init!.body as string)).not.toHaveProperty('exportSnapshot')
   })
 
   it('submit carries the previews policy when provided, omits it otherwise', async () => {

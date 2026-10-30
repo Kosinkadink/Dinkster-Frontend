@@ -14,10 +14,12 @@ async function openDescriptors(page: Page): Promise<void> {
 }
 
 async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void> {
-  await page.routeWebSocket('**/ws**', (socket) => socket.close())
+  await page.routeWebSocket('**/api/events?*', () => {})
+  await page.route('/api/**', (route) => route.fulfill({ status: 502, body: 'isolated mock' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated mock' }))
-  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/object_info', (route) => route.fulfill({ json: {} }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'descriptor-fixture', schemaWire: 1 }, nodes: {},
+  } }))
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })

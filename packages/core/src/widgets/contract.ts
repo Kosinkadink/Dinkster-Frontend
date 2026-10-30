@@ -36,7 +36,7 @@ export interface WidgetEnv {
 export interface ValueSchema<V extends Json = Json> {
   /** Version of the value shape; bump + provide migrate on change. */
   readonly version: number
-  validate(value: unknown): value is V
+  validate(value: unknown, spec?: WidgetSpec): value is V
   migrate?(value: Json, fromVersion: number): V
 }
 

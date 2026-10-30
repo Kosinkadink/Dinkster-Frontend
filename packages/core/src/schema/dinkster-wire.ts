@@ -86,6 +86,7 @@ interface WireEntry {
   readonly memberNames?: unknown
   readonly optionalAfterMinimum?: unknown
   readonly forceInput?: unknown
+  readonly socketless?: unknown
   /** Computation-semantic demand marker. */
   readonly lazy?: unknown
   /** Storage-backed execution marker. */
@@ -166,9 +167,9 @@ export interface DinksterWireSchema {
   readonly occupies?: unknown
   readonly ioBound?: unknown
   readonly deprecation?: unknown
+  readonly replacements?: unknown
   readonly searchVisibility?: unknown
   readonly searchTerms?: unknown
-  readonly replacements?: unknown
   /** Optional document-time branch selector. */
   readonly selector?: unknown
   /** Host-attached pack attribution (not part of the schema wire proper). */
@@ -437,22 +438,11 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       if (descriptor['selection'] !== undefined && typeof descriptor['selection'] !== 'boolean') {
         throw new Error(`${where}.selection must be a boolean`)
       }
-      if (descriptor['selection'] === true &&
-        (!['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(String(descriptor['kind'])) || descriptor['allowUpload'] === true)) {
+      if (descriptor['selection'] === true && (
+        !['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(String(descriptor['kind'])) ||
+        descriptor['allowUpload'] === true
+      )) {
         throw new Error(`${where}.selection requires a supported exact kind and forbids upload`)
-      }
-      return
-    case 'SAVE_TARGET':
-      checkWidgetFields(descriptor, ['type', 'suffix'], where, diags)
-      if (descriptor['suffix'] !== undefined && typeof descriptor['suffix'] !== 'string') {
-        throw new Error(`${where}.suffix must be a string`)
-      }
-      if (
-        typeof descriptor['suffix'] === 'string' &&
-        descriptor['suffix'] !== '' &&
-        (!descriptor['suffix'].startsWith('.') || descriptor['suffix'].includes('/') || descriptor['suffix'].includes('\\'))
-      ) {
-        throw new Error(`${where}.suffix must be a bare extension`)
       }
       return
     case 'COMBO': {
@@ -591,6 +581,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where} requires a presentation field`)
       return
     case 'COLOR':
+    case 'MOUNT':
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
@@ -635,10 +626,11 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
     case 'STRING':
+    case 'MOUNT':
       if (socket !== 'STRING') throw new Error(`${where} requires a concrete STRING input`)
       return
     case 'COLOR':
-      if (socket !== 'STRING' && socket !== 'COLOR') throw new Error(`${where} requires a concrete STRING or COLOR input`)
+      if (socket !== 'STRING' && socket !== 'COLOR') throw new Error(`${where} requires a concrete COLOR or STRING input`)
       return
     case 'CURVE':
       if (socket !== 'CURVE') throw new Error(`${where} requires a concrete CURVE input`)
@@ -677,15 +669,13 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       }
       return
     }
-    case 'SAVE_TARGET':
-      if (socket !== 'SAVE_TARGET') throw new Error(`${where} requires a concrete SAVE_TARGET input`)
-      return
     case 'ASSET':
       if (descriptor['selection'] === true) {
-        if (socket === 'COMBO') return
-        if (descriptor['kind'] === 'model/vae' && type.kind === 'union' &&
-          type.names.length === 2 && type.names.includes('COMBO') && type.names.includes('ASSET')) return
-        throw new Error(`${where}.selection requires scalar COMBO or the model/vae COMBO/ASSET union`)
+        if (socket === 'COMBO' || (
+          descriptor['kind'] === 'model/vae' && type.kind === 'union' &&
+          type.names.length === 2 && type.names.includes('COMBO') && type.names.includes('ASSET')
+        )) return
+        throw new Error(`${where}.selection requires COMBO or the model/vae COMBO/ASSET union`)
       }
       if (type.kind === 'concrete') return
       if (descriptor['allowUpload'] === true && type.kind === 'list' && type.element.kind === 'concrete' && type.element.name === 'ASSET') return
@@ -704,9 +694,7 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
 function widgetDomain(widget: WidgetDescriptorSpec): string {
   switch (widget.widgetType) {
     case 'ASSET':
-      return 'asset'
-    case 'SAVE_TARGET':
-      return 'save-target'
+      return widget.selection === true ? 'asset-selection' : 'asset'
     case 'COMBO':
       return 'combo'
     case 'BOOLEAN':
@@ -803,7 +791,7 @@ function widgetFor(
       if (!ids.has(raw['default'])) throw new Error(`${nodeType}.${id}: representation default must name a declared representation`)
       const domains = new Set(representations.map((representation) => widgetDomain(representation.widget)))
       if (domains.size !== 1) throw new Error(`${nodeType}.${id}: representations must share one canonical value domain`)
-      if (domains.has('asset')) {
+      if (domains.has('asset') || domains.has('asset-selection')) {
         const kinds = new Set(representations.map((representation) => representation.widget.kind))
         if (kinds.size !== 1) throw new Error(`${nodeType}.${id}: asset representations must share one asset kind`)
       }
@@ -849,18 +837,6 @@ function widgetFor(
         ...(kind !== undefined ? { kind } : {}),
         ...(descriptor.allowUpload === true ? { allowUpload: true } : {}),
         ...(descriptor.selection === true ? { selection: true } : {}),
-        ...(dflt !== undefined ? { default: dflt } : {}),
-      }
-    }
-    // The wire omits a structured save target suffix when empty; the
-    // decoder normalizes it to '' so every consumer reads ONE shape (the
-    // suffix is display context owned by the node, never persisted data).
-    if (descriptor.type === 'SAVE_TARGET' && (descriptor.suffix === undefined || typeof descriptor.suffix === 'string')) {
-      return {
-        widgetType: 'SAVE_TARGET',
-        options: {
-          suffix: typeof descriptor.suffix === 'string' ? descriptor.suffix : '',
-        },
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -1147,9 +1123,9 @@ function widgetFor(
         )
       }
     }
-    if (descriptor.type === 'COLOR') {
+    if (descriptor.type === 'COLOR' || descriptor.type === 'MOUNT') {
       return {
-        widgetType: 'COLOR',
+        widgetType: descriptor.type,
         options: {},
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
@@ -1491,7 +1467,9 @@ function decodeWireOrdinary(nodeType: string, entry: Record<string, unknown>, wh
   // paths); top-level ordinary inputs are plain ids.
   const id = depth > 0 ? wireSegment(entry['id'], `${where}.id`) : wireEntryId(entry['id'], `${where}.id`)
   const required = wireBoolean(entry['required'], `${where}.required`, true)
-  wireBoolean(entry['forceInput'], `${where}.forceInput`, false)
+  const forceInput = wireBoolean(entry['forceInput'], `${where}.forceInput`, false)
+  const socketless = wireBoolean(entry['socketless'], `${where}.socketless`, false)
+  if (socketless && forceInput) throw new Error(`${where}.socketless conflicts with forceInput`)
   wireBoolean(entry['advanced'], `${where}.advanced`, false)
   const hidden = wireBoolean(entry['hidden'], `${where}.hidden`, false)
   wireJson(entry['default'], `${where}.default`)
@@ -1505,7 +1483,9 @@ function decodeWireOrdinary(nodeType: string, entry: Record<string, unknown>, wh
   return {
     ...normalized,
     id,
+    ...(entry['adjacentTo'] !== undefined ? { adjacentTo: wireEntryId(entry['adjacentTo'], `${where}.adjacentTo`) } : {}),
     ...(entry['forceInput'] === true ? { forceInput: true } : {}),
+    ...(socketless ? { socketless: true } : {}),
     ...(entry['advanced'] === true ? { advanced: true } : {}),
     ...(hidden ? { hidden: true } : {}),
   }
@@ -1547,7 +1527,28 @@ function decodeWireEntries(
     ids.add(id)
     entries.push(decodeWireEntry(nodeType, entry, childWhere, diags, budget, depth))
   }
+  validateInputAdjacency(entries)
   return entries
+}
+
+function validateInputAdjacency(inputs: readonly InputSpec[]): void {
+  const byId = new Map(inputs.map((input) => [input.id, input]))
+  for (const input of inputs) {
+    if (input.adjacentTo !== undefined && (input.adjacentTo === input.id || !byId.has(input.adjacentTo))) {
+      throw new Error(`${input.id}.adjacentTo must name a different sibling input`)
+    }
+  }
+  const checked = new Set<string>()
+  for (const input of inputs) {
+    const path = new Set<string>()
+    let current: InputSpec | undefined = input
+    while (current !== undefined && !checked.has(current.id)) {
+      if (path.has(current.id)) throw new Error(`${current.id}.adjacentTo cycle`)
+      path.add(current.id)
+      current = current.adjacentTo === undefined ? undefined : byId.get(current.adjacentTo)
+    }
+    for (const id of path) checked.add(id)
+  }
 }
 
 function decodeWireFamily(
@@ -1666,12 +1667,14 @@ function decodeWireCombo(
     throw new Error(`${where}.default must name an option`)
   }
   const required = wireBoolean(entry['required'], `${where}.required`, false)
+  const hidden = wireBoolean(entry['hidden'], `${where}.hidden`, false)
   return {
     kind: 'input',
     id,
     type: { kind: 'concrete', name: 'COMBO' },
     optional: !required,
     ...wirePresentation(entry, where),
+    ...(hidden ? { hidden: true } : {}),
     widget: {
       widgetType: 'COMBO',
       options: { options: options.map((option) => option.key) },
@@ -1961,8 +1964,8 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     }
     const idempotent = wire.idempotent !== false
     const deprecation = decodeDeprecation(nodeType, wire.deprecation, diags)
-    const searchVisibility = decodeSearchVisibility(nodeType, wire.searchVisibility, diags)
     const replacements = decodeReplacements(nodeType, wire.replacements, diags)
+    const searchVisibility = decodeSearchVisibility(nodeType, wire.searchVisibility, diags)
     const searchTerms = Array.isArray(wire.searchTerms) && wire.searchTerms.every((term) => typeof term === 'string') ? ([...wire.searchTerms] as string[]) : []
     const aliases = Array.isArray(wire.aliases) ? wire.aliases.filter((alias): alias is string => typeof alias === 'string' && alias !== '') : []
     const executionArms = Array.isArray(wire.executionArms)
@@ -1984,10 +1987,10 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ...(wire.mayExpandGraph === true ? { mayExpandGraph: true } : {}),
       ...(wire.hasDocs === true ? { hasDocs: true } : {}),
       ...(deprecation !== undefined ? { deprecation } : {}),
+      ...(replacements !== undefined ? { replacements } : {}),
       ...(searchVisibility !== undefined ? { searchVisibility } : {}),
       searchTerms,
       ...(aliases.length > 0 ? { aliases } : {}),
-      ...(replacements !== undefined ? { replacements } : {}),
       ext: {
         dinkster: {
           version: typeof wire.version === 'number' ? wire.version : 1,
@@ -1998,6 +2001,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       },
     }
     const decodedInputs = new Map(items.filter((item): item is InputSpec => item.kind === 'input').map((item) => [item.id, item]))
+    validateInputAdjacency([...decodedInputs.values()])
     const decodedOutputs = items.filter((item): item is OutputSpec => item.kind === 'output')
     const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
       if (type.kind === 'family_tuple') {
@@ -2438,13 +2442,19 @@ function decodeDeprecation(nodeType: string, wire: unknown, diags: Diagnostic[])
 }
 
 /**
- * Decode the optional replacement-rule list. The backend mirrors our
- * ReplacementRule vocabulary field-for-field (commit 9a36a72) and validates
- * at registration, so a malformed entry here is a smuggled wire - warn and
- * skip that RULE (not the node, and not the whole list: migration advice is
- * additive metadata). isReplacementRule is the same validator the registry
- * itself applies, so nothing invalid can reach planning either way.
+ * Decode the optional search-visibility demotion. The backend's vocabulary is
+ * closed over normal|deprecated|hidden and it omits 'normal', but accept an
+ * explicit 'normal' as omission for robustness. Unknown values warn and fall
+ * back to normal - a listing hint must never cost a node.
  */
+function decodeSearchVisibility(nodeType: string, wire: unknown, diags: Diagnostic[]): SearchVisibility | undefined {
+  if (wire === undefined || wire === 'normal') return undefined
+  if (typeof wire === 'string' && SEARCH_VISIBILITIES.has(wire)) return wire as SearchVisibility
+  diags.push(diag('warning', 'schema', 'schema.dinkster.badSearchVisibility', `${nodeType}: unknown searchVisibility '${String(wire)}'; treating as normal`))
+  return undefined
+}
+
+/** Malformed migration advice must not hide an otherwise valid current node. */
 function decodeReplacements(nodeType: string, wire: unknown, diags: Diagnostic[]): readonly ReplacementRule[] | undefined {
   if (wire === undefined) return undefined
   if (!Array.isArray(wire)) {
@@ -2457,32 +2467,6 @@ function decodeReplacements(nodeType: string, wire: unknown, diags: Diagnostic[]
     else diags.push(diag('warning', 'schema', 'schema.dinkster.badReplacements', `${nodeType}: replacements[${i}] is malformed`))
   }
   return rules.length > 0 ? rules : undefined
-}
-
-function replacementUsesSlotVariants(wire: unknown): boolean {
-  if (!Array.isArray(wire)) return false
-  return wire.some((rule) => {
-    if (typeof rule !== 'object' || rule === null || !Array.isArray((rule as { cases?: unknown }).cases)) return false
-    return (rule as { cases: unknown[] }).cases.some((candidate) => typeof candidate === 'object' && candidate !== null && 'slotVariants' in candidate)
-  })
-}
-
-function replacementUsesMigration(wire: unknown): boolean {
-  if (!Array.isArray(wire)) return false
-  return wire.some((rule) => typeof rule === 'object' && rule !== null && 'migration' in rule)
-}
-
-/**
- * Decode the optional search-visibility demotion. The backend's vocabulary is
- * closed over normal|deprecated|hidden and it omits 'normal', but accept an
- * explicit 'normal' as omission for robustness. Unknown values warn and fall
- * back to normal - a listing hint must never cost a node.
- */
-function decodeSearchVisibility(nodeType: string, wire: unknown, diags: Diagnostic[]): SearchVisibility | undefined {
-  if (wire === undefined || wire === 'normal') return undefined
-  if (typeof wire === 'string' && SEARCH_VISIBILITIES.has(wire)) return wire as SearchVisibility
-  diags.push(diag('warning', 'schema', 'schema.dinkster.badSearchVisibility', `${nodeType}: unknown searchVisibility '${String(wire)}'; treating as normal`))
-  return undefined
 }
 
 // ---------------------------------------------------------------------------

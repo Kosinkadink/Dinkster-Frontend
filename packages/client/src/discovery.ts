@@ -1,6 +1,5 @@
 /**
- * Backend protocol discovery: identify what a bare URL speaks so the app
- * can add backends URL-only, with no manual protocol choice.
+ * Native backend discovery: identify an engine or supervisor from a URL.
  *
  * Probe order (each step is conclusive when it matches, otherwise falls
  * through to the next):
@@ -11,20 +10,13 @@
  *   2. GET /api/nodes - a native engine self-identifies: 200 with a nodes
  *      table is 'dinkster'; the supervisor's 503
  *      engine-not-ready gate is 'dinkster' (supervised).
- *   3. GET /system_stats - ComfyUI's small stats answer ({system, devices})
- *      is 'v1' (legacy bridge). Chosen over /object_info deliberately: the
- *      node dump is megabytes on a real server and discovery runs on every
- *      page load; /system_stats is a few hundred bytes and just as
- *      conclusive.
- *
  * Anything that answered but matched no protocol is 'unrecognized' - the
  * canonical case being an SPA dev server answering 200 text/html for every
  * path (routing fallthrough), which the shape checks reject. 'unreachable'
  * means no probe got any server answer at all.
  *
- * The three probes run CONCURRENTLY and are judged in priority order, so a
- * dead server costs one timeout, not three (this runs before first render
- * on the same-origin default). All three probe bodies are small.
+ * The two probes run concurrently and are judged in priority order, so a
+ * dead server costs one timeout. Both probe bodies are small.
  *
  * Framework-free; fetch and timeout are injectable. Never throws.
  */
@@ -33,7 +25,6 @@ import { parseEngineNotReady, parseSupervisorStatus } from './supervisor.js'
 
 export type BackendDiscovery =
   | { readonly kind: 'dinkster'; readonly supervised: boolean }
-  | { readonly kind: 'v1' }
   | { readonly kind: 'unrecognized'; readonly detail: string }
   | { readonly kind: 'unreachable'; readonly detail: string }
 
@@ -41,8 +32,6 @@ export interface DiscoveryOptions {
   readonly fetchFn?: FetchLike
   /** Per-probe timeout in ms (default 4000). */
   readonly timeoutMs?: number
-  /** Probe legacy ComfyUI after native detection fails (default true). */
-  readonly probeV1?: boolean
 }
 
 /** One probe answer, or undefined when the request itself failed. */
@@ -84,19 +73,6 @@ const looksLikeNativeNodes = (body: unknown): boolean => {
   )
 }
 
-/** v1 /system_stats shape: an object carrying BOTH of ComfyUI's system and
- * devices sections (the real endpoint always emits both together). An SPA's
- * HTML, arbitrary JSON, and partial shapes from unrelated services all fail
- * this - v1 selection persists a backend, so the check must be conclusive. */
-const looksLikeSystemStats = (body: unknown): boolean => {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) return false
-  const b = body as { system?: unknown; devices?: unknown }
-  return (
-    typeof b.system === 'object' && b.system !== null && !Array.isArray(b.system) &&
-    Array.isArray(b.devices)
-  )
-}
-
 /**
  * Identify the protocol a server at `baseUrl` speaks. `baseUrl` is either
  * empty/'' (same origin), a path prefix ('/b2'), or an absolute origin -
@@ -123,13 +99,9 @@ export async function discoverBackend(
     return answer
   }
 
-  // Fire the enabled probes at once; judge them in priority order below.
-  const [supAnswer, nodesAnswer, v1Answer] = await Promise.all([
+  const [supAnswer, nodesAnswer] = await Promise.all([
     probe(fetchFn, `${base}/supervisor/status`, timeoutMs),
     probe(fetchFn, `${base}/api/nodes`, timeoutMs),
-    options.probeV1 === false
-      ? Promise.resolve(undefined)
-      : probe(fetchFn, `${base}/system_stats`, timeoutMs),
   ])
 
   const sup = note(supAnswer)
@@ -150,18 +122,12 @@ export async function discoverBackend(
     }
   }
 
-  // 3. Legacy ComfyUI?
-  const v1 = v1Answer === undefined ? undefined : note(v1Answer)
-  if (v1 && v1.status === 200 && looksLikeSystemStats(v1.body)) {
-    return { kind: 'v1' }
-  }
-
   if (sawServer) {
     return {
       kind: 'unrecognized',
       detail: htmlFallthrough
         ? 'server answered with HTML, not a backend protocol (is this URL routed to the app instead of a backend?)'
-        : 'server answered but spoke neither the Dinkster nor the ComfyUI protocol',
+        : 'server answered but did not identify a Dinkster engine or supervisor',
     }
   }
   return { kind: 'unreachable', detail: lastError || 'no response' }

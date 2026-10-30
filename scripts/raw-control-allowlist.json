@@ -1,8 +1,8 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 175,
-    "inlineStyle": 65,
+    "rawControl": 170,
+    "inlineStyle": 64,
     "cssLiteral": 67
   },
   "entries": [
@@ -51,7 +51,7 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/BadgePopover.tsx",
-      "count": 5,
+      "count": 4,
       "issue": 382
     },
     {
@@ -387,18 +387,6 @@
     {
       "kind": "inlineStyle",
       "path": "packages/app/src/editors/ComboEditorImplementation.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/editors/SaveTargetWidgetEditor.tsx",
-      "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/editors/SaveTargetWidgetEditor.tsx",
       "count": 1,
       "issue": 382
     },

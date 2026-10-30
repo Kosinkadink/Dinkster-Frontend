@@ -68,7 +68,7 @@ import {
   parseOutputDescriptors,
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
-  effectiveValueSourceSpec,
+  documentValueSourceResolver,
   elabInputsOf,
   formatWidgetValue,
   flattenShellRefusalDiagnostic,
@@ -112,7 +112,6 @@ import {
   type NodeSchema,
   type PackBlueprintDescriptor,
   type CompanionSourceMap,
-  type ReplacementScanItem,
   type ResolvedGeometryItem,
   type ViewBookmark,
   type WidgetSpec,
@@ -147,7 +146,7 @@ import { canvasMenuContext, menuTargetOf, mirrorCapabilityOf, previewCapabilityO
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
-import { replacementBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
+import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
@@ -916,8 +915,10 @@ export function selectionDeleteInvocation(args: {
       for (const sink of net.sinks) if (!deletedNodes.has(sink.node)) freedNodes.add(sink.node)
     }
     for (const item of def.boundary?.inputs ?? []) {
+      if (item.binds.kind === 'unbound' || item.binds.kind === 'valueSource') continue
       if (!deletedNodes.has(item.binds.node)) continue
       for (const binding of item.alsoBinds ?? []) {
+        if (binding.kind === 'unbound' || binding.kind === 'valueSource') continue
         if (!deletedNodes.has(binding.node)) freedNodes.add(binding.node)
       }
     }
@@ -1450,6 +1451,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
   const problems = useSignal(props.app.problems)
+  const reviewReplacements = useSignal(props.app.reviewReplacements)
   // Scene/widget diagnostics for THIS editor instance. The app-level
   // solveDiagnostics signal mirrors the focused instance only, so an
   // unfocused split sibling keeps its own rail without clobbering the
@@ -1551,7 +1553,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   })
   let semanticTargetSelected: (target: CanvasSemanticTarget) => boolean = () => false
-  let activateSemanticItem: (item: CanvasSemanticItem) => void = () => {}
+  let activateSemanticTarget: (target: CanvasSemanticTarget) => void = () => {}
   let focusSemanticPin: (item: CanvasSemanticItem | undefined) => void = () => {}
   let focusCanvas = (): void => {}
   const [editorViewport, setEditorViewport] = createSolidSignal({ x: 0, y: 0, scale: 1 })
@@ -1868,9 +1870,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     (BadgeAnchor & { readonly owner: string }) | undefined
   >(undefined)
 
-  // Replacement scan items for the CURRENT graph, keyed by node id. Rebuilt
-  // by the badges effect; read lazily by the deprecation badge popover.
-  let replaceItems = new Map<string, ReplacementScanItem>()
   /** Current graph's document problem content, keyed independently of runtime errors. */
   let nodeProblems: NodeProblemMap = {}
 
@@ -1924,8 +1923,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const def = tab.store.doc.graphs[graphId]
     const vs = def?.valueSources?.[id]
     if (!def || !vs) return undefined
-    const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
-    const effective = effectiveValueSourceSpec(def, vs, resolve)
+    const resolveSource = documentValueSourceResolver(tab.store.doc, reg?.resolve ?? (() => undefined))
+    const effective = resolveSource(graphId, id, viewInstancePath(tab)?.map(asNodeId))!
     const specState: 'declared' | 'derived' | 'raw' = vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw'
     return { graphId, vs, effective, specState }
   }
@@ -2164,7 +2163,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // from peekCandidatesFor (host state: companion sources + occurrences).
   const [previewTick, setPreviewTick] = createSolidSignal(0)
   const previewLoader = createPreviewLoader({
-    viewUrlForExecution: (ref, file) => props.app.viewUrlForExecution(ref, file),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
@@ -2384,7 +2382,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     const isInside = (event: Event, selector: string): boolean =>
       event.composedPath().some((item) => item instanceof Element && item.matches(selector))
-    const EDITOR_SURFACES = '.widget-editor, .combo-dropdown, .color-editor, .asset-editor, .save-target-editor, .product-select-listbox, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
+    const EDITOR_SURFACES = '.widget-editor, .combo-dropdown, .color-editor, .asset-editor, .product-select-listbox, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
     const AUDIO_SLIDER = '.node-media-overlay .product-slider'
     // An editor can refuse host dismissal while an effect is in flight (an
     // asset upload batch must not keep uploading into a closed overlay).
@@ -3221,12 +3219,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const info = subgraphInfoFor(nodeId)
           if (info) tooltip = { summary: `Subgraph: ${info.name}`, detail: [`definition ${info.defId}`, `${info.nodeCount} nodes (shared)`] }
         } else if (badgeId === 'core.deprecated') {
-          const info = replacementInfoFor(nodeId)
+          const info = deprecationInfoFor(nodeId)
           if (info) tooltip = {
             summary: info.deprecation?.message ?? `Deprecated: ${info.type}`,
             detail: [
               ...(info.deprecation?.since ? [`since ${info.deprecation.since}`] : []),
-              ...(info.item?.terminalType ? [`Replace with '${info.item.terminalType}'`] : info.pointer ? [`Successor: '${info.pointer.terminal}'`] : []),
+              ...(info.pointer ? [`Successor: '${info.pointer.terminal}'`] : []),
             ],
           }
         } else if (badgeId.startsWith('core.problem.')) {
@@ -3430,9 +3428,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (target.kind === 'net') return controller.getNetViewSelection().has(target.id)
       return controller.getGroupSelection().has(target.id)
     }
-    activateSemanticItem = (item): void => {
+    activateSemanticTarget = (target): void => {
       const source = renderer.getScene()
-      const target = item.target
       let rect: EditorWorldRect | undefined
       if (target.kind === 'node' || target.kind === 'port') {
         const nodeId = target.kind === 'node' ? target.id : target.nodeId
@@ -4301,12 +4298,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           // JSON cannot store undefined, so undefined means "not stored":
           // the schema default applies and is the schema author's problem,
           // not the document's. An explicit null IS stored (ASSET and
-          // SAVE_TARGET use it as "no value") and must reach the validator.
+          // MOUNT use it as "no value") and must reach the validator.
           const value = node.node.values[row.valueKey]
           if (value === undefined) continue
           const where = `${node.id}.${row.valueKey}`
-          if (row.spec.selection === true && typeof value === 'string') continue
-          if (row.spec.widgetType === 'ASSET' && typeof value === 'string') {
+          if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
             out.push(unresolvedAssetImportDiagnostic({
               graphId: scene.graphId,
               nodeId: node.id,
@@ -4318,7 +4314,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             mark(node.id, row.valueKey)
             continue
           }
-          if (!kind.valueSchema.validate(value)) {
+          if (!kind.valueSchema.validate(value, row.spec)) {
             out.push(diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, {
               refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
             }))
@@ -4419,10 +4415,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         instancePath: viewInstancePath(tab),
         frozen,
         exactProducer,
+        reviewReplacements: !frozen && reviewReplacements(),
+        replacementNodes: reviewReplacements()
+          ? new Set(props.app.scanTabReplacements(tab).filter((item) => item.graphId === gid).map((item) => item.nodeId))
+          : undefined,
         retainedRuntimeIds: retained?.retainedRuntimeIds,
-        // Deprecation/replacement: live tabs only (frozen snapshots are
-        // read-only history - upgrading them would falsify the record).
-        replacements: frozen ? [] : props.app.scanTabReplacements(tab),
         nodeProblems,
         ...(() => {
           const dismissed = exec === undefined ? undefined : dismissedErrorNodes().get(exec.key)
@@ -4561,7 +4558,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
 
       renderer.setSelectorResolutions(model.selectorResolutions)
-      replaceItems = model.replaceItems
       const decorations = applyNodeDecorations({
         scene,
         documentId: String(tab.store.doc.lineage),
@@ -5331,7 +5327,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         props.app.reportProblems(tab.id, [diag('warning', 'import', code, message)])
         presentFileDropResult({ state: 'error', title, detail: message })
       }
-      const openWorkflow = async (document: unknown): Promise<void> => {
+      const openWorkflow = async (document: unknown, originalPrompt?: JsonObject): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         setFileDropSurface({
           state: 'inspecting',
@@ -5339,7 +5335,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           detail: 'Validating the dropped workflow before opening it.',
           cancelable: true,
         })
-        await props.app.importWorkflowFile({ name: `${origin === 'drop' ? 'dropped' : 'pasted'}-workflow.json`, text: async () => JSON.stringify(document) }, ownerLive)
+        await props.app.importWorkflowFile({ name: `${origin === 'drop' ? 'dropped' : 'pasted'}-workflow.json`, text: async () => JSON.stringify(document) }, ownerLive, originalPrompt)
         finish()
       }
       const loadLatent = async (metadata: LatentMetadata, existing?: AssetRef): Promise<void> => {
@@ -5521,7 +5517,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const cancel = (): void => { choice.run(finish) }
           setEmbeddedDropChoice({
             loadImage: () => { choice.run(() => { void loadImage(classification.mediaType) }) },
-            openWorkflow: () => { choice.run(() => { void openWorkflow(classification.embeddedWorkflow) }) },
+            openWorkflow: () => { choice.run(() => { void openWorkflow(classification.embeddedWorkflow, classification.embeddedPrompt) }) },
             cancel,
             valid: ownerLive,
           })
@@ -5874,6 +5870,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const group = scene.groups.find((g) => g.id === groupId)
         return group ? nodesInGroup(scene, group) : undefined
       },
+      showValueSource: (tabId, graphId, valueSourceId) => {
+        if (activeTab()?.id !== tabId || scene.graphId !== graphId) return
+        activateSemanticTarget({ kind: 'valueSource', id: valueSourceId })
+      },
       deleteSelection,
       selectAll: () => controller.selectAll(),
       setSelectedMode: (mode) => {
@@ -6039,7 +6039,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setOutputPages(new Map())
       setOutputViewerKey(undefined)
       semanticTargetSelected = () => false
-      activateSemanticItem = () => {}
+      activateSemanticTarget = () => {}
       focusSemanticPin = () => {}
       focusCanvas = () => {}
     })
@@ -6081,8 +6081,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
 
   // Badge popover content: reactive wrappers binding the framework-free
-  // badge-info resolvers to host state (active tab, per-graph scan items,
-  // backend advisory problem feed). Presentation lives in BadgePopover.tsx.
+  // badge-info resolvers to document and registry state.
+  // Presentation lives in BadgePopover.tsx.
   const subgraphInfoFor = (nodeId: string) => {
     const tab = activeTab()
     return tab ? subgraphBadgeInfo(tab.store.doc, currentGraphId(tab), nodeId) : undefined
@@ -6095,25 +6095,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (info && tab) pushGraph(tab, info.defId, nodeId)
   }
 
-  /** Deprecation badge popover content (scan item is per-graph, may be absent). */
-  const replacementInfoFor = (nodeId: string) => {
+  /** Deprecation messages and name-only successor guidance. */
+  const deprecationInfoFor = (nodeId: string) => {
     const tab = activeTab()
     if (!tab) return undefined
-    return replacementBadgeInfo({
+    const item = reviewReplacements() ? props.app.scanTabReplacements(tab).find((candidate) => candidate.graphId === currentGraphId(tab) && candidate.nodeId === nodeId) : undefined
+    return deprecationBadgeInfo({
       doc: tab.store.doc,
       graphId: currentGraphId(tab),
       nodeId,
       resolve: props.app.registryForTab(tab)?.resolve,
-      item: replaceItems.get(nodeId),
-      problems: props.app.backendForTab(tab).replacementProblems.get(),
+      ...(item === undefined ? {} : { item }),
     })
-  }
-
-  const applyReplacementFromPopover = (nodeId: string): void => {
-    const tab = activeTab()
-    const item = replaceItems.get(nodeId)
-    setBadgePopover(undefined)
-    if (tab && item?.plan) props.app.applyReplacements(tab, [item])
   }
 
   const problemMessages = (nodeId: string, kind: NodeProblemKind): readonly string[] => {
@@ -6150,7 +6143,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           items={semanticScene().items}
           selectionVersion={selVersion()}
           isSelected={(target) => semanticTargetSelected(target)}
-          onActivate={(item) => activateSemanticItem(item)}
+          onActivate={(item) => activateSemanticTarget(item.target)}
           onExit={() => focusCanvas()}
           onFocusChange={(focused) => setSemanticFocused(focused)}
           onActiveChange={(item) => focusSemanticPin(item)}
@@ -6662,9 +6655,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             onOpenExecutionLog={openExecutionLogForNode}
             problems={problemMessages}
             subgraphInfo={subgraphInfoFor}
-            replacementInfo={replacementInfoFor}
+            deprecationInfo={deprecationInfoFor}
+            onApplyReplacement={(nodeId) => {
+              const tab = activeTab()
+              if (tab && reviewReplacements()) {
+                const item = props.app.scanTabReplacements(tab).find((item) => item.graphId === currentGraphId(tab) && item.nodeId === nodeId)
+                if (item) props.app.applyReplacements(tab, [item])
+              }
+              setBadgePopover(undefined)
+            }}
             onOpenSubgraph={openSubgraphFromPopover}
-            onApplyReplacement={applyReplacementFromPopover}
             onClose={() => setBadgePopover(undefined)}
           />
         )}

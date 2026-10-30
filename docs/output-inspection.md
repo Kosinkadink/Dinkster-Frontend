@@ -3,12 +3,12 @@
 The Outputs rail inspects the execution selected by the existing live,
 pinned, or frozen execution binding. It does not select executions or invent
 artifact authority. Every media URL is resolved through that execution's
-backend by `viewUrlForExecution` or `assetUrlForExecution`, including retained
+backend by `assetUrlForExecution` or its values API, including retained
 routes for a removed owner.
 
 Each output card preserves inventory order and shows the backend and execution
-identity, runtime node, output ID, one-based descriptor position, legacy-file
-or content-addressed source, image kind, media type, complete name or digest,
+identity, runtime node, output ID, one-based descriptor position, content-addressed
+asset or server-rendition source, image kind, media type, complete name or digest,
 and observed browser availability. Complete identifiers wrap; they are not
 replaced by ordinals, thumbnails, dots, or color.
 

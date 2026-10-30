@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { asPromptId, diag, type DinksterNodesPayload } from '@dinkster/core'
+import { asPromptId, diag, type DinksterNodesPayload, type JsonObject } from '@dinkster/core'
 import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -254,14 +254,6 @@ describe('saveWorkflow', () => {
     expect(app.transientStatus.get()).toBe('Save failed on Native: boom')
   })
 
-  it('v1 backends explain that the targeted backend cannot save', async () => {
-    const tab = app.activeTab()! // seed tab on the default v1 backend
-    expect(await app.saveWorkflow(tab.id)).toBe(false)
-    expect(app.problems.get()).toEqual([])
-    expect(app.transientStatus.get()).toContain('Save requires a Dinkster backend')
-    expect(app.transientStatus.get()).toContain('uses the ComfyUI protocol')
-  })
-
   it('AP2: an edit made while the save is in flight keeps the tab dirty', async () => {
     const { backend, tab } = nativeSetup()
     let release!: (digest: string) => void
@@ -449,6 +441,55 @@ describe('openFromLibrary', () => {
 })
 
 describe('sourceDocument stamp on queue', () => {
+  it('rejects hostile or non-object original prompts without replacing the live tab', () => {
+    const { tab } = nativeSetup()
+    const accessor = vi.fn(() => { throw new Error('accessor ran') })
+    const getter = Object.defineProperty({}, 'value', { enumerable: true, get: accessor })
+    const hostile = new Proxy({}, { getPrototypeOf: () => { throw new Error('prototype trap') } })
+    for (const prompt of [hostile, getter, null, [], 17]) {
+      const diagnostics = app.openDocument(CHAIN_DOC, 'Untrusted prompt', undefined, false, prompt as JsonObject)
+      expect(diagnostics.some((item) => item.severity === 'error')).toBe(true)
+      expect(app.activeTab()).toBe(tab)
+    }
+    expect(accessor).not.toHaveBeenCalled()
+  })
+
+  it('submits retained import provenance unchanged after native edits and export/reopen', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
+      ok: true, execution: { connection: backend.id, prompt: asPromptId('original-test') },
+    })
+    const source = {
+      version: 0.4, nodes: [{ id: 1, type: 'std.math.add_ints', pos: [0, 0],
+        widgets_values: [3, 4], inputs: [], outputs: [{ name: 'sum', type: 'INT', links: [] }] }], links: [],
+    }
+    const originalPrompt = { 'old-7': { class_type: 'Original', inputs: { seed: 17 } } }
+    for (const prompt of [undefined, originalPrompt, {}]) {
+      const opened = await app.importWorkflowFile({ name: 'original.json', text: async () => JSON.stringify(source) }, () => true, prompt)
+      expect(opened, app.transientStatus.get()).toBe(true)
+      const imported = app.activeTab()!
+      expect(app.dispatchTo(imported, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 99 } }).ok).toBe(true)
+      const saved = JSON.parse(JSON.stringify(app.exportDocument(imported.id)))
+      expect(app.openDocument(saved, 'Reopened')).toEqual([])
+      const reopened = app.activeTab()!
+      app.setTabTarget(reopened.id, backend.id)
+      await app.queueSelection(reopened, ['n1'])
+      expect(submit).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        sourceDocument: DIGEST,
+        exportSnapshot: { ...(prompt === undefined ? {} : { prompt }), extraPnginfo: { workflow: source } },
+      }))
+      if (prompt === undefined) expect(submit.mock.calls.at(-1)![1]!.exportSnapshot).not.toHaveProperty('prompt')
+      expect(reopened.store.doc.graphs.g0!.nodes.n1!.values.a).toBe(99)
+    }
+    expect(submit).toHaveBeenCalledTimes(3)
+    expect(app.openDocument(CHAIN_DOC, 'No import provenance')).toEqual([])
+    const plain = app.activeTab()!
+    app.setTabTarget(plain.id, backend.id)
+    await app.queueSelection(plain, ['n1'])
+    expect(submit.mock.calls.at(-1)![1]).not.toHaveProperty('exportSnapshot')
+  })
+
   it('stamps submissions and uploads once per unchanged document', async () => {
     const { backend, tab } = nativeSetup()
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)

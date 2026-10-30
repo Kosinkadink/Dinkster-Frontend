@@ -169,12 +169,17 @@ test('digits typed into a text field never trigger bookmarks', async ({ page }) 
 })
 
 test('shortcuts from a focused context menu never trigger bookmarks', async ({ page }) => {
-  // The context menu owns keyboard focus (tabindex, no menu role): global
-  // canvas shortcuts must abstain while the event target sits inside it,
-  // under the same contract as text fields above.
+  // The menu's focus host owns keyboard input; its presentation panels do not.
+  // Canvas shortcuts must abstain under the same contract as text fields.
+  // Worker discovery invalidates the menu's command snapshot when it completes.
+  await page.waitForFunction(() => {
+    const backend = window.__dinksterTest?.app.backends.get()[0]
+    return backend?.schemaState.get().status === 'ready' && backend.workerCatalog.get().status !== 'loading'
+  })
   await page.mouse.click(700, 600, { button: 'right' })
-  const menu = page.getByTestId('context-menu')
+  const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()
+  await expect(menu).toBeFocused()
   await menu.press('Shift+Digit4')
   await menu.press('Digit4')
   expect((await bookmarks(page))?.['4']).toBeUndefined()

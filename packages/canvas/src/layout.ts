@@ -5,8 +5,8 @@
  * Committed rules implemented here:
  * - Input/output pairing on one line is the default: outputs fill slots
  *   opposite connection-input rows top-down.
- * - Widgets always own the full row width; an output is NEVER beside a
- *   widget row. Overflow outputs (more outputs than pairable socket rows)
+ * - Widgets own the full row width unless sibling placement shares a line;
+ *   outputs never pair with widgets. Overflow outputs
  *   get dedicated rows.
  * - Rows have fixed type-appropriate heights (a multiline string previews a
  *   few lines; depth lives in the expanded editor).
@@ -124,6 +124,7 @@ export interface PortSlot extends DynamicAnnotations {
   readonly label: string
   readonly type: TypeExpr
   readonly optional?: boolean
+  readonly socketless?: true
   /** Output slot whose producer may deliberately emit no value. */
   readonly maybeAbsent?: true
 }
@@ -140,8 +141,10 @@ export type LayoutRow =
       readonly kind: 'widget'
       readonly y: number
       readonly height: number
-      /** Symmetric clearance from node-border pins to widget chrome. */
+      /** Left clearance from the node origin to widget chrome. */
       readonly inset: number
+      /** Explicit cell width for widgets sharing a horizontal line. */
+      readonly width?: number
       readonly inputId: string
       /**
        * The node.values key this widget's value lives under (valueKeyOf):
@@ -155,6 +158,8 @@ export type LayoutRow =
       readonly rows: number
       /** The schema widget spec, so painters are self-contained. */
       readonly spec: WidgetSpec
+      /** Keep the editor and outgoing value tap without an incoming socket. */
+      readonly socketless?: true
       /** Wire-15 family literal that keeps an always-visible input socket. */
       readonly familyLiteral?: true
       /** Wire-22 execution binding retained from the elaborated input. */
@@ -230,7 +235,7 @@ export interface PinLayout extends DynamicAnnotations {
   /** Human-readable port label retained when rows are hidden. */
   readonly label?: string
   readonly direction: 'in' | 'out'
-  /** Center y, node-local. x is 0 (in) or layout.width (out). */
+  /** Center y, node-local. */
   readonly y: number
   readonly type: TypeExpr
   /** Declared match identity retained after the displayed type resolves. */
@@ -327,9 +332,35 @@ const previewPanelMinHeight = (tokens: DesignTokens): number =>
 const previewPanelDefaultHeight = (tokens: DesignTokens): number =>
   tokens.previewDefaultHeight + tokens.previewCaptionHeight
 
-const flexibleTextRowIndexes = (layout: NodeLayout): number[] => layout.rows
-  .map((row, index) => row.kind === 'widget' && row.viewId === 'core.text' && !row.inactive ? index : -1)
-  .filter((index) => index >= 0)
+const flexibleTextRowIndexes = (layout: NodeLayout): number[] => {
+  const lines = new Set<number>()
+  return layout.rows.flatMap((row, index) => {
+    if (row.kind !== 'widget' || row.viewId !== 'core.text' || row.inactive || lines.has(row.y)) return []
+    lines.add(row.y)
+    return [index]
+  })
+}
+
+const flexibleLineHeight = (layout: NodeLayout, row: LayoutRow, tokens: DesignTokens): number =>
+  Math.max(...layout.rows.filter((sibling) => sibling.y === row.y).map((sibling) =>
+    sibling.kind === 'widget' && sibling.viewId === 'core.text'
+      ? multilineWidgetHeight(sibling.rows, tokens) : sibling.height))
+
+/** Reflow physical lines without separating widgets that share one line. */
+function reflowRows(layout: NodeLayout, heightOf: (row: LayoutRow, index: number) => number): LayoutRow[] {
+  let sourceY = -1
+  let lineY = layout.headerHeight
+  let bottom = lineY
+  return layout.rows.map((row, index) => {
+    if (sourceY !== row.y) {
+      sourceY = row.y
+      lineY = bottom
+    }
+    const height = heightOf(row, index)
+    bottom = Math.max(bottom, lineY + height)
+    return { ...row, y: lineY, height }
+  })
+}
 
 const projectedAdvancedGroup = (
   layout: NodeLayout,
@@ -388,16 +419,13 @@ export function withCompactPreviewRegion(layout: NodeLayout, tokens: DesignToken
   const remainder = flexibleIndexes.length === 0 ? 0 : bodyExtra - share * flexibleIndexes.length
   const flexible = new Set(flexibleIndexes)
   let flexibleIndex = 0
-  let y = layout.headerHeight
-  const rows = layout.rows.map((row, index): LayoutRow => {
+  const rows = reflowRows(layout, (row, index) => {
     const rowHeight = flexible.has(index)
-      ? multilineWidgetHeight((row as Extract<LayoutRow, { kind: 'widget' }>).rows, tokens) +
+      ? flexibleLineHeight(layout, row, tokens) +
         share + (flexibleIndex === flexibleIndexes.length - 1 ? remainder : 0)
       : row.height
     if (flexible.has(index)) flexibleIndex += 1
-    const projected = { ...row, y, height: rowHeight } as LayoutRow
-    y += rowHeight
-    return projected
+    return rowHeight
   })
   const pins = layout.pins.map((pin) => {
     const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
@@ -467,17 +495,15 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
   const remainder = flexibleIndexes.length === 0 ? 0 : extra - share * flexibleIndexes.length
   const flexible = new Set(flexibleIndexes)
   let flexibleIndex = 0
-  let y = layout.headerHeight
-  const rows = layout.rows.map((row, index): LayoutRow => {
+  const rows = reflowRows(layout, (row, index) => {
     const rowHeight = flexible.has(index)
-      ? multilineWidgetHeight((row as Extract<LayoutRow, { kind: 'widget' }>).rows, tokens) +
+      ? flexibleLineHeight(layout, row, tokens) +
         share + (flexibleIndex === flexibleIndexes.length - 1 ? remainder : 0)
       : row.height
     if (flexible.has(index)) flexibleIndex += 1
-    const projected = { ...row, y, height: rowHeight } as LayoutRow
-    y += rowHeight
-    return projected
+    return rowHeight
   })
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight)
   const pins = layout.pins.map((pin) => {
     const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
     if (rowIndex < 0) return pin
@@ -544,17 +570,15 @@ export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, l
   const remainder = flexibleIndexes.length === 0 ? 0 : extra - share * flexibleIndexes.length
   const flexible = new Set(flexibleIndexes)
   let flexibleIndex = 0
-  let y = layout.headerHeight
-  const rows = layout.rows.map((row, index): LayoutRow => {
+  const rows = reflowRows(layout, (row, index) => {
     const rowHeight = flexible.has(index)
-      ? multilineWidgetHeight((row as Extract<LayoutRow, { kind: 'widget' }>).rows, tokens) +
+      ? flexibleLineHeight(layout, row, tokens) +
         share + (flexibleIndex === flexibleIndexes.length - 1 ? remainder : 0)
       : row.height
     if (flexible.has(index)) flexibleIndex += 1
-    const projected = { ...row, y, height: rowHeight } as LayoutRow
-    y += rowHeight
-    return projected
+    return rowHeight
   })
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight)
   const pins = layout.pins.map((pin) => {
     const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
     if (rowIndex < 0) return pin
@@ -588,9 +612,7 @@ export function projectNodeLayoutHeight(
 ): NodeLayout {
   const height = Math.max(layout.minHeight, requestedHeight)
   if (height === layout.height) return layout
-  const flexibleIndexes = layout.rows
-    .map((row, index) => row.kind === 'widget' && row.viewId === 'core.text' && !row.inactive ? index : -1)
-    .filter((index) => index >= 0)
+  const flexibleIndexes = flexibleTextRowIndexes(layout)
   if (flexibleIndexes.length === 0) {
     if (layout.preview === undefined) return { ...layout, height }
     if (layout.preview.compact === true) {
@@ -621,16 +643,13 @@ export function projectNodeLayoutHeight(
   const remainder = extra - share * flexibleIndexes.length
   const flexible = new Set(flexibleIndexes)
   let flexibleIndex = 0
-  let y = layout.headerHeight
-  const rows = layout.rows.map((row, index): LayoutRow => {
+  const rows = reflowRows(layout, (row, index) => {
     const rowHeight = flexible.has(index)
-      ? multilineWidgetHeight((row as Extract<LayoutRow, { kind: 'widget' }>).rows, tokens) +
+      ? flexibleLineHeight(layout, row, tokens) +
         share + (flexibleIndex === flexibleIndexes.length - 1 ? remainder : 0)
       : row.height
     if (flexible.has(index)) flexibleIndex += 1
-    const projected = { ...row, y, height: rowHeight } as LayoutRow
-    y += rowHeight
-    return projected
+    return rowHeight
   })
   const pins = layout.pins.map((pin) => {
     const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
@@ -895,7 +914,7 @@ export function layoutNode(
     if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
     if (options.minimized !== true && spec.widget && item.origin.kind === 'static' && conditionallyHidden.has(spec.id)) continue
     if (isHidden(section)) {
-      if (isConnected('in', spec.id)) {
+      if (!spec.socketless && isConnected('in', spec.id)) {
         collapsedPins.push({
           sectionId: section!, portId: spec.id, direction: 'in', type: spec.type,
           ...(spec.optional ? { optional: true as const } : {}), ...annotate(item),
@@ -921,6 +940,7 @@ export function layoutNode(
           portId: spec.id,
           label: displayLabel(spec),
           type: spec.type,
+          ...(spec.socketless ? { socketless: true as const } : {}),
           ...(spec.optional ? { optional: true } : {}),
           ...annotate(item),
         },
@@ -958,6 +978,7 @@ export function layoutNode(
         viewId: w.viewId,
         rows: w.rows,
         spec: representation.spec,
+        ...(spec.socketless ? { socketless: true as const } : {}),
         ...(familyLiteral ? { familyLiteral: true as const } : {}),
         ...(spec.sourceFilename !== undefined ? { sourceFilename: spec.sourceFilename } : {}),
         ...(representation.id !== undefined ? { representationId: representation.id } : {}),
@@ -1012,18 +1033,50 @@ export function layoutNode(
     pending.splice(0, pending.length, ...ungrouped, advancedHeader, ...advancedMembers)
   }
 
-  const naturalRowsHeight = pending.reduce((height, row) => {
-    if (row.kind !== 'widget') return height + tokens.rowHeight
-    return height + (row.widget!.viewId === 'core.text'
+  // Placement hints affect rows, never the elaborated interface or values.
+  const adjacentRows = new Map<PendingRow, PendingRow[]>()
+  const attached = new Set<PendingRow>()
+  for (const item of items) {
+    if (item.kind !== 'input' || item.spec.adjacentTo === undefined) continue
+    const row = pending.find((row) => row.widget?.inputId === item.spec.id)
+    const anchor = pending.find((row) => row.widget?.inputId === item.spec.adjacentTo)
+    if (!row || !anchor || row === anchor || row.sectionId !== anchor.sectionId) continue
+    adjacentRows.set(anchor, [...(adjacentRows.get(anchor) ?? []), row])
+    attached.add(row)
+  }
+  const positioned: PendingRow[] = []
+  const lines = new Map<PendingRow, PendingRow[]>()
+  const emitted = new Set<PendingRow>()
+  const emit = (row: PendingRow, line: PendingRow[] = []): void => {
+    if (emitted.has(row)) return
+    emitted.add(row)
+    positioned.push(row)
+    line.push(row)
+    lines.set(row, line)
+    for (const child of adjacentRows.get(row) ?? []) emit(child, line)
+  }
+  for (const row of pending) if (!attached.has(row)) emit(row)
+  for (const row of pending) emit(row)
+  pending.splice(0, pending.length, ...positioned)
+
+  const rowBaseHeight = (row: PendingRow): number => row.kind !== 'widget'
+    ? tokens.rowHeight
+    : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
       : row.widget!.rows * tokens.rowHeight)
-  }, 0)
+  const lineBaseHeight = (line: PendingRow[]): number => Math.max(
+    ...line.map(rowBaseHeight),
+    line.length > 1 ? line.length * (tokens.pinRadius * 2 + WIDGET_PIN_GAP * 2) : 0,
+  )
+  const naturalRowsHeight = [...new Set(lines.values())].reduce((height, line) =>
+    height + lineBaseHeight(line), 0)
   const naturalHeight = tokens.headerHeight + naturalRowsHeight + tokens.padBottom
   const requestedExtra = options.size === undefined
     ? 0
     : Math.max(0, options.size.height - naturalHeight)
   const flexibleRows = pending.filter((row) =>
-    row.kind === 'widget' && row.widget!.viewId === 'core.text' && !row.widget!.inactive,
+    row.kind === 'widget' && row.widget!.viewId === 'core.text' && !row.widget!.inactive &&
+      lines.get(row)!.find((sibling) => sibling.widget?.viewId === 'core.text' && !sibling.widget.inactive) === row,
   )
   const flexibleShare = flexibleRows.length === 0 ? 0 : Math.floor(requestedExtra / flexibleRows.length)
   const flexibleRemainder = flexibleRows.length === 0
@@ -1036,6 +1089,7 @@ export function layoutNode(
   const pins: PinLayout[] = []
   const sectionRowY = new Map<string, number>() // header CENTER y by section id
   let advancedBounds: { y: number; bottom: number } | undefined
+  const lineBottoms = new Map<PendingRow[], number>()
   let y = tokens.headerHeight
   for (const row of pending) {
     if (row.kind === 'section') {
@@ -1072,7 +1126,7 @@ export function layoutNode(
         ...(row.input ? { input: row.input } : {}),
         ...(row.output ? { output: row.output } : {}),
       })
-      if (row.input) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
+      if (row.input && !row.input.socketless) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
       if (row.output) pins.push({ ...annotationsOf(row.output), portId: row.output.portId, label: row.output.label, direction: 'out', y: y + height / 2, type: row.output.type, ...(row.output.maybeAbsent ? { maybeAbsent: true as const } : {}) })
       if (row.sectionId === advancedSectionId && advancedBounds !== undefined) {
         advancedBounds.bottom = y + height
@@ -1080,10 +1134,8 @@ export function layoutNode(
       y += height
     } else {
       const w = row.widget!
-      const flexible = w.viewId === 'core.text' && !w.inactive
-      const baseHeight = w.viewId === 'core.text'
-        ? multilineWidgetHeight(w.rows, tokens)
-        : w.rows * tokens.rowHeight
+      const flexible = flexibleRows.includes(row)
+      const baseHeight = lineBaseHeight(lines.get(row)!)
       const height = baseHeight + (flexible
         ? flexibleShare + (flexibleIndex === flexibleRows.length - 1 ? flexibleRemainder : 0)
         : 0)
@@ -1092,8 +1144,8 @@ export function layoutNode(
       // border. The symmetric side also reserves space for output widgets.
       const inset = tokens.pinRadius + WIDGET_PIN_GAP
       rows.push({ kind: 'widget', y, height, inset, ...w })
-      // Widget-backed inputs are connectable: pin at the first row line.
-      pins.push({
+      // Socketless controls keep their editor and outgoing value tap.
+      if (!w.socketless) pins.push({
         ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
         ...(w.optional ? { optional: true as const } : {}),
         ...(w.familyLiteral ? {} : { widgetBacked: true as const }),
@@ -1106,9 +1158,11 @@ export function layoutNode(
           ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
         })
       if (row.sectionId === advancedSectionId && advancedBounds !== undefined) {
-        advancedBounds.bottom = y + height
+        advancedBounds.bottom = Math.max(advancedBounds.bottom, y + height)
       }
-      y += height
+      const line = lines.get(row)!
+      lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
+      if (line.at(-1) === row) y = lineBottoms.get(line)!
     }
   }
 
@@ -1152,12 +1206,40 @@ export function layoutNode(
 
   // Manual override: width may shrink to the global floor (content
   // truncates), height may only grow (rows never compress).
+  const columns = Math.max(1, ...[...lines.values()].map((line) => line.length))
+  const cellGap = 20
+  const minWidth = columns * tokens.nodeMinWidth + (columns - 1) * cellGap
+  for (const line of new Set(lines.values())) {
+    if (line.length < 2) continue
+    width = Math.max(width, line.reduce((sum, row) => sum + measure(row.widget!.label, 'label') + 102 + tokens.padX * 2, 0) + (line.length - 1) * cellGap)
+  }
+  width = Math.max(minWidth, width)
   const minHeight = naturalHeight
   const sizeOverride = options.size
   if (sizeOverride) {
-    width = Math.max(tokens.nodeMinWidth, sizeOverride.width)
+    width = Math.max(minWidth, sizeOverride.width)
   }
   const height = sizeOverride ? Math.max(minHeight, sizeOverride.height) : naturalHeight
+
+  for (const line of new Set(lines.values())) {
+    if (line.length < 2) continue
+    const gap = cellGap
+    const compactWidth = tokens.nodeMinWidth
+    let left = 0
+    for (const [column, pendingRow] of line.entries()) {
+      const index = rows.findIndex((row) => row.kind === 'widget' && row.inputId === pendingRow.widget!.inputId)
+      const row = rows[index] as Extract<LayoutRow, { kind: 'widget' }>
+      const cellWidth = column === 0 ? width - (line.length - 1) * (compactWidth + gap) : compactWidth
+      rows[index] = { ...row, inset: left + row.inset, width: cellWidth - row.inset * 2 }
+      for (const [index, pin] of pins.entries()) {
+        if (pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
+          // Border sockets keep noodles outside the node body. Distinct slots
+          // retain independent hit targets while the controls share a line.
+          pins[index] = { ...pin, y: row.y + (column + 0.5) * lineBaseHeight(line) / line.length }
+      }
+      left += cellWidth + gap
+    }
+  }
 
   if (options.minimized) {
     const minimizedHeight = tokens.headerHeight + tokens.padBottom
@@ -1186,7 +1268,7 @@ export function layoutNode(
   return {
     width,
     height,
-    minWidth: tokens.nodeMinWidth,
+    minWidth,
     minHeight,
     headerHeight: tokens.headerHeight,
     title,

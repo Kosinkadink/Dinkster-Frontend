@@ -1,6 +1,6 @@
 /**
- * Protocol discovery tests: the probe priority (/supervisor/status ->
- * /api/nodes -> /system_stats), each conclusive match, the SPA-HTML routing
+ * Native discovery tests: supervisor priority over the node catalog,
+ * each conclusive match, the SPA-HTML routing
  * fallthrough case, and the unreachable/unrecognized split.
  */
 import { describe, expect, it } from 'vitest'
@@ -55,13 +55,13 @@ describe('discoverBackend', () => {
     })
   })
 
-  it('does not request any v1 endpoint when legacy probing is disabled', async () => {
+  it('never requests a stock ComfyUI endpoint', async () => {
     const seen: string[] = []
     const fetchFn: FetchLike = (url) => {
       seen.push(url)
       return Promise.resolve(url.includes('/api/nodes') ? nativeNodes() : json(404, {}))
     }
-    expect(await discoverBackend('', { fetchFn, probeV1: false })).toEqual({
+    expect(await discoverBackend('', { fetchFn })).toEqual({
       kind: 'dinkster',
       supervised: false,
     })
@@ -94,54 +94,28 @@ describe('discoverBackend', () => {
     })
   })
 
-  it('identifies a ComfyUI server from /system_stats', async () => {
-    const fetchFn = fakeFetch({
+  it('rejects a stock ComfyUI server without probing its schema or stats', async () => {
+    const seen: string[] = []
+    const routes = fakeFetch({
       '/supervisor/status': () => json(404, {}),
       '/api/nodes': () => json(404, {}),
-      '/system_stats': () =>
-        json(200, { system: { os: 'posix', comfyui_version: '0.3.0' }, devices: [{ name: 'cuda' }] }),
+      '/system_stats': () => json(200, { system: { os: 'posix' }, devices: [] }),
+      '/object_info': () => json(200, { EmptyImage: {} }),
     })
-    expect(await discoverBackend('http://host:8188', { fetchFn })).toEqual({ kind: 'v1' })
+    const fetchFn: FetchLike = (url, init) => {
+      seen.push(url)
+      return routes(url, init)
+    }
+    expect((await discoverBackend('http://host:8188', { fetchFn })).kind).toBe('unrecognized')
+    expect(seen).toEqual(['http://host:8188/supervisor/status', 'http://host:8188/api/nodes'])
   })
 
-  it('rejects a bare JSON object on /system_stats (no system/devices shape)', async () => {
+  it('rejects array-valued native identity sections', async () => {
     const fetchFn = fakeFetch({
       '/supervisor/status': () => json(404, {}),
-      '/api/nodes': () => json(404, {}),
-      '/system_stats': () => json(200, {}),
+      '/api/nodes': () => json(200, { nodes: [], dinkster: [] }),
     })
     expect((await discoverBackend('http://host', { fetchFn })).kind).toBe('unrecognized')
-  })
-
-  it('FR-3 rejects array-valued nodes/dinkster/system sections (records only)', async () => {
-    // typeof [] === 'object': an unrelated service answering arrays must not
-    // be persisted as a Dinkster or v1 backend.
-    const arrayNodes = fakeFetch({
-      '/supervisor/status': () => json(404, {}),
-      '/api/nodes': () => json(200, { nodes: [] }),
-      '/system_stats': () => json(404, {}),
-    })
-    expect((await discoverBackend('http://host', { fetchFn: arrayNodes })).kind).toBe('unrecognized')
-    const arraySystem = fakeFetch({
-      '/supervisor/status': () => json(404, {}),
-      '/api/nodes': () => json(404, {}),
-      '/system_stats': () => json(200, { system: [], devices: [] }),
-    })
-    expect((await discoverBackend('http://host', { fetchFn: arraySystem })).kind).toBe('unrecognized')
-  })
-
-  it('rejects partial /system_stats shapes: BOTH system and devices are required', async () => {
-    // v1 selection persists a backend, so the check must match the real
-    // endpoint (which always emits both), not any JSON that happens to
-    // carry one of the keys.
-    for (const partial of [{ system: { os: 'posix' } }, { devices: [] }]) {
-      const fetchFn = fakeFetch({
-        '/supervisor/status': () => json(404, {}),
-        '/api/nodes': () => json(404, {}),
-        '/system_stats': () => json(200, partial),
-      })
-      expect((await discoverBackend('http://host', { fetchFn })).kind).toBe('unrecognized')
-    }
   })
 
   it('calls out SPA-HTML routing fallthrough as unrecognized, not a protocol', async () => {
@@ -166,8 +140,7 @@ describe('discoverBackend', () => {
   })
 
   it('is unrecognized (not unreachable) when only some probes fail transport', async () => {
-    const fetchFn = fakeFetch({ '/system_stats': () => json(200, [1, 2, 3]) })
-    // system_stats answered (an array - wrong shape); others refused.
+    const fetchFn = fakeFetch({ '/api/nodes': () => json(200, [1, 2, 3]) })
     expect((await discoverBackend('http://host', { fetchFn })).kind).toBe('unrecognized')
   })
 

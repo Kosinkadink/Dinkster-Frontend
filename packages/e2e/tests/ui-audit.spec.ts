@@ -129,8 +129,11 @@ test.describe('plain widget editors', () => {
   })
 })
 
-test.describe('asset and save-target editors (mock dinkster backend)', () => {
+test.describe('asset and mount editors (mock dinkster backend)', () => {
   test.beforeEach(async ({ page }) => {
+    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'ui-audit-fixture', schemaWire: 1 }, nodes: {},
+    } }))
     await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {},
     } }))
@@ -168,8 +171,8 @@ test.describe('asset and save-target editors (mock dinkster backend)', () => {
         items: [
           { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
             widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
-          { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
-            widget: { widgetType: 'SAVE_TARGET', options: {}, default: null } },
+          { kind: 'input', id: 'mount', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+            widget: { widgetType: 'MOUNT', options: {}, default: null } },
         ],
       }])
       window.__dinksterTest!.app.openDocument({
@@ -188,8 +191,8 @@ test.describe('asset and save-target editors (mock dinkster backend)', () => {
       items: [
         { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
-        { kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
-          widget: { widgetType: 'SAVE_TARGET', options: {}, default: null } },
+        { kind: 'input', id: 'mount', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+          widget: { widgetType: 'MOUNT', options: {}, default: null } },
       ],
     }]))
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'widgets')?.layout.rows.some((item) => item.kind === 'widget' && item.inputId === 'image'))).toBe(true)
@@ -232,10 +235,10 @@ test.describe('asset and save-target editors (mock dinkster backend)', () => {
     await auditSurface(page, 'editor-asset-narrow', '[data-testid=widget-modal-surface]')
   })
 
-  test('SAVE_TARGET editor passes the layout audit', async ({ page }) => {
-    await openEditor(page, 'target')
-    await expect(page.getByTestId('save-target-editor')).toBeVisible()
-    await auditSurface(page, 'editor-save-target', '[data-testid=save-target-editor]')
+  test('MOUNT editor passes the layout audit', async ({ page }) => {
+    await openEditor(page, 'mount')
+    await expect(page.getByTestId('mount-widget-editor')).toBeVisible()
+    await auditSurface(page, 'editor-mount', '[data-testid=mount-widget-editor]')
   })
 
   // Sensitivity pin: the audit must DETECT the 2026-07-25 wreckage, not just

@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe('TemplateGallery', () => {
   it('normalizes template identity searches', async () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     const backend = app.libraryBackend()!
     vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({
       templates: [
@@ -58,7 +58,7 @@ describe('TemplateGallery', () => {
   })
 
   it('groups templates by family and shows the exact missing model list', async () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     const backend = app.libraryBackend()!
     vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({
       templates: [
@@ -114,7 +114,7 @@ describe('TemplateGallery', () => {
   })
 
   it('keeps a failed template load dismissable and retries it in place', async () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     const backend = app.libraryBackend()!
     vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
       { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', family: 'dinkster.test' },
@@ -139,7 +139,7 @@ describe('TemplateGallery', () => {
   })
 
   it('explains zero mounts and grants a typed server path when mount changes are allowed', async () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     const backend = app.libraryBackend()!
     vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
       { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', family: 'dinkster.test', models: [] },
@@ -164,7 +164,7 @@ describe('TemplateGallery', () => {
   })
 
   it('keeps the zero-mount explanation but renders no path form when mount changes are not allowed', async () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     const backend = app.libraryBackend()!
     vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
       { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', family: 'dinkster.test', models: [] },

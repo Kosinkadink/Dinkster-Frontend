@@ -500,11 +500,6 @@ export function deriveNodePreviewSurface(args: {
 }
 
 export function createPreviewLoader(deps: {
-  /** /view URL routed through the execution's OWN backend. */
-  viewUrlForExecution: (
-    ref: ExecutionState['ref'],
-    file: { filename: string; subfolder?: string; type?: string },
-  ) => string
   /** /api/assets/{digest} URL routed through the execution's OWN backend. */
   assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
   /** Current editable tab's native asset URL; undefined on non-native tabs. */
@@ -751,7 +746,6 @@ export function createPreviewLoader(deps: {
   const inventoryFor = (exec: ExecutionState, runtimeIds: readonly string[]): readonly ExecutedImage[] =>
     executedImageInventory(exec, {
       runtimeIds,
-      viewUrlForExecution: deps.viewUrlForExecution,
       assetUrlForExecution: deps.assetUrlForExecution,
     })
 
@@ -790,13 +784,11 @@ export function createPreviewLoader(deps: {
       const image = selected === undefined || imageName === undefined
         ? undefined
         : {
-            key: selected.kind === 'v1'
-              ? `recorded:img:${selected.url}:name:${encodeURIComponent(imageName)}`
-              : recordedMediaKey(selected.digest as string, selected.mediaType, selected.url, imageName),
+            key: recordedMediaKey(selected.digest as string, selected.mediaType, selected.url, imageName),
             runtimeId: selected.runtimeId,
             url: selected.url,
             name: imageName,
-            mediaType: selected.kind === 'v1' ? 'image/png' : selected.mediaType,
+            mediaType: selected.mediaType,
             output: { index: selectedIndex, count: inventory.length },
             outputId: selected.outputId,
           }

@@ -3,17 +3,15 @@ import { expect, nativeTest, test } from './fixtures.js'
 const probes = ['/api/nodes', '/supervisor/status']
 
 test.beforeEach(async ({ context }) => {
-  // Context routes stand in for the server, below the fixture's page routes.
+  // Context routes stand in for the server; specs may override them per page.
   await context.route('**/*', (route) => route.fulfill({ status: 200, body: 'backend probe' }))
 })
 
-test('shared discovery fixtures honor the config and native environment opt-in', async ({ page }) => {
-  const pinned = process.env['DINKSTER_E2E_FIXTURE_MODE'] === 'legacy' ||
-    process.env['DINKSTER_E2E_USE_NATIVE'] !== '1'
+test('shared fixtures leave same-origin native discovery reachable', async ({ page }) => {
   for (const path of probes) {
     const response = await page.goto(path)
-    expect(response!.status()).toBe(pinned ? 502 : 200)
-    expect(await response!.text()).toContain(pinned ? 'probe pinned off' : 'backend probe')
+    expect(response!.status()).toBe(200)
+    expect(await response!.text()).toBe('backend probe')
   }
 })
 

@@ -3,21 +3,14 @@ import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-01-01T00:00:00Z'))
-  await page.route('/api/**', (route) =>
-    route.fulfill({ status: 502, body: 'visual fixture unavailable' }),
-  )
+  await page.route('/api/**', emptyVisualBackend)
   await page.route('/memory/**', (route) =>
     route.fulfill({ status: 502, body: 'visual fixture unavailable' }),
   )
   await page.route('/supervisor/**', (route) =>
     route.fulfill({ status: 502, body: 'visual fixture unavailable' }),
   )
-  await page.route('/system_stats', (route) =>
-    route.fulfill({ json: { system: { os: 'visual-fixture' }, devices: [] } }),
-  )
-  await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.routeWebSocket('**/api/events?*', () => {})
-  await page.routeWebSocket('**/ws?*', () => {})
 })
 
 const screenshot = async (page: Page, name: string, immediate = false): Promise<void> => {
@@ -37,6 +30,7 @@ const boot = async (page: Page): Promise<void> => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await expect(page.getByTestId('status-bar')).toHaveText(/^connected\s*\d+ node schemas/)
 }
 
 const closeGallery = async (page: Page): Promise<void> => {
@@ -184,8 +178,14 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { mounts: [] } })
   } else if (path.endsWith('/api/assets/catalog')) {
     await route.fulfill({ json: { assets: [] } })
+  } else if (path.endsWith('/api/templates')) {
+    await route.fulfill({ json: { templates: [] } })
+  } else if (path.endsWith('/api/sessions')) {
+    await route.fulfill({ json: { sessions: [] } })
   } else if (path.endsWith('/api/history/runs')) {
     await route.fulfill({ json: { records: [] } })
+  } else if (path.endsWith('/api/workflows/plan')) {
+    await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
   } else {
     await route.fulfill({ status: 502, body: 'visual fixture unavailable' })
   }
@@ -257,7 +257,7 @@ test('writable runtime argument and logging controls at desktop and compact widt
 })
 
 test('populated output viewer in single, grid and compare modes', async ({ page }) => {
-  await page.route(/\/view(?:\?|$)/, (route) => route.fulfill({
+  await page.route('/api/assets/*', (route) => route.fulfill({
     contentType: 'image/svg+xml',
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#173f6c"/><circle cx="420" cy="180" r="100" fill="#d7a86e"/></svg>',
   }))
@@ -267,7 +267,7 @@ test('populated output viewer in single, grid and compare modes', async ({ page 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'OutputVisual', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
+      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
     }])
     const diagnostics = app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-visual', root: 'g0',
@@ -282,14 +282,20 @@ test('populated output viewer in single, grid and compare modes', async ({ page 
     store.register(ref, compiled.artifact, 0)
     store.apply({ kind: 'started', execution: ref, timestamp: 0 })
     store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'save', timestamp: 0,
-      output: { images: [{ filename: 'coastline.png' }, { filename: 'sunset.png' }] } })
+      output: { images: { typeId: 'list<ASSET>', elements: ['coastline.png', 'sunset.png'].map((name, index) => {
+        const digest = `blake3:${'ab'[index]!.repeat(64)}`
+        return { typeId: 'ASSET', fingerprint: digest, meta: { digest, name, mediaType: 'image/png' } }
+      }) } } })
     store.apply({ kind: 'completed', execution: ref, timestamp: 0 })
   })
   await openRail(page, 'Outputs')
+  await expect(page.locator('.output-thumbnail')).toHaveCount(2)
   await page.locator('.output-thumbnail').first().click()
   const viewer = page.getByTestId('output-viewer')
   await expect(viewer.locator('img')).toBeVisible()
   await expect(viewer.locator('.output-availability')).toContainText('Available')
+  await expect(viewer).toContainText('Content-addressed asset')
+  await expect(viewer).toContainText('coastline.png')
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
     await viewer.getByRole('button', { name: 'Single', exact: true }).click()
@@ -445,6 +451,8 @@ test('shell and canvas visual matrix', async ({ page }) => {
     app.templateGalleryOpen.set(true)
   })
   await expect(page.getByTestId('template-gallery')).toBeVisible()
+  await expect(page.getByTestId('template-gallery').getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('template-gallery').getByRole('alert')).toHaveCount(0)
   await screenshot(page, '01-starter-template-gallery')
   await closeGallery(page)
   await screenshot(page, '02-shell-and-top-bar')
@@ -474,7 +482,7 @@ test('shell and canvas visual matrix', async ({ page }) => {
         items: [
           {
             kind: 'output',
-            id: 'out0',
+            id: 'IMAGE',
             type: { kind: 'concrete', name: 'IMAGE' },
           },
         ],
@@ -887,10 +895,11 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
   await closeGallery(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
-      backends: { get(): { id: string }[] }
-      removeBackend(id: string, persist: boolean): void
+      backends: { set(value: never[]): void }
+      backendsTick: { update(change: (value: number) => number): void }
     }
-    for (const backend of app.backends.get()) app.removeBackend(backend.id, false)
+    app.backends.set([])
+    app.backendsTick.update((value) => value + 1)
   })
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
@@ -1148,6 +1157,38 @@ test('Control surfaces explain empty bindings and invalid configuration and pres
 test('Badge popover empty and unavailable states preserve focus and actions', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
+  await page.evaluate(() => {
+    const bridge = window.__dinksterTest!
+    bridge.app.registerSchemas([
+      {
+        type: 'EmptyImage', displayName: 'Empty Image', category: 'visual', source: 'visual', isOutputNode: false,
+        items: [
+          ...['width', 'height', 'batch_size', 'color'].map((id) => ({
+            kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
+            widget: { widgetType: 'INT', options: {} },
+          })),
+          { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
+        ],
+      },
+      {
+        type: 'PreviewImage', displayName: 'Preview Image', category: 'visual', source: 'visual', isOutputNode: true,
+        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+      },
+    ])
+    const diagnostics = bridge.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'badge-background', root: 'root',
+      graphs: { root: { id: 'root', name: 'Badge background', nodes: {
+        source: { id: 'source', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
+        preview: { id: 'preview', type: 'PreviewImage', values: {} },
+      }, links: { image: { id: 'image', from: { node: 'source', port: 'image' }, to: { node: 'preview', port: 'images' } } }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+      view: { graphs: { root: { nodes: {
+        source: { position: { x: 80, y: 120 } }, preview: { position: { x: 300, y: 120 } },
+      } } } },
+    }, 'Badge background')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    bridge.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
   for (const [name, badge, text] of [
     ['error', 'core.error', 'No error details recorded.'],
     ['info', 'core.log.info', 'No log records for this run.'],
@@ -1168,8 +1209,8 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       const dispose = render(() => BadgePopover({
         anchor: { x: 32, y: 96, nodeId: 'source', badge: { id: badge, glyph: '!', color: '#f00' } },
         errors: () => [], nodeLogs: () => [], problems: () => [],
-        subgraphInfo: () => undefined, replacementInfo: () => undefined,
-        onOpenSubgraph: () => {}, onApplyReplacement: () => {}, onClose: () => {},
+        subgraphInfo: () => undefined, deprecationInfo: () => undefined,
+        onOpenSubgraph: () => {}, onClose: () => {},
         onDismissError: () => { host.dataset['action'] = 'dismiss' },
         onOpenExecutionLog: () => { host.dataset['action'] = 'log' },
       }), host)
@@ -1877,6 +1918,10 @@ test('modal visual matrix', async ({ page }) => {
     ['desktop-management', '30-desktop-management'],
   ] as const) {
     await openModal(page, id)
+    if (id === 'collab') {
+      await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
+      await expect(page.getByTestId('collab-list-error')).toHaveCount(0)
+    }
     await screenshot(page, name)
     await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
       readonly modalPanel: { set(value: string): void }

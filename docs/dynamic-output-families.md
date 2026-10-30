@@ -14,12 +14,6 @@ missing-port problems until they are disconnected or the count is restored.
 Undo restores the former output rows and makes the preserved links valid again.
 Copy and paste preserve the stored count and exact member addresses.
 
-Replacement rules can copy a whole count-bound output family or map ordinary
-source outputs to explicit members. Whole-family copies preserve every member
-suffix, link, and named-net source. Explicit mappings must list canonical
-zero-based suffixes and set the target count to the exact member total. Count,
-bounds, and shared member-budget failures block the replacement.
-
 Subgraph boundaries project count-bound output families with the same
 canonical suffixes and output indexes. A definition-local count produces a
 fixed instance family. Exposing its count input as a promoted boundary widget

@@ -14,25 +14,20 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
-import { importLitegraph } from '../src/format/import-litegraph.js'
+import { importLitegraph, type ComfyNodeUpgradeTable } from '../src/format/import-litegraph.js'
 import { exportVirtualNodesToLitegraph } from '../src/format/export-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
-import { synthesizeAliasRules } from '../src/replace/alias-rules.js'
-import { createReplacementRegistry } from '../src/replace/registry.js'
-import { scanReplacements } from '../src/replace/scan.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import type { CountBoundOutputAutogrowSpec, InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
 
-const objectInfo = readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>
-const { schemas } = parseObjectInfo(objectInfo)
 const resolve = (type: string) => schemas.get(type)
 const resizeImageMaskSchema = parseDinksterSchema(
   'comfy.ResizeImageMaskNode',
@@ -123,38 +118,37 @@ const sdOutput = (id: string, type: string): OutputSpec => ({
 })
 const sdSchema = (
   type: string,
-  alias: string,
+  displayName: string,
   items: readonly (InputSpec | OutputSpec)[],
   isOutputNode = false,
 ): NodeSchema => ({
   type,
-  displayName: alias,
+  displayName,
   category: 'test',
   source: 'v3',
   isOutputNode,
   items,
-  aliases: [alias],
 })
 
 const sd15Schemas = [
-  sdSchema('dinkster.load_checkpoint', 'CheckpointLoaderSimple', [
+  sdSchema('CheckpointLoaderSimple', 'CheckpointLoaderSimple', [
     sdInput('ckpt_name', 'STRING', 'STRING'),
     sdOutput('model', 'core.model'),
     sdOutput('clip', 'core.clip'),
     sdOutput('vae', 'core.vae'),
   ]),
-  sdSchema('dinkster.clip_text_encode', 'CLIPTextEncode', [
+  sdSchema('CLIPTextEncode', 'CLIPTextEncode', [
     sdInput('clip', 'core.clip'),
     sdInput('text', 'STRING', 'STRING'),
     sdOutput('conditioning', 'core.conditioning'),
   ]),
-  sdSchema('dinkster.empty_latent_image', 'EmptyLatentImage', [
+  sdSchema('EmptyLatentImage', 'EmptyLatentImage', [
     sdInput('width', 'core.integer', 'INT'),
     sdInput('height', 'core.integer', 'INT'),
     sdInput('batch_size', 'core.integer', 'INT'),
     sdOutput('latent', 'LATENT'),
   ]),
-  sdSchema('dinkster.ksampler', 'KSampler', [
+  sdSchema('KSampler', 'KSampler', [
     sdInput('model', 'core.model'),
     sdInput('positive', 'core.conditioning'),
     sdInput('negative', 'core.conditioning'),
@@ -167,37 +161,25 @@ const sd15Schemas = [
     sdInput('denoise', 'FLOAT', 'FLOAT'),
     sdOutput('latent', 'LATENT'),
   ]),
-  sdSchema('dinkster.vae_decode', 'VAEDecode', [
+  sdSchema('VAEDecode', 'VAEDecode', [
     sdInput('samples', 'LATENT'),
     sdInput('vae', 'core.vae'),
     sdOutput('image', 'IMAGE'),
   ]),
-  sdSchema('dinkster.save_image', 'SaveImage', [
+  sdSchema('SaveImage', 'SaveImage', [
     sdInput('images', 'IMAGE'),
     sdInput('filename_prefix', 'STRING', 'STRING'),
   ], true),
-  sdSchema('comfy.PreviewImage', 'PreviewImage', [
+  sdSchema('PreviewImage', 'PreviewImage', [
     sdInput('images', 'IMAGE'),
     sdOutput('images', 'IMAGE'),
   ], true),
 ] as const
 
 const sd15Resolve = (type: string): NodeSchema | undefined =>
-  sd15Schemas.find((schema) => schema.type === type || schema.aliases?.includes(type))
+  sd15Schemas.find((schema) => schema.type === type)
 
-const trellis2Aliases = {
-  EmptyTrellis2LatentStructure: 'dinkster.empty_trellis2_latent_structure',
-  Trellis2Conditioning: 'dinkster.trellis2_conditioning',
-  Pixal3DConditioning: 'dinkster.pixal3d_conditioning',
-  VaeDecodeStructureTrellis2: 'dinkster.vae_decode_structure_trellis2',
-  Trellis2ShapeStage: 'dinkster.trellis2_shape_stage',
-  Trellis2UpsampleStage: 'dinkster.trellis2_upsample_stage',
-  VaeDecodeShapeTrellis: 'dinkster.vae_decode_shape_trellis',
-  Trellis2TextureStage: 'dinkster.trellis2_texture_stage',
-  VaeDecodeTextureTrellis: 'dinkster.vae_decode_texture_trellis',
-} as const
-
-const schemaFromLitegraphNode = (node: any, type = node.type, aliases?: readonly string[]): NodeSchema => {
+const schemaFromLitegraphNode = (node: any): NodeSchema => {
   const connectedInputs: InputSpec[] = (node.inputs ?? []).map((input: any) => sdInput(input.name, input.type ?? '*'))
   const connectedNames = new Set(connectedInputs.map((input) => input.id))
   const widgetInputs = Object.keys(node.widgets_values_named ?? {})
@@ -205,13 +187,12 @@ const schemaFromLitegraphNode = (node: any, type = node.type, aliases?: readonly
     .map((name) => sdInput(name, 'core.value', 'UNKNOWN'))
   const outputs = (node.outputs ?? []).map((output: any) => sdOutput(output.name.toLowerCase(), output.type ?? '*'))
   return {
-    type,
+    type: node.type,
     displayName: node.type,
     category: 'test fixture',
     source: 'v3',
     isOutputNode: outputs.length === 0,
     items: [...connectedInputs, ...widgetInputs, ...outputs],
-    ...(aliases ? { aliases } : {}),
   }
 }
 
@@ -247,6 +228,38 @@ const sd15Workflow = (): JsonObject => workflow(
 // -- basics -------------------------------------------------------------------
 
 describe('basic translation', () => {
+  it('retains an owned original workflow across native export and reopen', () => {
+    const source = basicPair()
+    const expected = JSON.parse(JSON.stringify(source)) as JsonObject
+    const imported = importLitegraph(source, resolve)
+    expect(imported.document!.ext?.['importer.comfyWorkflow']).toEqual(expected)
+    ;(source as Record<string, unknown>)['extra'] = { changed: true }
+    const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
+    expect(reopened.document!.ext?.['importer.comfyWorkflow']).toEqual(expected)
+    expect(Object.isFrozen(imported.document!.ext?.['importer.comfyWorkflow'])).toBe(true)
+  })
+
+  it('refuses a custom resolver substituting another class schema', () => {
+    const input = workflow([
+      lgNode(1, 'AuthoredSource', { outputs: [{ name: 'IMAGE' }] }),
+      lgNode(2, 'AuthoredSink', { inputs: [{ name: 'images' }], widgets_values: ['kept'] }),
+    ], [lgLink(1, 1, 0, 2, 0)])
+    const substituted = sdSchema('DifferentClass', 'Other class', [
+      sdInput('renamed', 'STRING', 'STRING'), sdOutput('renamed_output', 'IMAGE'),
+    ])
+    const imported = importLitegraph(input, () => substituted)
+    const graph = imported.document!.graphs.g0!
+    expect(Object.values(graph.nodes).map((node) => node.type)).toEqual(['AuthoredSource', 'AuthoredSink'])
+    expect(graph.nodes.n2!.values).toEqual({})
+    expect(graph.nodes.n2!.ext?.['importer.rawWidgetValues']).toEqual(['kept'])
+    expect(graph.links.l1).toMatchObject({ from: { node: 'n1', port: 'IMAGE' }, to: { node: 'n2', port: 'images' } })
+    expect(codesOf(imported.diagnostics)).toContain('import.schema.missing')
+    const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
+    expect(reopened.document).toEqual(imported.document)
+    const compiled = compile({ document: reopened.document!, revision: 0, resolve: () => undefined, scope: { kind: 'full' }, connection: asConnectionId('exact'), schemaHash: 'exact' })
+    expect(compiled.ok).toBe(false)
+  })
+
   it('imports and compiles the official TRELLIS.2 Pixal3D workflow', () => {
     const official = readJson('fixtures/workflows/3d_pixal3d_trellis2_image_to_model.json') as JsonObject
     const nodes = (official as any).nodes as any[]
@@ -255,22 +268,19 @@ describe('basic translation', () => {
     const fixtureSchemas = new Map<string, NodeSchema>()
     for (const node of nodes) {
       if (resolve(node.type) || node.type === 'Note' || node.type === 'MarkdownNote') continue
-      const canonical = trellis2Aliases[node.type as keyof typeof trellis2Aliases]
-      const schema = schemaFromLitegraphNode(node, canonical ?? node.type, canonical ? [node.type] : undefined)
+      const schema = schemaFromLitegraphNode(node)
       fixtureSchemas.set(schema.type, schema)
-      fixtureSchemas.set(node.type, schema)
     }
     const officialResolve = (type: string) => fixtureSchemas.get(type) ?? resolve(type)
-    const maintainedAlias = (type: string) => type in trellis2Aliases
-    const imported = importLitegraph(official, officialResolve, maintainedAlias)
+    const imported = importLitegraph(official, officialResolve)
 
     expect(errorsOf(imported.diagnostics)).toEqual([])
     const graph = imported.document!.graphs[imported.document!.root]!
     expect(Object.keys(graph.nodes)).toHaveLength(66)
-    for (const [alias, canonical] of Object.entries(trellis2Aliases)) {
-      const authoredCount = nodes.filter((node) => node.type === alias).length
-      const expectedType = resolve(alias) === undefined ? canonical : alias
-      expect(Object.values(graph.nodes).filter((node) => node.type === expectedType)).toHaveLength(authoredCount)
+    for (const type of new Set<string>(nodes.map((node) => node.type))) {
+      if (type === 'Note' || type === 'MarkdownNote') continue
+      const authoredCount = nodes.filter((node) => node.type === type).length
+      expect(Object.values(graph.nodes).filter((node) => node.type === type)).toHaveLength(authoredCount)
     }
 
     const pathTypes = Object.values(graph.nodes).map((node) => node.type)
@@ -344,20 +354,20 @@ describe('basic translation', () => {
     expect(g.nodes['n2']!.title).toBeUndefined()
   })
 
-  it('canonicalizes a real SD1.5 alias graph and positional ports at ingress', () => {
+  it('preserves SD1.5 classes while mapping positional ports through exact schemas', () => {
     const imported = importLitegraph(sd15Workflow(), sd15Resolve)
     expect(imported.diagnostics).toEqual([])
     const document = imported.document!
     const graph = document.graphs.g0!
     expect(Object.values(graph.nodes).map((node) => node.type)).toEqual([
-      'dinkster.load_checkpoint',
-      'dinkster.clip_text_encode',
-      'dinkster.clip_text_encode',
-      'dinkster.empty_latent_image',
-      'dinkster.ksampler',
-      'dinkster.vae_decode',
-      'dinkster.save_image',
-      'comfy.PreviewImage',
+      'CheckpointLoaderSimple',
+      'CLIPTextEncode',
+      'CLIPTextEncode',
+      'EmptyLatentImage',
+      'KSampler',
+      'VAEDecode',
+      'SaveImage',
+      'PreviewImage',
     ])
     expect(graph.links.l4).toMatchObject({
       from: { node: 'n2', port: 'conditioning' },
@@ -375,14 +385,10 @@ describe('basic translation', () => {
       from: { node: 'n6', port: 'image' },
       to: { node: 'n8', port: 'images' },
     })
-    expect(graph.nodes.n8!.type).toBe('comfy.PreviewImage')
+    expect(graph.nodes.n8!.type).toBe('PreviewImage')
     expect(graph.nodes.n1!.values).toEqual({ ckpt_name: 'sd15.safetensors' })
     expect(graph.nodes.n2!.values).toEqual({ text: 'positive' })
     expect(graph.nodes.n3!.values).toEqual({ text: 'negative' })
-
-    const replacements = createReplacementRegistry()
-    for (const rule of synthesizeAliasRules(sd15Schemas)) expect(replacements.register('core', rule)).toEqual([])
-    expect(scanReplacements(document, replacements, sd15Resolve)).toEqual([])
 
     const reopened = loadDocument(JSON.parse(JSON.stringify(document)))
     expect(reopened.diagnostics).toEqual([])
@@ -398,19 +404,19 @@ describe('basic translation', () => {
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
     if (!compiled.ok) return
     expect(compiled.artifact.diagnostics).toEqual([])
-    expect(compiled.artifact.prompt['n2']!.class_type).toBe('dinkster.clip_text_encode')
+    expect(compiled.artifact.prompt['n2']!.class_type).toBe('CLIPTextEncode')
     expect(compiled.artifact.prompt['n5']!.inputs['positive']).toEqual(['n2', 0])
     expect(compiled.artifact.prompt['n5']!.inputs['negative']).toEqual(['n3', 0])
   })
 
   it('preserves separate MiniMax H3 positive and negative conditioning nodes', () => {
     const h3Schemas = [
-      sdSchema('test.h3_sources', 'H3Sources', [
+      sdSchema('H3Sources', 'H3Sources', [
         sdOutput('clip', 'core.clip'),
         sdOutput('vae', 'core.vae'),
         sdOutput('model', 'core.model'),
       ]),
-      sdSchema('comfy.MiniMaxH3ImageToVideo', 'MiniMaxH3ImageToVideo', [
+      sdSchema('MiniMaxH3ImageToVideo', 'MiniMaxH3ImageToVideo', [
         sdInput('clip', 'core.clip'),
         sdInput('vae', 'core.vae'),
         sdInput('prompt', 'STRING', 'STRING'),
@@ -420,16 +426,16 @@ describe('basic translation', () => {
         sdOutput('conditioning', 'core.conditioning'),
         sdOutput('latent', 'LATENT'),
       ]),
-      sdSchema('comfy.CFGGuider', 'CFGGuider', [
+      sdSchema('CFGGuider', 'CFGGuider', [
         sdInput('model', 'core.model'),
         sdInput('positive', 'core.conditioning'),
         sdInput('negative', 'core.conditioning'),
         sdOutput('guider', 'core.guider'),
       ]),
-      sdSchema('test.guider_sink', 'GuiderSink', [sdInput('guider', 'core.guider')], true),
+      sdSchema('GuiderSink', 'GuiderSink', [sdInput('guider', 'core.guider')], true),
     ] as const
     const h3Resolve = (type: string): NodeSchema | undefined =>
-      h3Schemas.find((schema) => schema.type === type || schema.aliases?.includes(type))
+      h3Schemas.find((schema) => schema.type === type)
     const imported = importLitegraph(workflow([
       lgNode(1, 'H3Sources', {
         outputs: [
@@ -472,11 +478,11 @@ describe('basic translation', () => {
     const document = imported.document!
     const graph = document.graphs.g0!
     expect(Object.values(graph.nodes).map((node) => node.type)).toEqual([
-      'test.h3_sources',
-      'comfy.MiniMaxH3ImageToVideo',
-      'comfy.MiniMaxH3ImageToVideo',
-      'comfy.CFGGuider',
-      'test.guider_sink',
+      'H3Sources',
+      'MiniMaxH3ImageToVideo',
+      'MiniMaxH3ImageToVideo',
+      'CFGGuider',
+      'GuiderSink',
     ])
     expect(graph.nodes.n2!.values).toEqual({
       prompt: 'cinematic sunrise', width: 1344, height: 768, length: 124,
@@ -509,11 +515,10 @@ describe('basic translation', () => {
     expect(compiled.artifact.prompt['n4']!.inputs['negative']).toEqual(['n3', 0])
   })
 
-  it('keeps an unresolved alias raw and diagnosed', () => {
-    const alias = sd15Schemas[1]!
+  it('keeps an unresolved class raw and diagnosed', () => {
     const { document, diagnostics } = importLitegraph(
       workflow([lgNode(1, 'CLIPTextEncode', { widgets_values: ['text'] })]),
-      (type) => type === alias.type ? alias : undefined,
+      () => undefined,
     )
     expect(document!.graphs.g0!.nodes.n1!.type).toBe('CLIPTextEncode')
     expect(document!.graphs.g0!.nodes.n1!.ext?.['importer.rawWidgetValues']).toEqual(['text'])
@@ -521,21 +526,21 @@ describe('basic translation', () => {
   })
 
   it('keeps mixed converted-widget sockets from shifting ordinary positional inputs', () => {
-    const mixed = sdSchema('dinkster.mixed', 'Mixed', [
+    const mixed = sdSchema('Mixed', 'Mixed', [
       sdInput('model', 'core.model'),
       sdInput('seed', 'core.integer', 'INT'),
       sdInput('positive', 'core.conditioning'),
       { ...sdInput('forced', 'FLOAT', 'FLOAT'), forceInput: true },
       sdInput('negative', 'core.conditioning'),
     ])
-    const source = sdSchema('dinkster.sources', 'Sources', [
+    const source = sdSchema('Sources', 'Sources', [
       sdOutput('model', 'core.model'),
       sdOutput('integer', 'core.integer'),
       sdOutput('conditioning', 'core.conditioning'),
       sdOutput('float', 'FLOAT'),
     ])
     const localResolve = (type: string): NodeSchema | undefined =>
-      [mixed, source].find((schema) => schema.type === type || schema.aliases?.includes(type))
+      [mixed, source].find((schema) => schema.type === type)
     const json = workflow(
       [
         lgNode(1, 'Sources', { outputs: [{ name: 'M' }, { name: 'I' }, { name: 'C' }, { name: 'F' }] }),
@@ -791,6 +796,166 @@ describe('serialized output slot identity', () => {
 
 // -- widget value mapping -----------------------------------------------------
 
+describe('versioned node widget upgrades', () => {
+  it.each([['auto', 'auto'], ['mp4', 'h264'], ['webm', 'av1']])('recognizes unlisted SaveVideo %s/%s layouts without inventing a source version', (format, codec) => {
+    const encoding: InputSpec = {
+      ...sdInput('encoding', 'COMBO'), optional: true,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
+    }
+    const codecInput: InputSpec = {
+      ...sdInput('codec', 'COMBO'), optional: true,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'auto', inputs: [] }, { key: 'h264', inputs: [encoding] }, { key: 'av1', inputs: [encoding] },
+      ] },
+    }
+    const schema = sdSchema('SaveVideo', 'Save Video', [
+      sdInput('filename_prefix', 'STRING', 'STRING'),
+      { ...sdInput('format', 'COMBO'), dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'auto', inputs: [codecInput] }, { key: 'mp4', inputs: [codecInput] }, { key: 'webm', inputs: [{ ...codecInput, dynamic: {
+          ...codecInput.dynamic!, kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }, { key: 'av1', inputs: [encoding] }],
+        } }] },
+      ] } },
+      codecInput,
+      { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true, adjacentTo: 'filename_prefix' },
+    ], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    for (const version of [undefined, '0.28.0', 'unknown']) for (const { widgets_values, recognized } of [
+      { widgets_values: ['video/unversioned', format, codec], recognized: true },
+      { widgets_values: ['video/unversioned', 'mp4'], recognized: false },
+      { widgets_values: ['video/unversioned', 'webm', 'h264'], recognized: false },
+      { widgets_values: ['video/unversioned', 'avi', codec], recognized: false },
+      { widgets_values: ['video/unversioned', format, 'vp9'], recognized: false },
+      { widgets_values: [format, 'video/unversioned', codec], recognized: false },
+      { widgets_values: ['extra', 'video/unversioned', format, codec], recognized: false },
+    ]) {
+      const source = workflow([lgNode(1, 'SaveVideo', { properties: version === undefined ? {} : { ver: version }, widgets_values })])
+      const before = JSON.stringify(source)
+      const imported = importLitegraph(source, localResolve)
+      expect(JSON.stringify(source)).toBe(before)
+      expect(imported.document!.ext!['importer.comfyWorkflow']).toEqual(source)
+      expect(Object.keys(imported.document!.graphs.g0!.nodes)).toEqual(['n1'])
+      expect(codesOf(imported.diagnostics).includes('import.widgets.layoutInferred')).toBe(recognized)
+      const marker = imported.document!.graphs.g0!.nodes.n1!.ext?.['importer.inferredWidgetLayout']
+      if (recognized) {
+        expect(marker).toEqual({ layout: 'SaveVideo:filename_prefix,format,codec', sourceVersion: version ?? null })
+        expect(imported.diagnostics.find(d => d.code === 'import.widgets.layoutInferred')!.message).toContain(version === undefined ? 'absent' : JSON.stringify(version))
+      } else expect(marker).toBeUndefined()
+      const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'versionless-save-video' })
+      expect(compiled.ok).toBe(recognized)
+      if (compiled.ok) {
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual({
+          filename_prefix: 'video/unversioned', format, 'format.codec': codec, codec,
+          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto', 'codec.encoding': 'auto' }),
+        })
+      }
+    }
+    for (const items of [
+      [schema.items[1]!, schema.items[0]!, ...schema.items.slice(2)],
+      [sdInput('extra', 'STRING', 'STRING'), ...schema.items],
+      [sdInput('filename_prefix', 'INT', 'INT'), ...schema.items.slice(1)],
+    ]) {
+      const drifted = { ...schema, items }
+      const resolveDrifted = (type: string) => type === schema.type ? drifted : undefined
+      const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: '0.28.0' }, widgets_values: ['video/unversioned', format, codec] })])
+      const imported = importLitegraph(source, resolveDrifted)
+      expect(codesOf(imported.diagnostics)).not.toContain('import.widgets.layoutInferred')
+      expect(imported.document!.graphs.g0!.nodes.n1!.ext?.['importer.inferredWidgetLayout']).toBeUndefined()
+      const compiled = compile({ document: imported.document!, revision: 1, resolve: resolveDrifted,
+        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'drifted-save-video' })
+      expect(compiled.ok).toBe(false)
+    }
+  })
+
+  it.each(['auto', 'h264', 'av1'])('upgrades SaveVideo 0.3.68 %s choices without shifting the prefix or changing the source', (codec) => {
+    const encoding: InputSpec = {
+      ...sdInput('encoding', 'COMBO'), optional: true,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
+    }
+    const codecInput: InputSpec = {
+      ...sdInput('codec', 'COMBO'), optional: true,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'auto', inputs: [] }, { key: 'h264', inputs: [encoding] }, { key: 'av1', inputs: [encoding] },
+      ] },
+    }
+    const schema = sdSchema('SaveVideo', 'SaveVideo', [
+      sdInput('filename_prefix', 'STRING', 'STRING'),
+      { ...sdInput('format', 'COMBO'), dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'mp4', inputs: [codecInput] }] } },
+      codecInput,
+    ], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    for (const version of ['0.3.68', 'unknown']) for (const expanded of [false, true]) {
+      const widgets_values = ['video/Kandinsky5', 'mp4', codec, ...(expanded ? [...(codec === 'auto' ? [] : ['auto']), 'auto'] : [])]
+      const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: version }, widgets_values })])
+      const before = JSON.stringify(source)
+      const imported = importLitegraph(source, localResolve)
+      expect(JSON.stringify(source)).toBe(before)
+      const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-video-upgrade' })
+      expect(compiled.ok).toBe(true)
+      if (compiled.ok) {
+        const inferred = version === 'unknown' && !expanded
+        expect(codesOf(imported.diagnostics)).toEqual(inferred ? ['import.widgets.layoutInferred'] : [])
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual({
+          filename_prefix: 'video/Kandinsky5', format: 'mp4', 'format.codec': codec,
+          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }), codec: inferred ? codec : 'auto',
+          ...(inferred && codec !== 'auto' ? { 'codec.encoding': 'auto' } : {}),
+        })
+      }
+    }
+    const widgets_values = {
+      filename_prefix: 'video/keyed', format: 'mp4', 'format.codec': codec,
+      ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }),
+      codec: 'av1', 'codec.encoding': 'auto',
+    }
+    const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: '0.3.68' }, widgets_values })])
+    const before = JSON.stringify(source)
+    const imported = importLitegraph(source, localResolve)
+    expect(JSON.stringify(source)).toBe(before)
+    expect(imported.diagnostics).toEqual([])
+    const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-video-keyed' })
+    expect(compiled.ok).toBe(true)
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs).toEqual(widgets_values)
+  })
+
+  it('selects the saved class and version without rewriting nodes, links or source JSON', () => {
+    const producer: NodeSchema = {
+      type: 'UpgradeSource', displayName: 'Upgrade source', category: 'test', source: 'v3', isOutputNode: false,
+      items: [sdInput('first', 'INT', 'INT'), sdInput('second', 'INT', 'INT'), sdOutput('value', 'INT')],
+    }
+    const consumer: NodeSchema = {
+      type: 'UpgradeSink', displayName: 'Upgrade sink', category: 'test', source: 'v3', isOutputNode: true,
+      items: [sdInput('value', 'INT')],
+    }
+    const upgrades: ComfyNodeUpgradeTable = new Map([['UpgradeSource', new Map([
+      ['0.1.0', (values) => Array.isArray(values) ? [values[1]!, values[0]!] : []],
+    ])]])
+    const resolveNative = (type: string) => type === producer.type ? producer : type === consumer.type ? consumer : undefined
+    for (const nested of [false, true]) for (const version of ['0.1.0', '0.2.0', undefined]) {
+      const graphSource = workflow([
+        lgNode(1, producer.type, { widgets_values: [7, 29], properties: version ? { ver: version } : {}, outputs: [{ name: 'value', links: [1] }] }),
+        lgNode(2, consumer.type, { properties: { ver: '0.1.0' }, inputs: [{ name: 'value', link: 1 }] }),
+      ], [lgLink(1, 1, 0, 2, 0)])
+      const source = nested ? workflow([], [], { definitions: { subgraphs: [
+        { ...graphSource, id: 'inner', name: 'inner', inputs: [], outputs: [] },
+      ] } }) : graphSource
+      const before = JSON.stringify(source)
+      const result = importLitegraph(source, resolveNative, upgrades)
+      expect(result.diagnostics).toEqual([])
+      expect(JSON.stringify(source)).toBe(before)
+      const graph = result.document!.graphs[nested ? 'inner' : 'g0']!
+      expect(Object.keys(graph.nodes)).toEqual(['n1', 'n2'])
+      expect(Object.values(graph.nodes).map((node) => node.type)).toEqual(['UpgradeSource', 'UpgradeSink'])
+      expect(graph.nodes.n1!.values).toEqual(version === '0.1.0' ? { first: 29, second: 7 } : { first: 7, second: 29 })
+      expect(graph.nodes.n2!.values).toEqual({})
+      expect(Object.values(graph.links)).toEqual([
+        { id: 'l1', from: { node: 'n1', port: 'value' }, to: { node: 'n2', port: 'value' } },
+      ])
+    }
+  })
+})
+
 describe('positional widget mapping', () => {
   const ksampler = (widgets: unknown[]) =>
     workflow([
@@ -807,7 +972,7 @@ describe('positional widget mapping', () => {
     ])
 
   it('does not consume a positional widget value for a forceInput socket', () => {
-    const schema = sdSchema('dinkster.force_then_label', 'ForceThenLabel', [
+    const schema = sdSchema('ForceThenLabel', 'ForceThenLabel', [
       { ...sdInput('forced', 'FLOAT', 'FLOAT'), forceInput: true },
       sdInput('label', 'STRING', 'STRING'),
     ])
@@ -818,11 +983,73 @@ describe('positional widget mapping', () => {
           widgets_values: ['kept'],
         }),
       ]),
-      (type) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined,
+      (type) => type === schema.type ? schema : undefined,
     )
     expect(diagnostics).toEqual([])
     expect(document!.graphs.g0!.nodes.n1!.values).toEqual({ label: 'kept' })
   })
+
+  it('does not assign a saved resolution multiple to the non-serializing preview', () => {
+    const schema = sdSchema('ResolutionSelector', 'Resolution Selector', [
+      sdInput('aspect_ratio', 'COMBO', 'COMBO'),
+      sdInput('megapixels', 'FLOAT', 'FLOAT'),
+      { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+      { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
+    ], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    const source = workflow([lgNode(1, schema.type, { widgets_values: ['1:1 (Square)', 0.4, 32] })])
+    const before = JSON.stringify(source)
+    const imported = importLitegraph(source, localResolve)
+    expect(JSON.stringify(source)).toBe(before)
+    expect(imported.diagnostics).toEqual([])
+    expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ aspect_ratio: '1:1 (Square)', megapixels: 0.4, multiple: 32 })
+    const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'resolution-preview' })
+    expect(compiled.ok).toBe(true)
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs.multiple).toBe(32)
+  })
+
+  it('skips a non-serializing preview in an Autogrow member template', () => {
+    const schema = sdSchema('FamilyPreview', 'Family preview', [{
+      ...sdInput('values', '*'), optional: true,
+      dynamic: {
+        kind: 'autogrow', materialization: 'wire15',
+        naming: { kind: 'names', names: ['a'], min: 1 },
+        template: [
+          { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+          { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
+        ],
+      },
+    }], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [32] })]), localResolve)
+    expect(imported.diagnostics).toEqual([])
+    expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ 'values.a.multiple': 32 })
+    const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'family-preview' })
+    expect(compiled.ok).toBe(true)
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs['values.a.multiple']).toBe(32)
+  })
+
+  it.each([[false, 'fixed'], [true, 'randomize']] as const)(
+    'accepts a legacy boolean controller %s before a non-serializing preview',
+    (legacy, mode) => {
+      const schema = sdSchema('SeedPreview', 'Seed preview', [
+        { ...sdInput('seed', 'INT'), widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } },
+        { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+      ])
+      const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [42, legacy] })]),
+        (type) => type === schema.type ? schema : undefined)
+      expect(imported.diagnostics).toEqual([])
+      expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ seed: 42 })
+      expect(imported.document!.graphs.g0!.nodes.n1!.controllers).toEqual({ seed: mode })
+      const withBoolean = { ...schema, items: [...schema.items, sdInput('enabled', 'BOOLEAN', 'BOOLEAN')] }
+      const ambiguous = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [42, legacy] })]),
+        (type) => type === schema.type ? withBoolean : undefined)
+      expect(ambiguous.document).toBeUndefined()
+      expect(codesOf(errorsOf(ambiguous.diagnostics))).toContain('import.controller.ambiguousBoolean')
+    },
+  )
 
   it('maps the controller extra after seed into node.controllers', () => {
     // KSampler widgets: seed, control_after_generate, steps, cfg,
@@ -844,6 +1071,20 @@ describe('positional widget mapping', () => {
     expect(n.controllers).toEqual({ seed: 'randomize' })
   })
 
+  it.each([[false, 'fixed'], [true, 'randomize']] as const)(
+    'consumes the legacy boolean controller %s without shifting later values',
+    (legacy, mode) => {
+      const { document, diagnostics } = importLitegraph(
+        ksampler([42, legacy, 23, 7.5, 'euler', 'normal', 0.8]),
+        resolve,
+      )
+      expect(diagnostics).toEqual([])
+      const node = document!.graphs[document!.root]!.nodes.n1!
+      expect(node.controllers).toEqual({ seed: mode })
+      expect(node.values).toEqual({ seed: 42, steps: 23, cfg: 7.5, sampler_name: 'euler', scheduler: 'normal', denoise: 0.8 })
+    },
+  )
+
   it('tolerates a missing controller extra (older serializations)', () => {
     const { document, diagnostics } = importLitegraph(
       ksampler([42, 20, 8.0, 'euler', 'normal', 1.0]),
@@ -855,6 +1096,27 @@ describe('positional widget mapping', () => {
     expect(n.values['steps']).toBe(20)
     expect(n.controllers).toBeUndefined()
     expect(errorsOf(diagnostics)).toEqual([])
+  })
+
+  it('refuses ambiguous boolean controllers rather than shifting a following BOOLEAN input', () => {
+    const seed = { ...sdInput('seed', 'INT', 'INT'), widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } }
+    const enabled = sdInput('enabled', 'BOOLEAN', 'BOOLEAN')
+    for (const nested of [false, true]) {
+      const schema = sdSchema('BooleanAfterSeed', 'Boolean after seed', nested ? [
+        { ...sdInput('mode', 'COMBO'), dynamic: { kind: 'dynamicCombo', options: [{ key: 'seeded', inputs: [seed] }] } }, enabled,
+      ] : [seed, enabled])
+      const resolveSchema = (type: string) => type === schema.type ? schema : undefined
+      const prefix = nested ? ['seeded'] : []
+      for (const tail of [[true], [false], [false, true]]) {
+        const result = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [...prefix, 42, ...tail] })]), resolveSchema)
+        expect(result.document).toBeUndefined()
+        expect(codesOf(errorsOf(result.diagnostics))).toContain('import.controller.ambiguousBoolean')
+      }
+      const explicit = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [...prefix, 42, 'fixed', true] })]), resolveSchema)
+      expect(explicit.diagnostics).toEqual([])
+      expect(explicit.document!.graphs.g0!.nodes.n1!.values.enabled).toBe(true)
+      expect(Object.values(explicit.document!.graphs.g0!.nodes.n1!.controllers!)).toEqual(['fixed'])
+    }
   })
 
   it('reports missing positional values instead of inventing them', () => {
@@ -906,110 +1168,25 @@ describe('positional widget mapping', () => {
     expect(keyed.document!.graphs.g0!.nodes.n1!.values).toEqual({ count: 2048, strength: 0.5 })
   })
 
-  it('migrates a valid legacy SAVE_TARGET prefix from the declared mount', () => {
-    const target = {
-      ...sdInput('filename_prefix', 'SAVE_TARGET', 'SAVE_TARGET'),
-      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
-    } satisfies InputSpec
-    const schema = sdSchema('dinkster.save', 'SaveImage', [target], true)
-    const localResolve = (type: string) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'SaveImage', { widgets_values: ['SD1.5'] }),
-    ]), localResolve)
+  it.each([
+    ['positional', ['daily/render', 'archive']],
+    ['keyed', { filename_prefix: 'daily/render', mount: 'archive' }],
+  ] as const)('preserves independent prefix and mount values from %s widgets through compilation', (_label, widgets_values) => {
+    const schema = sdSchema('SaveImage', 'SaveImage', [
+      sdInput('filename_prefix', 'STRING', 'STRING'),
+      { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true, widget: { widgetType: 'MOUNT', options: {}, default: null } },
+    ], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values })]), localResolve)
     expect(imported.diagnostics).toEqual([])
-    expect(imported.document!.graphs.g0!.nodes.n1!.values.filename_prefix).toEqual({
-      mount: 'comfy-output', prefix: 'SD1.5',
-    })
+    expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ filename_prefix: 'daily/render', mount: 'archive' })
     const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
-    expect(reopened.diagnostics).toEqual([])
     const compiled = compile({
       document: reopened.document!, revision: 1, resolve: localResolve,
-      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-target-test',
+      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-inputs-test',
     })
     expect(compiled.ok).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs.filename_prefix).toEqual({
-      mount: 'comfy-output', prefix: 'SD1.5',
-    })
-  })
-
-  it('keeps invalid legacy SAVE_TARGET strings raw and warns specifically', () => {
-    const target = {
-      ...sdInput('target', 'SAVE_TARGET', 'SAVE_TARGET'),
-      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
-    } satisfies InputSpec
-    const schema = sdSchema('dinkster.save', 'Save', [target])
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'Save', { widgets_values: ['../escape'] }),
-    ]), (type) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined)
-    expect(imported.document!.graphs.g0!.nodes.n1!.values.target).toBe('../escape')
-    expect(codesOf(imported.diagnostics)).toContain('import.saveTarget.invalidLegacy')
-  })
-
-  it.each([
-    ['empty prefix', '', { mount: 'comfy-output', prefix: 'ComfyUI' }],
-    ['missing default', 'safe/name', undefined],
-    ['raw default', 'safe/name', 'ComfyUI'],
-    ['invalid default mount', 'safe/name', { mount: '../output', prefix: 'ComfyUI' }],
-    ['invalid default prefix', 'safe/name', { mount: 'comfy-output', prefix: '../escape' }],
-  ] as const)('keeps %s raw when SAVE_TARGET migration lacks a valid result', (_label, raw, declaredDefault) => {
-    const widget = declaredDefault === undefined
-      ? { widgetType: 'SAVE_TARGET', options: {} }
-      : { widgetType: 'SAVE_TARGET', options: {}, default: declaredDefault }
-    const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false, widget,
-    }
-    const schema = sdSchema('dinkster.save', 'Save', [target])
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'Save', { widgets_values: [raw] }),
-    ]), (type) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined)
-    expect(imported.document!.graphs.g0!.nodes.n1!.values.target).toBe(raw)
-    expect(codesOf(imported.diagnostics).filter((code) => code === 'import.saveTarget.invalidLegacy')).toHaveLength(1)
-  })
-
-  it('normalizes keyed SAVE_TARGET values inside the active DynamicCombo branch', () => {
-    const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
-      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
-    }
-    const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
-      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'file', inputs: [target] }] },
-    }])
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'DynamicSave', { widgets_values: { mode: 'file', 'mode.target': 'daily/render' } }),
-    ]), (type) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined)
-    expect(imported.diagnostics).toEqual([])
-    expect(imported.document!.graphs.g0!.nodes.n1!.dynamic).toEqual({ mode: { selected: 'file' } })
-    expect(imported.document!.graphs.g0!.nodes.n1!.values['mode.target']).toEqual({
-      mount: 'archive', prefix: 'daily/render',
-    })
-  })
-
-  it('normalizes positional SAVE_TARGET values inside a wire-15 DynamicCombo branch', () => {
-    const target: InputSpec = {
-      kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: false,
-      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'archive', prefix: 'default' } },
-    }
-    const schema = sdSchema('dinkster.dynamic-save', 'DynamicSave', [{
-      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'file', inputs: [target] }] },
-    }], true)
-    const localResolve = (type: string) => type === schema.type || schema.aliases?.includes(type) ? schema : undefined
-    const imported = importLitegraph(workflow([
-      lgNode(1, 'DynamicSave', { widgets_values: ['file', 'daily/render'] }),
-    ]), localResolve)
-    expect(imported.diagnostics).toEqual([])
-    expect(imported.document!.graphs.g0!.nodes.n1!.values['mode.target']).toEqual({
-      mount: 'archive', prefix: 'daily/render',
-    })
-    const compiled = compile({
-      document: imported.document!, revision: 1, resolve: localResolve,
-      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'dynamic-save-target-test',
-    })
-    expect(compiled.ok).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs['mode.target']).toEqual({
-      mount: 'archive', prefix: 'daily/render',
-    })
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'daily/render', mount: 'archive' })
   })
 
   it('parks raw values of unknown node types without guessing', () => {
@@ -1261,7 +1438,6 @@ describe('Autogrow endpoint reconstruction', () => {
     schema: NodeSchema,
     inputNames: string[],
     authoredType = schema.type,
-    maintainedAlias = false,
   ) => {
     const sources = inputNames.map((_, index) => lgNode(index + 1, imageSource.type, {
       outputs: [{ name: 'IMAGE', links: [index + 1] }],
@@ -1276,16 +1452,15 @@ describe('Autogrow endpoint reconstruction', () => {
       ...importLitegraph(
         workflow([...sources, target], links),
         localResolve,
-        maintainedAlias ? (type) => type === authoredType : undefined,
       ),
       localResolve,
       targetId,
     }
   }
 
-  it('preserves flat ComfyUI alias suffixes and authored input order', () => {
+  it('reconstructs scoped wire15 prefix members in authored input order', () => {
     const schema: NodeSchema = {
-      type: 'comfy.ComfyAndNode',
+      type: 'ComfyAndNode',
       displayName: 'Comfy And',
       category: 'test',
       source: 'v3',
@@ -1306,24 +1481,23 @@ describe('Autogrow endpoint reconstruction', () => {
     }
     const { document, diagnostics, targetId } = importFamily(
       schema,
-      ['value2', 'value1'],
+      ['values.value2', 'values.value1'],
       'ComfyAndNode',
-      true,
     )
     expect(errorsOf(diagnostics)).toEqual([])
     const graph = document!.graphs[document!.root]!
     expect(graph.nodes[`n${targetId}`]!.dynamic).toEqual({
-      values: { members: ['value2', 'value1'] },
+      values: { members: ['m0', 'm1'], seq: 2 },
     })
     expect(Object.values(graph.links).map((link) => link.to)).toEqual([
-      { node: `n${targetId}`, port: 'values.value2' },
-      { node: `n${targetId}`, port: 'values.value1' },
+      { node: `n${targetId}`, port: 'values.m0' },
+      { node: `n${targetId}`, port: 'values.m1' },
     ])
   })
 
-  it('preserves scoped ComfyUI alias members when current workflows include the family name', () => {
+  it('preserves scoped named members in authored input order', () => {
     const schema: NodeSchema = {
-      type: 'comfy.ComfyMathExpression',
+      type: 'ComfyMathExpression',
       displayName: 'Comfy Math Expression',
       category: 'test',
       source: 'v3',
@@ -1345,7 +1519,6 @@ describe('Autogrow endpoint reconstruction', () => {
       schema,
       ['values.b', 'values.a'],
       'ComfyMathExpression',
-      true,
     )
     expect(errorsOf(diagnostics)).toEqual([])
     const graph = document!.graphs.g0!
@@ -1358,9 +1531,9 @@ describe('Autogrow endpoint reconstruction', () => {
     ])
   })
 
-  it('does not classify maintained alias static inputs as unknown family members', () => {
+  it('does not classify static inputs as unknown family members', () => {
     const schema: NodeSchema = {
-      type: 'comfy.MixedInputs',
+      type: 'MixedInputs',
       displayName: 'Mixed Inputs',
       category: 'test',
       source: 'v3',
@@ -1382,12 +1555,12 @@ describe('Autogrow endpoint reconstruction', () => {
         },
       ],
     }
-    const { document, diagnostics, targetId } = importFamily(schema, ['fixed'], 'MixedInputs', true)
+    const { document, diagnostics, targetId } = importFamily(schema, ['fixed'], 'MixedInputs')
     expect(codesOf(diagnostics)).not.toContain('import.dynamic.autogrowWireUnknown')
     expect(document!.graphs.g0!.links.l1!.to).toEqual({ node: `n${targetId}`, port: 'fixed' })
   })
 
-  it('decodes positional and keyed widgets for flat named alias members', () => {
+  it('decodes positional and keyed widgets for scoped named members', () => {
     const scalar: InputSpec = {
       kind: 'input',
       id: 'value',
@@ -1396,7 +1569,7 @@ describe('Autogrow endpoint reconstruction', () => {
       widget: { widgetType: 'FLOAT', options: {}, default: 0 },
     }
     const schema: NodeSchema = {
-      type: 'comfy.ComfyMathExpression',
+      type: 'ComfyMathExpression',
       displayName: 'Comfy Math Expression',
       category: 'test',
       source: 'v3',
@@ -1414,14 +1587,13 @@ describe('Autogrow endpoint reconstruction', () => {
         },
       }],
     }
-    const resolveAlias = (type: string) => type === 'ComfyMathExpression' ? schema : undefined
-    const maintainedAlias = (type: string) => type === 'ComfyMathExpression'
+    const resolveSchema = (type: string) => type === schema.type ? schema : undefined
     const positional = importLitegraph(workflow([
       lgNode(1, 'ComfyMathExpression', {
-        inputs: [{ name: 'b' }, { name: 'a' }],
+        inputs: [{ name: 'values.b' }, { name: 'values.a' }],
         widgets_values: [2, 1],
       }),
-    ]), resolveAlias, maintainedAlias)
+    ]), resolveSchema)
     expect(codesOf(positional.diagnostics)).not.toContain('import.dynamic.autogrowUnsupported')
     expect(positional.document!.graphs.g0!.nodes.n1).toMatchObject({
       dynamic: { values: { members: ['b', 'a'] } },
@@ -1430,10 +1602,10 @@ describe('Autogrow endpoint reconstruction', () => {
 
     const keyed = importLitegraph(workflow([
       lgNode(1, 'ComfyMathExpression', {
-        inputs: [{ name: 'b' }, { name: 'a' }],
-        widgets_values: { b: 3, a: 4 },
+        inputs: [{ name: 'values.b' }, { name: 'values.a' }],
+        widgets_values: { 'values.b': 3, 'values.a': 4 },
       }),
-    ]), resolveAlias, maintainedAlias)
+    ]), resolveSchema)
     expect(codesOf(keyed.diagnostics)).not.toContain('import.widgets.unknownKeys')
     expect(keyed.document!.graphs.g0!.nodes.n1).toMatchObject({
       dynamic: { values: { members: ['b', 'a'] } },

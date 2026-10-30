@@ -5,6 +5,12 @@ They can use positional prefixes, fixed names such as `a` through `z`, grouped
 rows with multiple inputs per member, or families nested inside a selected
 mode.
 
+A native dynamic choice can set `hidden: true` to omit its selector and all
+selected descendant controls, sockets, and growth rows from the canvas.
+This is presentation only: saved values, connections, choice selection and
+submitted inputs are preserved. Omitted or false `hidden` keeps the choice
+visible; requiredness and defaults are independent of visibility.
+
 Native families can opt into `optionalAfterMinimum`. These families keep
 declared name or numeric-prefix positions: initial required positions cannot
 be replaced by later members, and members beyond the minimum are optional.

@@ -1,12 +1,14 @@
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { diag, type Diagnostic } from '@dinkster/core'
 import type { CompatSkip, PackInferenceUnavailable } from '@dinkster/client'
-import { diagnosticFocusTarget, type AppState } from './app-state.js'
+import { diagnosticFocusTarget, type AppState, type MigrationNotice } from './app-state.js'
 import { groupProblemDiagnostics } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
+import { ProductActionFooter } from './ProductForm.js'
 import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
+import { useSignal } from './solid-adapter.js'
 
 export interface ProblemsDisclosure {
   readonly expanded: (key: string) => boolean
@@ -46,6 +48,7 @@ export interface ProblemsPanelProps {
   readonly app: AppState
   readonly diagnostics: () => readonly Diagnostic[]
   readonly compatSkips: () => readonly CompatSkip[]
+  readonly migrationNotice?: () => MigrationNotice | undefined
   readonly packInferenceUnavailable?: () => readonly PackInferenceUnavailable[]
   readonly disclosure?: ProblemsDisclosure
   readonly onShowInContext?: (diagnostic: Diagnostic) => void
@@ -53,6 +56,21 @@ export interface ProblemsPanelProps {
 
 export function ProblemsPanel(props: ProblemsPanelProps) {
   const message = useAppMessage()
+  const tabs = useSignal(props.app.tabs)
+  const [undoTick, setUndoTick] = createSignal(0)
+  createEffect(() => {
+    const owner = props.migrationNotice?.()?.owner
+    const tab = tabs().find((candidate) => candidate.id === owner)
+    if (tab === undefined) return
+    // Shared sessions publish optimistic documents before updating undo history.
+    const unsubscribe = tab.store.document.subscribe(() => queueMicrotask(() => setUndoTick((tick) => tick + 1)))
+    onCleanup(unsubscribe)
+  })
+  const canUndoNotice = (): boolean => {
+    undoTick()
+    const owner = props.migrationNotice?.()?.owner
+    return owner !== undefined && props.app.canUndoMigrationNotice(owner)
+  }
   const disclosure = props.disclosure ?? createProblemsDisclosure()
   const packDiagnostics = createMemo(() => [
     ...props.compatSkips().map((skip) => diag('info', 'schema', 'pack.compatSkipped', `${skip.packId}: ${skip.nodeId} - ${skip.reason}`)),
@@ -68,7 +86,43 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
   return (
     <section class="rail-section" data-testid="problems-panel" data-native-text-scope>
       <ProductPanelHeader title={message('shell.panel.problems.title')} />
-      <Show when={groups().length > 0} fallback={<ProductEmptyState title={message('problems.empty')} />}>
+      <Show
+        when={props.migrationNotice?.() !== undefined || groups().length > 0}
+        fallback={<ProductEmptyState title={message('problems.empty')} />}
+      >
+        <Show when={props.migrationNotice?.()}>{(notice) => (
+          <section class="problems-group" data-testid="migration-notice">
+            <div class="problems-group-header">
+              <span class="problems-group-title">{message('problems.migration.title')}</span>
+              <span class="problems-group-count">{notice().entries.length}</span>
+            </div>
+            <div class="problems-group-items">
+              <For each={notice().entries}>{(entry) => (
+                <div class="problem" data-severity={entry.severity}>
+                  <ProductButton variant="ghost" size="compact" disabled={entry.anchor === undefined}
+                    onClick={() => activateProblem(props.app, entry)}>
+                    {entry.message}
+                  </ProductButton>
+                  <For each={entry.data?.warnings as readonly string[] | undefined}>
+                    {(warning) => <p>{warning}</p>}
+                  </For>
+                </div>
+              )}</For>
+            </div>
+            <ProductActionFooter>
+              <ProductButton variant="ghost" size="compact"
+                disabled={!canUndoNotice()}
+                title={message('problems.migration.undoHint')}
+                onClick={() => props.app.undoMigrationNotice(notice().owner)}>
+                {message('problems.migration.undo')}
+              </ProductButton>
+              <ProductButton variant="ghost" size="compact"
+                onClick={() => props.app.dismissMigrationNotice(notice().owner)}>
+                {message('problems.action.dismiss')}
+              </ProductButton>
+            </ProductActionFooter>
+          </section>
+        )}</Show>
         <For each={groups().map((group) => group.key)}>
           {(key, index) => {
             const group = () => groups().find((candidate) => candidate.key === key)!

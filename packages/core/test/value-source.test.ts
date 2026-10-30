@@ -10,17 +10,15 @@
  *   4. legacy PrimitiveNodes import as value sources; backend Primitive*
  *      compute nodes are untouched
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
-import { compile, type CompileInput } from '../src/compile/compile.js'
+import { compile, documentValueSourceResolver, type CompileInput } from '../src/compile/compile.js'
 import { semanticHashOf } from '../src/compile/hash.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { GraphDef, JsonObject, ValueSourceData, WorkflowDocument } from '../src/format/document.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
+import { loadDocument } from '../src/format/migrate.js'
 import { checkDocument } from '../src/invariants.js'
 import {
   asConnectionId,
@@ -30,9 +28,12 @@ import {
   asNodeId,
   asPortId,
   asRerouteId,
+  asSelectorCandidateId,
+  asSelectorId,
   asValueSourceId,
 } from '../src/ids.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
+import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import {
   effectiveValueSourceSpec,
   pinnedSpecOf,
@@ -40,10 +41,6 @@ import {
   valueSourceLinksOf,
 } from '../src/value-source.js'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
-
-const { schemas } = parseObjectInfo(readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>)
 const resolve = (type: string) => schemas.get(type)
 
 const codesOf = (d: readonly Diagnostic[]) => d.map((x) => x.code)
@@ -116,6 +113,62 @@ const makeStore = (d: WorkflowDocument) => new DocumentStore(d, coreCommandRegis
 // ---------------------------------------------------------------------------
 
 describe('value source consumers', () => {
+  it.each([false, true])('derives exported literal presentation without requiring an executable document (reverse: %s)', (reverse) => {
+    const document: any = doc({
+      g0: graph({ id: 'g0', nodes: {
+        i0: { id: asNodeId('i0'), type: '#body', values: {} },
+        i1: { id: asNodeId('i1'), type: '#body', values: {} },
+        left: { id: asNodeId('left'), type: 'Left', values: {} },
+        right: { id: asNodeId('right'), type: 'Right', values: {} },
+        missing: { id: asNodeId('missing'), type: 'Unregistered', values: {} },
+      }, links: {
+        l0: { id: asLinkId('l0'), from: port('i0', 'out'), to: port('left', 'value') },
+        l1: { id: asLinkId('l1'), from: port('i1', 'out'), to: port('right', 'value') },
+      } }),
+      body: graph({ id: 'body', valueSources: { v1: source('v1', 11) },
+        boundary: { inputs: [], outputs: [{ id: asPortId('out'), binds: {
+          kind: 'valueSource', valueSource: asValueSourceId('v1'), type: { kind: 'concrete', name: 'INT' },
+        } }] },
+      }),
+    })
+    if (reverse) document.graphs.g0!.nodes = Object.fromEntries(Object.entries(document.graphs.g0!.nodes).reverse())
+    const resolver = (type: string) => type === 'Left' || type === 'Right' ? {
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' },
+        widget: { widgetType: 'INT', options: type === 'Left' ? { min: 3, max: 17, step: 2 } : { min: 10, max: 20, step: 7 } } }],
+    } as import('../src/schema/model.js').NodeSchema : undefined
+    const before = structuredClone(document)
+    const resolveSource = documentValueSourceResolver(document, resolver)
+    expect(resolveSource('body', 'v1')).toMatchObject({ type: { kind: 'concrete', name: 'INT' },
+      spec: { widgetType: 'INT', options: { min: 10, max: 17, step: 7 } } })
+    expect(resolveSource('body', 'v1', [asNodeId('i0')])?.spec?.options).toEqual({ min: 10, max: 17, step: 7 })
+    expect(resolveSource('body', 'v1', [asNodeId('i1')])?.spec?.options).toEqual({ min: 10, max: 17, step: 7 })
+    expect(document).toEqual(before)
+    document.graphs.body!.boundary!.inputs = [{ id: asPortId('value'), promoted: true,
+      binds: document.graphs.body!.boundary!.outputs[0]!.binds }]
+    const promoted = documentValueSourceResolver(document, resolver)
+    expect(promoted('body', 'v1', [asNodeId('i0')])?.spec?.options).toEqual({ min: 3, max: 17, step: 2 })
+    expect(promoted('body', 'v1', [asNodeId('i1')])?.spec?.options).toEqual({ min: 10, max: 20, step: 7 })
+    document.graphs.body!.valueSources!.v1!.spec = { widgetType: 'INT', options: { step: 5 } }
+    expect(documentValueSourceResolver(document, resolver)('body', 'v1')?.spec?.options).toEqual({ min: 10, max: 17, step: 5 })
+    delete document.graphs.body!.valueSources!.v1!.spec
+    const root = document.graphs.g0!
+    root.valueSources = { other: source('other', 99) }
+    root.selectors = { s0: { id: asSelectorId('s0'), candidates: [
+      { id: asSelectorCandidateId('a') }, { id: asSelectorCandidateId('b') },
+    ], policy: { kind: 'fixed', candidate: asSelectorCandidateId('a') } } }
+    root.links.l0!.from = { selector: asSelectorId('s0') }
+    root.links.l2 = { id: asLinkId('l2'), from: port('i0', 'out'),
+      to: { selector: asSelectorId('s0'), candidate: asSelectorCandidateId('b') } }
+    root.links.l3 = { id: asLinkId('l3'), from: vsrc('other'),
+      to: { selector: asSelectorId('s0'), candidate: asSelectorCandidateId('a') } }
+    for (const random of [false, true]) {
+      root.selectors.s0!.policy = random ? { kind: 'random' } : { kind: 'fixed', candidate: asSelectorCandidateId('a') }
+      expect(documentValueSourceResolver(document, resolver)('body', 'v1', [asNodeId('i0')])?.spec?.options)
+        .toEqual({ min: 3, max: 17, step: 2 })
+    }
+  })
+
   it('finds direct and reroute-chained consumers (fan-out)', () => {
     const def = fanoutDoc().graphs['g0']!
     expect(valueSourceLinksOf(def, 'v1').map((l) => l.id).sort()).toEqual(['l4', 'l6'])
@@ -141,6 +194,31 @@ describe('value source consumers', () => {
 })
 
 describe('effective spec derivation (P1/P2/P5)', () => {
+  it.each(['fixed', 'decrement', undefined] as const)('retains consumer initial controller mode %s through input promotion', (controllerInitial) => {
+    const schema = { ...resolve('KSampler')!, type: 'InitialMode', items: [{
+      kind: 'input' as const, id: 'seed', type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
+      widget: { widgetType: 'INT', options: { step: 2 }, controller: 'after_generate' as const,
+        ...(controllerInitial !== undefined ? { controllerInitial } : {}) },
+    }] }
+    const def = graph({ id: 'g0', nodes: { n1: node('n1', 'InitialMode') },
+      valueSources: { v1: source('v1', 11) },
+      links: { l0: { id: asLinkId('l0'), from: vsrc('v1'), to: port('n1', 'seed') } },
+      boundary: { inputs: [{ id: 'value', promoted: true, binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type: { kind: 'concrete', name: 'INT' } } }], outputs: [] },
+    })
+    const before = JSON.stringify(def)
+    const resolveInitial = (type: string) => type === schema.type ? schema : undefined
+    expect(effectiveValueSourceSpec(def, def.valueSources!.v1!, resolveInitial).spec).toEqual({
+      widgetType: 'INT', options: { step: 2 }, controller: 'after_generate',
+      ...(controllerInitial !== undefined ? { controllerInitial } : {}),
+    })
+    const promoted = deriveBoundarySchema(def, resolveInitial)
+    expect(promoted.diagnostics).toEqual([])
+    expect(promoted.schema!.items[0]).toMatchObject({ kind: 'input', widget: {
+      controller: 'after_generate', ...(controllerInitial !== undefined ? { controllerInitial } : {}),
+    } })
+    expect(JSON.stringify(def)).toBe(before)
+  })
+
   it('unifies numeric constraints across INT consumers (intersection)', () => {
     // KSampler.seed: min 0, huge max; KSampler.steps: min 1, max 10000.
     const def = doc({
@@ -271,9 +349,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
     expect(eff.diagnostics).toEqual([])
   })
 
-  it('intersects interchangeable comfy-compat spellings to one canonical atom', () => {
-    // A source driving MASK and comfy.MASK inputs drives ONE value
-    // type; the advisory type must canonicalize, not collapse to wildcard.
+  it('does not intersect distinct prefixed and native type spellings', () => {
     const maskResolve = (type: string) =>
       type === 'NativeMaskSink' || type === 'ComfyMaskSink'
         ? ({
@@ -302,7 +378,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
       }),
     }).graphs['g0']!
     const eff = effectiveValueSourceSpec(def, def.valueSources!['v1']!, maskResolve)
-    expect(eff.type).toEqual({ kind: 'concrete', name: 'MASK' })
+    expect(eff.type).toEqual({ kind: 'wildcard' })
   })
 
   it('pinnedSpecOf produces a JSON-safe declared spec from the effective one', () => {
@@ -682,6 +758,76 @@ describe('compile lowering', () => {
     if (!result.ok) return
     expect(result.artifact.prompt['i1.inner']!.inputs['steps']).toBe(12)
     expect(result.artifact.prompt['i2.inner']!.inputs['steps']).toBe(12)
+  })
+
+  it('forwards nested source inputs per occurrence with connected-driver precedence', () => {
+    const type = { kind: 'concrete' as const, name: 'INT' }
+    const d = doc({
+      g0: graph({ id: 'g0', nodes: {
+        i1: { ...node('i1', '#outer'), values: { seed: 11 } },
+        i2: { ...node('i2', '#outer'), values: { seed: 29 } },
+        i3: node('i3', '#outer'),
+        i4: { ...node('i4', '#outer'), values: { seed: null } },
+        i5: { ...node('i5', '#outer'), values: { seed: 41 } },
+        n1: node('n1'), n2: node('n2'), n3: node('n3'), n4: node('n4'), n5: node('n5'),
+      }, valueSources: { v2: source('v2', 53) }, links: {
+        l1: { id: asLinkId('l1'), from: port('i1', 'out'), to: port('n1', 'steps') },
+        l2: { id: asLinkId('l2'), from: port('i2', 'out'), to: port('n2', 'steps') },
+        l3: { id: asLinkId('l3'), from: port('i3', 'out'), to: port('n3', 'steps') },
+        l4: { id: asLinkId('l4'), from: port('i4', 'out'), to: port('n4', 'steps') },
+        l5: { id: asLinkId('l5'), from: port('i5', 'out'), to: port('n5', 'steps') },
+        l6: { id: asLinkId('l6'), from: vsrc('v2'), to: port('i5', 'seed') },
+      } }),
+      outer: graph({ id: 'outer', nodes: { inner: { ...node('inner', '#leaf'), values: { local: 17 } } },
+        boundary: { inputs: [{ id: 'seed', promoted: true, binds: { kind: 'port', ...port('inner', 'local') } }],
+          outputs: [{ id: 'out', binds: { kind: 'port', ...port('inner', 'out') } }] },
+      }),
+      leaf: graph({ id: 'leaf', nodes: {}, valueSources: { v1: source('v1', 7) },
+        boundary: { inputs: [{ id: 'local', promoted: true, binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type } }],
+          outputs: [{ id: 'out', binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type } }] },
+      }),
+    })
+    expect(checkDocument(d)).toEqual([])
+    const before = JSON.stringify(d)
+    const compiled = compile(compileInput(d))
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) return
+    expect(Object.keys(compiled.artifact.prompt).sort()).toEqual(['n1', 'n2', 'n3', 'n4', 'n5'])
+    expect(['n1', 'n2', 'n3', 'n4', 'n5'].map((id) => compiled.artifact.prompt[id]!.inputs.steps)).toEqual([11, 29, 17, null, 53])
+    expect(JSON.stringify(d)).toBe(before)
+    const reopened = loadDocument(JSON.parse(before))
+    expect(reopened.document).toBeDefined()
+    const again = compile(compileInput(reopened.document!))
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.artifact.prompt).toEqual(compiled.artifact.prompt)
+  })
+
+  it.each([false, true])('rejects competing boundary inputs for one value source (reversed: %s)', (reversed) => {
+    const inputs = ['first', 'second'].map((id) => ({ id, promoted: true,
+      binds: { kind: 'valueSource' as const, valueSource: asValueSourceId('v1'),
+        type: { kind: 'concrete' as const, name: 'INT' } },
+    }))
+    const sub = graph({ id: 'sub', nodes: { inner: node('inner') },
+      valueSources: { v1: source('v1', 7) },
+      links: { l1: { id: asLinkId('l1'), from: vsrc('v1'), to: port('inner', 'steps') } },
+      boundary: { inputs: reversed ? [...inputs].reverse() : inputs, outputs: [] },
+    })
+    const d = doc({
+      g0: graph({ id: 'g0', nodes: {
+        i1: { ...node('i1', '#sub'), values: { first: 11, second: 29 } },
+      }, valueSources: { v2: source('v2', 53) },
+      links: { l2: { id: asLinkId('l2'), from: vsrc('v2'), to: port('i1', 'second') } } }),
+      sub,
+    })
+    const derived = deriveBoundarySchema(sub, resolve)
+    expect(derived.schema).toBeUndefined()
+    expect(codesOf(derived.diagnostics)).toContain('boundary.valueSourceConflict')
+    const loaded = loadDocument(d)
+    expect(loaded.document).toBeUndefined()
+    expect(codesOf(loaded.diagnostics)).toContain('doc.boundary.valueSourceConflict')
+    const valid = { ...sub, boundary: { inputs: [inputs[0]!], outputs: inputs.map((item) => ({ id: `out-${item.id}`, binds: item.binds })) } }
+    expect(deriveBoundarySchema(valid, resolve).schema).toBeDefined()
+    expect(checkDocument(doc({ sub: valid }, 'sub'))).toEqual([])
   })
 
   it('errors on missing value sources and links targeting one (malformed docs)', () => {

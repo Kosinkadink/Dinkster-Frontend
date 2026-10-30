@@ -13,5 +13,6 @@ Original source SHA-256:
 | image_flux2_klein_image_edit_4b_distilled.json | e0388a8870495802314d58fa61616ddcdb7064dac5f85a8787c9e08180b8a560 |
 | video_wan_vace_flf2v.json | a3e93893792803f7118a444dab365badab954d8304a7956bd6a79226dfa11a4f |
 
-Browser tests use the captured `object_info.json` source schemas, not invented
-backend aliases. Import and save/reopen are tested; model inference is not.
+Browser tests use the served native `/api/nodes` schemas, not invented backend
+aliases. These structural tests cover nested navigation and save/reopen; they
+do not claim every authored node is registered or prove model inference.

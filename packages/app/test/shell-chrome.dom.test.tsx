@@ -760,6 +760,18 @@ describe('workflow file commands', () => {
     app.dispose()
   })
 
+  function executionSnapshotApp() {
+    const app = new AppState()
+    const frozen = {
+      ...app.activeTab()!,
+      id: 'frozen:test',
+      execution: { connection: app.backends.get()[0]!.id, prompt: asPromptId('frozen-test') },
+    }
+    app.tabs.update((tabs) => [...tabs, frozen])
+    app.activeTabId.set(frozen.id)
+    return app
+  }
+
   it('sanitizes export filenames and falls back for an empty title', () => {
     expect(workflowExportFilename('  My: Flow?/Final.  ')).toBe('My- Flow--Final.json')
     expect(workflowExportFilename('fun-flow-01')).toBe('fun-flow-01.json')
@@ -1035,18 +1047,18 @@ describe('workflow file commands', () => {
     dispose()
   })
 
-  it('consumes unavailable Ctrl+S and reports why the targeted backend cannot save', async () => {
-    const app = new AppState()
+  it('consumes unavailable Ctrl+S and reports why the targeted snapshot cannot save', async () => {
+    const app = executionSnapshotApp()
     const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true })
     dispatchAppCommandKey(app, event, true)
     await Promise.resolve()
     await Promise.resolve()
     expect(event.defaultPrevented).toBe(true)
-    expect(app.transientStatus.get()).toContain('Save requires a Dinkster backend')
+    expect(app.transientStatus.get()).toBe('Save is unavailable for an execution snapshot')
   })
 
   it('consumes unavailable Ctrl+S when it bubbles from an input', async () => {
-    const app = new AppState()
+    const app = executionSnapshotApp()
     const input = document.createElement('input')
     document.body.append(input)
     const listener = (event: KeyboardEvent): void => dispatchAppCommandKey(app, event, true)
@@ -1057,11 +1069,11 @@ describe('workflow file commands', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(event.defaultPrevented).toBe(true)
-    expect(app.transientStatus.get()).toContain('Save requires a Dinkster backend')
+    expect(app.transientStatus.get()).toBe('Save is unavailable for an execution snapshot')
   })
 
   it('leaves unavailable Ctrl+S native inside a native text scope', async () => {
-    const app = new AppState()
+    const app = executionSnapshotApp()
     const scope = document.createElement('section')
     scope.setAttribute('data-native-text-scope', '')
     const summary = document.createElement('summary')
@@ -1079,7 +1091,7 @@ describe('workflow file commands', () => {
   })
 
   it('consumes unavailable Ctrl+S while an aria-modal surface is open', async () => {
-    const app = new AppState()
+    const app = executionSnapshotApp()
     const modal = document.createElement('div')
     modal.setAttribute('role', 'dialog')
     modal.setAttribute('aria-modal', 'true')
@@ -1089,19 +1101,11 @@ describe('workflow file commands', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(event.defaultPrevented).toBe(true)
-    expect(app.transientStatus.get()).toContain('Save requires a Dinkster backend')
+    expect(app.transientStatus.get()).toBe('Save is unavailable for an execution snapshot')
   })
 
   it('explains that Ctrl+S cannot save an execution snapshot', async () => {
-    const app = new AppState()
-    const live = app.activeTab()!
-    const frozen = {
-      ...live,
-      id: 'frozen:test',
-      execution: { connection: app.backends.get()[0]!.id, prompt: asPromptId('frozen-test') },
-    }
-    app.tabs.update((tabs) => [...tabs, frozen])
-    app.activeTabId.set(frozen.id)
+    const app = executionSnapshotApp()
     const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true })
     dispatchAppCommandKey(app, event, true)
     await Promise.resolve()

@@ -1,16 +1,11 @@
 /**
- * Boot indicator for the pre-render discovery window.
- *
- * main.tsx awaits `discoverBackend()` before calling Solid's `render()`,
- * so #root is blank for up to the probe timeout when the origin is slow or
- * dead. This module shows a minimal centered indicator during that window
- * so the launch is never a blank screen.
+ * Boot indicator while fonts and desktop setup load before the shell.
  *
  * Timing contract:
  * - The indicator appears only after `showDelayMs` (default 150ms). A fast
  *   boot that renders before then never flashes it.
  * - After `messageDelayMs` (default 3000ms) an extra line names what it is
- *   waiting on (backend discovery probe).
+ *   waiting on (application startup).
  * - `hide()` cancels both timers and removes the element. Calling it before
  *   the show timer fires is a no-op (no DOM was created).
  *
@@ -74,7 +69,7 @@ export function startBootIndicator(opts: BootIndicatorOptions = {}): () => void 
 
 /**
  * Create the boot indicator DOM element (not yet appended). Returns the
- * element and a function to reveal the "waiting for backend discovery"
+ * element and a function to reveal the startup
  * line. Used by main.tsx to wire `startBootIndicator` callbacks to real DOM.
  */
 export function createBootIndicatorElement(): {
@@ -90,7 +85,7 @@ export function createBootIndicatorElement(): {
     '<img class="brand-on-dark" src="/branding/svg/dinkster-wordmark-color-dark.svg" alt="Dinkster" />',
     '<img class="brand-on-light" src="/branding/svg/dinkster-wordmark-color-light.svg" alt="Dinkster" />',
     '</div>',
-    '<div class="boot-indicator-waiting" hidden>Waiting for backend discovery...</div>',
+    '<div class="boot-indicator-waiting" hidden>Starting Dinkster...</div>',
     '</div>',
   ].join('')
   const waiting = el.querySelector<HTMLElement>('.boot-indicator-waiting')

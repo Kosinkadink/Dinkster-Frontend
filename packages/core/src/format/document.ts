@@ -33,6 +33,7 @@ import type {
   SelectorId,
   ValueSourceId,
 } from '../ids.js'
+import type { TypeExpr } from '../schema/model.js'
 
 /** JSON-serializable value. The document contains nothing else. */
 export type Json = null | boolean | number | string | readonly Json[] | JsonObject
@@ -486,6 +487,8 @@ export interface PortBoundaryBinding {
   readonly port: PortId
   readonly tap?: never
   readonly members?: readonly DynamicMemberId[]
+  /** Input-only junction attachment; node/port remains the schema authority. */
+  readonly viaReroute?: RerouteId
   /**
    * Slot-selective forwarding ('family' bindings only, hazard F10): the
    * template slot paths the derived family exposes. Absent = the whole
@@ -518,9 +521,41 @@ export interface WidgetTapBoundaryBinding {
   readonly port?: never
   readonly members?: never
   readonly slots?: never
+  readonly viaReroute?: never
 }
 
-export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding
+/** An authored interface slot with no endpoint inside the definition. */
+export interface UnboundBoundaryBinding {
+  readonly kind: 'unbound'
+  readonly type: TypeExpr
+  readonly node?: never
+  readonly port?: never
+  readonly tap?: never
+  readonly members?: never
+  readonly slots?: never
+  readonly viaReroute?: never
+}
+
+/** A literal producer exposed without introducing a runtime node. */
+export interface ValueSourceBoundaryBinding {
+  readonly kind: 'valueSource'
+  readonly valueSource: ValueSourceId
+  readonly type: TypeExpr
+  readonly node?: never
+  readonly port?: never
+  readonly tap?: never
+  readonly members?: never
+  readonly slots?: never
+  readonly viaReroute?: never
+}
+
+export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding | ValueSourceBoundaryBinding | UnboundBoundaryBinding
+
+export type NodeBoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding
+
+/** Whether a boundary endpoint is addressed by node identity. */
+export const isNodeBoundaryBinding = (binding: BoundaryBinding): binding is NodeBoundaryBinding =>
+  binding.kind === 'port' || binding.kind === 'family' || binding.kind === 'slot' || binding.kind === 'dynamicCombo' || binding.kind === 'widgetTap'
 
 export const isSubtreeBinding = (binding: BoundaryBinding): binding is PortBoundaryBinding & { readonly kind: 'slot' | 'dynamicCombo' } =>
   binding.kind === 'slot' || binding.kind === 'dynamicCombo'
@@ -629,7 +664,11 @@ export interface OccurrenceTopology {
 }
 
 const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
-  binding.kind === 'widgetTap'
+  binding.kind === 'unbound'
+    ? [binding.kind, binding.type as unknown as Json]
+    : binding.kind === 'valueSource'
+    ? [binding.kind, binding.valueSource, binding.type as unknown as Json]
+    : binding.kind === 'widgetTap'
     ? [binding.kind, binding.node, binding.tap]
     : [
         binding.kind,
@@ -637,6 +676,7 @@ const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
         binding.port,
         binding.members ?? [],
         binding.slots === undefined ? null : [...binding.slots].sort(),
+        ...(binding.viaReroute !== undefined ? [binding.viaReroute] : []),
       ]
 
 /**

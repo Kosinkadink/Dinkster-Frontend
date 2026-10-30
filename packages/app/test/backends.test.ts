@@ -26,13 +26,12 @@ import {
 } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
-import { BackendConnection } from '../src/v1-connection-kind.js'
+import { historicalSchemas } from './historical-schemas.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-// The stock tabs are authored against native namespaced schemas.
 const nodesPayload = JSON.parse(readFileSync(join(root, 'fixtures/dinkster-nodes-comfy.json'), 'utf8')) as DinksterNodesPayload
 
 let app: AppState
@@ -46,7 +45,13 @@ const addOffline = (url: string, label?: string): Backend => {
 }
 
 const registryFor = (backend: Backend): void => {
-  backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
+  backend.registry.set({
+    connection: backend.id,
+    hash: 'historical-routing-schemas',
+    schemas: historicalSchemas,
+    diagnostics: [],
+    resolve: (type) => historicalSchemas.get(type),
+  })
 }
 
 const choiceSchema = (options: readonly string[]): NodeSchema => ({
@@ -84,7 +89,10 @@ const foreignRun = (connection: string, prompt: string): ExecutionRef => {
 
 beforeEach(() => {
   app = new AppState()
-  basic = app.tabs.get()[0]!
+  for (const name of ['basic', 'subgraph']) {
+    app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
+  }
+  basic = app.tabs.get().find((tab) => tab.id === 'lineage-seed-basic')!
 })
 
 // The FR8 tests spy on global fetch and superviseBackend; restore even when
@@ -490,11 +498,12 @@ describe('addBackend / removeBackend', () => {
 })
 
 describe('backend protocols', () => {
-  it('default backend and protocol-less addBackend speak v1', () => {
-    expect(app.backends.get()[0]!.protocol).toBe('v1')
+  it('default backend and protocol-less addBackend speak native Dinkster', () => {
+    expect(app.backends.get()[0]!.protocol).toBe('dinkster')
+    expect(app.connection).toBeInstanceOf(DinksterConnection)
     const b = addOffline('http://other:8188')
-    expect(b.protocol).toBe('v1')
-    expect(b.connection).toBeInstanceOf(BackendConnection)
+    expect(b.protocol).toBe('dinkster')
+    expect(b.connection).toBeInstanceOf(DinksterConnection)
   })
 
   it("addBackend with protocol 'dinkster' builds a native connection", () => {
@@ -573,15 +582,14 @@ describe('backend protocols', () => {
     })
   })
 
-  it('a native backend resolves tabs and viewUrlForExecution stays total', () => {
+  it('a native backend resolves tabs and routes asset URLs', () => {
     const b = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (!b) throw new Error('addBackend rejected')
     app.setTabTarget(basic.id, b.id)
     expect(app.backendForTab(basic)).toBe(b)
-    // /view is V1-only, but URL construction must stay total for any ref.
     const ref: ExecutionRef = { connection: b.id, prompt: asPromptId('j1') }
-    expect(app.viewUrlForExecution(ref, { filename: 'x.png' })).toBe(
-      'http://native:8000/view?filename=x.png&subfolder=&type=output',
+    expect(app.assetUrlForExecution(ref, 'blake3:00')).toBe(
+      'http://native:8000/api/assets/blake3%3A00',
     )
   })
 
@@ -589,7 +597,7 @@ describe('backend protocols', () => {
 
 describe('per-tab backend targeting (view state)', () => {
   it('setTabTarget switches the tab; other tabs stay on default', () => {
-    const other = app.tabs.get()[1]!
+    const other = app.tabs.get().find((tab) => tab.id !== basic.id)!
     const b = addOffline('http://other:8188')
     app.setTabTarget(basic.id, b.id)
     expect(app.backendForTab(basic)).toBe(b)
@@ -671,29 +679,11 @@ describe('compile and registry routing', () => {
     app.registerSchemas([extra])
     expect(b.registry.get()!.resolve('DinksterTestOnly')).toBe(extra)
     // Backend schemas still resolve underneath the layer.
-    expect(b.registry.get()!.resolve('comfy.EmptyImage')).toBeDefined()
+    expect(b.registry.get()!.resolve('EmptyImage')).toBe(historicalSchemas.get('EmptyImage'))
   })
 })
 
 describe('execution output routing', () => {
-  const file = { filename: 'x.png' }
-
-  it('viewUrlForExecution uses the execution backend, not the default', () => {
-    const b = addOffline('http://other:8188')
-    const onB: ExecutionRef = { connection: b.id, prompt: asPromptId('p1') }
-    expect(app.viewUrlForExecution(onB, file)).toContain('http://other:8188/view')
-    const onDefault: ExecutionRef = { connection: app.connection.id, prompt: asPromptId('p2') }
-    expect(app.viewUrlForExecution(onDefault, file)).not.toContain('http://other:8188')
-  })
-
-  it('a REMOVED backend still resolves its historical executions', () => {
-    const b = addOffline('http://other:8188')
-    const ref = foreignRun(String(b.id), 'p1')
-    app.removeBackend(b.id)
-    expect(app.store.get(ref)).toBeDefined() // history survives removal
-    expect(app.viewUrlForExecution(ref, file)).toContain('http://other:8188/view')
-  })
-
   it('assetUrlForExecution uses the execution backend, not the default', () => {
     const b = addOffline('http://other:8188')
     const digest = 'blake3:' + 'ab'.repeat(32)

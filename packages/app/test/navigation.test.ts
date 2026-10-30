@@ -96,7 +96,7 @@ describe('graph navigation helpers', () => {
   })
 
   it('opens F1 help only for one selected documented node', () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     const schema = {
       type: 'test.documented', displayName: 'Documented', category: 'testing', pack: 'test-pack',
       inputs: [], outputs: [], items: [], hasDocs: true,

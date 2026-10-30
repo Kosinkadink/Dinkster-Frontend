@@ -102,10 +102,52 @@ function checkPortRef(c: ShapeChecker, v: unknown, path: string): void {
   }
 }
 
+function checkTypeExpr(c: ShapeChecker, v: unknown, path: string): void {
+  if (!c.obj(v, path)) return
+  switch (v['kind']) {
+    case 'wildcard': return
+    case 'concrete': c.str(v['name'], `${path}.name`, { nonEmpty: true }); return
+    case 'union':
+      if (c.arr(v['names'], `${path}.names`)) {
+        if (v['names'].length < 2) c.fail(`${path}.names`, 'requires at least two names')
+        v['names'].forEach((name, i) => c.str(name, `${path}.names[${i}]`, { nonEmpty: true }))
+      }
+      return
+    case 'variable':
+      c.str(v['templateId'], `${path}.templateId`, { nonEmpty: true })
+      if (v['allowedTypes'] !== undefined && c.arr(v['allowedTypes'], `${path}.allowedTypes`)) v['allowedTypes'].forEach((type, i) => checkTypeExpr(c, type, `${path}.allowedTypes[${i}]`))
+      return
+    case 'list': case 'asset': case 'stream': checkTypeExpr(c, v['element'], `${path}.element`); return
+    case 'tuple':
+      if (c.arr(v['elements'], `${path}.elements`)) v['elements'].forEach((type, i) => checkTypeExpr(c, type, `${path}.elements[${i}]`))
+      return
+    case 'family_tuple': c.str(v['input'], `${path}.input`, { nonEmpty: true }); return
+    case 'tuple_element':
+      c.optStr(v['input'], `${path}.input`)
+      if (v['element'] !== undefined) checkTypeExpr(c, v['element'], `${path}.element`)
+      if (typeof v['index'] === 'number') c.num(v['index'], `${path}.index`)
+      else c.str(v['index'], `${path}.index`)
+      return
+    default: c.fail(`${path}.kind`, 'unknown type expression kind')
+  }
+}
+
 function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   const binding = v as Record<string, unknown>
   const kind = binding['kind']
+  if (kind === 'unbound' || kind === 'valueSource') {
+    if (kind === 'valueSource') c.str(binding['valueSource'], `${path}.valueSource`, { nonEmpty: true })
+    checkTypeExpr(c, binding['type'], `${path}.type`)
+    for (const field of ['node', 'port', 'tap', 'members', 'slots', 'viaReroute']) {
+      if (binding[field] !== undefined) c.fail(`${path}.${field}`, `invalid on kind '${kind}'`)
+    }
+    return
+  }
+  if (binding['viaReroute'] !== undefined) {
+    c.str(binding['viaReroute'], `${path}.viaReroute`, { nonEmpty: true })
+    if (kind !== 'port') c.fail(`${path}.viaReroute`, "requires kind 'port'")
+  }
   if (kind === 'widgetTap') {
     c.str(binding['node'], `${path}.node`, { nonEmpty: true })
     c.str(binding['tap'], `${path}.tap`, { nonEmpty: true })
@@ -164,8 +206,19 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
   const primaryBinding = typeof v['binds'] === 'object' && v['binds'] !== null
     ? v['binds'] as Record<string, unknown>
     : undefined
+  if (primaryBinding?.['kind'] === 'unbound') {
+    if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'an unattached boundary cannot fan out')
+    if (v['promoted'] !== undefined) c.fail(`${path}.promoted`, 'an unattached boundary has no widget to promote')
+  }
+  if (primaryBinding?.['kind'] === 'valueSource') {
+    if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'a value source boundary cannot fan out')
+    if (side === 'outputs' && v['promoted'] !== undefined) c.fail(`${path}.promoted`, 'a value source output cannot promote a widget')
+  }
   if (primaryBinding?.['kind'] === 'widgetTap' && side === 'inputs') {
     c.fail(`${path}.binds.kind`, "kind 'widgetTap' is output-side only")
+  }
+  if (primaryBinding?.['viaReroute'] !== undefined) {
+    if (side !== 'inputs') c.fail(`${path}.binds.viaReroute`, 'junction attachments are input-side only')
   }
   if (primaryBinding?.['kind'] === 'slot' || primaryBinding?.['kind'] === 'dynamicCombo') {
     if (side === 'outputs') c.fail(`${path}.binds.kind`, 'conditional constructs are input-side only')
@@ -215,9 +268,10 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     v['promoted'] !== undefined &&
     typeof binds === 'object' &&
     binds !== null &&
-    (binds as Record<string, unknown>)['kind'] !== 'port'
+    (binds as Record<string, unknown>)['kind'] !== 'port' &&
+    (binds as Record<string, unknown>)['kind'] !== 'valueSource'
   ) {
-    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port')
+    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port or value source')
   }
   c.optExt(v['ext'], `${path}.ext`)
 }
@@ -457,6 +511,12 @@ function checkOccurrenceTopology(c: ShapeChecker, v: unknown, path: string): voi
     }
   }
   c.optExt(v['ext'], `${path}.ext`)
+}
+
+export function validateBoundaryBindingShape(json: unknown): readonly Diagnostic[] {
+  const c = new ShapeChecker()
+  checkBoundaryBinding(c, json, '$.boundaryBinding')
+  return c.diags
 }
 
 export function validateOccurrenceTopologyShape(json: unknown): readonly Diagnostic[] {

@@ -18,6 +18,7 @@ import { isModel3dMime, model3dMimeFor } from '../model3d-mime.js'
 import { Model3dPosterImage } from '../Model3dPosterImage.js'
 import { AudioRecorder } from '../AudioRecorder.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
+import { ProductButton } from '../ProductControls.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { AssetSelectionDetails, LogicalModelVariantFacts } from '../asset-browser/rail.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../asset-browser/types.js'
@@ -26,7 +27,6 @@ import { Icon } from '../Icon.js'
 import { assetGuessCandidateToRef } from '../dialog-requests.js'
 import { SearchState } from '../SearchSurface.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
-import { ProductButton } from '../ProductControls.js'
 import { AssetSelectionEditor } from './AssetSelectionEditor.js'
 import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
@@ -1062,9 +1062,22 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
   const [browseFiles, setBrowseFiles] = createSolidSignal(initialFiles)
   const [filesVisited, setFilesVisited] = createSolidSignal(initialFiles)
   const [sourceVisited, setSourceVisited] = createSolidSignal(!initialFiles)
+  const [backendTick, setBackendTick] = createSolidSignal(0)
+  if (props.ed.spec?.selection === true) {
+    setBackendTick(props.app.backendsTick.get())
+    const unsubscribe = props.app.backendsTick.subscribe(setBackendTick)
+    onCleanup(unsubscribe)
+  }
+  const sourceBackend = createMemo(() => {
+    backendTick()
+    return props.app.backendForTab(props.ed.tab)
+  })
+  const sourceAuthority = () => {
+    backendTick()
+    return sourceBackend().scopedClient.remoteChoiceAuthority()
+  }
   let requestClose: (close: () => void) => void = (close) => close()
   const Implementation: Component<WidgetEditorImplementationProps> = (implementationProps) => {
-    const backend = props.app.backendForTab(props.ed.tab)
     const bindDismissBlocked = (blocked: () => boolean): void => {
       createEffect(() => setDismissBlocked(blocked()))
     }
@@ -1081,11 +1094,12 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
         />
       </div></Show>
       <Show when={sourceVisited()}><div class="asset-editor-mode" hidden={browseFiles()}>
-        <Show when={backend.protocol === 'dinkster' ? backend.connection : undefined} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
+        <Show when={sourceBackend().connection} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
           {(connection) =>
           <AssetSelectionEditor
             connection={connection()}
             kind={kind()!} initial={props.ed.initial}
+            authority={sourceAuthority} project={activeProjectId()}
             commit={implementationProps.commitValue} close={implementationProps.close}
             browseFiles={fileSelectionAllowed() ? () => { setFilesVisited(true); setBrowseFiles(true) } : undefined}
           />

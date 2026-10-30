@@ -11,7 +11,6 @@
  */
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
-import { comfyGroupReplacementInvocation } from '../src/commands/replace-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { compile } from '../src/compile/compile.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
@@ -28,10 +27,9 @@ import {
 } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 import { isReplacementRule, type ReplacementRule } from '../src/replace/model.js'
-import { planReplacement, type NodeReplacePlan } from '../src/replace/plan.js'
+import { planReplacement, REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY, type NodeReplacePlan } from '../src/replace/plan.js'
 import { createReplacementRegistry } from '../src/replace/registry.js'
 import { REPLACEMENT_CHAIN_LIMIT, registerSchemaRules, replacementInvocation, scanReplacements } from '../src/replace/scan.js'
-import { parseComfyReplacement } from '../src/schema/comfy-registry-codec.js'
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 // ---------------------------------------------------------------------------
@@ -331,11 +329,10 @@ describe('isReplacementRule', () => {
     ]) {
       const rule = { from: 'A', cases: [{ to: 'B', inputFamilies: { target: mapping } }] }
       expect(isReplacementRule(rule)).toBe(false)
-      expect(() => parseComfyReplacement(rule, 'replacement')).toThrow()
     }
   })
 
-  it('strictly decodes Comfy output family vocabulary', () => {
+  it('validates native output family vocabulary', () => {
     const valid = {
       from: 'A',
       cases: [{
@@ -346,17 +343,17 @@ describe('isReplacementRule', () => {
         },
       }],
     }
-    expect(parseComfyReplacement(valid, 'replacement')).toEqual(valid)
-    expect(() => parseComfyReplacement({
+    expect(isReplacementRule(valid)).toBe(true)
+    expect(isReplacementRule({
       from: 'A',
       cases: [{
         to: 'B',
         outputFamilies: { results: { kind: 'copy', sourceFamily: 'source', extra: true } },
       }],
-    }, 'replacement')).toThrow(/unknown fields: extra/)
+    })).toBe(false)
   })
 
-  it('validates and strictly decodes literal dynamic target choices', () => {
+  it('validates literal dynamic target choices', () => {
     const valid = {
       from: 'A',
       cases: [{
@@ -367,18 +364,15 @@ describe('isReplacementRule', () => {
       }],
     }
     expect(isReplacementRule(valid)).toBe(true)
-    expect(parseComfyReplacement(valid, 'replacement')).toEqual(valid)
     for (const slotVariants of [{}, { policy: '' }, { policy: 7 }, { '.policy': 'choice' }, { 'missing:mode': 'choice' }]) {
       const malformed = { from: 'A', cases: [{ to: 'B', nodes: { helper: { type: 'H' } }, slotVariants }] }
       expect(isReplacementRule(malformed)).toBe(false)
-      expect(() => parseComfyReplacement(malformed, 'replacement')).toThrow()
     }
     const stale = { from: 'A', cases: [{ to: 'B', targetChoices: { policy: { kind: 'constant', value: 'exact' } } }] }
     expect(isReplacementRule(stale)).toBe(false)
-    expect(() => parseComfyReplacement(stale, 'replacement')).toThrow()
   })
 
-  it('validates and strictly decodes same-type migration markers', () => {
+  it('validates same-type migration markers', () => {
     const valid = {
       from: 'A',
       migration: { historicalInputs: ['legacy.value', 'selector'] },
@@ -389,7 +383,6 @@ describe('isReplacementRule', () => {
       }, { to: 'A' }],
     }
     expect(isReplacementRule(valid)).toBe(true)
-    expect(parseComfyReplacement(valid, 'replacement')).toEqual(valid)
 
     const missingFallback = {
       from: 'A',
@@ -397,7 +390,6 @@ describe('isReplacementRule', () => {
       cases: [{ to: 'A', when: { kind: 'valuePresent', input: 'legacy' } }],
     }
     expect(isReplacementRule(missingFallback)).toBe(false)
-    expect(() => parseComfyReplacement(missingFallback, 'replacement')).toThrow()
 
     for (const migration of [
       null,
@@ -412,7 +404,6 @@ describe('isReplacementRule', () => {
     ]) {
       const malformed = { from: 'A', migration, cases: [{ to: 'A' }] }
       expect(isReplacementRule(malformed)).toBe(false)
-      expect(() => parseComfyReplacement(malformed, 'replacement')).toThrow()
     }
 
     const changesType = {
@@ -421,7 +412,6 @@ describe('isReplacementRule', () => {
       cases: [{ to: 'B' }],
     }
     expect(isReplacementRule(changesType)).toBe(false)
-    expect(() => parseComfyReplacement(changesType, 'replacement')).toThrow()
   })
 
   it('rejects cyclic internal links, doubly-fed inputs, and malformed helper addresses', () => {
@@ -578,6 +568,15 @@ describe('planReplacement guards', () => {
     expect(planReplacement(withValue, 'g0', 'old', guardedRule, resolve).plan?.caseIndex).toBe(1)
     const bare = doc({ g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode') } }) })
     expect(planReplacement(bare, 'g0', 'old', guardedRule, resolve).plan?.caseIndex).toBe(2)
+  })
+
+  it('does not accept a public case override or invent same-type migration evidence', () => {
+    const bare = doc({ g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode') } }) })
+    expect(Reflect.apply(planReplacement, undefined, [bare, 'g0', 'old', guardedRule, resolve, 0]).plan?.caseIndex).toBe(2)
+    const migration: ReplacementRule = {
+      from: 'OldNode', migration: { historicalInputs: ['legacy'] }, cases: [{ to: 'OldNode' }],
+    }
+    expect(Reflect.apply(planReplacement, undefined, [bare, 'g0', 'old', migration, resolve, 0]).plan).toBeUndefined()
   })
 
   it('valueEquals, not, all, any compose over document state', () => {
@@ -767,7 +766,7 @@ describe('planReplacement rewires', () => {
     expect(planned.plan!.dropLinks).toEqual([])
   })
 
-  it('treats interchangeable comfy-compat tap type spellings as the same type', () => {
+  it('does not preserve a tap across distinct prefixed and native types', () => {
     const before = doc({
       g0: graph({
         id: 'g0',
@@ -782,8 +781,8 @@ describe('planReplacement rewires', () => {
     })
     const rule: ReplacementRule = { from: 'TapMaskOld', cases: [{ to: 'TapMaskComfy' }] }
     const planned = planReplacement(before, 'g0', 'old', rule, resolve)
-    expect(planned.diagnostics).toEqual([])
-    expect(planned.plan!.dropLinks).toEqual([])
+    expect(planned.diagnostics.map((d) => d.code)).toEqual(['replace.output.dropped'])
+    expect(planned.plan!.dropLinks).toEqual(['tapLink'])
     expect(planned.plan!.tapGuards).toEqual([{ link: 'tapLink', tap: 'amount' }])
   })
 
@@ -1191,6 +1190,55 @@ describe('input family replacement', () => {
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
 
+  it('preserves non-widget static and ordered family literals in a same-type migration', () => {
+    const target = schemaOf('ConcatenateVideo', [
+      input('complete_audio', { type: { kind: 'concrete', name: 'BOOLEAN' } }),
+      {
+        ...familyInput('videos', []),
+        dynamic: {
+          kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+          template: [input('video', { type: { kind: 'list', element: { kind: 'concrete', name: 'VIDEO' } } })],
+          naming: { kind: 'prefix', prefix: 'video', min: 2, max: 8 },
+        },
+      },
+    ])
+    const rule: ReplacementRule = {
+      from: 'ConcatenateVideo', migration: { historicalInputs: ['videos'] }, cases: [{
+        to: 'ConcatenateVideo', inputs: { complete_audio: { kind: 'copy', input: 'complete_audio' } },
+        inputFamilies: { videos: {
+          kind: 'copy', sourceFamily: 'videos', memberIds: 'targetPositions',
+          sourceTemplate: { inputs: ['video'] }, inputs: { video: { kind: 'copy', input: 'video' } },
+        } },
+      }],
+    }
+    const original = doc({ g0: graph({ id: 'g0', nodes: {
+      old: node('old', 'ConcatenateVideo', {
+        'videos.m9': ['clip-b', 'clip-c'], 'videos.m2': ['clip-a'], complete_audio: false,
+      }, { dynamic: { videos: { members: ['m9', 'm2'] } } }),
+    } }) })
+    const resolve = (type: string) => type === target.type ? target : undefined
+    const planned = planReplacement(original, 'g0', 'old', rule, resolve)
+    expect(planned.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
+    expect(planned.plan).toBeDefined()
+    if (!planned.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.values).toEqual({
+      'videos.video0': ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
+    })
+    const compiled = compile({ document: store.doc, revision: 1, resolve, scope: { kind: 'full' },
+      connection: asConnectionId('test'), schemaHash: 'test' })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (compiled.ok) expect(compiled.artifact.prompt.old!.inputs).toEqual({
+      'videos.video0': ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
+    })
+    expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.values.complete_audio).toBe(false)
+  })
+
   it.each([false, true])('migrates boundary-only historical member bindings (flat=%s)', (flat) => {
     const target = schemaOf('BoundFamily', [{
       ...familyInput('values', []),
@@ -1287,7 +1335,6 @@ describe('input family replacement', () => {
         inputs: { value: { kind: 'copy', input: 'value' } } },
     } }] } satisfies ReplacementRule
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, resolver)
     expect(planned.diagnostics).toEqual(sameType
       ? [expect.objectContaining({ severity: 'info', code: 'replace.migration.archived' })]
@@ -1621,7 +1668,6 @@ describe('input family replacement', () => {
       }],
     }
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.dynamic).toEqual({ values: { members: ['b', 'a'] } })
@@ -1770,7 +1816,6 @@ describe('input family replacement', () => {
       }],
     }
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.dynamic).toEqual({ values: { members: ['value1', 'value2'] } })
@@ -1810,7 +1855,6 @@ describe('input family replacement', () => {
       }],
     }
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.createdNodes).toEqual([expect.objectContaining({
@@ -1864,7 +1908,6 @@ describe('input family replacement', () => {
     }
 
     expect(isReplacementRule(rule)).toBe(true)
-    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.createdNodes).toEqual([
@@ -1989,7 +2032,7 @@ describe('output family replacement', () => {
     }],
   }
 
-  it('copies ordered output members and atomically preserves links and named nets', () => {
+  it.each([false, true])('copies output members with predecessor schema available=%s and preserves links and nets', (available) => {
     const original = doc({
       g0: graph({
         id: 'g0',
@@ -2005,7 +2048,8 @@ describe('output family replacement', () => {
         },
       }),
     })
-    const planned = planReplacement(original, 'g0', 'old', copyRule, outputResolve)
+    const resolve = (type: string) => type === 'FamilyOutputOld' && !available ? undefined : outputResolve(type)
+    const planned = planReplacement(original, 'g0', 'old', copyRule, resolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.values).toEqual({ quantity: 2 })
     expect(planned.plan?.sourceCountGuards).toEqual({ count: 2 })
@@ -2033,6 +2077,32 @@ describe('output family replacement', () => {
     expect(store.doc).toEqual(original)
     expect(store.redo()).toBe(true)
     expect(store.doc.graphs.g0!.links.linked!.from).toEqual(mport('old', 'items', '0'))
+  })
+
+  it('requires an unchanged, admitted literal count when copying without a predecessor schema', () => {
+    const resolve = (type: string) => type === 'FamilyOutputOld' ? undefined : outputResolve(type)
+    for (const count of [-1, 1.5, '2', 513]) {
+      const original = doc({ g0: graph({
+        id: 'g0', nodes: { old: node('old', 'FamilyOutputOld', { count }) },
+      }) })
+      expect(planReplacement(original, 'g0', 'old', copyRule, resolve).plan).toBeUndefined()
+    }
+    const original = doc({ g0: graph({
+      id: 'g0', nodes: { old: node('old', 'FamilyOutputOld', { count: 0 }) },
+    }) })
+    const planned = planReplacement(original, 'g0', 'old', copyRule, resolve)
+    expect(planned.diagnostics).toEqual([])
+    expect(planned.plan?.values).toEqual({ quantity: 0 })
+    expect(planned.plan?.sourceCountGuards).toEqual({ count: 0 })
+    const transformed: ReplacementRule = {
+      ...copyRule,
+      cases: [{
+        ...copyRule.cases[0]!,
+        inputs: { quantity: { kind: 'constant', value: 0 } },
+      }],
+    }
+    expect(planReplacement(original, 'g0', 'old', transformed, resolve).diagnostics)
+      .toContainEqual(expect.objectContaining({ code: 'replace.outputFamily.countMapping' }))
   })
 
   it('maps ordinary source outputs to explicit canonical target members', () => {
@@ -2121,7 +2191,8 @@ describe('output family replacement', () => {
     expect(staleNetStore.doc).toEqual(staleNet)
   })
 
-  it('fails closed for linked source counts and stale member endpoints', () => {
+  it.each([false, true])('rejects linked counts and stale endpoints with predecessor schema available=%s', (available) => {
+    const resolve = (type: string) => type === 'FamilyOutputOld' && !available ? undefined : outputResolve(type)
     const linkedCount = doc({
       g0: graph({
         id: 'g0',
@@ -2136,7 +2207,7 @@ describe('output family replacement', () => {
         },
       }),
     })
-    const rejected = planReplacement(linkedCount, 'g0', 'old', copyRule, outputResolve)
+    const rejected = planReplacement(linkedCount, 'g0', 'old', copyRule, resolve)
     expect(rejected.plan).toBeUndefined()
     expect(rejected.diagnostics).toContainEqual(expect.objectContaining({
       code: 'replace.source.outputFamilyInvalid',
@@ -2149,7 +2220,7 @@ describe('output family replacement', () => {
         links: { result: link('result', mport('old', 'results', '0'), port('dst', 'in')) },
       }),
     })
-    const plan = planReplacement(original, 'g0', 'old', copyRule, outputResolve).plan!
+    const plan = planReplacement(original, 'g0', 'old', copyRule, resolve).plan!
     expect(plan.sourceCountGuards).toEqual({ count: 2 })
     const baseGraph = original.graphs.g0!
     const stale = {
@@ -2640,7 +2711,7 @@ describe('1-to-N replacement planning and apply', () => {
     expect(registry.register('core', oneToNRule)).toEqual([])
     const items = scanReplacements(d, registry, resolve)
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation(items)!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, d, resolve)!).ok).toBe(true)
     expect(store.doc.graphs.g0!.nets.shared!.sinks).toEqual([
       port('a:join', 'a'),
       port('b:join', 'a'),
@@ -2666,7 +2737,7 @@ describe('1-to-N replacement planning and apply', () => {
     const registry = createReplacementRegistry()
     expect(registry.register('core', rule)).toEqual([])
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation(scanReplacements(d, registry, resolve))!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(scanReplacements(d, registry, resolve), d, resolve)!).ok).toBe(true)
     expect(store.doc.graphs.g0!.nets.shared!.sinks).toEqual([
       port('a', 'image'),
       port('b', 'image'),
@@ -3004,6 +3075,9 @@ describe('node.replace', () => {
               displayName: 'Fan out',
               binds: { kind: 'port' as const, ...port('keep', 'in_image') },
               alsoBinds: [{ kind: 'port' as const, ...port('old', 'in_image') }],
+            }, {
+              id: 'unused',
+              binds: { kind: 'unbound', type: { kind: 'concrete', name: 'INT' } },
             }],
             outputs: [{ id: 'bo', binds: { kind: 'port' as const, ...port('old', 'out_image') } }],
           },
@@ -3032,6 +3106,7 @@ describe('node.replace', () => {
       binds: { kind: 'port', ...port('keep', 'in_image') }, // untouched: other node
       alsoBinds: [{ kind: 'port', ...port('old', 'image') }],
     })
+    expect(b.inputs[2]).toEqual(before.graphs.g1!.boundary!.inputs[2])
     expect(b.outputs[0]).toEqual({ id: 'bo', binds: { kind: 'port', ...port('old', 'image') } })
     expect(store.doc.graphs.g1!.nodes.old!.type).toBe('NewNode')
     expect(checkDocument(store.doc)).toEqual([])
@@ -3303,34 +3378,6 @@ describe('node.replace', () => {
   })
 })
 
-describe('import.replaceComfyGroups', () => {
-  it('rolls back the collapsed graph when native replacement fails', () => {
-    const source = {
-      ...doc({
-        g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode', { amount: 1 }) } }),
-      }),
-      view: { graphs: { g0: { nodes: {} } } },
-    } satisfies WorkflowDocument
-    const collapsed = {
-      ...doc({
-        g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode', { amount: 2 }) } }),
-      }),
-      view: { graphs: { g0: { nodes: {} } } },
-    } satisfies WorkflowDocument
-    const planned = planReplacement(collapsed, 'g0', 'old', basicRule, resolve).plan!
-    const stale = { ...planned, from: 'comfy-group.test' }
-    const invocation = comfyGroupReplacementInvocation(source, collapsed, [stale])!
-    const store = new DocumentStore(source, coreCommandRegistry())
-
-    const outcome = store.dispatch(invocation)
-
-    expect(outcome.ok).toBe(false)
-    expect(outcome.diagnostics).toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
-    expect(store.doc).toEqual(source)
-    expect(store.revision).toBe(0)
-  })
-})
-
 // ---------------------------------------------------------------------------
 // Scan + apply orchestration
 // ---------------------------------------------------------------------------
@@ -3350,7 +3397,7 @@ describe('registerSchemaRules', () => {
     const diags = registerSchemaRules(reg, [successor])
     expect(diags).toHaveLength(1)
     expect(diags[0]!.message).toContain("schema 'NewNode'")
-    expect(reg.rulesFor('OldNode')).toEqual([basicRule]) // good rule still lands
+    expect(reg.rulesFor('OldNode')).toEqual([basicRule])
   })
 })
 
@@ -3419,13 +3466,119 @@ describe('scanReplacements', () => {
     expect(items[0]!.rule).toBe(basicRule)
   })
 
+  it.each(['tap', 'net', 'archive', 'archive-link-only', 'archive-net-only'] as const)('composes %s deletion overlaps in either node order', (connection) => {
+    const localSchemas: Record<string, NodeSchema> = {
+      PreviousProducer: schemaOf('PreviousProducer', [widgetInput('oldAmount', 7), output('out')]),
+      Producer: schemaOf('Producer', [widgetInput('amount', 7), output('out')]),
+      Sink: schemaOf('Sink', [widgetInput('amount', 3)]),
+    }
+    const localResolve = (type: string) => localSchemas[type]
+    const producerRule: ReplacementRule = { from: 'PreviousProducer', cases: [{ to: 'Producer', inputs: { amount: { kind: 'copy', input: 'oldAmount' } } }] }
+    const archive = connection.startsWith('archive')
+    const evidenceOnly = connection === 'archive-link-only' || connection === 'archive-net-only'
+    const namedNet = connection === 'net' || connection === 'archive-net-only'
+    const sinkRule: ReplacementRule = archive
+      ? { from: 'Sink', migration: { historicalInputs: ['oldAmount'] }, cases: [{ to: 'Sink', inputs: { amount: { kind: 'copy', input: 'oldAmount' } } }] }
+      : { from: 'PreviousSink', cases: [{ to: 'Sink', inputs: { amount: { kind: 'copy', input: 'oldAmount' } } }] }
+    for (const producerFirst of [false, true]) {
+      const producer = node('producer', 'PreviousProducer', { oldAmount: 11 })
+      const sink = node('sink', archive ? 'Sink' : 'PreviousSink', evidenceOnly ? {} : { oldAmount: 29 })
+      const expectedAmount = evidenceOnly ? 3 : 29
+      const d = doc({ g0: graph({
+        id: 'g0',
+        nodes: producerFirst ? { producer, sink } : { sink, producer },
+        links: namedNet ? {} : {
+          shared: link('shared', connection === 'tap'
+            ? { node: asNodeId('producer'), tap: asPortId('oldAmount') }
+            : port('producer', 'out'), port('sink', archive ? 'oldAmount' : 'discarded')),
+        },
+        nets: namedNet ? { shared: net('shared', port('producer', 'out'), [port('sink', 'oldAmount')]) } : {},
+      }) })
+      const items = scanReplacements(d, registryWith(producerRule, sinkRule), localResolve)
+      expect(items, JSON.stringify(items)).toHaveLength(2)
+      expect(items.every((item) => item.hops.length === 1), JSON.stringify(items)).toBe(true)
+      if (connection === 'tap') expect(items.find((item) => item.nodeId === 'producer')!.plan!.tapRewires).toHaveLength(1)
+      const snapshot = structuredClone(d)
+      const invocation = replacementInvocation(items, d, localResolve)!
+      expect(d).toEqual(snapshot)
+      const store = new DocumentStore(d, coreCommandRegistry())
+      const result = store.dispatch(invocation)
+      expect(result.ok, JSON.stringify({ producerFirst, diagnostics: result.diagnostics })).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.producer!.values).toEqual({ amount: 11 })
+      expect(store.doc.graphs.g0!.nodes.sink!.values).toEqual({ amount: expectedAmount })
+      expect(store.doc.graphs.g0!.links).toEqual({})
+      expect(store.doc.graphs.g0!.nets).toEqual({})
+      if (archive) {
+        expect(store.doc.graphs.g0!.nodes.sink!.ext?.[REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]).toMatchObject({
+          node: snapshot.graphs.g0!.nodes.sink,
+          links: snapshot.graphs.g0!.links,
+          nets: snapshot.graphs.g0!.nets,
+        })
+        const changed = structuredClone(d)
+        ;(changed.graphs.g0!.nodes.sink!.values as Record<string, Json>).oldAmount = 97
+        expect(replacementInvocation(items, changed, localResolve)).toBeUndefined()
+        const stale = new DocumentStore(changed, coreCommandRegistry())
+        expect(stale.dispatch(invocation).ok).toBe(false)
+        expect(stale.doc).toEqual(changed)
+      }
+      expect(store.revision).toBe(1)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(d)
+      expect(store.canUndo).toBe(false)
+      expect(store.redo()).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.sink!.values).toEqual({ amount: expectedAmount })
+    }
+  })
+
+  it('preserves selected connected cases and their chains after peer disconnection', () => {
+    const localSchemas: Record<string, NodeSchema> = {
+      Producer: schemaOf('Producer', []),
+      ConnectedSink: schemaOf('ConnectedSink', [widgetInput('amount', 3)]),
+      DisconnectedSink: schemaOf('DisconnectedSink', [widgetInput('amount', 5)]),
+      FinalSink: schemaOf('FinalSink', [widgetInput('amount', 7)]),
+    }
+    const localResolve = (type: string) => localSchemas[type]
+    const rules: ReplacementRule[] = [
+      { from: 'PreviousProducer', cases: [{ to: 'Producer' }] },
+      { from: 'PreviousSink', cases: [
+        { when: { kind: 'inputConnected', input: 'legacy' }, to: 'ConnectedSink', inputs: { amount: { kind: 'constant', value: 29 } } },
+        { to: 'DisconnectedSink', inputs: { amount: { kind: 'constant', value: 97 } } },
+      ] },
+      { from: 'ConnectedSink', cases: [{ to: 'FinalSink', inputs: { amount: { kind: 'copy', input: 'amount' } } }] },
+    ]
+    for (const producerFirst of [false, true]) {
+      const producer = node('producer', 'PreviousProducer')
+      const sink = node('sink', 'PreviousSink')
+      const d = doc({ g0: graph({ id: 'g0', nodes: producerFirst ? { producer, sink } : { sink, producer },
+        links: { shared: link('shared', port('producer', 'out'), port('sink', 'legacy')) },
+      }) })
+      const items = scanReplacements(d, registryWith(...rules), localResolve)
+      expect(items.find((item) => item.nodeId === 'sink')!.hops).toHaveLength(2)
+      const forged = items.map((item) => item.nodeId !== 'sink' ? item : {
+        ...item, hops: [{ ...item.hops[0]!, plan: { ...item.hops[0]!.plan, caseIndex: 1 } }],
+      })
+      expect(replacementInvocation(forged, d, localResolve)).toBeUndefined()
+      const invocation = replacementInvocation(items, d, localResolve)
+      expect(invocation).toBeDefined()
+      const store = new DocumentStore(d, coreCommandRegistry())
+      expect(store.dispatch(invocation!).ok).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.sink).toMatchObject({ type: 'FinalSink', values: { amount: 29 } })
+      expect(store.doc.graphs.g0!.links).toEqual({})
+      expect(store.revision).toBe(1)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(d)
+      expect(store.redo()).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.sink!.values).toEqual({ amount: 29 })
+    }
+  })
+
   it('replacementInvocation batches several plans into one undo step', () => {
     const d = doc({
       g0: graph({ id: 'g0', nodes: { a: node('a', 'OldNode', { amount: 1 }), b: node('b', 'OldNode', { amount: 2 }) } }),
     })
     const items = scanReplacements(d, registryWith(basicRule), resolve)
     expect(items).toHaveLength(2)
-    const inv = replacementInvocation(items)!
+    const inv = replacementInvocation(items, d, resolve)!
     expect(inv.command).toBe('batch')
 
     const store = new DocumentStore(d, coreCommandRegistry())
@@ -3439,8 +3592,8 @@ describe('scanReplacements', () => {
     expect(store.doc).toEqual(d)
 
     // Single plan dispatches node.replace directly; nothing planned -> undefined.
-    expect(replacementInvocation([items[0]!])!.command).toBe('node.replace')
-    expect(replacementInvocation([])).toBeUndefined()
+    expect(replacementInvocation([items[0]!], d, resolve)!.command).toBe('node.replace')
+    expect(replacementInvocation([], d, resolve)).toBeUndefined()
   })
 
   it('does not re-plan helpers created during the same scan/apply pass', () => {
@@ -3470,7 +3623,7 @@ describe('scanReplacements', () => {
     expect(items[0]!.hops.map((hop) => hop.plan.to)).toEqual(['NewNode', 'SamePorts'])
 
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation(items)!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, d, resolve)!).ok).toBe(true)
     expect(store.doc.graphs.g0!.nodes.old!.type).toBe('SamePorts')
     expect(store.doc.graphs.g0!.nodes['old:helper']!.type).toBe('ListJoin')
   })
@@ -3538,7 +3691,7 @@ describe('replacement chains', () => {
     const items = scanReplacements(d, registryWith(ruleAB, ruleBC), chainResolve)
     expect(items[0]!.safe).toBe(true)
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation(items)!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, d, chainResolve)!).ok).toBe(true)
     expect(store.revision).toBe(1)
     expect(store.doc.graphs.g0!.nodes.a!.type).toBe('ChainC')
     expect(store.doc.graphs.g0!.nodes.a!.values).toEqual({ z: 6 })
@@ -3582,7 +3735,7 @@ describe('replacement chains', () => {
     expect(item.diagnostics.some((x) => x.code === 'replace.target.unknown')).toBe(true)
     // Explicit review-apply still migrates the safe prefix.
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation([item])!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation([item], d, chainResolve)!).ok).toBe(true)
     expect(store.doc.graphs.g0!.nodes.a!.type).toBe('ChainB')
   })
 
@@ -3608,7 +3761,7 @@ describe('replacement chains', () => {
     const d = doc({ g0: graph({ id: 'g0', nodes: { a: node('a', 'ChainA', { x: 1 }) } }) })
     const item = scanReplacements(d, registryWith(self), chainResolve)[0]!
     expect(item).toMatchObject({ status: 'cycle', hops: [], safe: false, terminalType: 'ChainA' })
-    expect(replacementInvocation([item])).toBeUndefined()
+    expect(replacementInvocation([item], d, chainResolve)).toBeUndefined()
   })
 
   it('blocks a marked same-type migration that remains applicable', () => {
@@ -3624,7 +3777,7 @@ describe('replacement chains', () => {
       severity: 'error',
       code: 'replace.migration.nonOneShot',
     }))
-    expect(replacementInvocation([item])).toBeUndefined()
+    expect(replacementInvocation([item], d, chainResolve)).toBeUndefined()
   })
 
   it('continues an ordinary replacement chain after a one-shot same-type migration', () => {
@@ -3681,7 +3834,7 @@ describe('replacement chains', () => {
     expect(items.every((item) => item.safe && item.hops.length === 2)).toBe(true)
 
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation(items)!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, d, chainResolve)!).ok).toBe(true)
     expect(store.doc.graphs.g0!.nodes.a!.type).toBe('ChainB')
     expect(store.doc.graphs.g0!.nodes.b!.type).toBe('ChainB')
     expect(store.doc.graphs.g0!.nets.shared!.sinks).toEqual([
@@ -3737,7 +3890,7 @@ describe('replacement chains', () => {
     expect(items.every((item) => item.hops.length === 2 && !item.safe)).toBe(true)
 
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation(items)!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, d, (type) => lossySchemas[type])!).ok).toBe(true)
     expect(store.doc.graphs.g0!.nets.shared!.sinks).toEqual([
       port('u1', 'in'),
       port('b', 'final'),
@@ -3776,7 +3929,7 @@ describe('replacement chains', () => {
     expect(items.map((i) => i.hops.length)).toEqual([2, 1])
     expect(items.every((i) => i.safe)).toBe(true)
     const store = new DocumentStore(d, coreCommandRegistry())
-    expect(store.dispatch(replacementInvocation(items)!).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, d, chainResolve)!).ok).toBe(true)
     expect(store.revision).toBe(1)
     expect(store.doc.graphs.g0!.nodes.a!.type).toBe('ChainC')
     expect(store.doc.graphs.g0!.nodes.a!.values).toEqual({ z: 4 })

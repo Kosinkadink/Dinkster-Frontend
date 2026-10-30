@@ -4,16 +4,16 @@
  * out of BadgePopover.tsx so unit tests (node environment, no Solid
  * transform) can pin them directly - same split as menu-target.ts.
  *
- * The host wraps these with its reactive state (active tab, replacement
- * scan items, backend problem feed); nothing here reads a signal.
+ * The host wraps these with its reactive document and registry state;
+ * nothing here reads a signal.
  */
 
 import {
   resolveDeprecationPointer,
   subgraphDefIdOf,
   type NodeSchema,
-  type ReplacementScanItem,
   type ResolvedDeprecationPointer,
+  type ReplacementScanItem,
   type WorkflowDocument,
 } from '@dinkster/core'
 
@@ -40,12 +40,9 @@ export function subgraphBadgeInfo(
 
 // -- deprecation badge --------------------------------------------------------
 
-export interface ReplacementBadgeInfo<P extends { readonly from: string }> {
+export interface DeprecationBadgeInfo {
   readonly type: string
-  /** Migration-chain scan item for this node; absent when no rule planned. */
-  readonly item: ReplacementScanItem | undefined
-  /** Advisory server problems whose predecessor the chain passes through. */
-  readonly problems: readonly P[]
+  readonly item?: ReplacementScanItem
   readonly deprecation: NodeSchema['deprecation']
   /** Name-only successor pointer, resolved transitively (display guidance). */
   readonly pointer: ResolvedDeprecationPointer | undefined
@@ -53,32 +50,24 @@ export interface ReplacementBadgeInfo<P extends { readonly from: string }> {
 
 /**
  * Deprecation badge popover content; undefined when the node is missing.
- * `problems` is the backend's full advisory rule-diagnostic feed - entries
- * are kept when their predecessor is any type this node's migration chain
- * passes through (they explain WHY a rule cannot plan against the installed
- * environment). Advisory only - schemas stay loadable and the scan's own
- * diagnostics stay primary.
  */
-export function replacementBadgeInfo<P extends { readonly from: string }>(args: {
+export function deprecationBadgeInfo(args: {
   readonly doc: WorkflowDocument
   readonly graphId: string
   readonly nodeId: string
   readonly resolve: ((type: string) => NodeSchema | undefined) | undefined
-  readonly item: ReplacementScanItem | undefined
-  readonly problems: readonly P[]
-}): ReplacementBadgeInfo<P> | undefined {
-  const { doc, graphId, nodeId, resolve, item, problems } = args
+  readonly item?: ReplacementScanItem
+}): DeprecationBadgeInfo | undefined {
+  const { doc, graphId, nodeId, resolve } = args
   const type = doc.graphs[graphId]?.nodes[nodeId]?.type
   if (type === undefined) return undefined
   const schema = resolve?.(type)
-  const chainTypes = new Set([type, ...(item ? [item.terminalType, ...item.hops.map((h) => h.plan.to)] : [])])
   return {
     type,
-    item,
-    problems: problems.filter((p) => chainTypes.has(p.from)),
+    ...(args.item === undefined ? {} : { item: args.item }),
     deprecation: schema?.deprecation,
     // Name-only successor pointer, resolved transitively (A -> B -> C
-    // shows C). Display guidance only - the executable path is the item.
+    // shows C). Display guidance only, never an executable mapping.
     pointer: schema && resolve ? resolveDeprecationPointer(schema, resolve) : undefined,
   }
 }

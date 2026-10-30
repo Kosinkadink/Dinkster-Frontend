@@ -4,7 +4,7 @@
  * follow their lineage's latest run unless explicitly pinned to one. Pins
  * are VIEW state - per tab, never serialized, never crossing lineages.
  *
- * Executions are registered through REAL compiles of the app's default tab
+ * Executions are registered through REAL compiles of authored fixture
  * documents (same artifact shape the queue path produces), so lineage/hash
  * plumbing is exercised honestly rather than faked.
  */
@@ -16,22 +16,17 @@ import {
   asConnectionId,
   asPromptId,
   compile,
-  parseDinksterNodes,
   type CompileArtifact,
-  type DinksterNodesPayload,
   type ExecutionRef,
 } from '@dinkster/core'
-import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Tab } from '../src/app-state.js'
+import { historicalRegistry, historicalSchemas } from './historical-schemas.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-// The stock tabs are authored against native namespaced schemas.
-const nodesPayload = JSON.parse(readFileSync(join(root, 'fixtures/dinkster-nodes-comfy.json'), 'utf8')) as DinksterNodesPayload
-const { schemas } = parseDinksterNodes(nodesPayload)
-const resolve = (type: string) => schemas.get(type)
+const resolve = (type: string) => historicalSchemas.get(type)
 
 const CONNECTION = asConnectionId('local')
 
@@ -58,15 +53,14 @@ const run = (tab: Tab, queuedAt: number): ExecutionRef => {
 
 beforeEach(() => {
   app = new AppState()
-  // The stock seeds are authored in portable legacy V1 form; deliver the
-  // native schemas the way the real app does (registry arrival fires
-  // backendsTick) so the silent baseline upgrade migrates them to the
-  // canonical types this suite compiles against.
+  for (const name of ['basic', 'subgraph']) {
+    app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
+  }
   const backend = app.backends.get()[0]!
-  backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
+  backend.registry.set(historicalRegistry(backend.id))
   const tabs = app.tabs.get()
-  basic = tabs[0]!
-  subgraph = tabs[1]!
+  basic = tabs.find((tab) => tab.id === 'lineage-seed-basic')!
+  subgraph = tabs.find((tab) => tab.id === 'lineage-seed-subgraph')!
   expect(basic.store.doc.lineage).not.toBe(subgraph.store.doc.lineage)
 })
 

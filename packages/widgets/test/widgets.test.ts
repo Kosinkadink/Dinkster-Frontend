@@ -39,6 +39,21 @@ function recordingBuilder() {
   return { ops, builder }
 }
 
+describe('MOUNT values', () => {
+  it('preserves scalar mount ids and the null default through the public registry', () => {
+    const kind = registry().kind('MOUNT')!
+    expect(kind.defaultValue(spec('MOUNT'))).toBeNull()
+    expect(kind.defaultValue(spec('MOUNT', {}, 'archive'))).toBe('archive')
+    for (const value of [null, 'archive']) {
+      expect(kind.valueSchema.validate(value)).toBe(true)
+      expect(kind.validate(value, spec('MOUNT'))).toEqual([])
+    }
+    expect(kind.valueSchema.validate({ mount: 'archive', prefix: 'frames' })).toBe(false)
+    expect(kind.validate('../archive', spec('MOUNT'))).not.toEqual([])
+    expect(kind.defaultView(spec('MOUNT'))).toBe('core.mount')
+  })
+})
+
 describe('BUTTON actions', () => {
   it('registers a stateless kind and a readonly-aware view with an expanded command', () => {
     const r = registry()
@@ -212,7 +227,7 @@ describe('registry', () => {
 
   it('registers every core kind with at least one view each', () => {
     const r = registry()
-    for (const type of ['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO', 'COLOR', 'ASSET', 'SAVE_TARGET']) {
+    for (const type of ['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO', 'COLOR', 'ASSET', 'MOUNT']) {
       expect(r.kind(type), type).toBeDefined()
       expect(r.viewsFor(type).length, type).toBeGreaterThan(0)
     }
@@ -455,6 +470,23 @@ describe('kind semantics', () => {
     expect(kind.defaultView(spec('COLOR'))).toBe('core.color')
   })
 
+  it('ASSET selection validates source names without widening ordinary assets', () => {
+    const kind = registry().kind('ASSET')!
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'model.vae', size: 42, mediaType: 'application/octet-stream', virtualPath: 'mounts/vae/model.vae' }
+    for (const sourceKind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
+      const selection: WidgetSpec = { widgetType: 'ASSET', options: {}, kind: sourceKind, selection: true, default: 'nested/source' }
+      expect(kind.valueSchema.validate('nested/source', selection)).toBe(true)
+      expect(kind.valueSchema.validate('pixel_space', selection)).toBe(true)
+      expect(kind.valueSchema.validate(asset, selection)).toBe(sourceKind === 'model/vae')
+      expect(kind.valueSchema.validate([asset], selection)).toBe(false)
+      expect(kind.defaultValue(selection)).toBe('nested/source')
+      expect(effectiveWidgetDefault(selection)).toBe('nested/source')
+      expect(kind.valueSchema.validate('nested/source', { widgetType: 'ASSET', options: {}, kind: sourceKind })).toBe(false)
+    }
+    expect(kind.valueSchema.validate('pixel_space')).toBe(false)
+    expect(kind.defaultValue(spec('ASSET', {}, 'pixel_space'))).toBeNull()
+  })
+
   it('ASSET validates references and uses null for absent or invalid defaults', () => {
     const kind = registry().kind('ASSET')!
     const asset = {
@@ -515,44 +547,6 @@ describe('kind semantics', () => {
     expect(kind.defaultValue(spec('ASSET', {}, [asset, 'cat.png']))).toBeNull()
   })
 
-  it('SAVE_TARGET stores {mount, prefix} pairs or null; grammar violations warn instead of vanishing', () => {
-    const kind = registry().kind('SAVE_TARGET')!
-    const target = { mount: 'comfy-output', prefix: 'ComfyUI' }
-    // Value schema is SHAPE only (string pair or null): documents authored
-    // against other mount sets still load; grammar surfaces via validate().
-    expect(kind.valueSchema.validate(target)).toBe(true)
-    expect(kind.valueSchema.validate(null)).toBe(true)
-    expect(kind.valueSchema.validate('output/ComfyUI')).toBe(false)
-    expect(kind.valueSchema.validate({ mount: 'renders' })).toBe(false)
-    expect(kind.valueSchema.validate({ mount: 7, prefix: 'x' })).toBe(false)
-    expect(kind.validate(target, spec('SAVE_TARGET'))).toEqual([])
-    expect(kind.validate(null, spec('SAVE_TARGET'))).toEqual([])
-    expect(kind.validate({ mount: 'renders', prefix: 'a/b/stem' }, spec('SAVE_TARGET'))).toEqual([])
-    const invalidPrefixes = [
-      '/abs/path',      // absolute
-      'a\\b',           // backslash separator
-      'a//b',           // empty segment
-      'a/./b',          // '.' segment
-      'a/../b',         // traversal
-      'trailing/',      // trailing slash = empty last segment
-      '',               // empty
-    ]
-    for (const prefix of invalidPrefixes) {
-      const diags = kind.validate({ mount: 'renders', prefix }, spec('SAVE_TARGET'))
-      expect(diags.length, `prefix '${prefix}'`).toBeGreaterThan(0)
-      expect(diags[0]!.code, `prefix '${prefix}'`).toBe('widget.SAVE_TARGET.invalid')
-    }
-    for (const mount of ['Renders', 'comfy output', '-renders', 'renders-', 'a.b', '']) {
-      expect(kind.validate({ mount, prefix: 'ok' }, spec('SAVE_TARGET')).length, `mount '${mount}'`).toBeGreaterThan(0)
-    }
-    // Defaults: grammar-valid default is kept, anything else is null (unset).
-    expect(kind.defaultValue(spec('SAVE_TARGET'))).toBeNull()
-    expect(kind.defaultValue(spec('SAVE_TARGET', {}, target))).toEqual(target)
-    expect(kind.defaultValue(spec('SAVE_TARGET', {}, { mount: 'x', prefix: '../up' }))).toBeNull()
-    expect(kind.defaultValue(spec('SAVE_TARGET', {}, 'output/raw'))).toBeNull()
-    expect(kind.defaultView(spec('SAVE_TARGET'))).toBe('core.saveTarget')
-  })
-
   it('STRING default view follows the multiline hint', () => {
     const kind = registry().kind('STRING')!
     expect(kind.defaultView(spec('STRING'))).toBe('core.line')
@@ -590,11 +584,10 @@ describe('display/submission default agreement', () => {
   })
 
   it('kinds whose display default is a placeholder have NO submission default', () => {
-    // ASSET/SAVE_TARGET display null ("explicitly unset") and an empty/remote
+    // ASSET displays null ("explicitly unset") and an empty/remote
     // COMBO displays '' - placeholders a user can see through, not values a
     // prompt may execute with. Submission keeps the missing-input warning.
     expect(effectiveWidgetDefault(spec('ASSET'))).toBeUndefined()
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET'))).toBeUndefined()
     expect(effectiveWidgetDefault(spec('COMBO'))).toBeUndefined()
     expect(effectiveWidgetDefault(spec('COMBO', { options: [] }))).toBeUndefined()
   })
@@ -703,24 +696,6 @@ describe('compact views', () => {
       focused: false, connected: false, readonly: false,
     })
     expect(populated.ops.find((op) => op.op === 'text')?.args[2]).toBe('literal')
-  })
-
-  it('SAVE_TARGET compact row shows mount:prefix plus display suffix; the suffix never joins the value', () => {
-    const r = registry()
-    const view = r.viewsFor('SAVE_TARGET').find((v) => v.id === 'core.saveTarget')!
-    const withValue = recordingBuilder()
-    view.drawCompact(withValue.builder, { mount: 'renders', prefix: 'project/stem' }, spec('SAVE_TARGET', { suffix: '.png' }), {
-      focused: false, connected: false, readonly: false,
-    })
-    const valueText = withValue.ops.filter((o) => o.op === 'text').map((o) => o.args[2])
-    expect(valueText).toContain('renders:project/stem.png')
-    expect(withValue.ops.some((o) => o.op === 'hitRegion')).toBe(true)
-    // Null = unset optional target: the schema default applies server-side.
-    const empty = recordingBuilder()
-    view.drawCompact(empty.builder, null, spec('SAVE_TARGET', { suffix: '.png' }), {
-      focused: false, connected: false, readonly: false,
-    })
-    expect(empty.ops.filter((o) => o.op === 'text').map((o) => o.args[2])).toContain('default target')
   })
 
   it('COLOR compact row paints a swatch and exact stored text', () => {

@@ -485,31 +485,31 @@ describe('v14 COMBO link-drop compatibility', () => {
   })
 })
 
-describe('SAVE_TARGET link-drop compatibility', () => {
-  const saveTarget = concrete('SAVE_TARGET')
-  const consumer = schema([input('target', saveTarget, {
-    widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'comfy-output', prefix: 'ComfyUI' } },
+describe('mount widget native link-drop identity', () => {
+  const mountType = concrete('STRING')
+  const consumer = schema([input('mount', mountType, {
+    widget: { widgetType: 'MOUNT', options: {}, default: null },
   })])
-  const producer = schema([{ kind: 'output', id: 'target', type: saveTarget }])
-  const stringConsumer = schema([input('text', concrete('STRING'))])
-  const stringProducer = schema([{ kind: 'output', id: 'text', type: concrete('STRING') }])
+  const producer = schema([{ kind: 'output', id: 'mount', type: mountType }])
+  const integerConsumer = schema([input('number', concrete('INT'))])
+  const integerProducer = schema([{ kind: 'output', id: 'number', type: concrete('INT') }])
 
   it('offers and auto-connects exact typed producers and consumers', () => {
-    expect(schemaMatchesLinkDrop(consumer, saveTarget, 'in')).toBe(true)
-    expect(autoConnectTarget(consumer, saveTarget, 'in')).toEqual({ port: 'target' })
-    expect(schemaMatchesLinkDrop(producer, saveTarget, 'out')).toBe(true)
-    expect(autoConnectTarget(producer, saveTarget, 'out')).toEqual({ port: 'target' })
+    expect(schemaMatchesLinkDrop(consumer, mountType, 'in')).toBe(true)
+    expect(autoConnectTarget(consumer, mountType, 'in')).toEqual({ port: 'mount' })
+    expect(schemaMatchesLinkDrop(producer, mountType, 'out')).toBe(true)
+    expect(autoConnectTarget(producer, mountType, 'out')).toEqual({ port: 'mount' })
   })
 
-  it('refuses STRING in both directions instead of offering an implicit conversion', () => {
-    expect(schemaMatchesLinkDrop(consumer, concrete('STRING'), 'in')).toBe(false)
-    expect(autoConnectTarget(consumer, concrete('STRING'), 'in')).toBeUndefined()
-    expect(schemaMatchesLinkDrop(stringConsumer, saveTarget, 'in')).toBe(false)
-    expect(autoConnectTarget(stringConsumer, saveTarget, 'in')).toBeUndefined()
-    expect(schemaMatchesLinkDrop(producer, concrete('STRING'), 'out')).toBe(false)
-    expect(autoConnectTarget(producer, concrete('STRING'), 'out')).toBeUndefined()
-    expect(schemaMatchesLinkDrop(stringProducer, saveTarget, 'out')).toBe(false)
-    expect(autoConnectTarget(stringProducer, saveTarget, 'out')).toBeUndefined()
+  it('refuses INT in both directions instead of offering an implicit conversion', () => {
+    expect(schemaMatchesLinkDrop(consumer, concrete('INT'), 'in')).toBe(false)
+    expect(autoConnectTarget(consumer, concrete('INT'), 'in')).toBeUndefined()
+    expect(schemaMatchesLinkDrop(integerConsumer, mountType, 'in')).toBe(false)
+    expect(autoConnectTarget(integerConsumer, mountType, 'in')).toBeUndefined()
+    expect(schemaMatchesLinkDrop(producer, concrete('INT'), 'out')).toBe(false)
+    expect(autoConnectTarget(producer, concrete('INT'), 'out')).toBeUndefined()
+    expect(schemaMatchesLinkDrop(integerProducer, mountType, 'out')).toBe(false)
+    expect(autoConnectTarget(integerProducer, mountType, 'out')).toBeUndefined()
   })
 })
 

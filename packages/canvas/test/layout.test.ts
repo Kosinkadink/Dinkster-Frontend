@@ -68,6 +68,58 @@ describe('conditional widget groups', () => {
 })
 
 describe('pairing', () => {
+  it('places an appended adjacent widget after its sibling without changing schema or value order', () => {
+    const items = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' }), widget('tail')]
+    const before = JSON.stringify(items)
+    const layout = doLayout(items)
+    expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
+    expect(JSON.stringify(items)).toBe(before)
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
+    const [prefix, mount, quality] = layout.rows
+    expect(mount!.y).toBe(prefix!.y)
+    expect(quality!.y).toBe(prefix!.y + prefix!.height)
+    for (const projected of [layout, withPreviewRegion(layout, defaultTokens), withCompactPreviewRegion(layout, defaultTokens), withTextOutputRegion(layout, defaultTokens)]) {
+      expect(projected.rows[1]!.y).toBe(projected.rows[0]!.y)
+      const inputs = projected.pins.filter((pin) => pin.direction === 'in')
+      expect(inputs[1]!.y - inputs[0]!.y).toBeGreaterThan(18)
+      expect(inputs[1]!.y).toBeLessThan(projected.rows[0]!.y + projected.rows[0]!.height)
+    }
+  })
+
+  it('keeps a same-id real output separate from the adjacent widget value output', () => {
+    const layout = doLayout([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')])
+    const realOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.direction === 'out' && !pin.widgetTap)!
+    const valueOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.widgetTap)!
+    expect(realOutput.y).toBeGreaterThan(valueOutput.y)
+  })
+
+  it('keeps adjacency inside each materialized branch and family member', () => {
+    const siblings = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' })]
+    const combo = widget('mode', { dynamic: {
+      kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'save', inputs: siblings }],
+    } })
+    const family = input('files', { dynamic: {
+      kind: 'autogrow', materialization: 'wire15', template: [combo],
+      naming: { kind: 'prefix', prefix: 'file', min: 1, max: 2 },
+    } })
+    for (const [items, values, prefixes] of [
+      [[combo], {}, ['mode']],
+      [[family], { 'files.m0.mode.prefix': 'first', 'files.m1.mode.prefix': 'second' }, ['files.m0.mode', 'files.m1.mode']],
+    ] as const) {
+      const schema = schemaOf(items)
+      const node = { ...nodeData, values }
+      const before = JSON.stringify({ schema, node })
+      const elaborated = elaborateInterface(schema, node)
+      const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
+      const rows = layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)
+      for (const prefix of prefixes) {
+        expect(rows.filter((id) => id?.startsWith(`${prefix}.`))).toEqual([`${prefix}.prefix`, `${prefix}.mount`, `${prefix}.quality`])
+        expect(elaborated.items.filter((item) => item.kind === 'input' && item.spec.id.startsWith(`${prefix}.`)).map((item) => item.kind === 'input' && item.spec.id)).toEqual([`${prefix}.prefix`, `${prefix}.quality`, `${prefix}.mount`])
+      }
+      expect(JSON.stringify({ schema, node })).toBe(before)
+    }
+  })
+
   it('outputs pair with connection-input rows top-down', () => {
     const l = doLayout([input('a'), input('b'), output('x'), output('y')])
     expect(l.rows).toHaveLength(2)
@@ -975,6 +1027,23 @@ describe('sections', () => {
     expect(l.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['model'])
     expect(l.pins.some((pin) => pin.portId === 'provider')).toBe(false)
     expect(node.values).toEqual({ provider: 'vision.depth.v2' })
+  })
+
+  it('hides a dynamic choice subtree without hiding sibling controls or losing literals', () => {
+    for (const hidden of [false, true]) {
+      const schema = schemaOf([widget('prefix'), input('codec', {
+        ...(hidden ? { hidden: true as const } : {}),
+        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'h264', inputs: [
+          widget('crf'), input('nested', { dynamic: { kind: 'dynamicCombo', options: [{ key: 'on', inputs: [widget('quality')] }] } }),
+        ] }] },
+      })])
+      const node = { ...nodeData, values: { 'codec.crf': 23, 'codec.nested.[on].quality': 7 } }
+      const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
+      expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(hidden
+        ? ['prefix'] : ['prefix', 'codec', 'codec.crf', 'codec.nested', 'codec.nested.[on].quality'])
+      expect(layout.pins.some((pin) => String(pin.portId).startsWith('codec'))).toBe(!hidden)
+      expect(node.values).toEqual({ 'codec.crf': 23, 'codec.nested.[on].quality': 7 })
+    }
   })
 
   it('groups unsectioned advanced inputs under a collapsed Advanced row', () => {

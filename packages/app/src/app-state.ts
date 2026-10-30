@@ -22,8 +22,8 @@ import {
   coreCommandRegistry,
   coreMenuContributions,
   createMenuRegistry,
-  createSearchRegistry,
   createReplacementRegistry,
+  createSearchRegistry,
   createSignal,
   createSurfaceRegistry,
   effectiveOccurrenceTopology,
@@ -34,6 +34,7 @@ import {
   diag,
   createLocalSession,
   connectSharedSession,
+  type HistorySnapshotRecord,
   type DocumentSession,
   type SharedDocumentSession,
   type CollabSessionDescriptor,
@@ -69,14 +70,12 @@ import {
   parseOccurrenceKey,
   projectWorkspaceCompileArtifact,
   randomNumericValue,
+  registerSchemaRules,
+  replacementInvocation,
+  scanReplacements,
   stepNumericValue,
   subgraphDefIdOf,
-  registerSchemaRules,
-  synthesizeAliasRules,
-  comfyGroupReplacementInvocation,
-  replacementInvocation,
   resetMenuContributions,
-  scanReplacements,
   schemaForEditorRole,
   scopeClosure,
   resolvePreviewPolicy,
@@ -88,11 +87,10 @@ import {
   type AssetRef,
   type CompileInput,
   type CompileResult,
-  type ComfyAliasRecord,
-  type ComfyGroupRecord,
   type ConnectionId,
   type ControllerInputProvenance,
   type ControllerInputSource,
+  type ControllerNodeInputSource,
   type ControllerMode,
   type Diagnostic,
   type DiagnosticAnchor,
@@ -116,7 +114,6 @@ import {
   type ReplacementRegistry,
   type ReplacementRule,
   type ReplacementScanItem,
-  type ReplacementSchemaResolver,
   type RuntimeErrorDetail,
   type SelectionExecutionAnalysis,
   type SelectorChoice,
@@ -157,11 +154,6 @@ import {
   type SupervisorStatus,
   type WorkerInfo,
 } from '@dinkster/client'
-import {
-  BackendConnection,
-  reconcileExecutions,
-  v1ViewUrl,
-} from './v1-connection-kind.js'
 import {
   createTextWidgetEditorExtensionRegistry,
   createWidgetRegistry,
@@ -837,10 +829,7 @@ export interface SelectionExecutionScopes {
  * switching to 'fixed' mid-run parks the value, in-flight plans
  * included.
  */
-export interface AdvancementStep {
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
+export type AdvancementStep = AdvancementInputLocation & {
   readonly value: Json
   readonly expected: Json | undefined
   readonly current: Json
@@ -858,22 +847,32 @@ export interface AdvancementPlan {
   readonly steps: readonly AdvancementStep[]
   /** Per-input value mutation generation captured with the queue-time snapshot. */
   readonly generations: ReadonlyMap<string, number>
+  readonly modeGenerations: ReadonlyMap<string, number>
 }
 
-type AdvancementInputLocation = Pick<AdvancementStep, 'graphId' | 'nodeId' | 'inputId'>
+type AdvancementInputLocation = { readonly graphId: string } & (
+  | { readonly nodeId: string; readonly inputId: string }
+  | { readonly valueSourceId: string }
+)
 
 const advancementInputKey = (step: AdvancementInputLocation): string =>
-  JSON.stringify(['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
+  JSON.stringify('valueSourceId' in step
+    ? ['graphs', step.graphId, 'valueSources', step.valueSourceId, 'value']
+    : ['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
 
-const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation => ({
-  graphId: source.graph,
-  nodeId: source.occurrence.node,
-  inputId: source.valueKey,
-})
+const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation =>
+  'valueSource' in source
+    ? { graphId: source.graph, valueSourceId: source.valueSource }
+    : { graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey }
+
+const controllerStoredValue = (document: WorkflowDocument, location: AdvancementInputLocation): Json | undefined =>
+  'valueSourceId' in location
+    ? document.graphs[location.graphId]?.valueSources?.[location.valueSourceId]?.value
+    : document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
 
 const controllerInputKey = (
   runtimeId: string,
-  terminal: ControllerInputSource,
+  terminal: ControllerNodeInputSource,
 ): string => JSON.stringify([
   runtimeId,
   terminal.graph,
@@ -900,11 +899,13 @@ const controllerSemanticsKey = (input: ControllerInputProvenance): string => can
 
 interface ControllerMutationState {
   next: number
-  readonly inputs: Map<string, {
-    readonly graphId: string
-    readonly nodeId: string
-    readonly inputId: string
+  readonly inputs: Map<string, AdvancementInputLocation & {
     value: Json | undefined
+    generation: number
+  }>
+  readonly controllers: Map<string, {
+    readonly input: ControllerInputProvenance
+    mode: ControllerMode
     generation: number
   }>
 }
@@ -1001,12 +1002,14 @@ function effectiveControllerState(
   let mode: ControllerMode | undefined
   let valueSourceCount = sources.length
   for (const [index, source] of sources.entries()) {
-    const node = document.graphs[source.graph]?.nodes[source.occurrence.node]
+    const graph = document.graphs[source.graph]
+    const node = 'valueSource' in source ? undefined : graph?.nodes[source.occurrence.node]
+    const literal = 'valueSource' in source ? graph?.valueSources?.[source.valueSource] : undefined
     if (current === undefined) {
-      current = node?.values[source.valueKey]
+      current = controllerStoredValue(document, controllerSourceLocation(source))
       if (current !== undefined) valueSourceCount = index + 1
     }
-    if (mode === undefined) mode = node?.controllers?.[source.valueKey]
+    if (mode === undefined) mode = 'valueSource' in source ? literal?.controller : node?.controllers?.[source.valueKey]
   }
   if (current === undefined && (widget.default !== undefined || !optional)) {
     current = effectiveWidgetDefault(widget)
@@ -1030,10 +1033,9 @@ export function controllerAdvancement(
 
 /** The batch invocation for a set of advancement steps ([] -> undefined). */
 export function advancementInvocation(steps: readonly AdvancementStep[]): CommandInvocation | undefined {
-  const invocations = steps.map(({ graphId, nodeId, inputId, value }) => ({
-    command: 'node.setValue',
-    params: { graphId, nodeId, inputId, value },
-  }))
+  const invocations = steps.map((step) => 'valueSourceId' in step
+    ? { command: 'valueSource.setValue', params: { graphId: step.graphId, valueSourceId: step.valueSourceId, value: step.value } }
+    : { command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } })
   return invocations.length > 0 ? { command: 'batch', params: { invocations } as unknown as Json } : undefined
 }
 
@@ -1055,7 +1057,7 @@ export function controllerAdvancementPlan(
   for (const input of artifact.provenance.controllerInputs ?? []) {
     if (input.sources.length === 0) continue
     const owner = input.sources[0]!
-    const ownerKey = advancementInputKey({ graphId: owner.graph, nodeId: owner.occurrence.node, inputId: owner.valueKey })
+    const ownerKey = advancementInputKey(controllerSourceLocation(owner))
     let group = controllersByOwner.get(ownerKey)
     if (group === undefined) {
       group = { owner, controllers: [] }
@@ -1067,8 +1069,9 @@ export function controllerAdvancementPlan(
     controllers.sort((a, b) => a.ownerPriority - b.ownerPriority)
     const input = controllers[0]
     if (input === undefined) continue
-    const node = document.graphs[owner.graph]?.nodes[owner.occurrence.node]
-    if (!node) continue
+    const location = controllerSourceLocation(owner)
+    const graph = document.graphs[owner.graph]
+    if ('valueSourceId' in location ? !graph?.valueSources?.[location.valueSourceId] : !graph?.nodes[location.nodeId]) continue
     const state = effectiveControllerState(document, input.sources, input.widget, input.optional)
     if (state.current === undefined || state.mode === 'fixed') continue
     let value: Json
@@ -1101,11 +1104,9 @@ export function controllerAdvancementPlan(
       }
     }
     steps.push({
-      graphId: owner.graph,
-      nodeId: owner.occurrence.node,
-      inputId: owner.valueKey,
+      ...location,
       value,
-      expected: node.values[owner.valueKey],
+      expected: controllerStoredValue(document, location),
       current: state.current,
       mode: state.mode,
       valueSources: [...valueSources.values()],
@@ -1137,6 +1138,7 @@ const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
 export interface CanvasBridge {
   readonly selectedNodes: () => readonly string[]
   readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
+  readonly showValueSource?: (tabId: string, graphId: string, valueSourceId: string) => void
   /** App-level actions live here so commands do not reach into renderer internals. */
   readonly deleteSelection: () => void
   readonly selectAll: () => void
@@ -1388,6 +1390,12 @@ export type ProblemOwner = string | symbol
 
 /** A Problems entry: the diagnostic plus the owner it belongs to. */
 export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
+
+export interface MigrationNotice {
+  readonly owner: string
+  readonly entries: readonly OwnedDiagnostic[]
+  readonly undoRecord: HistorySnapshotRecord
+}
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
   a.owner === b.owner && a.origin === b.origin && a.code === b.code && a.message === b.message
@@ -1719,19 +1727,11 @@ interface PersistedTabs {
   readonly workspaceOperationWatermarks?: Readonly<Record<string, number>>
   /** Covered slots stay in storage because deleting one can race a newer stage for the same lineage. */
   readonly documentCandidateStages?: Readonly<Record<string, string>>
-  /**
-   * `stock` marks a still-pristine app-shipped seed tab (see stockPending):
-   * it survives reloads so a seed that ran unmigrated on a V1 backend keeps
-   * its silent-baseline-migration entitlement when a later session targets a
-   * native backend. Persisted ONLY while the tab is unedited; absent
-   * otherwise.
-   */
   readonly tabs: readonly {
     readonly title: string
     readonly doc: unknown
     readonly documentRevision?: number
     readonly documentDirty?: true
-    readonly stock?: true
     /** Center-region editor kind; absent = graph (pre-2.4 snapshots). */
     readonly editorKind?: string
     /** Browser-local editor position; never sent to the workspace authority. */
@@ -1764,7 +1764,7 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
         : {}),
       tabs: parsed.tabs
         .filter(
-          (t): t is { title: string; doc: unknown; documentRevision?: unknown; documentDirty?: unknown; stock?: unknown; editorKind?: unknown; viewState?: unknown } =>
+          (t): t is { title: string; doc: unknown; documentRevision?: unknown; documentDirty?: unknown; editorKind?: unknown; viewState?: unknown } =>
             typeof t === 'object' && t !== null && typeof (t as { title?: unknown }).title === 'string',
         )
         .map((t) => {
@@ -1776,7 +1776,6 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
               ? { documentRevision: t.documentRevision }
               : {}),
             ...(t.documentDirty === true ? { documentDirty: true as const } : {}),
-            ...(t.stock === true ? { stock: true as const } : {}),
             ...(typeof t.editorKind === 'string' && t.editorKind.length > 0 && !isSessionOnlyEditorKind(t.editorKind)
               ? { editorKind: t.editorKind }
               : {}),
@@ -2087,8 +2086,7 @@ function decodePersistedBackends(raw: string | null): readonly PersistedBackend[
         typeof (b as { baseUrl?: unknown }).baseUrl === 'string' &&
         (b as { baseUrl?: unknown }).baseUrl !== '' &&
         typeof (b as { label?: unknown }).label === 'string' &&
-        ((b as { protocol?: unknown }).protocol === 'v1' ||
-          (b as { protocol?: unknown }).protocol === 'dinkster'),
+        (b as { protocol?: unknown }).protocol === 'dinkster',
     )
   } catch {
     return undefined
@@ -2239,15 +2237,7 @@ class CollabSessionEndedDuringJoinError extends Error {
   }
 }
 
-/**
- * Which wire protocol a backend speaks: 'v1' is a ComfyUI server
- * (/object_info, /prompt, /ws), 'dinkster' is a native Dinkster server
- * (/api/nodes, /api/jobs, /api/events). Chosen when the backend is added;
- * both normalize into the SAME event/model pipeline, so protocol never
- * leaks past the connection layer - the app dispatches on it only where
- * the protocols genuinely differ (reconcile, output hydration, /view).
- */
-export type BackendProtocol = 'v1' | 'dinkster'
+export type BackendProtocol = 'dinkster'
 
 export type WorkerCatalogState =
   | { readonly status: 'unsupported' }
@@ -2269,25 +2259,25 @@ interface BackendBase {
     | { readonly status: 'error'; readonly message: string }
   >
   /**
-   * The server's advisory replacement-rule diagnostics (native backends;
-   * always [] on v1). Fetched alongside the registry so the deprecation UX
+   * The server's advisory replacement-rule diagnostics.
+   * Fetched alongside the registry so the deprecation UX
    * can explain a rule that cannot plan against this environment.
    */
   readonly replacementProblems: Signal<readonly ReplacementProblem[]>
   /** ComfyUI compatibility nodes omitted from the native catalog, with the
-   * server's verbatim advisory reason. Always [] on v1 backends. */
+   * server's verbatim advisory reason. */
   readonly compatSkips: Signal<readonly CompatSkip[]>
   /** Packs whose inference entries degraded (no native sampling worker was
    * live at composition). Always [] when no backend reports the surface. */
   readonly packInferenceUnavailable: Signal<readonly PackInferenceUnavailable[]>
-  /** Request the latest native advisory snapshot; a no-op on v1 backends. */
+  /** Request the latest native advisory snapshot. */
   readonly refreshDiagnostics: () => void
   readonly scopedClient: RefreshableScopedClient
   /** Clear remote-choice authority after a schema/server generation change. */
   readonly invalidateRemoteChoices: () => void
   /**
    * Last /supervisor/status answer (native backends behind a supervisor).
-   * undefined = no supervisor known (standalone dinkster-serve, v1, or not
+   * undefined = no supervisor known (standalone dinkster-serve or not
    * probed yet). Drives the "Dinkster is starting" shell affordance instead of
    * a connection-failure render (supervisor Ask 1).
    */
@@ -2307,13 +2297,9 @@ interface BackendBase {
  * other backends' - packs/versions differ per server), and ITS scoped client
  * (remote combos differ per server). Executions carry (connectionId, prompt),
  * so the shared ExecutionStore needs no per-backend partitioning.
- * A discriminated union on `protocol`: the common surface (connect,
- * fetchSchemas, submit, onEvent, status) is identical on both connection
- * types; narrowing is only needed for protocol-specific calls.
+ * Connections use the native schema, submission, and event contracts.
  */
-export type Backend =
-  | (BackendBase & { readonly protocol: 'v1'; readonly connection: BackendConnection })
-  | (BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection })
+export type Backend = BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection }
 
 /** A live socket alone does not make the backend's required HTTP metadata usable. */
 export function backendConnectionStatus(backend: Backend): ConnectionStatus {
@@ -2796,6 +2782,8 @@ export class AppState {
    */
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
+  /** Session-only open-time migration summaries; never stored in documents. */
+  readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
@@ -2948,13 +2936,6 @@ export class AppState {
   private readonly collabRejoinPending = new Map<string, PersistedCollabMembership>()
 
   constructor(options?: {
-    /**
-     * Protocol for the same-origin default backend, as discovered by the
-     * entry point (discoverBackend('') in main.tsx) BEFORE construction.
-     * Defaults to 'v1' so direct unit-test constructions remain stable; main
-     * passes the discovered answer.
-     */
-    readonly defaultProtocol?: BackendProtocol
     /** Injectable collab session transport (tests); defaults to HTTP + WS. */
     readonly collabTransport?: CollabTransport
     /** Injectable same-workspace execution event channel (tests). */
@@ -3184,7 +3165,6 @@ export class AppState {
       asConnectionId('local'),
       'Local',
       '',
-      options?.defaultProtocol ?? 'v1',
     )
     this.backends.set([local])
     this.connection = local.connection
@@ -3302,10 +3282,6 @@ export class AppState {
       if (entry.viewState === undefined) tabViewStates.delete(tab.id)
       else tabViewStates.set(tab.id, entry.viewState)
       this.documentPersistenceRevisions.set(tab.id, entry.documentRevision ?? 0)
-      // A persisted still-pristine seed keeps its silent-migration
-      // entitlement (see stockPending): the flag was only written while the
-      // tab was unedited.
-      if (entry.stock === true) this.stockPending.add(tab.id)
       // Tab ids are lineages, and every id-keyed surface (dirty set, watchers,
       // links, active id) assumes ids are unique. Normal flow guarantees that
       // (openDocument replaces same-lineage tabs), so duplicates here mean a
@@ -3328,9 +3304,6 @@ export class AppState {
           if (!loaded.document) continue
           const tab = this.makeTab(loaded.document, title)
           tabs.push(tab)
-          // Stock content the app itself shipped: its upgrade to the backend's
-          // canonical types is baseline normalization, not user-visible churn.
-          this.stockPending.add(tab.id)
         }
       }
     }
@@ -3339,17 +3312,16 @@ export class AppState {
     this.dirtyTabs.set(new Set(tabs.filter((tab) => !tab.execution).map((tab) => tab.id)))
     const active = persisted !== undefined && tabs.some((t) => t.id === persisted.active) ? persisted.active : (tabs[0]?.id ?? '')
     this.activeTabId.set(active)
-    // Seed tabs open before any backend has schemas; upgrade them (and any
-    // other pending tab) when a registry arrives or refreshes.
+    // Seed tabs open before schemas arrive; defer schema-dependent processing.
     for (const tab of tabs) {
-      this.upgradePending.add(tab.id)
+      this.schemaDiagnosticsPending.add(tab.id)
       this.legacyBooleanPending.add(tab.id)
     }
     this.backendsTick.subscribe(() => {
       this.selectExtensionWorld()
       this.pruneExtensionWorlds()
-      this.drainLegacyBooleans() // before replacements: same open boundary
-      this.drainUpgrades()
+      this.drainLegacyBooleans()
+      this.drainSchemaDiagnostics()
       for (const tab of this.tabs.get()) this.refreshWorkflowAssets(tab)
     })
     // Mirror tab, document, and active-tab changes back into storage.
@@ -3524,7 +3496,6 @@ export class AppState {
       title: tab.title,
       document: tab.store.doc,
       ...(tab.editorKind !== GRAPH_EDITOR_KIND && !isSessionOnlyEditorKind(tab.editorKind) ? { editorKind: tab.editorKind } : {}),
-      ...(this.stockPending.has(tab.id) && tab.store.revision === 0 ? { stock: true as const } : {}),
     }))
   }
 
@@ -3541,13 +3512,12 @@ export class AppState {
     const updates = after.filter((tab) => {
       const old = oldById.get(tab.id)
       return old !== undefined && (
-        old.title !== tab.title || old.editorKind !== tab.editorKind || old.stock !== tab.stock
+        old.title !== tab.title || old.editorKind !== tab.editorKind
       )
-    }).map(({ id, title, editorKind, stock }) => ({
+    }).map(({ id, title, editorKind }) => ({
       id,
       title,
       editorKind: editorKind ?? null,
-      stock: stock === true,
     }))
     const order = after.map((tab) => tab.id)
     const oldOrder = before.map((tab) => tab.id)
@@ -3654,8 +3624,6 @@ export class AppState {
             tab = { ...tab, title: record.title, editorKind }
           }
         }
-        if (record.stock === true) this.stockPending.add(record.id)
-        else this.stockPending.delete(record.id)
         nextLive.push(tab)
       }
       const retained = new Set(snapshot.tabs.map((tab) => tab.id))
@@ -4033,10 +4001,6 @@ export class AppState {
             doc: t.store.doc as unknown,
             documentRevision: this.documentPersistenceRevisions.get(t.id) ?? 0,
             ...(this.documentPersistenceDirty.has(t.id) ? { documentDirty: true as const } : {}),
-            // Stock provenance survives ONLY while pristine: an edited seed
-            // must never regain silent-migration status after a reload resets
-            // its revision counter.
-            ...(this.stockPending.has(t.id) && t.store.revision === 0 ? { stock: true as const } : {}),
             ...(t.editorKind !== GRAPH_EDITOR_KIND && !isSessionOnlyEditorKind(t.editorKind) ? { editorKind: t.editorKind } : {}),
             ...(viewState === undefined ? {} : { viewState }),
           }
@@ -4082,20 +4046,20 @@ export class AppState {
    * ExecutionStore (refs carry the connection id, so nothing collides), a
    * reconcile pass on every (re)connect, and tick bumps for the shell.
    */
-  private createBackend(id: ConnectionId, label: string, baseUrl: string): Backend & { protocol: 'v1' }
+  private createBackend(id: ConnectionId, label: string, baseUrl: string): Backend & { protocol: 'dinkster' }
   private createBackend(id: ConnectionId, label: string, baseUrl: string, protocol: BackendProtocol): Backend
   private createBackend(
     id: ConnectionId,
     label: string,
     baseUrl: string,
-    protocol: BackendProtocol = 'v1',
+    protocol: BackendProtocol = 'dinkster',
   ): Backend {
     // Each connection needs its own stable client id for both the WS session
     // and submitted prompts. Two URLs can route to the same server.
     const clientId = `${this.backendClientId}:${id}`
     // Path-relative base urls (dev proxy) need the ws url built from the page
     // origin; absolute ones derive it from their own scheme+host.
-    const wsPath = protocol === 'dinkster' ? '/api/events' : '/ws'
+    const wsPath = '/api/events'
     const wsUrl = baseUrl.startsWith('http')
       ? `${baseUrl.replace(/^http/, 'ws')}${wsPath}?clientId=${encodeURIComponent(clientId)}`
       : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${baseUrl}${wsPath}?clientId=${encodeURIComponent(clientId)}`
@@ -4143,7 +4107,7 @@ export class AppState {
     // missed terminal events are replayed, vanished runs marked lost.
     // Initial connect: empty store, no-op.
     const wire = (
-      connection: BackendConnection | DinksterConnection,
+      connection: DinksterConnection,
       reconcile: () => Promise<void>,
       refreshForEpoch?: (epoch: number) => void,
       onStatusChange?: (status: ConnectionStatus) => void,
@@ -4223,7 +4187,7 @@ export class AppState {
       ]
       return () => unsubs.forEach((u) => u())
     }
-    if (protocol === 'dinkster') {
+    {
       const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId() })
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       // Epoch-gated registry refresh (schema_changed / composition_complete
@@ -4420,17 +4384,6 @@ export class AppState {
       }
       return nativeBackend
     }
-    const connection = new BackendConnection({ id, baseUrl, clientId, wsUrl })
-    const disposeConnection = wire(connection, () => reconcileExecutions(connection, this.store))
-    return {
-      ...base,
-      protocol,
-      connection,
-      dispose: () => {
-        disposeConnection()
-        scopedClient.dispose()
-      },
-    }
   }
 
   /**
@@ -4442,7 +4395,7 @@ export class AppState {
     baseUrl: string,
     label?: string,
     start = true,
-    protocol: BackendProtocol = 'v1',
+    protocol: BackendProtocol = 'dinkster',
     persist = true,
   ): Backend | undefined {
     const trimmed = canonicalBackendUrl(baseUrl)
@@ -4464,9 +4417,9 @@ export class AppState {
   }
 
   /**
-   * URL-only add: discover what the server speaks (supervisor -> native ->
-   * v1) and add it with the discovered protocol. Nothing is added when the
-   * URL is unreachable, unrecognized, or a wire-incompatible Dinkster - each
+   * URL-only add: identify a native engine or supervisor before adding it.
+   * Nothing is added when the URL is unreachable, unrecognized, or a
+   * wire-incompatible Dinkster - each
    * lands as a named problem instead, so a typo or down server is a loud
    * diagnosis, not a dead backend row. `discover` is injectable for tests.
    */
@@ -4492,12 +4445,12 @@ export class AppState {
       ])
       return undefined
     }
-    if (found.kind === 'dinkster' || found.kind === 'v1') {
+    if (found.kind === 'dinkster') {
       return this.addBackend(
         trimmed,
         options?.label,
         options?.start ?? true,
-        found.kind === 'v1' ? 'v1' : 'dinkster',
+        'dinkster',
       )
     }
     const message = `'${trimmed}': ${found.detail}`
@@ -4615,29 +4568,9 @@ export class AppState {
   }
 
   /**
-   * /view URL for an execution's output/preview file, routed through the
-   * execution's OWN backend - never the active tab's. Removed backends stay
-   * resolvable (retired entry); the default is a last-resort fallback only.
-   */
-  viewUrlForExecution(
-    ref: ExecutionRef,
-    file: { filename: string; subfolder?: string; type?: string },
-  ): string {
-    const backend =
-      this.backendFor(ref.connection) ??
-      this.retiredBackends.get(ref.connection) ??
-      this.backends.get()[0]!
-    // /view is a V1 endpoint, but only V1 executions carry V1 file refs, so
-    // a native backend's base here is unreachable in practice; the URL stays
-    // well-formed either way.
-    return v1ViewUrl(backend.baseUrl, file)
-  }
-
-  /**
    * GET /api/assets/{digest} URL for an execution's content-addressed output,
    * routed through the execution's OWN backend - never the active tab's.
-   * Same retirement rules as viewUrlForExecution: a removed backend's
-   * historical outputs stay resolvable.
+   * A removed backend's historical outputs stay resolvable.
    */
   assetUrlForExecution(ref: ExecutionRef, digest: string): string {
     const backend =
@@ -4683,61 +4616,107 @@ export class AppState {
       : this.extensionWorlds.get(registry!.connection)?.get(digest)?.widgets ?? this.widgetRegistry
   }
 
-  private replacementSchemaOf(
-    registry: SchemaRegistry | undefined,
-    type: string,
-    role: 'source' | 'target',
-  ): NodeSchema | undefined {
-    if (role === 'target') return registry?.resolve(type)
-    return registry?.comfyAliases?.sourceSchemas.get(type) ??
-      registry?.comfyGroups?.groupSchemas.get(type) ??
-      registry?.resolve(type)
-  }
+  // -- Schema arrival -------------------------------------------------------
 
-  // -- Deprecation + replacement --------------------------------------------
-
-  /**
-   * When true, nothing is upgraded automatically: openDocument surfaces every
-   * migratable node for review instead of applying safe plans (debug aid).
-   */
-  readonly reviewReplacements: Signal<boolean> = createSignal(false)
-
-  /** Rules registered by packs/extensions; layered under schema rules. */
+  readonly reviewReplacements = createSignal(false)
   private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
   private extraRulesVersion = 0
-  /** Per-SchemaRegistry rule cache. Weak: a refreshed/replaced registry's
-   * entry must not pin the old registry (or its rules) alive. */
-  private readonly replacementRegistries = new WeakMap<
-    SchemaRegistry,
-    { registry: ReplacementRegistry; version: number }
-  >()
-  /**
-   * Tabs awaiting their first upgrade pass. A tab is upgraded exactly once,
-   * as soon as BOTH the tab and its target backend's schemas exist - seed
-   * tabs and documents opened before /object_info arrives are picked up by
-   * the backendsTick subscription instead of being missed forever.
-   * Retargeting a tab later does NOT re-run auto-apply (mutating a document
-   * because the user switched backends would surprise); the deprecation
-   * badge flow covers whatever the new backend's rules can migrate.
-   */
-  private readonly upgradePending = new Set<string>()
+  private readonly replacementRegistries = new WeakMap<SchemaRegistry, { registry: ReplacementRegistry; version: number }>()
+
+  registerReplacementRule(layer: 'pack' | 'core', rule: ReplacementRule): readonly Diagnostic[] {
+    const diagnostics = createReplacementRegistry().register(layer, rule)
+    if (diagnostics.length > 0) {
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
+      return diagnostics
+    }
+    this.extraRules.push({ layer, rule })
+    this.extraRulesVersion++
+    return []
+  }
+
+  private replacementRegistryFor(reg: SchemaRegistry): ReplacementRegistry {
+    const cached = this.replacementRegistries.get(reg)
+    if (cached?.version === this.extraRulesVersion) return cached.registry
+    const registry = createReplacementRegistry()
+    const diagnostics = [...registerSchemaRules(registry, reg.schemas.values())]
+    for (const { layer, rule } of this.extraRules) diagnostics.push(...registry.register(layer, rule))
+    this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
+    this.replacementRegistries.set(reg, { registry, version: this.extraRulesVersion })
+    return registry
+  }
+
+  scanTabReplacements(tab: Tab): readonly ReplacementScanItem[] {
+    const registry = this.registryForTab(tab)
+    return tab.execution || registry === undefined ? []
+      : scanReplacements(tab.store.doc, this.replacementRegistryFor(registry), registry.resolve)
+  }
+
+  applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): boolean {
+    const registry = this.registryForTab(tab)
+    if (registry === undefined) return false
+    const invocation = replacementInvocation(items, tab.store.doc, registry.resolve)
+    return invocation !== undefined && this.dispatchTo(tab, invocation).ok
+  }
+
+  canUndoMigrationNotice(tabId: string): boolean {
+    const notice = this.migrationNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined || !tab.store.canUndo) return false
+    return canonicalJson(tab.store.historySnapshot().undo.at(-1)) === canonicalJson(notice.undoRecord)
+  }
+
+  undoMigrationNotice(tabId: string): boolean {
+    if (!this.canUndoMigrationNotice(tabId)) return false
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)!
+    if (!tab.store.undo()) return false
+    reconcileGraphNavigation(tab)
+    this.dismissMigrationNotice(tabId)
+    return true
+  }
+
+  dismissMigrationNotice(tabId: string): void {
+    if (!this.migrationNotices.get().has(tabId)) return
+    this.migrationNotices.update((current) => {
+      const next = new Map(current)
+      next.delete(tabId)
+      return next
+    })
+  }
+
+  private upgradeOnOpen(tab: Tab): void {
+    if (this.reviewReplacements.get()) return
+    const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
+    if (items.length === 0 || !this.applyReplacements(tab, items)) return
+    // A shared definition has one notice line; navigate through its first
+    // reachable occurrence, not an arbitrary sibling's instance path.
+    const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
+    for (const [graphId, path] of paths) {
+      for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
+        const child = subgraphDefIdOf(node.type)
+        if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+      }
+    }
+    const entries = items.map((item): OwnedDiagnostic => {
+      const instancePath = paths.get(item.graphId)
+      return {
+        ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
+          'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
+            refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
+            ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
+            data: { warnings: item.diagnostics.map((entry) => entry.message) },
+          }),
+        owner: tab.id,
+      }
+    })
+    const undoRecord = tab.store.historySnapshot().undo.at(-1)!
+    this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
+  }
+
+  /** Tabs awaiting diagnostics from their target backend's first registry. */
+  private readonly schemaDiagnosticsPending = new Set<string>()
 
   /**
-   * Stock seed tabs whose FIRST upgrade pass is silent baseline
-   * normalization. The shipped seed workflows are authored in portable
-   * legacy V1 form (bare class types, positional 'out{i}' ports) so they
-   * run as-is on V1 ComfyUI backends; against a native backend the alias
-   * rules migrate them to canonical types. The user never authored the
-   * legacy form, so that migration must look born-this-way: no
-   * 'replace.applied' Problems entry and no undo step back to a state the
-   * user never saw. Consumed by upgradeOnOpen; only honored while the tab
-   * is still pristine (revision 0) - once the user edits, the loud
-   * reviewable path applies as for any document.
-   */
-  private readonly stockPending = new Set<string>()
-
-  /**
-   * Tabs awaiting a legacy-boolean normalization pass. Unlike upgradePending
+   * Tabs awaiting a legacy-boolean normalization pass. Unlike schema diagnostics
    * this RE-ARMS on retarget: which schemas interpret the document is the
    * tab's target backend, and a document opened while targeting one backend
    * (where its types may not even resolve) can be pointed at another whose
@@ -4764,203 +4743,20 @@ export class AppState {
     }
   }
 
-  /**
-   * Register a replacement rule from a pack/extension (the 'pack' layer; the
-   * 'core' layer is the frontend's own historical-rename table). Malformed
-   * rules are rejected with diagnostics and land in Problems.
-   */
-  registerReplacementRule(layer: 'pack' | 'core', rule: ReplacementRule): readonly Diagnostic[] {
-    const probe = createReplacementRegistry()
-    const diags = probe.register(layer, rule)
-    if (diags.length > 0) {
-      this.reportProblems(GLOBAL_PROBLEMS_OWNER, diags)
-      return diags
-    }
-    this.extraRules.push({ layer, rule })
-    this.extraRulesVersion++
-    return []
-  }
-
-  /**
-   * The replacement registry for one backend's schemas: schema-shipped rules
-   * plus pack/core extras, rebuilt when either changes. Registry identity is
-   * the cache key - a refreshed SchemaRegistry gets fresh rules.
-   */
-  private replacementRegistryFor(reg: SchemaRegistry): ReplacementRegistry {
-    const cached = this.replacementRegistries.get(reg)
-    if (cached && cached.version === this.extraRulesVersion) return cached.registry
-    const registry = createReplacementRegistry()
-    const diags = [...registerSchemaRules(registry, reg.schemas.values())]
-    for (const record of reg.comfyAliases?.records ?? []) {
-      diags.push(...registry.register('pack', record.replacement))
-    }
-    for (const record of reg.comfyGroups?.records ?? []) {
-      diags.push(...registry.register('pack', record.replacement))
-    }
-    for (const { layer, rule } of this.extraRules) diags.push(...registry.register(layer, rule))
-    // Synthesized legacy-name rules last, at the lowest-precedence layer:
-    // an explicit schema/pack/core rule for the same legacy name always
-    // wins over the derived rename (see replace/alias-rules.ts).
-    for (const rule of synthesizeAliasRules(reg.schemas.values())) diags.push(...registry.register('core', rule))
-    this.reportProblems(GLOBAL_PROBLEMS_OWNER, diags)
-    this.replacementRegistries.set(reg, { registry, version: this.extraRulesVersion })
-    return registry
-  }
-
-  /**
-   * Every node in a tab's document a rule can migrate (planned against the
-   * tab's target backend). Frozen tabs are snapshots: never scanned.
-   */
-  scanTabReplacements(tab: Tab): readonly ReplacementScanItem[] {
-    if (tab.execution) return []
-    const reg = this.registryForTab(tab)
-    if (!reg) return []
-    const resolve: ReplacementSchemaResolver = (type, role) => this.replacementSchemaOf(reg, type, role)
-    return scanReplacements(tab.store.doc, this.replacementRegistryFor(reg), resolve)
-  }
-
-  /**
-   * Apply planned scan items to a tab: one dispatch (batched when several),
-   * one undo step. Returns false when nothing was planned or dispatch failed.
-   */
-  applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): boolean {
-    const invocation = replacementInvocation(items)
-    if (!invocation) return false
-    return this.dispatchTo(tab, invocation).ok
-  }
-
-  /**
-   * Run the once-per-tab upgrade pass for every pending tab whose target
-   * backend has schemas. Called on document open (immediate when schemas are
-   * already here) and on every backendsTick (deferred arrival/refresh).
-   */
-  private drainUpgrades(): void {
-    if (this.upgradePending.size === 0) return
+  /** Report once when both the document and its target schemas are available. */
+  private drainSchemaDiagnostics(): void {
+    if (this.schemaDiagnosticsPending.size === 0) return
     for (const tab of this.tabs.get()) {
-      if (!this.upgradePending.has(tab.id)) continue
+      if (!this.schemaDiagnosticsPending.has(tab.id)) continue
       if (tab.execution) {
-        this.upgradePending.delete(tab.id) // frozen snapshots never upgrade
+        this.schemaDiagnosticsPending.delete(tab.id)
         continue
       }
       if (!this.registryForTab(tab)) continue // still waiting for schemas
-      this.upgradePending.delete(tab.id)
+      this.schemaDiagnosticsPending.delete(tab.id)
+      this.reportEnvironmentDrift(tab)
       this.upgradeOnOpen(tab)
-    }
-  }
-
-  /**
-   * The upgrade pass for one tab (open time, possibly deferred until its
-   * backend's schemas arrive): auto-apply SAFE plans (lossless, warning
-   * free) unless review mode is on. Best-effort migration fallbacks always
-   * apply because their archived historical state needs no user decision.
-   * Everything else lands in Problems so the badge/review flow can take over.
-   */
-  private upgradeOnOpen(tab: Tab): void {
-    this.reportEnvironmentDrift(tab)
-    this.reportUnresolvedTypes(tab)
-    const items = this.scanTabReplacements(tab)
-    // A pass that engaged nothing (e.g. a stock seed on a V1 backend, where
-    // it resolves natively) keeps stock provenance: the entitlement to a
-    // silent migration must survive until a backend actually claims it.
-    if (items.length === 0) return
-    const stockPristine = this.stockPending.has(tab.id) && tab.store.revision === 0
-    this.stockPending.delete(tab.id) // engaged: silent or loud, provenance is spent
-    const review = this.reviewReplacements.get()
-    const firstHop = (item: ReplacementScanItem): ReplacementScanItem => {
-      const hop = item.hops[0]!
-      return {
-        ...item,
-        hops: [hop],
-        terminalType: hop.plan.to,
-        status: 'terminal',
-        rule: hop.rule,
-        plan: hop.plan,
-        diagnostics: hop.diagnostics,
-        safe: hop.diagnostics.every((entry) => entry.severity === 'info'),
-      }
-    }
-    const nodeKey = (item: ReplacementScanItem): string => JSON.stringify([item.graphId, item.nodeId])
-    const appliedMigrations: ReplacementScanItem[] = []
-    const failedMigrationNodes = new Set<string>()
-    const failedFallbackNodes = new Set<string>()
-    let remainingItems = items
-    for (;;) {
-      const candidate = remainingItems.find((item) =>
-        item.hops.some((hop) => hop.rule.migration !== undefined) &&
-        (review
-          ? item.hops[0]?.plan.migrationFallback === true
-          : item.hops.some((hop, index) =>
-              hop.plan.migrationFallback === true &&
-              item.hops.slice(0, index).every((prefix) =>
-                prefix.diagnostics.every((entry) => entry.severity === 'info')),
-            ) || item.safe) &&
-        !failedMigrationNodes.has(nodeKey(item)),
-      )
-      if (candidate === undefined) break
-      const step = firstHop(candidate)
-      if (!this.applyReplacements(tab, [step])) {
-        failedMigrationNodes.add(nodeKey(candidate))
-        if (step.plan?.migrationFallback === true) failedFallbackNodes.add(nodeKey(candidate))
-        continue
-      }
-      appliedMigrations.push(step)
-      remainingItems = this.scanTabReplacements(tab)
-    }
-    remainingItems = remainingItems.filter((item) =>
-      !(failedFallbackNodes.has(nodeKey(item)) && item.hops[0]?.plan.migrationFallback === true),
-    )
-    const migrationSucceeded = failedMigrationNodes.size === 0
-
-    const maintainedItems = remainingItems.filter((item) => {
-      const registry = this.registryForTab(tab)
-      return registry?.comfyAliases?.recordsBySourceType.has(item.sourceType) === true ||
-        registry?.comfyGroups?.recordsByGroupType.has(item.sourceType) === true
-    })
-    const maintainedCohortSafe = maintainedItems.every((item) => item.safe)
-    const ordinaryAuto = review
-      ? []
-      : remainingItems.filter((item) =>
-          !failedMigrationNodes.has(nodeKey(item)) &&
-          item.safe &&
-          (maintainedCohortSafe || !maintainedItems.includes(item)),
-        )
-    const ordinarySucceeded = ordinaryAuto.length === 0 || this.applyReplacements(tab, ordinaryAuto)
-    const rest = ordinarySucceeded
-      ? remainingItems.filter((item) => !ordinaryAuto.includes(item))
-      : remainingItems
-    // Stock content stays silent only when every engaged replacement was
-    // applied safely. Migration hops run separately so plans that share old
-    // graph state cannot invalidate and roll back one another.
-    const silentEligible = stockPristine && !review && migrationSucceeded && ordinarySucceeded && rest.length === 0
-    const applied = [
-      ...appliedMigrations,
-      ...(ordinarySucceeded ? ordinaryAuto : []),
-    ]
-    if (applied.length > 0) {
-      if (silentEligible) {
-        // Baseline normalization of app-shipped content (see stockPending):
-        // the migrated document IS the document; no churn, no undo step.
-        tab.store.clearHistory()
-      } else {
-        this.reportProblems(tab.id, [
-          ...applied.flatMap((item) => item.diagnostics.filter((entry) => entry.severity === 'info')),
-          diag('info', 'command', 'replace.applied', `applied ${applied.length} replacement step(s) automatically`),
-        ])
-      }
-    }
-    if (rest.length > 0) {
-      this.reportProblems(tab.id,
-        rest.map((i) =>
-          diag(
-            'warning',
-            'command',
-            'replace.review',
-            i.plan
-              ? `${i.nodeId} (${i.sourceType}): upgrade to ${i.terminalType} needs review`
-              : `${i.nodeId} (${i.sourceType}): no replacement rule applies`,
-          ),
-        ),
-      )
+      this.reportUnresolvedTypes(tab)
     }
   }
 
@@ -4968,7 +4764,7 @@ export class AppState {
    * A node type the target backend cannot resolve renders as a red error
    * shell - correct on canvas, but silently: nothing else says WHY a
    * workflow is dead or that queueing will refuse. Report every unresolved
-   * type once at the same boundary as the upgrade pass, so "all my nodes
+   * type once when schemas arrive, so "all my nodes
    * are red" always has a matching Problems entry naming the types and the
    * backend that lacks them. Subgraph-derived '#' types resolve locally and
    * are never reported.
@@ -4981,9 +4777,7 @@ export class AppState {
       if (
         node.type.startsWith('#') ||
         (node.virtual === true && this.virtualNodeSchema(node.type)?.virtual === true) ||
-        registry.resolve(node.type) ||
-        registry.comfyAliases?.sourceSchemas.has(node.type) === true ||
-        registry.comfyGroups?.groupSchemas.has(node.type) === true
+        registry.resolve(node.type)
       )
         continue
       missing.set(node.type, (missing.get(node.type) ?? 0) + 1)
@@ -5119,12 +4913,6 @@ export class AppState {
     // legacy-boolean pass (idempotent; see legacyBooleanPending). The tick
     // below drains it once the target's registry is available.
     this.legacyBooleanPending.add(tabId)
-    // Exception to the no-rearm-on-retarget rule, for STOCK-PRISTINE tabs
-    // only: a seed that ran unmigrated on a V1 backend (its pass engaged
-    // nothing, so provenance was kept) must still get its silent baseline
-    // migration when the user points it at a native backend. User-edited
-    // documents keep the badge/review flow.
-    if (this.stockPending.has(tabId) && tab.store.revision === 0) this.upgradePending.add(tabId)
     this.backendsTick.update((v) => v + 1)
   }
 
@@ -5860,6 +5648,7 @@ export class AppState {
   }
 
   private cleanupClosedTab(id: string): void {
+    this.dismissMigrationNotice(id)
     if (this.imageEditorTarget.get()?.tabId === id) this.imageEditorTarget.set(undefined)
     if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
@@ -5867,8 +5656,7 @@ export class AppState {
     this.dropProblems(id) // its diagnostics may not outlive the tab
     this.followLatestExecution(id) // drop view state; no leak for reused ids
     this.dropTabTarget(id)
-    this.upgradePending.delete(id)
-    this.stockPending.delete(id)
+    this.schemaDiagnosticsPending.delete(id)
     this.legacyBooleanPending.delete(id)
     // comparisonCompiles / sourceDocCache / hashCache are WeakMaps keyed by
     // the Tab object itself: dropping the tab drops its cache entries.
@@ -6360,7 +6148,7 @@ export class AppState {
    * on failure; on success, non-fatal translation warnings land in the
    * problems panel for review.
    */
-  openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false): readonly Diagnostic[] {
+  openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject): readonly Diagnostic[] {
     const legacy = detectFormat(json) === 'litegraph-workflow'
     const digestHints = legacy ? legacyAssetDigestHints(json) : []
     // A legacy document is translated through the schemas of the backend it
@@ -6381,6 +6169,19 @@ export class AppState {
       return loaded.diagnostics
     }
     let document = loaded.document
+    if (originalPrompt !== undefined) {
+      const retained = loadDocument({ ...document, ext: { ...document.ext, 'importer.comfyPrompt': originalPrompt } })
+      if (!retained.document) {
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, retained.diagnostics)
+        return retained.diagnostics
+      }
+      if (!workspaceRecord(retained.document.ext?.['importer.comfyPrompt'])) {
+        const diagnostics = [diag('error', 'import', 'import.prompt.invalid', 'original PNG prompt must be a JSON object')]
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
+        return diagnostics
+      }
+      document = retained.document
+    }
     if (forkOnCollision && this.tabs.get().some((tab) => !tab.execution && tab.id === document.lineage)) {
       let lineage: LineageId
       do lineage = asLineageId(`${document.lineage}-import-${Date.now()}-${++newWorkflowOrdinal}`)
@@ -6393,25 +6194,10 @@ export class AppState {
     }
     const tab = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
     if (replacesExisting) this.workspaceReplacements.add(tab)
-    let loadDiagnostics = loaded.diagnostics
-    if (legacyLoaded?.groupTranslation !== undefined) {
-      const outcome = tab.store.dispatch(legacyLoaded.groupTranslation.invocation)
-      loadDiagnostics = outcome.ok
-        ? legacyLoaded.groupTranslation.successDiagnostics
-        : [
-            ...loaded.diagnostics,
-            ...outcome.diagnostics,
-            diag(
-              'warning',
-              'import',
-              'import.comfyGroup.review',
-              'ComfyUI node groups were left unchanged because their atomic native replacement failed',
-            ),
-          ]
-    }
+    this.dismissMigrationNotice(tab.id)
     // Load/translation warnings belong to the tab they describe: a
     // same-lineage replacement swaps them out; other tabs keep theirs.
-    this.replaceProblems(tab.id, loadDiagnostics)
+    this.replaceProblems(tab.id, loaded.diagnostics)
     this.markTabDirty(tab.id)
     this.followLatestExecution(tab.id) // a replaced document starts unpinned
     this.dropTabTarget(tab.id) // ... and untargeted
@@ -6422,10 +6208,10 @@ export class AppState {
     this.templateGalleryOpen.set(false)
     this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
     this.activeTabId.set(tab.id)
-    this.upgradePending.add(tab.id)
+    this.schemaDiagnosticsPending.add(tab.id)
     this.legacyBooleanPending.add(tab.id)
     this.drainLegacyBooleans() // immediate when schemas are already loaded
-    this.drainUpgrades()
+    this.drainSchemaDiagnostics()
     if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
     const planBackend = importVia ?? this.backendForTab(tab)
     if (planBackend.protocol === 'dinkster' && planBackend.connection.status.get() === 'connected') {
@@ -6463,9 +6249,10 @@ export class AppState {
   private legacyAssetReferences(tab: Tab, backend: Backend): readonly ImportAssetReference[] {
     const registry = backend.registry.get()
     if (!registry) return []
+    const resolve = documentResolver(tab.store.doc, registry.resolve)
     const refs: ImportAssetReference[] = []
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
-      const schema = registry.comfyAliases?.sourceSchemas.get(node.type) ?? registry.resolve(node.type)
+      const schema = resolve(node.type)
       if (!schema) continue
       for (const item of schema.items) {
         if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
@@ -6585,6 +6372,7 @@ export class AppState {
       anchor.hidden = true
       document.body.append(anchor)
       anchor.click()
+      this.dismissMigrationNotice(tab.id)
       this.dismissImportProblems(tabId)
       this.showTransientStatus(`Download started: ${filename}`)
       return true
@@ -6611,12 +6399,12 @@ export class AppState {
    * ingress also detects full LiteGraph/ComfyUI workflows and imports them
    * through the schema-aware legacy translator.
    */
-  async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true): Promise<boolean> {
+  async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true, originalPrompt?: JsonObject): Promise<boolean> {
     try {
       const title = file.name.replace(/\.json$/i, '') || 'Imported workflow'
       const text = await file.text()
       if (!stillOwned()) return false
-      const diagnostics = this.openDocument(JSON.parse(text) as unknown, title, undefined, true)
+      const diagnostics = this.openDocument(JSON.parse(text) as unknown, title, undefined, true, originalPrompt)
       if (diagnostics.length > 0) {
         this.showTransientStatus(`Could not import ${file.name}: invalid workflow document`)
         return false
@@ -6876,7 +6664,10 @@ export class AppState {
       // Clean only when nothing was committed since the uploaded snapshot:
       // an edit made during the awaits keeps the tab dirty.
       const unchanged = tab.store.revision === revision
-      if (unchanged) this.markTabClean(tab.id)
+      if (unchanged) {
+        this.markTabClean(tab.id)
+        this.dismissMigrationNotice(tab.id)
+      }
       const background = this.activeTab()?.id === tab.id ? '' : ` ${tab.title}`
       this.showTransientStatus(unchanged
         ? `Saved${background} to ${backend.label} library`
@@ -7155,10 +6946,6 @@ export class AppState {
   private importLegacy(json: unknown, registry = this.registry.get()): {
     readonly document?: WorkflowDocument
     readonly diagnostics: readonly Diagnostic[]
-    readonly groupTranslation?: {
-      readonly invocation: CommandInvocation
-      readonly successDiagnostics: readonly Diagnostic[]
-    }
   } {
     if (!registry) {
       return {
@@ -7167,173 +6954,7 @@ export class AppState {
         ],
       }
     }
-    const resolve = (type: string): NodeSchema | undefined => {
-      const record = registry.comfyAliases?.recordsByNodeClass.get(type)
-      return record === undefined
-        ? registry.resolve(type)
-        : registry.comfyAliases?.sourceSchemas.get(record.source.nodeType)
-    }
-    const maintainedAlias = (authoredType: string): boolean =>
-      registry.comfyAliases?.recordsByNodeClass.has(authoredType) === true
-    const importGroups = (
-      shouldCollapse: (record: ComfyGroupRecord, anchorId: number) => boolean,
-    ) => importLitegraph(
-      json as JsonObject,
-      resolve,
-      maintainedAlias,
-      registry.comfyGroups,
-      shouldCollapse,
-    )
-    const source = importGroups(() => false)
-    if (source.document === undefined) return source
-
-    const confidenceDiagnostics = (
-      extraRecords: readonly ComfyGroupRecord[],
-    ): readonly Diagnostic[] => {
-      const importedRecords = new Map<string, ComfyAliasRecord | ComfyGroupRecord>(
-        extraRecords.map((record) => [record.id, record]),
-      )
-      for (const graph of Object.values(source.document!.graphs)) {
-        for (const node of Object.values(graph.nodes)) {
-          const record = registry.comfyAliases?.recordsBySourceType.get(node.type)
-          if (record !== undefined) importedRecords.set(record.id, record)
-        }
-      }
-      const diagnostics: Diagnostic[] = []
-      for (const mappingKind of ['op', 'family'] as const) {
-        const records = [...importedRecords.values()].filter((record) => record.mappingKind === mappingKind)
-        if (records.length === 0) continue
-        const confidence = ['exact', 'parametric', 'equivalent', 'grouped']
-          .map((tier) => `${tier}=${records.filter((record) => record.confidence.tier === tier).length}`)
-          .join(', ')
-        const familyAvailability = mappingKind === 'family'
-          ? records.map((record) => {
-              const provider = record.family?.provider
-              const sourceName = 'nodeClass' in record.source
-                ? record.source.nodeClass
-                : record.source.name
-              return provider === undefined
-                ? `${sourceName}:unknown`
-                : `${sourceName}:${registry.packs?.has(provider) === true ? 'available' : 'unavailable'}`
-            })
-          : []
-        const availabilityCounts = ['available', 'unavailable', 'unknown']
-          .map((status) => `${status}=${familyAvailability.filter((entry) => entry.endsWith(`:${status}`)).length}`)
-          .join(', ')
-        diagnostics.push(diag(
-          'info',
-          'import',
-          `import.comfyAlias.confidence.${mappingKind}`,
-          `ComfyUI ${mappingKind} mappings: ${records.length} (${confidence})`,
-          { data: { familyProviders: availabilityCounts, families: familyAvailability } },
-        ))
-      }
-      return diagnostics
-    }
-
-    const catalog = registry.comfyGroups
-    if (catalog === undefined || catalog.records.length === 0) {
-      return { ...source, diagnostics: [...source.diagnostics, ...confidenceDiagnostics([])] }
-    }
-    const tentative = importGroups(() => true)
-    if (tentative.document === undefined) {
-      return {
-        ...source,
-        diagnostics: [
-          ...source.diagnostics,
-          ...confidenceDiagnostics([]),
-          diag(
-            'warning',
-            'import',
-            'import.comfyGroup.review',
-            'Matched ComfyUI node groups were left unchanged because their native translation could not be prepared',
-          ),
-        ],
-      }
-    }
-    const replacementRegistry = this.replacementRegistryFor(registry)
-    const resolveReplacement: ReplacementSchemaResolver = (type, role) =>
-      this.replacementSchemaOf(registry, type, role)
-    const tentativeItems = scanReplacements(
-      tentative.document,
-      replacementRegistry,
-      resolveReplacement,
-    ).filter((item) => catalog.recordsByGroupType.has(item.sourceType))
-    const review = this.reviewReplacements.get()
-    const selectedIds = new Set(
-      tentativeItems.filter((item) => item.safe && !review).map((item) => item.nodeId),
-    )
-    const reviewDiagnostics = tentativeItems
-      .filter((item) => !selectedIds.has(item.nodeId))
-      .map((item) => diag(
-        'warning',
-        'import',
-        'import.comfyGroup.review',
-        review
-          ? `${item.sourceType}: native replacement needs review`
-          : `${item.sourceType}: native replacement loses workflow data`,
-      ))
-    if (selectedIds.size === 0) {
-      return {
-        ...source,
-        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
-      }
-    }
-
-    const collapsed = selectedIds.size === tentativeItems.length
-      ? tentative
-      : importGroups((_record, anchorId) => selectedIds.has(`n${anchorId}`))
-    if (collapsed.document === undefined) {
-      return {
-        ...source,
-        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
-      }
-    }
-    const finalItems = scanReplacements(
-      collapsed.document,
-      replacementRegistry,
-      resolveReplacement,
-    ).filter((item) => selectedIds.has(item.nodeId) && catalog.recordsByGroupType.has(item.sourceType))
-    if (finalItems.length !== selectedIds.size || finalItems.some((item) => !item.safe)) {
-      return {
-        ...source,
-        diagnostics: [
-          ...source.diagnostics,
-          ...reviewDiagnostics,
-          ...confidenceDiagnostics([]),
-          diag(
-            'warning',
-            'import',
-            'import.comfyGroup.review',
-            'Matched ComfyUI node groups were left unchanged because their atomic native replacement did not reproduce',
-          ),
-        ],
-      }
-    }
-    const plans = finalItems.flatMap((item) => item.hops.map((hop) => hop.plan))
-    const invocation = comfyGroupReplacementInvocation(source.document, collapsed.document, plans)
-    if (invocation === undefined) {
-      return {
-        ...source,
-        diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
-      }
-    }
-    const appliedRecords = finalItems.flatMap((item) => {
-      const record = catalog.recordsByGroupType.get(item.sourceType)
-      return record === undefined ? [] : [record]
-    })
-    return {
-      ...source,
-      diagnostics: [...source.diagnostics, ...reviewDiagnostics, ...confidenceDiagnostics([])],
-      groupTranslation: {
-        invocation,
-        successDiagnostics: [
-          ...collapsed.diagnostics,
-          ...reviewDiagnostics,
-          ...confidenceDiagnostics(appliedRecords),
-        ],
-      },
-    }
+    return importLitegraph(json as JsonObject, registry.resolve)
   }
 
   /**
@@ -7866,7 +7487,7 @@ export class AppState {
         const child = tab.store.doc.graphs[childId]
         if (!child) return
         const childPath = [...path, asNodeId(id)]
-        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.map((item) => item.binds.node) ?? [])
+        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' || item.binds.kind === 'valueSource' ? [] : [item.binds.node]) ?? [])
         for (const inner of Object.values(child.nodes)) if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
         for (const childTarget of [...childTargets].sort()) visit(childId, childPath, childTarget)
       }
@@ -7994,19 +7615,26 @@ export class AppState {
   /**
    * Latest mutation generation by document path. Value equality alone has
    * an ABA hole (manual + then - returns to the queued value), so an
-   * after-generate plan also snapshots the generation of its exact value.
-   * Controller intent remains compared by EFFECTIVE mode: explicitly
-   * storing the same default mode is deliberately not an intent change.
+   * after-generate plan snapshots value and effective-mode generations.
+   * Explicitly storing the same default mode is not an intent change.
    */
   private readonly controllerMutations = new WeakMap<DocumentSession, ControllerMutationState>()
 
   private trackControllerMutations(session: DocumentSession, state: ControllerMutationState): void {
     session.document.subscribe((document) => {
       for (const input of state.inputs.values()) {
-        const value = document.graphs[input.graphId]?.nodes[input.nodeId]?.values[input.inputId]
+        const value = controllerStoredValue(document, input)
         if (!Object.is(value, input.value)) {
           input.value = value
           input.generation = ++state.next
+        }
+      }
+      for (const controller of state.controllers.values()) {
+        const { input } = controller
+        const { mode } = effectiveControllerState(document, input.sources, input.widget, input.optional)
+        if (mode !== controller.mode) {
+          controller.mode = mode
+          controller.generation = ++state.next
         }
       }
     })
@@ -8026,21 +7654,36 @@ export class AppState {
     this.trackControllerMutations(session, state)
   }
 
-  private controllerMutationGeneration(session: DocumentSession, step: AdvancementInputLocation): number {
+  private controllerMutationState(session: DocumentSession): ControllerMutationState {
     let state = this.controllerMutations.get(session)
     if (!state) {
-      state = { next: 0, inputs: new Map() }
+      state = { next: 0, inputs: new Map(), controllers: new Map() }
       this.controllerMutations.set(session, state)
       this.trackControllerMutations(session, state)
     }
+    return state
+  }
+
+  private controllerModeMutationGeneration(session: DocumentSession, input: ControllerInputProvenance): number {
+    const state = this.controllerMutationState(session)
+    const key = controllerSemanticsKey(input)
+    let controller = state.controllers.get(key)
+    if (!controller) {
+      const { mode } = effectiveControllerState(session.doc, input.sources, input.widget, input.optional)
+      controller = { input, mode, generation: state.next }
+      state.controllers.set(key, controller)
+    }
+    return controller.generation
+  }
+
+  private controllerMutationGeneration(session: DocumentSession, step: AdvancementInputLocation): number {
+    const state = this.controllerMutationState(session)
     const key = advancementInputKey(step)
     let input = state.inputs.get(key)
     if (!input) {
       input = {
-        graphId: step.graphId,
-        nodeId: step.nodeId,
-        inputId: step.inputId,
-        value: session.doc.graphs[step.graphId]?.nodes[step.nodeId]?.values[step.inputId],
+        ...step,
+        value: controllerStoredValue(session.doc, step),
         generation: state.next,
       }
       state.inputs.set(key, input)
@@ -8103,7 +7746,10 @@ export class AppState {
       const location = controllerSourceLocation(source)
       return [advancementInputKey(location), this.controllerMutationGeneration(session, location)] as const
     })))
-    return { session, artifact, steps, generations }
+    const modeGenerations = new Map(steps.flatMap((step) => step.controllers.map((controller) => [
+      controllerSemanticsKey(controller), this.controllerModeMutationGeneration(session, controller),
+    ] as const)))
+    return { session, artifact, steps, generations, modeGenerations }
   }
 
   /**
@@ -8265,13 +7911,15 @@ export class AppState {
     ]))
     const doc = tab.store.doc
     const applicable = plan.steps.filter((step) => {
-      const node = doc.graphs[step.graphId]?.nodes[step.nodeId]
-      if (node === undefined || node.values[step.inputId] !== step.expected) return false
+      const graph = doc.graphs[step.graphId]
+      if ('valueSourceId' in step ? !graph?.valueSources?.[step.valueSourceId] : !graph?.nodes[step.nodeId]) return false
+      if (controllerStoredValue(doc, step) !== step.expected) return false
       const liveController = step.controllers.flatMap((queued) => {
         const live = liveControllerInputs.get(controllerInputKey(queued.runtimeId, queued.terminal))
         return live !== undefined && controllerSemanticsKey(live) === controllerSemanticsKey(queued) ? [live] : []
       })[0]
       if (liveController === undefined) return false
+      if (this.controllerModeMutationGeneration(plan.session, liveController) !== plan.modeGenerations.get(controllerSemanticsKey(liveController))) return false
       if (step.valueSources.some((source) => {
         const location = controllerSourceLocation(source)
         return this.controllerMutationGeneration(plan.session, location) !== plan.generations.get(advancementInputKey(location))
@@ -8283,7 +7931,6 @@ export class AppState {
     if (invocation) this.dispatchTo(tab, invocation)
   }
 
-  /** Include the selected backend in unresolved-node queue diagnostics. */
   private queueRefusalDiagnostics(tab: Tab, diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
     const backend = this.backendForTab(tab)
     return diagnostics.map((diagnostic) => {
@@ -8449,9 +8096,15 @@ export class AppState {
       // producing document (environment stamp inside) as a content-addressed
       // asset, so history can answer "which document made this run".
       const backend = this.backendForTab(tab)
-      const sourceDocument = backend.protocol === 'dinkster'
-        ? await this.sourceDocumentFor(tab, backend)
-        : undefined
+      const originalWorkflow = result.artifact.snapshot.ext?.['importer.comfyWorkflow']
+      const originalPrompt = result.artifact.snapshot.ext?.['importer.comfyPrompt']
+      const hasWorkflow = workspaceRecord(originalWorkflow)
+      const hasPrompt = workspaceRecord(originalPrompt)
+      const exportSnapshot = hasWorkflow || hasPrompt ? {
+        ...(hasPrompt ? { prompt: originalPrompt as JsonObject } : {}),
+        ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
+      } : undefined
+      const sourceDocument = await this.sourceDocumentFor(tab, backend)
       if (lease.signal.aborted) return
       // The advisory source-document upload is an await between compile and
       // POST. If the document changed there, re-run only the conservative
@@ -8467,21 +8120,19 @@ export class AppState {
         result.artifact.diagnostics,
       )) return
       lease.markPosted()
-      const submitted =
-        backend.protocol === 'dinkster'
-          ? await backend.connection.submit(result.artifact, {
-              ...sourceDocument,
-              ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
-              // Overrides come from the artifact snapshot (the exact document
-              // that compiled), layered global < workflow < node.
-              previews: resolvePreviewPolicy(
-                result.artifact.snapshot,
-                result.artifact.provenance,
-                this.settings.get<PreviewMode>('execution.previews'),
-                this.settings.get<PreviewAnimation>('execution.previewAnimation'),
-              ),
-            })
-          : await backend.connection.submit(result.artifact)
+      const submitted = await backend.connection.submit(result.artifact, {
+        ...sourceDocument,
+        ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
+        ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
+        // Overrides come from the artifact snapshot (the exact document
+        // that compiled), layered global < workflow < node.
+        previews: resolvePreviewPolicy(
+          result.artifact.snapshot,
+          result.artifact.provenance,
+          this.settings.get<PreviewMode>('execution.previews'),
+          this.settings.get<PreviewAnimation>('execution.previewAnimation'),
+        ),
+      })
       if (this.disposed) return
       if (!submitted.ok) {
         if ('assetsMissing' in submitted && 'retryWithAssets' in submitted) {
@@ -8647,12 +8298,7 @@ export class AppState {
       const backend = this.backendFor(state.ref.connection)
       if (!backend) continue
       this.hydrated.add(state.key)
-      // Protocol dispatch: V1 outputs live in /history; native output
-      // descriptors ride the retained job record. Same store shape either way.
-      const fetched =
-        backend.protocol === 'dinkster'
-          ? backend.connection.fetchJobOutputs(state.ref.prompt)
-          : backend.connection.fetchHistoryOutputs(state.ref.prompt)
+      const fetched = backend.connection.fetchJobOutputs(state.ref.prompt)
       void fetched
         .then((outputs) => {
           if (Object.keys(outputs).length > 0) this.store.hydrateOutputs(state.ref, outputs)

@@ -15,7 +15,7 @@
  * "Exact" = the two type expressions denote the same concrete atom set
  * (unions compare as sets; two unrestricted expressions - wildcards or
  * unconstrained variables - are exact together). "Compatible" defers to the
- * one advisory helper (type-compatibility.ts) so bypass can never disagree with drop
+ * one advisory helper (schema/type-relations.ts) so bypass can never disagree with drop
  * targets/diagnostics about what connects to what - dynamic types included.
  *
  * Only DRIVEN inputs are candidates: bypass forwards connections, never
@@ -27,7 +27,7 @@
  * is stable regardless of which inputs happen to be connected.
  */
 
-import { atomNamesOf, typesCompatible } from '../schema/type-compatibility.js'
+import { atomNamesOf, typesCompatible } from '../schema/type-relations.js'
 import type { TypeExpr } from '../schema/model.js'
 
 export interface BypassCandidate<D> {

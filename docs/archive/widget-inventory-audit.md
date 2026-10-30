@@ -19,15 +19,12 @@ or service mutation). Parent matrix: docs/widget-parity-matrix-audit.md
 ## Row A - numeric slider opt-in: four-stage trace
 
 1. ComfyUI declares display intent independently of bounds. Legacy
-   InputTypeOptions defines numeric min/max/step/round and the frontend
-   parser accepts display: 'slider'|'number'|'knob'|'gradientslider'
-   (ComfyUI/comfy/comfy_types/node_typing.py:129-138;
-   ComfyUI_frontend/packages/object-info-parser/src/schemas/nodeDefSchema.ts:45-72).
+   InputTypeOptions defines numeric min/max/step/round
+   (ComfyUI/comfy/comfy_types/node_typing.py:129-138).
    V3 has NumberDisplay.number/.slider/.gradient_slider
    (ComfyUI/comfy_api/latest/_io.py:74-78); Int.Input and Float.Input take
-   display_mode and serialize it as display (_io.py:267-320). V3 does not
-   expose knob; the legacy frontend schema does. Bounds and display are
-   separate fields in both declarations.
+   display_mode and serialize it as display (_io.py:267-320). Bounds and
+   display are separate fields in V3.
 
 2. Dinkster drops the intent in compat/backend translation. The v1
    translator's _number_widget iterates only min/max/step plus INT

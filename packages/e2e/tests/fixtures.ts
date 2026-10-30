@@ -1,30 +1,4 @@
-/**
- * Shared e2e test base: by default, pins the SAME-ORIGIN backend to the
- * legacy v1 ComfyUI bridge regardless of what the dev proxy fronts.
- *
- * Why: main.tsx runs protocol discovery on the same origin at every load,
- * native-first. This suite was written against a live ComfyUI default and
- * queues real v1 workflows - so if a native engine appears behind the dev
- * proxy (DINKSTER_NATIVE_BACKEND pointed at a live dinkster-serve, or a default
- * engine on :3639), discovery would silently flip every spec's default
- * backend to native and the suite's assumptions with it. These routes make
- * the assumption EXPLICIT and the environment irrelevant: the same-origin
- * native and supervisor probes answer "no native engine here", so
- * discovery conclusively selects v1 via the real /system_stats proxy.
- *
- * The patterns are baseURL-relative, so they match ONLY the same origin:
- * absolute mock origins (http://templates.test) and explicitly added
- * native backends (http://127.0.0.1:8765) are untouched, as are
- * path-prefix backends like /b2. Spec-registered routes are matched before
- * fixture routes (Playwright checks routes in reverse registration
- * order), so a spec can still override these when it needs to.
- *
- * Hosted compatibility runs pin these fixtures to legacy discovery even when
- * DINKSTER_E2E_USE_NATIVE=1. The hosted native-without-v1 project leaves the
- * live same-origin native catalog reachable. Other same-origin native cases
- * use nativeTest or import '@playwright/test' directly and control routing
- * themselves.
- */
+/** Shared browser settings; backend routes belong to each spec or its live server. */
 import {
   test as base,
   expect,
@@ -111,32 +85,8 @@ export const nativeTest = base.extend<{ appView: boolean }>({
   },
 })
 
-export const test = nativeTest.extend({
-  page: async ({ page }, use) => {
-    if (process.env['DINKSTER_E2E_FIXTURE_MODE'] === 'legacy' || process.env['DINKSTER_E2E_USE_NATIVE'] !== '1') {
-      await page.route('/api/nodes*', (route) =>
-        route.fulfill({
-          status: 502,
-          contentType: 'text/plain',
-          body: 'e2e fixture: same-origin native probe pinned off',
-        }),
-      )
-      await page.route('/supervisor/status', (route) =>
-        route.fulfill({
-          status: 502,
-          contentType: 'text/plain',
-          body: 'e2e fixture: same-origin supervisor probe pinned off',
-        }),
-      )
-      await page.route('/api/settings', (route) =>
-        route.fulfill({
-          json: { categories: { granted: [], available: [] }, settings: {} },
-        }),
-      )
-    }
-    await use(page)
-  },
-})
+// Keep separate test types so file-level hooks do not leak between fixture groups.
+export const test = nativeTest.extend({})
 
 export const appViewTest = test.extend({ appView: true })
 export const nativeAppViewTest = nativeTest.extend({ appView: true })

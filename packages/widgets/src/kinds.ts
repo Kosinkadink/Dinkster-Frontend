@@ -1,6 +1,6 @@
 /**
  * Core widget kinds + compact views: INT, FLOAT, STRING, BOOLEAN, COMBO,
- * COLOR, ASSET, SAVE_TARGET.
+ * COLOR, ASSET, MOUNT.
  *
  * Semantics (WidgetKind) and presentation (WidgetView) are separate by
  * contract. The string kind declares its default view from the multiline
@@ -19,10 +19,9 @@ import type {
   WidgetRegistry,
   WidgetSpec,
   WidgetView,
-  TypeExpr,
   IntegerWidgetValue,
 } from '@dinkster/core'
-import { canonicalTypeIdOf, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision } from '@dinkster/core'
+import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, t } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -57,76 +56,8 @@ const isAssetRef = (v: unknown): v is AssetRef => {
     typeof asset.mediaType === 'string' && typeof asset.virtualPath === 'string'
 }
 
-/**
- * Structured save destination (schema wire v5, backend 6b9d874). A save
- * target is DATA - mount id plus relative stem prefix - never a raw host
- * path; real paths exist only on the operator surface (/api/mounts).
- */
-export interface SaveTarget {
-  readonly mount: string
-  readonly prefix: string
-}
-
 /** Backend mount-id grammar (names.py family): lowercase, dash/underscore separated. */
 const MOUNT_ID_RE = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/
-
-/**
- * Grammar problems for a candidate save target, empty when valid. One
- * validator shared by the widget kind (document diagnostics) and the editor
- * (commit gate), so "what the frontend refuses" cannot drift between them.
- * Mirrors the backend's strict rules: mapping only, mount grammar, relative
- * /-separated prefix whose last segment is the filename STEM (the node owns
- * the extension); absolute paths, backslashes, empty segments, '.', and
- * '..' all refuse.
- */
-export function saveTargetIssues(value: unknown): string[] {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return ['save target must be an object {mount, prefix}, not a raw string or other value']
-  }
-  const target = value as Partial<SaveTarget>
-  const issues: string[] = []
-  if (typeof target.mount !== 'string' || !MOUNT_ID_RE.test(target.mount)) {
-    issues.push(`mount id '${String(target.mount)}' is not a valid mount id`)
-  }
-  if (typeof target.prefix !== 'string' || target.prefix === '') {
-    issues.push('prefix must be a non-empty string')
-  } else if (target.prefix.includes('\\')) {
-    issues.push('prefix must use / separators, not backslashes')
-  } else {
-    for (const segment of target.prefix.split('/')) {
-      if (segment === '') {
-        issues.push('prefix must be relative with no empty segments (no leading, trailing, or doubled /)')
-        break
-      }
-      if (segment === '.' || segment === '..') {
-        issues.push(`prefix segment '${segment}' is not allowed`)
-        break
-      }
-    }
-  }
-  return issues
-}
-
-const isSaveTargetShape = (v: unknown): v is SaveTarget => {
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false
-  const target = v as Partial<SaveTarget>
-  return typeof target.mount === 'string' && typeof target.prefix === 'string'
-}
-
-export const isSaveTarget = (v: unknown): v is SaveTarget => saveTargetIssues(v).length === 0
-
-/** Descriptor-only SAVE_TARGET presentation; no node-name or path inference. */
-export function saveTargetPresentation(
-  spec: WidgetSpec,
-  declaredType?: TypeExpr,
-): { readonly canonicalType: string; readonly suffix: string; readonly outputFormat: string } {
-  const suffix = typeof spec.options['suffix'] === 'string' ? spec.options['suffix'] : ''
-  return {
-    canonicalType: (declaredType === undefined ? undefined : canonicalTypeIdOf(declaredType)) ?? spec.widgetType,
-    suffix,
-    outputFormat: suffix === '' ? 'generic' : suffix,
-  }
-}
 
 const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
@@ -296,8 +227,8 @@ export const colorKind: WidgetKind<string> = {
   type: 'COLOR',
   valueSchema: stringSchema,
   defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '#ffffff',
-  // COLOR is a presentation hint over canonical STRING. Preserve every
-  // string exactly; color parsing and normalization are view-only concerns.
+  // Preserve strings independently of the socket identity; color parsing
+  // and normalization are view-only concerns.
   validate: () => [],
   defaultView: () => 'core.color',
 }
@@ -550,8 +481,11 @@ export const isAssetRefList = (v: unknown): v is readonly AssetRef[] =>
 /** Null is the JSON representation of an explicitly cleared optional asset. */
 export const assetKind: WidgetKind<Json> = {
   type: 'ASSET',
-  valueSchema: { version: 1, validate: (v: unknown): v is Json => v === null || isAssetRef(v) || isAssetRefList(v) },
-  defaultValue: (spec) => (spec.selection === true && typeof spec.default === 'string') || isAssetRef(spec.default) || isAssetRefList(spec.default) ? spec.default as unknown as Json : null,
+  valueSchema: { version: 1, validate: (v: unknown, spec?: WidgetSpec): v is Json =>
+    spec?.selection === true
+      ? v === null || typeof v === 'string' || (spec.kind === 'model/vae' && isAssetRef(v))
+      : v === null || isAssetRef(v) || isAssetRefList(v) },
+  defaultValue: (spec) => assetKind.valueSchema.validate(spec.default, spec) ? spec.default as Json : null,
   validate: () => [],
   defaultView: () => 'core.asset',
 }
@@ -564,22 +498,13 @@ export const audioRecordKind: WidgetKind<(AssetRef & JsonObject) | null> = {
   defaultView: () => 'core.audioRecord',
 }
 
-/**
- * Null is an explicitly unset optional target (the node's schema default
- * applies at execution). The value schema accepts any {mount, prefix} string
- * pair so a document authored against a different mount set still LOADS;
- * grammar violations surface as validate() warnings instead of vanishing
- * values - the backend refuses them loudly at submit either way.
- */
-export const saveTargetKind: WidgetKind<Json> = {
-  type: 'SAVE_TARGET',
-  valueSchema: { version: 1, validate: (v: unknown): v is Json => v === null || isSaveTargetShape(v) },
-  defaultValue: (spec) => (isSaveTarget(spec.default) ? (spec.default as unknown as Json) : null),
-  validate: (value) => {
-    if (value === null) return []
-    return saveTargetIssues(value).map((issue) => diag('warning', 'schema', 'widget.SAVE_TARGET.invalid', issue))
-  },
-  defaultView: () => 'core.saveTarget',
+export const mountKind: WidgetKind<string | null> = {
+  type: 'MOUNT',
+  valueSchema: { version: 1, validate: (value: unknown): value is string | null => value === null || typeof value === 'string' },
+  defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : null,
+  validate: (value) => value === null || (typeof value === 'string' && MOUNT_ID_RE.test(value)) ? []
+    : [diag('warning', 'schema', 'widget.MOUNT.invalid', 'Mount must be a mount id or null for the default output mount')],
+  defaultView: () => 'core.mount',
 }
 
 const isJsonObject = (value: unknown): value is Record<string, Json> =>
@@ -899,16 +824,11 @@ export const audioRecordView: WidgetView<Json> = {
       isAssetRef(value) ? value.name : 'no recording', state, 'widget.edit', !isAssetRef(value))
   },
 }
-export const saveTargetView: WidgetView<Json> = {
-  ...makeCompactView<Json>('core.saveTarget', 'SAVE_TARGET'),
+export const mountView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.mount', 'MOUNT'),
   drawCompact(ctx, value, spec, state) {
-    const label = (spec.options['display_name'] as string | undefined) ?? ''
-    // The suffix renders as display context (the produced filename ends with
-    // it) but is never part of the stored prefix - the document holds the
-    // stem only, the node owns the extension.
-    const { suffix } = saveTargetPresentation(spec)
-    const text = isSaveTargetShape(value) ? `${value.mount}:${value.prefix}${suffix}` : 'default target'
-    compactRow(ctx, label, text, state, 'widget.edit')
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      typeof value === 'string' ? value : t('mountWidget.default'), state, 'widget.edit')
   },
 }
 export const videoEditView: WidgetView<Json> = {
@@ -966,11 +886,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, saveTargetKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, saveTargetView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

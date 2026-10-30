@@ -2,11 +2,10 @@
  * URL-only backend add + native-first default: addBackendByUrl adds with
  * the DISCOVERED protocol (no manual choice), refuses unreachable/
  * unrecognized URLs with named problems instead of dead
- * rows, and the constructor's defaultProtocol option makes the same-origin
- * default native when main's discovery says so.
+ * rows. The same-origin default always uses the native connection.
  */
 import { describe, expect, it } from 'vitest'
-import type { BackendDiscovery } from '@dinkster/client'
+import { discoverBackend, type BackendDiscovery } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
@@ -28,13 +27,18 @@ describe('addBackendByUrl', () => {
     expect(app.backends.get()).toHaveLength(2)
   })
 
-  it('adds a legacy bridge when discovery says v1', async () => {
+  it('rejects a stock-only server without adding or persisting a bridge', async () => {
     const app = new AppState()
     const added = await app.addBackendByUrl('http://legacy:8188', {
-      discover: discovered({ kind: 'v1' }),
+      discover: (url) => discoverBackend(url, { fetchFn: async (url) => new Response(
+        JSON.stringify(url.endsWith('/system_stats') ? { system: {}, devices: [] } : {}),
+        { status: url.endsWith('/system_stats') ? 200 : 404, headers: { 'Content-Type': 'application/json' } },
+      ) }),
       start: false,
     })
-    expect(added).toMatchObject({ protocol: 'v1' })
+    expect(added).toBeUndefined()
+    expect(app.backends.get()).toHaveLength(1)
+    expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'backend.unrecognized' }))
   })
 
   it('refuses unreachable and unrecognized URLs with their detail', async () => {
@@ -79,14 +83,14 @@ describe('addBackendByUrl', () => {
   })
 })
 
-describe('defaultProtocol option', () => {
-  it('defaults the same-origin backend to v1 when unset (compatibility)', () => {
+describe('native default', () => {
+  it('defaults the same-origin backend to native Dinkster when unset', () => {
     const app = new AppState()
-    expect(app.backends.get()[0]!.protocol).toBe('v1')
+    expect(app.backends.get()[0]!.protocol).toBe('dinkster')
   })
 
-  it('makes the same-origin default native when discovery said dinkster', () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+  it('gives the same-origin default its local identity', () => {
+    const app = new AppState()
     const local = app.backends.get()[0]!
     expect(local.protocol).toBe('dinkster')
     expect(local.id).toBe('local')

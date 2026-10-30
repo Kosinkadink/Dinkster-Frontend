@@ -1,7 +1,7 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { syntheticWorkflow } from '@dinkster/core'
-import { assetDtoV1Contract, discoverBackend } from '@dinkster/client'
+import { assetDtoV1Contract } from '@dinkster/client'
 import { App } from './App.js'
 import { AppState } from './app-state.js'
 import { createBootIndicatorElement, startBootIndicator } from './boot-indicator.js'
@@ -21,10 +21,9 @@ import './styles.css'
 initializeProjectScope(projectIdFromSearch(globalThis.location?.search ?? ''))
 const disposeBootTheme = bindPersistedTheme()
 
-// Boot indicator: #root is blank while discoverBackend() awaits (up to the
-// probe timeout on a slow/dead origin). Show a minimal centered indicator so
-// the launch is never a blank screen. It appears only after 150ms (no flash
-// on a fast boot), names what it is waiting on after 3s, and is removed the
+// Show a minimal centered indicator while fonts and desktop setup load.
+// It appears only after 150ms (no flash on a fast boot), names what it is
+// waiting on after 3s, and is removed the
 // moment the real app renders. See docs/shell.md "Boot indicator".
 const root = document.getElementById('root')!
 let bootEl: HTMLElement | undefined
@@ -48,6 +47,7 @@ const hideBoot = startBootIndicator({
 // syntheticWorkflow rides along so perf specs generate workloads in-page.
 declare global {
   interface Window {
+    __dinksterTestDefaultProtocol?: 'v1'
     __dinksterTest?: {
       app: AppState
       semanticDerivations: number
@@ -104,17 +104,8 @@ async function bootstrap(): Promise<void> {
       root.replaceChildren()
     }
   }
-  // Native-first same-origin default: discover what THIS origin routes to
-  // before constructing the app, so a clean launch connects to its Dinkster
-  // engine or supervisor. Production launch is native-only; compatibility
-  // test deployments can explicitly enable the v1 probe. Users can still add
-  // a ComfyUI backend by URL, where full protocol discovery remains enabled.
-  const discovery = await discoverBackend('', {
-    timeoutMs: 2500,
-    probeV1: import.meta.env['VITE_DINKSTER_E2E_PROBE_V1'] === '1',
-  })
   hideBoot()
-  app = new AppState({ defaultProtocol: discovery.kind === 'v1' ? 'v1' : 'dinkster' })
+  app = new AppState()
   disposeBootTheme()
   bindTheme(app.settings)
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)

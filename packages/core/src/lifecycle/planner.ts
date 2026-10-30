@@ -14,6 +14,7 @@ import type {
   Vec2,
   WorkflowDocument,
 } from '../format/document.js'
+import { isNodeBoundaryBinding } from '../format/document.js'
 import { validateGraphDefShape, validateGraphViewShape } from '../format/validate.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import type { CommandInvocation } from '../commands/contract.js'
@@ -27,6 +28,7 @@ import {
   portRefKey,
   type LinkEndpoint,
   type PortRef,
+  type ValueSourceRef,
   type WidgetTapRef,
 } from '../ids.js'
 import { canonicalJson, sha256Hex } from '../compile/hash.js'
@@ -38,6 +40,7 @@ import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { matchBoundaryItem } from '../compile/crossing.js'
 import { parseSelection, type SelectionTree } from '../schema/slot-selection.js'
+import { rerouteInputTargets } from '../reroute.js'
 
 export const LIFECYCLE_PLAN_VERSION = 'subgraph-lifecycle-plan-v2'
 
@@ -493,11 +496,12 @@ export function classifyFlattenBindingRoute(
   binding: BoundaryBinding,
   schema: NodeSchema | undefined,
   expectedSide?: 'input' | 'output',
+  node?: Pick<NodeData, 'values' | 'dynamic'>,
 ): FlattenRouteKind {
   if (binding.kind === 'widgetTap') return expectedSide === 'output' ? 'widgetTap' : 'unresolved'
   if (binding.kind === 'family' || (binding.members?.length ?? 0) > 0) return 'family'
   if (schema === undefined) return 'unresolved'
-  const resolved = resolveBoundaryRoute(schema, binding, expectedSide)
+  const resolved = resolveBoundaryRoute(schema, binding, expectedSide, node?.values, node?.dynamic)
   if (!resolved.ok) return 'unresolved'
   if (resolved.route.terminal.kind === 'family' || resolved.route.hops.some((hop) => hop.kind === 'member')) return 'family'
   if (resolved.route.hops.some((hop) => hop.kind === 'slot' || hop.kind === 'slotVariant')) return 'specialized'
@@ -515,15 +519,25 @@ export function classifyFlattenBoundaryRoute(
   resolveSchema: SchemaResolver,
   expectedSide?: 'input' | 'output',
 ): FlattenRouteKind {
-  const routes = [item.binds, ...(item.alsoBinds ?? [])].map((binding) => {
+  const routes = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding)).map((binding) => {
+    if (binding.kind === 'valueSource') {
+      if (expectedSide === undefined || body.valueSources?.[binding.valueSource] === undefined) return 'unresolved'
+      return expectedSide === 'input' && item.promoted === true ? 'plainWidget' : 'plain'
+    }
+    if (!isNodeBoundaryBinding(binding)) return 'unresolved'
     const node = body.nodes[binding.node]
-    return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide)
+    return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide, node)
   })
   return routes.includes('specialized') ? 'specialized'
     : routes.includes('family') ? 'family'
       : routes.includes('combo') ? 'combo'
         : routes.includes('unresolved') ? 'unresolved'
           : routes[0] ?? 'unresolved'
+}
+
+function flattenBindingTargets(body: GraphDef, binding: BoundaryBinding): readonly BoundaryBinding[] {
+  if (binding.kind !== 'port' || binding.viaReroute === undefined) return [binding]
+  return (rerouteInputTargets(body, binding.viaReroute) ?? []).map((target) => ({ kind: 'port', ...target }))
 }
 
 export function planFlattenBoundaryRoutes(
@@ -543,6 +557,7 @@ export function planFlattenBoundaryRoutes(
   ]
   const boundaryPlan = items.map(({ side, item }) => {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (!isNodeBoundaryBinding(binding)) continue
       const node = body.nodes[binding.node]
       const schema = node === undefined ? undefined : resolveSchema(node.type)
       if (node !== undefined && schema !== undefined) schemaSnapshot[node.type] = schema
@@ -623,7 +638,7 @@ interface FamilyMaterializationContext {
   readonly familyScopes: FlattenFamilyScopeMap[]
   readonly targetFamilySpecs: Map<string, AutogrowSpec>
   readonly entries: Map<string, FlattenAddressMapEntry>
-  readonly binding: BoundaryBinding
+  readonly binding: Extract<BoundaryBinding, { node: string }>
   readonly bindingIndex: number
   readonly fail: (code: FlattenStateRefusalCode, message: string, address?: FlattenPortAddress) => void
   readonly budget: { memberCount: number; itemCount: number }
@@ -1145,9 +1160,10 @@ function planFlattenState(
     if (routePlan.route === 'widgetTap') continue
     if (routePlan.route === 'family') {
       const nativeTarget = [item.binds, ...(item.alsoBinds ?? [])].some((binding) => {
+        if (!isNodeBoundaryBinding(binding)) return false
         const node = body.nodes[binding.node]
         const schema = node === undefined ? undefined : resolveSchema(node.type)
-        const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side)
+        const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side, node?.values, node?.dynamic)
         return resolved?.ok === true && resolved.route.terminal.kind === 'family' && resolved.route.terminal.spec.naming.kind === 'native'
       })
       const familyHasEvidence = Object.hasOwn(occurrence.dynamic ?? {}, item.id) ||
@@ -1167,12 +1183,12 @@ function planFlattenState(
         }
         const before = { port: item.id }
         for (const [bindingIndex, binding] of [item.binds, ...(item.alsoBinds ?? [])].entries()) {
+          if (!isNodeBoundaryBinding(binding)) continue
           const original = body.nodes[binding.node]
           const target = original === undefined ? undefined : nodes.get(original.id as string)
           const schema = original === undefined ? undefined : resolveSchema(original.type)
-          const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side)
-          if (original === undefined || target === undefined || resolved?.ok !== true || resolved.route.terminal.kind !== 'port' ||
-              memberHopsOf(resolved.route.hops).length === 0) {
+          const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side, original?.values, original?.dynamic)
+          if (original === undefined || target === undefined || resolved?.ok !== true || resolved.route.terminal.kind !== 'port') {
             fail('subgraph.flatten.stateUnresolved', `boundary '${item.id}' has an unresolved concrete member target`, side, item.id)
             continue
           }
@@ -1224,10 +1240,11 @@ function planFlattenState(
         continue
       }
       for (const [bindingIndex, binding] of [item.binds, ...(item.alsoBinds ?? [])].entries()) {
+        if (!isNodeBoundaryBinding(binding)) continue
         const original = body.nodes[binding.node]
         const target = original === undefined ? undefined : nodes.get(original.id as string)
         const schema = original === undefined ? undefined : resolveSchema(original.type)
-        const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side)
+        const resolved = schema === undefined ? undefined : resolveBoundaryRoute(schema, binding, side, original?.values, original?.dynamic)
         if (original === undefined || target === undefined || schema === undefined || resolved?.ok !== true || resolved.route.terminal.kind !== 'family') {
           fail('subgraph.flatten.stateUnresolved', `boundary '${item.id}' has an unresolved family target`, side, item.id)
           continue
@@ -1306,7 +1323,8 @@ function planFlattenState(
       fail('subgraph.flatten.stateUnresolved', `boundary '${item.id}' has no unique schema interpretation`, side, item.id)
       continue
     }
-    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))) {
+      if (!isNodeBoundaryBinding(binding)) continue
       const original = body.nodes[binding.node]
       const schema = original === undefined ? undefined : resolveSchema(original.type)
       const target = original === undefined ? undefined : nodes.get(original.id as string)
@@ -1315,7 +1333,7 @@ function planFlattenState(
         continue
       }
       schemaSnapshot[original.type] = schema
-      const resolved = resolveBoundaryRoute(schema, binding, side)
+      const resolved = resolveBoundaryRoute(schema, binding, side, original.values, original.dynamic)
       if (!resolved.ok) {
         fail('subgraph.flatten.stateUnresolved', resolved.message, side, item.id)
         continue
@@ -1376,11 +1394,12 @@ function planFlattenState(
   const familyInputIds = new Set(boundaryPlan.filter((route) => route.side === 'input' && route.route === 'family').map((route) => route.id))
   for (const item of body.boundary?.inputs ?? []) {
     if (item.promoted !== true || familyInputIds.has(item.id)) continue
-    const targets = [item.binds, ...(item.alsoBinds ?? [])]
-    const primaryBinding = targets[0]!
+    const targets = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))
+    const primaryBinding = item.binds
+    if (!isNodeBoundaryBinding(primaryBinding)) continue
     const primaryNode = body.nodes[primaryBinding.node]
     const primarySchema = primaryNode === undefined ? undefined : resolveSchema(primaryNode.type)
-    const primaryRoute = primarySchema === undefined ? undefined : resolveBoundaryRoute(primarySchema, primaryBinding, 'input')
+    const primaryRoute = primarySchema === undefined ? undefined : resolveBoundaryRoute(primarySchema, primaryBinding, 'input', primaryNode?.values, primaryNode?.dynamic)
     const primarySlot = primaryRoute?.ok === true && primaryRoute.route.terminal.kind === 'port' ? primaryRoute.route.terminal.slot : undefined
     const primaryState = nodes.get(primaryBinding.node as string)
     if (primarySlot?.kind !== 'input' || primaryState === undefined || primaryBinding.kind !== 'port') {
@@ -1491,7 +1510,7 @@ function planFlattenState(
             const composed: BoundaryBinding[] = []
             for (const target of mappedTargets) {
               const targetBinding = childBindings[target.bindingIndex]
-              const targetNode = targetBinding === undefined ? undefined : body.nodes[targetBinding.node]
+              const targetNode = targetBinding === undefined || !isNodeBoundaryBinding(targetBinding) ? undefined : body.nodes[targetBinding.node]
               const targetSchema = targetNode === undefined ? undefined : resolveSchema(targetNode.type)
               const targetRoute = targetSchema === undefined || targetBinding === undefined
                 ? undefined
@@ -1858,7 +1877,8 @@ function endpointSelected(endpoint: LinkEndpoint, selection: ReturnType<typeof s
 }
 
 function bindingSelected(binding: BoundaryBinding, selection: ReturnType<typeof selectedSets>): boolean {
-  return selection.nodes.has(binding.node)
+  if (binding.kind === 'valueSource') return selection.valueSources.has(binding.valueSource)
+  return isNodeBoundaryBinding(binding) && selection.nodes.has(binding.node)
 }
 
 function recordProjection(
@@ -2039,7 +2059,6 @@ export type CutKind = 'outside' | 'internal' | 'in-cut' | 'out-cut' | 'unreprese
 
 export type ExtractRefusalCode =
   | 'subgraph.extract.structuralCutUnsupported'
-  | 'subgraph.extract.structuralOutputUnsupported'
   | 'subgraph.extract.specializedSlotUnsupported'
   | 'subgraph.lifecycle.boundaryUnresolved'
   | 'subgraph.lifecycle.multiDriver'
@@ -2108,7 +2127,7 @@ export interface InputCutGroup {
 }
 
 export interface OutputCutGroup {
-  readonly source: PortRef | WidgetTapRef
+  readonly source: PortRef | WidgetTapRef | ValueSourceRef
   readonly consumers: readonly LinkEndpoint[]
   readonly netIds: readonly string[]
   readonly boundaryItems: readonly { readonly itemIndex: number; readonly itemId: string }[]
@@ -2156,22 +2175,23 @@ function refusalForLink(
       ? undefined
       : { code: 'subgraph.lifecycle.boundaryUnresolved', source: 'link', id: link.id, endpoint: inner }
   }
-  const code = kind === 'out-cut' && isValueSourceRef(inner)
-    ? 'subgraph.extract.structuralOutputUnsupported'
-    : 'subgraph.extract.structuralCutUnsupported'
-  return { code, source: 'link', id: link.id, endpoint: inner }
+  if (kind === 'out-cut' && isValueSourceRef(inner)) return undefined
+  return { code: 'subgraph.extract.structuralCutUnsupported', source: 'link', id: link.id, endpoint: inner }
 }
 
-const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' }>): PortRef => ({
+const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' | 'valueSource' }>): PortRef => ({
   node: binding.node,
   port: binding.port,
   ...(binding.members !== undefined ? { members: binding.members } : {}),
 })
 
-const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef =>
-  binding.kind === 'widgetTap'
+const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef | ValueSourceRef => {
+  if (binding.kind === 'unbound') throw new Error('unbound boundary has no endpoint')
+  if (binding.kind === 'valueSource') return { valueSource: binding.valueSource }
+  return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
     : bindingAsPort(binding)
+}
 
 export function auditExtractionCuts(
   graph: GraphDef,
@@ -2187,7 +2207,7 @@ export function auditExtractionCuts(
   const refusals: CutRefusal[] = []
   const links: LinkCut[] = []
   const linkInputGroups = new Map<string, { source: InputCutSource; targets: PortRef[] }>()
-  const outputGroups = new Map<string, { source: PortRef | WidgetTapRef; consumers: LinkEndpoint[]; netIds: string[]; boundaryItems: { itemIndex: number; itemId: string }[] }>()
+  const outputGroups = new Map<string, { source: OutputCutGroup['source']; consumers: LinkEndpoint[]; netIds: string[]; boundaryItems: { itemIndex: number; itemId: string }[] }>()
 
   for (const link of Object.values(graph.links).sort((a, b) => compareStrings(a.id, b.id))) {
     const fromInside = endpointSelected(link.from, selected)
@@ -2215,7 +2235,7 @@ export function auditExtractionCuts(
         linkInputGroups.set(key, group)
       }
       group.targets.push(link.to)
-    } else if (kind === 'out-cut' && (isPortEndpoint(link.from) || isWidgetTapRef(link.from))) {
+    } else if (kind === 'out-cut' && (isPortEndpoint(link.from) || isWidgetTapRef(link.from) || isValueSourceRef(link.from))) {
       const key = endpointKey(link.from)
       let group = outputGroups.get(key)
       if (group === undefined) {
@@ -2283,8 +2303,18 @@ export function auditExtractionCuts(
   for (const side of ['inputs', 'outputs'] as const) {
     for (const [itemIndex, item] of (graph.boundary?.[side] ?? []).entries()) {
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
-      const movedBindings = bindings.filter((binding) => selected.nodes.has(binding.node))
-      const retainedBindings = bindings.filter((binding) => !selected.nodes.has(binding.node))
+      const movedBindings = bindings.filter((binding) => bindingSelected(binding, selected))
+      const retainedBindings = bindings.filter((binding) => !bindingSelected(binding, selected))
+      if (bindings.some((binding) => binding.viaReroute !== undefined &&
+          selected.nodes.has(binding.node) !== selected.reroutes.has(binding.viaReroute))) {
+        const refusal: CutRefusal = { code: 'subgraph.extract.structuralCutUnsupported', source: 'boundary', id: item.id }
+        refusals.push(refusal)
+        boundaries.push({
+          side, itemIndex, itemId: item.id, kind: 'unrepresentable', movedBindings, retainedBindings,
+          primaryMoved: bindingSelected(item.binds, selected), promoted: item.promoted === true, refusal,
+        })
+        continue
+      }
       if (movedBindings.length === 0) {
         boundaries.push({
           side,
@@ -2311,7 +2341,7 @@ export function auditExtractionCuts(
         refusals.push(refusal)
       }
       const kind = refusal !== undefined ? 'unrepresentable' : side === 'inputs' ? 'in-cut' : 'out-cut'
-      const firstMovedIndex = bindings.findIndex((binding) => selected.nodes.has(binding.node))
+      const firstMovedIndex = bindings.findIndex((binding) => bindingSelected(binding, selected))
       const nestedBindings = movedBindings.map((binding) => {
         if (binding.kind !== 'family') return binding
         const { slots: _slots, ...withoutSlots } = binding
@@ -2332,7 +2362,7 @@ export function auditExtractionCuts(
         kind,
         movedBindings,
         retainedBindings,
-        primaryMoved: selected.nodes.has(item.binds.node),
+        primaryMoved: bindingSelected(item.binds, selected),
         replacementIndex: firstMovedIndex,
         ...(nestedItem !== undefined ? { nestedItem } : {}),
         promoted: item.promoted === true,
@@ -2364,7 +2394,7 @@ export function auditExtractionCuts(
   for (const boundary of boundaries) {
     if (boundary.side !== 'inputs' || boundary.kind !== 'in-cut') continue
     for (const binding of boundary.movedBindings) {
-      if (binding.kind !== 'port') continue
+      if (binding.kind !== 'port' || binding.viaReroute !== undefined) continue
       const target = bindingAsPort(binding)
       if (!ordinaryDrivenTargets.has(portRefKey(target))) continue
       const refusal: CutRefusal = {
@@ -2470,7 +2500,7 @@ export function boundaryNameCandidates(audit: ExtractionCutAudit): readonly Boun
       })),
     ...audit.outputs.map((cut) => ({
       side: 'output' as const,
-      base: isWidgetTapRef(cut.source) ? cut.source.tap : cut.source.port,
+      base: isValueSourceRef(cut.source) ? cut.source.valueSource : isWidgetTapRef(cut.source) ? cut.source.tap : cut.source.port,
       orderKey: `${endpointKey(cut.source)}:${cut.consumers[0] === undefined ? '' : endpointKey(cut.consumers[0])}`,
     })),
     ...audit.boundaries

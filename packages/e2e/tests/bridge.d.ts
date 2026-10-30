@@ -24,6 +24,7 @@ interface DinksterBridgeSceneNode {
       y: number
       height: number
       inset?: number
+      width?: number
       inputId?: string
       viewId?: string
       representationId?: string
@@ -120,6 +121,7 @@ interface DinksterBridgeTab {
   execution?: DinksterBridgeExecutionRef
   store: {
     revision: number
+    readonly canUndo: boolean
     /** Undo one revision; false when there is nothing to undo. */
     undo(): boolean
     redo(): boolean
@@ -142,6 +144,7 @@ interface DinksterBridgeTab {
               title?: string
               virtual?: true
               values: Record<string, unknown>
+              controllers?: Record<string, string>
               dynamic?: Record<string, {
                 selected?: string
                 members?: readonly string[]
@@ -315,6 +318,9 @@ interface DinksterTestBridge {
     menuRegistry: import('@dinkster/core').MenuRegistry
     flushPersistTabs(): void
     activeTab(): DinksterBridgeTab | undefined
+    closeTab(id: string): void
+    reviewReplacements: { set(enabled: boolean): void }
+    migrationNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }): { ok: boolean; diagnostics?: readonly unknown[] }
     /** Queue a tab against its target backend (same path as the queue button). */
     queue(tab: DinksterBridgeTab): Promise<void>
@@ -347,8 +353,6 @@ interface DinksterTestBridge {
     reportProblems(owner: string, diagnostics: readonly unknown[]): void
     /** Drop every diagnostic held by one owner (badge lifecycle specs). */
     clearProblems(owner: string): void
-    /** Pack-layer deprecation/replacement rule; diagnostics on rejection. */
-    registerReplacementRule(layer: 'pack' | 'core', rule: unknown): readonly unknown[]
     /** Pack manifest installation + per-contribution gating (section 11). */
     extensions: {
       register(
@@ -560,6 +564,7 @@ interface DinksterTestBridge {
       nodeBodyContent?: (node: DinksterBridgeSceneNode) =>
         ReadonlyArray<{ label: string; text: string; tone?: string }> | null
     }
+    getBadges(): Readonly<Record<string, readonly { id: string }[]>>
     getScene(): {
       graphId: string
       nodes: readonly DinksterBridgeSceneNode[]
@@ -683,6 +688,5 @@ interface DinksterTestBridge {
 }
 
 interface Window {
-  __dinksterV1EntryStubbed?: boolean
   __dinksterTest?: DinksterTestBridge
 }

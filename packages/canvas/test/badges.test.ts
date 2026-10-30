@@ -12,7 +12,7 @@ import {
   loadDocument,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
+import { historicalSchemas as schemas } from './historical-schemas.js'
 import {
   BADGE_RIGHT_INSET,
   BADGE_SIZE,
@@ -38,7 +38,6 @@ import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
 
-const { schemas } = parseObjectInfo(readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>)
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = () => ({ viewId: 'core.line', rows: 1 })
 

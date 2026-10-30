@@ -4,7 +4,7 @@
  * Rules arrive from three sources with fixed precedence (spec section 2):
  *   'schema' - the successor's own NodeSchema ships the rule (self-describing)
  *   'pack'   - pack-shipped rule files, registered through the extension API
- *   'core'   - the core-maintained table of historical renames
+ *   'core'   - explicitly registered lower-precedence rules
  *
  * Lookup returns every rule for a source type ordered schema > pack > core
  * (registration order within a layer); the caller applies the FIRST rule

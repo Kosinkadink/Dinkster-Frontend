@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { effectiveWidgetDefault, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
-import { createWidgetRegistry, registerCoreWidgets, saveTargetPresentation, widgetRegistrationDoors } from '../src/index.js'
+import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '../src/index.js'
 
 const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'cat.png', size: 12, mediaType: 'image/png', virtualPath: 'input/cat.png' }
-const target = { mount: 'output', prefix: 'jobs/cat' }
 
 const cases: Array<{
   type: string
@@ -27,7 +26,7 @@ const cases: Array<{
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
   { type: 'AUDIO_RECORD', options: {}, explicit: { ...asset, name: 'recording.webm', mediaType: 'audio/webm' }, intrinsic: undefined, invalid: asset, view: 'core.audioRecord' },
-  { type: 'SAVE_TARGET', options: {}, explicit: target, intrinsic: undefined, invalid: { mount: 'Output', prefix: '../cat' }, invalidCode: 'widget.SAVE_TARGET.invalid', view: 'core.saveTarget' },
+  { type: 'MOUNT', options: {}, explicit: 'archive', intrinsic: null, invalid: 'Invalid/Mount', invalidCode: 'widget.MOUNT.invalid', view: 'core.mount' },
 ]
 
 const registry = createWidgetRegistry()
@@ -53,7 +52,7 @@ const dispositions = [
   { type: 'CURVE', compact: 'core.curve', expanded: 'curve editor' },
   { type: 'COMPOSITOR', compact: 'core.compositor', expanded: 'image editor compositor mode' },
   { type: 'ASSET', compact: 'core.asset', expanded: 'product asset modal' },
-  { type: 'SAVE_TARGET', compact: 'core.saveTarget', expanded: 'mount and prefix popover' },
+  { type: 'MOUNT', compact: 'core.mount', expanded: 'writable mount selection popover' },
   { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
   { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
   { type: 'MARKDOWN', compact: 'core.markdown', expanded: 'safe preview and source popover' },
@@ -178,7 +177,7 @@ describe('STRING and COMBO variants', () => {
 // ---------------------------------------------------------------------------
 // Compact display: the REAL registered views draw through a recording
 // SceneBuilder, so a per-kind display regression (COLOR losing its swatch,
-// ASSET no longer naming the file, SAVE_TARGET dropping the suffix) fails
+// ASSET no longer naming the file, MOUNT losing its default label) fails
 // here - not just in a fake-view plumbing test.
 // ---------------------------------------------------------------------------
 
@@ -226,8 +225,6 @@ describe('compact display through the real registered views', () => {
     ['core.asset', 'ASSET', [asset], {}, 'cat.png'],
     ['core.asset', 'ASSET', [asset, { ...asset, name: 'dog.png' }], {}, '2 assets'],
     ['core.asset', 'ASSET', [], {}, 'no asset'],
-    ['core.saveTarget', 'SAVE_TARGET', target, { suffix: '.png' }, 'output:jobs/cat.png'],
-    ['core.saveTarget', 'SAVE_TARGET', null, {}, 'default target'],
   ] as const)('%s (%s) displays %j as %j', (viewId, widgetType, value, options, expected) => {
     const rec = draw(viewId, widgetType, value as Json, options as Record<string, unknown>)
     expect(displayed(rec.texts)).toEqual(Array.isArray(expected) ? expected : [expected])
@@ -254,18 +251,6 @@ describe('compact display through the real registered views', () => {
     expect(populated.texts[0]?.style['placeholder']).toBeUndefined()
   })
 
-  it('derives save-target type and output format only from canonical schema metadata', () => {
-    const png = saveTargetPresentation(
-      { widgetType: 'SAVE_TARGET', options: { suffix: '.png' } },
-      { kind: 'concrete', name: 'SAVE_TARGET' },
-    )
-    expect(png).toEqual({ canonicalType: 'SAVE_TARGET', suffix: '.png', outputFormat: '.png' })
-    expect(saveTargetPresentation(
-      { widgetType: 'SAVE_TARGET', options: {} },
-      { kind: 'concrete', name: 'SAVE_TARGET' },
-    )).toEqual({ canonicalType: 'SAVE_TARGET', suffix: '', outputFormat: 'generic' })
-  })
-
   it('COLOR paints a swatch filled with the stored color plus the uppercased text', () => {
     const rec = draw('core.color', 'COLOR', '#12345678')
     expect(displayed(rec.texts)).toEqual(['#12345678'.toUpperCase()])
@@ -280,7 +265,6 @@ describe('compact display through the real registered views', () => {
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: null, commands: [] }, {}],
     ['core.asset', 'ASSET', asset, {}],
     ['core.audioRecord', 'AUDIO_RECORD', null, {}],
-    ['core.saveTarget', 'SAVE_TARGET', target, {}],
     ['core.toggle', 'BOOLEAN', false, {}],
     ['core.text', 'STRING', 'x', {}],
   ] as const)('%s registers NO hit region when read-only (connected row)', (viewId, widgetType, value, options) => {

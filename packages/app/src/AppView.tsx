@@ -258,7 +258,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   const [outputPages, setOutputPages] = createSolidSignal<ReadonlyMap<string, number>>(new Map())
   createEffect(() => { activeTabId(); setOutputPages(new Map()) })
   const previewLoader = createPreviewLoader({
-    viewUrlForExecution: (ref, file) => props.app.viewUrlForExecution(ref, file),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     assetUrlForInput: (digest) => {
       const tab = activeTab()

@@ -14,7 +14,7 @@
  * - type variables unify through the asset constructor (asset<T> binds T)
  */
 import { describe, expect, it } from 'vitest'
-import { assetCoercible, coercionTargetsOf, typesCompatible } from '../src/schema/type-compatibility.js'
+import { assetCoercible, coercionTargetsOf, typesCompatible } from '../src/schema/type-relations.js'
 import { compile } from '../src/compile/compile.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asNodeId, asPortId } from '../src/ids.js'
@@ -294,7 +294,7 @@ describe('solver: asset coercion on edges', () => {
     })
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('sw' as never, 'T')).toEqual({ kind: 'resolved', name: 'asset<IMAGE>' })
+    expect(s.resolutionOf('sw' as never, 'T')).toEqual({ kind: 'resolved', name: 'asset<comfy.IMAGE>' })
   })
 
   it('an asset edge next to a plain edge into one bare variable IS a conflict', () => {
@@ -322,7 +322,7 @@ describe('solver: asset coercion on edges', () => {
     })
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('sw' as never, 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
+    expect(s.resolutionOf('sw' as never, 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
     expect(s.diagnostics.filter((x) => x.code === 'solve.varConflict')).toEqual([])
   })
 })
@@ -336,8 +336,8 @@ describe('solver: open generic coercions and the single-step limit', () => {
         to: { node: asNodeId('get'), port: asPortId('in') },
       }],
     })
-    expect(decoded.resolutionOf(asNodeId('get'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
-    expect(decoded.portTypeOf(asNodeId('get'), 'output', 'out')).toEqual(concrete('IMAGE'))
+    expect(decoded.resolutionOf(asNodeId('get'), 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
+    expect(decoded.portTypeOf(asNodeId('get'), 'output', 'out')).toEqual(concrete('comfy.IMAGE'))
     expect(decoded.diagnostics).toEqual([])
 
     const concreteSink = defOf({ nodes: { sink: { type: 'ImageSink' } } })
@@ -358,7 +358,7 @@ describe('solver: open generic coercions and the single-step limit', () => {
     })
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
+    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
   })
 
   it('asset<list<T>> decodes into a list destination, binding T', () => {
@@ -368,7 +368,7 @@ describe('solver: open generic coercions and the single-step limit', () => {
     })
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
+    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
     expect(s.diagnostics).toEqual([])
   })
 
@@ -383,7 +383,7 @@ describe('solver: open generic coercions and the single-step limit', () => {
     const s = solveGraphTypes(def, resolve)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
     expect(s.linkVerdicts.get('l1' as never)).toBe('ok') // provider registry is server-side
-    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
+    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
   })
 
   it('nested assets never chain, open or closed: one step only', () => {

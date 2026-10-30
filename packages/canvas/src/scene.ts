@@ -13,11 +13,11 @@ import {
   boundaryBindingKey,
   buildGraphConnectivity,
   buildRerouteIndex,
-  canonicalCompatTypeIdOf,
+  canonicalTypeIdOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
   documentNodeResolver,
-  effectiveValueSourceSpec,
+  documentValueSourceResolver,
   effectiveOccurrenceTopology,
   elabKeyOf,
   elaborateInterface,
@@ -988,7 +988,14 @@ export function updateSceneNodePositions(
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
-  const resolveNode = documentNodeResolver(input.document, input.resolve)
+  let resolveSource: ReturnType<typeof documentValueSourceResolver> | undefined
+  const sourcePath = input.occurrence === undefined
+    ? input.graphId === input.document.root ? [] : undefined
+    : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+  const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, sourceId, path) => {
+    resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
+    return resolveSource(graphId, sourceId, path)
+  })
   const view = input.document.view.graphs[input.graphId]
   const positioned = positionedSceneCache.get(def)
   if (view !== undefined && input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined &&
@@ -1143,7 +1150,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   // here (rather than teaching layout about graph constraints) preserves the
   // document -> elaboration -> solving -> rendering dependency direction.
   const solvedTypes = solveGraphTypes(effectiveGraph, input.resolve, {
-    resolveNode: (node) => resolveNode(input.graphId, node),
+    resolveNode: (node) => resolveNode(input.graphId, node, sourcePath),
     connectivityOf,
     ...(effective === undefined ? {} : {
       projectedInputs: projectedTypeConstraints(input.document, input.resolve, effective, def.id),
@@ -1220,7 +1227,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(occurrenceDynamic !== undefined ? { dynamic: occurrenceDynamic } : {}),
           ...(occurrenceControllers !== undefined ? { controllers: occurrenceControllers } : {}),
         }
-    const schema = resolveNode(input.graphId, occurrenceNode)
+    const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
       ? elaborateInterface(schema, occurrenceNode, connectivityOf(node.id))
       : undefined
@@ -1479,7 +1486,8 @@ export function buildScene(input: BuildSceneInput): Scene {
   let vsFallbackY = 0
   for (const vs of Object.values(def.valueSources ?? {})) {
     const pos = viewValueSources[vs.id]?.position ?? { x: 0, y: (vsFallbackY += 60) }
-    const effective = effectiveValueSourceSpec(def, vs, input.resolve, rerouteIndex)
+    resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
+    const effective = resolveSource(def.id, vs.id, sourcePath)!
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
     const valueText = valueSourceValueText(vs.value)
     const width = Math.min(
@@ -1495,7 +1503,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           VS_BADGE_INSET,
       ),
     )
-    const typeName = canonicalCompatTypeIdOf(effective.type)
+    const typeName = canonicalTypeIdOf(effective.type)
     const sceneSource: SceneValueSource = {
       id: vs.id,
       x: pos.x,
@@ -1527,12 +1535,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     // Real output only: a widget tap shares its input's port id on the 'out'
     // side, so an unguarded lookup would color off the widget row.
     const pin = producer?.layout.pins.find((p) => p.direction === 'out' && p.portId === key && p.widgetTap !== true)
-    return pin === undefined ? undefined : canonicalCompatTypeIdOf(pin.type)
+    return pin === undefined ? undefined : canonicalTypeIdOf(pin.type)
   }
   const widgetTapTypeName = (nodeId: string, inputId: string): string | undefined => {
     const node = byId.get(nodeId)
     const pin = node?.layout.pins.find((p) => p.widgetTap === true && p.address.port === inputId)
-    return pin === undefined ? undefined : canonicalCompatTypeIdOf(pin.type)
+    return pin === undefined ? undefined : canonicalTypeIdOf(pin.type)
   }
   const tracedTypeName = (from: LinkEndpoint): string | undefined => {
     if (isWidgetTapRef(from)) {
@@ -1839,7 +1847,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(authored === undefined ? {} : { authored: true as const }),
         ...(geometry?.kind === 'absolute' ? { authoredAbsolute: true as const } : {}),
         ...(guideNets.has(net.id) ? { guide: true as const } : {}),
-        ...(canonicalCompatTypeIdOf(pin.type) !== undefined ? { typeName: canonicalCompatTypeIdOf(pin.type)! } : {}),
+        ...(canonicalTypeIdOf(pin.type) !== undefined ? { typeName: canonicalTypeIdOf(pin.type)! } : {}),
       })
     }
     push('source', net.source, sinkMismatches.some(Boolean))
@@ -1977,7 +1985,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
     }
 
-    // Binding noodles. 'port' and 'widgetTap' bind at the exact inner pin;
+    // Junction attachments bind at the retained dot, not their schema authority.
+    // Other 'port' and 'widgetTap' bindings bind at the exact inner pin;
     // 'family' binds anchor at the family's first pin (template-slot paths reserve
     // dots, so prefix-matching binds.port here is grammar-safe - boundary
     // item ids are never split). Fallback: the node's header edge.
@@ -1992,7 +2001,17 @@ export function buildScene(input: BuildSceneInput): Scene {
     const innerAnchor = (
       binds: BoundaryItem['binds'],
       direction: 'in' | 'out',
-    ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' }> } | undefined => {
+    ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' | 'valueSource' }> } | undefined => {
+      if (binds.kind === 'unbound') return undefined
+      if (binds.kind === 'valueSource') {
+        const source = valueSourceById.get(binds.valueSource)
+        if (direction !== 'out' || source === undefined) return undefined
+        return { ...valueSourcePinPosition(source), end: { kind: 'valueSource', valueSource: source.id } }
+      }
+      if (binds.viaReroute !== undefined) {
+        const reroute = direction === 'in' ? rerouteById.get(binds.viaReroute) : undefined
+        return reroute && { x: reroute.x, y: reroute.y, end: { kind: 'reroute', reroute: reroute.id } }
+      }
       const node = byId.get(binds.node)
       if (!node) return undefined
       const edgeX = direction === 'out' ? node.x + node.layout.width : node.x
@@ -2001,7 +2020,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         const pin = node.layout.pins.find((candidate) => candidate.widgetTap === true && candidate.address.port === binds.tap)
         return pin === undefined
           ? undefined
-          : { x: edgeX, y: node.y + pin.y, end: { kind: 'widgetTap', node: binds.node, input: binds.tap } }
+          : { x: node.x + node.layout.width, y: node.y + pin.y, end: { kind: 'widgetTap', node: binds.node, input: binds.tap } }
       }
       const end: Extract<SceneLinkEnd, { kind: 'port' }> = {
         kind: 'port',
@@ -2037,7 +2056,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const projectedAnchors = (
       direction: 'in' | 'out', item: BoundaryItem, binding: BoundaryItem['binds'],
     ): readonly {
-      readonly anchor: NonNullable<ReturnType<typeof endPoint>> & { readonly end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' }> }
+      readonly anchor: NonNullable<ReturnType<typeof endPoint>> & { readonly end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' | 'valueSource' }> }
       readonly identities: readonly EffectiveLinkIdentity[]
     }[] => {
       const grouped = new Map<string, { endpoint: LinkEndpoint; identities: EffectiveLinkIdentity[] }>()
@@ -2048,8 +2067,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         if (
           leg?.boundaryId !== item.id || boundaryBindingKey(leg.binding) !== boundaryBindingKey(binding) ||
           resolved.graphId !== def.id ||
-          (direction === 'in' && !isPortEndpoint(resolved.endpoint)) ||
-          (direction === 'out' && !isPortEndpoint(resolved.endpoint) && !isWidgetTapRef(resolved.endpoint))
+          (direction === 'in' && !isPortEndpoint(resolved.endpoint) && !isRerouteRef(resolved.endpoint)) ||
+          (direction === 'out' && !isPortEndpoint(resolved.endpoint) && !isWidgetTapRef(resolved.endpoint) && !isValueSourceRef(resolved.endpoint))
         ) continue
         const key = JSON.stringify(resolved.endpoint)
         const group = grouped.get(key) ?? { endpoint: resolved.endpoint, identities: [] }
@@ -2058,7 +2077,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
       return [...grouped.values()].flatMap((group) => {
         const anchor = endPoint(group.endpoint, direction)
-        return anchor?.end.kind === 'port' || anchor?.end.kind === 'widgetTap'
+        return anchor?.end.kind === 'port' || anchor?.end.kind === 'widgetTap' || anchor?.end.kind === 'reroute' || anchor?.end.kind === 'valueSource'
           ? [{ anchor: { ...anchor, end: anchor.end }, identities: group.identities }]
           : []
       })
@@ -2068,7 +2087,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       const from = boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
-      const typeName = pinType === undefined ? undefined : canonicalCompatTypeIdOf(pinType)
+      const typeName = pinType === undefined ? undefined : canonicalTypeIdOf(pinType)
       // One noodle per binding: fan-out targets render exactly like the
       // primary (the boundary pin fans out to every bound inner input).
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
@@ -2077,6 +2096,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         const fallback = innerAnchor(b, 'in')
         const targets = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
+          if (to.end.kind === 'valueSource') return
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
             from: { kind: 'boundary', side: 'inputs', item: item.id },
@@ -2108,7 +2128,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           : item.binds.kind === 'widgetTap'
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
           : undefined
-      const typeName = traced ?? (pinType === undefined ? undefined : canonicalCompatTypeIdOf(pinType))
+      const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
       const projected = projectedAnchors('out', item, item.binds)
       const fallback = innerAnchor(item.binds, 'out')
       const sources = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
