@@ -7,6 +7,8 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test'
+import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
+import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with { type: 'json' }
 
 const nativeCatalogBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 let nativeCatalogAvailable: Promise<boolean> | undefined
@@ -85,8 +87,25 @@ export const nativeTest = base.extend<{ appView: boolean }>({
   },
 })
 
-// Keep separate test types so file-level hooks do not leak between fixture groups.
-export const test = nativeTest.extend({})
+// Editing and execution tests start with explicit documents, while nativeTest
+// exercises the product's schema-independent blank startup.
+export const test = nativeTest.extend({
+  page: async ({ page }, use) => {
+    const basic = structuredClone(seedBasic)
+    basic.graphs.g0.links.l2.from.port = 'IMAGE'
+    const subgraph = structuredClone(seedSubgraph)
+    subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
+    await page.addInitScript(({ basic, subgraph }) => {
+      if (localStorage.getItem('dinkster.openTabs') !== null) return
+      localStorage.setItem('dinkster.openTabs', JSON.stringify({
+        v: 1,
+        active: basic.lineage,
+        tabs: [{ title: 'Basic', doc: basic }, { title: 'Subgraph', doc: subgraph }],
+      }))
+    }, { basic, subgraph })
+    await use(page)
+  },
+})
 
 export const appViewTest = test.extend({ appView: true })
 export const nativeAppViewTest = nativeTest.extend({ appView: true })

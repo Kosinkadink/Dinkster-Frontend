@@ -112,7 +112,7 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
         { id: 2, type: 'Relay', pos: [420, 320], inputs: [{ name: 'value', widget: { name: 'value' }, link: 4 }], outputs: [{ name: 'result' }], widgets_values: [11] },
         { id: 3, type: 'Reroute', pos: [170, 180], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
         { id: 4, type: 'Reroute', pos: [310, 180], inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
-        { id: 5, type: 'Relay', pos: [700, 460], inputs: [{ name: 'value', widget: { name: 'value' }, link: 6 }], outputs: [{ name: 'result' }], widgets_values: [13] },
+        { id: 5, type: 'Relay', pos: [700, 460], inputs: [{ name: 'value', link: 6 }], outputs: [{ name: 'result' }], widgets_values: [13] },
       ],
       links: [[1, -10, 0, 3, 0, 'INT'], [2, 3, 0, 4, 0, 'INT'], [3, 4, 0, 1, 0, 'INT'],
         [4, 3, 0, 2, 0, 'INT'], [5, 2, 0, -20, 0, 'INT'], [6, -10, 0, 5, 0, 'INT']],
