@@ -23,7 +23,24 @@ afterEach(() => {
 function fixture(clean = false) {
   const app = new AppState()
   const backend = app.backends.get()[0]!
-  const payload = JSON.parse(readFileSync(resolve('../core/fixtures/dinkster-nodes-comfy.json'), 'utf8')) as DinksterNodesPayload
+  const payload: DinksterNodesPayload = {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'queue-test', schemaWire: 1 },
+    nodes: {
+      EmptyImage: {
+        schemaVersion: 1, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'test',
+        interface: [
+          ...['width', 'height', 'batch_size', 'color'].map((id) => ({
+            role: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] }, required: false,
+          })),
+          { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['IMAGE'] } },
+        ],
+      },
+      PreviewImage: {
+        schemaVersion: 1, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'test', outputNode: true,
+        interface: [{ role: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
+      },
+    },
+  }
   backend.registry.set(buildDinksterRegistry(backend.id, payload))
   const doc = JSON.parse(readFileSync(resolve('test/fixtures/unresolved-output-dependency.json'), 'utf8'))
   if (clean) {

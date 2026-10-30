@@ -4,7 +4,7 @@ const ACRONYMS = new Set(['api', 'cfg', 'clip', 'id', 'ip', 'url', 'vae'])
 
 export function generatedBoundaryLabel(
   item: BoundaryItem,
-  source = item.binds.kind === 'widgetTap' ? item.binds.tap as string : item.binds.port as string,
+  source = item.binds.kind === 'unbound' || item.binds.kind === 'valueSource' ? item.id : item.binds.kind === 'widgetTap' ? item.binds.tap as string : item.binds.port as string,
 ): string {
   const segment = source.split('.').at(-1) || item.id.split('.').at(-1) || item.id
   const memberSuffix = /(?:_|-|\s)m\d+$/i.test(segment)

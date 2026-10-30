@@ -14,22 +14,16 @@ import {
   asConnectionId,
   asPromptId,
   compile,
-  parseDinksterNodes,
   type CompileArtifact,
-  type DinksterNodesPayload,
   type ExecutionRef,
 } from '@dinkster/core'
-import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
+import { historicalRegistry, historicalSchemas } from './historical-schemas.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-// The stock tabs are authored against native namespaced schemas.
-const nodesPayload = JSON.parse(readFileSync(join(root, 'fixtures/dinkster-nodes-comfy.json'), 'utf8')) as DinksterNodesPayload
-// A second schema payload with a DIFFERENT content hash (epoch bumped).
-const changedNodesPayload = { ...nodesPayload, epoch: 99 } as DinksterNodesPayload
 
 let app: AppState
 let basic: Tab
@@ -61,20 +55,21 @@ const frozenTab = (): Tab => {
 
 beforeEach(() => {
   app = new AppState()
-  basic = app.tabs.get()[0]!
+  app.openDocument(JSON.parse(readFileSync(join(root, 'fixtures/workflows/seed-basic.json'), 'utf8')), 'Basic')
+  basic = app.activeTab()!
 })
 
 describe('frozen views keep their compile-time registry', () => {
   it('a schema change on the backend does not re-resolve an open frozen view', () => {
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), nodesPayload))
+    app.registry.set(historicalRegistry(asConnectionId('local')))
     const original = app.registry.get()!
     const artifact = compiledArtifact(basic)
     const ref = refOn('local')
     app.registerRun(basic, ref, artifact)
     expect(app.openExecutionView(ref)).toBe(true)
 
-    // Backend schemas move (epoch bump / reconnect against a newer server).
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), changedNodesPayload))
+    // Backend schemas move on reconnect against a newer server.
+    app.registry.set(historicalRegistry(asConnectionId('local'), 'changed-schemas'))
     const changed = app.registry.get()!
     expect(changed.hash).not.toBe(original.hash)
 
@@ -84,9 +79,9 @@ describe('frozen views keep their compile-time registry', () => {
   })
 
   it('removing the run backend never re-resolves the frozen view through the default', () => {
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), changedNodesPayload))
+    app.registry.set(historicalRegistry(asConnectionId('local'), 'changed-schemas'))
     const b = addOffline('http://other:1')
-    b.registry.set(buildDinksterRegistry(b.id, nodesPayload))
+    b.registry.set(historicalRegistry(b.id))
     const bRegistry = b.registry.get()!
     app.setTabTarget(basic.id, b.id)
     const artifact = compiledArtifact(basic)
@@ -103,7 +98,7 @@ describe('frozen views keep their compile-time registry', () => {
   })
 
   it('a same-hash impostor registry never replaces the compile-time association', () => {
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), nodesPayload))
+    app.registry.set(historicalRegistry(asConnectionId('local')))
     const original = app.registry.get()!
     const artifact = compiledArtifact(basic)
     // Between compile and registration the backend registry is REPLACED by a
@@ -121,14 +116,13 @@ describe('frozen views keep their compile-time registry', () => {
   })
 
   it('an unmatchable schema hash answers undefined - never another registry', () => {
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), nodesPayload))
-    const { schemas } = parseDinksterNodes(nodesPayload)
+    app.registry.set(historicalRegistry(asConnectionId('local')))
     // Registered around the app (store.register directly), so nothing was
     // retained and the recorded hash matches no registry the app holds.
     const result = compile({
       document: basic.store.doc,
       revision: basic.store.revision,
-      resolve: (type) => schemas.get(type),
+      resolve: (type) => historicalSchemas.get(type),
       scope: { kind: 'full' },
       connection: asConnectionId('local'),
       schemaHash: 'hash-of-a-registry-this-session-never-held',
@@ -142,13 +136,12 @@ describe('frozen views keep their compile-time registry', () => {
   })
 
   it('a still-matching current registry serves a run registered without retention', () => {
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), nodesPayload))
+    app.registry.set(historicalRegistry(asConnectionId('local')))
     const current = app.registry.get()!
-    const { schemas } = parseDinksterNodes(nodesPayload)
     const result = compile({
       document: basic.store.doc,
       revision: basic.store.revision,
-      resolve: (type) => schemas.get(type),
+      resolve: (type) => historicalSchemas.get(type),
       scope: { kind: 'full' },
       connection: asConnectionId('local'),
       schemaHash: current.hash,
@@ -164,7 +157,7 @@ describe('frozen views keep their compile-time registry', () => {
 
 describe('frozen views pin their execution state', () => {
   it('entry-cap eviction never deletes the state behind an open frozen view', () => {
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), nodesPayload))
+    app.registry.set(historicalRegistry(asConnectionId('local')))
     const artifact = compiledArtifact(basic)
     const ref = refOn('local')
     app.registerRun(basic, ref, artifact)
@@ -193,7 +186,7 @@ describe('frozen views pin their execution state', () => {
   })
 
   it('a document whose lineage collides with a frozen tab id releases the pin on displacement', () => {
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), nodesPayload))
+    app.registry.set(historicalRegistry(asConnectionId('local')))
     const artifact = compiledArtifact(basic)
     const ref = refOn('local')
     app.registerRun(basic, ref, artifact)

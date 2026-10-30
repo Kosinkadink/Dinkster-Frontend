@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
 import { compile } from '../src/compile/compile.js'
+import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { Json, JsonObject, WorkflowDocument } from '../src/format/document.js'
-import { asConnectionId } from '../src/ids.js'
+import { asConnectionId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
+import { classifyFlattenBoundaryRoute, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
+import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
+import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
 const schema: NodeSchema = {
@@ -103,6 +109,48 @@ describe('LiteGraph subgraphs', () => {
     expect(imported(raw)).toEqual(doc)
   })
 
+  it('uses the listed promoted widget without dropping unlisted input deliveries', () => {
+    const toggle: NodeSchema = {
+      type: 'Toggle', displayName: 'Toggle', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
+        widget: { widgetType: 'BOOLEAN', options: {}, default: false } }],
+    }
+    const def = { ...definition(), inputs: [{ id: 'in', name: 'value', type: 'INT', linkIds: [1767] }],
+      links: [link(1767, -10, 0, 1, 0), link(2, 1, 0, -20, 0)] }
+    const raw = { nodes: [instance(10)], links: [], definitions: { subgraphs: [{ ...def,
+      nodes: [...def.nodes, { id: 2, type: 'Toggle', inputs: [{ name: 'enabled', widget: { name: 'enabled' }, link: 368 }], widgets_values: [false] }],
+      links: [{ ...link(368, -10, 0, 2, 0), type: 'BOOLEAN' }, ...def.links],
+    }] } }
+    const resolver = (type: string) => type === 'Toggle' ? toggle : resolve(type)
+    const original = JSON.parse(JSON.stringify(raw))
+    const result = importLitegraph(raw as unknown as JsonObject, resolver)
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'warning', code: 'import.subgraphs.boundaryTypeConflict',
+      data: { graphId: 'inner', boundaryId: 'in', promotedLink: 1767, conflictingLinks: [368] },
+    }))
+    expect(raw).toEqual(original)
+    const doc = imported(raw, resolver)
+    const body = doc.graphs['inner']!
+    expect(body.boundary!.inputs[0]).toMatchObject({ promoted: true,
+      binds: { kind: 'port', node: 'n1', port: 'value' },
+      alsoBinds: [{ kind: 'port', node: 'n2', port: 'enabled' }],
+    })
+    const derived = deriveBoundarySchema(body, resolver)
+    expect(derived.schema!.items[0]).toMatchObject({ type: { kind: 'concrete', name: 'INT' },
+      widget: { widgetType: 'INT', default: 7 } })
+    expect(Object.keys(body.nodes).sort()).toEqual(['n1', 'n2'])
+    expect(body.nodes.n2!.values).toEqual({ enabled: false })
+    expect(doc.ext!['importer.litegraphDefinitions']).toEqual(raw.definitions)
+    expect(raw.definitions.subgraphs[0]!.links[0]!.id).toBe(368)
+    const compiled = prompt(doc, resolver)
+    expect(compiled['n10.n1']!.inputs['value']).toBe(19)
+    expect(compiled['n10.n2']!.inputs['enabled']).toBe(19)
+    const matching = JSON.parse(JSON.stringify(raw))
+    matching.definitions.subgraphs[0].links[0].type = 'INT'
+    expect(importLitegraph(matching, resolver).diagnostics.map((item) => item.code))
+      .not.toContain('import.subgraphs.boundaryTypeConflict')
+  })
+
   it('retains recursive definition catalogs and nested instances', () => {
     const outer = { ...definition('outer'), nodes: [instance(1)], definitions: { subgraphs: [definition()] } }
     const doc = imported({ nodes: [instance(1, 'outer')], links: [], definitions: { subgraphs: [outer] } })
@@ -143,16 +191,196 @@ describe('LiteGraph subgraphs', () => {
     expect(result.document!.graphs['inner']!.nodes.n1!.type).toBe('Relay')
   })
 
-  it('fails instead of returning a lossy document for an unrepresentable structural boundary', () => {
+  it.each([false, true])('preserves nested input junction boundaries without inlining shared definitions (linked: %s)', (linked) => {
     const outer = { ...definition('outer'), nodes: [instance(1), { id: 2, type: 'Reroute',
       inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] }],
     links: [link(1, -10, 0, 2, 0), link(2, 2, 0, 1, 0), link(3, 1, 0, -20, 0)] }
-    const raw = { nodes: [instance(1, 'outer'), instance(2, 'outer', 31)], links: [], definitions: { subgraphs: [outer, definition()] } }
+    const raw = { nodes: [
+      { ...instance(1, 'outer'), inputs: [{ name: 'value', widget: { name: 'value' }, link: linked ? 10 : null }] },
+      { ...instance(2, 'outer', 31), inputs: [{ name: 'value', widget: { name: 'value' }, link: linked ? 20 : null }] },
+      ...(linked ? [
+        { ...relay(7), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [37] },
+        { ...relay(8), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [53] },
+      ] : []),
+    ], links: linked ? [link(10, 7, 0, 1, 0), link(20, 8, 0, 2, 0)] : [], definitions: { subgraphs: [outer, definition()] } }
     const result = importLitegraph(raw as unknown as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
-      .toEqual(['import.subgraphs.boundaryUnsupported'])
+    expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(Object.keys(result.document!.graphs).sort()).toEqual(['g0', 'inner', 'outer'])
+    expect(result.document!.graphs.outer!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'in', viaReroute: 'r2' })
+    expect(Object.values(result.document!.graphs.outer!.links)).toEqual([
+      expect.objectContaining({ from: { reroute: 'r2' }, to: { node: 'n1', port: 'in' } }),
+    ])
     expect(result.diagnostics.map((item) => item.code)).not.toContain('import.subgraphs.inlined')
+    expect(result.document!.graphs.g0!.nodes.n1!.values).toEqual({ in: 19 })
+    expect(result.document!.graphs.g0!.nodes.n2!.values).toEqual({ in: 31 })
+    const compiled = prompt(result.document!)
+    expect(compiled['n1.n1.n1']!.inputs.value).toEqual(linked ? ['n7', 0] : 19)
+    expect(compiled['n2.n1.n1']!.inputs.value).toEqual(linked ? ['n8', 0] : 31)
+  })
+
+  it('resolves output reroute chains while preserving unrelated internal links', () => {
+    const def = { ...definition(), nodes: [relay(), relay(2),
+      { id: 3, type: 'Reroute', pos: [100, 200], inputs: [{ name: '', link: 3 }], outputs: [{ name: '' }] },
+      { id: 4, type: 'Reroute', pos: [300, 400], inputs: [{ name: '', link: 4 }], outputs: [{ name: '' }] },
+    ], links: [link(1, -10, 0, 1, 0), link(2, 1, 0, 2, 0),
+      link(3, 2, 0, 3, 0), link(4, 3, 0, 4, 0), link(5, 4, 0, -20, 0)] }
+    const sink = { ...relay(9), inputs: [{ name: 'value', link: 10 }] }
+    const doc = imported({ nodes: [instance(1), sink], links: [link(10, 1, 0, 9, 0)],
+      definitions: { subgraphs: [def] } })
+    expect(doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n2', port: 'result' })
+    expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: { node: 'n1', port: 'result' }, to: { node: 'n2', port: 'value' } },
+      { from: { node: 'n2', port: 'result' }, to: { reroute: 'r3' } },
+      { from: { reroute: 'r3' }, to: { reroute: 'r4' } },
+    ])
+    expect(doc.view.graphs.inner!.reroutes).toEqual({
+      r3: { position: { x: 100, y: 200 } }, r4: { position: { x: 300, y: 400 } },
+    })
+    const compiled = prompt(doc)
+    expect(compiled['n1.n1']!.inputs.value).toBe(19)
+    expect(compiled['n1.n2']!.inputs.value).toEqual(['n1.n1', 0])
+    expect(compiled.n9!.inputs.value).toEqual(['n1.n2', 0])
+  })
+
+  it.each([false, true])('preserves input boundary reroute fanout and occurrence-specific upstream drivers (linked: %s)', (linked) => {
+    const def = { ...definition(), nodes: [
+      { ...relay(), inputs: [{ name: 'value', widget: { name: 'value' }, link: 3 }] },
+      { ...relay(2), inputs: [{ name: 'value', widget: { name: 'value' }, link: 4 }] },
+      { id: 3, type: 'Reroute', pos: [110, 210], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
+      { id: 4, type: 'Reroute', pos: [310, 410], inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
+    ], links: [link(1, -10, 0, 3, 0), link(2, 3, 0, 4, 0),
+      link(3, 4, 0, 1, 0), link(4, 3, 0, 2, 0), link(5, 2, 0, -20, 0)] }
+    const sourceA = { ...relay(7), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [37] }
+    const sourceB = { ...relay(8), inputs: [{ name: 'value', widget: { name: 'value' }, link: null }], widgets_values: [53] }
+    const doc = imported({ nodes: [sourceA, sourceB,
+      { ...instance(10), inputs: [{ name: 'value', link: linked ? 10 : null }] },
+      { ...instance(20, 'inner', 31), inputs: [{ name: 'value', link: linked ? 20 : null }] },
+    ], links: linked ? [link(10, 7, 0, 10, 0), link(20, 8, 0, 20, 0)] : [], definitions: { subgraphs: [def] } })
+    expect(Object.keys(doc.graphs.inner!.nodes)).toEqual(['n1', 'n2'])
+    expect(Object.keys(doc.graphs.inner!.reroutes)).toEqual(['r3', 'r4'])
+    expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: { reroute: 'r3' }, to: { reroute: 'r4' } },
+      { from: { reroute: 'r4' }, to: { node: 'n1', port: 'value' } },
+      { from: { reroute: 'r3' }, to: { node: 'n2', port: 'value' } },
+    ])
+    expect(doc.view.graphs.inner!.reroutes).toEqual({
+      r3: { position: { x: 110, y: 210 } }, r4: { position: { x: 310, y: 410 } },
+    })
+    expect(Object.values(doc.graphs.g0!.links).map(({ from, to }) => ({ from, to }))).toEqual(linked ? [
+      { from: { node: 'n7', port: 'result' }, to: { node: 'n10', port: 'in' } },
+      { from: { node: 'n8', port: 'result' }, to: { node: 'n20', port: 'in' } },
+    ] : [])
+    const before = JSON.stringify(doc)
+    const compiled = prompt(doc)
+    expect(compiled.n7!.inputs.value).toBe(37)
+    expect(compiled.n8!.inputs.value).toBe(53)
+    for (const innerNode of ['n1', 'n2']) {
+      expect(compiled[`n10.${innerNode}`]!.inputs.value).toEqual(linked ? ['n7', 0] : 19)
+      expect(compiled[`n20.${innerNode}`]!.inputs.value).toEqual(linked ? ['n8', 0] : 31)
+    }
+    expect(Object.keys(compiled).sort()).toEqual(['n10.n1', 'n10.n2', 'n20.n1', 'n20.n2', 'n7', 'n8'])
+    expect(JSON.stringify(doc)).toBe(before)
+    const reopened = loadDocument(JSON.parse(before)).document!
+    expect(reopened).toEqual(doc)
+    expect(prompt(reopened)).toEqual(compiled)
+    if (linked) {
+      const owner = { instancePath: [], node: doc.graphs.g0!.nodes.n10!.id }
+      const topology = effectiveOccurrenceTopology(doc, resolve, owner)
+      expect(topology.diagnostics).toEqual([])
+      expect(topology.projectedParentLinks).toHaveLength(1)
+      expect(topology.projectedParentLinks[0]!.to.endpoint).toEqual({ reroute: 'r3' })
+      const identity = topology.projectedParentLinks[0]!.identity
+      expect(identity.kind).toBe('parentLeg')
+      if (identity.kind !== 'parentLeg') throw new Error('missing projected parent identity')
+      const suppressed: WorkflowDocument = { ...doc, occurrenceTopologies: {
+        n10: { owner, bodyGraph: doc.graphs.inner!.id, links: {}, nextOrdinal: 0,
+          suppressedDeliveries: [{ kind: 'projectedLeg', delivery: identity.delivery, route: identity.route }] },
+      } }
+      expect(loadDocument(suppressed).document).toEqual(suppressed)
+      const isolated = prompt(suppressed)
+      for (const innerNode of ['n1', 'n2']) {
+        expect(isolated[`n10.${innerNode}`]!.inputs.value).toBe(19)
+        expect(isolated[`n20.${innerNode}`]!.inputs.value).toEqual(['n8', 0])
+      }
+    }
+  })
+
+  it.each([false, true])('preserves mixed direct and junction input fanout in authored order (direct first: %s)', (directFirst) => {
+    const def = { ...definition(), nodes: [relay(), relay(2), relay(5),
+      { id: 3, type: 'Reroute', pos: [110, 210], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
+      { id: 4, type: 'Reroute', pos: [310, 410], inputs: [{ name: '', link: 4 }], outputs: [{ name: '' }] },
+    ], links: [
+      ...(directFirst ? [link(6, -10, 0, 5, 0)] : []),
+      link(1, -10, 0, 3, 0), link(2, 3, 0, 1, 0),
+      link(4, -10, 0, 4, 0), link(5, 4, 0, 2, 0),
+      ...(!directFirst ? [link(6, -10, 0, 5, 0)] : []), link(7, 2, 0, -20, 0),
+    ] }
+    const doc = imported({ nodes: [
+      { ...relay(7), inputs: [{ name: 'value', link: null }], widgets_values: [37] },
+      { ...instance(10), inputs: [{ name: 'value', link: 10 }] }, instance(20, 'inner', 31),
+    ], links: [link(10, 7, 0, 10, 0)], definitions: { subgraphs: [def] } })
+    const direct = { kind: 'port', node: 'n5', port: 'value' }
+    const junctions = [
+      { kind: 'port', node: 'n1', port: 'value', viaReroute: 'r3' },
+      { kind: 'port', node: 'n2', port: 'value', viaReroute: 'r4' },
+    ]
+    const item = doc.graphs.inner!.boundary!.inputs[0]!
+    expect([item.binds, ...(item.alsoBinds ?? [])]).toEqual(directFirst ? [direct, ...junctions] : [...junctions, direct])
+    expect(Object.keys(doc.graphs.inner!.nodes)).toEqual(['n1', 'n2', 'n5'])
+    expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: { reroute: 'r3' }, to: { node: 'n1', port: 'value' } },
+      { from: { reroute: 'r4' }, to: { node: 'n2', port: 'value' } },
+    ])
+    expect(doc.view.graphs.inner!.reroutes).toEqual({ r3: { position: { x: 110, y: 210 } }, r4: { position: { x: 310, y: 410 } } })
+    const before = JSON.stringify(doc)
+    const compiled = prompt(doc)
+    for (const node of ['n1', 'n2', 'n5']) {
+      expect(compiled[`n10.${node}`]!.inputs.value).toEqual(['n7', 0])
+      expect(compiled[`n20.${node}`]!.inputs.value).toBe(31)
+    }
+    const owner = { instancePath: [], node: doc.graphs.g0!.nodes.n10!.id }
+    const topology = effectiveOccurrenceTopology(doc, resolve, owner)
+    expect(topology.diagnostics).toEqual([])
+    expect(topology.projectedParentLinks.map((link) => link.to.endpoint)).toEqual(directFirst
+      ? [expect.objectContaining({ node: 'n5', port: 'value' }), { reroute: 'r3' }, { reroute: 'r4' }]
+      : [{ reroute: 'r3' }, { reroute: 'r4' }, expect.objectContaining({ node: 'n5', port: 'value' })])
+    const identity = topology.projectedParentLinks.find((link) => 'reroute' in link.to.endpoint && link.to.endpoint.reroute === 'r4')!.identity
+    if (identity.kind !== 'parentLeg') throw new Error('missing projected parent identity')
+    const suppressed: WorkflowDocument = { ...doc, occurrenceTopologies: {
+      n10: { owner, bodyGraph: doc.graphs.inner!.id, links: {}, nextOrdinal: 0,
+        suppressedDeliveries: [{ kind: 'projectedLeg', delivery: identity.delivery, route: identity.route }] },
+    } }
+    expect(loadDocument(suppressed).document).toEqual(suppressed)
+    const isolated = prompt(suppressed)
+    expect(isolated['n10.n1']!.inputs.value).toEqual(['n7', 0])
+    expect(isolated['n10.n2']!.inputs.value).toBe(19)
+    expect(isolated['n10.n5']!.inputs.value).toEqual(['n7', 0])
+    for (const node of ['n1', 'n2', 'n5']) expect(isolated[`n20.${node}`]!.inputs.value).toBe(31)
+    expect(JSON.stringify(doc)).toBe(before)
+    expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
+  })
+
+  it('refuses an output reroute cycle without choosing a producer', () => {
+    const def = { ...definition(), nodes: [relay(),
+      { id: 2, type: 'Reroute', inputs: [{ name: '', link: 3 }], outputs: [{ name: '' }] },
+      { id: 3, type: 'Reroute', inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
+    ], links: [link(1, -10, 0, 1, 0), link(2, 2, 0, 3, 0), link(3, 3, 0, 2, 0), link(4, 3, 0, -20, 0)] }
+    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    expect(result.document).toBeUndefined()
+    expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+  })
+
+  it.each(['inputs', 'outputs'] as const)('refuses a dangling %s reroute instead of guessing a boundary endpoint', (side) => {
+    const def = { ...definition(), nodes: [relay(),
+      { id: 2, type: 'Reroute', inputs: [{ name: '', link: null }], outputs: [{ name: '' }] },
+    ], links: side === 'inputs'
+      ? [link(1, -10, 0, 2, 0), link(2, 1, 0, -20, 0)]
+      : [link(1, -10, 0, 1, 0), link(2, 2, 0, -20, 0)] }
+    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    expect(result.document).toBeUndefined()
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'error', code: 'import.subgraphs.boundaryUnsupported',
+    }))
   })
 
   it('migrates legacy proxy widgets without interpreting missing host values as overrides', () => {
@@ -162,6 +390,76 @@ describe('LiteGraph subgraphs', () => {
     expect(doc.graphs['inner']!.boundary!.inputs[0]!.promoted).toBe(true)
     expect(doc.graphs.g0!.nodes.n1!.values).toEqual({})
     expect(doc.graphs['inner']!.nodes.n1!.values).toEqual({ value: 7 })
+  })
+
+  it.each(['audio', 'missing'])('maps sparse instance socket %s independently of promoted widget order', (socket) => {
+    const def = definition()
+    def.nodes.push(relay(2), relay(3))
+    def.inputs.push(
+      { id: 'duration', name: 'duration', type: 'INT', linkIds: [3] },
+      { id: 'audio', name: 'audio', type: 'INT', linkIds: [4] },
+    )
+    def.links.push(link(3, -10, 1, 2, 0), link(4, -10, 2, 3, 0))
+    const doc = imported({ nodes: [
+      { ...instance(1), inputs: [
+        { name: 'value', widget: { name: 'value' } }, { name: socket, link: 9 },
+      ], widgets_values: [19, 360, 71] },
+      { ...relay(4), inputs: [], widgets_values: [53] },
+    ], links: [link(9, 4, 0, 1, 1)], definitions: { subgraphs: [def] } })
+    if (socket === 'missing') {
+      const result = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' },
+        connection: asConnectionId('test'), schemaHash: 'test' })
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: 'compile.boundary.missingInput' }))
+      return
+    }
+    const compiled = prompt(doc)
+    expect(compiled['n1.n1']!.inputs['value']).toBe(19)
+    expect(compiled['n1.n2']!.inputs['value']).toBe(360)
+    expect(compiled['n1.n3']!.inputs['value']).toEqual(['n4', 0])
+    expect(doc.graphs.g0!.nodes.n1!.values).toEqual({ in: 19, duration: 360, audio: 71 })
+  })
+
+  it.each([
+    ['inputs', 'missing', false], ['inputs', 'shared', false],
+    ['outputs', 'missing', false], ['outputs', 'shared', false], ['outputs', 'second', false],
+    ['inputs', 'missing', true], ['inputs', 'shared', true],
+    ['outputs', 'missing', true], ['outputs', 'shared', true], ['outputs', 'second', true],
+  ] as const)('resolves %s socket %s only by a unique boundary identity (full: %s)', (side, socket, full) => {
+    const def = definition()
+    def.nodes.push(relay(2))
+    def[side][0]!.name = 'shared'
+    def[side].push({ id: 'second', name: 'shared', type: 'INT', linkIds: [3] })
+    def.links.push(side === 'inputs' ? link(3, -10, 1, 2, 0) : link(3, 2, 0, -20, 1))
+    const host = { ...instance(1),
+      inputs: side === 'inputs'
+        ? [{ name: socket, link: 9 }, ...(full ? [{ name: 'second' }] : [])]
+        : [{ name: 'value', widget: { name: 'value' } }],
+      outputs: side === 'outputs'
+        ? [{ name: socket, links: [9] }, ...(full ? [{ name: 'out' }] : [])]
+        : [{ name: 'result' }],
+      widgets_values: [19, 31],
+    }
+    const external = { ...relay(4), inputs: side === 'outputs' ? [{ name: 'value', link: 9 }] : [], widgets_values: [53] }
+    const raw = { nodes: [host, external], definitions: { subgraphs: [def] },
+      links: [side === 'inputs' ? link(9, 4, 0, 1, 0) : link(9, 1, 0, 4, 0)],
+    }
+    if (socket === 'second') {
+      expect(prompt(imported(raw))['n4']!.inputs['value']).toEqual(['n1.n2', 0])
+      return
+    }
+    if (side === 'outputs') {
+      const result = importLitegraph(raw as JsonObject, resolve)
+      expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', code: 'import.link.outputSlot' }))
+      return
+    }
+    const doc = imported(raw)
+    const result = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' },
+      connection: asConnectionId('test'), schemaHash: 'test' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'compile.boundary.missingInput',
+    }))
   })
 
   it('keeps modern promoted seed values separate from implicit controller entries', () => {
@@ -178,12 +476,37 @@ describe('LiteGraph subgraphs', () => {
     expect(prompt(doc, resolver)['n1.n1']!.inputs['value']).toBe(19)
   })
 
-  it('fails instead of selecting one of multiple virtual-output drivers', () => {
+  it.each(['INT', 'FLOAT'])('imports repeated output links only with matching declared types (%s)', (type) => {
+    const def = definition()
+    def.links.push({ ...link(3, 1, 0, -20, 0), type })
+    def.outputs[0]!.linkIds = [3]
+    const raw = { nodes: [instance(10), { ...relay(20), inputs: [{ name: 'value', link: 9 }] }],
+      links: [link(9, 10, 0, 20, 0)], definitions: { subgraphs: [def] } }
+    const before = JSON.stringify(raw)
+    if (type !== 'INT') {
+      const result = importLitegraph(raw as JsonObject, resolve)
+      expect(result.document).toBeUndefined()
+      expect(result.diagnostics).toContainEqual(expect.objectContaining({
+        severity: 'error', code: 'import.subgraphs.boundaryUnsupported',
+      }))
+      expect(JSON.stringify(raw)).toBe(before)
+      return
+    }
+    const doc = imported(raw)
+    expect(doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
+    expect(prompt(doc).n20!.inputs.value).toEqual(['n10.n1', 0])
+    expect(JSON.stringify(raw)).toBe(before)
+  })
+
+  it.each([false, true])('fails instead of selecting one of multiple virtual-output drivers (same node: %s)', (sameNode) => {
     const def = definition()
     def.nodes.push(relay(2))
     def.nodes[0]!.inputs[0]!.link = 4
-    def.links.push(link(3, 2, 0, -20, 0), link(4, 2, 0, 1, 0))
-    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
+    def.links.push(link(3, sameNode ? 1 : 2, sameNode ? 1 : 0, -20, 0), link(4, 2, 0, 1, 0))
+    const resolver = (type: string) => type === 'Relay' ? { ...schema, items: [
+      ...schema.items, { kind: 'output' as const, id: 'second', type: { kind: 'concrete' as const, name: 'INT' } },
+    ] } : undefined
+    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolver)
     expect(result.document).toBeUndefined()
     expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
       .toEqual(['import.subgraphs.boundaryUnsupported'])
@@ -202,28 +525,233 @@ describe('LiteGraph subgraphs', () => {
     expect(doc.graphs['inner']!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'items.value', members: ['m0'] })
   })
 
-  it.each([2, 4])('reports mode %s when its structural producer cannot be preserved', (mode) => {
-    const def = { ...definition(), nodes: [{ id: 1, type: 'PrimitiveNode', widgets_values: [7], outputs: [{ name: 'INT' }] }],
-      inputs: [], links: [link(2, 1, 0, -20, 0)] }
-    const target = { ...relay(2), inputs: [{ name: 'value', widget: { name: 'value' }, link: 1 }] }
-    const result = importLitegraph({ nodes: [{ ...instance(1), inputs: [], widgets_values: [], mode }, target],
-      links: [[1, 1, 0, 2, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
-      .toEqual(['import.subgraphs.boundaryUnsupported'])
+  it.each([false, true])('resolves materialized native family members through imported boundaries (grouped: %s)', (grouped) => {
+    const family: NodeSchema = { ...schema, type: 'Family', items: [
+      { kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
+        dynamic: { kind: 'autogrow', materialization: 'wire15',
+          template: [
+            { kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'INT' }, optional: false },
+            ...(grouped ? [{ kind: 'input' as const, id: 'other', type: { kind: 'concrete' as const, name: 'INT' }, optional: true }] : []),
+          ],
+          naming: { kind: 'prefix', prefix: 'item', min: 1, max: 5 } } }, schema.items[1]!,
+    ] }
+    const resolver = (type: string) => type === 'Family' ? family : resolve(type)
+    const def = { ...definition(), nodes: [{ id: 1, type: 'Family',
+      inputs: [{ name: grouped ? 'items.item2.amount' : 'items.item2', link: 1 }], outputs: [{ name: 'result' }] }] }
+    const result = importLitegraph({ nodes: [{ ...instance(1), inputs: [{ name: 'value' }], widgets_values: [] },
+      { id: 3, type: 'PrimitiveNode', widgets_values: [29], outputs: [{ name: 'INT' }] }],
+      links: [[3, 3, 0, 1, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolver)
+    expect(result.diagnostics.filter((item) => item.severity !== 'info')).toEqual([])
+    const doc = result.document!
+    const port = grouped ? 'items.m0.amount' : 'items.m0'
+    expect(doc.graphs.inner!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port })
+    expect(deriveBoundarySchema(doc.graphs.inner!, resolver).diagnostics).toEqual([])
+    const compiled = prompt(doc, resolver)
+    expect(compiled['n1.n1']!.inputs).toEqual({ [port]: 29 })
+    expect(prompt(loadDocument(JSON.parse(JSON.stringify(doc))).document!, resolver)).toEqual(compiled)
+    const flattenPlan = planFlattenBoundaryRoutes(doc.graphs.inner!, resolver, doc.graphs.g0!.nodes.n1!, doc.graphs.g0!)
+    expect(flattenPlan.boundaryPlan).toEqual([
+      { side: 'input', id: 'in', route: 'plain' },
+      { side: 'output', id: 'out', route: 'plain' },
+    ])
+    expect(flattenPlan.statePlan.status).toBe('ready')
+    const body = doc.graphs.inner!
+    const missingMember = deriveBoundarySchema({ ...body, nodes: { ...body.nodes,
+      n1: { ...body.nodes.n1!, dynamic: { items: { members: ['m1'], seq: 2 } } },
+    } }, resolver)
+    expect(missingMember.schema).toBeUndefined()
+    expect(missingMember.diagnostics.some((item) => item.severity === 'error')).toBe(true)
   })
 
-  it('reports primitive proxy instances whose output boundary cannot be preserved', () => {
+  it('resolves nested materialized members beneath an ordinary outer family', () => {
+    const family: NodeSchema = { ...schema, type: 'NestedFamily', items: [
+      { kind: 'input', id: 'outer', type: { kind: 'wildcard' }, optional: false,
+        dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'row', min: 1, max: 1 }, template: [
+          { kind: 'input', id: 'inner', type: { kind: 'wildcard' }, optional: false,
+            dynamic: { kind: 'autogrow', materialization: 'wire15',
+              naming: { kind: 'prefix', prefix: 'sub', min: 1, max: 4 },
+              template: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'INT' }, optional: false }] } },
+        ] } }, schema.items[1]!,
+    ] }
+    const resolver = (type: string) => type === family.type ? family : resolve(type)
+    const base = imported({ nodes: [{ ...instance(1), inputs: [{ name: 'value' }], widgets_values: [] },
+      { id: 3, type: 'PrimitiveNode', widgets_values: [29], outputs: [{ name: 'INT' }] }],
+      links: [[3, 3, 0, 1, 0, 'INT']], definitions: { subgraphs: [definition()] } })
+    const inner = base.graphs.inner!
+    const doc = { ...base, graphs: { ...base.graphs, inner: { ...inner,
+      nodes: { n1: { ...inner.nodes.n1!, type: family.type, values: {}, dynamic: {
+        outer: { members: ['m3'], seq: 4, memberState: { m3: { 'outer.inner': { members: ['m2'], seq: 3 } } } },
+      } } },
+      boundary: { ...inner.boundary!, inputs: [{ id: 'in', binds: {
+        kind: 'port', node: 'n1', port: 'outer.inner.m2', members: ['m3'],
+      } }] },
+    } } } as unknown as WorkflowDocument
+    const body = doc.graphs.inner!
+    const elaborated = elaborateInterface(family, body.nodes.n1!, undefined, { promoteGhosts: false })
+    expect(elaborated.diagnostics).toEqual([])
+    expect(elabInputsOf(elaborated).filter((input) => input.apiName !== undefined).map((input) => input.address))
+      .toEqual([{ port: 'outer.inner.m2', members: ['m3'] }])
+    expect(deriveBoundarySchema(body, resolver).diagnostics).toEqual([])
+    expect(prompt(doc, resolver)['n1.n1']!.inputs).toEqual({ 'outer.inner.m2': 29 })
+    const reopened = loadDocument(JSON.parse(JSON.stringify(doc))).document!
+    expect(prompt(reopened, resolver)).toEqual(prompt(doc, resolver))
+    expect(classifyFlattenBoundaryRoute(body, body.boundary!.inputs[0]!, resolver, 'input')).toBe('family')
+    const flattenPlan = planFlattenBoundaryRoutes(body, resolver, doc.graphs.g0!.nodes.n1!, doc.graphs.g0!)
+    expect(flattenPlan.boundaryPlan).toEqual([
+      { side: 'input', id: 'in', route: 'family' },
+      { side: 'output', id: 'out', route: 'plain' },
+    ])
+    expect(flattenPlan.statePlan.status, JSON.stringify(flattenPlan.statePlan)).toBe('ready')
+    if (flattenPlan.statePlan.status === 'ready') {
+      expect(flattenPlan.statePlan.addresses).toMatchObject([{
+        side: 'input', boundaryId: 'in', before: { port: 'in' }, uses: ['endpoint'],
+        targets: [{ binding: { kind: 'port', node: 'n1', port: 'outer.inner.m2', members: ['m3'] } }],
+      }])
+      expect(flattenPlan.statePlan.nodes[0]!.dynamic).toEqual(body.nodes.n1!.dynamic)
+    }
+    const missingMember = { ...body, nodes: { n1: { ...body.nodes.n1!, dynamic: {
+      outer: { members: ['m3'], seq: 4, memberState: { m3: { 'outer.inner': { members: ['m1'], seq: 3 } } } },
+    } } } } as unknown as typeof body
+    expect(deriveBoundarySchema(missingMember, resolver).schema).toBeUndefined()
+    expect(planFlattenBoundaryRoutes(missingMember, resolver, doc.graphs.g0!.nodes.n1!, doc.graphs.g0!).statePlan.status)
+      .toBe('refused')
+  })
+
+  it.each([2, 4])('preserves mode %s without executing a structural producer', (mode) => {
+    const def = { ...definition(), nodes: [{ id: 1, type: 'PrimitiveNode', widgets_values: [7], outputs: [{ name: 'INT' }] }],
+      inputs: [], links: [link(2, 1, 0, -20, 0)] }
+    const target = { ...relay(2), inputs: [{ name: 'value', widget: { name: 'value' }, link: 1 }], widgets_values: [53] }
+    const doc = imported({ nodes: [{ ...instance(1), inputs: [], widgets_values: [], mode }, target],
+      links: [[1, 1, 0, 2, 0, 'INT']], definitions: { subgraphs: [def] } })
+    expect(doc.graphs.g0!.nodes.n1!.mode).toBe(mode === 2 ? 'muted' : 'bypassed')
+    expect(prompt(doc)).toEqual({ n2: expect.objectContaining({ inputs: { value: 53 } }) })
+  })
+
+  it('preserves disconnected boundary slots before connected slots without shifting deliveries', () => {
+    const def = {
+      ...definition(),
+      inputs: [
+        { id: 'unused-in', name: 'unused', type: 'FLOAT', linkIds: [] },
+        { id: 'in', name: 'value', type: 'INT', linkIds: [1] },
+      ],
+      outputs: [
+        { id: 'unused-out', name: 'unused', type: 'FLOAT', linkIds: [] },
+        { id: 'out', name: 'result', type: 'INT', linkIds: [2] },
+      ],
+      links: [link(1, -10, 1, 1, 0), link(2, 1, 0, -20, 1)],
+    }
+    const host = (id: number, value: number) => ({
+      ...instance(id, 'inner', value),
+      inputs: [{ name: 'unused' }, { name: 'value', widget: { name: 'value' } }],
+      outputs: [{ name: 'unused' }, { name: 'result' }],
+    })
+    const raw = {
+      nodes: [host(1, 11), host(2, 29), relay(3), relay(4)],
+      links: [[1, 1, 1, 3, 0, 'INT'], [2, 2, 1, 4, 0, 'INT']],
+      definitions: { subgraphs: [def] },
+    }
+    const source = JSON.stringify(raw)
+    const doc = imported(raw)
+    expect(JSON.stringify(raw)).toBe(source)
+    const body = doc.graphs.inner!
+    expect(body.boundary!.inputs.map((item) => item.id)).toEqual(['unused-in', 'in'])
+    expect(body.boundary!.outputs.map((item) => item.id)).toEqual(['unused-out', 'out'])
+    const derived = deriveBoundarySchema(body, resolve)
+    expect(derived.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(derived.schema!.items.filter((item) => item.kind === 'input' || item.kind === 'output')
+      .map((item) => [item.kind, item.id, item.type])).toEqual([
+      ['input', 'unused-in', { kind: 'concrete', name: 'FLOAT' }],
+      ['input', 'in', { kind: 'concrete', name: 'INT' }],
+      ['output', 'unused-out', { kind: 'concrete', name: 'FLOAT' }],
+      ['output', 'out', { kind: 'concrete', name: 'INT' }],
+    ])
+    expect(Object.keys(body.nodes)).toEqual(['n1'])
+    expect(body.nodes.n1!.type).toBe('Relay')
+    expect(body.links).toEqual({})
+    expect(doc.graphs.g0!.links.l1).toMatchObject({ from: { node: 'n1', port: 'out' }, to: { node: 'n3', port: 'value' } })
+    expect(doc.graphs.g0!.links.l2).toMatchObject({ from: { node: 'n2', port: 'out' }, to: { node: 'n4', port: 'value' } })
+    const before = JSON.stringify(doc)
+    const compiled = prompt(doc)
+    expect(compiled['n1.n1']!.inputs.value).toBe(11)
+    expect(compiled['n2.n1']!.inputs.value).toBe(29)
+    expect(compiled.n3!.inputs.value).toEqual(['n1.n1', 0])
+    expect(compiled.n4!.inputs.value).toEqual(['n2.n1', 0])
+    expect(JSON.stringify(doc)).toBe(before)
+    expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
+  })
+
+  it.each([
+    { value: false, controllers: { in: 'fixed' }, warnings: [] },
+    { value: true, controllers: { in: 'randomize' }, warnings: [] },
+    { value: null, controllers: {}, warnings: ['import.subgraphs.widgetUnresolved'] },
+  ])('decodes promoted controller $value without shifting the following literal', ({ value, controllers, warnings }) => {
+    const seeded: NodeSchema = { ...schema, items: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: {}, default: 5, controller: 'after_generate' } },
+      { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'INT' } },
+    ] }
+    const resolver = (type: string) => type === 'Relay' ? seeded : undefined
+    const raw = { nodes: [{ ...instance(10), widgets_values: [value, 29],
+      properties: { proxyWidgets: [['1', 'control_after_generate'], ['-1', 'value']] } }], links: [],
+      definitions: { subgraphs: [{ ...definition(), nodes: [{ ...relay(), widgets_values: [7, 'decrement'] }] }] } }
+    const before = JSON.stringify(raw)
+    const result = importLitegraph(raw as JsonObject, resolver)
+    expect(result.diagnostics.map((item) => item.code)).toEqual(warnings)
+    expect(result.document!.graphs.g0!.nodes.n10!.controllers).toEqual(controllers)
+    expect(result.document!.graphs.g0!.nodes.n10!.values).toEqual({ in: 29 })
+    expect(result.document!.graphs.inner!.nodes.n1!.controllers).toEqual({ value: 'decrement' })
+    expect(prompt(result.document!, resolver)['n10.n1']!.inputs.value).toBe(29)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(result.document))).document!
+    expect(reopened.graphs.g0!.nodes.n10!.controllers).toEqual(controllers)
+    expect(prompt(reopened, resolver)['n10.n1']!.inputs.value).toBe(29)
+    expect(JSON.stringify(raw)).toBe(before)
+  })
+
+  it('preserves primitive proxy values independently through structural output boundaries', () => {
     const def = { ...definition(), inputs: [], nodes: [
-      { id: 1, type: 'PrimitiveNode', outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
+      { id: 1, type: 'PrimitiveNode', pos: [61, 29], outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
     ], links: [link(2, 1, 0, -20, 0)] }
-    const host = (id: number, value: number) => ({ ...instance(id), inputs: [], widgets_values: [value, 'randomize'],
+    const host = (id: number, value: Json, mode: string) => ({ ...instance(id), inputs: [], widgets_values: [value, mode],
       properties: { proxyWidgets: [['1', 'value'], ['1', 'control_after_generate']] } })
-    const result = importLitegraph({ nodes: [host(1, 11), host(2, 29), relay(3), relay(4)],
-      links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 4, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
-      .toEqual(['import.subgraphs.boundaryUnsupported'])
+    const raw = { nodes: [host(1, 11, 'increment'), host(2, 29, 'randomize'), relay(3), relay(4),
+      { ...host(5, 41, 'decrement'), widgets_values: [] }, relay(6), host(7, null, 'fixed'), relay(8)],
+      links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 4, 0, 'INT'], [3, 5, 0, 6, 0, 'INT'], [4, 7, 0, 8, 0, 'INT']], definitions: { subgraphs: [def] } }
+    const source = JSON.stringify(raw)
+    const doc = imported(raw)
+    expect(JSON.stringify(raw)).toBe(source)
+    expect(doc.graphs.inner!.nodes).toEqual({})
+    expect(doc.graphs.inner!.links).toEqual({})
+    expect(doc.graphs.inner!.valueSources).toEqual({ v1: { id: 'v1', value: 7, controller: 'fixed' } })
+    expect(doc.view.graphs.inner!.valueSources!.v1!.position).toEqual({ x: 61, y: 29 })
+    expect(doc.graphs.g0!.nodes.n1!.values).toEqual({ 'proxy-primitive-1': 11 })
+    expect(doc.graphs.g0!.nodes.n2!.values).toEqual({ 'proxy-primitive-1': 29 })
+    expect(doc.graphs.g0!.nodes.n1!.controllers).toEqual({ 'proxy-primitive-1': 'increment' })
+    expect(doc.graphs.g0!.nodes.n2!.controllers).toEqual({ 'proxy-primitive-1': 'randomize' })
+    expect(doc.graphs.g0!.nodes.n5!.values).toEqual({})
+    const before = JSON.stringify(doc)
+    const compiled = prompt(doc)
+    expect(Object.keys(compiled).sort()).toEqual(['n3', 'n4', 'n6', 'n8'])
+    expect(compiled.n3!.inputs.value).toBe(11)
+    expect(compiled.n4!.inputs.value).toBe(29)
+    expect(compiled.n6!.inputs.value).toBe(7)
+    expect(compiled.n8!.inputs.value).toBeNull()
+    expect(JSON.stringify(doc)).toBe(before)
+    expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
+    const store = new DocumentStore(doc, coreCommandRegistry())
+    const linked = JSON.parse(before) as WorkflowDocument
+    const root = linked.graphs.g0!
+    const driven = { ...linked, graphs: { ...linked.graphs, g0: { ...root,
+      nodes: { ...root.nodes, n9: { ...root.nodes.n3!, id: asNodeId('n9'), values: { value: 53 } } },
+      links: { ...root.links, l9: { id: asLinkId('l9'),
+        from: { node: asNodeId('n9'), port: asPortId('result') },
+        to: { node: asNodeId('n1'), port: asPortId('proxy-primitive-1') } } },
+    } } }
+    expect(prompt(driven).n3!.inputs.value).toEqual(['n9', 0])
+    expect(store.dispatch({ command: 'valueSource.remove', params: { graphId: 'inner', valueSourceIds: ['v1'] } }).ok).toBe(true)
+    expect(store.doc.graphs.inner!.boundary).toEqual({ inputs: [], outputs: [] })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.inner).toEqual(doc.graphs.inner)
+    expect(prompt(store.doc)).toEqual(compiled)
   })
 
   it.each([['value', '2'], ['1: 2: value', undefined]])('resolves nested legacy widget %s without confusing identical names', (name, sourceId) => {

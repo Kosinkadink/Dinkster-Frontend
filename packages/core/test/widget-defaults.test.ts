@@ -3,7 +3,7 @@
  * holds a value even without a schema default (INT shows 0/min, STRING '',
  * BOOLEAN false, static COMBO its first option), so compile stages that
  * instead of warning compile.input.missing. Kinds with no intrinsic value
- * (ASSET, SAVE_TARGET, remote/empty COMBO, unknown types) return undefined
+ * (ASSET, remote/empty COMBO, unknown types) return undefined
  * and keep the warning.
  */
 import { describe, expect, it } from 'vitest'
@@ -71,7 +71,6 @@ describe('effectiveWidgetDefault', () => {
       effectiveWidgetDefault(spec('COMBO', { remote: { route: '/api/choices/x' } })),
     ).toBeUndefined() // remote-only: no local truth about options
     expect(effectiveWidgetDefault(spec('ASSET'))).toBeUndefined()
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET'))).toBeUndefined()
     expect(effectiveWidgetDefault(spec('SOME_CUSTOM_KIND'))).toBeUndefined()
   })
 
@@ -134,13 +133,12 @@ describe('effectiveWidgetDefault', () => {
     expect(effectiveWidgetDefault(spec('ASSET', { default: [] as never }))).toBeUndefined()
   })
 
-  it('SAVE_TARGET: only a grammar-valid {mount, prefix} default is usable', () => {
-    const target = { mount: 'outputs', prefix: 'renders/final' }
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET', { default: target as never }))).toEqual(target)
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET', { default: null as never }))).toBeUndefined()
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET', { default: '/abs/path' as never }))).toBeUndefined()
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET', { default: { mount: 'Outputs!', prefix: 'a' } as never }))).toBeUndefined()
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET', { default: { mount: 'outputs', prefix: '../up' } as never }))).toBeUndefined()
-    expect(effectiveWidgetDefault(spec('SAVE_TARGET', { default: { mount: 'outputs', prefix: 'a//b' } as never }))).toBeUndefined()
+  it('MOUNT defaults to the snapshot default sentinel and preserves explicit mount ids', () => {
+    expect(effectiveWidgetDefault(spec('MOUNT'))).toBeNull()
+    expect(effectiveWidgetDefault(spec('MOUNT', { default: null }))).toBeNull()
+    expect(effectiveWidgetDefault(spec('MOUNT', { default: 'archive' }))).toBe('archive')
+    expect(effectiveWidgetDefault(spec('MOUNT', { default: 'Invalid/Mount' }))).toBe('Invalid/Mount')
+    for (const malformed of [7, false, [], { mount: 'archive' }])
+      expect(effectiveWidgetDefault(spec('MOUNT', { default: malformed }))).toBeNull()
   })
 })

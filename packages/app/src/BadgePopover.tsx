@@ -4,7 +4,7 @@
  *
  * The host owns policy: when to open (badge hit-testing in the controller),
  * when to force-close (stale context after document/graph changes), and what
- * the action buttons DO (graph navigation, applying a replacement plan).
+ * the action buttons DO (graph navigation and execution-log access).
  * This component owns the rendered content, focus-on-mount, and focus-scoped
  * closure; content data arrives through resolver props (host wrappers over
  * the framework-free badge-info.ts helpers), resolved lazily at render.
@@ -15,10 +15,12 @@ import type { NodeBadge } from '@dinkster/canvas'
 import type { Diagnostic } from '@dinkster/core'
 import type { ExecutionLogEntry } from '@dinkster/client'
 import { formatActivityTimestamp } from './ActivityLog.js'
-import type { ReplacementBadgeInfo, SubgraphBadgeInfo } from './badge-info.js'
+import type { DeprecationBadgeInfo, SubgraphBadgeInfo } from './badge-info.js'
 import type { NodeProblemKind } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProductButton } from './ProductControls.js'
+import { useAppMessage } from './locale.js'
 
 /** Where and on what the popover opened; anchored in canvas-pane CSS px. */
 export interface BadgeAnchor {
@@ -27,9 +29,6 @@ export interface BadgeAnchor {
   readonly nodeId: string
   readonly badge: NodeBadge
 }
-
-/** Problem rows only render their predecessor type and prose. */
-type ProblemRow = { readonly from: string; readonly message: string }
 
 export function BadgePopover(props: {
   anchor: BadgeAnchor
@@ -40,11 +39,12 @@ export function BadgePopover(props: {
   onOpenExecutionLog?: (nodeId: string) => void
   problems: (nodeId: string, kind: NodeProblemKind) => readonly string[]
   subgraphInfo: (nodeId: string) => SubgraphBadgeInfo | undefined
-  replacementInfo: (nodeId: string) => ReplacementBadgeInfo<ProblemRow> | undefined
+  deprecationInfo: (nodeId: string) => DeprecationBadgeInfo | undefined
   onOpenSubgraph: (nodeId: string) => void
-  onApplyReplacement: (nodeId: string) => void
+  onApplyReplacement?: (nodeId: string) => void
   onClose: () => void
 }) {
+  const message = useAppMessage()
   return (
     <div
       class="badge-popover"
@@ -175,7 +175,7 @@ export function BadgePopover(props: {
         </Show>
       </Show>
       <Show when={props.anchor.badge.id === 'core.deprecated'}>
-        <Show when={props.replacementInfo(props.anchor.nodeId)} fallback={<ProductEmptyState title="Node missing." />}>
+        <Show when={props.deprecationInfo(props.anchor.nodeId)} fallback={<ProductEmptyState title="Node missing." />}>
           {(info) => (
             <>
               <div class="badge-popover-title">Deprecated: {info().type}</div>
@@ -187,80 +187,38 @@ export function BadgePopover(props: {
                   </p>
                 )}
               </Show>
-              <For each={info().problems}>
-                {(prob) => (
-                  <p class="badge-popover-line" data-testid="badge-replace-server-problem">
-                    Server: rule from '{prob.from}' is invalid here - {prob.message}
+              <Show when={info().item}>{(item) => (
+                <>
+                  <p class="badge-popover-line" data-testid="badge-replace-target">
+                    {item().sourceType} -&gt; {item().terminalType}
                   </p>
-                )}
-              </For>
-              <Show
-                when={info().item?.plan}
-                fallback={
-                  <Show
-                    when={info().item}
-                    fallback={
-                      <Show
-                        when={info().pointer}
-                        fallback={<p class="badge-popover-line">No automatic replacement is available.</p>}
-                      >
-                        {(ptr) => (
-                          <p class="badge-popover-line" data-testid="badge-replace-pointer">
-                            Successor: '{ptr().terminal}'
-                            {ptr().path.length > 1 ? ` (via ${ptr().path.slice(0, -1).join(' -> ')})` : ''}
-                            {ptr().status === 'dangling'
-                              ? ' - not installed here'
-                              : ptr().status !== 'ok'
-                                ? ' - successor chain is unresolved'
-                                : ''}{' '}
-                            - no automatic migration.
-                          </p>
-                        )}
-                      </Show>
-                    }
-                  >
-                    <p class="badge-popover-line" data-testid="badge-replace-blocked">
-                      Replacement rules exist but none apply:{' '}
-                      {info().item!.diagnostics.map((d) => d.message).join('; ')}
-                    </p>
+                  <For each={item().hops}>{(hop) => (
+                    <Show when={hop.rule.note}>{(note) => <p class="badge-popover-line">{note()}</p>}</Show>
+                  )}</For>
+                  <For each={item().diagnostics}>{(entry) => <p class="badge-popover-line">{entry.message}</p>}</For>
+                  <Show when={item().hops.length > 0 && props.onApplyReplacement}>
+                    <ProductButton size="compact" data-testid="badge-apply-replacement"
+                      onMouseDown={(event) => { event.preventDefault(); props.onApplyReplacement?.(props.anchor.nodeId) }}>
+                      {message('problems.migration.apply')}
+                    </ProductButton>
                   </Show>
-                }
+                </>
+              )}</Show>
+              <Show
+                when={info().pointer}
+                fallback={<p class="badge-popover-line">No successor is declared.</p>}
               >
-                {(plan) => (
-                  <>
-                    <p class="badge-popover-line" data-testid="badge-replace-target">
-                      Replace with '{info().item!.terminalType}'
-                      {info().item!.hops.length > 1
-                        ? ` (${info().item!.hops.length} steps: ${[info().item!.sourceType, ...info().item!.hops.map((h) => h.plan.to)].join(' -> ')})`
-                        : ''}
-                      {plan().note ? ` - ${plan().note}` : ''}
-                    </p>
-                    <Show when={info().item!.status !== 'terminal'}>
-                      <p class="badge-popover-line" data-testid="badge-replace-partial">
-                        {info().item!.status === 'blocked'
-                          ? "Partial: a later migration step could not be planned; applying stops at the type above."
-                          : 'Partial: the replacement chain does not settle (loop or too many steps); applying stops at the type above.'}
-                      </p>
-                    </Show>
-                    <For each={info().item!.diagnostics}>
-                      {(d) => (
-                        <p class="badge-popover-line">
-                          {d.severity}: {d.message}
-                        </p>
-                      )}
-                    </For>
-                    <button
-                      class="banner-button"
-                      data-testid="badge-apply-replacement"
-                      // mousedown, not click: fires before the popover blurs.
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        props.onApplyReplacement(props.anchor.nodeId)
-                      }}
-                    >
-                      Apply Replacement
-                    </button>
-                  </>
+                {(ptr) => (
+                  <p class="badge-popover-line" data-testid="badge-replace-pointer">
+                    Successor: '{ptr().terminal}'
+                    {ptr().path.length > 1 ? ` (via ${ptr().path.slice(0, -1).join(' -> ')})` : ''}
+                    {ptr().status === 'dangling'
+                      ? ' - not installed here'
+                      : ptr().status !== 'ok'
+                        ? ' - successor chain is unresolved'
+                        : ''}{' '}
+                    - no automatic migration.
+                  </p>
                 )}
               </Show>
             </>

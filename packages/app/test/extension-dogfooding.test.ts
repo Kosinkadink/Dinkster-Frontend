@@ -8,7 +8,7 @@ import { AppState } from '../src/app-state.js'
 let app: AppState
 beforeEach(() => {
   vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-  app = new AppState({ defaultProtocol: 'dinkster' })
+  app = new AppState()
 })
 afterEach(() => {
   app.dispose()
@@ -41,7 +41,7 @@ describe('core extension door dogfooding', () => {
       'CURVE',
       'COMPOSITOR',
       'ASSET',
-      'SAVE_TARGET',
+      'MOUNT',
       'VIDEO_EDIT',
       'BUTTON',
       'MARKDOWN',

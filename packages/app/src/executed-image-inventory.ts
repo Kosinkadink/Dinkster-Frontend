@@ -12,7 +12,7 @@ export interface ExecutedImage {
   readonly outputId: string
   readonly descriptorIndex: number
   readonly url: string
-  readonly kind: 'v1' | 'asset' | 'rendition'
+  readonly kind: 'asset' | 'rendition'
   readonly mediaType: string
   readonly descriptor?: ValueDescriptor
   readonly listPath?: readonly number[]
@@ -21,8 +21,6 @@ export interface ExecutedImage {
   readonly name?: string
   readonly digest?: string
   readonly virtualPath?: string
-  readonly subfolder?: string
-  readonly fileType?: string
 }
 
 interface ImageAssetRef {
@@ -70,10 +68,6 @@ export function executedImageInventory(
   execution: ExecutionState,
   options: {
     readonly runtimeIds?: readonly string[]
-    readonly viewUrlForExecution: (
-      ref: ExecutionState['ref'],
-      file: { filename: string; subfolder?: string; type?: string },
-    ) => string
     readonly assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
   },
 ): readonly ExecutedImage[] {
@@ -82,38 +76,6 @@ export function executedImageInventory(
   for (const runtimeId of Object.keys(execution.outputs).sort()) {
     if (allowed !== undefined && !allowed.has(runtimeId)) continue
     const outputs = execution.outputs[runtimeId]!
-    const v1Images = outputs['images']
-    const validV1Images: { readonly descriptorIndex: number; readonly request: { filename: string; subfolder?: string; type?: string } }[] = []
-    if (Array.isArray(v1Images)) {
-      for (const [descriptorIndex, value] of v1Images.entries()) {
-        if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
-        const file = value as { filename?: unknown; subfolder?: unknown; type?: unknown }
-        if (typeof file.filename !== 'string' || file.filename.length === 0) continue
-        const request = {
-          filename: file.filename,
-          ...(typeof file.subfolder === 'string' ? { subfolder: file.subfolder } : {}),
-          ...(typeof file.type === 'string' ? { type: file.type } : {}),
-        }
-        validV1Images.push({ descriptorIndex, request })
-      }
-    }
-    if (validV1Images.length > 0) {
-      for (const { descriptorIndex, request } of validV1Images) {
-        images.push({
-          key: `${execution.key}:v1:${runtimeId}:${descriptorIndex}:${JSON.stringify(request)}`,
-          runtimeId,
-          outputId: 'images',
-          descriptorIndex,
-          url: options.viewUrlForExecution(execution.ref, request),
-          kind: 'v1',
-          mediaType: 'image (legacy descriptor)',
-          name: request.filename,
-          ...(request.subfolder === undefined ? {} : { subfolder: request.subfolder }),
-          ...(request.type === undefined ? {} : { fileType: request.type }),
-        })
-      }
-      continue
-    }
     for (const outputId of Object.keys(outputs).sort()) {
       for (const [descriptorIndex, ref] of imageAssetRefsInOrder(outputs[outputId]).entries()) {
         images.push({

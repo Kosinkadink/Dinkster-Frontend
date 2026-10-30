@@ -1,8 +1,7 @@
 /**
  * Normalized NodeSchema model. V3 is the semantic target.
  *
- * Raw /object_info entries (V1-shaped, with V3 data embedded - see
- * object-info.ts) are parsed ONCE into this model; nothing downstream ever
+ * Native catalog entries are parsed once into this model; nothing downstream
  * touches raw schema JSON. Subgraph definition boundaries derive this exact
  * same model, which is what makes "anything that works on a node works on a
  * subgraph" true by construction.
@@ -616,6 +615,8 @@ export interface InputSpec extends PortSpecBase {
   readonly kind: 'input'
   readonly type: TypeExpr
   readonly optional: boolean
+  /** Presentation-only placement beside a sibling input; declaration order is unchanged. */
+  readonly adjacentTo?: string
   /** Derived boundary input forwarding an edit-time schema literal. */
   readonly outputSchemaSource?: true
   /** Descriptor editor contract projected independently of boundary outputs. */
@@ -629,6 +630,8 @@ export interface InputSpec extends PortSpecBase {
   readonly widget?: WidgetSpec
   /** Widget-backed input forced to render as a socket. */
   readonly forceInput?: boolean
+  /** Presentation-only omission of the incoming socket; values and output taps are unchanged. */
+  readonly socketless?: boolean
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
   readonly lazy?: true
   /** Execution binding for a staged Comfy source filename (wire 22). */
@@ -738,8 +741,7 @@ export type InterfaceItem = InputSpec | OutputSpec | SectionSpec
 /**
  * Structured deprecation (Dinkster schema wire v3 additive field). `message` is
  * required author prose; `replacement` is a cheap NAME-ONLY pointer to the
- * successor type - the *how* of migration lives in replacement rules
- * (replace/model.ts), never here. Pointers may CHAIN (A -> B -> C when B is
+ * successor type, never an executable migration. Pointers may CHAIN (A -> B -> C when B is
  * itself deprecated); resolve transitively with `resolveDeprecationPointer`,
  * never by a single hop.
  */
@@ -988,6 +990,8 @@ export interface NodeSchema {
   readonly deprecated?: boolean
   /** Structured deprecation (message/since/replacement pointer). */
   readonly deprecation?: DeprecationInfo
+  /** Rules shipped by the successor; source node schemas need not be served. */
+  readonly replacements?: readonly ReplacementRule[]
   /** Explicit search demotion; omitted = normal. See searchVisibilityOf. */
   readonly searchVisibility?: SearchVisibility
   readonly experimental?: boolean
@@ -995,19 +999,10 @@ export interface NodeSchema {
   /** Frontend-only discoverability vocabulary (wire v8; never resolution or identity). */
   readonly searchTerms?: readonly string[]
   /**
-   * Legacy type names this schema also answers to (e.g. the bare ComfyUI
-   * class_type 'EmptyImage' for 'comfy.EmptyImage'). Resolution only, never
-   * identity: documents keep whatever name they were authored with, and a
-   * canonical type id always outranks an alias.
+   * Historical alias metadata retained from schema payloads. Native registry
+   * resolution ignores it and accepts only exact registered node IDs.
    */
   readonly aliases?: readonly string[]
-  /**
-   * Replacement rules this schema SHIPS (usually the successor describing
-   * how to migrate its predecessors - each rule's `from` names the source
-   * type, which need not be this schema). Registered at the 'schema' layer
-   * of the replacement registry; see replace/model.ts.
-   */
-  readonly replacements?: readonly ReplacementRule[]
   /** Hidden inputs the compiler must inject (V1 wire names preserved). */
   readonly hidden?: readonly string[]
   /** Optional server-owned document-time branch selector (schema wire 15). */

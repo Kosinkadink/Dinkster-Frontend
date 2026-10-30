@@ -118,7 +118,7 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
           nets[netId] = {
             id: netId,
             name: `IMG_${c}`,
-            source: { node: prev, port: 'out0' },
+            source: { node: prev, port: 'IMAGE' },
             sinks: [{ node: id, port: toPort }],
           }
         } else if (options.selectors && i === selectorSegment) {
@@ -135,9 +135,9 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
             position: { x: 80 + (i - 0.5) * colX, y: 80 + c * rowY + 40 },
           }
           const feedA = `l${ordinal++}`
-          links[feedA] = { id: feedA, from: { node: prev, port: 'out0' }, to: { selector: selectorId, candidate: 'ca' } }
+          links[feedA] = { id: feedA, from: { node: prev, port: 'IMAGE' }, to: { selector: selectorId, candidate: 'ca' } }
           const feedB = `l${ordinal++}`
-          links[feedB] = { id: feedB, from: { node: first, port: 'out0' }, to: { selector: selectorId, candidate: 'cb' } }
+          links[feedB] = { id: feedB, from: { node: first, port: 'IMAGE' }, to: { selector: selectorId, candidate: 'cb' } }
           const outId = `l${ordinal++}`
           links[outId] = { id: outId, from: { selector: selectorId }, to: { node: id, port: toPort } }
         } else if (options.reroutes) {
@@ -147,14 +147,14 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
             position: { x: 80 + (i - 0.5) * colX, y: 80 + c * rowY + 40 },
           }
           const feedId = `l${ordinal++}`
-          links[feedId] = { id: feedId, from: { node: prev, port: 'out0' }, to: { reroute: rerouteId } }
+          links[feedId] = { id: feedId, from: { node: prev, port: 'IMAGE' }, to: { reroute: rerouteId } }
           const outId = `l${ordinal++}`
           links[outId] = { id: outId, from: { reroute: rerouteId }, to: { node: id, port: toPort } }
         } else {
           const linkId = `l${ordinal++}`
           links[linkId] = {
             id: linkId,
-            from: { node: prev, port: 'out0' },
+            from: { node: prev, port: 'IMAGE' },
             to: { node: id, port: toPort },
           }
         }
@@ -267,7 +267,7 @@ function syntheticSubgraphWorkflow(options: SyntheticWorkflowOptions): unknown {
         : { id, type: 'ImageScaleBy', values: { upscale_method: 'nearest-exact', scale_by: 1.0 } }
     if (i > 0) {
       const linkId = `l${ord++}`
-      bodyLinks[linkId] = { id: linkId, from: { node: last, port: 'out0' }, to: { node: id, port: 'image' } }
+      bodyLinks[linkId] = { id: linkId, from: { node: last, port: 'IMAGE' }, to: { node: id, port: 'image' } }
     }
     bodyView[id] = { position: { x: GRID.x0 + i * GRID.colX, y: 100 } }
     last = id
@@ -281,7 +281,7 @@ function syntheticSubgraphWorkflow(options: SyntheticWorkflowOptions): unknown {
     reroutes: {},
     boundary: {
       inputs: [{ id: 'color', binds: { kind: 'port', node: 'n0', port: 'color' }, promoted: true }],
-      outputs: [{ id: 'image', binds: { kind: 'port', node: last, port: 'out0' } }],
+      outputs: [{ id: 'image', binds: { kind: 'port', node: last, port: 'IMAGE' } }],
     },
     nextOrdinal: ord,
   }

@@ -4,8 +4,9 @@
 
 Primitive socket ids are `INT`, `FLOAT`, `STRING`, `BOOLEAN`, and `COMBO`.
 They are exact, case-sensitive identities, not aliases for `core.*` names.
-NUMBER widgets bind to `INT` or `FLOAT`; STRING and COLOR widgets bind to
-`STRING`; BOOLEAN and COMBO widgets bind to their respective socket ids.
+NUMBER widgets bind to `INT` or `FLOAT`; STRING widgets bind to `STRING`.
+COLOR widgets bind to `COLOR` or `STRING`, preserving the declared socket id
+and exact string value. BOOLEAN and COMBO widgets bind to their respective socket ids.
 MULTI_COMBO binds to `list<COMBO>`. Widget descriptors configure presentation
 without changing the socket identity. Integer sockets preserve exact decimal
 constraints outside JavaScript's safe-integer range; float constraints remain

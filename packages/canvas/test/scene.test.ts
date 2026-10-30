@@ -1,6 +1,6 @@
 /**
- * Scene building tests against REAL parsed schemas (the live object_info
- * fixture) and the golden workflows - including subgraph instances rendered
+ * Scene building tests against recorded schemas and golden workflows,
+ * including subgraph instances rendered
  * through their boundary-derived schema, exactly like backend nodes.
  */
 import { readFileSync } from 'node:fs'
@@ -15,15 +15,17 @@ import {
   asNetId,
   asNodeId,
   asPortId,
+  asRerouteId,
   asSelectorCandidateId,
   asSelectorId,
   documentResolver,
+  occurrenceDynamicView,
   loadDocument,
   type NodeProgress,
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
+import { historicalSchemas as schemas } from './historical-schemas.js'
 import {
   buildScene,
   boundaryNodesInGroup,
@@ -52,7 +54,6 @@ import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
 
-const { schemas } = parseObjectInfo(readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>)
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = (spec) =>
   spec.options['multiline'] === true ? { viewId: 'core.text', rows: 2 } : { viewId: 'core.line', rows: 1 }
@@ -1826,6 +1827,83 @@ describe('boundary pseudo-nodes', () => {
     expect(outLink.typeName).toBe('IMAGE')
   })
 
+  it.each([false, true])('renders exported promoted literals with occurrence constraints and inherited state (reverse: %s)', (reverse) => {
+    const graph = (id: string, nodes = {}) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 })
+    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
+    const document: any = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-source', root: 'root',
+      graphs: {
+        root: graph('root', {
+          a: { id: 'a', type: '#wrapper', values: {} },
+          b: { id: 'b', type: '#wrapper', values: { value: 17 }, controllers: { value: 'fixed' } },
+          left: { id: 'left', type: 'Left', values: {} }, right: { id: 'right', type: 'Right', values: {} },
+        }),
+        wrapper: { ...graph('wrapper', { inner: { id: 'inner', type: '#body', values: {} } }), boundary: {
+          inputs: [{ id: 'value', promoted: true, binds: { kind: 'port', node: 'inner', port: 'value' } }],
+          outputs: [{ id: 'out', binds: { kind: 'port', node: 'inner', port: 'out' } }],
+        } },
+        body: { ...graph('body'), valueSources: { v0: { id: 'v0', value: 11, controller: 'increment' } },
+          boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }] } },
+      },
+      view: { graphs: {} },
+    }
+    document.graphs.root.links = {
+      l0: { id: 'l0', from: { node: 'a', port: 'out' }, to: { node: 'left', port: 'value' } },
+      l1: { id: 'l1', from: { node: 'b', port: 'out' }, to: { node: 'right', port: 'value' } },
+    }
+    if (reverse) document.graphs.root.nodes = Object.fromEntries(Object.entries(document.graphs.root.nodes).reverse())
+    const resolve = (type: string): NodeSchema | undefined => type === 'Left' || type === 'Right' ? {
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [
+        { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: {
+          widgetType: 'INT', controller: 'after_generate', options: type === 'Left'
+            ? { min: 3, max: 17, step: 2 } : { min: 10, max: 20, step: 7 },
+        } },
+      ],
+    } : undefined
+    const before = structuredClone(document)
+    const root = buildScene({ document, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    for (const [id, options, mode] of [
+      ['a', { min: 3, max: 17, step: 2 }, 'increment'],
+      ['b', { min: 10, max: 20, step: 7 }, 'fixed'],
+    ] as const) {
+      const row = root.nodes.find((node) => node.id === id)!.layout.rows.find((row) => row.kind === 'widget')
+      expect(row).toMatchObject({ kind: 'widget', spec: { options, default: 11 }, controllerMode: mode })
+      const drilled = buildScene({ document, graphId: 'wrapper', resolve, tokens: defaultTokens, measure, widgetMeasure,
+        occurrence: { owner: { node: asNodeId(id), instancePath: [] }, plannerAvailable: false },
+        occurrenceView: occurrenceDynamicView(document, resolve, [id]),
+      })
+      expect(drilled.nodes[0]!.layout.rows.find((row) => row.kind === 'widget'))
+        .toMatchObject({ kind: 'widget', spec: { options, default: 11 }, controllerMode: mode })
+    }
+    expect(document).toEqual(before)
+  })
+
+  it('anchors shared literal output bindings at the source pin without creating a consuming input', () => {
+    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
+    const document = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'source-boundary-scene', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+        valueSources: { v0: { id: 'v0', value: 23 } },
+        boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }, { id: 'shared', binds }] },
+      } },
+      view: { graphs: { g0: { nodes: {}, valueSources: { v0: { position: { x: 137, y: 241 } } } } } },
+    } as unknown as WorkflowDocument
+    const scene = buildScene({ document, graphId: 'g0', resolve: documentResolver(document, () => undefined), tokens: defaultTokens, measure, widgetMeasure })
+    expect(scene.nodes).toEqual([])
+    const source = scene.valueSources[0]!
+    expect(source).toMatchObject({ id: 'v0', x: 137, y: 241, valueText: '23' })
+    const links = scene.links.filter((link) => link.boundary)
+    expect(links.map((link) => link.id).sort()).toEqual(['boundary:outputs:out', 'boundary:outputs:shared'])
+    for (const link of links) {
+      expect(link.from).toEqual({ kind: 'valueSource', valueSource: 'v0' })
+      expect(link.to).toMatchObject({ kind: 'boundary', side: 'outputs' })
+      expect(link.x1).toBe(source.x + source.width)
+      expect(link.y1).toBe(source.y + source.height / 2)
+      expect(link.typeName).toBe('INT')
+    }
+  })
+
   it('projects an output widget-tap binding from the exact widget pin', () => {
     const doc = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document as WorkflowDocument
     const g1 = doc.graphs['g1']!
@@ -1917,6 +1995,42 @@ describe('boundary pseudo-nodes', () => {
     expect(bLinks[0]!.y2).not.toBe(bLinks[1]!.y2)
   })
 
+  it.each([false, true])('anchors a junction boundary at the retained reroute rather than the schema-authority port (linked: %s)', (linked) => {
+    const original = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!
+    const body = original.graphs.g1!
+    const r = asRerouteId('junction')
+    const doc: WorkflowDocument = { ...original, graphs: { ...original.graphs,
+      g0: { ...original.graphs.g0!,
+        nodes: { ...original.graphs.g0!.nodes, source: { id: asNodeId('source'), type: 'IntegerSource', values: {} } },
+        links: { ...original.graphs.g0!.links, ...(linked ? { drive: { id: asLinkId('drive'),
+          from: { node: asNodeId('source'), port: asPortId('number') }, to: { node: asNodeId('n0'), port: asPortId('color') } } } : {}) },
+      }, g1: { ...body,
+      reroutes: { junction: { id: r } },
+      links: { feed: { id: asLinkId('feed'), from: { reroute: r }, to: { node: asNodeId('n0'), port: asPortId('color') } } },
+      boundary: { ...body.boundary!, inputs: [{ ...body.boundary!.inputs[0]!, binds: {
+        kind: 'port', node: asNodeId('n0'), port: asPortId('color'), viaReroute: r,
+      } }] },
+    } }, view: { ...original.view, graphs: { ...original.view.graphs, g1: {
+      ...original.view.graphs.g1!, reroutes: { junction: { position: { x: -80, y: 95 } } },
+    } } } }
+    const integerSource: NodeSchema = { type: 'IntegerSource', displayName: 'Integer source', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
+    const before = JSON.stringify(doc)
+    for (const occurrence of [undefined, { owner: { instancePath: [], node: asNodeId('n0') }, plannerAvailable: true }]) {
+      const scene = buildScene({ document: doc, graphId: 'g1', resolve: documentResolver(doc, (type) => type === 'IntegerSource' ? integerSource : schemas.get(type)),
+        tokens: defaultTokens, measure, widgetMeasure, ...(occurrence ? { occurrence } : {}) })
+      const binding = scene.links.find((link) => link.id === 'boundary:inputs:color')!
+      expect(binding.to).toEqual({ kind: 'reroute', reroute: 'junction' })
+      expect([binding.x2, binding.y2]).toEqual([-80, 95])
+      expect(binding.effectiveIdentity?.kind).toBe(linked && occurrence ? 'parentLeg' : undefined)
+      expect(scene.links.find((link) => link.id === 'feed')).toMatchObject({
+        from: { kind: 'reroute', reroute: 'junction' }, to: { kind: 'port', node: 'n0', port: 'color' },
+      })
+      expect(scene.reroutes.map((reroute) => reroute.id)).toEqual(['junction'])
+    }
+    expect(JSON.stringify(doc)).toBe(before)
+  })
+
   it('saved view positions win over defaults, per side', () => {
     const scene = g1SceneWith({ inputs: { position: { x: -321, y: 77 } } })
     const inputs = scene.boundaryNodes.find((b) => b.side === 'inputs')!
@@ -1967,10 +2081,7 @@ describe('selector scene items', () => {
     expect(s9.typeName).toBeUndefined()
   })
 
-  it('interchangeable comfy-compat spellings count as one agreed branch type', () => {
-    // IMAGE and comfy.IMAGE denote the same backend value type, so a
-    // selector fed by both must resolve to the canonical spelling instead of
-    // degrading to a wildcard output.
+  it('distinct prefixed and native branch types do not claim one agreed type', () => {
     const extra: Record<string, NodeSchema> = {
       DinksterImageSrc: {
         type: 'DinksterImageSrc', displayName: 'DinksterImageSrc', category: 'test', source: 'v3', isOutputNode: false,
@@ -2015,8 +2126,8 @@ describe('selector scene items', () => {
       widgetMeasure,
     })
     const sel = mixed.selectors.find((s) => s.id === 's4')!
-    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'IMAGE'])
-    expect(sel.typeName).toBe('IMAGE')
+    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'comfy.IMAGE'])
+    expect(sel.typeName).toBeUndefined()
   })
 
   it('every candidate noodle stays visible and anchors at the candidate pin', () => {

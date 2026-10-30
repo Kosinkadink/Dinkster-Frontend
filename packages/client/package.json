@@ -5,8 +5,7 @@
   "type": "module",
   "description": "Backend connection service: schema registry, prompt submission, WS event stream, execution store (M0).",
   "exports": {
-    ".": "./src/index.ts",
-    "./comfy-v1": "./src/comfy-v1.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "vitest run",

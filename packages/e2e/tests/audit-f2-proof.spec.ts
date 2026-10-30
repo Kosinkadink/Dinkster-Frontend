@@ -50,8 +50,8 @@ test('proves product select semantics across the five replacement sites', async 
     }, {
       type: 'SaveProof', displayName: 'Save Proof', category: 'proof', source: 'v3', isOutputNode: true,
       items: [{
-        kind: 'input', id: 'target', displayName: 'Target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
-        widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, default: { mount: 'output', prefix: 'proof' } },
+        kind: 'input', id: 'mount', displayName: 'Mount', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+        widget: { widgetType: 'MOUNT', options: {}, default: null },
       }],
     }])
     app.openDocument({
@@ -90,28 +90,28 @@ test('proves product select semantics across the five replacement sites', async 
     app.setTabEditorKind(app.activeTab()!.id, 'graph')
     app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-proof', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'root', nodes: { save: { id: 'save', type: 'SaveProof', values: { target: { mount: 'legacy', prefix: 'old' } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      graphs: { g0: { id: 'g0', name: 'root', nodes: { save: { id: 'save', type: 'SaveProof', values: { mount: 'legacy' } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { save: { position: { x: 180, y: 160 } } } } } },
     }, 'Save Proof')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   await waitForWorkspacePromotion(page)
-  const point = await widgetPoint(page, 'save', 'target')
+  const point = await widgetPoint(page, 'save', 'mount')
   await page.mouse.click(point.x, point.y)
-  const mount = page.getByTestId('save-target-mount')
+  const mount = page.getByTestId('mount-widget-choice')
   await expect(mount).toHaveText(/legacy \(unavailable\)/)
   const beforeMount = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   await mount.click()
   await mount.press('Escape')
   await expect(mount).toBeFocused()
-  await expect(page.getByTestId('save-target-editor')).toBeVisible()
+  await expect(page.getByTestId('mount-widget-editor')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(beforeMount)
   await mount.click()
   await page.getByRole('option', { name: 'renders' }).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(beforeMount)
-  await page.getByTestId('save-target-save').click()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values.target)).toEqual({ mount: 'renders', prefix: 'old' })
-  await page.screenshot({ path: `${proofDir}/02-save-target-staged-unavailable.png`, animations: 'disabled' })
+  await page.getByTestId('mount-widget-apply').click()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values.mount)).toBe('renders')
+  await page.screenshot({ path: `${proofDir}/02-mount-staged-unavailable.png`, animations: 'disabled' })
 
   await page.evaluate(() => {
     ;(window.__dinksterTest!.app as any).settings.register({

@@ -363,10 +363,11 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') return { kind: 'section', node, row }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
-        if (wx < node.x + row.inset || wx > right - row.inset) continue
+        const width = row.width ?? l.width - row.inset * 2
+        if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
         return {
           kind: 'widget', node, row,
-          x: node.x + row.inset, y: ry, width: l.width - row.inset * 2,
+          x: node.x + row.inset, y: ry, width,
           height: row.height, localX: wx - node.x - row.inset, localY: wy - ry,
         }
       }
@@ -384,14 +385,15 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') return { kind: 'section', node, row }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
-        if (wx < node.x + row.inset || wx > right - row.inset) return { kind: 'body', node }
+        const width = row.width ?? l.width - row.inset * 2
+        if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
         return {
           kind: 'widget',
           node,
           row,
           x: node.x + row.inset,
           y: ry,
-          width: l.width - row.inset * 2,
+          width,
           height: row.height,
           localX: wx - node.x - row.inset,
           localY: wy - ry,

@@ -18,7 +18,7 @@ import {
   type NodeSchema,
   type TypeExpr,
 } from '../schema/model.js'
-import { typesCompatible } from '../schema/type-compatibility.js'
+import { typesCompatible } from '../schema/type-relations.js'
 import type {
   GraphDef,
   Json,

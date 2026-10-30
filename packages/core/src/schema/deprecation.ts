@@ -1,6 +1,6 @@
 /**
  * Deprecation pointer resolution. `deprecation.replacement` is a name-only
- * display hint (the *how* of migration is replacement rules), and pointers
+ * display hint, never an executable migration. Pointers
  * CHAIN: A points at B, B is itself deprecated and points at C. The UI
  * should always surface the TERMINAL type, so users are steered at the
  * current node, not at an intermediate that is also going away.

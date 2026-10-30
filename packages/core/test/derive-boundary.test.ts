@@ -955,6 +955,30 @@ describe('whole-family forwarding derives boundary autogrow families', () => {
 })
 
 describe('boundary structural identity and presentation', () => {
+  it('promotes the selected materialized combo branch without exposing inactive inputs', () => {
+    const schema: NodeSchema = {
+      type: 'Resize', displayName: 'Resize', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+          { key: 'width', inputs: [{ kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } }] },
+          { key: 'longer', inputs: [{ kind: 'input', id: 'longer_size', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } }] },
+        ] },
+      }],
+    }
+    const def = asDef({
+      id: 'gResize', name: 'Resize', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { n0: { id: 'n0', type: 'Resize', values: { 'mode.longer_size': 1024 }, dynamic: { mode: { selected: 'longer' } } } },
+      boundary: { inputs: [{ id: 'size', binds: { kind: 'port', node: 'n0', port: 'mode.longer_size' }, promoted: true }], outputs: [] },
+    })
+    const result = deriveBoundarySchema(def, () => schema)
+    expect(result.diagnostics).toEqual([])
+    expect(inputsOf(result.schema!)).toEqual([expect.objectContaining({
+      id: 'size', type: { kind: 'concrete', name: 'INT' }, widget: expect.objectContaining({ default: 1024 }),
+    })])
+    expect(resolveBoundaryRoute(schema, { kind: 'port', node: 'n0' as never, port: 'mode.width' as never }, 'input', {}, def.nodes['n0']!.dynamic))
+      .toMatchObject({ ok: false, code: 'boundary.unknownPort' })
+  })
+
   it('resolves same-id input and output ports by the boundary side', () => {
     const schema: NodeSchema = {
       type: 'dinkster.float',

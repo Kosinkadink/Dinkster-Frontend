@@ -1,6 +1,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   isForwardingBinding,
+  isNodeBoundaryBinding,
   boundaryBindingKey,
   boundaryRouteKey,
   suppressedDeliveryKey,
@@ -262,6 +263,17 @@ function resolveOccurrenceEndpoint(
       return undefined
     }
     const match = matches[0]!
+    if (match.binding.kind === 'valueSource') {
+      if (side !== 'from' || legIndex !== endpoint.route.length - 1 ||
+          at.bodyGraph.valueSources?.[match.binding.valueSource] === undefined) {
+        diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `value source route leg '${leg.boundaryId}' must terminate an output route at an existing source`))
+        return undefined
+      }
+      finalGraph = at.bodyGraph
+      finalPath = at.bodyPath
+      finalEndpoint = { valueSource: match.binding.valueSource }
+      continue
+    }
     if (match.binding.kind === 'widgetTap') {
       if (side !== 'from' || legIndex !== endpoint.route.length - 1) {
         diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `widget tap route leg '${leg.boundaryId}' must terminate an output route`))
@@ -272,6 +284,17 @@ function resolveOccurrenceEndpoint(
       finalEndpoint = { node: match.binding.node, tap: match.binding.tap }
       continue
     }
+    if (match.binding.viaReroute !== undefined) {
+      if (side !== 'to' || legIndex !== endpoint.route.length - 1 || !at.bodyGraph.reroutes[match.binding.viaReroute]) {
+        diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `junction route leg '${leg.boundaryId}' must terminate an input route`))
+        return undefined
+      }
+      finalGraph = at.bodyGraph
+      finalPath = at.bodyPath
+      finalEndpoint = { reroute: match.binding.viaReroute }
+      continue
+    }
+    if (!isNodeBoundaryBinding(match.binding)) return undefined
     let ref: PortRef
     if (isForwardingBinding(match.binding)) {
       const view = occurrenceDynamicView(document, resolver, occurrence.instancePath)
@@ -346,6 +369,8 @@ function projectedEndpoints(
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
   const out: { endpoint: ResolvedOccurrenceEndpoint; route: readonly BoundaryRouteLeg[] }[] = []
   for (const binding of bindings) {
+    // Promoted literals receive values through compilation, not consuming links.
+    if (side === 'to' && binding.kind === 'valueSource') continue
     const route = [{ graph: at.bodyGraph.id, boundaryId: item.id, binding }]
     const occurrenceEndpoint: OccurrenceLinkEndpoint = {
       kind: 'boundary', occurrence: owner,

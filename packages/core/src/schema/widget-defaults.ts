@@ -14,7 +14,7 @@
  * cannot be imported here - widgets depends on core). The two deliberately
  * diverge where display and submission semantics differ:
  *
- * - ASSET / SAVE_TARGET display `null` ("explicitly unset"), but a required
+ * - ASSET displays `null` ("explicitly unset"), but a required
  *   asset without a chosen file genuinely cannot execute - no submission
  *   fallback, so the missing-input warning stays.
  * - A purely remote COMBO has no local option list; the display shows ''
@@ -78,21 +78,10 @@ export function isAssetRefValue(v: unknown): boolean {
     typeof asset['mediaType'] === 'string' && typeof asset['virtualPath'] === 'string'
 }
 
-/** Mirrors widgets kinds.ts isSaveTarget: {mount, prefix} obeying the backend grammar. */
-export function isSaveTargetValue(v: unknown): v is { readonly mount: string; readonly prefix: string } {
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false
-  const target = v as Record<string, unknown>
-  const mount = target['mount']
-  const prefix = target['prefix']
-  if (typeof mount !== 'string' || !/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(mount)) return false
-  if (typeof prefix !== 'string' || prefix === '' || prefix.includes('\\')) return false
-  return prefix.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
-}
-
 /**
  * Mirrors each kind's valueSchema: is this explicit default usable as a
- * SUBMISSION value? Stricter than mere load-shape for ASSET/SAVE_TARGET:
- * `null` is their DISPLAY placeholder ("explicitly unset"), never a value a
+ * SUBMISSION value? Stricter than mere load-shape for ASSET:
+ * `null` is its DISPLAY placeholder ("explicitly unset"), never a value a
  * prompt can execute, so a null default is not usable here.
  */
 function validDefault(widget: WidgetSpec): boolean {
@@ -105,6 +94,8 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'MARKDOWN':
     case 'COLOR':
       return typeof d === 'string'
+    case 'MOUNT':
+      return d === null || typeof d === 'string'
     case 'BOOLEAN':
       return typeof d === 'boolean'
     case 'COMBO':
@@ -121,11 +112,10 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'AUDIO_RECORD':
       return isAssetRefValue(d) && String((d as Record<string, unknown>)['mediaType']).startsWith('audio/')
     case 'ASSET':
+      if (widget.selection === true) return typeof d === 'string' || (widget.kind === 'model/vae' && isAssetRefValue(d))
       // Multi-select (list-declared) asset inputs store ARRAYS of refs;
       // a non-empty all-ref array is as submittable as a single ref.
-      return (widget.selection === true && typeof d === 'string') || isAssetRefValue(d) || (Array.isArray(d) && d.length > 0 && d.every(isAssetRefValue))
-    case 'SAVE_TARGET':
-      return isSaveTargetValue(d)
+      return isAssetRefValue(d) || (Array.isArray(d) && d.length > 0 && d.every(isAssetRefValue))
     default:
       return true // unknown kinds: no local shape truth, pass through
   }
@@ -134,7 +124,7 @@ function validDefault(widget: WidgetSpec): boolean {
 /**
  * The value a widget input effectively holds when the document stores none
  * and the schema declares no usable explicit default; `undefined` when the
- * widget kind has no intrinsic value (ASSET, SAVE_TARGET, remote-only/empty
+ * widget kind has no intrinsic value (ASSET, remote-only/empty
  * COMBO, unknown types) - those genuinely need the user or a connection.
  */
 export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
@@ -148,6 +138,8 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
     case 'STRING':
     case 'MARKDOWN':
       return ''
+    case 'MOUNT':
+      return null
     case 'BOOLEAN':
       return false
     case 'COMBO': {

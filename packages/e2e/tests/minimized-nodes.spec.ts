@@ -1,12 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
-
-const objectInfo = JSON.parse(readFileSync(
-  fileURLToPath(new URL('../../core/fixtures/object_info.json', import.meta.url)),
-  'utf8',
-)) as Record<string, unknown>
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 const xy = (point: { x: number; y: number }): [number, number] => [point.x, point.y]
@@ -124,11 +118,19 @@ async function openProof(page: Page) {
 
 test.beforeEach(async ({ context, page }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/object_info', (route) => route.fulfill({ json: objectInfo }))
-  await page.routeWebSocket('/ws*', () => {})
+  await page.route('/api/**', (route) => route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
+  await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'minimized-import-contract', schemaWire: 1 },
+    nodes: { CLIPTextEncode: { displayName: 'CLIP Text Encode', interface: [
+      { role: 'input', id: 'text', type: { kind: 'concrete', types: ['STRING'] } },
+      { role: 'input', id: 'clip', type: { kind: 'concrete', types: ['CLIP'] } },
+      { role: 'output', id: 'CONDITIONING', type: { kind: 'concrete', types: ['CONDITIONING'] } },
+    ] } },
+  } }))
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
   if (await page.getByTestId('dock-zone-right').isVisible()) {
     await page.getByRole('button', { name: /^Toggle right rail/ }).click()
   }
@@ -283,7 +285,8 @@ test('ComfyUI flags.collapsed imports as minimized state and survives export and
     const tab = app.activeTab()!
     const exported = app.exportDocument(tab.id)!
     const reopenFailures = app.openDocument(JSON.parse(JSON.stringify(exported)), 'Collapsed import reopened')
-    return { failures, reopenFailures, view: app.activeTab()!.store.doc.view.graphs.g0!.nodes }
+    return { failures, reopenFailures, view: app.activeTab()!.store.doc.view.graphs.g0!.nodes,
+      nodes: app.activeTab()!.store.doc.graphs.g0!.nodes }
   }, {
     nodes: [
       { id: 1, type: 'CLIPTextEncode', pos: [180, 160], flags: { collapsed: true }, widgets_values: ['minimized'] },
@@ -297,6 +300,9 @@ test('ComfyUI flags.collapsed imports as minimized state and survives export and
   expect(result.view.n1!.collapsed).toBe(true)
   expect(result.view.n2!.collapsed).toBeUndefined()
   expect(result.view.n3!.collapsed).toBeUndefined()
+  expect(Object.values(result.nodes).map((node) => [node.type, node.values.text])).toEqual([
+    ['CLIPTextEncode', 'minimized'], ['CLIPTextEncode', 'expanded'], ['CLIPTextEncode', 'not exact'],
+  ])
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.renderer!.getScene().nodes.map((node) => node.layout.minimized === true),
   )).toEqual([true, false, false])

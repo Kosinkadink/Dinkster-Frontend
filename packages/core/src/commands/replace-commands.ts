@@ -21,10 +21,10 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
-import { boundaryBindingKey, MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
+import { boundaryBindingKey, isNodeBoundaryBinding, MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
 import { asDynamicMemberId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { graphAllocator } from './alloc.js'
-import type { CommandDefinition, CommandInvocation } from './contract.js'
+import type { CommandDefinition } from './contract.js'
 import {
   REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY,
   replacementSourceStateHash,
@@ -289,6 +289,7 @@ const nodeReplace: CommandDefinition = {
       (planHasDynamicSelection && p.targetSchemaGuards === undefined) ||
       (p.controllers !== undefined && !isObj(p.controllers)) ||
       (p.migrationArchive !== undefined && !isMigrationArchive(p.migrationArchive)) ||
+      (p.migrationGuard !== undefined && (!isMigrationArchive(p.migrationGuard) || p.migrationArchive === undefined)) ||
       (p.migrationArchive !== undefined && p.createdNodes === undefined) ||
       (p.migrationFallback !== undefined && p.migrationFallback !== true) ||
       (p.migrationFallback === true && p.migrationArchive === undefined) ||
@@ -331,9 +332,9 @@ const nodeReplace: CommandDefinition = {
       }
     }
 
-    const migrationArchive = p.migrationArchive === undefined
+    const migrationArchive = (p.migrationGuard ?? p.migrationArchive) === undefined
       ? undefined
-      : p.migrationArchive as JsonObject & {
+      : (p.migrationGuard ?? p.migrationArchive) as JsonObject & {
           historicalInputs: string[]
           node: JsonObject
           links: JsonObject
@@ -627,7 +628,7 @@ const nodeReplace: CommandDefinition = {
     if (migrationArchive !== undefined) {
       tx.set(['graphs', graphId, 'nodes', p.nodeId, 'ext'], {
         ...(node.ext ?? {}),
-        [REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]: migrationArchive,
+        [REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]: p.migrationArchive!,
       })
     }
 
@@ -758,14 +759,14 @@ const nodeReplace: CommandDefinition = {
         let binds = item.binds
         const alsoBinds = item.alsoBinds !== undefined ? [...item.alsoBinds] : undefined
         for (const r of mine) {
-          if (r.alsoIndex === undefined && binds.kind !== 'widgetTap') {
+          if (r.alsoIndex === undefined && isNodeBoundaryBinding(binds) && binds.kind !== 'widgetTap') {
             const { members: _members, ...binding } = binds
             binds = { ...binding, port: asPortId(r.port),
               ...(r.members === undefined ? {} : { members: r.members.map(asDynamicMemberId) }) }
           }
           else if (r.alsoIndex !== undefined && alsoBinds?.[r.alsoIndex] !== undefined) {
             const current = alsoBinds[r.alsoIndex]!
-            if (current.kind !== 'widgetTap') {
+            if (isNodeBoundaryBinding(current) && current.kind !== 'widgetTap') {
               const { members: _members, ...binding } = current
               alsoBinds[r.alsoIndex] = { ...binding, port: asPortId(r.port),
                 ...(r.members === undefined ? {} : { members: r.members.map(asDynamicMemberId) }) }
@@ -781,83 +782,4 @@ const nodeReplace: CommandDefinition = {
   },
 }
 
-const replaceComfyGroups: CommandDefinition = {
-  id: 'import.replaceComfyGroups',
-  run(doc, params, tx, context) {
-    if (
-      !isObj(params) ||
-      typeof params.graphId !== 'string' ||
-      !isObj(params.sourceGraph) ||
-      !isObj(params.sourceView) ||
-      !isObj(params.collapsedGraph) ||
-      !isObj(params.collapsedView) ||
-      !Array.isArray(params.plans) ||
-      params.plans.length === 0 ||
-      params.plans.length > 256 ||
-      !params.plans.every((plan) =>
-        isObj(plan) &&
-        plan.graphId === params.graphId &&
-        typeof plan.nodeId === 'string' &&
-        typeof plan.from === 'string') ||
-      !params.plans.some((plan) =>
-        isObj(plan) &&
-        typeof plan.from === 'string' &&
-        plan.from.startsWith('comfy-group.'))
-    ) return [err('params.invalid', 'import.replaceComfyGroups: malformed plan')]
-    if (params.graphId !== doc.root) {
-      return [err('params.invalid', 'import.replaceComfyGroups: only the imported root graph may change')]
-    }
-    const sourceGraph = doc.graphs[params.graphId]
-    const sourceView = doc.view.graphs[params.graphId]
-    if (
-      sourceGraph === undefined ||
-      sourceView === undefined ||
-      canonicalJson(sourceGraph as unknown as Json) !== canonicalJson(params.sourceGraph) ||
-      canonicalJson(sourceView as unknown as Json) !== canonicalJson(params.sourceView)
-    ) return [err('replace.stale', 'import.replaceComfyGroups: imported source graph changed')]
-
-    tx.set(['graphs', params.graphId], params.collapsedGraph)
-    tx.set(['view', 'graphs', params.graphId], params.collapsedView)
-    const diagnostics: Diagnostic[] = []
-    for (const plan of params.plans) {
-      const next = nodeReplace.run(
-        tx.current,
-        { plan } as unknown as Json,
-        tx,
-        context,
-      )
-      diagnostics.push(...next)
-      if (next.some((item) => item.severity === 'error')) return diagnostics
-    }
-    return diagnostics
-  },
-}
-
-export function comfyGroupReplacementInvocation(
-  source: WorkflowDocument,
-  collapsed: WorkflowDocument,
-  plans: readonly NodeReplacePlan[],
-): CommandInvocation | undefined {
-  const graphId = source.root
-  if (
-    plans.length === 0 ||
-    collapsed.root !== graphId ||
-    source.graphs[graphId] === undefined ||
-    source.view.graphs[graphId] === undefined ||
-    collapsed.graphs[graphId] === undefined ||
-    collapsed.view.graphs[graphId] === undefined
-  ) return undefined
-  return {
-    command: 'import.replaceComfyGroups',
-    params: {
-      graphId,
-      sourceGraph: source.graphs[graphId],
-      sourceView: source.view.graphs[graphId],
-      collapsedGraph: collapsed.graphs[graphId],
-      collapsedView: collapsed.view.graphs[graphId],
-      plans,
-    } as unknown as Json,
-  }
-}
-
-export const REPLACE_COMMANDS: readonly CommandDefinition[] = [nodeReplace, replaceComfyGroups]
+export const REPLACE_COMMANDS: readonly CommandDefinition[] = [nodeReplace]

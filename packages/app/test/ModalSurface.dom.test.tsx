@@ -4,7 +4,7 @@ import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetDtoV1WireContract, CandidateV1 } from '@dinkster/client'
-import { registerCatalog, setLocale } from '@dinkster/core'
+import { createSignal as createCoreSignal, registerCatalog, setLocale } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
@@ -752,7 +752,8 @@ describe('ASSET widget modal integration', () => {
       initial,
     }
     const app = {
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection }),
+      backendsTick: createCoreSignal(0),
+      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection, scopedClient: { remoteChoiceAuthority: () => 0 } }),
       dispatchTo,
       widgetRegistry: { kind: () => undefined },
       widgetRegistryForTab: () => app.widgetRegistry,
@@ -804,7 +805,8 @@ describe('ASSET widget modal integration', () => {
     const mounted = catalogAssetEditor('model/vae', { kind: 'union', names: ['COMBO', 'ASSET'] }, 'pixel_space', false)
     const connection = { ...mounted.connection, listAssetSelections: vi.fn().mockResolvedValue([{ name: 'pixel_space', shape: 'literal' }]) }
     const app = {
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection }),
+      backendsTick: createCoreSignal(0),
+      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection, scopedClient: { remoteChoiceAuthority: () => 0 } }),
       dispatchTo: mounted.dispatchTo, widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const ed: WidgetEditorState = { ...mounted.ed, spec: { ...mounted.ed.spec!, selection: true } }
@@ -1464,7 +1466,6 @@ describe('registered interactive widget expanded-editor integration', () => {
     ['FLOAT', { min: 0, max: 1, step: 0.1 }, 0.5, false, 'widget-editor'],
     ['COLOR', {}, '#123456', false, 'color-editor'],
     ['COMBO', { options: ['one', 'two'] }, 'one', false, 'combo-dropdown'],
-    ['SAVE_TARGET', { suffix: '.png' }, { mount: 'output', prefix: 'images/test' }, false, 'save-target-editor'],
   ] as const)('renders %s as a non-modal anchored popover', async (type, options, initial, multiline, testId) => {
     const mounted = mountWidget(widgetState(type, options, initial, multiline))
     await new Promise<void>((resolve) => queueMicrotask(resolve))
@@ -1715,7 +1716,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
-  it('applies click-away commit-or-drop semantics to COLOR, SAVE_TARGET, and raw JSON', async () => {
+  it('applies click-away commit-or-drop semantics to COLOR and raw JSON', () => {
     const color = mountWidget(widgetState('COLOR', {}, '#123456'))
     const colorField = color.root.querySelector<HTMLInputElement>('[data-testid="color-text"]')!
     colorField.value = '#abcdef'
@@ -1733,16 +1734,6 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(invalidColor.close).toHaveBeenCalledOnce()
     expect(invalidColor.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 'invalid' }),
-    }))
-
-    const saveTarget = mountWidget(widgetState('SAVE_TARGET', { suffix: '.png' }, { mount: 'output', prefix: 'old' }))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    const prefix = saveTarget.root.querySelector<HTMLInputElement>('[data-testid="save-target-prefix"]')!
-    prefix.value = 'new/path'
-    prefix.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    saveTarget.clickAway()
-    expect(saveTarget.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      params: expect.objectContaining({ value: { mount: 'output', prefix: 'new/path' } }),
     }))
 
     const rawState = { ...widgetState('JSON', {}, '{"stored":true}', true), spec: undefined }
@@ -1885,34 +1876,4 @@ describe('registered interactive widget expanded-editor integration', () => {
     }))
   })
 
-  it('retains SAVE_TARGET constraints and commits only a valid structured target', async () => {
-    const state = widgetState('SAVE_TARGET', { suffix: '.png' }, { mount: 'output', prefix: 'images/test' })
-    const mounted = mountWidget({ ...state, declaredType: { kind: 'concrete', name: 'SAVE_TARGET' } })
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(mounted.root.querySelector('[data-testid="widget-editor-type"]')?.textContent).toBe('SAVE_TARGET')
-    expect(mounted.root.querySelector('[data-testid="save-target-output-format"]')?.textContent).toBe('.png')
-    expect(mounted.root.querySelector('[data-testid="save-target-suffix"]')?.textContent).toBe('.png')
-    const mount = mounted.root.querySelector<HTMLButtonElement>('[data-testid="save-target-mount"]')!
-    expect(mount.getAttribute('role')).toBe('combobox')
-    mount.click()
-    const listbox = document.querySelector<HTMLElement>('[role="listbox"]')!
-    expect(listbox).not.toBeNull()
-    listbox.querySelector<HTMLElement>('[role="option"]')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }))
-    expect(mounted.root.querySelector('[data-testid="save-target-editor"]')).not.toBeNull()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mount.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    expect(document.activeElement).toBe(mount)
-    const prefix = mounted.root.querySelector<HTMLInputElement>('[data-testid="save-target-prefix"]')!
-    prefix.value = '../bad'
-    prefix.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="save-target-save"]')!.click()
-    expect(mounted.root.querySelector('[data-testid="save-target-error"]')).not.toBeNull()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    prefix.value = 'images/good'
-    prefix.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="save-target-save"]')!.click()
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      params: expect.objectContaining({ value: { mount: 'output', prefix: 'images/good' } }),
-    }))
-  })
 })

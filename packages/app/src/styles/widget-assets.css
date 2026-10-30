@@ -522,18 +522,3 @@
   cursor: crosshair;
   touch-action: none;
 }
-
-/*
- * Save-target picker: the structured {mount, prefix} editor shares the
- * product dialog and widget panel look.
- */
-.save-target-editor {
-  display: grid;
-  gap: var(--dinkster-space-8);
-  box-sizing: border-box;
-  pointer-events: auto;
-}
-.save-target-prefix-row { display: flex; align-items: center; gap: var(--dinkster-space-4); width: 100%; }
-.save-target-prefix-row input { flex: 1; min-width: 0; }
-.save-target-prefix-row input { min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; }
-.save-target-suffix { color: var(--dinkster-text-muted); }

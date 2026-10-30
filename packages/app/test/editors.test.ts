@@ -4,20 +4,14 @@
  * kind through this registry, so future editor kinds are descriptors, not
  * shell rewrites.
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JSX } from 'solid-js'
 import { asConnectionId, asPromptId, EMPTY_COMPOSITOR_RECIPE, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND } from '../src/editors.js'
 import { AppState } from '../src/app-state.js'
-
-const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(
-  readFileSync(join(coreRoot, 'fixtures/dinkster-nodes-comfy.json'), 'utf8'),
-) as DinksterNodesPayload
+import { historicalRegistry } from './historical-schemas.js'
+import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 
 /** Minimal in-memory localStorage for the node test env. */
 const makeStorage = (): Storage => {
@@ -306,8 +300,9 @@ describe('Tab editorKind', () => {
 
   it('frozen execution tabs refuse editor-kind switches', () => {
     const app = new AppState()
-    const basic = app.tabs.get()[0]!
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), nodesPayload))
+    app.openDocument(seedBasic, 'Basic')
+    const basic = app.activeTab()!
+    app.registry.set(historicalRegistry(asConnectionId('local')))
     const result = app.compileTab(basic)
     if (!result?.ok) throw new Error('compile failed')
     const ref: ExecutionRef = { connection: asConnectionId('local'), prompt: asPromptId('p0') }
@@ -321,6 +316,7 @@ describe('Tab editorKind', () => {
   it('setTabAppArrange toggles per tab, keeps the session, and never persists', () => {
     g.localStorage = makeStorage()
     const app = new AppState()
+    app.createWorkflow()
     const [tab, other] = app.tabs.get()
     if (!tab || !other) throw new Error('fixture needs two tabs')
     expect(tab.appArrange).toBeUndefined()
@@ -349,8 +345,9 @@ describe('Tab editorKind', () => {
 
   it('frozen execution tabs refuse arrange mode', () => {
     const app = new AppState()
-    const basic = app.tabs.get()[0]!
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), nodesPayload))
+    app.openDocument(seedBasic, 'Basic')
+    const basic = app.activeTab()!
+    app.registry.set(historicalRegistry(asConnectionId('local')))
     const result = app.compileTab(basic)
     if (!result?.ok) throw new Error('compile failed')
     const ref: ExecutionRef = { connection: asConnectionId('local'), prompt: asPromptId('p1') }
@@ -618,8 +615,10 @@ describe('Tab editorKind', () => {
   it.each([IMAGE_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND])('clears a %s session when another tab activates and never persists it', (kind) => {
     g.localStorage = makeStorage()
     const app = new AppState()
+    app.createWorkflow()
     const [tab, other] = app.tabs.get()
     if (!tab || !other) throw new Error('fixture needs two tabs')
+    app.activeTabId.set(tab.id)
     const target = {
       tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'image',
       sourceRef: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 1, mediaType: 'image/png', virtualPath: '' },
@@ -681,6 +680,7 @@ describe('Tab editorKind', () => {
     expect(author.appViewEnabled).toBe(false)
     expect(author.commands.get('view.toggleAppView')).toBeUndefined()
     expect(author.keybindings.match({ key: 'v', altKey: true } as KeyboardEvent)).toBeUndefined()
+    author.openDocument(seedBasic, 'Basic')
     const tab = author.activeTab()!
     author.setTabEditorKind(tab.id, APP_EDITOR_KIND)
     expect(author.activeTab()!.editorKind).toBe(GRAPH_EDITOR_KIND)

@@ -3,6 +3,7 @@ import {
   asConnectionId,
   asPromptId,
   compile,
+  type CommandInvocation,
   type CompileArtifact,
   type ExecutionRef,
   type NodeSchema,
@@ -49,6 +50,144 @@ function compileDoc(document: any): CompileArtifact {
 }
 
 describe('controllerAdvancement', () => {
+  it.each(['fixed', 'decrement'] as const)('honors a literal consumer initial mode %s without stored controller state', (controllerInitial) => {
+    const initialSchema: NodeSchema = { ...schema, items: schema.items.map((item) => item.kind === 'input' && item.id === 'down'
+      ? { ...item, widget: { ...item.widget!, controllerInitial } } : item) }
+    const document = fixture() as any
+    document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
+    document.graphs.g0.valueSources = { v0: { id: 'v0', value: 11 } }
+    document.graphs.g0.links = { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'seed', port: 'down' } } }
+    const result = compile({ document, revision: 0, resolve: (type) => type === schema.type ? initialSchema : undefined,
+      scope: { kind: 'full' }, connection: asConnectionId('local'), schemaHash: 'test' })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    expect(controllerAdvancement(document, result.artifact)).toEqual(controllerInitial === 'fixed' ? undefined : {
+      command: 'batch', params: { invocations: [
+        { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 9 } },
+      ] },
+    })
+    document.graphs.g0.valueSources.v0.controller = 'increment'
+    expect(controllerAdvancement(document, result.artifact)).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 13 } },
+    ] } })
+  })
+
+  it('advances a shared literal producer once instead of its connected consumers', () => {
+    const document = fixture() as any
+    document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
+    document.graphs.g0.nodes.second = structuredClone(document.graphs.g0.nodes.seed)
+    document.graphs.g0.nodes.second.id = 'second'
+    document.graphs.g0.valueSources = {
+      v0: { id: 'v0', value: 11, controller: 'increment' },
+      v1: { id: 'v1', value: 17, controller: 'decrement' },
+    }
+    document.graphs.g0.links = {
+      l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'seed', port: 'up' } },
+      l1: { id: 'l1', from: { valueSource: 'v0' }, to: { node: 'second', port: 'up' } },
+    }
+    const artifact = compileDoc(document)
+    expect(artifact.prompt.seed!.inputs.up).toBe(11)
+    expect(controllerAdvancement(document, artifact)).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 14 } },
+    ] } })
+    document.graphs.g0.valueSources.v0.spec = { widgetType: 'INT', options: { step: 5 }, controller: 'after_generate' }
+    expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 16 } },
+    ] } })
+    document.graphs.g0.valueSources.v0.controller = 'fixed'
+    expect(controllerAdvancement(document, compileDoc(document))).toBeUndefined()
+  })
+
+  it.each([false, true])('unifies exported literal constraints independently of consumer order (reverse: %s)', (reverse) => {
+    const document = fixture() as any
+    const consumer = (id: string, type: string) => ({ id, type, values: document.graphs.g0.nodes.seed.values,
+      controllers: { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' } })
+    const nodes = [consumer('left', 'Left'), consumer('right', 'Right')]
+    document.graphs.g0.nodes = Object.fromEntries((reverse ? nodes.reverse() : nodes).map((node) => [node.id, node]))
+    document.graphs.g0.nodes.i0 = { id: 'i0', type: '#body', values: {} }
+    document.graphs.g0.links = {
+      l0: { id: 'l0', from: { node: 'i0', port: 'out' }, to: { node: 'left', port: 'up' } },
+      l1: { id: 'l1', from: { node: 'i0', port: 'out' }, to: { node: 'right', port: 'up' } },
+    }
+    document.graphs.body = {
+      id: 'body', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      valueSources: { v0: { id: 'v0', value: 10, controller: 'increment' } },
+      boundary: { inputs: [], outputs: [{ id: 'out', binds: {
+        kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' },
+      } }] },
+    }
+    const consumers = Object.fromEntries<NodeSchema>(([
+      ['Left', { min: 3, max: 17, step: 2 }], ['Right', { min: 10, max: 20, step: 7 }],
+    ] as const).map(([type, options]) => [type, { ...schema, type, items: schema.items.map((item) =>
+      item.kind === 'input' && item.id === 'up' ? { ...item, widget: { ...item.widget!, options } } : item) }]))
+    for (const arrangement of ['fanout', 'shared', 'promoted']) {
+      document.graphs.g0.nodes.i1 = { id: 'i1', type: '#body', values: { value: 10 }, controllers: { value: 'increment' } }
+      document.graphs.g0.nodes.i0.values = { value: 10 }
+      document.graphs.g0.nodes.i0.controllers = { value: 'increment' }
+      document.graphs.g0.links.l1.from.node = arrangement === 'fanout' ? 'i0' : 'i1'
+      document.graphs.body.boundary.inputs = arrangement === 'promoted' ? [{
+        id: 'value', promoted: true, binds: document.graphs.body.boundary.outputs[0].binds,
+      }] : []
+      for (const partial of [false, true]) {
+        for (const declared of [false, true]) {
+          document.graphs.body.valueSources.v0.spec = declared
+            ? { widgetType: 'INT', options: { step: 5 }, controller: 'after_generate' } : undefined
+          const result = compile({ document, revision: 0, resolve: (type) => consumers[type],
+            scope: partial ? { kind: 'partial', targets: [{ instancePath: [], node: 'left' as any }] } : { kind: 'full' },
+            connection: asConnectionId('local'), schemaHash: 'test' })
+          if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+          expect(result.artifact.prompt.left!.inputs.up).toBe(10)
+          const invocations: CommandInvocation[] = arrangement === 'promoted' ? [
+            { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: declared ? 15 : 12 } },
+            ...(!partial ? [{ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: declared ? 15 : 17 } }] : []),
+          ] : [{ command: 'valueSource.setValue', params: { graphId: 'body', valueSourceId: 'v0', value: declared ? 15 : 17 } }]
+          const advancement = controllerAdvancement(document, result.artifact)
+          expect(advancement).toEqual({ command: 'batch', params: {
+            invocations: expect.arrayContaining(invocations),
+          } })
+          expect((advancement!.params as any).invocations).toHaveLength(invocations.length)
+          expect(document.graphs.body.valueSources.v0.value).toBe(10)
+        }
+      }
+    }
+  })
+
+  it('advances independent instance overrides of an output-only literal producer', () => {
+    const document = fixture() as any
+    document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
+    document.graphs.g0.nodes.second = structuredClone(document.graphs.g0.nodes.seed)
+    document.graphs.g0.nodes.second.id = 'second'
+    document.graphs.g0.nodes.i0 = { id: 'i0', type: '#body', values: { value: 11 }, controllers: { value: 'increment' } }
+    document.graphs.g0.nodes.i1 = { id: 'i1', type: '#body', values: { value: 17 }, controllers: { value: 'decrement' } }
+    document.graphs.g0.links = {
+      l0: { id: 'l0', from: { node: 'i0', port: 'out' }, to: { node: 'seed', port: 'up' } },
+      l1: { id: 'l1', from: { node: 'i1', port: 'out' }, to: { node: 'second', port: 'up' } },
+    }
+    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
+    document.graphs.body = {
+      id: 'body', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      valueSources: { v0: { id: 'v0', value: 13, controller: 'fixed' } },
+      boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }] },
+    }
+    const artifact = compileDoc(document)
+    expect([artifact.prompt.seed!.inputs.up, artifact.prompt.second!.inputs.up]).toEqual([11, 17])
+    expect(controllerAdvancement(document, artifact)).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: 14 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+    ] } })
+    expect(document.graphs.body.valueSources.v0.value).toBe(13)
+    delete document.graphs.g0.nodes.i0.values.value
+    expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: 16 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+    ] } })
+    document.graphs.g0.nodes.driver = structuredClone(document.graphs.g0.nodes.seed)
+    document.graphs.g0.nodes.driver.id = 'driver'
+    document.graphs.g0.links.l2 = { id: 'l2', from: { node: 'driver', port: 'out' }, to: { node: 'i0', port: 'value' } }
+    expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+    ] } })
+  })
+
   it('advances increment/decrement/randomize, leaving fixed and controller-less values untouched', () => {
     const document = fixture() as any
     const invocation = controllerAdvancement(document, compileDoc(document), () => 0.5)
@@ -575,6 +714,18 @@ describe('compiled occurrence controller ownership', () => {
     expect(tab.store.doc.graphs.g0!.nodes.right!.values.seed).toBeUndefined()
   })
 
+  it.each(['owner', 'inherited'] as const)('preserves a promoted %s mode edit-and-restore while its sibling advances', (target) => {
+    const { app, tab, ref } = occurrenceCompletionHarness()
+    const location = target === 'owner' ? { graphId: 'g0', nodeId: 'left' } : { graphId: 'sub', nodeId: 'leaf' }
+    for (const mode of ['fixed', target === 'owner' ? 'decrement' : 'increment']) expect(tab.store.dispatch({
+      command: 'node.setController', params: { ...location, inputId: 'seed', mode },
+    }).ok).toBe(true)
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+    expect(tab.store.doc.graphs.g0!.nodes.left!.values.seed).toBe(target === 'owner' ? 10 : 9)
+    expect(tab.store.doc.graphs.g0!.nodes.right!.values.seed).toBe(target === 'owner' ? 6 : undefined)
+    expect(tab.store.doc.graphs.sub!.nodes.leaf!.values.seed).toBe(5)
+  })
+
   it('invalidates only occurrences whose effective fallback value changed after queueing', () => {
     const { app, tab, ref } = occurrenceCompletionHarness()
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'sub', nodeId: 'leaf', inputId: 'seed', value: 7 } })
@@ -782,6 +933,39 @@ describe('FLOAT controller advancement (shared canvas stepper semantics)', () =>
 })
 
 describe('completion integration', () => {
+  it.each(['unchanged', 'edited', 'restored', 'fixed', 'mode-restored', 'disconnected'] as const)('guards literal producer completion after %s state', (change) => {
+    const local = new AppState()
+    ;(local.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
+    local.registerSchemas([schema])
+    const document = fixture() as any
+    document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
+    document.graphs.g0.valueSources = { v0: { id: 'v0', value: 11, controller: 'increment' } }
+    document.graphs.g0.links = { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'seed', port: 'up' } } }
+    expect(local.openDocument(document, 'Literal Controller')).toEqual([])
+    const live = local.activeTab()!
+    const execution = { connection: asConnectionId('local'), prompt: asPromptId(`literal-${change}`) }
+    local.registerRun(live, execution, compileDoc(live.store.doc), 1)
+    if (change === 'edited' || change === 'restored') {
+      expect(live.store.dispatch({ command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 17 } }).ok).toBe(true)
+      if (change === 'restored') expect(live.store.dispatch({ command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 11 } }).ok).toBe(true)
+    }
+    if (change === 'fixed' || change === 'mode-restored') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'fixed' } }).ok).toBe(true)
+    if (change === 'mode-restored') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'increment' } }).ok).toBe(true)
+    if (change === 'disconnected') expect(live.store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } }).ok).toBe(true)
+    local.store.apply({ kind: 'completed', execution, timestamp: 2 })
+    const expected = change === 'unchanged' ? 14 : change === 'edited' ? 17 : 11
+    expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(expected)
+    expect(live.store.doc.graphs.g0!.nodes.seed!.values.up).toBe(11)
+    local.store.apply({ kind: 'completed', execution, timestamp: 3 })
+    expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(expected)
+    if (change === 'unchanged') {
+      expect(live.store.undo()).toBe(true)
+      expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(11)
+      expect(live.store.redo()).toBe(true)
+      expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(14)
+    }
+  })
+
   let app: AppState
   let tab: Tab
   let artifact: CompileArtifact

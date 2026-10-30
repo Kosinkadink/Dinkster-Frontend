@@ -11,7 +11,7 @@
  * - Commands are schema-blind except where schema controls document shape.
  *   Other commands enforce STRUCTURAL rules (endpoints exist, one driver per
  *   input). Type compatibility is advisory UI/diagnostic territory
- *   (schema/type-compatibility.ts) so documents never become uneditable when dynamic
+ *   (schema/type-relations.ts) so documents never become uneditable when dynamic
  *   types drift.
  * - Each command records the minimal patch set; cascades (removing a node
  *   removes its links/net references/view state) are part of the same
@@ -20,7 +20,7 @@
 
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import { type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
-import { PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
+import { isNodeBoundaryBinding, PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
 import { NET_VIEWS_EXT_KEY, removeNetViewPositions, updateNetViewPositions, type NetViewGeometry, type NetViewPosition } from '../format/net-views.js'
 import { canonicalTypeIdOf, inputsOf, isImageAssetInput, outputCountInputsOf, outputsOf, type CountBoundOutputAutogrowSpec, type NodeSchema } from '../schema/model.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
@@ -500,11 +500,12 @@ function deleteCascade(
       let changed = false
       const kept: BoundaryItem[] = []
       for (const item of items) {
-        if (removed.has(item.binds.node)) {
+        if (isNodeBoundaryBinding(item.binds) && removed.has(item.binds.node) ||
+            item.binds.kind === 'valueSource' && removedValueSources.has(item.binds.valueSource)) {
           changed = true
           continue
         }
-        const also = item.alsoBinds?.filter((a) => !removed.has(a.node))
+        const also = item.alsoBinds?.filter((a) => !isNodeBoundaryBinding(a) || !removed.has(a.node))
         if (item.alsoBinds !== undefined && also !== undefined && also.length !== item.alsoBinds.length) {
           changed = true
           const { alsoBinds: _drop, ...rest } = item

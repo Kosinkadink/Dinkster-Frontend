@@ -3,6 +3,7 @@ import { documentNodeResolver } from '../compile/compile.js'
 import { canonicalJson } from '../compile/hash.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { suppressedDeliveryKey, type DynamicPortState, type Json, type JsonObject, type OccurrenceLinkData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SuppressedDelivery, type WorkflowDocument } from '../format/document.js'
+import { validateBoundaryBindingShape } from '../format/validate.js'
 import { actorCursorOf, asLinkId, formatAllocatedId, guardOrdinal, isPortEndpoint, occurrenceKey, sameEndpoint, type OccurrenceRef } from '../ids.js'
 import { lifecycleCanonicalHash } from '../lifecycle/planner.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
@@ -40,6 +41,8 @@ function validLinkEndpoint(value: Json | undefined): boolean {
 }
 
 function validBinding(value: Json | undefined): boolean {
+  if (isObj(value) && value.kind === 'valueSource')
+    return exactKeys(value, ['kind', 'valueSource', 'type']) && validateBoundaryBindingShape(value).length === 0
   return isObj(value) && exactKeys(value, ['kind', 'node', 'port'], ['members', 'slots']) &&
     (value.kind === 'port' || value.kind === 'family' || value.kind === 'slot' || value.kind === 'dynamicCombo') && nonEmptyString(value.node) && nonEmptyString(value.port) &&
     (value.members === undefined || stringArray(value.members, false)) &&

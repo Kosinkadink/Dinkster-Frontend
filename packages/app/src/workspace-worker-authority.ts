@@ -6,7 +6,6 @@ export interface WorkspaceTabRecord {
   readonly title: string
   readonly document: WorkflowDocument
   readonly editorKind?: string
-  readonly stock?: true
 }
 
 export interface WorkspaceTabMutation {
@@ -20,7 +19,6 @@ export interface WorkspaceTabMutation {
     readonly id: string
     readonly title: string
     readonly editorKind: string | null
-    readonly stock: boolean
   }[]
   readonly order: readonly string[]
   readonly active: string
@@ -67,7 +65,6 @@ function decodeRecord(value: unknown): WorkspaceTabRecord {
     title: row['title'],
     document: loaded.document,
     ...(typeof row['editorKind'] === 'string' && row['editorKind'].length > 0 ? { editorKind: row['editorKind'] } : {}),
-    ...(row['stock'] === true ? { stock: true as const } : {}),
   }
 }
 
@@ -162,7 +159,6 @@ export class SharedWorkerTabAuthority {
         title: value.title,
         document: current.document,
         ...(value.editorKind ? { editorKind: value.editorKind } : {}),
-        ...(value.stock ? { stock: true as const } : {}),
       })
     }
     for (const value of mutation.additions) {

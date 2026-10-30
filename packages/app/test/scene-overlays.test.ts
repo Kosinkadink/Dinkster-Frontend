@@ -12,7 +12,7 @@ import {
   SUBGRAPH_BADGE,
   type Scene,
 } from '@dinkster/canvas'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeDecorationContribution, type NodeSchema, type PreviewRenderer, type ReplacementScanItem, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeDecorationContribution, type NodeSchema, type PreviewRenderer, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
@@ -71,7 +71,6 @@ const base = {
   instancePath: [] as readonly string[],
   frozen: false,
   exactProducer: undefined,
-  replacements: [] as readonly ReplacementScanItem[],
   resolveSchema: undefined,
   previewRendererFor: previewRegistry.previewRendererFor,
   loader: noLoader,
@@ -423,8 +422,8 @@ describe('executed image paging overlay', () => {
 
   it('uses the page key/index only for a finished executed-image source', () => {
     const images = [
-      { key: 'a', runtimeId: 'n1', outputId: 'images', descriptorIndex: 0, url: '/a', kind: 'v1' as const, mediaType: 'image (legacy descriptor)', name: 'a.png' },
-      { key: 'b', runtimeId: 'n1', outputId: 'images', descriptorIndex: 1, url: '/b', kind: 'v1' as const, mediaType: 'image (legacy descriptor)', name: 'b.png' },
+      { key: 'a', runtimeId: 'n1', outputId: 'images', descriptorIndex: 0, url: '/a', kind: 'asset' as const, mediaType: 'image/png', name: 'a.png' },
+      { key: 'b', runtimeId: 'n1', outputId: 'images', descriptorIndex: 1, url: '/b', kind: 'asset' as const, mediaType: 'image/png', name: 'b.png' },
     ]
     const source: PreviewSource = {
       key: 'b', runtimeId: 'n1', output: { index: 1, count: 2 },
@@ -1406,25 +1405,26 @@ describe('deriveSceneOverlays', () => {
     expect(m.portProblems).toBe(portProblems)
   })
 
-  it('badges subgraphs, schema deprecations, and replacement-scan hits', () => {
+  it.each([false, true])('shows migration badges only in review mode=%s', (reviewReplacements) => {
     const m = deriveSceneOverlays({
       ...base,
+      reviewReplacements,
+      replacementNodes: new Set(['swap']),
       scene: scene([
         { id: 's', isSubgraph: true, type: '#def' },
         { id: 'old', type: 'core.old' },
         { id: 'swap', type: 'core.swap' },
       ]),
       resolveSchema: schemaTable({ 'core.old': { deprecation: { message: 'gone' } }, 'core.swap': {} }),
-      replacements: [
-        { graphId: 'g0', nodeId: 'swap' } as unknown as ReplacementScanItem,
-        { graphId: 'other', nodeId: 'old' } as unknown as ReplacementScanItem,
-      ],
     })
     expect(m.badges['s']).toContain(SUBGRAPH_BADGE)
-    expect(m.badges['old']).toContain(DEPRECATED_BADGE)
-    expect(m.badges['swap']).toContain(DEPRECATED_BADGE)
-    // replaceItems filters to the CURRENT graph.
-    expect([...m.replaceItems.keys()]).toEqual(['swap'])
+    if (reviewReplacements) {
+      expect(m.badges['old']).toContain(DEPRECATED_BADGE)
+      expect(m.badges['swap']).toContain(DEPRECATED_BADGE)
+    } else {
+      expect(m.badges['old']).toBeUndefined()
+      expect(m.badges['swap']).toBeUndefined()
+    }
   })
 
   it('derives linked occurrence counts from the document without storing them', () => {

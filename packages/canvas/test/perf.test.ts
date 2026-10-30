@@ -1,12 +1,9 @@
 /**
  * Scene-build performance budgets on the synthetic 1k+ node workload, with
- * real parsed schemas. Generous budgets - these catch quadratic blowups in
+ * native image interfaces. Generous budgets - these catch quadratic blowups in
  * CI, not micro-regressions. Real frame times are measured by the Playwright
  * perf spec against a live renderer.
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   documentResolver,
@@ -14,16 +11,10 @@ import {
   syntheticWorkflow,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
+import { syntheticSchemas as schemas } from './historical-schemas.js'
 import { buildScene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
-
-const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const objectInfo = JSON.parse(
-  readFileSync(join(coreRoot, 'fixtures/object_info.json'), 'utf8'),
-) as Record<string, ObjectInfoEntry>
-const { schemas } = parseObjectInfo(objectInfo)
 
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = () => ({ viewId: 'core.line', rows: 1 })

@@ -28,6 +28,26 @@ group does not move the group.
 
 After success, the new occurrence is the active selection.
 
+An input boundary attached to a reroute moves with that junction and its
+complete selected fanout. Extraction remaps the boundary attachment while
+retaining every internal link and relative position. A selection that splits
+the junction from its schema-authority node or cuts a reroute link refuses
+without changing the document. One-level flatten retains junctions and their
+fanout, redirects incoming links to the copied dots, and copies promoted
+values to every downstream consumer. Named-net deliveries to junctions become
+ordinary links because named-net sinks are ports; other net sinks remain nets.
+Enclosing input boundaries retain their remapped junction attachments.
+
+The `boundary.addItem` and `boundary.setBinding` commands accept an explicit
+`viaReroute` on input-side port bindings. It identifies the attachment while
+`node` and `port` identify schema authority. Rebinding keeps the authored
+reroute links untouched; repeating the same binding is a no-op. Junction
+attachments cannot be output bindings, widget taps, or conditional forwarding.
+An input may fan out to both direct ports and retained junctions through
+`alsoBinds`, in authored order. Each junction keeps its own links and schema
+authority; suppressing one occurrence delivery does not suppress the other
+bindings or other occurrences.
+
 ## Flatten one level
 
 Select exactly one subgraph occurrence. Use **Flatten Subgraph One Level**
@@ -38,6 +58,15 @@ nets, and links stay scoped to that element. Dinkster removes that occurrence
 and splices one copy of its body into the parent as one undoable operation.
 Nested occurrences remain nested. After success, the newly spliced body
 nodes are selected.
+
+A promoted literal input transfers this occurrence's stored
+value and controller mode to the fresh source, preserving explicit null.
+Missing overrides retain the definition's source state. Shared definitions
+and sibling occurrences are unchanged. A connected input forwards its driver
+to the source's consumers and output passthroughs; the copied literal remains
+as dormant state, never as the target of an incoming link. Enclosing outputs
+and named nets retain the driver where their endpoint model can represent it;
+an unrepresentable structural producer refuses atomically.
 
 Extract and flatten are unavailable while execution owns the tab. Extract is
 unavailable for an empty semantic selection. Flatten is unavailable unless

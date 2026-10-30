@@ -9,7 +9,7 @@ import { validateDocumentShape } from '../src/format/validate.js'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asRerouteId, asValueSourceId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 import { buildRerouteIndex, traceEndpoint } from '../src/reroute.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes } from '../src/schema/dinkster-wire.js'
 
 const port = (node: string, id: string) => ({ node: asNodeId(node), port: asPortId(id) })
 const tap = (node: string, id: string) => ({ node: asNodeId(node), tap: asPortId(id) })
@@ -107,45 +107,44 @@ describe('widget tap commands', () => {
   })
 })
 
-const objectInfo: Record<string, ObjectInfoEntry> = {
-  ValueNode: {
-    input: { required: { value: ['INT', { default: 17 }] } },
-    output: ['INT'], output_name: ['out'], name: 'ValueNode', display_name: 'ValueNode', category: 'test',
-  } as ObjectInfoEntry,
-  NoDefaultNode: {
-    input: { required: { value: ['INT', {}] } },
-    output: ['INT'], output_name: ['out'], name: 'NoDefaultNode', display_name: 'NoDefaultNode', category: 'test',
-  } as ObjectInfoEntry,
-  // An empty COMBO has no intrinsic value (nothing to pick), so its tap is
-  // genuinely valueless - unlike INT/STRING/BOOLEAN which always show one.
-  NoIntrinsicNode: {
-    input: { required: { value: [[], {}] } },
-    output: ['COMBO'], output_name: ['out'], name: 'NoIntrinsicNode', display_name: 'NoIntrinsicNode', category: 'test',
-  } as ObjectInfoEntry,
-  // Optional widget inputs: an absent value is a legal prompt (the backend's
-  // own default applies), so compile must NOT invent an intrinsic one.
-  OptionalNoDefaultNode: {
-    input: { optional: { value: ['INT', {}] } },
-    output: ['INT'], output_name: ['out'], name: 'OptionalNoDefaultNode', display_name: 'OptionalNoDefaultNode', category: 'test',
-  } as ObjectInfoEntry,
-  OptionalWithDefaultNode: {
-    input: { optional: { value: ['INT', { default: 7 }] } },
-    output: ['INT'], output_name: ['out'], name: 'OptionalWithDefaultNode', display_name: 'OptionalWithDefaultNode', category: 'test',
-  } as ObjectInfoEntry,
-  // A PreviewAny-shaped sink: its input is wildcard-typed, so a plain baked
-  // literal has no runtime type the server could wrap it with.
-  WildcardSink: {
-    input: { required: { source: ['*', {}] } },
-    output: [], output_name: [], name: 'WildcardSink', display_name: 'WildcardSink', category: 'test',
-  } as ObjectInfoEntry,
-  MultiValueNode: {
-    input: { required: { value: [['beta', 'alpha'], {
-      multiselect: true, multi_select: {}, default: ['beta', 'alpha', 'beta'],
-    }] } },
-    output: [], output_name: [], name: 'MultiValueNode', display_name: 'MultiValueNode', category: 'test',
-  } as ObjectInfoEntry,
-}
-const { schemas } = parseObjectInfo(objectInfo)
+const { schemas, diagnostics } = parseDinksterNodes({
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    ValueNode: { interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 17 },
+      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
+    ] },
+    NoDefaultNode: { interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: true },
+      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
+    ] },
+    // A remote COMBO without loaded options has no intrinsic value.
+    NoIntrinsicNode: { interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['COMBO'] }, required: true,
+        widget: { type: 'COMBO', remote: { route: '/api/choices/empty' } } },
+      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['COMBO'] } },
+    ] },
+    // Absent optional values use the backend default, never an invented intrinsic.
+    OptionalNoDefaultNode: { interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false },
+      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
+    ] },
+    OptionalWithDefaultNode: { interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false, default: 7 },
+      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
+    ] },
+    // A wildcard sink needs a typed literal to recover a baked value's runtime type.
+    WildcardSink: { interface: [
+      { role: 'input', id: 'source', type: { kind: 'wildcard' }, required: true },
+    ] },
+    MultiValueNode: { interface: [
+      { role: 'input', id: 'value', type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
+        required: true, default: ['beta', 'alpha', 'beta'],
+        widget: { type: 'MULTI_COMBO', options: ['beta', 'alpha'] } },
+    ] },
+  },
+})
+expect(diagnostics).toEqual([])
 const compileDoc = (g: GraphDef, graphFeatures?: readonly string[]) => compile({
   document: doc(g), revision: 1, resolve: (type) => schemas.get(type), scope: { kind: 'full' },
   connection: asConnectionId('c0'), schemaHash: 'widget-tap-test',

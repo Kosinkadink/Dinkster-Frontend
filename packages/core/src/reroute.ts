@@ -18,8 +18,8 @@
  *   never store it.
  * - Compiled away: the compiler traces connections through reroute chains to
  *   the real producer and emits nothing for the reroutes themselves.
- * - Nets and subgraph boundaries keep plain PortRef endpoints, so "a net
- *   through a reroute" or "a boundary bound to a reroute" is unrepresentable.
+ * - An input boundary may feed a junction while retaining a downstream
+ *   port as its schema authority. The fan-out remains ordinary graph links.
  */
 
 import type { GraphDef, LinkData } from './format/document.js'
@@ -61,6 +61,29 @@ export interface RerouteIndex {
   readonly selectorSuccessorsOf: ReadonlyMap<string, readonly LinkData[]>
   readonly inputDriverOf: ReadonlyMap<string, LinkData>
   readonly netSourceOf: ReadonlyMap<string, PortRef>
+}
+
+/** Downstream input ports of a boundary-fed junction, in authored link order. */
+export function rerouteInputTargets(def: GraphDef, reroute: string): readonly PortRef[] | undefined {
+  const index = buildRerouteIndex(def)
+  const visit = (id: string, path: ReadonlySet<string>): PortRef[] | undefined => {
+    if (!def.reroutes[id] || path.has(id)) return undefined
+    const successors = index.successorsOf.get(id)
+    if (!successors?.length) return undefined
+    const next = new Set([...path, id])
+    const targets: PortRef[] = []
+    for (const link of successors) {
+      if (isRerouteRef(link.to)) {
+        const nested = visit(link.to.reroute, next)
+        if (!nested) return undefined
+        targets.push(...nested)
+      } else if (!isSelectorRef(link.to) && !isValueSourceRef(link.to) && !isWidgetTapRef(link.to)) {
+        targets.push(link.to)
+      } else return undefined
+    }
+    return targets
+  }
+  return visit(reroute, new Set())
 }
 
 /** Canonical injective key for one selector candidate. Opaque - never split it. */

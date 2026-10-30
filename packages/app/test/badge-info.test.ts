@@ -1,12 +1,11 @@
 /**
  * Badge-popover content resolvers (badge-info.ts, framework-free): what each
  * node-badge popover branch derives from plain document/registry state.
- * Pins the subgraph definition lookup and the deprecation branch's
- * chain-scoped advisory-problem filter plus transitive successor pointer.
+ * Pins subgraph definition lookup and name-only successor guidance.
  */
 import { describe, expect, it } from 'vitest'
-import type { NodeSchema, ReplacementScanItem, WorkflowDocument } from '@dinkster/core'
-import { replacementBadgeInfo, subgraphBadgeInfo } from '../src/badge-info.js'
+import type { NodeSchema, WorkflowDocument } from '@dinkster/core'
+import { deprecationBadgeInfo, subgraphBadgeInfo } from '../src/badge-info.js'
 
 // The resolvers only read graphs/nodes/type/name; fixtures carry exactly
 // those (cast through unknown - full documents would drag in link/net state
@@ -21,9 +20,6 @@ const doc = (graphs: Record<string, { name?: string; nodes: Record<string, { typ
 
 const schema = (s: { type: string; pack?: string; deprecation?: { message: string; since?: string; replacement?: string } }): NodeSchema =>
   s as unknown as NodeSchema
-
-const item = (i: { terminalType: string; hops?: { plan: { to: string } }[] }): ReplacementScanItem =>
-  ({ hops: [], ...i }) as unknown as ReplacementScanItem
 
 describe('subgraphBadgeInfo', () => {
   const d = doc({
@@ -47,34 +43,13 @@ describe('subgraphBadgeInfo', () => {
   })
 })
 
-describe('replacementBadgeInfo', () => {
+describe('deprecationBadgeInfo', () => {
   const d = doc({ g0: { nodes: { n1: { type: 'old.Node' } } } })
 
   it('returns undefined when the node is missing', () => {
     expect(
-      replacementBadgeInfo({ doc: d, graphId: 'g0', nodeId: 'ghost', resolve: undefined, item: undefined, problems: [] }),
+      deprecationBadgeInfo({ doc: d, graphId: 'g0', nodeId: 'ghost', resolve: undefined }),
     ).toBeUndefined()
-  })
-
-  it('keeps only advisory problems whose predecessor the migration chain passes through', () => {
-    const chain = item({ terminalType: 'new.C', hops: [{ plan: { to: 'new.B' } }, { plan: { to: 'new.C' } }] })
-    const problems = [
-      { from: 'old.Node', message: 'source rule invalid' },
-      { from: 'new.B', message: 'intermediate rule invalid' },
-      { from: 'new.C', message: 'terminal rule invalid' },
-      { from: 'unrelated.Type', message: 'noise' },
-    ]
-    const info = replacementBadgeInfo({ doc: d, graphId: 'g0', nodeId: 'n1', resolve: undefined, item: chain, problems })
-    expect(info?.problems.map((p) => p.from)).toEqual(['old.Node', 'new.B', 'new.C'])
-  })
-
-  it('without a scan item filters problems to the node type alone', () => {
-    const problems = [
-      { from: 'old.Node', message: 'kept' },
-      { from: 'new.B', message: 'dropped without a chain' },
-    ]
-    const info = replacementBadgeInfo({ doc: d, graphId: 'g0', nodeId: 'n1', resolve: undefined, item: undefined, problems })
-    expect(info?.problems.map((p) => p.message)).toEqual(['kept'])
   })
 
   it('carries the schema deprecation and resolves the successor pointer transitively', () => {
@@ -83,16 +58,16 @@ describe('replacementBadgeInfo', () => {
       'mid.B': schema({ type: 'mid.B', deprecation: { message: 'use C', replacement: 'new.C' } }),
       'new.C': schema({ type: 'new.C' }),
     }
-    const info = replacementBadgeInfo({
-      doc: d, graphId: 'g0', nodeId: 'n1', resolve: (t) => schemas[t], item: undefined, problems: [],
+    const info = deprecationBadgeInfo({
+      doc: d, graphId: 'g0', nodeId: 'n1', resolve: (t) => schemas[t],
     })
     expect(info?.deprecation).toEqual({ message: 'use B', since: '2.0', replacement: 'mid.B' })
     expect(info?.pointer).toEqual({ terminal: 'new.C', path: ['mid.B', 'new.C'], status: 'ok' })
   })
 
   it('yields no deprecation and no pointer when the schema is unresolved', () => {
-    const info = replacementBadgeInfo({
-      doc: d, graphId: 'g0', nodeId: 'n1', resolve: () => undefined, item: undefined, problems: [],
+    const info = deprecationBadgeInfo({
+      doc: d, graphId: 'g0', nodeId: 'n1', resolve: () => undefined,
     })
     expect(info?.type).toBe('old.Node')
     expect(info?.deprecation).toBeUndefined()

@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import { localCollectionSource, type Json } from '@dinkster/core'
 import type { AssetSelectionOption, DinksterConnection } from '@dinkster/client'
 import { CollectionPanel } from '../CollectionPanel.js'
@@ -14,26 +14,34 @@ export function AssetSelectionEditor(props: {
   readonly commit: (value: Json) => void
   readonly close: () => void
   readonly browseFiles?: (() => void) | undefined
+  readonly authority?: (() => unknown) | undefined
+  readonly project?: string | undefined
 }) {
   const [options, setOptions] = createSignal<readonly AssetSelectionOption[]>()
   const [error, setError] = createSignal<string>()
   const [selected, setSelected] = createSignal(typeof props.initial === 'string' ? props.initial : undefined)
+  const [loadedAuthority, setLoadedAuthority] = createSignal<unknown>()
   let request: AbortController | undefined
   onCleanup(() => request?.abort())
   const refresh = async (): Promise<void> => {
     request?.abort()
     const abort = new AbortController()
     request = abort
+    const connection = props.connection
+    const authority = props.authority?.()
     setOptions(undefined)
     setError(undefined)
     try {
-      const current = await props.connection.listAssetSelections(props.kind, abort.signal)
-      if (!abort.signal.aborted) setOptions(current)
+      const current = await connection.listAssetSelections(props.kind, abort.signal, props.project)
+      if (!abort.signal.aborted && connection === props.connection && authority === props.authority?.()) {
+        setLoadedAuthority(() => authority)
+        setOptions(current)
+      }
     } catch (reason) {
       if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
     }
   }
-  onMount(() => { void refresh() })
+  createEffect(() => { void refresh() })
   const sources = createMemo(() => [localCollectionSource({
     id: 'source-selections', label: 'Source options',
     corpus: () => (options() ?? []).map((option) => ({
@@ -41,7 +49,8 @@ export function AssetSelectionEditor(props: {
       badges: [option.shape === 'literal' ? 'No file' : option.shape === 'pair' ? 'File pair' : option.shape === 'directory' ? 'Directory' : 'File'],
     })),
   })])
-  const current = () => options()?.find((option) => option.name === selected())
+  const current = () => loadedAuthority() === props.authority?.()
+    ? options()?.find((option) => option.name === selected()) : undefined
   return <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-selection-editor">
     <div class="asset-editor-context"><strong>Source selection</strong><span>{props.kind}</span></div>
     <Show when={error()}>{(message) => <ProductNotice tone="error">{message()}</ProductNotice>}</Show>

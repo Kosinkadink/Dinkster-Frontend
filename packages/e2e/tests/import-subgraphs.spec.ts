@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, test, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
-const schemas = readJson('../../core/fixtures/object_info.json')
 // Import results stay independent of the current backend catalog; see the
 // fixture's _provenance for the graph and diagnostic goldens.
 const nativeCatalog = readJson('./fixtures/native-catalog.json')
@@ -31,23 +30,187 @@ async function enterInstance(page: Page, id: string): Promise<void> {
 }
 
 async function expectSchemasReady(page: Page): Promise<void> {
-  let schemaCount = Object.keys(schemas).length
-  if (inAuditLane()) {
-    const response = await page.request.get('/api/nodes')
-    expect(response.ok()).toBe(true)
-    const catalog = await response.json()
-    schemaCount = Object.keys(catalog.nodes).length
-  }
+  const response = await page.request.get('/api/nodes')
+  expect(response.ok()).toBe(true)
+  const catalog = await response.json()
+  const schemaCount = Object.keys(catalog.nodes).length
   expect(schemaCount).toBeGreaterThan(0)
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/object_info', (route) => route.fulfill({ json: schemas }))
-  await page.route('/queue', (route) => route.fulfill({ json: { queue_running: [], queue_pending: [] } }))
-  await page.route('/history*', (route) => route.fulfill({ json: {} }))
-  await page.routeWebSocket('/ws*', () => {})
+nativeTest('retains unattached typed boundary slots without phantom destinations', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1400 })
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'unbound-scene-test', schemaWire: 1 }, packs: {},
+    nodes: { Relay: { displayName: 'Relay', category: 'test', interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
+    ] } },
+  } }))
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('Relay') ?? false)).toBe(true)
+  const failures = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+    nodes: [{ id: 10, type: 'unbound-body', pos: [100, 100],
+      inputs: [{ name: 'unused' }, { name: 'value', widget: { name: 'value' } }],
+      outputs: [{ name: 'unused' }, { name: 'result' }], widgets_values: [19] }], links: [],
+    definitions: { subgraphs: [{ id: 'unbound-body', name: 'Unattached slots', version: 1,
+      inputs: [{ id: 'unused-in', name: 'unused input', type: 'FLOAT', linkIds: [] }, { id: 'in', name: 'value', type: 'INT', linkIds: [1] }],
+      outputs: [{ id: 'unused-out', name: 'unused output', type: 'FLOAT', linkIds: [] }, { id: 'out', name: 'result', type: 'INT', linkIds: [2] }],
+      nodes: [{ id: 1, type: 'Relay', pos: [420, 180], inputs: [{ name: 'value', widget: { name: 'value' }, link: 1 }], outputs: [{ name: 'result' }], widgets_values: [7] }],
+      links: [[1, -10, 1, 1, 0, 'INT'], [2, 1, 0, -20, 1, 'INT']],
+    }] },
+  }, 'Unattached slots'))
+  expect(failures).toEqual([])
+  const before = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  await enterInstance(page, 'n10')
+  await openRailPanel(page, 'Boundary')
+  const panel = page.getByTestId('boundary-panel')
+  await expect(panel).toBeVisible()
+  await expect(panel.getByText('No internal endpoint', { exact: true })).toHaveCount(2)
+  const focus = panel.getByTestId('boundary-show-on-canvas')
+  await expect(focus).toHaveCount(4)
+  await expect(focus.nth(0)).toBeDisabled()
+  await expect(focus.nth(1)).toBeEnabled()
+  await expect(focus.nth(2)).toBeDisabled()
+  await expect(focus.nth(3)).toBeEnabled()
+  await expect(panel).not.toContainText('undefined')
+  await page.screenshot({ path: testInfo.outputPath('unattached-boundary.png'), animations: 'disabled' })
+  const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  expect(after).toEqual(before)
+  await page.evaluate((document) => {
+    const app = window.__dinksterTest!.app
+    const failures = app.openDocument(document, 'Reopened unattached slots')
+    if (failures.length) throw new Error(JSON.stringify(failures))
+  }, after)
+  await enterInstance(page, 'n10')
+  await expect(panel.getByText('No internal endpoint', { exact: true })).toHaveCount(2)
+  expect(errors).toEqual([])
+})
+
+nativeTest('draws, rebinds, and extracts an imported input boundary with mixed direct and reroute fanout', async ({ page }, testInfo) => {
+  await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 1 }, packs: {},
+    nodes: { Relay: { displayName: 'Relay', category: 'test', interface: [
+      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
+    ] } },
+  } }))
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('Relay') ?? false)).toBe(true)
+  const failures = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+    nodes: [{ id: 10, type: 'junction-body', pos: [100, 100],
+      inputs: [{ name: 'value', widget: { name: 'value' } }], outputs: [{ name: 'result' }], widgets_values: [19] }], links: [],
+    definitions: { subgraphs: [{ id: 'junction-body', name: 'Junction fanout', version: 1,
+      inputs: [{ id: 'in', name: 'value', type: 'INT', linkIds: [1, 6] }],
+      outputs: [{ id: 'out', name: 'result', type: 'INT', linkIds: [5] }],
+      nodes: [
+        { id: 1, type: 'Relay', pos: [420, 80], inputs: [{ name: 'value', widget: { name: 'value' }, link: 3 }], outputs: [{ name: 'result' }], widgets_values: [7] },
+        { id: 2, type: 'Relay', pos: [420, 320], inputs: [{ name: 'value', widget: { name: 'value' }, link: 4 }], outputs: [{ name: 'result' }], widgets_values: [11] },
+        { id: 3, type: 'Reroute', pos: [170, 180], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
+        { id: 4, type: 'Reroute', pos: [310, 180], inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
+        { id: 5, type: 'Relay', pos: [700, 460], inputs: [{ name: 'value', widget: { name: 'value' }, link: 6 }], outputs: [{ name: 'result' }], widgets_values: [13] },
+      ],
+      links: [[1, -10, 0, 3, 0, 'INT'], [2, 3, 0, 4, 0, 'INT'], [3, 4, 0, 1, 0, 'INT'],
+        [4, 3, 0, 2, 0, 'INT'], [5, 2, 0, -20, 0, 'INT'], [6, -10, 0, 5, 0, 'INT']],
+    }] },
+  }, 'Junction fanout'))
+  expect(failures).toEqual([])
+  const before = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  await enterInstance(page, 'n10')
+  await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(2)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
+  await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-boundary.png') })
+  const scene = await page.evaluate(() => {
+    const scene = window.__dinksterTest!.renderer!.getScene()
+    return { links: scene.links.map(({ id, from, to }) => ({ id, from, to })),
+      reroutes: scene.reroutes.map(({ id, x, y }) => ({ id, x, y })) }
+  })
+  expect(scene.links.find((link) => link.id === 'boundary:inputs:in')?.to).toEqual({ kind: 'reroute', reroute: 'r3' })
+  expect(scene.links.find((link) => link.id === 'boundary:inputs:in:1')?.to).toEqual({ kind: 'port', node: 'n5', port: 'value' })
+  expect(scene.links.filter((link) => link.from.kind === 'reroute')).toHaveLength(3)
+  expect(scene.reroutes).toEqual([{ id: 'r3', x: 170, y: 180 }, { id: 'r4', x: 310, y: 180 }])
+  const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  expect(after).toEqual(before)
+  const rebound = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const rebind = (node: string) => app.dispatchTo(tab, { command: 'boundary.setBinding', params: {
+      graphId: 'junction-body', side: 'inputs', itemId: 'in', node, port: 'value', viaReroute: 'r3',
+    } })
+    const outcome = rebind('n2')
+    const binding = tab.store.doc.graphs['junction-body']!.boundary!.inputs[0]!.binds
+    const restore = rebind('n1')
+    const revision = tab.store.revision
+    const unchanged = rebind('n1')
+    return { ok: outcome.ok && restore.ok && unchanged.ok, binding,
+      unchangedRevision: tab.store.revision === revision, exported: app.exportDocument(tab.id) }
+  })
+  expect(rebound.ok).toBe(true)
+  expect(rebound.binding).toEqual({ kind: 'port', node: 'n2', port: 'value', viaReroute: 'r3' })
+  expect(rebound.unchangedRevision).toBe(true)
+  expect(rebound.exported).toEqual(before)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().links
+    .find((link) => link.id === 'boundary:inputs:in')?.to)).toEqual({ kind: 'reroute', reroute: 'r3' })
+  await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-rebound.png') })
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+a')
+  const graphCount = await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)
+  await page.keyboard.press('Control+Shift+E')
+  await expect.poll(() => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)).toBe(graphCount + 1)
+  const extracted = await page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    const body = doc.graphs['junction-body']!
+    const occurrence = Object.values(body.nodes)[0]!
+    const nested = doc.graphs[occurrence.type.slice(1)]!
+    return { occurrence: occurrence.id, boundary: nested.boundary, reroutes: Object.keys(nested.reroutes), links: Object.keys(nested.links) }
+  })
+  expect(extracted.reroutes).toHaveLength(2)
+  expect(extracted.links).toHaveLength(3)
+  expect(extracted.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: extracted.reroutes[0] })
+  expect(extracted.boundary!.inputs[0]).toMatchObject({ alsoBinds: [{ kind: 'port' }] })
+  await enterInstance(page, extracted.occurrence)
+  await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
+  await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-extracted.png') })
+  await page.getByTestId('graph-breadcrumb').getByRole('button').nth(1).click()
+  await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(2)
+  const flattenPoint = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes[0]!
+    renderer.setViewport({ x: 300 - node.x, y: 200 - node.y, scale: 1 })
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: canvas.left + 300 + node.layout.width / 2, y: canvas.top + 200 + node.layout.headerHeight / 2 }
+  })
+  await page.mouse.click(flattenPoint.x, flattenPoint.y)
+  await page.keyboard.press('Control+Shift+F')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(3)
+  const flattened = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const doc = app.activeTab()!.store.doc
+    const body = doc.graphs['junction-body']!
+    return { nodes: Object.values(body.nodes).map((node) => ({ type: node.type, value: node.values.value })),
+      reroutes: Object.keys(body.reroutes), links: Object.values(body.links), boundary: body.boundary }
+  })
+  expect(flattened.nodes).toEqual(Array.from({ length: 3 }, () => ({ type: 'Relay', value: 7 })))
+  expect(flattened.reroutes).toHaveLength(2)
+  expect(flattened.links).toHaveLength(3)
+  expect(flattened.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: flattened.reroutes[0] })
+  await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
+  await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-flattened.png') })
+  const exported = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
+  const reopened = await page.evaluate((doc) => {
+    const app = window.__dinksterTest!.app
+    const failures = app.openDocument(doc, 'Extracted fanout')
+    return { failures, exported: app.exportDocument(app.activeTab()!.id) }
+  }, exported)
+  expect(reopened.failures).toEqual([])
+  expect(reopened.exported).toEqual(exported)
 })
 
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
@@ -106,33 +269,266 @@ for (const name of templates) test(`imports and drills into official nested subg
   expect(errors).toEqual([])
 })
 
-test('reports an unrepresentable structural boundary without opening a lossy document', async ({ page }) => {
-  const errors: string[] = []
-  page.on('pageerror', (error) => errors.push(error.message))
-  await page.goto('/')
-  await expectSchemasReady(page)
-  const result = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const before = app.activeTab()!
-    const failures = app.openDocument({ nodes: [
-      ...[1, 2].map((id) => ({ id, type: 'primitive-subgraph', pos: [100, id * 250],
-        widgets_values: [`Prompt ${id}`], properties: { proxyWidgets: [['1', 'value']] },
-        inputs: [], outputs: [{ name: 'text' }] })),
-      ...[3, 4].map((id) => ({ id, type: 'CLIPTextEncode', pos: [550, (id - 2) * 250],
-        inputs: [{ name: 'clip' }, { name: 'text', widget: { name: 'text' } }], outputs: [{ name: 'CONDITIONING' }], widgets_values: [''] })),
-    ], links: [[1, 1, 0, 3, 1, 'STRING'], [2, 2, 0, 4, 1, 'STRING']], definitions: { subgraphs: [{
-      id: 'primitive-subgraph', name: 'Text', inputs: [], outputs: [{ id: 'text', name: 'text', type: 'STRING', linkIds: [1] }],
-      nodes: [{ id: 1, type: 'PrimitiveNode', pos: [0, 0], outputs: [{ name: 'STRING', type: 'STRING' }], widgets_values: ['Default'] }],
-      links: [{ id: 1, origin_id: 1, origin_slot: 0, target_id: -20, target_slot: 0, type: 'STRING' }],
-    }] } }, 'Unsupported subgraph boundary')
-    return {
-      failures: failures.map((failure: any) => ({ code: failure.code, severity: failure.severity })),
-      problems: app.problems.get().map(({ code, severity }) => ({ code, severity })),
-      activeTabUnchanged: app.activeTab()!.id === before.id,
-    }
+nativeTest.describe('native structural output boundaries', () => {
+  nativeTest.beforeEach(async ({ page }) => {
+    await page.route('/api/**', (route) =>
+      route.fulfill({ status: 503, body: 'Frontend contract fixture' }),
+    )
+    await page.route('/supervisor/status', (route) =>
+      route.fulfill({ status: 503 }),
+    )
+    await page.route('/api/nodes*', (route) =>
+      route.fulfill({
+        json: {
+          schemaVersion: 1,
+          epoch: 1,
+          dinkster: { version: 'boundary-contract-fixture', schemaWire: 1 },
+          nodes: {
+            CLIPTextEncode: {
+              outputNode: true,
+              interface: [
+                {
+                  role: 'input',
+                  id: 'text',
+                  type: { kind: 'concrete', types: ['STRING'] },
+                },
+                {
+                  role: 'input',
+                  id: 'clip',
+                  type: { kind: 'concrete', types: ['CLIP'] },
+                  optional: true,
+                },
+                {
+                  role: 'output',
+                  id: 'CONDITIONING',
+                  type: { kind: 'concrete', types: ['CONDITIONING'] },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    )
+    await page.routeWebSocket('**/api/events?*', () => {})
+    await page.goto('/')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__dinksterTest?.app.backends
+              .get()[0]
+              ?.registry.get()
+              ?.schemas.has('CLIPTextEncode') ?? false,
+        ),
+      )
+      .toBe(true)
   })
-  expect(result.failures).toContainEqual({ code: 'import.subgraphs.boundaryUnsupported', severity: 'error' })
-  expect(result.problems).toContainEqual({ code: 'import.subgraphs.boundaryUnsupported', severity: 'error' })
-  expect(result.activeTabUnchanged).toBe(true)
-  expect(errors).toEqual([])
+
+  nativeTest(
+    'preserves distinct primitive output values through save, reopen, and native submission',
+    async ({ page }, testInfo) => {
+      const errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      const result = await page.evaluate(() => {
+        const app = window.__dinksterTest!.app
+        const failures = app.openDocument(
+          {
+            nodes: [
+              ...[1, 2].map((id) => ({
+                id,
+                type: 'primitive-subgraph',
+                pos: [100, id * 250],
+                widgets_values: [`Prompt ${id}`],
+                properties: { proxyWidgets: [['1', 'value']] },
+                inputs: [],
+                outputs: [{ name: 'text' }],
+              })),
+              ...[3, 4].map((id) => ({
+                id,
+                type: 'CLIPTextEncode',
+                pos: [550, (id - 2) * 250],
+                inputs: [
+                  { name: 'clip' },
+                  { name: 'text', widget: { name: 'text' } },
+                ],
+                outputs: [{ name: 'CONDITIONING' }],
+                widgets_values: [''],
+              })),
+            ],
+            links: [
+              [1, 1, 0, 3, 1, 'STRING'],
+              [2, 2, 0, 4, 1, 'STRING'],
+            ],
+            definitions: {
+              subgraphs: [
+                {
+                  id: 'primitive-subgraph',
+                  name: 'Text',
+                  inputs: [],
+                  outputs: [
+                    { id: 'text', name: 'text', type: 'STRING', linkIds: [1] },
+                  ],
+                  nodes: [
+                    {
+                      id: 1,
+                      type: 'PrimitiveNode',
+                      pos: [0, 0],
+                      outputs: [{ name: 'STRING', type: 'STRING' }],
+                      widgets_values: ['Default'],
+                    },
+                  ],
+                  links: [
+                    {
+                      id: 1,
+                      origin_id: 1,
+                      origin_slot: 0,
+                      target_id: -20,
+                      target_slot: 0,
+                      type: 'STRING',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+          'Primitive output occurrences',
+        )
+        const exported = app.exportDocument(app.activeTab()!.id)!
+        const reopened = app.openDocument(
+          exported,
+          'Reopened primitive output occurrences',
+        )
+        return {
+          failures,
+          reopened,
+          exported,
+          saved: app.exportDocument(app.activeTab()!.id),
+          problems: app.problems
+            .get()
+            .map(({ code, severity }) => ({ code, severity })),
+        }
+      })
+      expect(result.failures).toEqual([])
+      expect(result.reopened).toEqual([])
+      expect(result.saved).toEqual(result.exported)
+      expect(
+        result.problems.filter((problem) => problem.severity === 'error'),
+      ).toEqual([])
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window
+              .__dinksterTest!.renderer!.getScene()
+              .nodes.map((node) => node.id)
+              .sort(),
+          ),
+        )
+        .toEqual(['n1', 'n2', 'n3', 'n4'])
+      await page.evaluate(() =>
+        window.__dinksterTest!.renderer!.fitToScene(260),
+      )
+      await page.screenshot({
+        path: testInfo.outputPath('primitive-output-occurrences.png'),
+        animations: 'disabled',
+      })
+      let submitted: { graph: { nodes: Record<string, unknown> } } | undefined
+      await page.route('/api/jobs', (route) => {
+        submitted = route.request().postDataJSON()
+        return route.fulfill({
+          status: 202,
+          json: { jobRef: 'primitive-output-contract' },
+        })
+      })
+      await page.evaluate(async () => {
+        const app = window.__dinksterTest!.app
+        await app.queue(app.activeTab()!)
+      })
+      expect(submitted?.graph.nodes).toEqual({
+        n3: { nodeType: 'CLIPTextEncode', inputs: { text: 'Prompt 1' } },
+        n4: { nodeType: 'CLIPTextEncode', inputs: { text: 'Prompt 2' } },
+      })
+      expect(errors).toEqual([])
+    },
+  )
+
+  nativeTest(
+    'reports an unrepresentable structural boundary without opening a lossy document',
+    async ({ page }) => {
+      const errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      const result = await page.evaluate(() => {
+        const app = window.__dinksterTest!.app
+        const before = app.activeTab()!
+        const document = app.exportDocument(before.id)
+        const failures = app.openDocument(
+          {
+            nodes: [
+              {
+                id: 1,
+                type: 'ambiguous-output',
+                inputs: [],
+                outputs: [{ name: 'text' }],
+              },
+            ],
+            links: [],
+            definitions: {
+              subgraphs: [
+                {
+                  id: 'ambiguous-output',
+                  inputs: [],
+                  outputs: [
+                    {
+                      id: 'text',
+                      name: 'text',
+                      type: 'STRING',
+                      linkIds: [1, 2],
+                    },
+                  ],
+                  nodes: [1, 2].map((id) => ({
+                    id,
+                    type: 'PrimitiveNode',
+                    outputs: [{ name: 'STRING', type: 'STRING' }],
+                    widgets_values: [`Driver ${id}`],
+                  })),
+                  links: [1, 2].map((id) => ({
+                    id,
+                    origin_id: id,
+                    origin_slot: 0,
+                    target_id: -20,
+                    target_slot: 0,
+                    type: 'STRING',
+                  })),
+                },
+              ],
+            },
+          },
+          'Ambiguous output boundary',
+        )
+        return {
+          failures: failures.map((failure: any) => ({
+            code: failure.code,
+            severity: failure.severity,
+          })),
+          problems: app.problems
+            .get()
+            .map(({ code, severity }) => ({ code, severity })),
+          activeTabUnchanged: app.activeTab()!.id === before.id,
+          documentUnchanged:
+            JSON.stringify(app.exportDocument(before.id)) ===
+            JSON.stringify(document),
+        }
+      })
+      expect(result.failures).toContainEqual({
+        code: 'import.subgraphs.boundaryUnsupported',
+        severity: 'error',
+      })
+      expect(result.problems).toContainEqual({
+        code: 'import.subgraphs.boundaryUnsupported',
+        severity: 'error',
+      })
+      expect(result.activeTabUnchanged).toBe(true)
+      expect(result.documentUnchanged).toBe(true)
+      expect(errors).toEqual([])
+    },
+  )
 })

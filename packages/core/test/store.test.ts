@@ -182,10 +182,12 @@ function makeStore(d?: WorkflowDocument) {
 describe('DocumentStore.dispatch', () => {
   it('rejects unknown commands', () => {
     const store = makeStore()
+    const before = store.doc
     const out = store.dispatch({ command: 'nope', params: {} })
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.diagnostics[0]!.code).toBe('command.unknown')
     expect(store.revision).toBe(0)
+    expect(store.doc).toBe(before)
   })
 
   it('preserves wire-15 recursive choice state through unrelated edits and undo', () => {

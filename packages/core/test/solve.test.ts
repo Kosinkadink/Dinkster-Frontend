@@ -49,7 +49,7 @@ const schemas: Record<string, NodeSchema> = {
   LatentSrc: schemaOf('LatentSrc', [output('out', { kind: 'concrete', name: 'LATENT' })]),
   ImageSink: schemaOf('ImageSink', [input('in', { kind: 'concrete', name: 'IMAGE' })]),
   LatentSink: schemaOf('LatentSink', [input('in', { kind: 'concrete', name: 'LATENT' })]),
-  // Comfy spellings canonicalize to wire identities inside atomNamesOf.
+  // Prefixed spellings are distinct atoms, not aliases for native identities.
   DinksterImageSrc: schemaOf('DinksterImageSrc', [output('out', { kind: 'concrete', name: 'IMAGE' })]),
   ComfyImageSink: schemaOf('ComfyImageSink', [input('in', { kind: 'concrete', name: 'comfy.IMAGE' })]),
   DinksterMaskSrc: schemaOf('DinksterMaskSrc', [output('out', { kind: 'concrete', name: 'MASK' })]),
@@ -296,17 +296,17 @@ describe('concrete and union edges', () => {
     expect(mismatch?.anchor?.link).toBe('l1')
   })
 
-  it('an IMAGE output feeds a comfy.IMAGE input with no mismatch', () => {
+  it('an IMAGE output does not bridge to a prefixed input', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterImageSrc' }, sink: { type: 'ComfyImageSink' } },
       links: { l0: { from: ['src', 'out'], to: ['sink', 'in'] } },
     })
     const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.diagnostics.filter((d) => d.code === 'solve.linkMismatch')).toEqual([])
+    expect(s.linkVerdicts.get('l0' as never)).toBe('mismatch')
+    expect(s.diagnostics.map((d) => d.code)).toEqual(['solve.linkMismatch'])
   })
 
-  it('a MASK output feeds a comfy.MASK input but never a comfy.IMAGE one', () => {
+  it('a MASK output does not bridge to either prefixed MASK or IMAGE', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterMaskSrc' }, maskSink: { type: 'ComfyMaskSink' }, imageSink: { type: 'ComfyImageSink' } },
       links: {
@@ -315,11 +315,11 @@ describe('concrete and union edges', () => {
       },
     })
     const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
+    expect(s.linkVerdicts.get('l0' as never)).toBe('mismatch')
     expect(s.linkVerdicts.get('l1' as never)).toBe('mismatch')
   })
 
-  it('a variable constrained to comfy.IMAGE resolves through an IMAGE edge', () => {
+  it('a variable constrained to prefixed IMAGE conflicts with a native IMAGE edge', () => {
     const def = defOf({
       nodes: { src: { type: 'DinksterImageSrc' }, sw: { type: 'ComfyImageSwitch' }, sink: { type: 'ComfyImageSink' } },
       links: {
@@ -328,8 +328,8 @@ describe('concrete and union edges', () => {
       },
     })
     const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
-    expect(s.diagnostics).toEqual([])
+    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'conflict' })
+    expect(s.diagnostics.map((d) => d.code)).toEqual(['solve.varConflict'])
   })
 
   it('a union producer feeds different atoms simultaneously without collapsing', () => {

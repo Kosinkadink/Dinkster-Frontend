@@ -29,8 +29,6 @@ import {
   asPromptId,
   createSignal,
   canonicalJson,
-  comfyAliasCatalogFromDinksterWire,
-  comfyGroupCatalogFromDinksterWire,
   decodeEffectiveExtensionSnapshot,
   diag,
   DINKSTER_SCHEMA_WIRE_VERSION,
@@ -2129,6 +2127,11 @@ export class DinksterConnection {
        */
       readonly sourceDocument?: string
       /**
+       * Retained original import metadata, not a representation of native
+       * edits. An absent original prompt stays absent, distinct from {}.
+       */
+      readonly exportSnapshot?: { readonly prompt?: JsonObject; readonly extraPnginfo?: JsonObject }
+      /**
        * Live sampling preview policy for this run. Sent verbatim as the
        * submit body's `previews` field; servers without preview support
        * ignore it. Omitted, the server applies its own default. `nodes`
@@ -2227,6 +2230,7 @@ export class DinksterConnection {
       targets,
       graph: graph as unknown as Json,
       ...(options?.sourceDocument !== undefined ? { sourceDocument: options.sourceDocument } : {}),
+      ...(options?.exportSnapshot !== undefined ? { exportSnapshot: options.exportSnapshot } : {}),
       ...(options?.previews !== undefined ? { previews: options.previews } : {}),
       ...(placementNodeIds.length > 0 ? { placement } : {}),
     }
@@ -2864,11 +2868,11 @@ export class DinksterConnection {
     return (await this.fetchMountSettings()).mounts
   }
 
-  async listAssetSelections(kind: string, signal?: AbortSignal): Promise<readonly AssetSelectionOption[]> {
+  async listAssetSelections(kind: string, signal?: AbortSignal, project = this.project): Promise<readonly AssetSelectionOption[]> {
     if (!['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(kind)) {
       throw new Error('Unsupported asset selection kind')
     }
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind, ...(this.project !== undefined ? { project: this.project } : {}) })}`, signal === undefined ? undefined : { signal })
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind, ...(project === undefined ? {} : { project }) })}`, signal === undefined ? undefined : { signal })
     if (!res.ok) throw new Error(`GET asset selections failed: ${res.status}`)
     const payload: unknown = await res.json()
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed asset selections')
@@ -3490,60 +3494,24 @@ export function buildDinksterRegistry(
   extensionSnapshotPair?: { readonly digest: string; readonly snapshot: EffectiveExtensionSnapshot },
 ): SchemaRegistry {
   const parsed = parseDinksterNodes(raw)
-  const aliases = comfyAliasCatalogFromDinksterWire(raw, parsed.schemas)
-  const groups = comfyGroupCatalogFromDinksterWire(raw, parsed.schemas)
   const schemas = new Map(parsed.schemas)
-  for (const record of aliases.catalog.records) {
-    const carrier = schemas.get(record.carrier)
-    if (carrier === undefined) continue
-    schemas.set(record.carrier, {
-      ...carrier,
-      searchTerms: [...new Set([...(carrier.searchTerms ?? []), record.source.nodeClass])],
-    })
-  }
   const server = serverInfoFromDinksterWire(raw)
   const graphFeatures = graphFeaturesFromDinksterWire(raw)
   const mergeableTypes = mergeableTypesFromDinksterWire(raw)
-  // Legacy-name resolution: schemas declare the historical type names they
-  // answer to (bare ComfyUI class_types like 'EmptyImage' for
-  // 'comfy.EmptyImage'). Canonical ids always outrank aliases - an alias
-  // that collides with a real type id is ignored - and a name two schemas
-  // both claim resolves to neither (ambiguity must stay loud in the
-  // document, not silently pick a winner) with a warning diagnostic.
-  const aliasMap = new Map<string, NodeSchema>()
-  const aliasDiags: Diagnostic[] = []
-  const ambiguous = new Set<string>()
-  for (const schema of schemas.values()) {
-    for (const alias of schema.aliases ?? []) {
-      if (schemas.has(alias) || ambiguous.has(alias)) continue
-      const holder = aliasMap.get(alias)
-      if (holder !== undefined && holder !== schema) {
-        aliasMap.delete(alias)
-        ambiguous.add(alias)
-        aliasDiags.push(
-          diag('warning', 'schema', 'schema.dinkster.aliasCollision', `legacy name '${alias}' is claimed by both '${holder.type}' and '${schema.type}'; it will not resolve`),
-        )
-        continue
-      }
-      aliasMap.set(alias, schema)
-    }
-  }
   // Additive fields, absent on older backends: epoch is a positive int
   // (surface generation), composing is present-only-when-true.
   const epoch =
     typeof raw.epoch === 'number' && Number.isInteger(raw.epoch) && raw.epoch > 0 ? raw.epoch : undefined
-  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type) ?? aliasMap.get(type), {
+  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type), {
     forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
   })
   return {
     connection,
     hash: fnv1a64(canonicalJson(schemaIdentityWithoutWidgetPresentation(raw) as Json)),
     schemas,
-    diagnostics: [...parsed.diagnostics, ...aliasDiags, ...aliases.diagnostics, ...groups.diagnostics],
+    diagnostics: parsed.diagnostics,
     resolve,
     packs: packsFromDinksterWire(raw),
-    ...(aliases.catalog.records.length > 0 ? { comfyAliases: aliases.catalog } : {}),
-    ...(groups.catalog.records.length > 0 ? { comfyGroups: groups.catalog } : {}),
     ...(server !== undefined ? { server } : {}),
     ...(graphFeatures !== undefined ? { graphFeatures } : {}),
     ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
@@ -3572,6 +3540,7 @@ function schemaIdentityWithoutWidgetPresentation(
   const multiComboWidget = record['type'] === 'MULTI_COMBO'
   return Object.fromEntries(Object.entries(value).flatMap(([key, entry]) =>
     key === 'hasDocs' ||
+    (record['role'] === 'input' && key === 'socketless') ||
     (record['role'] === 'input' && (key === 'acceptsStorage' || key === 'acceptsStream') && entry === false) ||
     (comboOption && COMBO_OPTION_PRESENTATION_FIELDS.has(key)) ||
     (multiComboWidget && MULTI_COMBO_PRESENTATION_FIELDS.has(key)) ||

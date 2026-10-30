@@ -306,6 +306,7 @@ const semanticBoundaryBinding = (binding: BoundaryBinding): Json => binding.kind
       port: binding.port,
       ...(binding.members ? { members: binding.members } : {}),
       ...(binding.slots ? { slots: [...binding.slots].sort() } : {}),
+      ...(binding.viaReroute !== undefined ? { viaReroute: binding.viaReroute } : {}),
     } as unknown as Json
 
 const semanticBoundaryRoute = (route: readonly BoundaryRouteLeg[]): Json =>

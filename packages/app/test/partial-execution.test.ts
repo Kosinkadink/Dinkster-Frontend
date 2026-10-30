@@ -2,62 +2,48 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { asNodeId, type DinksterNodesPayload, type NodeData } from '@dinkster/core'
-import { buildDinksterRegistry } from '@dinkster/client'
+import { asNodeId, type NodeData, type NodeSchema } from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
 import { inactiveSceneNodesFor, lazyInactiveSceneNodes, runOnMachineMenuGroup } from '../src/CanvasHost.js'
+import { historicalRegistry } from './historical-schemas.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(
-  readFileSync(join(coreRoot, 'fixtures/dinkster-nodes-comfy.json'), 'utf8'),
-) as DinksterNodesPayload
-const payloadWithTransform = structuredClone(nodesPayload) as unknown as {
-  nodes: Record<string, unknown>
-}
-payloadWithTransform.nodes['comfy.ImageInvert'] = {
-  schemaVersion: 1,
-  nodeType: 'comfy.ImageInvert',
-  version: 1,
+const scopeSchemas: readonly NodeSchema[] = [{
+  type: 'ImageInvert',
   displayName: 'Image Invert',
-  category: 'comfy/image',
-  description: '',
-  idempotent: true,
-  interface: [
-    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] }, required: true },
-    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
+  category: 'test',
+  source: 'v3',
+  isOutputNode: false,
+  items: [
+    { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+    { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
   ],
-  aliases: ['ImageInvert'],
-  pack: 'comfy',
-  signature: 'test-image-invert',
-}
-payloadWithTransform.nodes['comfy.MultiPreview'] = {
-  schemaVersion: 1,
-  nodeType: 'comfy.MultiPreview',
-  version: 1,
+}, {
+  type: 'MultiPreview',
   displayName: 'Multi Preview',
-  category: 'comfy/image',
-  description: '',
-  idempotent: false,
-  interface: [
-    { role: 'input', id: 'main', type: { kind: 'concrete', types: ['comfy.IMAGE'] }, required: true },
-    { role: 'input', id: 'side', type: { kind: 'concrete', types: ['comfy.IMAGE'] }, required: true },
+  category: 'test',
+  source: 'v3',
+  isOutputNode: true,
+  items: [
+    { kind: 'input', id: 'main', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+    { kind: 'input', id: 'side', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
   ],
-  aliases: ['MultiPreview'],
-  outputNode: true,
-  pack: 'comfy',
-  signature: 'test-multi-preview',
-}
+}]
 
 let app: AppState
 let basic: Tab
 
 beforeEach(() => {
   app = new AppState()
-  basic = app.tabs.get()[0]!
+  for (const name of ['basic', 'subgraph']) {
+    app.openDocument(JSON.parse(readFileSync(join(coreRoot, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
+  }
+  basic = app.tabs.get().find((tab) => tab.id === 'lineage-seed-basic')!
   const backend = app.backends.get()[0]!
-  backend.registry.set(buildDinksterRegistry(backend.id, payloadWithTransform as unknown as DinksterNodesPayload))
+  backend.registry.set(historicalRegistry(backend.id))
+  app.registerSchemas(scopeSchemas)
 })
 
 describe('directed partial-execution scopes', () => {

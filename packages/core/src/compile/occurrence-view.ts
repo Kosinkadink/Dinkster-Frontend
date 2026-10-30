@@ -2,7 +2,6 @@ import { boundaryBindingKey, isForwardingBinding, suppressedDeliveryKey, type Bo
 import { asDynamicMemberId, asNodeId, asPortId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type OccurrenceRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { memberHopsOf, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { outputSchemaInputsOf } from '../schema/model.js'
 import { buildBoundaryCrossings, crossingTargets, isSubtreeCrossing, overlayNodeDynamic, overlaySelectorDynamic, projectCountBoundValues, projectCrossingValues, rekeySubtreeValues, translateThroughCrossing, type SubtreeCrossing } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'
 import { documentNodeResolver } from './compile.js'
@@ -228,6 +227,7 @@ export function occurrenceDynamicView(
       if (evidence.ref.port !== item.id && !evidence.ref.port.startsWith(`${item.id}.`)) continue
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
       for (const [index, binding] of bindings.entries()) {
+        if (binding.kind !== 'port' && !isForwardingBinding(binding)) continue
         const leg = evidence.route?.[0]
         if (leg && (leg.graph !== child.id || leg.boundaryId !== item.id || boundaryBindingKey(leg.binding) !== boundaryBindingKey(binding))) continue
         if (!isForwardingBinding(binding) && (evidence.ref.port !== item.id || evidence.ref.members !== undefined)) continue
@@ -249,10 +249,18 @@ export function occurrenceDynamicView(
         if (binding.kind !== 'port' || binding.members !== undefined) continue
         const target = child.nodes[binding.node]
         const schema = target && resolveNode(child.id, target)
-        if (!schema || !outputSchemaInputsOf(schema).includes(binding.port as string)) continue
+        if (!target || !schema) continue
+        const route = resolveBoundaryRoute(schema, binding, 'input')
+        if (!route.ok || route.route.terminal.kind !== 'port' || route.route.terminal.slot.dynamic !== undefined) continue
         let targetOwners = childValueOwners.get(binding.node)
         if (!targetOwners) childValueOwners.set(binding.node, (targetOwners = new Map()))
         if (!targetOwners.has(binding.port as string)) targetOwners.set(binding.port as string, owner)
+        if (Object.hasOwn(instanceValues, item.id)) childValues.set(target.id, {
+          ...(childValues.get(target.id) ?? target.values), [binding.port]: instanceValues[item.id]!,
+        })
+        if (Object.hasOwn(instanceControllers ?? {}, item.id)) childControllers.set(target.id, {
+          ...(childControllers.get(target.id) ?? target.controllers), [binding.port]: instanceControllers![item.id]!,
+        })
       }
     }
     for (const primaryCrossing of crossings.values()) {

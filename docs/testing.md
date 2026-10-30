@@ -2,8 +2,8 @@
 
 ## Fast pull-request checks
 
-`.github/workflows/ci.yml` runs product screenshots with a fifteen-minute
-job limit and fast checks with a ten-minute limit. The required fast check also fails if screenshots
+`.github/workflows/ci.yml` runs product screenshots and fast checks, each
+with a ten-minute limit. The required fast check also fails if screenshots
 fail, so a visual regression cannot bypass the existing merge requirement.
 After `pnpm install --frozen-lockfile`, reproduce it with:
 
@@ -28,13 +28,8 @@ on existing application files. There is no repository-wide formatter or
 linter configuration.
 
 The fast job does not run a browser, performance budgets or E2E shards.
-The screenshot job caches Playwright browsers by runner OS, architecture and
-lockfile, installs Chromium without reinstalling the hosted image's OS
-libraries, and runs `pnpm test:visual` without a live backend. Browser
-installation has a three-minute limit; screenshots have an eight-minute limit
-(recent hosted runs took under thirty seconds and six and a half minutes,
-respectively). Playwright still checks required runtime libraries. It uses the
-same Linux runner image as full validation and discovers
+The screenshot job installs Chromium and runs `pnpm test:visual` on the same
+Linux runner image as full validation, without a live backend. It discovers
 specs containing screenshot assertions so new screenshot specs join the check.
 PR labels do not enable heavy jobs.
 
@@ -114,46 +109,23 @@ gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <
 
 The dispatch ref selects both the workflow and frontend checkout. Main pushes,
 scheduled runs, called runs, and dispatched runs all use the complete matrix.
-Parallel-safe runs as six shards, backend-serial as two, and native-without-V1
-as one startup-discovery job that proves V1 absence. Every E2E lane installs
+Parallel-safe runs as six shards, backend-serial as two, and native startup
+as one isolated job. Every E2E lane installs
 and checks the software Vulkan driver selected by `VK_DRIVER_FILES`, including
-browser WebGL and native headless rendering. Legacy import, link-drop, and
-palette-filter specs run in parallel-safe, where their V1 fixture exists,
-rather than replaying that fixture against the native-only catalog.
+browser WebGL and native headless rendering.
 The product-surface visual matrix runs only in the fast visual job; its
 route-mocked screenshots do not require a second run against hosted backends.
 Synthetic noodle and boundary interaction proofs run only in parallel-safe.
-All 11 E2E lanes may run concurrently on
+All 10 E2E lanes may run concurrently on
 GitHub-hosted Linux. The jobs retain their existing assertions and dependency
 pins:
 
 | Job           | Checks                                                                                                                                                                                                                                                   |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ci`          | Backend-generated fixture drift, workspace typecheck, UI-string lint, complete unit/component suites including performance budgets, app build and audit-assets browser suite                                                                             |
-| `e2e-suite`   | Six parallel-safe shards, two backend-serial shards, one native-without-V1 startup-discovery job, stock V1 compatibility, and the performance browser job. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
+| `e2e-suite`   | Six parallel-safe shards, two backend-serial shards, native startup, and the performance browser job. Backend-serial 1/2 also proves an ordinary third-party pack against a server composed with only that pack. |
 | `e2e`         | Always evaluates the aggregate and requires every E2E matrix leg to succeed                                                                                                                                                                              |
 | `main-status` | Uploads one lane-result JSON artifact and fails unless every selected main lane passed                                                                                                                                                                   |
-
-The stock ComfyUI V1 job also runs 15 live Vitest cases serially, after
-Playwright has started its isolated servers and native composition has settled:
-
-| File | Live cases | Server |
-| --- | ---: | --- |
-| `client/test/live.integration.test.ts` | 2 | Stock ComfyUI V1 |
-| `client/test/collab-live.integration.test.ts` | 1 | Native HTTP/WebSocket |
-| `client/test/loop-templates.live.test.ts` | 1 (five templates) | Native |
-| `client/test/executable-examples.test.ts` | 9 | Native |
-| `app/test/regions-live.integration.test.ts` | 2 | Native |
-
-The hosted global setup uses separate V1 and native `DINKSTER_LIVE_URL`
-invocations; collaboration uses `DINKSTER_COLLAB_LIVE_URL`. Files and workers
-run serially against the workflow-pinned CPU backends. The live-name filter
-excludes the nine offline example compilation cases already covered by the
-unit suite; every selected live case must pass, with the exact live count
-checked from its JSON report. Reports are retained in the `live-vitest`
-artifact. A failed invocation fails the stock job before its browser tests;
-Playwright tears down all owned servers on success or failure. Other matrix
-jobs and fast checks do not repeat this live coverage.
 
 The heavy jobs retain the shared memory-only dependency identity action and
 clean checkouts without persisted credentials. The audit-assets browser starts the
@@ -161,9 +133,15 @@ pinned Dinkster checkout and uses frontend/native ports 15376/15377. Its subgrap
 import readiness count follows the served `/api/nodes` catalog; graph structure
 and diagnostic expectations remain fixed goldens in `native-catalog.json`.
 Full E2E
-uses frontend/ComfyUI/native ports 15410/15411/15412 and installs the locked
-compatibility dependencies into the pinned ComfyUI interpreter used by its
-full composition. Its contract proof separately starts Dinkster with
+uses frontend/native ports 15410/15412 and installs the locked
+inference dependencies into the native execution interpreter used by its
+rootless native composition. It neither starts a stock ComfyUI server nor
+passes a ComfyUI root to Dinkster. The isolated library configures a read-only
+`checkpoints` mount with kind `model/checkpoint` for the missing-model picker
+fixture, alongside its writable `output` mount. The native startup
+job runs the 11 native client and two native app live Vitest cases once inside
+its native server lifetime, serially, and retains their JSON reports with exact
+case-count and passed-status checks. Its contract proof separately starts Dinkster with
 `--no-default-packs --pack tests/fixtures/extension-contract-pack/dinkster-pack.toml`
 on ports 15420/15421, activates the fixture pack's immutable frontend module,
 renders two custom nodes linked through the pack's custom value type, executes
@@ -172,10 +150,12 @@ The isolated hosted library explicitly enables templates for positive gallery
 and loop-template coverage. Template-dependent route fixtures also report
 templates enabled. Disabled-feature specs override that capability to assert
 the production default, which remains disabled.
-Base, hosted and audit Playwright servers explicitly enable the v1
-compatibility probe required by
-route-mocked specs; production startup remains native-only. No standing
-development server is reused or stopped.
+Shared browser fixtures leave native catalog and supervisor routes reachable.
+Specs either use the isolated native backend or supply their own native wire
+schemas and API routes. The shared fixture does not select a stock protocol,
+block native discovery, or add backend settings responses. App View remains an
+explicit per-test option, and spec-local routes take precedence over context
+routes. No standing development server is reused or stopped.
 Hosted native launches declare `--engine-variant linux-cpu`. After composition,
 global setup requires an empty workflow to return an empty requirement plan
 without a request variant. Mock-only native fixtures explicitly answer that

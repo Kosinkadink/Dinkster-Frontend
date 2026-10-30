@@ -6,9 +6,6 @@
  * quadratic blowups in CI, not to microbenchmark. Real frame-time budgets
  * live in the Playwright perf spec, which runs a real renderer.
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { compile, documentResolver } from '../src/compile/compile.js'
 import type { WorkflowDocument } from '../src/format/document.js'
@@ -17,14 +14,8 @@ import { syntheticWorkflow } from '../src/format/synthetic.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { elaborateInterface } from '../src/schema/elaborate.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { syntheticSchemas as schemas } from './fixtures/historical-schemas.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
-
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const objectInfo = JSON.parse(
-  readFileSync(join(root, 'fixtures/object_info.json'), 'utf8'),
-) as Record<string, ObjectInfoEntry>
-const { schemas } = parseObjectInfo(objectInfo)
 
 // 60 chains x 20 nodes = 1200 nodes, 1140 links.
 const CHAINS = 60

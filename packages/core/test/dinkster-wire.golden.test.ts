@@ -13,6 +13,35 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('preserves native asset-selection schemas and imported source names', () => {
+    for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
+      const types = [concrete('COMBO'), ...(kind === 'model/vae' ? [{ kind: 'union', types: ['COMBO', 'ASSET'] }] : [])]
+      const source = kind === 'model/vae' ? 'pixel_space' : 'nested/source'
+      for (const type of types) {
+        const result = parseDinksterSchema('SourceSelection', { interface: [
+          { role: 'input', id: 'source', type, widget: { type: 'ASSET', accept: [], kind, selection: true } },
+          { role: 'input', id: 'file', type: concrete('ASSET'), widget: { type: 'ASSET', accept: [] } },
+        ] })
+        expect(result.diagnostics).toEqual([])
+        expect(inputsOf(result.schema!)[0]!.widget).toMatchObject({ widgetType: 'ASSET', kind, selection: true })
+        const resolve = () => result.schema
+        const imported = importLitegraph({ nodes: [{ id: 1, type: 'SourceSelection', widgets_values: [source, 'ordinary.vae'] }], links: [] }, resolve)
+        const descriptor = { digest: `blake3:${'a'.repeat(64)}`, name: 'ordinary.vae', size: 17, mediaType: 'application/octet-stream', virtualPath: 'mounts/vae/ordinary.vae' }
+        const resolved = resolveImportedAssetLiterals(imported.document!, resolve, () => descriptor)
+        expect(resolved.unresolved).toEqual([])
+        expect(resolved.document.graphs.g0!.nodes.n1!.values).toEqual({ source, file: descriptor })
+        const linked = importLitegraph({ nodes: [
+          { id: 1, type: 'SourceSelection', inputs: [{ name: 'source', type: 'COMBO', link: 7 }], widgets_values: [source, 'ordinary.vae'] },
+          { id: 2, type: 'PrimitiveNode', outputs: [{ name: 'COMBO', type: 'COMBO', links: [7] }], widgets_values: [source] },
+        ], links: [[7, 2, 0, 1, 0, 'COMBO']] }, (nodeType) => nodeType === 'SourceSelection' ? result.schema : undefined)
+        expect(linked.document).toBeDefined()
+        const linkedResolved = resolveImportedAssetLiterals(linked.document!, resolve, () => descriptor)
+        expect(linkedResolved.unresolved).toEqual([])
+        expect(Object.values(linkedResolved.document.graphs.g0!.valueSources!)[0]!.value).toBe(source)
+      }
+    }
+  })
+
   it('compiles required initial family positions without requiring an authored tail', () => {
     const source = parseDinksterSchema('Source', { interface: [
       { role: 'output', id: 'out0', type: concrete('IMAGE') },
@@ -46,6 +75,46 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('rejects invalid native asset-selection contracts without widening ordinary assets', () => {
+    const union = { kind: 'union', types: ['COMBO', 'ASSET'] }
+    for (const [type, widget] of [
+      [concrete('COMBO'), { kind: 'media/image', selection: true }],
+      [concrete('COMBO'), { kind: 'model/vae', selection: 'true' }],
+      [concrete('COMBO'), { kind: 'model/vae', selection: true, allowUpload: true }],
+      [concrete('ASSET'), { kind: 'model/vae', selection: true }],
+      [union, { kind: 'model/diffusers', selection: true }],
+      [union, { kind: 'model/vae', selection: false }],
+    ]) {
+      const result = parseDinksterSchema('InvalidSelection', { interface: [
+        { role: 'input', id: 'source', type, widget: { type: 'ASSET', accept: [], ...widget } },
+      ] })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+    }
+  })
+
+  it('binds color pickers to native COLOR or STRING without rewriting socket types', () => {
+    for (const socket of ['COLOR', 'STRING']) {
+      const result = parseDinksterSchema('ColorPicker', { interface: [
+        { role: 'input', id: 'color', type: concrete(socket), default: '#12ab34cd', widget: { type: 'COLOR' } },
+        { role: 'output', id: 'hex', type: concrete(socket) },
+      ] })
+      expect(result.diagnostics).toEqual([])
+      expect(inputsOf(result.schema!)[0]).toMatchObject({
+        type: { kind: 'concrete', name: socket },
+        widget: { widgetType: 'COLOR', default: '#12ab34cd' },
+      })
+      expect(outputsOf(result.schema!)[0]!.type).toEqual({ kind: 'concrete', name: socket })
+    }
+    for (const type of [concrete('INT'), concrete('COMBO'), { kind: 'list', element: concrete('COLOR') }]) {
+      const result = parseDinksterSchema('InvalidColorPicker', { interface: [
+        { role: 'input', id: 'color', type, widget: { type: 'COLOR' } },
+      ] })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+    }
+  })
+
   it('decodes historical input-family templates and rejects malformed declarations without losing the node', () => {
     const rule = (sourceTemplate: unknown) => ({
       from: 'OldNode', cases: [{ to: 'NewNode', inputFamilies: { values: {
@@ -76,6 +145,75 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('keeps hidden DynamicCombo selectors presentation-only through import and compile', () => {
+    for (const hidden of [undefined, false, true]) {
+      const result = parseDinksterSchema('HiddenSelector', {
+        outputNode: true,
+        interface: [{ role: 'dynamicCombo', id: 'codec', hidden, options: [
+          { key: 'auto', inputs: [{ role: 'input', id: 'quality', type: concrete('INT'), default: 7 }] },
+          { key: 'custom', inputs: [{ role: 'input', id: 'quality', type: concrete('INT'), default: 13 }] },
+        ] }],
+      })
+      expect(result.diagnostics).toEqual([])
+      expect(inputsOf(result.schema!)[0]!.hidden).toBe(hidden === true ? true : undefined)
+      const resolve = (type: string) => type === 'HiddenSelector' ? result.schema : undefined
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'HiddenSelector', widgets_values: ['custom', 29] }], links: [] }, resolve)
+      const node = imported.document!.graphs.g0!.nodes.n1!
+      expect(node.dynamic?.codec?.selected).toBe('custom')
+      expect(node.values['codec.quality']).toBe(29)
+      const before = JSON.stringify(imported.document)
+      const compiled = compile({ document: imported.document!, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('hidden-selector'), schemaHash: 'hidden-selector' })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('hidden selector compilation failed')
+      expect(compiled.artifact.prompt.n1!.inputs).toEqual({ codec: 'custom', 'codec.quality': 29 })
+      expect(JSON.stringify(imported.document)).toBe(before)
+    }
+    for (const hidden of [null, 0, 'true', {}]) {
+      const result = parseDinksterSchema('InvalidHiddenSelector', { interface: [
+        { role: 'dynamicCombo', id: 'codec', hidden, options: [{ key: 'auto', inputs: [] }] },
+      ] })
+      expect(result.schema).toBeUndefined()
+      expect(result.diagnostics[0]?.message).toContain('hidden')
+    }
+  })
+
+  it('decodes native replacement rules without applying them during ComfyUI import', () => {
+    const wire = {
+      outputNode: true,
+      deprecation: { message: 'Use the current node', replacement: 'CurrentNode' },
+      searchVisibility: 'deprecated',
+      interface: [{ role: 'input', id: 'value', type: concrete('INT'), default: 7 }],
+      replacements: [{ from: 'AuthoredNode', cases: [{ to: 'OtherNode' }] }],
+    }
+    const result = parseDinksterSchema('AuthoredNode', wire)
+    expect(result.diagnostics).toEqual([])
+    expect(result.schema).toMatchObject({
+      type: 'AuthoredNode', deprecation: wire.deprecation, searchVisibility: 'deprecated',
+    })
+    expect(result.schema?.replacements).toEqual(wire.replacements)
+    const imported = importLitegraph({ nodes: [{ id: 1, type: 'AuthoredNode', widgets_values: [19] }], links: [] },
+      (type) => type === 'AuthoredNode' ? result.schema : undefined)
+    expect(imported.document!.graphs.g0!.nodes.n1).toMatchObject({ type: 'AuthoredNode', values: { value: 19 } })
+  })
+
+  it('keeps current nodes available when migration advice is malformed', () => {
+    const valid = { from: 'OldNode', cases: [{ to: 'CurrentNode' }] }
+    for (const replacements of [false, [null, valid, { from: 'OldNode', cases: [] }]]) {
+      const result = parseDinksterSchema('CurrentNode', {
+        interface: [{ role: 'input', id: 'value', type: concrete('INT'), default: 7 }],
+        replacements,
+      })
+      expect(result.schema?.type).toBe('CurrentNode')
+      expect(inputsOf(result.schema!)[0]?.widget?.default).toBe(7)
+      expect(result.schema?.replacements).toEqual(Array.isArray(replacements) ? [valid] : undefined)
+      expect(result.diagnostics.map(({ severity, code }) => ({ severity, code }))).toEqual(
+        Array.from({ length: Array.isArray(replacements) ? 2 : 1 }, () => ({
+          severity: 'warning', code: 'schema.dinkster.badReplacements',
+        })),
+      )
+    }
+  })
+
   it('preserves mixed COMBO scalar identity through defaults, import, and compile', () => {
     const values = ['auto', 8, 10, '8', true, 1, false, 1.25, ''] as const
     for (const value of values) {
@@ -95,6 +233,13 @@ describe('Dinkster schema wire', () => {
         expect(compiled.artifact.prompt.n1!.inputs.depth).toBe(value)
         expect(JSON.parse(JSON.stringify(compiled.artifact.prompt)).n1.inputs.depth).toBe(value)
       }
+    }
+    const schema = parseDinksterSchema('StringCombo', { outputNode: true, interface: [
+      { role: 'input', id: 'depth', type: concrete('COMBO'), widget: { type: 'COMBO', options: ['8', { value: 'enabled', label: 'Enabled' }] } },
+    ] }).schema!
+    for (const value of [8, 'Enabled']) {
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'StringCombo', widgets_values: [value] }], links: [] }, () => schema)
+      expect(imported.document!.graphs.g0!.nodes.n1!.values.depth).toBe(value)
     }
   })
 
@@ -116,10 +261,126 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('keeps socketless widget values positional and compilable in direct and nested inputs', () => {
+    const fields = [
+      { role: 'input', id: 'color', type: concrete('STRING'), default: '#123456', socketless: true, widget: { type: 'COLOR' } },
+      { role: 'input', id: 'amount', type: concrete('INT'), default: 7 },
+    ]
+    for (const nested of [false, true]) {
+      const result = parseDinksterSchema('SocketlessFixture', {
+        outputNode: true,
+        interface: nested ? [{ role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs: fields }] }] : fields,
+      })
+      expect(result.diagnostics).toEqual([])
+      const resolve = (type: string) => type === 'SocketlessFixture' ? result.schema : undefined
+      for (const [widgets, color, amount] of [
+        [[], '#123456', 7], [['#abcdef', 19], '#abcdef', 19],
+      ] as const) {
+        const imported = importLitegraph({ nodes: [{ id: 1, type: 'SocketlessFixture', widgets_values: nested ? ['solid', ...widgets] : widgets }], links: [] }, resolve)
+        const compiled = compile({ document: imported.document!, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('socketless'), schemaHash: 'socketless' })
+        expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('socketless compilation failed')
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual(nested ? { style: 'solid', 'style.color': color, 'style.amount': amount } : { color, amount })
+      }
+    }
+  })
+
+  it('validates socketless flags in every ordinary input scope', () => {
+    const scopes = [
+      (inputs: unknown[]) => inputs,
+      (inputs: unknown[]) => [{ role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs }] }],
+      (inputs: unknown[]) => [{ role: 'inputFamily', id: 'colors', memberPrefix: 'color', template: inputs }],
+    ]
+    const field = { role: 'input', id: 'color', type: concrete('STRING'), default: '#123456', widget: { type: 'COLOR' } }
+    for (const scope of scopes) {
+      for (const socketless of [undefined, false, true]) {
+        const result = parseDinksterSchema('SocketlessFixture', { interface: scope([{ ...field, socketless }]) })
+        expect(result.diagnostics).toEqual([])
+        expect(result.schema).toBeDefined()
+      }
+      for (const invalid of [
+        ...[null, 0, 1, 'true', [], {}].map((socketless) => ({ ...field, socketless })),
+        { ...field, socketless: true, forceInput: true },
+      ]) {
+        const result = parseDinksterSchema('InvalidSocketless', { interface: scope([invalid]) })
+        expect(result.schema).toBeUndefined()
+        expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+      }
+    }
+  })
+
+  it('keeps an appended mount separate from its adjacent prefix and original positional inputs', () => {
+    const result = parseDinksterSchema('SaveFixture', {
+      schemaVersion: 1,
+      outputNode: true,
+      interface: [
+        { role: 'input', id: 'filename_prefix', type: concrete('STRING'), default: 'output' },
+        { role: 'input', id: 'quality', type: concrete('INT'), default: 85 },
+        { role: 'input', id: 'mount', type: concrete('STRING'), required: false, default: null, widget: { type: 'MOUNT' }, adjacentTo: 'filename_prefix' },
+      ],
+    })
+    expect(result.diagnostics).toEqual([])
+    expect(inputsOf(result.schema!).map((input) => input.id)).toEqual(['filename_prefix', 'quality', 'mount'])
+    expect(inputsOf(result.schema!)[0]).not.toHaveProperty('adjacentTo')
+    expect(inputsOf(result.schema!)[2]).toMatchObject({
+      adjacentTo: 'filename_prefix', optional: true,
+      type: { kind: 'concrete', name: 'STRING' },
+      widget: { widgetType: 'MOUNT', options: {}, default: null },
+    })
+    const resolve = (type: string) => type === 'SaveFixture' ? result.schema : undefined
+    for (const [widgets_values, expected] of [
+      [['frames/day', 73], { filename_prefix: 'frames/day', quality: 73, mount: null }],
+      [['frames/default', 42, null], { filename_prefix: 'frames/default', quality: 42, mount: null }],
+      [['frames/night', 61, 'archive'], { filename_prefix: 'frames/night', quality: 61, mount: 'archive' }],
+    ] as const) {
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'SaveFixture', widgets_values }], links: [] }, resolve)
+      expect(imported.diagnostics.map((item) => item.code)).toEqual(widgets_values.length === 2 ? ['import.widgets.missing'] : [])
+      const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('mount-test'), schemaHash: 'mount-test' })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('mount fixture compilation failed')
+      expect(compiled.artifact.prompt.n1!.inputs).toEqual(expected)
+    }
+  })
+
+  it('rejects invalid mount descriptors and non-sibling adjacency references', () => {
+    const prefix = { role: 'input', id: 'prefix', type: concrete('STRING') }
+    const mount = { role: 'input', id: 'mount', type: concrete('STRING'), required: false, widget: { type: 'MOUNT' }, adjacentTo: 'prefix' }
+    for (const invalid of [
+      { ...mount, type: concrete('INT') },
+      ...['', 'missing', 'mount', null, 4].map((adjacentTo) => ({ ...mount, adjacentTo })),
+    ]) {
+      const result = parseDinksterSchema('BadMount', { interface: [prefix, invalid] })
+      expect(result.schema, JSON.stringify(invalid)).toBeUndefined()
+      expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+    }
+  })
+
+  it('rejects adjacency cycles in each sibling scope without rejecting acyclic chains', () => {
+    const field = (id: string, adjacentTo?: string) => ({ role: 'input', id, type: concrete('STRING'), ...(adjacentTo === undefined ? {} : { adjacentTo }) })
+    const scopes = [
+      (inputs: unknown[]) => inputs,
+      (inputs: unknown[]) => [{ role: 'inputFamily', id: 'files', memberPrefix: 'file', template: inputs }],
+      (inputs: unknown[]) => [{ role: 'dynamicCombo', id: 'mode', options: [{ key: 'save', inputs }] }],
+    ]
+    for (const scope of scopes) {
+      for (const inputs of [
+        [field('a', 'b'), field('b', 'a')],
+        [field('a', 'b'), field('b', 'c'), field('c', 'a')],
+      ]) {
+        const result = parseDinksterSchema('CycleFixture', { interface: scope(inputs) })
+        expect(result.schema).toBeUndefined()
+        expect(result.diagnostics.some((item) => item.message.includes('adjacentTo cycle'))).toBe(true)
+      }
+      const valid = parseDinksterSchema('ChainFixture', { interface: scope([field('a'), field('b', 'a'), field('c', 'b')]) })
+      expect(valid.diagnostics).toEqual([])
+      expect(valid.schema).toBeDefined()
+    }
+  })
+
   it('keeps known widgets with unknown descriptor fields and ignores the fields', () => {
     const cases = [
       ['ASSET', concrete('ASSET'), { accept: ['image/png'] }, 'ASSET'],
-      ['SAVE_TARGET', concrete('SAVE_TARGET'), { suffix: '.png' }, 'SAVE_TARGET'],
+      ['MOUNT', concrete('STRING'), {}, 'MOUNT'],
       ['COMBO', concrete('COMBO'), { options: ['a'] }, 'COMBO'],
       ['MULTI_COMBO', { kind: 'list', element: concrete('COMBO') }, { options: ['a'] }, 'MULTI_COMBO'],
       ['BOOLEAN', concrete('BOOLEAN'), { labelOn: 'On' }, 'BOOLEAN'],
@@ -148,6 +409,16 @@ describe('Dinkster schema wire', () => {
         message: `Example.value ${type === 'REPRESENTATIONS' ? 'REPRESENTATIONS ' : ''}widget: unknown field 'futureHint'`,
       }])
     }
+    const mount = { role: 'input', id: 'mount', type: concrete('STRING'), widget: { type: 'MOUNT' } }
+    const clean = parseDinksterSchema('SaveFixture', { interface: [mount] })
+    const future = parseDinksterSchema('SaveFixture', { interface: [
+      { ...mount, widget: { ...mount.widget, options: ['archive'] } },
+    ] })
+    expect(future.schema).toEqual(clean.schema)
+    expect(future.diagnostics).toEqual([expect.objectContaining({
+      severity: 'warning', code: 'schema.widget.unknownField',
+      message: "SaveFixture.mount widget: unknown field 'options'",
+    })])
   })
 
   it('keeps missing and mistyped known widget fields as unresolved schema errors', () => {
@@ -343,6 +614,30 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('preserves forced FLOATS sockets with numeric presentation and rejects unforced or list substitutes', () => {
+    const widget = { type: 'NUMBER', min: -1, step: 0.001 }
+    const representations = { type: 'REPRESENTATIONS', default: 'number', userSwitchable: false,
+      representations: [{ id: 'number', widget }] }
+    for (const descriptor of [widget, representations]) {
+      const entry = { role: 'input', id: 'strengths', type: concrete('FLOATS'), forceInput: true, default: -1, widget: descriptor }
+      const decoded = parseDinksterSchema('ForcedFloats', { interface: [entry] })
+      expect(decoded.diagnostics).toEqual([])
+      expect(inputsOf(decoded.schema!)[0]).toMatchObject({
+        type: { kind: 'concrete', name: 'FLOATS' }, forceInput: true,
+        widget: { widgetType: 'FLOAT', default: -1, options: { min: -1, step: 0.001 } },
+      })
+      for (const invalid of [
+        { ...entry, forceInput: false },
+        { ...entry, forceInput: undefined },
+        { ...entry, type: { kind: 'list', element: concrete('FLOATS') } },
+      ]) {
+        const rejected = parseDinksterSchema('BadFloatsPresentation', { interface: [invalid] })
+        expect(rejected.schema).toBeUndefined()
+        expect(rejected.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+      }
+    }
+  })
+
   it('keeps numeric union widget support closed to the INT/FLOAT scalar domain', () => {
     for (const type of [
       { kind: 'union', types: ['FLOAT', 'STRING'] },
@@ -463,7 +758,7 @@ describe('Dinkster schema wire', () => {
       mayExpandGraph: true,
       interface: [
         { role: 'input', id: 'asset', type: concrete('ASSET'), required: true, widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' } },
-        { role: 'input', id: 'save', type: concrete('SAVE_TARGET'), required: true, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
+        { role: 'input', id: 'mount', type: concrete('STRING'), required: false, default: null, widget: { type: 'MOUNT' } },
         { role: 'input', id: 'combo', type: concrete('COMBO'), required: true, default: 'a', widget: { type: 'COMBO', options: ['a'] } },
         { role: 'input', id: 'multi', type: { kind: 'list', element: concrete('COMBO') }, required: true, default: ['a'], widget: { type: 'MULTI_COMBO', options: ['a'] } },
         { role: 'input', id: 'boolean', type: concrete('BOOLEAN'), required: true, default: true, widget: { type: 'BOOLEAN', labelOn: 'On' } },
@@ -497,7 +792,7 @@ describe('Dinkster schema wire', () => {
     expect(result.schema?.mayExpandGraph).toBe(true)
     expect(inputsOf(result.schema!).map((input) => input.widget?.widgetType)).toEqual([
       'ASSET',
-      'SAVE_TARGET',
+      'MOUNT',
       'COMBO',
       'MULTI_COMBO',
       'BOOLEAN',

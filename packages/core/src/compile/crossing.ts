@@ -205,6 +205,7 @@ export function buildBoundaryCrossings(
       }
       if (!isForwardingBinding(item.binds)) continue
       const crossingFor = (binding: BoundaryBinding): BoundaryCrossing | undefined => {
+        if (!isForwardingBinding(binding)) return undefined
         const node = child.nodes[binding.node]
         const schema = node && resolveNode(node)
         if (!node || !schema) {

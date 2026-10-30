@@ -146,13 +146,11 @@
     "attribute:title:No log records for this run.",
     "attribute:title:No problem details recorded.",
     "attribute:title:Node missing.",
-    "text:Apply Replacement",
     "text:Dismiss",
-    "text:No automatic replacement is available.",
+    "text:No successor is declared.",
     "text:Open Subgraph",
     "text:Open in Execution log",
-    "text:Open in Execution log",
-    "text:ReplacementBadgeInfo"
+    "text:Open in Execution log"
   ],
   "BoundaryPanel.tsx": [
     "attribute:aria-label:Maximum iterations",
@@ -234,7 +232,6 @@
     "text:(settingsTick(), props.app.settings.get",
     "text:(settingsTick(), props.app.settings.get",
     "text:(undefined) /** * When the link menu opened. A midpoint single click opens it on release, * so the second press of a habitual double-click lands on the backdrop * milliseconds later; the backdrop ignores presses inside this window so * a double-click leaves the menu open instead of flashing it closed. */ let linkMenuOpenedAt = 0 const LINK_MENU_DISMISS_GRACE_MS = 350 const [recentNodeTypes, setRecentNodeTypes] = createSolidSignal",
-    "text:(undefined) // Replacement scan items for the CURRENT graph, keyed by node id. Rebuilt // by the badges effect; read lazily by the deprecation badge popover. let replaceItems = new Map",
     "text:(undefined) const [linkDoubleClickMenu, setLinkDoubleClickMenu] = createSolidSignal",
     "text:, instancePath: readonly string[], ): ReadonlySet",
     "text:0) page(props.onPrevious) if (event.key === 'ArrowRight' && props.index",
@@ -277,7 +274,7 @@
     "text:outputImagePreviewByKey().get(key) const [outputViewerKey, setOutputViewerKey] = createSolidSignal",
     "text:props.app.settings.get",
     "text:props.app.settings.get",
-    "text:props.host?.focused() ?? true const executions = useSignal(props.app.store.executions) const overlayPins = useSignal(props.app.overlayPins) const lenses = useSignal(props.app.lenses) const backendsTick = useSignal(props.app.backendsTick) const tabTargets = useSignal(props.app.tabTargets) const settingsTick = useSignal(props.app.settings.changed) const extensionRevision = useSignal(props.app.extensionRevision) const collabTabs = useSignal(props.app.collabTabs) const modalPanel = useSignal(props.app.modalPanel) const diagnosticFocus = useSignal(props.app.diagnosticFocus) const problems = useSignal(props.app.problems) // Scene/widget diagnostics for THIS editor instance. The app-level // solveDiagnostics signal mirrors the focused instance only, so an // unfocused split sibling keeps its own rail without clobbering the // Problems panel. const [instanceDiagnostics, setInstanceDiagnostics] = createSolidSignal",
+    "text:props.host?.focused() ?? true const executions = useSignal(props.app.store.executions) const overlayPins = useSignal(props.app.overlayPins) const lenses = useSignal(props.app.lenses) const backendsTick = useSignal(props.app.backendsTick) const tabTargets = useSignal(props.app.tabTargets) const settingsTick = useSignal(props.app.settings.changed) const extensionRevision = useSignal(props.app.extensionRevision) const collabTabs = useSignal(props.app.collabTabs) const modalPanel = useSignal(props.app.modalPanel) const diagnosticFocus = useSignal(props.app.diagnosticFocus) const problems = useSignal(props.app.problems) const reviewReplacements = useSignal(props.app.reviewReplacements) // Scene/widget diagnostics for THIS editor instance. The app-level // solveDiagnostics signal mirrors the focused instance only, so an // unfocused split sibling keeps its own rail without clobbering the // Problems panel. const [instanceDiagnostics, setInstanceDiagnostics] = createSolidSignal",
     "text:readonly endpointTypes: ReadonlyMap",
     "text:readonly key: string readonly pathKey: string readonly registry: ReturnType",
     "text:rect.right || client.y",
@@ -449,7 +446,6 @@
     "text:Descriptor",
     "text:Execution",
     "text:Execution owner removed or disconnected. Retained output routes are used when available.",
-    "text:File type",
     "text:Fit",
     "text:Grid",
     "text:Image",
@@ -473,7 +469,6 @@
     "text:Single",
     "text:Source",
     "text:Status",
-    "text:Subfolder",
     "text:Type",
     "text:Unavailable",
     "text:props.batch?.imageAt(index) ?? props.images[index] const [index, setIndex] = createSolidSignal(clamp(props.initialIndex, count())) const [rightIndex, setRightIndex] = createSolidSignal(clamp(props.initialIndex + 1, count())) const [mode, setMode] = createSolidSignal",
@@ -882,13 +877,14 @@
     "attribute:aria-label:Source options",
     "attribute:title:Loading source options",
     "text:() const [error, setError] = createSignal",
+    "text:() const [selected, setSelected] = createSignal(typeof props.initial === 'string' ? props.initial : undefined) const [loadedAuthority, setLoadedAuthority] = createSignal",
     "text:Browse files",
     "text:Cancel",
     "text:Refresh",
     "text:Selection",
     "text:Source selection",
     "text:Use selection",
-    "text:option.name === selected()) return",
+    "text:option.name === selected()) : undefined return",
     "text:request?.abort()) const refresh = async (): Promise"
   ],
   "editors/AssetWidgetEditor.tsx": [
@@ -976,19 +972,6 @@
   ],
   "editors/MarkdownWidgetEditor.tsx": [
     "text:props.editor.bindClickAway?.(undefined)) return"
-  ],
-  "editors/SaveTargetWidgetEditor.tsx": [
-    "attribute:aria-label:Save target output metadata",
-    "attribute:label:Mount",
-    "attribute:label:Prefix",
-    "text:Output format",
-    "text:cancel",
-    "text:clear",
-    "text:loading mounts...",
-    "text:mount list failed to load",
-    "text:no writable mounts available",
-    "text:props.editor.bindClickAway?.(undefined)) return",
-    "text:save"
   ],
   "editors/ScalarWidgetEditor.tsx": [
     "attribute:aria-label:Numeric constraints",

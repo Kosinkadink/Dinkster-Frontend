@@ -18,6 +18,7 @@ const TEXT_PAD = 2
 
 function compactAssetValue(value: Json, valid: boolean): string {
   if (!valid || value === null) return 'no asset'
+  if (typeof value === 'string') return value
   if (Array.isArray(value)) {
     if (value.length === 0) return 'no asset'
     return value.length === 1
@@ -87,7 +88,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     // hex, ...) keep a conservative reserve because their content need is
     // view-specific.
     const valuePreview = row.viewId === 'core.asset' && row.spec.widgetType === 'ASSET'
-      ? compactAssetValue(resolved, kind.valueSchema.validate(resolved))
+      ? compactAssetValue(resolved, kind.valueSchema.validate(resolved, row.spec))
       : row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN'
         ? compactBooleanValue(resolved, row.spec.options)
       : resolved === null || typeof resolved === 'object'

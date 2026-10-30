@@ -10,23 +10,24 @@
  * impossible ordinary mappings produce ERROR diagnostics and no plan. A
  * migration's authored universal fallback may instead choose its default and
  * archive displaced historical state. Other lossy-but-possible outcomes (a
- * connection no mapping consumes) produce WARNINGS: the plan exists but must
- * drop to review instead of auto-applying.
+ * connection no mapping consumes) produce warnings; the app retains those
+ * in the migration notice even when applying without review.
  *
  * Ordinary static mappings do not require the SOURCE schema: they read only
  * document state, so a rule can upgrade a missing-node placeholder. When a
  * source schema is available, locally-enumerated combo values are validated
  * before case selection so a malformed selector cannot fall into a rule's
- * fallback case. Count-bound output-family copies additionally require the
- * source schema because their exact member set must be elaborated.
+ * fallback case. Without a source schema, count-bound output-family copies
+ * use the rule's unchanged count mapping and the target's canonical members.
  */
 
+import { createTransactionBuilder, type CommandInvocation } from '../commands/contract.js'
+import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
 import type { Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import type { BoundaryBinding, DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
 import { asDynamicMemberId, asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { normalizedComboOptions } from '../schema/combo-options.js'
-import { canonicalCompatTypeIdOf } from '../schema/type-compatibility.js'
 import {
   buildGraphConnectivity,
   collectWire15MemberEvidence,
@@ -41,10 +42,12 @@ import {
 } from '../schema/elaborate.js'
 import {
   autogrowBounds,
+  canonicalTypeIdOf,
   comboBranchValuePath,
   defaultValuesOf,
   effectiveComboOption,
   inputsOf,
+  isComboWidgetInput,
   joinValuePath,
   outputCountInputsOf,
   outputsOf,
@@ -63,6 +66,7 @@ import type {
   ReplacementPredicate,
   ReplacementRule,
 } from './model.js'
+import type { ReplacementScanItem } from './scan.js'
 
 // ---------------------------------------------------------------------------
 // Plan shape (command params for node.replace - plain Json by construction)
@@ -110,6 +114,8 @@ export interface NodeReplacePlan {
   readonly controllers?: Readonly<Record<string, string>>
   /** Recoverable source snapshot for best-effort same-type migrations. */
   readonly migrationArchive?: JsonObject
+  /** Apply-time evidence after earlier selected migrations; not persisted. */
+  readonly migrationGuard?: JsonObject
   /** An unmatched same-type migration case that must auto-apply best effort. */
   readonly migrationFallback?: true
   /** Links whose `to` moves to a target input id (same node). */
@@ -739,7 +745,8 @@ const dynamicStatesHaveSelection = (
 
 /**
  * Resolve `rule` against one node. Pure: no mutation, no randomness. The
- * result's warnings force review; errors mean no plan at all.
+ * result retains warnings; errors mean no plan at all. Case selection and
+ * historical migration evidence always come from the supplied document.
  */
 export function planReplacement(
   document: WorkflowDocument,
@@ -747,6 +754,18 @@ export function planReplacement(
   nodeId: string,
   rule: ReplacementRule,
   resolve: ReplacementSchemaResolver,
+): ReplacementPlanResult {
+  return planReplacementForCase(document, graphId, nodeId, rule, resolve)
+}
+
+/** Only validated batch composition may retain a previously selected case. */
+function planReplacementForCase(
+  document: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  rule: ReplacementRule,
+  resolve: ReplacementSchemaResolver,
+  selectedCaseIndex?: number,
 ): ReplacementPlanResult {
   const def = document.graphs[graphId]
   const node = def?.nodes[nodeId]
@@ -820,7 +839,7 @@ export function planReplacement(
       ))
     }
   }
-  let migrationEvidence = [...migrationHistoricalInputs].some((input) =>
+  let migrationEvidence = (rule.migration !== undefined && selectedCaseIndex !== undefined) || [...migrationHistoricalInputs].some((input) =>
     Object.hasOwn(node.values, input) ||
     node.dynamic?.[input]?.selected !== undefined ||
     Object.hasOwn(node.controllers ?? {}, input) ||
@@ -866,7 +885,8 @@ export function planReplacement(
     for (const input of elabInputsOf(sourceElaboration)) {
       if (
         input.address.members !== undefined ||
-        input.spec.widget?.widgetType !== 'COMBO' ||
+        !isComboWidgetInput(input.spec) ||
+        input.spec.widget === undefined ||
         input.spec.widget.remote !== undefined
       ) continue
       const stored = node.values[valueKeyOf(input)]
@@ -884,9 +904,9 @@ export function planReplacement(
   }
 
   // First matching case wins; the final case is the universal fallback.
-  let matched: ReplacementCase | undefined
-  let caseIndex = -1
-  for (let i = 0; i < rule.cases.length; i++) {
+  let matched: ReplacementCase | undefined = selectedCaseIndex === undefined ? undefined : rule.cases[selectedCaseIndex]
+  let caseIndex = selectedCaseIndex ?? -1
+  for (let i = 0; selectedCaseIndex === undefined && i < rule.cases.length; i++) {
     const c = rule.cases[i]!
     if (c.when === undefined || evaluatePredicate(c.when, state)) {
       matched = c
@@ -1763,7 +1783,7 @@ export function planReplacement(
       const sourceFamily = sourceSchema === undefined
         ? undefined
         : countOutputFamily(sourceSchema, mapping.sourceFamily)
-      if (sourceFamily === undefined) {
+      if (sourceSchema !== undefined && sourceFamily === undefined) {
         errors.push(
           diag(
             'error',
@@ -1776,23 +1796,29 @@ export function planReplacement(
       if (
         countMapping === undefined ||
         (countMapping.kind !== 'copy' && countMapping.kind !== 'value') ||
-        countMapping.input !== sourceFamily.spec.count.input ||
+        (sourceFamily !== undefined && countMapping.input !== sourceFamily.spec.count.input) ||
         (countMapping.kind === 'value' && countMapping.transform !== undefined)
       ) {
         errors.push(
           diag(
             'error',
             'replace.outputFamily.countMapping',
-            `Output family '${targetFamilyId}': count '${targetCountInput}' must copy '${sourceFamily.spec.count.input}' unchanged`,
+            `Output family '${targetFamilyId}': '${targetCountInput}' must copy the source count unchanged`,
           ),
         )
         continue
       }
-      const elaborated = sourceInterface()
+      const sourceCountInput = countMapping.input
+      const elaborated = sourceSchema === undefined
+        ? elaborateInterface(target, { values, dynamic }, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+        : sourceInterface()
+      const sourceMembers = elaborated?.outputMembers?.[sourceSchema === undefined ? targetFamilyId : mapping.sourceFamily]
       if (
         elaborated === undefined ||
         elaborated.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
-        elaborated.outputMembers?.[mapping.sourceFamily] === undefined
+        sourceMembers === undefined ||
+        isConnected(state, sourceCountInput) ||
+        (sourceSchema === undefined && sourceMembers.length !== node.values[sourceCountInput])
       ) {
         errors.push(
           diag(
@@ -1803,7 +1829,7 @@ export function planReplacement(
         )
         continue
       }
-      members = elaborated.outputMembers[mapping.sourceFamily]!
+      members = sourceMembers
       if (sourceFamilyToTarget.has(mapping.sourceFamily)) {
         errors.push(
           diag(
@@ -1818,7 +1844,7 @@ export function planReplacement(
         target: { nodeId, port: targetFamilyId, schema: target },
         members: new Set(members),
       })
-      sourceCountGuards[sourceFamily.spec.count.input] = node.values[sourceFamily.spec.count.input]!
+      sourceCountGuards[sourceCountInput] = node.values[sourceCountInput]!
     } else {
       members = mapping.members.map((member) => member.suffix)
       if (
@@ -2130,13 +2156,12 @@ export function planReplacement(
     dropLinks.push(...droppedMemberLinks)
   }
   // Tap links survive when the source and target tap types denote the same
-  // values: closed types compare by canonical-compatible id (so the
-  // interchangeable comfy-compat spellings, e.g. MASK/comfy.MASK,
-  // match); open types keep the exact structural comparison. Deliberately
+  // values: closed types compare by canonical id;
+  // open types keep the exact structural comparison. Deliberately
   // NOT typesCompatible - wildcards and coercions must not keep a tap alive.
   const sameTapType = (a: TypeExpr, b: TypeExpr): boolean => {
-    const ca = canonicalCompatTypeIdOf(a)
-    const cb = canonicalCompatTypeIdOf(b)
+    const ca = canonicalTypeIdOf(a)
+    const cb = canonicalTypeIdOf(b)
     if (ca !== undefined && cb !== undefined) return ca === cb
     return canonicalJson(a) === canonicalJson(b)
   }
@@ -2439,5 +2464,64 @@ export function planReplacement(
       ...(matched.links !== undefined ? { links: internalLinks } : {}),
     },
     diagnostics,
+  }
+}
+
+/**
+ * Compose selected rule hops against the evolving document, using the same
+ * planner and command as the scan. Peer migrations can remove shared links
+ * or nets and change archive evidence, so independently scanned plans cannot
+ * be concatenated. Only selected hops run; newly created helper nodes are not
+ * scanned. The final dispatch remains atomic and has one undo step.
+ * Items without hops are ignored; a blocked item contributes its planned prefix.
+ */
+export function replacementInvocation(
+  items: readonly ReplacementScanItem[],
+  document: WorkflowDocument,
+  resolve: ReplacementSchemaResolver,
+): CommandInvocation | undefined {
+  const nodeReplaceCommand = REPLACE_COMMANDS.find((command) => command.id === 'node.replace')!
+  // Each scanned chain must still apply independently to the supplied source.
+  // Recomposition must not turn stale reviewed evidence into fresh authority.
+  for (const item of items) {
+    let reviewed = document
+    for (const hop of item.hops) {
+      const selected = planReplacement(reviewed, item.graphId, item.nodeId, hop.rule, resolve)
+      if (selected.plan === undefined || canonicalJson(selected.plan as unknown as Json) !== canonicalJson(hop.plan as unknown as Json)) return undefined
+      const tx = createTransactionBuilder(reviewed)
+      const diagnostics = nodeReplaceCommand.run(reviewed, { plan: hop.plan } as unknown as Json, tx, {
+        kind: 'initial', schemaResolverFor: () => (type) => resolve(type, 'target'),
+      })
+      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
+      reviewed = tx.result().doc
+    }
+  }
+  let scratch = document
+  const invocations: CommandInvocation[] = []
+  for (const item of items) {
+    for (const hop of item.hops) {
+      if (scratch.graphs[item.graphId]?.nodes[item.nodeId]?.type !== hop.plan.from) return undefined
+      const planned = planReplacementForCase(scratch, item.graphId, item.nodeId, hop.rule, resolve, hop.plan.caseIndex)
+      if (planned.plan === undefined) return undefined
+      // Archive the originally reviewed source, but guard against the exact
+      // intermediate state that this hop will see inside the atomic batch.
+      const plan = hop.plan.migrationArchive !== undefined && planned.plan.migrationArchive !== undefined
+        ? { ...planned.plan, migrationArchive: hop.plan.migrationArchive, migrationGuard: planned.plan.migrationArchive }
+        : planned.plan
+      const params = { plan } as unknown as Json
+      const tx = createTransactionBuilder(scratch)
+      const diagnostics = nodeReplaceCommand.run(scratch, params, tx, {
+        kind: 'initial', schemaResolverFor: () => (type) => resolve(type, 'target'),
+      })
+      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
+      scratch = tx.result().doc
+      invocations.push({ command: 'node.replace', params })
+    }
+  }
+  if (invocations.length === 0) return undefined
+  if (invocations.length === 1) return invocations[0]
+  return {
+    command: 'batch',
+    params: { invocations } as unknown as Json,
   }
 }

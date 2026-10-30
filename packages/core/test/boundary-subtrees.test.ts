@@ -241,6 +241,13 @@ describe('full conditional boundary forwarding', () => {
     store.undo()
     expect(store.dispatch({ command: 'boundary.addItem', params: { graphId: 'body', side: 'inputs', node: 'leaf', port: 'mode', bindingKind: 'port' } }).ok).toBe(true)
     expect(store.doc.graphs['body']!.boundary!.inputs[0]!.binds.kind).toBe('port')
+    const junctionDoc = { ...doc, graphs: { ...doc.graphs, body: { ...doc.graphs.body,
+      reroutes: { r0: { id: 'r0' } },
+      links: { l0: { id: 'l0', from: { reroute: 'r0' }, to: { node: 'leaf', port: 'mode' } } },
+    } } } as unknown as WorkflowDocument
+    const junctionStore = new DocumentStore(junctionDoc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    expect(junctionStore.dispatch({ command: 'boundary.addItem', params: { graphId: 'body', side: 'inputs', node: 'leaf', port: 'mode', viaReroute: 'r0' } }).ok).toBe(true)
+    expect(junctionStore.doc.graphs['body']!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'leaf', port: 'mode', viaReroute: 'r0' })
   })
 
   it('uses field presence for empty, stale, and nested state masks', () => {

@@ -23,7 +23,7 @@ import {
   elabKeyOf,
   elaborateInterface,
 } from './schema/elaborate.js'
-import { atomNamesOf } from './schema/type-compatibility.js'
+import { atomNamesOf } from './schema/type-relations.js'
 import { inputsOf, typeExprFromTypeId, type InputSpec, type NodeSchema, type TypeExpr, type WidgetSpec } from './schema/model.js'
 import { normalizeComboOption } from './schema/combo-options.js'
 
@@ -188,9 +188,7 @@ const intersectTypes = (a: TypeExpr, b: TypeExpr): TypeExpr => {
   // exact identity like any atom; typeExprFromTypeId rebuilds the structured
   // form (never `concrete('list<...>')`). Open lists/variables/wildcards
   // yield undefined -> the other side wins (advisory display only).
-  // atomNamesOf canonicalizes interchangeable comfy-compat spellings, so a
-  // source driving both MASK and comfy.MASK intersects to one MASK
-  // atom instead of collapsing to wildcard.
+  // Atom names retain exact identity, including namespace prefixes.
   const names = (t: TypeExpr): readonly string[] | undefined =>
     t.kind === 'concrete' || t.kind === 'union' || t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream' ? atomNamesOf(t) : undefined
   const an = names(a)
@@ -200,7 +198,7 @@ const intersectTypes = (a: TypeExpr, b: TypeExpr): TypeExpr => {
   const both = [...new Set(an)].filter((n) => bn.includes(n))
   if (both.length === 1) return typeExprFromTypeId(both[0]!)
   if (both.length > 1) return { kind: 'union', names: both }
-  return { kind: 'wildcard' } // disjoint; compat layer will warn on the links
+  return { kind: 'wildcard' } // disjoint; link validation reports the conflict
 }
 
 /**
@@ -214,7 +212,6 @@ export function effectiveValueSourceSpec(
   resolve: (nodeType: string) => NodeSchema | undefined,
   index?: RerouteIndex,
 ): EffectiveValueSourceSpec {
-  const diags: Diagnostic[] = []
   const consumers = valueSourceConsumersOf(def, vs.id, index)
 
   // Gather consumer input specs (widget-backed or not). Top-level static
@@ -245,12 +242,29 @@ export function effectiveValueSourceSpec(
     consumerInputs.push({ ref, input })
   }
 
+  return resolvedValueSourceSpec(vs, consumerInputs)
+}
+
+/** Derive presentation from already resolved consumer inputs without solving types. */
+export function resolvedValueSourceSpec(
+  vs: ValueSourceData,
+  consumerInputs: readonly { readonly ref: PortRef; readonly input: InputSpec }[],
+): EffectiveValueSourceSpec {
   // Advisory type: intersection of consumer input types (wildcard when none).
   let type: TypeExpr = { kind: 'wildcard' }
   for (const { input } of consumerInputs) type = type.kind === 'wildcard' ? input.type : intersectTypes(type, input.type)
 
-  // Widget type: declared verbatim, else unified from widget-backed consumers.
   const widgetSpecs = consumerInputs.filter((c) => c.input.widget).map((c) => c.input.widget!)
+  return { ...valueSourceWidgetSpec(vs, widgetSpecs), type, consumers: consumerInputs.map((consumer) => consumer.ref) }
+}
+
+/** Merge widget constraints from resolved consumers, retaining declared source fields. */
+export function valueSourceWidgetSpec(
+  vs: ValueSourceData,
+  widgetSpecs: readonly WidgetSpec[],
+): Pick<EffectiveValueSourceSpec, 'spec' | 'diagnostics'> {
+  const diags: Diagnostic[] = []
+  // Widget type: declared verbatim, else unified from widget-backed consumers.
   let widgetType = vs.spec?.widgetType
   for (const w of widgetSpecs) {
     if (widgetType === undefined) {
@@ -266,18 +280,22 @@ export function effectiveValueSourceSpec(
   }
   if (widgetType === undefined) {
     // Unconnected + undeclared: no spec. Raw-value fallback view renders (P2).
-    return { type, consumers, diagnostics: diags }
+    return { diagnostics: diags }
   }
 
   // Options: unify same-kind consumer options, then overlay declared verbatim.
   const merge = specMergeFor(widgetType)
   let options: Record<string, unknown> = {}
   let controller: WidgetSpec['controller'] | undefined
+  let controllerInitial: WidgetSpec['controllerInitial'] | undefined
   let remote: WidgetSpec['remote'] | undefined
   let first = true
   for (const w of widgetSpecs) {
     if (w.widgetType !== widgetType) continue
-    if (w.controller && controller === undefined) controller = w.controller
+    if (w.controller && controller === undefined) {
+      controller = w.controller
+      controllerInitial = w.controllerInitial
+    }
     if (w.remote && remote === undefined) remote = w.remote
     if (first) {
       options = { ...w.options }
@@ -309,15 +327,19 @@ export function effectiveValueSourceSpec(
       )
     }
   }
-  if (vs.spec?.controller) controller = vs.spec.controller
+  if (vs.spec?.controller) {
+    if (vs.spec.controller !== controller) controllerInitial = undefined
+    controller = vs.spec.controller
+  }
 
   const spec: WidgetSpec = {
     widgetType,
     options,
     ...(controller ? { controller } : {}),
+    ...(controllerInitial !== undefined ? { controllerInitial } : {}),
     ...(remote ? { remote } : {}),
   }
-  return { spec, type, consumers, diagnostics: diags }
+  return { spec, diagnostics: diags }
 }
 
 /**

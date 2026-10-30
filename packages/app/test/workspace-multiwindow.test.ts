@@ -778,7 +778,7 @@ describe('AppState multi-window workspace', () => {
     globals.localStorage = memoryStorage()
     try {
       const firstFactory = authorityFactories()
-      const first = new AppState({ defaultProtocol: 'dinkster' })
+      const first = new AppState()
       first.flushPersistTabs()
       await first.enableWorkspaceAuthority(firstFactory.document, firstFactory.workspace)
       const created = first.createWorkflow()
@@ -786,7 +786,7 @@ describe('AppState multi-window workspace', () => {
       await drainTasks()
 
       const secondFactory = authorityFactories()
-      const second = new AppState({ defaultProtocol: 'dinkster' })
+      const second = new AppState()
       await second.enableWorkspaceAuthority(secondFactory.document, secondFactory.workspace)
       await drainTasks()
       expect(second.tabs.get().some((tab) => tab.id === created.id)).toBe(true)
@@ -797,7 +797,7 @@ describe('AppState multi-window workspace', () => {
       await drainTasks()
 
       const thirdFactory = authorityFactories()
-      const third = new AppState({ defaultProtocol: 'dinkster' })
+      const third = new AppState()
       await third.enableWorkspaceAuthority(thirdFactory.document, thirdFactory.workspace)
       await drainTasks()
       expect(third.tabs.get().some((tab) => tab.id === created.id)).toBe(false)
@@ -812,7 +812,7 @@ describe('AppState multi-window workspace', () => {
     globals.localStorage = memoryStorage()
     try {
       const factory = authorityFactories()
-      const app = new AppState({ defaultProtocol: 'dinkster' })
+      const app = new AppState()
       app.flushPersistTabs()
       await app.enableWorkspaceAuthority(factory.document, factory.workspace)
       app.createWorkflow()
@@ -839,7 +839,7 @@ describe('AppState multi-window workspace', () => {
     globals.localStorage = memoryStorage(true)
     try {
       const firstFactory = authorityFactories()
-      const first = new AppState({ defaultProtocol: 'dinkster' })
+      const first = new AppState()
       first.flushPersistTabs()
       await first.enableWorkspaceAuthority(firstFactory.document, firstFactory.workspace)
       const created = first.createWorkflow()
@@ -848,7 +848,7 @@ describe('AppState multi-window workspace', () => {
       await drainTasks()
 
       const restartedFactory = authorityFactories()
-      const restarted = new AppState({ defaultProtocol: 'dinkster' })
+      const restarted = new AppState()
       await restarted.enableWorkspaceAuthority(restartedFactory.document, restartedFactory.workspace)
       await drainTasks()
       expect(restarted.tabs.get().some((tab) => tab.id === created.id)).toBe(false)

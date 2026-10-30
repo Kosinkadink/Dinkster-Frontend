@@ -3,9 +3,6 @@
  * view-state geometry with fallback) and hit priority (dots beat the noodles
  * passing through them, nodes beat dots).
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   asGraphDefId,
@@ -19,7 +16,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { parseObjectInfo, type ObjectInfoEntry } from '@dinkster/core/comfy-v1'
+import { historicalSchemas as schemas } from './historical-schemas.js'
 import { buildScene, REROUTE_SOCKET_OFFSET, sceneEndId, type Scene } from '../src/scene.js'
 import {
   hitTest,
@@ -33,10 +30,6 @@ import {
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
-const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
-
-const { schemas } = parseObjectInfo(readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>)
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = () => ({ viewId: 'core.line', rows: 1 })
 

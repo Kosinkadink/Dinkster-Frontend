@@ -9,7 +9,7 @@ import { BackendsPanel } from '../src/BackendsPanel.js'
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
-function mount(app = new AppState({ defaultProtocol: 'dinkster' })) {
+function mount(app = new AppState()) {
   const root = document.createElement('div')
   document.body.append(root)
   const unmount = render(() => <BackendsPanel app={app} />, root)
@@ -25,7 +25,7 @@ afterEach(() => {
 
 describe('BackendsPanel', () => {
   it('shows agent permissions for a Dinkster backend that exposes principals', async () => {
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     const backend = app.backends.get()[0]!
     if (backend.protocol !== 'dinkster') throw new Error('expected a Dinkster backend')
     vi.spyOn(backend.connection, 'fetchPrincipals').mockResolvedValue([
@@ -102,7 +102,7 @@ describe('BackendsPanel', () => {
       'raw.schema.failure': '[TRANSLATED SCHEMA FAILURE]',
       'Raw backend label': '[TRANSLATED BACKEND LABEL]',
     })
-    const app = new AppState({ defaultProtocol: 'dinkster' })
+    const app = new AppState()
     const backend = app.addBackend('http://raw.example.test:9000/path', 'Raw backend label', false, 'dinkster')!
     ;(backend.connection.status as Signal<ConnectionStatus>).set('reconnecting')
     backend.schemaState.set({ status: 'error', message: 'raw.schema.failure' })

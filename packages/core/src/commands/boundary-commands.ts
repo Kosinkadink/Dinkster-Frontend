@@ -26,8 +26,8 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { boundaryBindingKey, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
-import { asDynamicMemberId, asNodeId, asPortId } from '../ids.js'
+import { boundaryBindingKey, isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
+import { asDynamicMemberId, asNodeId, asPortId, asRerouteId } from '../ids.js'
 import type { CommandDefinition, CommandExecutionContext } from './contract.js'
 import { resolveBoundaryRoute } from '../schema/derive-boundary.js'
 import { documentNodeResolver } from '../compile/compile.js'
@@ -267,14 +267,15 @@ const boundaryAddBinding: CommandDefinition = {
     const members = params.members as string[] | undefined
     const key = bindingTargetKey(params.node, params.port, members)
     const existing = (def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
-    if (existing.some((b) => b.kind !== 'widgetTap' && bindingTargetKey(b.node, b.port, b.members) === key))
+    if (existing.some((b) => isNodeBoundaryBinding(b) && b.kind !== 'widgetTap' && bindingTargetKey(b.node, b.port, b.members) === key))
       return [
         err(
           'boundary.duplicateBind',
           `boundary.addBinding: inner input '${params.node}/${params.port}'${members ? ` member '${members.join('.')}'` : ''} is already bound by a boundary input`,
         ),
       ]
-    const entry = { kind: 'port', node: params.node, port: params.port, ...(members !== undefined ? { members } : {}) }
+    const entry = bindingFromParams(params, 'inputs')
+    if (entry?.kind !== 'port') return [err('params.invalid', 'boundary.addBinding: params must identify an input port binding')]
     tx.set(
       ['graphs', params.graphId as string, 'boundary', 'inputs', found.index, 'alsoBinds'],
       [...(found.item.alsoBinds ?? []), entry] as unknown as Json,
@@ -322,7 +323,7 @@ const boundaryRemoveBinding: CommandDefinition = {
       ]
     const members = params.members as string[] | undefined
     const key = bindingTargetKey(params.node, params.port, members)
-    if (found.item.binds.kind !== 'widgetTap' && bindingTargetKey(found.item.binds.node, found.item.binds.port, found.item.binds.members) === key)
+    if (isNodeBoundaryBinding(found.item.binds) && found.item.binds.kind !== 'widgetTap' && bindingTargetKey(found.item.binds.node, found.item.binds.port, found.item.binds.members) === key)
       return [
         err(
           'boundary.primaryBind',
@@ -330,7 +331,7 @@ const boundaryRemoveBinding: CommandDefinition = {
         ),
       ]
     const also = found.item.alsoBinds ?? []
-    const kept = also.filter((b) => b.kind === 'widgetTap' || bindingTargetKey(b.node, b.port, b.members) !== key)
+    const kept = also.filter((b) => !isNodeBoundaryBinding(b) || b.kind === 'widgetTap' || bindingTargetKey(b.node, b.port, b.members) !== key)
     if (kept.length === also.length)
       return [
         err(
@@ -356,31 +357,35 @@ const validMembers = (v: Json | undefined): boolean =>
 const bindingKey = (binding: BoundaryItem['binds']): string => boundaryBindingKey(binding)
 
 const bindingMatchesEndpoint = (binding: BoundaryBinding, target: BoundaryBinding): boolean =>
-  binding.kind === 'widgetTap' || target.kind === 'widgetTap'
+  !isNodeBoundaryBinding(binding) || !isNodeBoundaryBinding(target) || binding.kind === 'widgetTap' || target.kind === 'widgetTap'
     ? bindingKey(binding) === bindingKey(target)
     : bindingTargetKey(binding.node, binding.port, binding.members) ===
       bindingTargetKey(target.node, target.port, target.members)
 
-const bindingFromParams = (params: JsonObject, side: Side): BoundaryBinding | undefined => {
+const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding | undefined => {
   if (typeof params.node !== 'string') return undefined
   if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined && params.members === undefined) {
-    return side === 'outputs' ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined
+    return side === 'outputs' && params.viaReroute === undefined
+      ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined
   }
   if (typeof params.port !== 'string' || params.tap !== undefined || !validMembers(params.members)) return undefined
   const kind = params.bindingKind ?? 'port'
   if (kind !== 'port' && kind !== 'slot' && kind !== 'dynamicCombo') return undefined
   if (side !== 'inputs' && kind !== 'port') return undefined
+  if (params.viaReroute !== undefined &&
+      (side !== 'inputs' || kind !== 'port' || typeof params.viaReroute !== 'string' || params.viaReroute.length === 0)) return undefined
   const members = params.members as string[] | undefined
   return {
     kind,
     node: asNodeId(params.node),
     port: asPortId(params.port),
     ...(members !== undefined ? { members: members.map(asDynamicMemberId) } : {}),
+    ...(typeof params.viaReroute === 'string' ? { viaReroute: asRerouteId(params.viaReroute) } : {}),
   }
 }
 
 const newBindingParams = (doc: WorkflowDocument, params: JsonObject, context: CommandExecutionContext): JsonObject => {
-  if (params.bindingKind !== undefined || params.side !== 'inputs' || context.kind !== 'initial') return params
+  if (params.bindingKind !== undefined || params.viaReroute !== undefined || params.side !== 'inputs' || context.kind !== 'initial') return params
   const binding = bindingFromParams(params, 'inputs')
   const graph = typeof params.graphId === 'string' ? doc.graphs[params.graphId] : undefined
   const node = binding && graph?.nodes[binding.node]

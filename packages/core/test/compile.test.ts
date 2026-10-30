@@ -12,7 +12,7 @@ import type { ExecutionScope } from '../src/compile/artifact.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
-import { parseObjectInfo, type ObjectInfoEntry } from '../src/schema/object-info.js'
+import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
@@ -20,8 +20,6 @@ import { coreVirtualNodeKind } from '../src/virtual-node.js'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
 
-const objectInfo = readJson('fixtures/object_info.json') as Record<string, ObjectInfoEntry>
-const { schemas } = parseObjectInfo(objectInfo)
 const backendResolve = (type: string) => schemas.get(type)
 
 const loadWorkflow = (name: string): WorkflowDocument =>
@@ -434,7 +432,6 @@ describe('documentResolver', () => {
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
-const SAVE_TARGET: TypeExpr = { kind: 'concrete', name: 'SAVE_TARGET' }
 const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   kind: 'input',
   id,
@@ -464,14 +461,14 @@ const dynSchemas: Record<string, NodeSchema> = {
     ...dynSchemaOf('BooleanSrc', [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'BOOLEAN' } }]),
     isOutputNode: false,
   },
-  SaveTargetSrc: dynSchemaOf('SaveTargetSrc', [{ kind: 'output', id: 'target', type: SAVE_TARGET }]),
-  SaveTargetSink: dynSchemaOf('SaveTargetSink', [dynInput('target', {
-    type: SAVE_TARGET,
+  MountSrc: dynSchemaOf('MountSrc', [{ kind: 'output', id: 'mount', type: { kind: 'concrete', name: 'STRING' } }]),
+  MountSink: dynSchemaOf('MountSink', [dynInput('mount', {
+    type: { kind: 'concrete', name: 'STRING' },
     optional: true,
     widget: {
-      widgetType: 'SAVE_TARGET',
-      options: { suffix: '.png' },
-      default: { mount: 'comfy-output', prefix: 'ComfyUI' },
+      widgetType: 'MOUNT',
+      options: {},
+      default: null,
     },
   })]),
   ComfyImageSrc: dynSchemaOf('ComfyImageSrc', [{
@@ -981,24 +978,21 @@ describe('dynamic interfaces', () => {
     },
   )
 
-  it('compiles a concrete SAVE_TARGET producer into a widget-backed input as an ordinary link', () => {
+  it('compiles a STRING producer into a mount widget as an ordinary link without changing dormant values', () => {
     const result = dynCompile(dynDoc({
       nodes: {
-        producer: { type: 'SaveTargetSrc' },
+        producer: { type: 'MountSrc' },
         consumer: {
-          type: 'SaveTargetSink',
-          values: { target: { mount: 'comfy-output', prefix: 'dormant/stem' } },
+          type: 'MountSink',
+          values: { mount: 'archive' },
         },
       },
-      links: [[['producer', 'target'], ['consumer', 'target']]],
+      links: [[['producer', 'mount'], ['consumer', 'mount']]],
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt.consumer?.inputs.target).toEqual(['producer', 0])
-    expect(result.artifact.snapshot.graphs.g0!.nodes.consumer!.values.target).toEqual({
-      mount: 'comfy-output',
-      prefix: 'dormant/stem',
-    })
+    expect(result.artifact.prompt.consumer?.inputs.mount).toEqual(['producer', 0])
+    expect(result.artifact.snapshot.graphs.g0!.nodes.consumer!.values.mount).toBe('archive')
   })
 
   it('submits a link-fed lazy-switch decision and keeps both branches neutral in would-run', () => {

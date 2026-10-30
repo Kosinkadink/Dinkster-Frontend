@@ -160,6 +160,7 @@ export function BoundaryPanel(props: { app: AppState }) {
     item.displayName ?? defaultItemName(side, item)
 
   const conditionalKind = (item: BoundaryItem): 'dynamicCombo' | 'dynamicSlot' | undefined => {
+    if (item.binds.kind === 'unbound' || item.binds.kind === 'valueSource') return undefined
     const ctx = editedDef()
     const reg = registry()
     const node = ctx?.def.nodes[item.binds.node]
@@ -170,7 +171,7 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   const setConditionalBinding = (item: BoundaryItem, bindingKind: 'port' | 'slot' | 'dynamicCombo'): void => {
-    if (item.binds.kind === 'widgetTap') return
+    if (item.binds.kind === 'widgetTap' || item.binds.kind === 'unbound' || item.binds.kind === 'valueSource') return
     dispatch('boundary.setBinding', { side: 'inputs', itemId: item.id, node: item.binds.node, port: item.binds.port,
       ...(item.binds.members !== undefined ? { members: [...item.binds.members] } : {}), bindingKind })
   }
@@ -301,6 +302,12 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   const showOnCanvas = (item: BoundaryItem): void => {
+    if (item.binds.kind === 'unbound') return
+    if (item.binds.kind === 'valueSource') {
+      const ctx = editedDef()
+      if (ctx) props.app.canvasBridge.get()?.showValueSource?.(ctx.tab.id, ctx.def.id, item.binds.valueSource)
+      return
+    }
     activateProblem(props.app, {
       severity: 'info',
       origin: 'schema',
@@ -511,13 +518,18 @@ export function BoundaryPanel(props: { app: AppState }) {
                       <div class="boundary-binding-copy">
                         <span class="boundary-field-label">Canvas destination</span>
                         <code class="boundary-bind">
-                          {item.binds.node}.{item.binds.kind === 'widgetTap' ? item.binds.tap : item.binds.port}
+                          {item.binds.kind === 'unbound'
+                            ? message('boundaryPanel.unbound')
+                            : item.binds.kind === 'valueSource'
+                            ? [editedDef()?.def.valueSources?.[item.binds.valueSource]?.title, `(${item.binds.valueSource})`].filter(Boolean).join(' ')
+                            : `${item.binds.node}.${item.binds.kind === 'widgetTap' ? item.binds.tap : item.binds.port}`}
                         </code>
                       </div>
                       <button
                         type="button"
                         class="boundary-focus-action"
                         data-testid="boundary-show-on-canvas"
+                        disabled={item.binds.kind === 'unbound'}
                         aria-label={`Show ${itemName(side, item)} destination on canvas`}
                         onClick={() => showOnCanvas(item)}
                       >

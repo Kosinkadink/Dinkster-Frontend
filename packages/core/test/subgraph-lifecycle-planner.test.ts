@@ -5,6 +5,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { createLocalSession as createRawLocalSession } from '../src/commands/session.js'
 import { checkDocument } from '../src/invariants.js'
 import { compile } from '../src/compile/compile.js'
+import { loadDocument } from '../src/format/migrate.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import {
   EMPTY_SUBGRAPH_DEFINITION,
@@ -704,6 +705,89 @@ describe('subgraph.extract L3 command', () => {
     expect(session.doc.graphs.g0!.boundary!.outputs[0]!.binds).toEqual({ kind: 'widgetTap', node: 'n0', tap: 'value' })
   })
 
+  it.each([false, true])('extracts literal output fan-out without runtime nodes (authored type: %s)', (authored) => {
+    const initial = document(graph({
+      nodes: {
+        first: { id: 'first' as never, type: 'Sink', values: {} },
+        second: { id: 'second' as never, type: 'Sink', values: {} },
+      },
+      valueSources: { value: { id: 'value' as never, value: 37, controller: 'increment', title: 'Seed', ext: { keep: true } } },
+      links: {
+        lFirst: link('lFirst', { valueSource: 'value' as never }, port('first', 'value')),
+        lSecond: link('lSecond', { valueSource: 'value' as never }, port('second', 'value')),
+      },
+      ...(authored ? { boundary: { inputs: [], outputs: [{ id: 'seed', binds: {
+        kind: 'valueSource' as const, valueSource: 'value' as never, type: { kind: 'concrete' as const, name: 'INT' },
+      } }] } } : {}),
+    }))
+    ;(initial as MutableDocument).view.graphs.root = { nodes: { first: {}, second: {} }, valueSources: { value: { position: { x: 10, y: 20 } } } }
+    const sinkSchema: any = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+    }
+    const resolve = (type: string) => type === 'Sink' ? sinkSchema : undefined
+    const compiled = (doc: WorkflowDocument) => {
+      const result = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? result.artifact.prompt : undefined
+    }
+    const expected = compiled(initial)
+    expect(expected).toEqual({ first: { class_type: 'Sink', inputs: { value: 37 }, outputIds: [] }, second: { class_type: 'Sink', inputs: { value: 37 }, outputIds: [] } })
+    const session = createLocalSession(initial, coreCommandRegistry())
+    const selection = { valueSourceIds: ['value'] }
+    const geometry = [{ id: 'value', kind: 'valueSource', x: 10, y: 20, width: 140, height: 80 }]
+    const invocation = l4ExtractInvocation(initial, selection, geometry)
+    const inputBound = structuredClone(initial) as MutableDocument
+    inputBound.graphs.root.boundary ??= { inputs: [], outputs: [] }
+    inputBound.graphs.root.boundary.inputs.push({ id: 'override', binds: { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } } })
+    inputBound.graphs.host = { id: 'host', name: 'Host', nextOrdinal: 20, nodes: {
+      i1: { id: 'i1', type: '#root', values: { override: 11 } },
+      i2: { id: 'i2', type: '#root', values: { override: 29 } },
+    }, links: {}, nets: {}, reroutes: {} }
+    const inputSession = createLocalSession({ ...inputBound, root: 'host' as never }, coreCommandRegistry())
+    const beforeInput = compiled(inputSession.doc)
+    expect(Object.values(beforeInput!).map((node) => node.inputs.value)).toEqual([11, 11, 29, 29])
+    const inputResult = inputSession.dispatch(l4ExtractInvocation(inputSession.doc, selection, geometry, 'root', ['i1']))
+    expect(inputResult.ok, JSON.stringify(!inputResult.ok && inputResult.diagnostics)).toBe(true)
+    expect(compiled(inputSession.doc)).toEqual(beforeInput)
+    expect(checkDocument(inputSession.doc)).toEqual([])
+    const inputReopened = loadDocument(JSON.parse(JSON.stringify(inputSession.doc)))
+    expect(inputReopened.document).toBeDefined()
+    expect(compiled(inputReopened.document!)).toEqual(beforeInput)
+    expect(inputSession.undo()).toBe(true)
+    expect(compiled(inputSession.doc)).toEqual(beforeInput)
+    expect(inputSession.redo()).toBe(true)
+    expect(compiled(inputSession.doc)).toEqual(beforeInput)
+    if (authored) {
+      const conflict = structuredClone(initial) as MutableDocument
+      conflict.graphs.root.boundary.outputs.push({ id: 'other', binds: { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'STRING' } } })
+      expect(verifyLifecycleSelectionPlan(conflict, { graphId: 'root', selection, selectionFingerprint: lifecycleSelectionFingerprint(initial, 'root', selection)! }).stale).toBe(true)
+      const refused = createLocalSession(conflict, coreCommandRegistry())
+      const before = refused.doc
+      const result = refused.dispatch(l4ExtractInvocation(conflict, selection, geometry))
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.diagnostics[0]!.code).toBe('subgraph.lifecycle.boundaryUnresolved')
+      expect(refused.doc).toBe(before)
+      expect(refused.canUndo).toBe(false)
+    }
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    expect(session.doc.graphs.g0!.nodes).toEqual({})
+    expect(session.doc.graphs.g0!.valueSources!.v0).toEqual({ ...initial.graphs.root!.valueSources!.value!, id: 'v0' })
+    expect(session.doc.graphs.g0!.boundary!.outputs).toEqual([{ id: 'value', binds: {
+      kind: 'valueSource', valueSource: 'v0', type: authored ? { kind: 'concrete', name: 'INT' } : { kind: 'wildcard' },
+    } }])
+    if (authored) expect(session.doc.graphs.root!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n20', port: 'value' })
+    expect(compiled(session.doc)).toEqual(expected)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+    expect(reopened.document).toBeDefined()
+    expect(compiled(reopened.document!)).toEqual(expected)
+    expect(session.undo()).toBe(true)
+    expect(compiled(session.doc)).toEqual(expected)
+    expect(session.doc.graphs.root!.valueSources).toEqual(initial.graphs.root!.valueSources)
+    expect(session.redo()).toBe(true)
+    expect(compiled(session.doc)).toEqual(expected)
+  })
+
   it('rejects forged widget output evidence without exact trusted schema support', () => {
     const initial = document(graph({
       nodes: {
@@ -1077,6 +1161,61 @@ describe('subgraph.extract L3 command', () => {
 })
 
 describe('subgraph.extract L4 structural and view completion', () => {
+  it('moves an enclosing junction boundary with its complete fanout and refuses split ownership atomically', () => {
+    const initial = document(graph({
+      nodes: {
+        inside: { id: 'inside' as never, type: 'BodyNode', values: {} },
+        inside2: { id: 'inside2' as never, type: 'BodyNode', values: {} },
+      },
+      reroutes: { junction: { id: 'junction' as never } },
+      links: {
+        left: link('left', { reroute: 'junction' as never }, port('inside', 'in')),
+        right: link('right', { reroute: 'junction' as never }, port('inside2', 'other')),
+      },
+      boundary: {
+        inputs: [{ id: 'in', binds: { kind: 'port', ...port('inside', 'in'), viaReroute: 'junction' as never } }],
+        outputs: [],
+      },
+    })) as MutableDocument
+    initial.view.graphs.root.reroutes = { junction: { position: { x: -30, y: 45 } } }
+    delete initial.view.graphs.root.nodes.outside
+    const geometry = [
+      { id: 'inside', kind: 'node', x: 10, y: 20, width: 100, height: 50 },
+      { id: 'inside2', kind: 'node', x: 40, y: 80, width: 140, height: 80 },
+      { id: 'junction', kind: 'reroute', x: -30, y: 45, width: 0, height: 0 },
+    ]
+    const splitSelections: LifecycleSelectionInput[] = [{ nodeIds: ['inside'] }, { nodeIds: ['inside2'], rerouteIds: ['junction'] }]
+    for (const selection of splitSelections) {
+      const session = createLocalSession(initial, coreCommandRegistry())
+      const before = JSON.stringify(session.doc)
+      const outcome = session.dispatch(l4ExtractInvocation(initial, selection, geometry.filter((item) =>
+        item.kind === 'node' ? selection.nodeIds?.includes(item.id) : selection.rerouteIds?.includes(item.id))))
+      expect(outcome.ok).toBe(false)
+      if (!outcome.ok) expect(outcome.diagnostics.map((entry) => entry.code)).toContain('subgraph.extract.structuralCutUnsupported')
+      expect(JSON.stringify(session.doc)).toBe(before)
+    }
+
+    const session = createLocalSession(initial, coreCommandRegistry())
+    const outcome = session.dispatch(l4ExtractInvocation(initial, { nodeIds: ['inside', 'inside2'], rerouteIds: ['junction'] }, geometry))
+    expect(outcome.ok, JSON.stringify(outcome)).toBe(true)
+    const nested = session.doc.graphs.g0!
+    expect(nested.boundary?.inputs).toEqual([{ id: 'in', binds: { kind: 'port', ...port('n0', 'in'), viaReroute: 'r2' } }])
+    expect(nested.links).toEqual({
+      l3: link('l3', { reroute: 'r2' as never }, port('n0', 'in')),
+      l4: link('l4', { reroute: 'r2' as never }, port('n1', 'other')),
+    })
+    expect(session.doc.graphs.root!.boundary?.inputs).toEqual([{ id: 'in', binds: { kind: 'port', ...port('n20', 'in') } }])
+    expect(Object.keys(session.doc.graphs.root!.reroutes)).toEqual([])
+    const view = session.doc.view.graphs.g0!
+    expect(view.reroutes!.r2!.position.x - view.nodes.n0!.position!.x).toBe(-40)
+    expect(view.reroutes!.r2!.position.y - view.nodes.n1!.position!.y).toBe(-35)
+    expect(checkDocument(session.doc)).toEqual([])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual({ ...initial, graphs: { root: { ...initial.graphs.root, nextOrdinal: 21 } } })
+    expect(session.redo()).toBe(true)
+    expect(session.doc.graphs.g0).toEqual(nested)
+  })
+
   it('coexists across nets, reroutes, taps, value sources, selectors, wire-15 members, nested occurrences, groups, modes, and view state', () => {
     const initial = document(graph({
       nodes: {
@@ -1351,13 +1490,23 @@ describe('subgraph.extract L4 structural and view completion', () => {
         { id: 'inside', kind: 'node', x: 0, y: 0, width: 100, height: 60 },
         { id: 'value', kind: 'valueSource', x: 120, y: 0, width: 100, height: 60 },
       ],
-      code: 'subgraph.extract.structuralOutputUnsupported',
+      code: undefined,
+      accepted: true,
     },
-  ])('refuses the whole operation for $name', ({ selection, links, reroutes, geometry, code }) => {
+  ])('handles the whole operation atomically for $name', ({ selection, links, reroutes, geometry, code, accepted }) => {
     const initial = document(graph({ links, reroutes }))
     const session = createLocalSession(initial, coreCommandRegistry())
     const before = session.doc
     const outcome = session.dispatch(l4ExtractInvocation(initial, selection, geometry))
+    if (accepted) {
+      expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+      expect(session.doc.graphs.root!.links.crossing!.from).toEqual(port('n20', 'value'))
+      expect(session.doc.graphs.g0!.boundary!.outputs).toEqual([{ id: 'value', binds: { kind: 'valueSource', valueSource: 'v1', type: { kind: 'wildcard' } } }])
+      expect(checkDocument(session.doc)).toEqual([])
+      expect(session.undo()).toBe(true)
+      expect(session.doc.graphs.root!.valueSources).toEqual(before.graphs.root!.valueSources)
+      return
+    }
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) {
       expect(outcome.diagnostics[0]!.code).toBe(code)
@@ -1500,7 +1649,7 @@ describe('subgraph lifecycle cut matrix', () => {
     { name: 'inner widget tap produces an out-cut', selection: { nodeIds: ['inside'] }, edge: link('l', { node: 'inside' as never, tap: 'widget' as never }, port('outside', 'in')), kind: 'out-cut' },
     { name: 'outer value source is a legal in-cut producer', selection: { nodeIds: ['inside'] }, edge: link('l', { valueSource: 'value' as never }, port('inside', 'in')), kind: 'in-cut' },
     { name: 'selected value source and consumer move internally', selection: { nodeIds: ['inside'], valueSourceIds: ['value'] }, edge: link('l', { valueSource: 'value' as never }, port('inside', 'in')), kind: 'internal' },
-    { name: 'inner value source cannot produce an out-cut', selection: { nodeIds: ['inside'], valueSourceIds: ['value'] }, edge: link('l', { valueSource: 'value' as never }, port('outside', 'in')), kind: 'unrepresentable', code: 'subgraph.extract.structuralOutputUnsupported' },
+    { name: 'inner value source produces an out-cut', selection: { nodeIds: ['inside'], valueSourceIds: ['value'] }, edge: link('l', { valueSource: 'value' as never }, port('outside', 'in')), kind: 'out-cut' },
     { name: 'outer selector output is a legal in-cut producer', selection: { nodeIds: ['inside'] }, edge: link('l', { selector: 'selector' as never }, port('inside', 'in')), kind: 'in-cut' },
     { name: 'selected selector candidate feed moves internally', selection: { nodeIds: ['inside'], selectorIds: ['selector'] }, edge: link('l', port('inside', 'out'), { selector: 'selector' as never, candidate: 'candidate' as never }), kind: 'internal' },
     { name: 'selected selector candidate cannot cross inward', selection: { nodeIds: ['inside'], selectorIds: ['selector'] }, edge: link('l', port('outside', 'out'), { selector: 'selector' as never, candidate: 'candidate' as never }), kind: 'unrepresentable', code: 'subgraph.extract.structuralCutUnsupported' },
@@ -1982,6 +2131,305 @@ const refreshFlattenSchemaDigest = (invocation: any): void => {
 }
 
 describe('subgraph.flatten trusted-dispatch authorization', () => {
+  it.each([19, null, undefined])('flattens occurrence-local literal input state %s without mutating its shared definition', (value) => {
+    const initial = flattenDocument()
+    const binds = { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } }
+    initial.graphs.root.nodes = {
+      occurrence: { ...initial.graphs.root.nodes.occurrence, values: value === undefined ? {} : { input: value },
+        ...(value === undefined ? {} : { controllers: { input: 'decrement' } }) },
+      survivor: { ...initial.graphs.root.nodes.survivor, values: { input: 47 }, controllers: { input: 'fixed' } },
+    }
+    initial.graphs.root.links = {}
+    initial.graphs.root.nets = {}
+    initial.graphs.root.boundary = { inputs: [], outputs: [] }
+    initial.graphs.body = {
+      id: 'body', name: 'Literal input body', nodes: { a: { id: 'a', type: 'BodyNode', values: {} } },
+      links: { delivery: link('delivery', { valueSource: 'value' as never }, port('a', 'mid')) },
+      nets: {}, reroutes: {}, selectors: {}, nextOrdinal: 0,
+      valueSources: { value: { id: 'value', value: 37, title: 'Seed', controller: 'increment', spec: { widgetType: 'INT', options: {}, controller: 'after_generate' } } },
+      boundary: { inputs: [{ id: 'input', promoted: true, binds }], outputs: [] },
+    }
+    initial.view.graphs.root.nodes = { occurrence: initial.view.graphs.root.nodes.occurrence, survivor: {} }
+    delete initial.view.graphs.root.collapsedNets
+    initial.view.graphs.body = { nodes: { a: {} }, valueSources: { value: { position: { x: 80, y: 30 } } } }
+    const resolve = (type: string) => {
+      const schema = flattenResolver(type)
+      return schema === undefined ? undefined : { ...schema, isOutputNode: true }
+    }
+    const prompt = (doc: WorkflowDocument) => {
+      const result = compile({ document: doc, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('literal-input-flatten'), schemaHash: 'literal' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? Object.values(result.artifact.prompt).map((node) => node.inputs.mid).sort() : []
+    }
+    const expected = prompt(initial)
+    expect(expected).toEqual(value === null ? [47, null] : value === undefined ? [37, 47] : [19, 47])
+    const invocation = flattenInvocation(initial)
+    invocation.params.resolvedGeometry.body = [
+      { id: 'a', kind: 'node', x: 0, y: 0, width: 120, height: 80 },
+      { id: 'value', kind: 'valueSource', x: 80, y: 30, width: 120, height: 40 },
+    ]
+    expect(invocation.params.statePlan.status, JSON.stringify(invocation.params.statePlan)).toBe('ready')
+    const session = trustedFlattenSession(initial)
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    expect(session.doc.graphs.body).toEqual(initial.graphs.body)
+    expect(session.doc.graphs.root!.nodes.survivor).toEqual(initial.graphs.root.nodes.survivor)
+    const copied = Object.values(session.doc.graphs.root!.valueSources!).find((source) => source.id !== 'value')!
+    expect(copied).toEqual({ ...initial.graphs.body.valueSources.value, id: copied.id,
+      ...(value === undefined ? {} : { value, controller: 'decrement' }) })
+    expect(checkDocument(session.doc)).toEqual([])
+    expect(prompt(session.doc)).toEqual(expected)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+    expect(reopened.document).toBeDefined()
+    expect(prompt(reopened.document!)).toEqual(expected)
+    expect(session.undo()).toBe(true)
+    expect(prompt(session.doc)).toEqual(expected)
+    expect(session.redo()).toBe(true)
+    expect(prompt(session.doc)).toEqual(expected)
+    if (value === 19) {
+      const stale = structuredClone(initial)
+      stale.graphs.body.valueSources.value.value = 99
+      const staleSession = trustedFlattenSession(stale)
+      const before = staleSession.doc
+      const refused = staleSession.dispatch(invocation)
+      expect(refused.ok).toBe(false)
+      if (!refused.ok) expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.lifecycle.stalePlan')
+      expect(staleSession.doc).toBe(before)
+    }
+  })
+
+  it.each(['link', 'net', 'literal'].flatMap((delivery) => [false, true].map((overlay) => [delivery, overlay] as const)))(
+    'forwards a connected literal input and its output passthrough (%s, overlay=%s)', (delivery, overlay) => {
+      const initial = flattenDocument()
+      const binds = { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } }
+      initial.graphs.root.nodes = {
+        occurrence: { ...initial.graphs.root.nodes.occurrence, values: { input: null }, controllers: { input: 'decrement' } },
+        survivor: { ...initial.graphs.root.nodes.survivor, values: { input: 47 }, controllers: { input: 'fixed' } },
+        driver: { id: 'driver', type: 'BodyNode', values: { mid: 88 } },
+        consumer: { id: 'consumer', type: 'BodyNode', values: {} },
+      }
+      initial.graphs.root.links = { outgoing: link('outgoing', port('occurrence', 'output'), port('consumer', 'mid')) }
+      initial.graphs.root.nets = {}
+      const driver = delivery === 'literal' ? { valueSource: 'value' as never } : port('driver', 'out')
+      initial.graphs.root.valueSources.value.value = 61
+      if (delivery === 'net') initial.graphs.root.nets.incoming = {
+        id: 'incoming', name: 'Driver', source: driver, sinks: [port('occurrence', 'input')],
+      }
+      else initial.graphs.root.links.incoming = link('incoming', driver, port('occurrence', 'input'))
+      if (delivery === 'net') {
+        delete initial.graphs.root.links.outgoing
+        initial.graphs.root.nets.outgoing = {
+          id: 'outgoing', name: 'Result', source: port('occurrence', 'output'), sinks: [port('consumer', 'mid')],
+        }
+      }
+      initial.graphs.root.boundary = { inputs: [], outputs: [{ id: 'result', binds: { kind: 'port', node: 'occurrence', port: 'output' } }] }
+      initial.graphs.body = {
+        id: 'body', name: 'Driven literal', nodes: { a: { id: 'a', type: 'BodyNode', values: {} } },
+        links: { delivery: link('delivery', { valueSource: 'value' as never }, port('a', 'mid')) },
+        nets: {}, reroutes: {}, selectors: {}, nextOrdinal: 0,
+        valueSources: { value: { id: 'value', value: 37, controller: 'increment', spec: { widgetType: 'INT', options: {}, controller: 'after_generate' } } },
+        boundary: { inputs: [{ id: 'input', promoted: true, binds }], outputs: [{ id: 'output', binds }] },
+      }
+      initial.view.graphs.root.nodes = { occurrence: initial.view.graphs.root.nodes.occurrence, survivor: {}, driver: {}, consumer: {} }
+      delete initial.view.graphs.root.collapsedNets
+      initial.view.graphs.body = { nodes: { a: {} }, valueSources: { value: { position: { x: 80, y: 30 } } } }
+      if (overlay) initial.occurrenceTopologies = {
+        occurrence: {
+          owner: { instancePath: [], node: 'occurrence' }, bodyGraph: 'body', nextOrdinal: 1,
+          suppressedDeliveries: [{ kind: 'link', linkId: 'delivery' }],
+          links: { l0: {
+            id: 'l0', from: { kind: 'body', endpoint: { valueSource: 'value' } },
+            to: { kind: 'body', endpoint: port('a', 'mid') }, ext: { retained: true },
+          } },
+        },
+      }
+      const resolve = (type: string) => {
+        const schema = flattenResolver(type)
+        return schema === undefined ? undefined : { ...schema, isOutputNode: true }
+      }
+      const prompt = (document: WorkflowDocument) => {
+        const result = compile({ document, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('driven-literal-flatten'), schemaHash: 'literal' })
+        expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+        if (!result.ok) return []
+        const entries = Object.entries(result.artifact.prompt)
+        const driverId = entries.find(([, node]) => node.inputs.mid === 88)![0]
+        return entries.map(([, node]) => Array.isArray(node.inputs.mid) && node.inputs.mid[0] === driverId ? 'driver-output' : node.inputs.mid).sort()
+      }
+      const expected = delivery === 'literal' ? [47, 61, 61, 88] : [47, 88, 'driver-output', 'driver-output']
+      expect(prompt(initial)).toEqual(expected)
+      const invocation = flattenInvocation(initial)
+      invocation.params.resolvedGeometry.body = [
+        { id: 'a', kind: 'node', x: 0, y: 0, width: 120, height: 80 },
+        { id: 'value', kind: 'valueSource', x: 80, y: 30, width: 120, height: 40 },
+      ]
+      const session = trustedFlattenSession(initial)
+      const outcome = session.dispatch(invocation)
+      expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+      expect(checkDocument(session.doc)).toEqual([])
+      expect(prompt(session.doc)).toEqual(expected)
+      expect(session.doc.graphs.body).toEqual(initial.graphs.body)
+      expect(session.doc.graphs.root!.nodes.survivor).toEqual(initial.graphs.root.nodes.survivor)
+      const copied = Object.values(session.doc.graphs.root!.valueSources!).find((source) => source.id !== 'value')!
+      expect(copied.value).toBe(null)
+      expect(copied.controller).toBe('decrement')
+      if (overlay) expect(Object.values(session.doc.graphs.root!.links).some((link) => link.ext?.retained === true)).toBe(true)
+      expect(session.doc.graphs.root!.boundary!.outputs[0]!.binds).toEqual(delivery === 'literal'
+        ? { ...binds, valueSource: 'value' }
+        : { kind: 'port', node: 'driver', port: 'out' })
+      const reopened = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+      expect(reopened.document).toBeDefined()
+      expect(prompt(reopened.document!)).toEqual(expected)
+      expect(session.undo()).toBe(true)
+      expect(prompt(session.doc)).toEqual(expected)
+      expect(session.redo()).toBe(true)
+      expect(prompt(session.doc)).toEqual(expected)
+    },
+  )
+
+  it.each([false, true])('flattens retained literal output bindings without changing shared siblings (overlay=%s)', (overlay) => {
+    const initial = flattenDocument()
+    const binds = { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } }
+    initial.graphs.root.nodes = {
+      occurrence: initial.graphs.root.nodes.occurrence,
+      survivor: initial.graphs.root.nodes.survivor,
+      consumer: { id: 'consumer', type: 'BodyNode', values: {} },
+    }
+    initial.graphs.root.links = { outgoing: link('outgoing', port('occurrence', 'output'), port('consumer', 'mid')) }
+    initial.graphs.root.nets = {}
+    initial.graphs.root.boundary = { inputs: [], outputs: [{ id: 'outer', binds: { kind: 'port', ...port('occurrence', 'output') } }] }
+    initial.graphs.body = {
+      id: 'body', name: 'Literal body', nodes: {}, links: {}, nets: {}, reroutes: {}, selectors: {}, nextOrdinal: 0,
+      valueSources: { value: { id: 'value', value: 37, title: 'Seed', controller: 'increment', spec: { widgetType: 'INT', options: {} } } },
+      boundary: { inputs: [], outputs: [{ id: 'output', binds }, { id: 'shared', binds }] },
+    }
+    initial.view.graphs.root.nodes = { occurrence: initial.view.graphs.root.nodes.occurrence, survivor: {}, consumer: {} }
+    delete initial.view.graphs.root.collapsedNets
+    initial.view.graphs.body = { nodes: {}, valueSources: { value: { position: { x: 80, y: 30 }, view: 'slider' } } }
+    if (overlay) initial.occurrenceTopologies = {
+      occurrence: { owner: { instancePath: [], node: 'occurrence' }, bodyGraph: 'body', nextOrdinal: 0, links: {} },
+    }
+    const resolve = (type: string) => {
+      const schema = flattenResolver(type)
+      return schema === undefined ? undefined : { ...schema, isOutputNode: type === 'BodyNode' }
+    }
+    const prompt = (doc: WorkflowDocument) => {
+      const result = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('literal-flatten'), schemaHash: 'literal' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? result.artifact.prompt : undefined
+    }
+    expect(checkDocument(initial)).toEqual([])
+    const expected = prompt(initial)
+    expect(expected?.consumer?.inputs).toEqual({ mid: 37 })
+    const invocation = flattenInvocation(initial)
+    invocation.params.resolvedGeometry.body = [{ id: 'value', kind: 'valueSource', x: 80, y: 30, width: 120, height: 40 }]
+    expect(invocation.params.boundaryPlan).toEqual([
+      { side: 'output', id: 'output', route: 'plain' }, { side: 'output', id: 'shared', route: 'plain' },
+    ])
+    expect(invocation.params.statePlan.status).toBe('ready')
+    const session = trustedFlattenSession(initial)
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    expect(session.doc.graphs.root!.nodes.occurrence).toBeUndefined()
+    expect(session.doc.graphs.root!.nodes.survivor!.type).toBe('#body')
+    expect(session.doc.graphs.body).toEqual(initial.graphs.body)
+    expect(session.doc.graphs.root!.valueSources!.value!.value).toBe(1)
+    expect(session.doc.graphs.root!.valueSources!.v100).toEqual({ ...initial.graphs.body.valueSources.value, id: 'v100' })
+    expect(session.doc.graphs.root!.boundary!.outputs[0]!.binds).toEqual({ ...binds, valueSource: 'v100' })
+    expect(Object.values(session.doc.graphs.root!.links).map((edge) => edge.from)).toEqual([{ valueSource: 'v100' }])
+    expect(checkDocument(session.doc)).toEqual([])
+    expect(prompt(session.doc)).toEqual(expected)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+    expect(reopened.document).toBeDefined()
+    expect(prompt(reopened.document!)).toEqual(expected)
+    expect(session.undo()).toBe(true)
+    expect(prompt(session.doc)).toEqual(expected)
+    expect(session.redo()).toBe(true)
+    expect(prompt(session.doc)).toEqual(expected)
+  })
+
+  it.each([[false, false], [true, false], [false, true], [true, true]])('preserves junction fanout, enclosing bindings and values while flattening (linked=%s, overlay=%s)', (linked, overlay) => {
+    const initial = flattenDocument()
+    initial.graphs.body.nodes.a.type = 'BodyNode'
+    initial.graphs.body.boundary!.inputs[0]!.binds = { kind: 'port', node: 'a' as never, port: 'in' as never, viaReroute: 'reroute' as never }
+    delete initial.graphs.body.boundary!.inputs[0]!.alsoBinds
+    initial.graphs.body.boundary!.inputs[1]!.binds = { kind: 'port', node: 'a' as never, port: 'netIn' as never, viaReroute: 'netJunction' as never }
+    delete initial.graphs.body.boundary!.inputs[1]!.alsoBinds
+    initial.graphs.body.reroutes.netJunction = { id: 'netJunction' as never }
+    initial.graphs.body.links.fanA = link('fanA', { reroute: 'reroute' as never }, port('a', 'in'))
+    initial.graphs.body.links.fanB = link('fanB', { reroute: 'reroute' as never }, port('b', 'other'))
+    initial.graphs.body.links.netFanA = link('netFanA', { reroute: 'netJunction' as never }, port('a', 'netIn'))
+    initial.graphs.body.links.netFanB = link('netFanB', { reroute: 'netJunction' as never }, port('b', 'netOther'))
+    initial.graphs.root.nodes.occurrence.values = { input: 23 }
+    initial.graphs.root.nodes.survivor.values = { input: 47 }
+    delete initial.graphs.root.links.tap
+    initial.graphs.root.boundary!.inputs = []
+    if (!linked) {
+      delete initial.graphs.root.links.incoming
+      delete initial.graphs.root.nets.incomingNet
+      initial.graphs.root.boundary!.inputs = [{ id: 'outerInput', binds: { kind: 'port', node: 'occurrence' as never, port: 'input' as never } }]
+    }
+    if (overlay) initial.occurrenceTopologies = {
+      occurrence: { owner: { instancePath: [], node: 'occurrence' as never }, bodyGraph: 'body' as never, links: {}, nextOrdinal: 1 },
+    }
+    const resolver = (type: string) => type === 'BodyNode'
+      ? { ...flattenSchemas.BodyNode, items: flattenSchemas.BodyNode.items.map((item: any) => item.kind === 'input' && ['in', 'other'].includes(item.id)
+        ? { ...item, widget: { widgetType: 'INT', options: { default: 5 } } } : item) }
+      : ['Source', 'Consumer', 'Outer'].includes(type) ? flattenSchema(type, [
+        ...['in', 'tap', 'net', 'after', 'before', 'after2'].map((id) => ({ kind: 'input', id, optional: true, type: { kind: 'concrete', name: 'X' } })),
+        ...['out', 'net'].map((id) => ({ kind: 'output', id, type: { kind: 'concrete', name: 'X' } })),
+      ]) : flattenResolver(type)
+    const compiledBefore = compile({ document: initial, revision: 0, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('junction-before'), schemaHash: 'junction' })
+    expect(compiledBefore.ok, JSON.stringify(!compiledBefore.ok && compiledBefore.diagnostics)).toBe(true)
+    const invocation = flattenInvocation(initial)
+    Object.assign(invocation.params, planFlattenBoundaryRoutes(initial.graphs.body, resolver, initial.graphs.root.nodes.occurrence, initial.graphs.root))
+    invocation.params.resolvedGeometry.body.push({ id: 'netJunction', kind: 'reroute', x: 90, y: 70, width: 0, height: 0 })
+    refreshFlattenFingerprint(initial, invocation)
+    if (overlay) invocation.params.selectionFingerprint = lifecycleFlattenFingerprint(initial, 'root', 'occurrence', {
+      boundaryPlan: invocation.params.boundaryPlan, statePlan: invocation.params.statePlan,
+      schemaPlanDigest: invocation.params.schemaPlanDigest,
+      occurrenceTopologyPlan: invocation.params.occurrenceTopologyPlan,
+      occurrenceTopologyPlanDigest: invocation.params.occurrenceTopologyPlanDigest,
+    })
+    const session = trustedFlattenSession(initial, resolver)
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    const root = session.doc.graphs.root!
+    const junction = Object.values(root.links).find((entry) => 'port' in entry.to && entry.to.node === 'n100' && entry.to.port === 'in')!.from
+    const netJunction = Object.values(root.links).find((entry) => 'port' in entry.to && entry.to.node === 'n100' && entry.to.port === 'netIn')!.from
+    expect(junction).toHaveProperty('reroute')
+    expect(netJunction).toHaveProperty('reroute')
+    expect(Object.values(root.links).filter((entry) => JSON.stringify(entry.from) === JSON.stringify(junction))).toHaveLength(2)
+    expect(root.nodes.n100!.values.in).toBe(23)
+    expect(root.nodes.n101!.values.other).toBe(23)
+    expect(root.nodes.survivor!.values.input).toBe(47)
+    const compiledAfter = compile({ document: session.doc, revision: 1, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('junction-after'), schemaHash: 'junction' })
+    expect(compiledAfter.ok, JSON.stringify(!compiledAfter.ok && compiledAfter.diagnostics)).toBe(true)
+    if (compiledBefore.ok && compiledAfter.ok) {
+      expect(compiledBefore.artifact.prompt['occurrence.a']!.inputs.in).toEqual(linked ? ['source', 0] : 23)
+      expect(compiledBefore.artifact.prompt['occurrence.b']!.inputs.other).toEqual(linked ? ['source', 0] : 23)
+      expect(compiledAfter.artifact.prompt.n100!.inputs.in).toEqual(linked ? ['source', 0] : 23)
+      expect(compiledAfter.artifact.prompt.n101!.inputs.other).toEqual(linked ? ['source', 0] : 23)
+      expect(compiledAfter.artifact.prompt['survivor.a']!.inputs.in).toBe(47)
+      expect(compiledAfter.artifact.prompt.n100!.inputs.netIn).toEqual(linked ? ['source', 1] : undefined)
+      expect(compiledAfter.artifact.prompt.n101!.inputs.netOther).toEqual(linked ? ['source', 1] : undefined)
+    }
+    if (linked) {
+      expect(Object.values(root.links).find((entry) => 'port' in entry.from && entry.from.node === 'source' && entry.from.port === 'out')?.to).toEqual(junction)
+      expect(Object.values(root.links).find((entry) => 'port' in entry.from && entry.from.node === 'source' && entry.from.port === 'net')?.to).toEqual(netJunction)
+      expect(root.nets.incomingNet!.sinks).toEqual([port('outer', 'net')])
+    } else expect(root.boundary!.inputs[0]!.binds).toMatchObject({ node: 'n100', port: 'in', viaReroute: (junction as { reroute: string }).reroute })
+    expect(checkDocument(session.doc).filter((entry) => entry.severity === 'error')).toEqual([])
+    const after = JSON.stringify(session.doc)
+    expect(session.undo()).toBe(true)
+    expect(session.doc.graphs.root!.nodes).toEqual(initial.graphs.root.nodes)
+    expect(session.doc.graphs.root!.links).toEqual(initial.graphs.root.links)
+    expect(session.doc.graphs.root!.nets).toEqual(initial.graphs.root.nets)
+    expect(session.doc.graphs.root!.boundary).toEqual(initial.graphs.root.boundary)
+    expect(session.doc.graphs.body).toEqual(initial.graphs.body)
+    expect(session.redo()).toBe(true)
+    expect(JSON.stringify(session.doc)).toBe(after)
+  })
+
   it('T6 matching live success', () => {
     const initial = flattenDocument()
     const outcome = trustedFlattenSession(initial).dispatch(flattenInvocation(initial))
@@ -2110,11 +2558,13 @@ describe('subgraph.flatten L5-L6 core command', () => {
     expect(session.doc.graphs.body!.boundary!.outputs[0]!.binds).toEqual({ kind: 'widgetTap', node: 'a', tap: 'in' })
   })
 
-  it('refuses atomically when flattening would make a named net source a widget tap', () => {
+  it.each(['widgetTap', 'valueSource'] as const)('refuses atomically when flattening would make a named net source a %s', (kind) => {
     const initial = flattenDocument()
     initial.graphs.body!.boundary!.outputs = [{
       id: 'output',
-      binds: { kind: 'widgetTap', node: 'a' as never, tap: 'in' as never },
+      binds: kind === 'widgetTap'
+        ? { kind, node: 'a' as never, tap: 'in' as never }
+        : { kind, valueSource: 'value' as never, type: { kind: 'concrete', name: 'INT' } },
     }]
     const session = trustedFlattenSession(initial)
     const before = session.doc

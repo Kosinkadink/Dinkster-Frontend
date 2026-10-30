@@ -7,15 +7,8 @@ const argumentProject = process.argv
   .find((arg) => arg.startsWith('--project='))
   ?.slice('--project='.length)
 if (argumentProject) process.env['DINKSTER_E2E_PROJECT'] = argumentProject
-const selectedProject =
-  argumentProject ?? process.env['DINKSTER_E2E_PROJECT']
-const stubV1Entry = selectedProject === 'native-without-v1' ? '1' : '0'
-const stockV1Only = selectedProject === 'v1-compatibility'
-const probeV1 = stubV1Entry === '1' ? '0' : '1'
-// Route-mocked specs stay on v1 except in the native-only project, where the
-// shared fixture must leave the same-origin native catalog reachable.
-process.env['DINKSTER_E2E_FIXTURE_MODE'] =
-  selectedProject === 'native-without-v1' ? 'native' : 'legacy'
+const selectedProject = argumentProject ?? process.env['DINKSTER_E2E_PROJECT']
+const nativeStartup = selectedProject === 'native-startup'
 
 const requiredDirectory = (name: string): string => {
   const value = process.env[name]
@@ -40,16 +33,17 @@ const port = (name: string, fallback: number): number => {
 }
 
 const frontendRoot = resolve(import.meta.dirname, '../..')
-const comfyRoot = requiredDirectory('DINKSTER_E2E_COMFY_ROOT')
 const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
 const nativeOutput = resolve(nativeLibrary, 'output')
+const nativeCheckpoints = resolve(nativeLibrary, 'checkpoints')
 if (argumentProject) {
   // Catalog preparation creates pack environments and schema data here before
   // Playwright loads this config. Reset only mutable test state so the native
   // server can still compose those prepared default packs.
   rmSync(nativeOutput, { recursive: true, force: true })
   rmSync(resolve(nativeLibrary, 'vault'), { recursive: true, force: true })
+  rmSync(resolve(nativeLibrary, 'project-folders.json'), { force: true })
   rmSync(resolve(nativeLibrary, 'value-store'), {
     recursive: true,
     force: true,
@@ -66,50 +60,38 @@ if (argumentProject) {
   )
   writeFileSync(
     resolve(nativeLibrary, 'mounts.toml'),
-    `[settings]\noutput-mount = "output"\n\n[mounts.output]\npath = ${JSON.stringify(nativeOutput)}\nmode = "readwrite"\n`,
+    `[settings]\noutput-mount = "output"\n\n[mounts.output]\npath = ${JSON.stringify(nativeOutput)}\nmode = "readwrite"\n\n[mounts.checkpoints]\npath = ${JSON.stringify(nativeCheckpoints)}\nmode = "read"\nkind = "model/checkpoint"\n`,
   )
 }
 const checkpointFixture = resolve(
-  comfyRoot,
-  'models/checkpoints/audit-local-checkpoint.safetensors',
+  nativeCheckpoints,
+  'audit-local-checkpoint.safetensors',
 )
-mkdirSync(resolve(comfyRoot, 'models/checkpoints'), { recursive: true })
+mkdirSync(nativeCheckpoints, { recursive: true })
 writeFileSync(checkpointFixture, 'Dinkster hosted E2E checkpoint fixture\n')
 const frontendPort = port('DINKSTER_E2E_PORT', 5410)
-const comfyPort = port('DINKSTER_E2E_COMFY_PORT', 5411)
 const nativePort = port('DINKSTER_E2E_NATIVE_PORT', 5412)
 const nativeFrontendPort = port(
   'DINKSTER_E2E_NATIVE_FRONTEND_PORT',
   frontendPort + 3,
 )
-if (
-  new Set([frontendPort, comfyPort, nativePort, nativeFrontendPort]).size !== 4
-)
+if (new Set([frontendPort, nativePort, nativeFrontendPort]).size !== 3)
   throw new Error('hosted E2E ports must differ')
 const nativeBackend = `http://127.0.0.1:${nativePort}`
 process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
-process.env['DINKSTER_E2E_COMFY_BACKEND'] = `http://127.0.0.1:${comfyPort}`
 process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
   `http://127.0.0.1:${nativeFrontendPort}`
 
 export default defineConfig({
   ...baseConfig,
-  globalSetup: stockV1Only
+  globalSetup: nativeStartup
     ? './hosted-live-vitest-setup.ts'
     : './hosted-global-setup.ts',
   use: {
     ...baseConfig.use,
-    baseURL: `http://127.0.0.1:${stubV1Entry === '1' ? nativeFrontendPort : frontendPort}`,
+    baseURL: `http://127.0.0.1:${nativeStartup ? nativeFrontendPort : frontendPort}`,
   },
   webServer: [
-    {
-      command: `${JSON.stringify(resolve(comfyRoot, 'venv/bin/python'))} main.py --cpu --listen 127.0.0.1 --port ${comfyPort} --disable-auto-launch`,
-      cwd: comfyRoot,
-      env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },
-      url: `http://127.0.0.1:${comfyPort}/system_stats`,
-      reuseExistingServer: false,
-      timeout: 180_000,
-    },
     {
       command: [
         JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
@@ -123,7 +105,6 @@ export default defineConfig({
         `--library-root ${JSON.stringify(nativeLibrary)}`,
         '--execution-cache-mode memory',
         '--allow-mount-changes',
-        `--comfy-root ${JSON.stringify(comfyRoot)}`,
         `--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`,
       ].join(' '),
       cwd: dinksterRoot,
@@ -137,10 +118,7 @@ export default defineConfig({
       cwd: frontendRoot,
       env: {
         ...process.env,
-        DINKSTER_BACKEND: `http://127.0.0.1:${comfyPort}`,
         DINKSTER_NATIVE_BACKEND: nativeBackend,
-        DINKSTER_STUB_V1_ENTRY: stubV1Entry,
-        VITE_DINKSTER_E2E_PROBE_V1: probeV1,
       },
       url: `http://127.0.0.1:${frontendPort}`,
       reuseExistingServer: false,
@@ -152,8 +130,6 @@ export default defineConfig({
       env: {
         ...process.env,
         DINKSTER_NATIVE_BACKEND: nativeBackend,
-        DINKSTER_STUB_V1_ENTRY: stubV1Entry,
-        VITE_DINKSTER_E2E_PROBE_V1: '0',
       },
       url: `http://127.0.0.1:${nativeFrontendPort}`,
       reuseExistingServer: false,

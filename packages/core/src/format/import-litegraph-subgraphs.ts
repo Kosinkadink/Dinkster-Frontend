@@ -1,6 +1,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { occurrenceKey, type NodeId } from '../ids.js'
 import { checkDocument } from '../invariants.js'
+import { rerouteInputTargets } from '../reroute.js'
 import { deriveBoundarySchema } from '../schema/derive-boundary.js'
 import { inputsOf, outputsOf, type NodeSchema, type TypeExpr } from '../schema/model.js'
 import type { BoundaryBinding, BoundaryItem, GraphDef, Json, JsonObject, OccurrenceTopology, WorkflowDocument } from './document.js'
@@ -289,14 +290,13 @@ export function importLitegraphSubgraphs(
       const rawValues = node['widgets_values']
       const proxies = proxySlots.get(node)
       const promoted = inputsOf(def.schema).filter((item) => item.widget !== undefined)
-      const valueIds = proxies ?? (node['inputs'] ?? []).flatMap((slot: Mutable, index: number) =>
-        slot['widget'] ? [def.raw['inputs'][index]?.['id']] : [])
-      const ids = valueIds.length ? valueIds : promoted.map((item) => item.id)
+      const ids = proxies ?? promoted.map((item) => item.id)
       if (Array.isArray(rawValues)) {
         for (const [index, value] of rawValues.entries()) {
           const id = ids[index]
           const controllerId = proxyControllers.get(node)?.get(index)
-          if (controllerId !== undefined && ['fixed', 'increment', 'decrement', 'randomize'].includes(value)) controllers[controllerId] = value
+          if (controllerId !== undefined && typeof value === 'boolean') controllers[controllerId] = value ? 'randomize' : 'fixed'
+          else if (controllerId !== undefined && ['fixed', 'increment', 'decrement', 'randomize'].includes(value)) controllers[controllerId] = value
           else if (id !== undefined && controllerId === undefined) values[id] = value
           else diagnostics.push(diag('warning', 'import', 'import.subgraphs.widgetUnresolved', `Subgraph ${node['id']}: promoted widget ${index} has no matching input`))
         }
@@ -310,8 +310,14 @@ export function importLitegraphSubgraphs(
       preparedControllers.set(node, controllers)
       node['properties'] = { ...node['properties'], 'dinkster.importedSubgraph': def.raw['id'], 'dinkster.rawWidgets': rawValues ?? [] }
       node['widgets_values'] = values
-      node['inputs'] = def.raw['inputs'].map((slot: Mutable, index: number) => ({ ...node['inputs']?.[index], name: slot['id'] }))
-      node['outputs'] = def.raw['outputs'].map((slot: Mutable, index: number) => ({ ...node['outputs']?.[index], name: slot['id'] }))
+      for (const side of ['inputs', 'outputs']) {
+        // Instance sockets can omit widget-only boundaries; links index this sparse array.
+        node[side] = (node[side] ?? def.raw[side]).map((slot: Mutable) => {
+          const matches = def.raw[side].filter((candidate: Mutable) => candidate['id'] === slot['name'] || candidate['name'] === slot['name'])
+          const boundary = matches.length === 1 ? matches[0] : undefined
+          return { ...slot, name: boundary?.['id'] ?? slot['name'] }
+        })
+      }
     }
   }
 
@@ -325,6 +331,11 @@ export function importLitegraphSubgraphs(
       const def = [...definitions.values()].find((candidate) => candidate.schema?.type === node['type'])
       if (!def) continue
       const source = raw['nodes'].find((candidate: Mutable) => `n${candidate?.['id']}` === id)
+      for (const slot of def.raw['inputs']) {
+        if (slot['proxyPrimitive'] !== undefined && Object.hasOwn(source['widgets_values'], slot['id'])) {
+          node['values'][slot['id']] = source['widgets_values'][slot['id']]
+        }
+      }
       node['controllers'] = { ...node['controllers'], ...preparedControllers.get(source) }
       node['ext'] = { ...node['ext'], 'importer.subgraphWidgets': {
         values: source['properties']['dinkster.rawWidgets'], proxies: source['properties']['proxyWidgets'] ?? [],
@@ -377,6 +388,11 @@ export function importLitegraphSubgraphs(
       const previous = deliveries.get(key)
       if (previous === undefined) deliveries.set(key, link)
       else {
+        if (link[3] === def.outputNode) {
+          if (link[1] === previous[1] && link[2] === previous[2] && link[5] === previous[5]) continue
+          fail('import.subgraphs.boundaryUnsupported', `subgraph '${id}' has multiple drivers for an output boundary`)
+          return
+        }
         const target = def.raw['nodes'].find((node: Mutable) => Number(node?.['id']) === Number(link[3]))
         const preferred = target?.['inputs']?.[link[4]]?.['link']
         const winner = preferred === link[0] && preferred !== previous[0] ? link : previous
@@ -393,6 +409,25 @@ export function importLitegraphSubgraphs(
         seen.add(slot['link'])
         slot['link'] = remapped.get(slot['link'])
       }
+    }
+    // Saved linkIds choose the promoted widget, but raw links still carry every delivery.
+    for (const [index, slot] of def.raw['inputs'].entries()) {
+      const listed = slot['linkIds']?.map((id: number) => def.raw['links'].find((link: any[]) =>
+        link[0] === id && link[1] === def.inputNode && link[2] === index)) ?? []
+      const primary = listed.find((link: any[] | undefined) => {
+        const target = link && def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(link[3]))
+        return Boolean(target?.['inputs']?.[link?.[4] ?? -1]?.['widget'])
+      })
+      if (!primary) continue
+      const conflicts = def.raw['links'].filter((link: any[]) =>
+        link[1] === def.inputNode && link[2] === index && !slot['linkIds'].includes(link[0]) &&
+        JSON.stringify(importedSlotType(link[5])) !== JSON.stringify(importedSlotType(primary[5])))
+      if (conflicts.length) diagnostics.push(diag('warning', 'import', 'import.subgraphs.boundaryTypeConflict',
+        `Input '${slot['id']}' promotes link ${primary[0]}; retained unlisted links have conflicting types`,
+        { data: { graphId: id, boundaryId: slot['id'], promotedLink: primary[0], conflictingLinks: conflicts.map((link: any[]) => link[0]) } }))
+      const first = def.raw['links'].findIndex((link: any[]) => link[1] === def.inputNode && link[2] === index)
+      def.raw['links'].splice(def.raw['links'].indexOf(primary), 1)
+      def.raw['links'].splice(first, 0, primary)
     }
     def.raw['nodes'].push(
       { id: def.inputNode, type: probeType, outputs: def.raw['inputs'].map((_: unknown, index: number) => ({ name: `i${index}` })) },
@@ -413,9 +448,23 @@ export function importLitegraphSubgraphs(
     def.view = JSON.parse(JSON.stringify(doc.view.graphs['g0']))
     const nativeBody = body as GraphDef
     const links = Object.values(nativeBody.links)
-    const bind = (end: any): BoundaryBinding | undefined =>
-      typeof end.node === 'string' && typeof end.port === 'string' && end.node !== `n${def.inputNode}` && end.node !== `n${def.outputNode}`
-        ? { kind: 'port', ...end } as BoundaryBinding : undefined
+    const terminalOutput = (end: Mutable): Mutable => {
+      const seen = new Set<string>()
+      while (typeof end['reroute'] === 'string') {
+        const id = end['reroute']
+        if (seen.has(id)) return {}
+        seen.add(id)
+        const drivers = links.filter((link) => (link.to as Mutable)['reroute'] === id)
+        if (drivers.length !== 1) return {}
+        end = drivers[0]!.from
+      }
+      return end
+    }
+    const bind = (end: any, type: ReturnType<typeof importedSlotType>): Exclude<BoundaryBinding, { kind: 'unbound' }> | undefined =>
+      typeof end.valueSource === 'string' && nativeBody.valueSources?.[end.valueSource]
+        ? { kind: 'valueSource', valueSource: end.valueSource, type }
+        : typeof end.node === 'string' && typeof end.port === 'string' && end.node !== `n${def.inputNode}` && end.node !== `n${def.outputNode}`
+          ? { kind: 'port', ...end } : undefined
     const authoredBindings = (side: 'inputs' | 'outputs', index: number): BoundaryBinding[] =>
       def.raw['links'].flatMap((link: any[]) => {
         const nodeIndex = side === 'inputs' ? 3 : 1
@@ -431,10 +480,26 @@ export function importLitegraphSubgraphs(
       })
     let unsupported = false
     const boundary = (side: 'inputs' | 'outputs'): BoundaryItem[] => def.raw[side].flatMap((slot: Mutable, index: number) => {
+      if (side === 'inputs' && slot['proxyPrimitive'] !== undefined) {
+        const valueSource = `v${slot['proxyPrimitive']}` as NonNullable<GraphDef['valueSources']>[string]['id']
+        if (!nativeBody.valueSources?.[valueSource]) { unsupported = true; return [] }
+        return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'],
+          binds: { kind: 'valueSource', valueSource, type: importedSlotType(slot['type']) }, promoted: true }]
+      }
+      const hasAuthoredLink = def.raw['links'].some((link: any[]) => side === 'inputs'
+        ? link[1] === def.inputNode && link[2] === index
+        : link[3] === def.outputNode && link[4] === index)
+      if (!hasAuthoredLink) return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: { kind: 'unbound', type: importedSlotType(slot['type']) } }]
       const ends = side === 'inputs'
         ? links.filter((link) => nodeEnd(link.from, `n${def.inputNode}`) && (link.from as any).port === `i${index}`).map((link) => link.to)
         : links.filter((link) => nodeEnd(link.to, `n${def.outputNode}`) && (link.to as any).port === `o${index}`).map((link) => link.from)
-      const bindings = ends.map(bind)
+      const bindings = ends.map((end) => {
+        if (side === 'inputs' && 'reroute' in end) {
+          const targets = rerouteInputTargets(nativeBody, end.reroute)
+          return targets?.length ? { kind: 'port' as const, ...targets[0]!, viaReroute: end.reroute } : undefined
+        }
+        return bind(side === 'outputs' ? terminalOutput(end) : end, importedSlotType(slot['type']))
+      })
       if (!bindings.length || bindings.some((item) => !item) || (side === 'outputs' && bindings.length !== 1)) {
         const authored = authoredBindings(side, index)
         if (!authored.length || (side === 'outputs' && authored.length !== 1)) {
@@ -451,9 +516,14 @@ export function importLitegraphSubgraphs(
         }]
       }
       const primary = bindings[0]!
+      if (primary.kind === 'valueSource') return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: primary }]
       const rawLink = def.raw['links'].find((link: any[]) => link[1] === def.inputNode && link[2] === index)
       const target = rawLink && def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(rawLink[3]))
-      const promoted = side === 'inputs' && Boolean(target?.['inputs']?.[rawLink[4]]?.['widget'])
+      const authority = nativeBody.nodes[primary.node]
+      const authoritySchema = authority && localResolve(authority.type)
+      const promoted = side === 'inputs' && (primary.viaReroute === undefined
+        ? Boolean(target?.['inputs']?.[rawLink[4]]?.['widget'])
+        : authoritySchema !== undefined && inputsOf(authoritySchema).some((input) => input.id === primary.port && input.widget !== undefined))
       return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: primary,
         ...(bindings.length > 1 ? { alsoBinds: bindings.slice(1) as BoundaryBinding[] } : {}),
         ...(promoted ? { promoted: true } : {}),
