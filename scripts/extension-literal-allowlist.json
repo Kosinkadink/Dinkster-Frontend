@@ -579,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 1487,
+      "line": 1491,
       "column": 11,
       "symbol": "widgetType:STRING",
       "issue": 511

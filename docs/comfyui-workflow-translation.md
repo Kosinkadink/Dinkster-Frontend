@@ -73,6 +73,8 @@ Positional `widgets_values` consume one companion entry after a widget with
 `control_after_generate`. The strings `fixed`, `increment`, `decrement` and
 `randomize` select the controller mode; legacy booleans select `fixed` for
 false and `randomize` for true. The companion is not the next input's value.
+The display-only `RESOLUTION_PREVIEW` input consumes no saved value, including
+inside families; ResolutionSelector's saved multiple stays in its own slot.
 Older arrays without a companion still preserve the next numeric widget.
 If a boolean could instead belong to the next BOOLEAN widget or an unresolved
 dynamic construct, import refuses with `import.controller.ambiguousBoolean`.

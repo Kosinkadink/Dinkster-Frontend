@@ -410,6 +410,7 @@ const decodePositionalFamilyWidgets = (
 ): void => {
   for (const member of members) {
     for (const item of family.spec.template) {
+      if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
       if (item.dynamic !== undefined) {
         state.stopped = true
         diags.push(imp('warning', 'import.dynamic.autogrowUnsupported', `${nodeLabel}: dynamic autogrow '${family.statePath}' has a nested dynamic template; remaining positional values kept for review`))
@@ -452,6 +453,8 @@ function decodePositionalWidgets(
   for (const [index, item] of items.entries()) {
     if (state.stopped) return
     if (item.kind !== 'input') continue
+    // ComfyUI's resolution preview is display-only and serializes no value.
+    if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
     const key = joinValuePath(prefix, item.id)
     const dynamic = item.dynamic
 
@@ -512,6 +515,7 @@ function decodePositionalWidgets(
           const mode = raw[state.index]
           if (typeof mode === 'boolean') {
             const next = [...items.slice(index + 1), ...following].find((candidate) => candidate.kind === 'input' &&
+              !(candidate.type.kind === 'concrete' && candidate.type.name === 'RESOLUTION_PREVIEW') &&
               (candidate.dynamic !== undefined || (candidate.widget !== undefined && candidate.forceInput !== true)))
             if (next?.kind === 'input' && (next.dynamic !== undefined || next.type.kind !== 'concrete' || next.type.name === 'BOOLEAN')) {
               state.stopped = true

@@ -989,6 +989,26 @@ describe('positional widget mapping', () => {
     expect(document!.graphs.g0!.nodes.n1!.values).toEqual({ label: 'kept' })
   })
 
+  it('does not assign a saved resolution multiple to the non-serializing preview', () => {
+    const schema = sdSchema('ResolutionSelector', 'Resolution Selector', [
+      sdInput('aspect_ratio', 'COMBO', 'COMBO'),
+      sdInput('megapixels', 'FLOAT', 'FLOAT'),
+      { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+      { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
+    ], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    const source = workflow([lgNode(1, schema.type, { widgets_values: ['1:1 (Square)', 0.4, 32] })])
+    const before = JSON.stringify(source)
+    const imported = importLitegraph(source, localResolve)
+    expect(JSON.stringify(source)).toBe(before)
+    expect(imported.diagnostics).toEqual([])
+    expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ aspect_ratio: '1:1 (Square)', megapixels: 0.4, multiple: 32 })
+    const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'resolution-preview' })
+    expect(compiled.ok).toBe(true)
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs.multiple).toBe(32)
+  })
+
   it('maps the controller extra after seed into node.controllers', () => {
     // KSampler widgets: seed, control_after_generate, steps, cfg,
     // sampler_name, scheduler, denoise
