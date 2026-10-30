@@ -131,7 +131,7 @@ nativeTest.beforeEach(async ({ page, request }, testInfo) => {
 test('node-body hover snaps the noodle and release connects the ranked input', async ({ page }) => {
   // First free the fixture input, then make a fresh output drag to its body.
   await drag(page, await pinPoint(page, 'n1', 'in', 'images'), EMPTY)
-  const from = await pinPoint(page, 'n0', 'out', 'out0')
+  const from = await pinPoint(page, 'n0', 'out', 'IMAGE')
   const body = await nodeBodyPoint(page, 'n1')
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -245,7 +245,7 @@ for (const terminalEvent of ['pointercancel', 'lostpointercapture'] as const) {
     // synthetic terminal event exercises controller policy; physical Mac
     // validation must still prove the browser emits the expected sequence.
     await drag(page, await pinPoint(page, 'n1', 'in', 'images'), EMPTY)
-    const from = await pinPoint(page, 'n0', 'out', 'out0')
+    const from = await pinPoint(page, 'n0', 'out', 'IMAGE')
     const to = await pinPoint(page, 'n1', 'in', 'images')
     await page.mouse.move(from.x, from.y)
     await page.mouse.down()
@@ -264,7 +264,7 @@ for (const terminalEvent of ['pointercancel', 'lostpointercapture'] as const) {
     const links = Object.values((await activeDoc(page)).graphs['g0']!.links)
     expect(links).toHaveLength(1)
     expect(links[0]).toMatchObject({
-      from: { node: 'n0', port: 'out0' },
+      from: { node: 'n0', port: 'IMAGE' },
       to: { node: 'n1', port: 'images' },
     })
   })
@@ -272,7 +272,7 @@ for (const terminalEvent of ['pointercancel', 'lostpointercapture'] as const) {
 
 test('pointermove with buttons zero over a valid input commits once and ignores the late pointerup', async ({ page }) => {
   await drag(page, await pinPoint(page, 'n1', 'in', 'images'), EMPTY)
-  const from = await pinPoint(page, 'n0', 'out', 'out0')
+  const from = await pinPoint(page, 'n0', 'out', 'IMAGE')
   const to = await pinPoint(page, 'n1', 'in', 'images')
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -291,7 +291,7 @@ test('pointermove with buttons zero over a valid input commits once and ignores 
   const links = Object.values((await activeDoc(page)).graphs['g0']!.links)
   expect(links).toHaveLength(1)
   expect(links[0]).toMatchObject({
-    from: { node: 'n0', port: 'out0' },
+    from: { node: 'n0', port: 'IMAGE' },
     to: { node: 'n1', port: 'images' },
   })
 })
@@ -315,24 +315,24 @@ test('mouse pointercancel over empty after a rewire drag disconnects', async ({ 
 test('node-body drop replaces an occupied compatible input', async ({ page }) => {
   // The fixture's n1.images is occupied. Dropping the same producer on the
   // body exercises the occupied fallback and link.connect replacement path.
-  await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), await nodeBodyPoint(page, 'n1'))
+  await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), await nodeBodyPoint(page, 'n1'))
   const links = Object.values((await activeDoc(page)).graphs['g0']!.links)
   expect(links).toHaveLength(1)
   expect(links[0]).toMatchObject({
-    from: { node: 'n0', port: 'out0' },
+    from: { node: 'n0', port: 'IMAGE' },
     to: { node: 'n1', port: 'images' },
   })
 })
 
 test('incompatible node-body drop cancels without opening the palette', async ({ page }) => {
-  await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), await nodeBodyPoint(page, 'n0'))
+  await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), await nodeBodyPoint(page, 'n0'))
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   expect(Object.keys((await activeDoc(page)).graphs['g0']!.links)).toHaveLength(1)
 })
 
 test('output noodle dropped on empty opens input-compatible search; Escape cancels clean', async ({ page }) => {
-  // n0 (EmptyImage) out0 is IMAGE: the palette must seek IMAGE inputs.
-  await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), EMPTY)
+  // EmptyImage's IMAGE output must seek IMAGE inputs.
+  await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   const palette = page.getByTestId('node-palette')
   await expect(palette).toBeVisible()
   await expect(palette).toHaveAttribute('data-link-drop', 'in')
@@ -404,7 +404,7 @@ nativeTest('native typed Autogrow families filter in both directions and generic
 })
 
 test('backdrop pointerdown cancels a link-drop ghost without creating a link or panning', async ({ page }) => {
-  await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), EMPTY)
+  await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   await expect(page.getByTestId('node-palette')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().ghostLink)).toBeDefined()
   const viewportBefore = await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
@@ -425,7 +425,7 @@ test('backdrop pointerdown cancels a link-drop ghost without creating a link or 
 
 test('picking a node inserts it and connects the dangling end - ONE undo step', async ({ page }) => {
   const previousIds = Object.keys((await activeDoc(page)).graphs.g0!.nodes)
-  await drag(page, await pinPoint(page, 'n0', 'out', 'out0'), EMPTY)
+  await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   await page.getByTestId('palette-search').fill('preview image')
   await page.locator('[data-node-type="PreviewImage"]').click()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
@@ -438,7 +438,7 @@ test('picking a node inserts it and connects the dangling end - ONE undo step', 
   expect(
     links.some(
       (l) =>
-        'node' in l.from && l.from.node === 'n0' && l.from.port === 'out0' &&
+        'node' in l.from && l.from.node === 'n0' && l.from.port === 'IMAGE' &&
         'node' in l.to && l.to.node === added.id && l.to.port === 'images',
     ),
   ).toBe(true)
@@ -481,14 +481,14 @@ test('rewire dropped on empty still disconnects (no palette); a free input then 
   expect(
     links.some(
       (l) =>
-        'node' in l.from && l.from.node === added.id && l.from.port === 'out0' &&
+        'node' in l.from && l.from.node === added.id && l.from.port === 'IMAGE' &&
         'node' in l.to && l.to.node === 'n1' && l.to.port === 'images',
     ),
   ).toBe(true)
 })
 
 test('dropped noodle stays visible while the palette is browsed; clears on Escape and commit', async ({ page }) => {
-  const from = await pinPoint(page, 'n0', 'out', 'out0')
+  const from = await pinPoint(page, 'n0', 'out', 'IMAGE')
   await drag(page, from, EMPTY)
   await expect(page.getByTestId('node-palette')).toBeVisible()
 
