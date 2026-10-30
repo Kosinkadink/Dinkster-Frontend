@@ -1009,6 +1009,48 @@ describe('positional widget mapping', () => {
     if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs.multiple).toBe(32)
   })
 
+  it('skips a non-serializing preview in an Autogrow member template', () => {
+    const schema = sdSchema('FamilyPreview', 'Family preview', [{
+      ...sdInput('values', '*'), optional: true,
+      dynamic: {
+        kind: 'autogrow', materialization: 'wire15',
+        naming: { kind: 'names', names: ['a'], min: 1 },
+        template: [
+          { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+          { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
+        ],
+      },
+    }], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [32] })]), localResolve)
+    expect(imported.diagnostics).toEqual([])
+    expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ 'values.a.multiple': 32 })
+    const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+      scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'family-preview' })
+    expect(compiled.ok).toBe(true)
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs['values.a.multiple']).toBe(32)
+  })
+
+  it.each([[false, 'fixed'], [true, 'randomize']] as const)(
+    'accepts a legacy boolean controller %s before a non-serializing preview',
+    (legacy, mode) => {
+      const schema = sdSchema('SeedPreview', 'Seed preview', [
+        { ...sdInput('seed', 'INT'), widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } },
+        { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+      ])
+      const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [42, legacy] })]),
+        (type) => type === schema.type ? schema : undefined)
+      expect(imported.diagnostics).toEqual([])
+      expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ seed: 42 })
+      expect(imported.document!.graphs.g0!.nodes.n1!.controllers).toEqual({ seed: mode })
+      const withBoolean = { ...schema, items: [...schema.items, sdInput('enabled', 'BOOLEAN', 'BOOLEAN')] }
+      const ambiguous = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [42, legacy] })]),
+        (type) => type === schema.type ? withBoolean : undefined)
+      expect(ambiguous.document).toBeUndefined()
+      expect(codesOf(errorsOf(ambiguous.diagnostics))).toContain('import.controller.ambiguousBoolean')
+    },
+  )
+
   it('maps the controller extra after seed into node.controllers', () => {
     // KSampler widgets: seed, control_after_generate, steps, cfg,
     // sampler_name, scheduler, denoise
