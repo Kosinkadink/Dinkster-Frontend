@@ -853,7 +853,7 @@ export function createPreviewLoader(deps: {
                   download,
                 }
               } catch {
-                return { kind: 'image', status: 'failed', download }
+                return { kind: 'image', status: 'failed', statusMessage: 'Preview unavailable', download }
               }
             }
             if (artifactKind === 'audio') return { kind: 'audio', mime: artifact.mediaType, src: '', download }

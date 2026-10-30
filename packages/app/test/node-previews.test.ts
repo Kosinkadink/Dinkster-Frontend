@@ -460,7 +460,7 @@ describe('sourceFor', () => {
       mediaType: 'image/x-exr', virtualPath: 'mounts/output/original.exr',
       preview: { digest: `blake3:${'8'.repeat(64)}`, name: 'preview.jpg', size: 24, mediaType: 'image/jpeg', virtualPath: `previews/${'8'.repeat(64)}/preview.jpg` },
     }] }), ['save'], false)!.load()
-    expect(loaded).toMatchObject({ status: 'failed', download: { src: `http://backend/api/assets/blake3:${'7'.repeat(64)}`, name: 'original.exr' } })
+    expect(loaded).toMatchObject({ status: 'failed', statusMessage: 'Preview unavailable', download: { src: `http://backend/api/assets/blake3:${'7'.repeat(64)}`, name: 'original.exr' } })
     expect(fetchRecordedOutput).toHaveBeenCalledExactlyOnceWith(`http://backend/api/assets/blake3:${'8'.repeat(64)}`)
   })
 

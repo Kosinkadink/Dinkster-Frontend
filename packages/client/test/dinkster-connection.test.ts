@@ -2720,7 +2720,15 @@ describe('job hydration and replay', () => {
   })
 
   it('keeps saved files when their optional preview metadata is malformed', async () => {
-    for (const preview of [null, {}, { digest: 'bad' }, { ...videoArtifact, preview: {} }]) {
+    const valid = {
+      digest: `blake3:${'a'.repeat(64)}`, name: 'preview.webp', size: 238,
+      mediaType: 'image/webp', virtualPath: `previews/${'a'.repeat(64)}/preview.webp`,
+    }
+    for (const preview of [
+      null, {}, { digest: 'bad' }, { ...videoArtifact, preview: {} },
+      { ...valid, size: 0 }, { ...valid, size: 16 * 1024 * 1024 + 1 },
+      { ...valid, name: '../preview.webp' }, { ...valid, virtualPath: 'output/preview.webp' },
+    ]) {
       const { conn } = replayHarness({
         '/api/jobs/cid/j1': { ...completedJob, artifacts: [{ ...videoArtifact, preview }] },
       })
