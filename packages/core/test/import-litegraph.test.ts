@@ -797,6 +797,52 @@ describe('serialized output slot identity', () => {
 // -- widget value mapping -----------------------------------------------------
 
 describe('versioned node widget upgrades', () => {
+  it.each([['auto', 'auto'], ['mp4', 'h264'], ['webm', 'av1']])('recognizes versionless SaveVideo %s/%s layout without inventing a source version', (format, codec) => {
+    const encoding: InputSpec = {
+      ...sdInput('encoding', 'COMBO'), optional: true,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
+    }
+    const codecInput: InputSpec = {
+      ...sdInput('codec', 'COMBO'), optional: true,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'auto', inputs: [] }, { key: 'h264', inputs: [encoding] }, { key: 'av1', inputs: [encoding] },
+      ] },
+    }
+    const schema = sdSchema('SaveVideo', 'Save Video', [
+      sdInput('filename_prefix', 'STRING', 'STRING'),
+      { ...sdInput('format', 'COMBO'), dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'auto', inputs: [codecInput] }, { key: 'mp4', inputs: [codecInput] }, { key: 'webm', inputs: [{ ...codecInput, dynamic: {
+          ...codecInput.dynamic!, kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }, { key: 'av1', inputs: [encoding] }],
+        } }] },
+      ] } },
+      codecInput,
+    ], true)
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    for (const { widgets_values, recognized } of [
+      { widgets_values: ['video/unversioned', format, codec], recognized: true },
+      { widgets_values: ['video/unversioned', 'mp4'], recognized: false },
+      { widgets_values: ['video/unversioned', 'webm', 'h264'], recognized: false },
+    ]) {
+      const source = workflow([lgNode(1, 'SaveVideo', { widgets_values })])
+      const before = JSON.stringify(source)
+      const imported = importLitegraph(source, localResolve)
+      expect(JSON.stringify(source)).toBe(before)
+      expect(imported.document!.ext!['importer.comfyWorkflow']).toEqual(source)
+      expect(Object.keys(imported.document!.graphs.g0!.nodes)).toEqual(['n1'])
+      expect(codesOf(imported.diagnostics).includes('import.widgets.versionlessLayout')).toBe(recognized)
+      const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
+        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'versionless-save-video' })
+      expect(compiled.ok).toBe(recognized)
+      if (compiled.ok) {
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual({
+          filename_prefix: 'video/unversioned', format, 'format.codec': codec, codec,
+          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto', 'codec.encoding': 'auto' }),
+        })
+        expect(imported.document!.graphs.g0!.nodes.n1!.ext!['importer.versionlessWidgetLayout']).toBe('SaveVideo:filename_prefix,format,codec')
+      }
+    }
+  })
+
   it.each(['auto', 'h264', 'av1'])('upgrades SaveVideo 0.3.68 %s choices without shifting the prefix or changing the source', (codec) => {
     const encoding: InputSpec = {
       ...sdInput('encoding', 'COMBO'), optional: true,

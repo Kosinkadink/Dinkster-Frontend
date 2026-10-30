@@ -89,6 +89,15 @@ it cannot insert nodes, change class identities, or rewrite links. Missing or un
 use the ordinary import path. Root nodes and subgraph definitions use the same
 table. These source versions are not the workflow format's `version` field.
 
+Separately, a SaveVideo node without `properties.ver` can carry the recognized
+three-widget layout: string filename prefix, supported container, supported codec.
+When the served schema accepts those choices, import stores the codec explicitly
+in both the container branch and fallback codec input, including automatic
+encoding choices. It records `importer.versionlessWidgetLayout` on the imported
+node and emits `import.widgets.versionlessLayout`; the original source stays
+unchanged and no version is invented. Other versionless layouts use ordinary
+decoding and retain its diagnostics. Compilation still requires stored choices.
+
 Primitive producers inside imported subgraphs remain first-class value sources,
 not runtime helper nodes. Native `valueSource` boundary bindings retain the
 authored interface type independently of the stored literal. Proxy values and

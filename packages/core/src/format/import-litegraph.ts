@@ -1474,7 +1474,27 @@ function importLitegraphGraph(
       diags.push(imp('warning', 'import.schema.missing', `node ${n.id} ('${n.type}'): no such node type is installed; widget values kept raw for review`))
       if (n.widgets_values !== undefined) ext['importer.rawWidgetValues'] = n.widgets_values as Json
     } else if (Array.isArray(n.widgets_values)) {
-      const raw = n.widgets_values
+      let raw = n.widgets_values
+      if (n.type === 'SaveVideo' && n.properties?.['ver'] === undefined && raw.length === 3 &&
+        typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string' &&
+        ['auto', 'mp4', 'mkv', 'webm'].includes(raw[1]) && ['auto', 'h264', 'av1'].includes(raw[2])) {
+        const format = schema.items.find((item) => item.kind === 'input' && item.id === 'format')
+        const codec = schema.items.find((item) => item.kind === 'input' && item.id === 'codec')
+        const branch = format?.kind === 'input' && format.dynamic?.kind === 'dynamicCombo' && format.dynamic.materialization === 'wire15'
+          ? format.dynamic.options.find((option) => option.key === raw[1]) : undefined
+        const nestedCodec = branch?.inputs.find((item) => item.id === 'codec')
+        if (codec?.kind === 'input' && codec.dynamic?.kind === 'dynamicCombo' && codec.dynamic.materialization === 'wire15' &&
+          codec.dynamic.options.some((option) => option.key === raw[2]) &&
+          nestedCodec?.dynamic?.kind === 'dynamicCombo' && nestedCodec.dynamic.materialization === 'wire15' &&
+          nestedCodec.dynamic.options.some((option) => option.key === raw[2])) {
+          // The three-widget layout has no source version. Store both codec
+          // choices explicitly without changing the authored source metadata.
+          const encoding = raw[2] === 'auto' ? [] : ['auto']
+          raw = [...raw, ...encoding, raw[2], ...encoding]
+          ext['importer.versionlessWidgetLayout'] = 'SaveVideo:filename_prefix,format,codec'
+          diags.push(imp('info', 'import.widgets.versionlessLayout', `node ${n.id} ('SaveVideo'): recognized the three-widget layout without a recorded version`))
+        }
+      }
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
       decodePositionalWidgets(schema.items, raw, state, '', `node ${n.id} ('${n.type}')`, diags)
       if (state.index < raw.length) {
