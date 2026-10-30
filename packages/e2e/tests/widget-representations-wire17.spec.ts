@@ -692,10 +692,10 @@ test('multiline preview and editor wrap long canonical lines with themed overflo
   expect(editor.scrollbarWidth).toBe('auto')
   expect(editor.scrollbarColor).toBe('auto')
   expect(editor.webkitScrollbarWidth).toBe('6px')
-  expect(editor.webkitTrackBackground).toBe('rgb(24, 24, 24)')
-  expect(['rgb(68, 68, 68)', 'rgb(85, 85, 85)']).toContain(editor.webkitThumbBackground)
+  expect(editor.webkitTrackBackground).toBe('rgb(17, 19, 22)')
+  expect(['rgb(125, 135, 146)', 'rgb(170, 179, 188)']).toContain(editor.webkitThumbBackground)
   expect(editor.webkitThumbMinHeight).toBe('12px')
-  expect(editor.webkitCornerBackground).toBe('rgb(24, 24, 24)')
+  expect(editor.webkitCornerBackground).toBe('rgb(17, 19, 22)')
   expect(editor.webkitButtonDisplay).toBe('none')
   await test.info().attach('multiline-wrap-editor', {
     body: await page.screenshot({ animations: 'disabled' }),

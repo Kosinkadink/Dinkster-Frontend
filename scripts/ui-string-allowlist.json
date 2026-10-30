@@ -99,7 +99,7 @@
   ],
   "AssetsBody.tsx": [
     "text:() const [mounts, setMounts] = createSignal",
-    "text:() const [retryTick, setRetryTick] = createSignal(0) const [foldersOpen, setFoldersOpen] = createSignal(false) const [sourceFailures, setSourceFailures] = createSignal",
+    "text:() const [retryTick, setRetryTick] = createSignal(0) const [foldersOpen, setFoldersOpen] = createSignal(false) const [outputUnconfigured, setOutputUnconfigured] = createSignal(false) let folders: HTMLDetailsElement | undefined const [sourceFailures, setSourceFailures] = createSignal",
     "text:([]) const [discoveryError, setDiscoveryError] = createSignal",
     "text:= 1024 && unit",
     "text:if (state.kind === 'error') return",

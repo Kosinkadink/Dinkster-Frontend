@@ -47,6 +47,7 @@ for (const args of [
     'test/dinkster-inline-value.test.ts',
     'test/object-info.golden.test.ts',
     'test/events.golden.test.ts',
+    'test/design-tokens.test.ts',
   ],
   [
     '--filter',

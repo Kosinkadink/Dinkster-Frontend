@@ -3,8 +3,8 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { assetDtoV1Contract, type DinksterConnection } from '@dinkster/client'
-import { registerCatalog, setLocale } from '@dinkster/core'
+import { assetDtoV1Contract, DinksterConnection } from '@dinkster/client'
+import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
 import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
 import '../src/locale.js'
@@ -24,6 +24,10 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
   listLocalAssets: vi.fn().mockResolvedValue({ assets: [] }),
   checkAssetAvailability: vi.fn().mockResolvedValue([]),
   fetchAssetLocations: vi.fn().mockResolvedValue([]),
+  fetchMountSettings: async () => ({
+    mounts: await (members as { listMounts: DinksterConnection['listMounts'] }).listMounts(),
+    outputMount: 'output', mountChangesAllowed: false,
+  }),
   ...members,
 } as unknown as DinksterConnection)
 
@@ -68,6 +72,29 @@ describe('Assets dock body', () => {
       } else expect(revealButton).toBeUndefined()
       ;[...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((row) => row.textContent?.includes('missing.bin'))!.click()
       expect(root.querySelector('[data-testid="asset-file-location"]')).toBeNull()
+    } finally { dispose() }
+  })
+
+  it('keeps sources available for a null output and opens configuration on request', async () => {
+    const connection = new DinksterConnection({
+      id: asConnectionId('native'), baseUrl: 'http://native', clientId: 'test',
+      fetchFn: async (url) => new Response(JSON.stringify(String(url).endsWith('/api/mounts')
+        ? { mounts: [{ id: 'inputs', mode: 'read', state: 'ready', entryCount: 1 }], outputMount: null, activeOutputMount: null }
+        : { entries: [] })),
+    })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('No output mount configured'))
+      expect(root.querySelector('[data-testid="assets-error"]')).toBeNull()
+      const select = root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!
+      select.click()
+      expect(document.querySelector('[data-option-id="mount:inputs"]')).not.toBeNull()
+      root.querySelector<HTMLButtonElement>('[data-testid="assets-output-unconfigured"] button')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="output-mount-settings"]')).not.toBeNull())
+      expect(root.querySelector<HTMLDetailsElement>('.asset-project-folders')?.open).toBe(true)
+      await vi.waitFor(() => expect(root.textContent).not.toContain('Loading output mount'))
     } finally { dispose() }
   })
 

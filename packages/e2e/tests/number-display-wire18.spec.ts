@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 
 const PROOF_DIR = '/tmp/audit-ae-proof'
-const RANGE_FILL = 'rgba(120, 174, 229, 0.18)'
+const RANGE_FILL = '#343940'
 const advertisedWires: string[] = []
 
 const numberInput = (id: string, display?: string, displayName?: string) => ({

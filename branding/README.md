@@ -137,16 +137,16 @@ comparison files are historical, not additional production selections.
   64, 128 and 256 px color PNG entries. Apple: `platform/dinkster.icns`,
   16 through 1024 px including 2x representations. `sources/package_icons.py`
   embeds the CLI PNG bytes unchanged; `platform-export-command.txt` records the command.
-- Palette: `tokens/dinkster-colors.json` and `tokens/dinkster-theme.css`.
+- Palette: `tokens/dinkster-colors.json`, exported as `@dinkster/branding/palette`.
   Identity names are `brand.cyan` = `#32E6C5`, `brand.coral` = `#FF7468`,
   `brand.yellow` = `#FFD86B`, `brand.offWhite` = `#F2F4F5`, `brand.ink` = `#1F242A`.
   Theme groups cover backgrounds, border, primary/secondary/muted text,
   primary action and success/info/warning/danger; values are preserved in
-  both token files. Semantic danger is not a brand-plane alias.
+  the JSON palette. Semantic danger is not a brand-plane alias.
 
-Product integration belongs to separate frontend/Desktop changes using a
-landed asset commit. No header, favicon, application icon, palette runtime
-or package dependency is changed by this asset branch.
+Frontend shell and icon integration is documented in `../docs/shell.md`;
+the shared CSS and canvas palette projection is documented in
+`../docs/design-system.md`. Desktop consumes the published frontend assets.
 
 `sources/trace_reference_e.py /path/to/wordmark-monochrome-reference.png
 --potrace /path/to/potrace` rebuilds the regular e from the light-on-dark
@@ -238,8 +238,13 @@ letters are exported from the same master, not a separate SVG source.
 Identity coral and semantic danger are distinct tokens even where their
 dark-theme values coincide. No light-mode cyan substitution is made.
 
-Run `python sources/check_tokens.py` to compare every JSON/CSS value and
-recompute WCAG 2 sRGB relative-luminance contrast ratios:
+`tokens/dinkster-colors.json` is the single palette source, exported as
+`@dinkster/branding/palette` by this private workspace package. Core declares
+that dependency and projects it into both injected CSS custom properties
+and typed canvas tokens. There is no separate hand-maintained theme CSS.
+
+Run `python sources/check_tokens.py` to recompute WCAG 2 sRGB
+relative-luminance contrast ratios directly from the JSON:
 
 | Theme | Text | Canvas | Surface | Raised |
 | --- | --- | --- | --- | --- |
