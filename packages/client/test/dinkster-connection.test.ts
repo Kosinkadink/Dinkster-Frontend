@@ -1542,6 +1542,90 @@ function submitHarness(respond: (url: string, init?: RequestInit) => Response | 
 
 const nodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, liveNodesPayload) : undefined
+
+describe('retained asset ownership', () => {
+  const a = `blake3:${'a'.repeat(64)}`
+  const b = `blake3:${'b'.repeat(64)}`
+  const owner = { scope: 'team/one', ownerKind: 'document' as const, ownerId: 'window/tab generation' }
+  const manifest = { ...owner, revision: 8, digests: [a, b], complete: true }
+
+  it('acknowledges canonical sets at the exact scoped owner and revision', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, manifest))
+    expect(await conn.retainAssets(owner, { revision: 7, digests: [b, a, b], complete: true }))
+      .toEqual(manifest)
+    expect(requests[0]!.url).toBe('http://test/api/library/retentions/document/window%2Ftab%20generation?scope=team%2Fone')
+    expect(JSON.parse(requests[0]!.init!.body as string)).toEqual({
+      revision: 7, digests: [a, b], complete: true,
+    })
+    expect(requests[0]!.init!.method).toBe('PUT')
+    expect(await conn.fetchRetainedAssets(owner)).toEqual(manifest)
+    expect(requests[1]!.init?.method).toBe('GET')
+  })
+
+  it('does not accept a different owner, set, completeness or mutation revision', async () => {
+    for (const mismatch of [
+      { scope: 'other' }, { ownerKind: 'preview' }, { ownerId: 'another generation' },
+      { revision: 7 }, { revision: 9 }, { digests: [a] }, { digests: [b, a] },
+      { digests: [a, a] }, { complete: false }, { complete: undefined },
+    ]) {
+      const { conn } = submitHarness(() => jsonResponse(200, { ...manifest, ...mismatch }))
+      await expect(conn.retainAssets(owner, { revision: 7, digests: [a, b], complete: true }))
+        .rejects.toThrow('acknowledgment')
+    }
+  })
+
+  it('distinguishes a missing owner from conflicts and unavailable state without retrying writes', async () => {
+    const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
+    expect(await missing.fetchRetainedAssets(owner)).toBeUndefined()
+    for (const status of [404, 409, 503]) {
+      const { conn, requests } = submitHarness(() => jsonResponse(status, {}))
+      await expect(conn.retainAssets(owner, { revision: 0, digests: [], complete: false }))
+        .rejects.toThrow(`failed: ${status}`)
+      expect(requests).toHaveLength(1)
+    }
+    const { conn: unavailable } = submitHarness(() => jsonResponse(503, {}))
+    await expect(unavailable.fetchRetainedAssets(owner)).rejects.toThrow('failed: 503')
+    const { conn: lost, requests } = submitHarness((_url, init) => {
+      if (init?.method === 'PUT') throw new TypeError('response lost after commit')
+      return jsonResponse(200, manifest)
+    })
+    await expect(lost.retainAssets(owner, { revision: 7, digests: [a, b], complete: true }))
+      .rejects.toThrow('response lost after commit')
+    expect(requests).toHaveLength(1)
+    expect(await lost.fetchRetainedAssets(owner)).toEqual(manifest)
+    expect(requests.map((request) => request.init?.method)).toEqual(['PUT', 'GET'])
+  })
+
+  it('preserves incomplete ownership and requires an empty next-revision release acknowledgment', async () => {
+    const incomplete = { ...owner, revision: 1, digests: [b], complete: false }
+    const { conn } = submitHarness(() => jsonResponse(200, incomplete))
+    expect(await conn.retainAssets(owner, { revision: 0, digests: [b], complete: false })).toEqual(incomplete)
+    const released = { ...owner, revision: 2, digests: [], complete: true }
+    const { conn: releasing, requests } = submitHarness(() => jsonResponse(200, released))
+    expect(await releasing.releaseRetainedAssets(owner, 1)).toEqual(released)
+    expect(requests[0]!.url).toContain('?scope=team%2Fone&revision=1')
+    expect(requests[0]!.init!.method).toBe('DELETE')
+    for (const mismatch of [{ digests: [a] }, { complete: false }, { revision: 1 }]) {
+      const { conn: invalid } = submitHarness(() => jsonResponse(200, { ...released, ...mismatch }))
+      await expect(invalid.releaseRetainedAssets(owner, 1)).rejects.toThrow('acknowledgment')
+    }
+  })
+
+  it('rejects invalid and oversized declarations without truncating or sending them', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, manifest))
+    const oversized = Array.from({ length: 4097 }, (_, index) => `blake3:${index.toString(16).padStart(64, '0')}`)
+    for (const digests of [[a.toUpperCase()], ['fingerprint:abc'], oversized]) {
+      await expect(conn.retainAssets(owner, { revision: 0, digests, complete: true })).rejects.toThrow()
+    }
+    for (const revision of [-1, 0.5, Number.MAX_SAFE_INTEGER]) {
+      await expect(conn.retainAssets(owner, { revision, digests: [], complete: true })).rejects.toThrow()
+    }
+    await expect(conn.releaseRetainedAssets(owner, 0)).rejects.toThrow()
+    await expect(conn.fetchRetainedAssets({ ...owner, ownerId: '' })).rejects.toThrow()
+    expect(requests).toHaveLength(0)
+  })
+})
+
 const regionNodesPayload = currentNodesPayload({
   version: 'test', schemaWire: 1, graphFeatures: ['regions'],
 })

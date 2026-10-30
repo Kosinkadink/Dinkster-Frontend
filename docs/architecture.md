@@ -25,6 +25,31 @@ and Apply action; when there are no writable folders, it directs the operator
 to add one in Project folders. Policy-disabled configuration stays read-only.
 Selecting an explicit save target does not require a configured default.
 
+## Retained asset wire contract
+
+`DinksterConnection` reads and writes scoped manifests at
+`/api/library/retentions/{ownerKind}/{ownerId}?scope=`. Owner kinds are
+`document`, `history`, `shown-result` and `preview`; independent retained
+generations use distinct IDs. PUT sends `{revision, digests, complete}` with
+canonical, sorted, deduplicated `blake3:` identities (at most 4096). Unknown or
+opaque typed values require incomplete ownership, not an empty complete set.
+The transport rejects oversized declarations rather than truncating them.
+
+An acknowledgment must match the exact scope, owner kind and ID. Mutations
+also require the requested canonical set, completeness and next revision.
+GET 404 means absent; conflicts, unavailable storage and malformed responses
+are errors, not successful release. No mutation is automatically retried:
+a lost response requires GET reconciliation against the entire expected set,
+completeness and revision before publication or a subsequent mutation.
+DELETE requires the acknowledged positive revision and returns a complete
+empty manifest at the next revision, preserving the durable tombstone.
+Restart, disconnection and view unmount do not authorize release.
+
+These manifests do not enumerate all frontend holders or enable collection.
+Bounded output descriptors, rendition fingerprints and cache keys are not
+complete typed asset-reference sets. The backend source gate
+`FRONTEND_RETENTION_COMPLETE` remains false; no HTTP flag enables deletion.
+
 ## Goals
 
 - Performant node-graph editor for ComfyUI, local-first (no cloud/API-node concerns for now).

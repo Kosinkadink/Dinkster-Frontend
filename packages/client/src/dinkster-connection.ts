@@ -1181,6 +1181,40 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
 // Workflow library wire (POST /api/assets + /api/library, additive d41fbd3)
 // ---------------------------------------------------------------------------
 
+export interface RetainedAssetOwner {
+  readonly scope: string
+  readonly ownerKind: 'document' | 'history' | 'shown-result' | 'preview'
+  readonly ownerId: string
+}
+
+export interface RetainedAssets extends RetainedAssetOwner {
+  readonly revision: number
+  readonly digests: readonly string[]
+  readonly complete: boolean
+}
+
+export type RetainedAssetDeclaration = Pick<RetainedAssets, 'revision' | 'digests' | 'complete'>
+
+function retainedAssetRoute(owner: RetainedAssetOwner): string {
+  if (owner.ownerId.length === 0 || [...owner.ownerId].length > 512) {
+    throw new Error('Retained asset owner ID must contain 1 to 512 characters')
+  }
+  return `/api/library/retentions/${owner.ownerKind}/${encodeURIComponent(owner.ownerId)}?scope=${encodeURIComponent(owner.scope)}`
+}
+
+function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
+  if (!record(value) || value['scope'] !== owner.scope || value['ownerKind'] !== owner.ownerKind ||
+    value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
+    !Number.isSafeInteger(value['revision']) || value['revision'] < 1 ||
+    typeof value['complete'] !== 'boolean' || !Array.isArray(value['digests']) ||
+    value['digests'].length > 4096 || !value['digests'].every((digest: unknown, index: number, digests: unknown[]) =>
+      typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest) &&
+      (index === 0 || (digests[index - 1] as string) < digest))) {
+    throw new Error('Retained asset acknowledgment is malformed or belongs to another owner')
+  }
+  return { ...owner, revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'] }
+}
+
 /**
  * One scoped library record: mutable browse metadata (name/labels/folder)
  * pointing at immutable content bytes by digest. Renames never change
@@ -2519,6 +2553,55 @@ export class DinksterConnection {
   }
 
   // -- Workflow library (POST /api/assets + /api/library) --------------------
+
+  async fetchRetainedAssets(owner: RetainedAssetOwner, signal?: AbortSignal): Promise<RetainedAssets | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
+      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET retained assets failed: ${res.status}`)
+    return retainedAssetAcknowledgment(await res.json(), owner)
+  }
+
+  retainAssets(owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration, signal?: AbortSignal): Promise<RetainedAssets> {
+    return this.mutateRetainedAssets(owner, 'PUT', declaration, signal)
+  }
+
+  releaseRetainedAssets(owner: RetainedAssetOwner, revision: number, signal?: AbortSignal): Promise<RetainedAssets> {
+    return this.mutateRetainedAssets(owner, 'DELETE', { revision, digests: [], complete: true }, signal)
+  }
+
+  private async mutateRetainedAssets(
+    owner: RetainedAssetOwner,
+    method: 'PUT' | 'DELETE',
+    declaration: RetainedAssetDeclaration,
+    signal?: AbortSignal,
+  ): Promise<RetainedAssets> {
+    const { revision, complete } = declaration
+    const digests = [...new Set(declaration.digests)].sort()
+    if (!Number.isSafeInteger(revision) || revision < (method === 'DELETE' ? 1 : 0) ||
+      revision >= Number.MAX_SAFE_INTEGER || typeof complete !== 'boolean' || digests.length > 4096 ||
+      !digests.every((digest) => typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest))) {
+      throw new Error('Invalid retained asset declaration')
+    }
+    const route = `${retainedAssetRoute(owner)}${method === 'DELETE' ? `&revision=${revision}` : ''}`
+    const res = await this.fetchFn(`${this.baseUrl}${route}`, {
+      method,
+      ...(method === 'PUT' ? {
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, digests, complete }),
+      } : {}),
+      ...(signal !== undefined ? { signal } : {}),
+    })
+    // A failed or lost response can still have committed. Reconciliation is
+    // an owner decision; never replay a write or adopt a conflict's revision.
+    if (!res.ok) throw new Error(`${method} retained assets failed: ${res.status}`)
+    const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
+    if (acknowledged.revision !== revision + 1 || acknowledged.complete !== complete ||
+      acknowledged.digests.length !== digests.length || acknowledged.digests.some((digest, index) => digest !== digests[index])) {
+      throw new Error('Retained asset acknowledgment differs from the requested declaration')
+    }
+    return acknowledged
+  }
 
   /**
    * Upload opaque bytes to the content-addressed vault. Idempotent (201 new,
