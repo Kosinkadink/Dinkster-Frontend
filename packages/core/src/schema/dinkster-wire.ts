@@ -1666,11 +1666,13 @@ function decodeWireCombo(
     throw new Error(`${where}.default must name an option`)
   }
   const required = wireBoolean(entry['required'], `${where}.required`, false)
+  const hidden = wireBoolean(entry['hidden'], `${where}.hidden`, false)
   return {
     kind: 'input',
     id,
     type: { kind: 'concrete', name: 'COMBO' },
     optional: !required,
+    ...(hidden ? { hidden: true } : {}),
     ...wirePresentation(entry, where),
     widget: {
       widgetType: 'COMBO',
