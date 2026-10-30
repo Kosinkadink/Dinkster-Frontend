@@ -211,7 +211,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 6854,
+      "line": 6862,
       "column": 19,
       "symbol": "widgetType:ASSET",
       "issue": 122

@@ -6330,6 +6330,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               if (current !== undefined) retainedItem = current
               return retainedItem
             }
+            let previousTarget = item().target
+            createEffect(() => {
+              const target = item().target
+              if (previousTarget !== undefined && target !== undefined) {
+                props.tooltips?.refreshTarget(previousTarget, target, tooltipOwner)
+              }
+              previousTarget = target
+            })
             return (
             <ProductButton size="compact"
               type="button"

@@ -1554,6 +1554,36 @@ test('a changed producer exposes stale/unproven companion wording while styling 
     path: screenshotPath,
     contentType: 'image/png',
   })
+  await page.mouse.move(1, 1)
+  await proxy.focus()
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stale/unproven value: 512')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const compiled = app.compileTab(app.activeTab()!)
+    if (!compiled?.ok) throw new Error('updated companion compile failed')
+    const ref = { connection: compiled.artifact.connection, prompt: 'updated-companion' }
+    const store = app.store as unknown as {
+      register(execution: { connection: string; prompt: string }, artifact: unknown, now: number): void
+      apply(event: unknown): void
+    }
+    store.register(ref, compiled.artifact, Date.now())
+    store.apply({ kind: 'started', execution: ref, timestamp: Date.now() })
+    store.apply({ kind: 'nodeStates', execution: ref, timestamp: Date.now(),
+      nodes: { source: { state: 'done', outputs: { out: { typeId: 'INT', value: 1024 } } } },
+    })
+    store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
+  })
+  await expect.poll(companions).toEqual({ sink: { width: { value: 1024 } } })
+  await page.screenshot({ path: testInfo.outputPath('updated-companion-tooltip.png') })
+  await expect(proxy).toBeFocused()
+  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1024')
+  await expect(page.getByTestId('app-tooltip')).not.toContainText('Stale/unproven value: 512')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 640')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', false))
+  await expect(proxy).toBeFocused()
+  await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
 })
 
 test('single-line STRING commits, cancels, and accepts empty string', async ({ page }) => {
