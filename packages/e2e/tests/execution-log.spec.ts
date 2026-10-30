@@ -28,13 +28,13 @@ async function seedRun(page: Page): Promise<Seed> {
     bridge.app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
+        items: [{ kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       {
         type: 'ImageScaleBy', displayName: 'Scale Image', category: 'e2e', source: 'e2e', isOutputNode: false,
         items: [
           { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-          { kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } },
+          { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } },
         ],
       },
       {
