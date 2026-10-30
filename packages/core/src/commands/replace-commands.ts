@@ -21,8 +21,8 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
-import { MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
-import { asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
+import { boundaryBindingKey, MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
+import { asDynamicMemberId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition, CommandInvocation } from './contract.js'
 import {
@@ -64,7 +64,7 @@ const isMemberPath = (v: Json | undefined): v is string[] =>
 const sameMembers = (actual: readonly string[] | undefined, expected: readonly string[] | undefined): boolean =>
   actual !== undefined && expected !== undefined &&
   actual.length === expected.length && actual.every((member, index) => member === expected[index])
-const isOutputRewire = (v: Json): v is JsonObject & {
+const isLinkRewire = (v: Json): v is JsonObject & {
   link: string
   port: string
   node?: string
@@ -129,14 +129,22 @@ const isBoundaryRewire = (v: Json): v is JsonObject & { item: string; side: 'inp
   isObj(v) &&
   typeof v.item === 'string' &&
   (v.side === 'input' || v.side === 'output') &&
+  (v.kind === undefined || (v.kind === 'family' && v.side === 'input' && v.alsoIndex === undefined)) &&
   typeof v.fromPort === 'string' &&
   typeof v.port === 'string' &&
+  (v.fromMembers === undefined || isMemberPath(v.fromMembers)) &&
+  (v.members === undefined || isMemberPath(v.members)) &&
   (v.alsoIndex === undefined || typeof v.alsoIndex === 'number')
 const isBoundaryGuard = (v: Json): v is JsonObject & { item: string; side: 'input' | 'output'; port: string; alsoIndex?: number; promoted?: boolean } =>
   isObj(v) &&
   typeof v.item === 'string' &&
   (v.side === 'input' || v.side === 'output') &&
   typeof v.port === 'string' &&
+  (v.members === undefined || isMemberPath(v.members)) &&
+  (v.binding === undefined || (isObj(v.binding) && v.binding.kind === 'family' &&
+    v.side === 'input' && v.alsoIndex === undefined && typeof v.binding.node === 'string' &&
+    v.binding.port === v.port && (v.binding.members === undefined || isMemberPath(v.binding.members)) &&
+    (v.binding.slots === undefined || isStringArray(v.binding.slots)))) &&
   (v.alsoIndex === undefined || typeof v.alsoIndex === 'number') &&
   (v.promoted === undefined || typeof v.promoted === 'boolean')
 const CONTROLLER_MODES = new Set<ControllerMode>(['fixed', 'increment', 'decrement', 'randomize'])
@@ -259,12 +267,12 @@ const nodeReplace: CommandDefinition = {
       typeof p.to !== 'string' ||
       !isObj(p.values) ||
       !Array.isArray(p.inputRewires) ||
-      !p.inputRewires.every(isRewire) ||
+      !p.inputRewires.every(isLinkRewire) ||
       (p.tapRewires !== undefined && !(Array.isArray(p.tapRewires) && p.tapRewires.every(isTapRewire))) ||
       (p.inputViewRewires !== undefined && !(Array.isArray(p.inputViewRewires) && p.inputViewRewires.every(isInputViewRewire))) ||
       (p.dropInputViews !== undefined && !isStringArray(p.dropInputViews)) ||
       !Array.isArray(p.outputRewires) ||
-      !p.outputRewires.every(isOutputRewire) ||
+      !p.outputRewires.every(isLinkRewire) ||
       (p.tapGuards !== undefined && !(Array.isArray(p.tapGuards) && p.tapGuards.every(isTapGuard))) ||
       (p.viewRewires !== undefined && !(Array.isArray(p.viewRewires) && p.viewRewires.every(isViewRewire))) ||
       !isStringArray(p.dropLinks) ||
@@ -453,12 +461,16 @@ const nodeReplace: CommandDefinition = {
 
     // Validate every referenced link/net still exists AND still touches this
     // node on the expected side - anything else means the plan is stale.
-    // Rewires address memberless endpoints; setting `port` while a legacy
-    // member ancestry remains would corrupt the endpoint.
     for (const r of p.inputRewires) {
       const link = def.links[r.link]
-      if (!link || !isPortEndpoint(link.to) || link.to.node !== p.nodeId || link.to.members !== undefined)
-        return [err('replace.stale', `node.replace: link '${r.link}' no longer feeds a memberless input of node '${p.nodeId}'`)]
+      if (!link || !isPortEndpoint(link.to) || link.to.node !== p.nodeId ||
+          (r.fromPort === undefined
+            ? link.to.members !== undefined
+            : link.to.port !== r.fromPort ||
+              (r.fromMembers === undefined
+                ? link.to.members !== undefined
+                : !sameMembers(link.to.members, r.fromMembers))))
+        return [err('replace.stale', `node.replace: link '${r.link}' no longer feeds the planned input of node '${p.nodeId}'`)]
     }
     for (const r of p.outputRewires) {
       const link = def.links[r.link]
@@ -519,23 +531,16 @@ const nodeReplace: CommandDefinition = {
     for (const id of p.dropNets) {
       if (!def.nets[id]) return [err('replace.stale', `node.replace: net '${id}' is gone`)]
     }
-    // Boundary rewires: the addressed binding must still be a static 'port'
-    // binding of THIS node AND still hold the exact port the plan was
-    // computed from - anything else means the boundary changed since
-    // planning and the plan is stale.
-    const boundaryRewires = (p.boundaryRewires ?? []) as ReadonlyArray<{
-      item: string
-      side: 'input' | 'output'
-      fromPort: string
-      port: string
-      alsoIndex?: number
-    }>
+    // Boundary rewires must still bind THIS node at the exact planned
+    // port/member address; a changed boundary makes the plan stale.
+    const boundaryRewires = (p.boundaryRewires ?? []) as NonNullable<NodeReplacePlan['boundaryRewires']>
     for (const r of boundaryRewires) {
       const items = r.side === 'input' ? def.boundary?.inputs : def.boundary?.outputs
       const item = items?.find((i) => i.id === r.item)
       const b = r.alsoIndex === undefined ? item?.binds : item?.alsoBinds?.[r.alsoIndex]
-      if (!b || b.kind !== 'port' || b.node !== p.nodeId || b.members !== undefined)
-        return [err('replace.stale', `node.replace: boundary ${r.side} '${r.item}' no longer binds a static port of '${p.nodeId}'`)]
+      if (!b || b.kind !== (r.kind ?? 'port') || b.node !== p.nodeId ||
+          (r.fromMembers === undefined ? b.members !== undefined : !sameMembers(b.members, r.fromMembers)))
+        return [err('replace.stale', `node.replace: boundary ${r.side} '${r.item}' no longer binds the planned port of '${p.nodeId}'`)]
       if (b.port !== r.fromPort)
         return [err('replace.stale', `node.replace: boundary ${r.side} '${r.item}' now binds '${p.nodeId}.${b.port}', not the planned '${p.nodeId}.${r.fromPort}'`)]
     }
@@ -545,22 +550,31 @@ const nodeReplace: CommandDefinition = {
     // retargeted, or (un)promoted since planning invalidates the plan even
     // when every listed rewire still checks out above.
     {
-      const guard = (p.boundaryGuard ?? []) as ReadonlyArray<{ item: string; side: 'input' | 'output'; port: string; alsoIndex?: number; promoted?: boolean }>
+      const guard = (p.boundaryGuard ?? []) as NonNullable<NodeReplacePlan['boundaryGuard']>
       // JSON tuple encoding: injective for ANY component strings (raw
       // separator chars in an id/port can never collide two entries).
-      const guardKey = (g: { item: string; side: string; port: string; alsoIndex?: number; promoted?: boolean }): string =>
-        JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true])
+      const guardKey = (g: NonNullable<NodeReplacePlan['boundaryGuard']>[number]): string =>
+        JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true, g.members ?? null,
+          g.binding === undefined ? null : boundaryBindingKey(g.binding)])
       const stale = err('replace.stale', `node.replace: the subgraph boundary bindings of '${p.nodeId}' changed since planning`)
       const current: string[] = []
       for (const item of def.boundary?.inputs ?? []) {
         if (item.binds.node === p.nodeId) {
-          if (item.binds.kind !== 'port' || item.binds.members !== undefined) return [stale]
-          current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port, ...(item.promoted === true ? { promoted: true } : {}) }))
+          if (item.binds.kind === 'family') {
+            current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port, binding: item.binds,
+              ...(item.promoted === true ? { promoted: true } : {}) }))
+          } else {
+            if (item.binds.kind !== 'port') return [stale]
+            current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port,
+              ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
+              ...(item.promoted === true ? { promoted: true } : {}) }))
+          }
         }
         for (const [i, a] of (item.alsoBinds ?? []).entries()) {
           if (a.node !== p.nodeId) continue
-          if (a.kind !== 'port' || a.members !== undefined) return [stale]
-          current.push(guardKey({ item: item.id, side: 'input', port: a.port, alsoIndex: i }))
+          if (a.kind !== 'port') return [stale]
+          current.push(guardKey({ item: item.id, side: 'input', port: a.port, alsoIndex: i,
+            ...(a.members === undefined ? {} : { members: a.members }) }))
         }
       }
       for (const item of def.boundary?.outputs ?? []) {
@@ -619,8 +633,12 @@ const nodeReplace: CommandDefinition = {
 
     // -- Connections ----------------------------------------------------------
     for (const r of p.inputRewires) {
+      const currentTo = def.links[r.link]!.to
       if (r.node !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'to', 'node'], r.node)
       tx.set(['graphs', graphId, 'links', r.link, 'to', 'port'], r.port)
+      if (r.members !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'to', 'members'], r.members)
+      else if (isPortEndpoint(currentTo) && currentTo.members !== undefined)
+        tx.remove(['graphs', graphId, 'links', r.link, 'to', 'members'])
     }
     for (const r of p.outputRewires) {
       const currentFrom = def.links[r.link]!.from
@@ -740,10 +758,18 @@ const nodeReplace: CommandDefinition = {
         let binds = item.binds
         const alsoBinds = item.alsoBinds !== undefined ? [...item.alsoBinds] : undefined
         for (const r of mine) {
-          if (r.alsoIndex === undefined && binds.kind !== 'widgetTap') binds = { ...binds, port: asPortId(r.port) }
+          if (r.alsoIndex === undefined && binds.kind !== 'widgetTap') {
+            const { members: _members, ...binding } = binds
+            binds = { ...binding, port: asPortId(r.port),
+              ...(r.members === undefined ? {} : { members: r.members.map(asDynamicMemberId) }) }
+          }
           else if (r.alsoIndex !== undefined && alsoBinds?.[r.alsoIndex] !== undefined) {
             const current = alsoBinds[r.alsoIndex]!
-            if (current.kind !== 'widgetTap') alsoBinds[r.alsoIndex] = { ...current, port: asPortId(r.port) }
+            if (current.kind !== 'widgetTap') {
+              const { members: _members, ...binding } = current
+              alsoBinds[r.alsoIndex] = { ...binding, port: asPortId(r.port),
+                ...(r.members === undefined ? {} : { members: r.members.map(asDynamicMemberId) }) }
+            }
           }
         }
         return { ...item, binds, ...(alsoBinds !== undefined ? { alsoBinds } : {}) }

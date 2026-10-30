@@ -13,10 +13,12 @@ import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { comfyGroupReplacementInvocation } from '../src/commands/replace-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
+import { compile } from '../src/compile/compile.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { netViewPositions } from '../src/format/net-views.js'
 import {
   asDynamicMemberId,
+  asConnectionId,
   asGraphDefId,
   asLineageId,
   asLinkId,
@@ -319,6 +321,18 @@ describe('isReplacementRule', () => {
       { kind: 'members', members: [{ suffix: '0', output: 'a' }, { suffix: '0', output: 'b' }] },
       { kind: 'members', members: [{ suffix: '0', output: 'a', extra: true }] },
     ]) expect(isReplacementRule(replacement(mapping))).toBe(false)
+  })
+
+  it('rejects invalid positional input-family options', () => {
+    for (const mapping of [
+      { kind: 'copy', sourceFamily: 'source', memberIds: true, inputs: { value: { kind: 'copy', input: 'value' } } },
+      { kind: 'copy', sourceFamily: 'source', memberIds: 'unknown', inputs: { value: { kind: 'copy', input: 'value' } } },
+      { kind: 'members', memberIds: 'targetPositions', members: [{ suffix: 'a', inputs: { value: { kind: 'constant', value: 1 } } }] },
+    ]) {
+      const rule = { from: 'A', cases: [{ to: 'B', inputFamilies: { target: mapping } }] }
+      expect(isReplacementRule(rule)).toBe(false)
+      expect(() => parseComfyReplacement(rule, 'replacement')).toThrow()
+    }
   })
 
   it('strictly decodes Comfy output family vocabulary', () => {
@@ -1176,6 +1190,342 @@ describe('input family replacement', () => {
     ]),
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
+
+  it.each([false, true])('migrates boundary-only historical member bindings (flat=%s)', (flat) => {
+    const target = schemaOf('BoundFamily', [{
+      ...familyInput('values', []),
+      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+        template: [input('value')], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
+      },
+    }])
+    const rule: ReplacementRule = { from: 'BoundFamily', migration: { historicalInputs: ['values'] }, cases: [{
+      to: 'BoundFamily', inputFamilies: { values: {
+        kind: 'copy', sourceFamily: 'values', memberIds: 'targetPositions',
+        sourceTemplate: { inputs: ['value'], ...(flat ? { memberPort: 'values.values' } : {}) },
+        inputs: { value: { kind: 'copy', input: 'value' } },
+      } },
+    }] }
+    const oldEndpoint = flat ? mport('old', 'values.values', 'oldB') : port('old', 'values.oldB')
+    const original = doc({ g0: graph({ id: 'g0', nodes: { old: node('old', 'BoundFamily'), other: node('other', 'BoundFamily') },
+      boundary: { inputs: [{ id: 'exposed', binds: { kind: 'port', ...oldEndpoint },
+        alsoBinds: [{ kind: 'port', ...port('other', 'values.item3') }, { kind: 'port', ...oldEndpoint }],
+      }], outputs: [] },
+    }) })
+    const resolve = (type: string) => type === 'BoundFamily' ? target : undefined
+    const result = planReplacement(original, 'g0', 'old', rule, resolve)
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
+    expect(result.plan).toBeDefined()
+    if (!result.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    expect(store.dispatch({ command: 'node.replace', params: { plan: result.plan } as unknown as Json }).ok).toBe(true)
+    const item = store.doc.graphs.g0!.boundary!.inputs[0]!
+    expect(item.binds).toEqual({ kind: 'port', ...port('old', 'values.item0') })
+    expect(item.alsoBinds).toEqual([{ kind: 'port', ...port('other', 'values.item3') }, item.binds])
+    expect(store.doc.graphs.g0!.nodes.old!.dynamic!.values!.members).toEqual(['item0'])
+    expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+    const changed = { ...original, graphs: { ...original.graphs, g0: { ...original.graphs.g0!, boundary: {
+      ...original.graphs.g0!.boundary!, inputs: [{ ...original.graphs.g0!.boundary!.inputs[0]!,
+        binds: { kind: 'port' as const, ...mport('old', 'values.values', 'oldA') },
+      }],
+    } } } }
+    const stale = new DocumentStore(changed, coreCommandRegistry())
+    expect(stale.dispatch({ command: 'node.replace', params: { plan: result.plan } as unknown as Json }).ok).toBe(false)
+    expect(stale.doc).toEqual(changed)
+    const promoted = { ...original, graphs: { ...original.graphs, g0: { ...original.graphs.g0!, boundary: {
+      ...original.graphs.g0!.boundary!, inputs: [{ ...original.graphs.g0!.boundary!.inputs[0]!, promoted: true }],
+    } } } }
+    const invalidPromotion = planReplacement(promoted, 'g0', 'old', rule, resolve)
+    expect(invalidPromotion.plan).toBeUndefined()
+    expect(invalidPromotion.diagnostics.map((diagnostic) => diagnostic.code)).toContain('replace.boundary.promoted')
+  })
+
+  it.each([false, true].flatMap((flat) => [false, true].flatMap((named) =>
+    (named ? [false] : [false, true]).flatMap((targetFlat) =>
+      [false, true].map((sameType) => ({ flat, named, targetFlat, sameType }))),
+  )))('maps authored family order to canonical target positions (flat=$flat, named=$named, targetFlat=$targetFlat, sameType=$sameType)', ({ flat, named, targetFlat, sameType }) => {
+    const oldMembers = ['oldB', 'oldA', 'oldC']
+    const newMembers = named ? ['head', 'middle', 'tail'] : ['item0', 'item1', 'item2']
+    const source = schemaOf('OrderedOld', [{
+      ...familyInput('source', oldMembers),
+      dynamic: { kind: 'autogrow',
+        ...(flat ? {} : { materialization: 'wire15' as const }),
+        template: [widgetInput(flat ? 'source' : 'value', 0, {
+          widget: { widgetType: 'number', options: {}, default: 0, controller: 'after_generate' },
+        })],
+        naming: { kind: 'prefix', prefix: 'old', min: 0, max: 5 },
+      },
+    }])
+    const targetType = sameType ? 'OrderedOld' : 'OrderedNew'
+    const target = schemaOf(targetType, [{
+      ...familyInput('target', newMembers),
+      dynamic: { kind: 'autogrow', ...(targetFlat ? {} : { materialization: 'wire15' as const, optionalAfterMinimum: true }),
+        template: [widgetInput(targetFlat ? 'target' : 'value', 0, {
+          widget: { widgetType: 'number', options: {}, default: 0, controller: 'after_generate' },
+        })],
+        naming: named ? { kind: 'names', names: newMembers, min: 1 } : { kind: 'prefix', prefix: 'item', min: 1, max: 3 },
+      },
+    }])
+    const resolver = (type: string) => type === targetType ? target : type === 'OrderedOld' ? source : resolve(type)
+    const oldEndpoint = (member: string) => flat ? mport('old', 'source.source', member) : port('old', `source.${member}`)
+    const newEndpoint = (member: string) => targetFlat ? mport('old', 'target.target', member) : port('old', `target.${member}`)
+    const original = doc({ g0: graph({ id: 'g0', nodes: {
+      src: node('src', 'Producer'), dst: node('dst', 'Consumer'),
+      old: node('old', 'OrderedOld', { 'source.oldB': 11, 'source.oldA': 29, 'source.oldC': 47 }, {
+        controllers: { 'source.oldC': 'decrement' },
+        dynamic: { source: { members: oldMembers, memberLabels: { oldB: 'First', oldC: 'Unconnected' } } },
+      }),
+    }, links: { linked: link('linked', port('src', 'out'), oldEndpoint('oldB')) },
+    nets: { routed: net('routed', port('src', 'out'), [oldEndpoint('oldA'), port('dst', 'other')]) } }) })
+    const rule = { from: 'OrderedOld',
+      ...(sameType ? { migration: { historicalInputs: ['source.oldB', 'source.oldA', 'source.oldC'] } } : {}),
+      cases: [{ to: targetType, inputFamilies: {
+      target: { kind: 'copy', sourceFamily: 'source', memberIds: 'targetPositions',
+        ...(sameType ? { sourceTemplate: { inputs: ['value'], ...(flat ? { memberPort: 'source.source' } : {}) } } : {}),
+        inputs: { value: { kind: 'copy', input: 'value' } } },
+    } }] } satisfies ReplacementRule
+    expect(isReplacementRule(rule)).toBe(true)
+    expect(parseComfyReplacement(rule, 'replacement')).toEqual(rule)
+    const planned = planReplacement(original, 'g0', 'old', rule, resolver)
+    expect(planned.diagnostics).toEqual(sameType
+      ? [expect.objectContaining({ severity: 'info', code: 'replace.migration.archived' })]
+      : [])
+    expect(planned.plan).toBeDefined()
+    if (!planned.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    const invocation = { command: 'node.replace', params: { plan: planned.plan } as unknown as Json }
+    expect(store.dispatch(invocation).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old).toMatchObject({
+      dynamic: { target: { members: newMembers, memberLabels: { [newMembers[0]!]: 'First', [newMembers[2]!]: 'Unconnected' } } },
+      values: { [`target.${newMembers[0]}`]: 11, [`target.${newMembers[1]}`]: 29, [`target.${newMembers[2]}`]: 47 },
+      controllers: { [`target.${newMembers[2]}`]: 'decrement' },
+    })
+    expect(store.doc.graphs.g0!.links.linked!.to).toEqual(newEndpoint(newMembers[0]!))
+    expect(store.doc.graphs.g0!.nets.routed!.sinks).toEqual([newEndpoint(newMembers[1]!), port('dst', 'other')])
+    if (sameType) expect(planReplacement(store.doc, 'g0', 'old', rule, resolver).plan).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs.g0!.links.linked!.to).toEqual(newEndpoint(newMembers[0]!))
+    const stale = structuredClone(original)
+    ;(stale.graphs.g0!.links as Record<string, GraphDef['links'][string]>).linked = link('linked', port('src', 'out'), oldEndpoint('oldA'))
+    const staleStore = new DocumentStore(stale, coreCommandRegistry())
+    expect(staleStore.dispatch(invocation).ok).toBe(false)
+    expect(staleStore.doc).toEqual(stale)
+    const overflowTarget = schemaOf(targetType, [{
+      ...familyInput('target', []),
+      dynamic: { kind: 'autogrow', materialization: 'wire15',
+        template: [widgetInput('value', 0)],
+        naming: named ? { kind: 'names', names: ['head', 'middle'], min: 0 } : { kind: 'prefix', prefix: 'item', min: 0, max: 2 },
+      },
+    }])
+    const overflow = planReplacement(original, 'g0', 'old', rule, (type) => type === targetType ? overflowTarget : resolver(type))
+    expect(overflow.plan).toBeUndefined()
+    expect(overflow.diagnostics.some((diagnostic) => diagnostic.code === 'replace.target.familyMembers')).toBe(true)
+  })
+
+  it.each([false, true].flatMap((named) => [false, true].flatMap((flat) =>
+    ['unconnected', 'linked', 'inferred', 'forwarded', 'selected', ...(flat ? ['flatCanonical'] : [])].map((evidence) => ({ named, flat, evidence })),
+  )))(
+    'migrates historical family state without widget values (named=$named, flat=$flat, evidence=$evidence)',
+    ({ named, flat, evidence }) => {
+      const members = named ? ['a', 'b'] : ['item0', 'item1']
+      const oldMembers = evidence === 'flatCanonical' ? members : ['oldB', 'oldA']
+      const connected = evidence !== 'unconnected'
+      const target = schemaOf('FamilySame', [{
+        ...familyInput('values', []),
+        dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+          template: [input('value')],
+          naming: named ? { kind: 'names', names: ['a', 'b', 'c'], min: 1 }
+            : { kind: 'prefix', prefix: 'item', min: 1, max: 4 },
+        },
+      }])
+      const rule: ReplacementRule = { from: 'FamilySame', migration: { historicalInputs: ['values'] }, cases: [{
+        to: 'FamilySame', inputFamilies: { values: {
+          kind: 'copy', sourceFamily: 'values', memberIds: 'targetPositions',
+          sourceTemplate: { inputs: ['value'], ...(flat ? { memberPort: 'values.values' } : {}) },
+          inputs: { value: { kind: 'copy', input: 'value' } },
+        } },
+      }] }
+      const oldEndpoint = (member: string) => flat
+        ? mport('old', 'values.values', member) : port('old', `values.${member}`)
+      const original = doc({ g0: graph({ id: 'g0', nodes: {
+        src: node('src', 'Producer'),
+        old: node('old', 'FamilySame', {}, evidence === 'inferred' ? {} : { dynamic: { values: {
+          members: oldMembers, memberLabels: { [oldMembers[1]!]: 'Second' },
+        } } }),
+      }, ...(connected ? {
+        links: { linked: link('linked', port('src', 'out'), oldEndpoint(oldMembers[0]!)) },
+        nets: { routed: net('routed', port('src', 'out'), [oldEndpoint(oldMembers[1]!)]) },
+      } : {}), ...(['forwarded', 'selected'].includes(evidence) ? {
+        boundary: { inputs: [{ id: 'forwarded', binds: { kind: 'family' as const, ...port('old', 'values'),
+          ...(evidence === 'selected' ? { slots: ['value'] } : {}) } }], outputs: [] },
+      } : {}) }) })
+      const resolve = (type: string) => type === 'FamilySame' ? target : schemas[type]
+      const planned = planReplacement(original, 'g0', 'old', rule, resolve)
+      expect(planned.plan).toBeDefined()
+      if (!planned.plan) return
+      expect(planned.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
+      const registry = createReplacementRegistry()
+      expect(registry.register('schema', rule)).toEqual([])
+      expect(scanReplacements(original, registry, resolve)).toMatchObject([
+        { status: 'terminal', safe: true, hops: [{ plan: { to: 'FamilySame' } }] },
+      ])
+      const store = new DocumentStore(original, coreCommandRegistry())
+      expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.old!.dynamic!.values).toMatchObject({
+        members, ...(evidence === 'inferred' ? {} : { memberLabels: { [members[1]!]: 'Second' } }),
+      })
+      if (connected) {
+        expect(store.doc.graphs.g0!.links.linked!.to).toEqual(port('old', `values.${members[0]}`))
+        expect(store.doc.graphs.g0!.nets.routed!.sinks).toEqual([port('old', `values.${members[1]}`)])
+      }
+      expect(store.doc.graphs.g0!.boundary).toEqual(original.graphs.g0!.boundary)
+      if (original.graphs.g0!.boundary !== undefined) {
+        for (const binding of [
+          { kind: 'family' as const, ...port('old', 'unmapped') },
+          { kind: 'family' as const, ...port('old', 'values'), members: [asDynamicMemberId('ancestor')] },
+          { kind: 'family' as const, ...port('old', 'values'), slots: ['other'] },
+          { kind: 'slot' as const, ...port('old', 'values') },
+        ]) {
+          const unsupported = structuredClone(original)
+          const definition = unsupported.graphs.g0! as { boundary: NonNullable<GraphDef['boundary']> }
+          definition.boundary = { inputs: [{ id: 'forwarded', binds: binding }], outputs: [] }
+          expect(planReplacement(unsupported, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+        }
+        for (const change of ['kind', 'port', 'members', 'slots', 'promoted', 'added', 'removed']) {
+          const stale = structuredClone(original)
+          const boundary = stale.graphs.g0!.boundary as unknown as { inputs: Array<{ id: string; binds: Record<string, unknown>; promoted?: boolean }> }
+          const binding = boundary.inputs[0]!.binds
+          if (change === 'added') boundary.inputs.push({ id: 'extra', binds: { ...binding } })
+          else if (change === 'removed') boundary.inputs.splice(0, 1)
+          else if (change === 'promoted') boundary.inputs[0]!.promoted = true
+          else binding[change] = change === 'kind' ? 'port' : change === 'port' ? 'other' : [change === 'slots' ? 'other' : 'ancestor']
+          const staleStore = new DocumentStore(stale, coreCommandRegistry())
+          const result = staleStore.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json })
+          expect(result.ok, change).toBe(false)
+          expect(result.diagnostics, change).toContainEqual(expect.objectContaining({ code: 'replace.stale' }))
+          expect(staleStore.doc, change).toEqual(stale)
+        }
+      }
+      expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(original)
+      expect(store.redo()).toBe(true)
+      const canonical = doc({ g0: graph({ id: 'g0', nodes: {
+        old: node('old', 'FamilySame', {}, { dynamic: { values: {
+          members: named ? ['a', 'c'] : ['item0', 'item3'],
+        } } }),
+      }, boundary: { inputs: [{ id: 'forwarded', binds: { kind: 'family', ...port('old', 'values') } }], outputs: [] } }) })
+      expect(planReplacement(canonical, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    },
+  )
+
+  it.each([1, 2])('preserves occurrence-owned family suffixes through %i ancestors during migration', (depth) => {
+    const targetRoot = depth === 1 ? 'values' : 'canonical'
+    const target = schemaOf('FamilySame', [{
+      ...familyInput(targetRoot, []),
+      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+        template: [widgetInput('value', 0)], naming: { kind: 'prefix', prefix: 'item', min: 1, max: 6 } },
+    }])
+    const rule: ReplacementRule = { from: 'FamilySame', migration: { historicalInputs: ['values'] }, cases: [{
+      to: 'FamilySame', inputFamilies: { [targetRoot]: { kind: 'copy', sourceFamily: 'values', memberIds: 'targetPositions',
+        sourceTemplate: { inputs: ['value'] }, inputs: { value: { kind: 'copy', input: 'value' } } } },
+    }] }
+    const leaf = graph({ id: 'leaf', nodes: {
+      old: node('old', 'FamilySame', { 'values.oldB': 11, 'values.oldA': 29 }, {
+        dynamic: { values: { members: ['oldB', 'oldA'] } }, controllers: { 'values.oldA': 'decrement' },
+      }),
+    }, boundary: { inputs: [{ id: 'fam', binds: { kind: 'family', ...port('old', 'values') } }], outputs: [] } })
+    const inner = node('inner', '#leaf', { 'fam.item2': 47 }, {
+      dynamic: { fam: { members: ['item2'] } }, controllers: { 'fam.item2': 'increment' },
+    })
+    const original = doc({
+      g0: graph({ id: 'g0', nodes: depth === 1 ? { inner } : {
+        outer: node('outer', '#middle', { 'outerFam.item3': 83 }, {
+          dynamic: { outerFam: { members: ['item3'] } }, controllers: { 'outerFam.item3': 'randomize' },
+        }),
+      } }),
+      ...(depth === 2 ? { middle: graph({ id: 'middle', nodes: { inner }, boundary: {
+        inputs: [{ id: 'outerFam', binds: { kind: 'family', ...port('inner', 'fam') } }], outputs: [],
+      } }) } : {}),
+      leaf,
+    })
+    const resolve = (type: string) => type === 'FamilySame' ? target : schemas[type]
+    const planned = planReplacement(original, 'leaf', 'old', rule, resolve)
+    expect(planned.plan, JSON.stringify(planned.diagnostics)).toBeDefined()
+    if (!planned.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
+    expect(store.doc.graphs.g0).toEqual(original.graphs.g0)
+    expect(store.doc.graphs.middle).toEqual(original.graphs.middle)
+    expect(store.doc.graphs.leaf!.boundary).toEqual({ inputs: [
+      { id: 'fam', binds: { kind: 'family', ...port('old', targetRoot) } },
+    ], outputs: [] })
+    const result = compile({ document: store.doc, revision: 1, resolve, scope: { kind: 'full' },
+      connection: asConnectionId('test'), schemaHash: 'test' })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (result.ok) expect(result.artifact.prompt[depth === 1 ? 'inner.old' : 'outer.inner.old']!.inputs).toEqual({
+      [`${targetRoot}.item0`]: 11, [`${targetRoot}.item1`]: 29, [`${targetRoot}.item2`]: 47,
+      ...(depth === 2 ? { [`${targetRoot}.item3`]: 83 } : {}),
+    })
+    expect(planReplacement(store.doc, 'leaf', 'old', rule, resolve).plan).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+  })
+
+  it.each(['nested', 'sparse', 'legacy'] as const)('checks historical family migration with %s sibling state', (state) => {
+    const target = schemaOf('FamilySame', ['values', 'keep'].map((id) => ({
+      ...familyInput(id, []),
+      dynamic: { kind: 'autogrow' as const, materialization: 'wire15' as const, optionalAfterMinimum: state !== 'legacy',
+        template: [input('value')], naming: { kind: 'prefix' as const, prefix: 'item', min: 2, max: 6 },
+      },
+    })))
+    const mapping = (sourceFamily: string) => ({
+      kind: 'copy' as const, sourceFamily, memberIds: 'targetPositions' as const,
+      sourceTemplate: { inputs: ['value'] }, inputs: { value: { kind: 'copy' as const, input: 'value' } },
+    })
+    const rule: ReplacementRule = { from: 'FamilySame', migration: { historicalInputs: ['values', 'keep'] }, cases: [{
+      to: 'FamilySame', inputFamilies: { values: mapping('values'), keep: mapping('keep') },
+    }] }
+    const original = doc({ g0: graph({ id: 'g0', nodes: {
+      src: node('src', 'Producer'),
+      old: node('old', 'FamilySame', {}, { dynamic: {
+        values: state === 'nested'
+          ? { members: ['oldB', 'oldA'], memberState: { oldB: { child: { members: ['nested'] } } } }
+          : { members: ['oldB', 'oldA'] },
+        keep: { members: ['item3'] },
+      } }),
+    }, links: { kept: link('kept', port('src', 'out'), port('old', 'keep.item3')) } }) })
+    const resolve = (type: string) => type === 'FamilySame' ? target : schemas[type]
+    const planned = planReplacement(original, 'g0', 'old', rule, resolve)
+    if (state === 'nested') {
+      expect(planned.plan).toBeUndefined()
+      expect(planned.diagnostics.map((diagnostic) => diagnostic.code)).toContain('replace.source.familyNested')
+      return
+    }
+    if (state === 'legacy') {
+      expect(planned.plan).toBeUndefined()
+      expect(planned.diagnostics.map((diagnostic) => diagnostic.code)).toContain('replace.target.familyMembers')
+      return
+    }
+    expect(planned.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
+    expect(planned.plan).toBeDefined()
+    if (!planned.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.dynamic).toMatchObject({
+      values: { members: ['item0', 'item1'] }, keep: { members: ['item3'] },
+    })
+    expect(store.doc.graphs.g0!.links.kept!.to).toEqual(port('old', 'keep.item3'))
+    expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+  })
 
   it.each([false, true])('preserves flat prefix links and net sinks with historical template=%s', (historical) => {
     const flatFamily = (type: string): NodeSchema => schemaOf(type, [{

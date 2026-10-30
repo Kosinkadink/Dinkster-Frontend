@@ -24,7 +24,7 @@
 import type { Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import type { BoundaryBinding, DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
-import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
+import { asDynamicMemberId, asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { normalizedComboOptions } from '../schema/combo-options.js'
 import { canonicalCompatTypeIdOf } from '../schema/type-compatibility.js'
 import {
@@ -113,7 +113,14 @@ export interface NodeReplacePlan {
   /** An unmatched same-type migration case that must auto-apply best effort. */
   readonly migrationFallback?: true
   /** Links whose `to` moves to a target input id (same node). */
-  readonly inputRewires: ReadonlyArray<{ readonly link: string; readonly port: string; readonly node?: string }>
+  readonly inputRewires: ReadonlyArray<{
+    readonly link: string
+    readonly port: string
+    readonly node?: string
+    readonly members?: readonly string[]
+    readonly fromPort?: string
+    readonly fromMembers?: readonly string[]
+  }>
   /** Historical per-input view choices that follow active migrated inputs. */
   readonly inputViewRewires?: ReadonlyArray<{ readonly fromInput: string; readonly input: string }>
   /** Historical per-input view choices with no active destination. */
@@ -169,13 +176,16 @@ export interface NodeReplacePlan {
   readonly boundaryRewires?: ReadonlyArray<{
     readonly item: string
     readonly side: 'input' | 'output'
+    readonly kind?: 'family'
     /** The port the binding held when the plan was computed (stale check). */
     readonly fromPort: string
+    readonly fromMembers?: readonly string[]
     readonly port: string
+    readonly members?: readonly string[]
     readonly alsoIndex?: number
   }>
   /**
-   * EVERY static boundary binding on this node at plan time - including
+   * Every supported boundary binding on this node at plan time - including
    * identity-mapped ones that need no rewire - with the primary input
    * binding's promoted flag. The apply-time staleness guard compares this
    * against the CURRENT boundary exactly: a binding added, retargeted, or
@@ -187,6 +197,9 @@ export interface NodeReplacePlan {
     readonly item: string
     readonly side: 'input' | 'output'
     readonly port: string
+    /** Complete identity for a forwarded historical family. */
+    readonly binding?: BoundaryBinding
+    readonly members?: readonly string[]
     readonly alsoIndex?: number
     readonly promoted?: boolean
   }>
@@ -565,7 +578,7 @@ const WIRE15_MEMBER_ID = /^[A-Za-z0-9_-]+$/
 const familyMembersAreAdmitted = (family: Wire15InputFamily, members: readonly string[]): boolean => {
   const { min, max } = autogrowBounds(family.spec)
   if (
-    members.length < min ||
+    (family.spec.optionalAfterMinimum !== true && members.length < min) ||
     members.length > max ||
     new Set(members).size !== members.length ||
     members.some((member) => !WIRE15_MEMBER_ID.test(member))
@@ -749,6 +762,14 @@ export function planReplacement(
   const state = sourceStateOf(def, node)
   const sourceSchema = rule.migration === undefined ? resolve(node.type, 'source') : undefined
   const migrationHistoricalInputs = new Set(rule.migration?.historicalInputs ?? [])
+  const migrationHistoricalFamilies = new Set<string>()
+  for (const candidate of rule.migration === undefined ? [] : rule.cases) {
+    for (const mapping of Object.values(candidate.inputFamilies ?? {})) {
+      if (mapping.kind === 'copy' && mapping.memberIds === 'targetPositions' && mapping.sourceTemplate !== undefined &&
+          migrationHistoricalInputs.has(mapping.sourceFamily)) migrationHistoricalFamilies.add(mapping.sourceFamily)
+    }
+  }
+  for (const family of migrationHistoricalFamilies) migrationHistoricalInputs.delete(family)
   const migrationInvalidTapLinks = state.invalidTapLinks.filter((id) => {
     const source = def.links[id]?.from
     return source !== undefined &&
@@ -770,7 +791,36 @@ export function planReplacement(
       binding.kind !== 'widgetTap' && binding.node === nodeId && migrationHistoricalInputs.has(binding.port),
     ),
   )
-  const migrationEvidence = rule.migration?.historicalInputs.some((input) =>
+  const historicalFamilyMembers = new Map<InputFamilyMapping, readonly string[]>()
+  const historicalMemberPorts = new Set<InputFamilyMapping>()
+  for (const candidate of rule.migration === undefined ? [] : rule.cases) {
+    for (const mapping of Object.values(candidate.inputFamilies ?? {})) {
+      if (mapping.kind !== 'copy' || mapping.memberIds !== 'targetPositions' || mapping.sourceTemplate === undefined ||
+          !migrationHistoricalFamilies.has(mapping.sourceFamily)) continue
+      const endpoints = [
+        ...Object.values(def.links).flatMap((link) => isPortEndpoint(link.to) ? [link.to] : []),
+        ...Object.values(def.nets).flatMap((net) => net.sinks),
+        ...(def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
+          .flatMap((binding) => binding.kind === 'port' ? [{ node: binding.node, port: binding.port,
+            ...(binding.members === undefined ? {} : { members: binding.members }) }] : []),
+      ].filter((endpoint) => endpoint.node === nodeId)
+      const inputPorts = endpoints.flatMap((endpoint) => {
+        if (endpoint.members === undefined) return [endpoint.port]
+        if (endpoint.port !== mapping.sourceTemplate!.memberPort || endpoint.members.length !== 1) return []
+        historicalMemberPorts.add(mapping)
+        return [joinValuePath(mapping.sourceFamily, endpoint.members[0]!)]
+      })
+      historicalFamilyMembers.set(mapping, collectWire15MemberEvidence(
+        mapping.sourceFamily,
+        node.dynamic?.[mapping.sourceFamily]?.members ?? [],
+        [...Object.keys(node.values), ...Object.keys(node.controllers ?? {})],
+        inputPorts,
+        [],
+        mapping.sourceTemplate.inputs.length === 1,
+      ))
+    }
+  }
+  let migrationEvidence = [...migrationHistoricalInputs].some((input) =>
     Object.hasOwn(node.values, input) ||
     node.dynamic?.[input]?.selected !== undefined ||
     Object.hasOwn(node.controllers ?? {}, input) ||
@@ -778,7 +828,8 @@ export function planReplacement(
     (state.netsIn.get(input)?.length ?? 0) > 0 ||
     (state.tapLinksOut.get(input)?.length ?? 0) > 0,
   ) === true || historicalViewInputs.length > 0 || boundaryHasHistoricalInput || migrationInvalidTapLinks.length > 0
-  if (rule.migration !== undefined && !migrationEvidence) return { diagnostics: [] }
+  if (rule.migration !== undefined && !migrationEvidence &&
+      ![...historicalFamilyMembers.values()].some((members) => members.length > 0)) return { diagnostics: [] }
 
   let sourceElaboration: ReturnType<typeof elaborateInterface> | undefined
   if (rule.migration === undefined && sourceSchema !== undefined) {
@@ -1021,6 +1072,7 @@ export function planReplacement(
     targetAddress: TargetAddress
     targetFamily: Wire15InputFamily
     members: readonly string[]
+    sourceMembers?: readonly string[]
     sourceFamily?: { readonly id: string; readonly inputs: readonly string[]; readonly memberPort?: string }
   }>()
   for (const [targetFamilyId, mapping] of Object.entries(matched.inputFamilies ?? {})) {
@@ -1090,11 +1142,33 @@ export function planReplacement(
         )
         continue
       }
-      members = sourceFamilyState?.members ?? []
+      members = historicalFamilyMembers.get(mapping) ?? sourceFamilyState?.members ?? []
     } else {
       members = mapping.members.map((member) => member.suffix)
     }
 
+    const sourceMembers = members
+    if (mapping.kind === 'copy' && mapping.memberIds === 'targetPositions') {
+      const naming = targetFamily.spec.naming
+      let retainMemberIds = false
+      if (historicalFamilyMembers.has(mapping)) {
+        const canonicalMembers = sourceMembers.every((member) => {
+            if (naming.kind === 'names') return naming.names.includes(member)
+            if (naming.kind !== 'prefix') return false
+            const position = Number(member.slice(naming.prefix.length)) - (targetFamily.spec.ordinalOffset ?? 0)
+            return Number.isSafeInteger(position) && position >= 0 && position < autogrowBounds(targetFamily.spec).max &&
+              member === `${naming.prefix}${position + (targetFamily.spec.ordinalOffset ?? 0)}`
+          })
+        retainMemberIds = mapping.sourceFamily === familyAddress.port && canonicalMembers &&
+          !(historicalMemberPorts.has(mapping) && sourceFamily?.memberPort !== targetFamily.memberPort)
+        if (!retainMemberIds) migrationEvidence = true
+      }
+      if (!retainMemberIds) {
+        members = sourceMembers.map((_, index) => naming.kind === 'names'
+          ? naming.names[index] ?? ''
+          : naming.kind === 'prefix' ? `${naming.prefix}${index + (targetFamily.spec.ordinalOffset ?? 0)}` : '')
+      }
+    }
     if (!familyMembersAreAdmitted(targetFamily, members)) {
       errors.push(
         diag(
@@ -1111,14 +1185,23 @@ export function planReplacement(
     targetDynamic[familyAddress.port] = {
       ...targetDynamic[familyAddress.port],
       ...familyDynamicState(members, sourceFamilyState),
+      ...(mapping.kind === 'copy' && mapping.memberIds === 'targetPositions' && sourceFamilyState?.memberLabels !== undefined
+        ? { memberLabels: Object.fromEntries(sourceMembers.flatMap((member, index) => {
+            const label = sourceFamilyState.memberLabels![member]
+            return label === undefined ? [] : [[members[index]!, label]]
+          })) }
+        : {}),
     }
     preparedInputFamilies.set(targetFamilyId, {
       targetAddress: familyAddress,
       targetFamily,
       members,
+      ...(mapping.kind === 'copy' ? { sourceMembers } : {}),
       ...(sourceFamily !== undefined ? { sourceFamily } : {}),
     })
   }
+
+  if (rule.migration !== undefined && !migrationEvidence) return { diagnostics: errors }
 
   const activeInputs = new Map<string, ReadonlyMap<string, ElaboratedInput>>()
   const targetKey = (localId: string | undefined): string => localId ?? ''
@@ -1257,10 +1340,12 @@ export function planReplacement(
       } else complete[targetValueKey(address)] = value
     }
   }
-  const inputRewires: { link: string; port: string; node?: string }[] = []
+  const inputRewires: NodeReplacePlan['inputRewires'][number][] = []
   const netSinkMoves = new Map<string, { fromPort: string; to: TargetAddress }[]>()
   const preservedMemberInputLinks = new Set<string>()
   const preservedMemberInputNetSinks = new Set<string>()
+  const memberInputNetMoves = new Map<string, { from: PortRef; to: PortRef }[]>()
+  const inputEndpointMoves: { from: PortRef; to: PortRef; target: TargetAddress }[] = []
   /** Source inputs whose CONNECTION a mapping consumed (moves are exclusive). */
   const consumedConnections = new Set<string>()
   /** Source controllers copied to at least one target widget. */
@@ -1477,13 +1562,15 @@ export function planReplacement(
   for (const [targetFamilyId, mapping] of Object.entries(matched.inputFamilies ?? {})) {
     const prepared = preparedInputFamilies.get(targetFamilyId)
     if (prepared === undefined) continue
-    const { targetAddress: familyAddress, targetFamily, members, sourceFamily } = prepared
+    const { targetAddress: familyAddress, targetFamily, members, sourceMembers, sourceFamily } = prepared
 
     if (mapping.kind === 'copy') {
       const copied = mapping as Extract<InputFamilyMapping, { kind: 'copy' }>
-      for (const member of members) {
+      for (const [index, member] of members.entries()) {
+        const sourceMember = sourceMembers![index]!
         if (
-          sourceFamily?.memberPort !== undefined
+          copied.memberIds === undefined
+          && sourceFamily?.memberPort !== undefined
           && targetFamily.memberPort === sourceFamily.memberPort
           && familyAddress.nodeId === nodeId
         ) {
@@ -1509,7 +1596,7 @@ export function planReplacement(
         }
         applyFamilyMember(familyAddress, targetFamily, member, copied.inputs, (source) => {
           if (sourceFamily!.inputs.includes(source.input)) {
-            const memberPath = joinValuePath(sourceFamily!.id, member)
+            const memberPath = joinValuePath(sourceFamily!.id, sourceMember)
             return sourceFamily!.inputs.length === 1 ? memberPath : joinValuePath(memberPath, source.input)
           }
           errors.push(
@@ -1521,6 +1608,42 @@ export function planReplacement(
           )
           return undefined
         })
+        if (copied.memberIds === 'targetPositions') {
+          for (const input of sourceFamily!.inputs) {
+            const memberPath = joinValuePath(sourceFamily!.id, sourceMember)
+            const sourceInput = sourceFamily!.inputs.length === 1 ? memberPath : joinValuePath(memberPath, input)
+            const destination = connectionMoves.get(sourceInput)
+            if (destination === undefined) continue
+            const from: PortRef = sourceFamily!.memberPort === undefined
+              ? { node: asNodeId(nodeId), port: asPortId(sourceInput) }
+              : { node: asNodeId(nodeId), port: asPortId(sourceFamily!.memberPort), members: [asDynamicMemberId(sourceMember)] }
+            const to: PortRef = {
+              node: asNodeId(destination.nodeId), port: asPortId(targetFamily.memberPort ?? destination.port),
+              ...(targetFamily.memberPort === undefined ? {} : { members: [asDynamicMemberId(member)] }),
+            }
+            inputEndpointMoves.push({ from, to, target: destination })
+            for (const link of Object.values(def.links)) {
+              if (!isPortEndpoint(link.to) || !samePortRef(link.to, from)) continue
+              const rewire = { link: link.id, port: to.port,
+                ...(to.node === nodeId ? {} : { node: to.node }),
+                ...(to.members === undefined ? {} : { members: to.members }),
+                fromPort: from.port, ...(from.members === undefined ? {} : { fromMembers: from.members }),
+              }
+              const existing = inputRewires.findIndex((entry) => entry.link === link.id)
+              if (existing < 0) inputRewires.push(rewire)
+              else inputRewires[existing] = rewire
+              if (from.members !== undefined) preservedMemberInputLinks.add(link.id)
+            }
+            for (const net of Object.values(def.nets)) {
+              if (!net.sinks.some((sink) => samePortRef(sink, from))) continue
+              if (from.members !== undefined)
+                preservedMemberInputNetSinks.add(JSON.stringify([net.id, from.port, from.members]))
+              const moves = memberInputNetMoves.get(net.id) ?? []
+              moves.push({ from, to })
+              memberInputNetMoves.set(net.id, moves)
+            }
+          }
+        }
       }
     } else {
       for (const member of mapping.members)
@@ -1825,18 +1948,54 @@ export function planReplacement(
 
   // -- Boundary bindings: follow the mapping exactly like link endpoints -----
   // The node id survives replacement, so a binding whose port is preserved
-  // under the same id needs nothing. Family/member boundary bindings are not
-  // represented by the replacement vocabulary, and a bound port the rule does
-  // not map has no destination. Both are hard errors so a rule never silently
-  // rewrites a subgraph's external interface.
-  const boundaryRewires: { item: string; side: 'input' | 'output'; fromPort: string; port: string; alsoIndex?: number }[] = []
+  // under the same id needs nothing. Historical family forwarding follows
+  // the prepared family mapping, and fixed members follow its endpoints. An
+  // unmapped binding is an error, never a silent external interface change.
+  const boundaryRewires: NonNullable<NodeReplacePlan['boundaryRewires']>[number][] = []
   const migrateBinding = (side: 'input' | 'output', itemId: string, b: BoundaryBinding, alsoIndex?: number): void => {
     if (b.node !== nodeId) return
     const label = alsoIndex === undefined ? `boundary ${side} '${itemId}'` : `boundary ${side} '${itemId}' alsoBinds[${alsoIndex}]`
-    if (b.kind !== 'port' || b.members !== undefined) {
+    if (side === 'input' && b.kind === 'family' && alsoIndex === undefined &&
+        rule.migration !== undefined && matched.to === node.type && (b.members?.length ?? 0) === 0) {
+      const families = [...preparedInputFamilies.entries()].filter(([id, prepared]) => {
+        const mapping = matched.inputFamilies?.[id]
+        return mapping?.kind === 'copy' && mapping.memberIds === 'targetPositions' &&
+          mapping.sourceTemplate !== undefined && prepared.sourceFamily?.id === b.port &&
+          prepared.targetAddress.nodeId === nodeId &&
+          prepared.targetFamily.template.length === prepared.sourceFamily.inputs.length &&
+          prepared.targetFamily.template.every((input) => {
+            const source = mapping.inputs[input.id]
+            return source?.kind === 'copy' && source.input === input.id && prepared.sourceFamily!.inputs.includes(input.id)
+          }) && (b.slots ?? []).every((slot) => prepared.sourceFamily!.inputs.includes(slot))
+      })
+      if (families.length === 1) {
+        const targetPort = families[0]![1].targetAddress.port
+        if (targetPort !== b.port) boundaryRewires.push({
+          item: itemId, side, kind: 'family', fromPort: b.port, port: targetPort,
+          ...(b.members === undefined ? {} : { fromMembers: b.members, members: b.members }),
+        })
+        return
+      }
+    }
+    const memberMove = side === 'input' && b.kind === 'port'
+      ? inputEndpointMoves.find((move) => samePortRef(move.from, b)) : undefined
+    if (b.kind !== 'port' || (b.members !== undefined && memberMove === undefined)) {
       errors.push(
         diag('error', 'replace.boundary.dynamic', `${label}: replacement cannot map the dynamic binding to '${nodeId}'`),
       )
+      return
+    }
+    if (memberMove !== undefined) {
+      if (memberMove.to.node !== nodeId) {
+        errors.push(diag('error', 'replace.boundary.helper', `replace: ${label} would move to a helper node`))
+        return
+      }
+      if (!samePortRef(memberMove.from, memberMove.to)) boundaryRewires.push({
+        item: itemId, side, fromPort: b.port, port: memberMove.to.port,
+        ...(b.members === undefined ? {} : { fromMembers: b.members }),
+        ...(memberMove.to.members === undefined ? {} : { members: memberMove.to.members }),
+        ...(alsoIndex === undefined ? {} : { alsoIndex }),
+      })
       return
     }
     const to = side === 'input' ? connectionMoves.get(b.port) : sourceToTarget.get(b.port)
@@ -1864,7 +2023,9 @@ export function planReplacement(
   for (const item of def.boundary?.inputs ?? []) {
     migrateBinding('input', item.id, item.binds)
     if (item.binds.node === nodeId && item.promoted === true) {
-      const to = item.binds.kind === 'port' ? connectionMoves.get(item.binds.port) : undefined
+      const to = item.binds.kind === 'port'
+        ? inputEndpointMoves.find((move) => samePortRef(move.from, item.binds as PortRef))?.target
+          ?? connectionMoves.get(item.binds.port) : undefined
       if (to !== undefined && to.nodeId === nodeId && activeTargetInput(to)?.widget === undefined)
         errors.push(
           diag('error', 'replace.boundary.promoted', `replace: boundary input '${item.id}' promotes a widget, but target input '${to.port}' has no widget`),
@@ -1874,17 +2035,22 @@ export function planReplacement(
   }
   for (const item of def.boundary?.outputs ?? []) migrateBinding('output', item.id, item.binds)
 
-  // The guard snapshot: every static binding of this node, rewired or not,
-  // plus the primary input bindings' promoted flags. Dynamic bindings need
-  // no entry - migrateBinding already made them plan-blocking errors.
-  const boundaryGuard: { item: string; side: 'input' | 'output'; port: string; alsoIndex?: number; promoted?: boolean }[] = []
+  // Family identity includes selected slots as well as member ancestry.
+  const boundaryGuard: NonNullable<NodeReplacePlan['boundaryGuard']>[number][] = []
   for (const item of def.boundary?.inputs ?? []) {
-    if (item.binds.node === nodeId && item.binds.kind === 'port' && item.binds.members === undefined) {
-      boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port, ...(item.promoted === true ? { promoted: true } : {}) })
+    if (item.binds.node === nodeId && item.binds.kind === 'family') {
+      boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port, binding: item.binds,
+        ...(item.promoted === true ? { promoted: true } : {}) })
+    }
+    if (item.binds.node === nodeId && item.binds.kind === 'port') {
+      boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port,
+        ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
+        ...(item.promoted === true ? { promoted: true } : {}) })
     }
     item.alsoBinds?.forEach((a, i) => {
-      if (a.node === nodeId && a.kind === 'port' && a.members === undefined) {
-        boundaryGuard.push({ item: item.id, side: 'input', port: a.port, alsoIndex: i })
+      if (a.node === nodeId && a.kind === 'port') {
+        boundaryGuard.push({ item: item.id, side: 'input', port: a.port, alsoIndex: i,
+          ...(a.members === undefined ? {} : { members: a.members }) })
       }
     })
   }
@@ -2106,7 +2272,7 @@ export function planReplacement(
   // -- Net sink arrays: full replacements (move + drop in one pass) ----------
   const netSinks: { net: string; sinks: PortRef[] }[] = []
   const netSinkEdits: { net: string; from: PortRef; to?: PortRef }[] = []
-  const touchedNets = new Set<string>([...netSinkMoves.keys()])
+  const touchedNets = new Set<string>([...netSinkMoves.keys(), ...memberInputNetMoves.keys()])
   for (const [input, netIds] of state.netsIn) {
     if (droppedSinkPorts.has(input)) for (const id of netIds) touchedNets.add(id)
   }
@@ -2132,6 +2298,12 @@ export function planReplacement(
     for (const sink of net.sinks) {
       if (sink.node !== nodeId) {
         sinks.push(sink)
+        continue
+      }
+      const memberMove = memberInputNetMoves.get(netId)?.find((move) => samePortRef(move.from, sink))
+      if (memberMove !== undefined) {
+        sinks.push(memberMove.to)
+        edits.push({ net: netId, from: sink, to: memberMove.to })
         continue
       }
       if (sink.members !== undefined) {
