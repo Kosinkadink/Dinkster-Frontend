@@ -1,6 +1,5 @@
 /**
  * Native built-in pins display their canonical identities and palette colors.
- * Only the existing ComfyUI IMAGE/MASK bridges have display aliases.
  */
 import { expect, test, type Page } from './fixtures.js'
 
@@ -166,13 +165,6 @@ test('visual artifact: native dinkster type node screenshot', async ({ page }, t
   await testInfo.attach('dinkster-type-display-tooltip', { path: tooltipPath, contentType: 'image/png' })
 })
 
-// ---------------------------------------------------------------------------
-// IMAGE <-> comfy.IMAGE: one value type across the comfy-compat
-// boundary. The backend registers both ids with the identical image-array
-// codec, so the frontend treats them as one atom: same IMAGE color and
-// label, and a native IMAGE output legally drives a comfy.IMAGE input.
-// ---------------------------------------------------------------------------
-
 const imageSchemas = [
   {
     type: 'DinksterImageProducer',
@@ -189,8 +181,8 @@ const imageSchemas = [
     source: 'v3',
     isOutputNode: false,
     items: [
-      { kind: 'input', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'comfy.IMAGE' }, optional: false },
-      { kind: 'input', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'comfy.MASK' }, optional: false },
+      { kind: 'input', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+      { kind: 'input', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'MASK' }, optional: false },
     ],
   },
 ]
@@ -212,7 +204,7 @@ async function imagePinPoint(page: Page, nodeId: string, direction: 'in' | 'out'
   }, { nodeId, direction, portId })
 }
 
-test('a native IMAGE output connects to a comfy.IMAGE input as one IMAGE type', async ({ page }, testInfo) => {
+test('a native IMAGE output connects only to the canonical IMAGE input', async ({ page }, testInfo) => {
   const diagnostics = await page.evaluate(({ schemas }) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas(schemas as never)
@@ -257,8 +249,7 @@ test('a native IMAGE output connects to a comfy.IMAGE input as one IMAGE type', 
   expect(Math.abs(pixel.g - 0xb5)).toBeLessThanOrEqual(8)
   expect(Math.abs(pixel.b - 0xf6)).toBeLessThanOrEqual(8)
 
-  // Drag from the native output: the comfy.IMAGE input is a legal drop
-  // target, the comfy.MASK input is not.
+  // IMAGE and MASK remain distinct drop targets.
   const imageIn = await imagePinPoint(page, 'sink', 'in', 'image')
   await page.mouse.move(srcPin.x, srcPin.y)
   await page.mouse.down()
@@ -290,10 +281,6 @@ test('a native IMAGE output connects to a comfy.IMAGE input as one IMAGE type', 
   await testInfo.attach('dinkster-image-comfy-image-connection', { path, contentType: 'image/png' })
 })
 
-// MASK <-> comfy.MASK: the second interchangeable pair; the backend
-// registers both ids with the shared image-array codec, so masks connect
-// across the boundary and both spellings present as MASK.
-
 const maskSchemas = [
   {
     type: 'DinksterMaskProducer',
@@ -310,13 +297,13 @@ const maskSchemas = [
     source: 'v3',
     isOutputNode: false,
     items: [
-      { kind: 'input', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'comfy.MASK' }, optional: false },
-      { kind: 'input', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'comfy.IMAGE' }, optional: false },
+      { kind: 'input', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'MASK' }, optional: false },
+      { kind: 'input', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
     ],
   },
 ]
 
-test('a native MASK output connects to a comfy.MASK input as one MASK type', async ({ page }, testInfo) => {
+test('a native MASK output connects only to the canonical MASK input', async ({ page }, testInfo) => {
   const diagnostics = await page.evaluate(({ schemas }) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas(schemas as never)
@@ -361,8 +348,7 @@ test('a native MASK output connects to a comfy.MASK input as one MASK type', asy
   expect(Math.abs(pixel.g - 0xc7)).toBeLessThanOrEqual(8)
   expect(Math.abs(pixel.b - 0x84)).toBeLessThanOrEqual(8)
 
-  // Drag from the native output: the comfy.MASK input is a legal drop
-  // target, the comfy.IMAGE input is not (image and mask stay distinct).
+  // MASK and IMAGE remain distinct drop targets.
   const maskIn = await imagePinPoint(page, 'sink', 'in', 'mask')
   await page.mouse.move(srcPin.x, srcPin.y)
   await page.mouse.down()
