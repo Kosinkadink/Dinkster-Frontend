@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile/compile.js'
 import { importLitegraph, resolveImportedAssetLiterals } from '../src/format/import-litegraph.js'
-import { asConnectionId } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import {
   DINKSTER_SCHEMA_WIRE_VERSION,
   parseDinksterNodes,
@@ -684,9 +684,9 @@ describe('Dinkster schema wire', () => {
       expect(parsed.diagnostics).toEqual([])
       expect(inputsOf(parsed.schema!)[0]?.hidden).toBe(hidden === true ? true : undefined)
       const result = compile({
-        document: { format: 'dinkster-workflow', formatVersion: 1, lineage: 'hidden-choice', root: 'g0', graphs: {
-          g0: { id: 'g0', name: 'root', nodes: {
-            n0: { id: 'n0', type: 'HiddenChoice', values: { 'codec.crf': 23 }, dynamic: { codec: { selected: 'h264' } } },
+        document: { format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('hidden-choice'), root: asGraphDefId('g0'), graphs: {
+          g0: { id: asGraphDefId('g0'), name: 'root', nodes: {
+            n0: { id: asNodeId('n0'), type: 'HiddenChoice', values: { 'codec.crf': 23 }, dynamic: { codec: { selected: 'h264' } } },
           }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 },
         }, view: { graphs: {} } },
         revision: 0, resolve: () => parsed.schema!, scope: { kind: 'full' },

@@ -1600,7 +1600,7 @@ export function elaborateInterface(
         const spec =
           canonical && (!scope.ghost || item.spec.optional) && (!scope.hidden || item.spec.hidden)
             ? item.spec
-            : stripDynamic({ ...item.spec, id, ...(scope.ghost ? { optional: true } : {}), ...(scope.hidden ? { hidden: true } : {}) })
+            : stripDynamic({ ...item.spec, id, ...(scope.ghost ? { optional: true } : {}), ...(scope.hidden ? { hidden: true as const } : {}) })
         items.push({
           ...rest,
           ...(apiName !== undefined ? { apiName } : {}),
