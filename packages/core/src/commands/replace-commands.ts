@@ -21,7 +21,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
-import { MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
+import { boundaryBindingKey, MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
 import { asDynamicMemberId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition, CommandInvocation } from './contract.js'
@@ -129,6 +129,7 @@ const isBoundaryRewire = (v: Json): v is JsonObject & { item: string; side: 'inp
   isObj(v) &&
   typeof v.item === 'string' &&
   (v.side === 'input' || v.side === 'output') &&
+  (v.kind === undefined || (v.kind === 'family' && v.side === 'input' && v.alsoIndex === undefined)) &&
   typeof v.fromPort === 'string' &&
   typeof v.port === 'string' &&
   (v.fromMembers === undefined || isMemberPath(v.fromMembers)) &&
@@ -140,6 +141,10 @@ const isBoundaryGuard = (v: Json): v is JsonObject & { item: string; side: 'inpu
   (v.side === 'input' || v.side === 'output') &&
   typeof v.port === 'string' &&
   (v.members === undefined || isMemberPath(v.members)) &&
+  (v.binding === undefined || (isObj(v.binding) && v.binding.kind === 'family' &&
+    v.side === 'input' && v.alsoIndex === undefined && typeof v.binding.node === 'string' &&
+    v.binding.port === v.port && (v.binding.members === undefined || isMemberPath(v.binding.members)) &&
+    (v.binding.slots === undefined || isStringArray(v.binding.slots)))) &&
   (v.alsoIndex === undefined || typeof v.alsoIndex === 'number') &&
   (v.promoted === undefined || typeof v.promoted === 'boolean')
 const CONTROLLER_MODES = new Set<ControllerMode>(['fixed', 'increment', 'decrement', 'randomize'])
@@ -533,7 +538,7 @@ const nodeReplace: CommandDefinition = {
       const items = r.side === 'input' ? def.boundary?.inputs : def.boundary?.outputs
       const item = items?.find((i) => i.id === r.item)
       const b = r.alsoIndex === undefined ? item?.binds : item?.alsoBinds?.[r.alsoIndex]
-      if (!b || b.kind !== 'port' || b.node !== p.nodeId ||
+      if (!b || b.kind !== (r.kind ?? 'port') || b.node !== p.nodeId ||
           (r.fromMembers === undefined ? b.members !== undefined : !sameMembers(b.members, r.fromMembers)))
         return [err('replace.stale', `node.replace: boundary ${r.side} '${r.item}' no longer binds the planned port of '${p.nodeId}'`)]
       if (b.port !== r.fromPort)
@@ -549,15 +554,21 @@ const nodeReplace: CommandDefinition = {
       // JSON tuple encoding: injective for ANY component strings (raw
       // separator chars in an id/port can never collide two entries).
       const guardKey = (g: NonNullable<NodeReplacePlan['boundaryGuard']>[number]): string =>
-        JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true, g.members ?? null])
+        JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true, g.members ?? null,
+          g.binding === undefined ? null : boundaryBindingKey(g.binding)])
       const stale = err('replace.stale', `node.replace: the subgraph boundary bindings of '${p.nodeId}' changed since planning`)
       const current: string[] = []
       for (const item of def.boundary?.inputs ?? []) {
         if (item.binds.node === p.nodeId) {
-          if (item.binds.kind !== 'port') return [stale]
-          current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port,
-            ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
-            ...(item.promoted === true ? { promoted: true } : {}) }))
+          if (item.binds.kind === 'family') {
+            current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port, binding: item.binds,
+              ...(item.promoted === true ? { promoted: true } : {}) }))
+          } else {
+            if (item.binds.kind !== 'port') return [stale]
+            current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port,
+              ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
+              ...(item.promoted === true ? { promoted: true } : {}) }))
+          }
         }
         for (const [i, a] of (item.alsoBinds ?? []).entries()) {
           if (a.node !== p.nodeId) continue
