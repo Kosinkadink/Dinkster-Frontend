@@ -816,6 +816,7 @@ describe('versioned node widget upgrades', () => {
         } }] },
       ] } },
       codecInput,
+      { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true, adjacentTo: 'filename_prefix' },
     ], true)
     const localResolve = (type: string) => type === schema.type ? schema : undefined
     for (const { widgets_values, recognized } of [
@@ -840,6 +841,21 @@ describe('versioned node widget upgrades', () => {
         })
         expect(imported.document!.graphs.g0!.nodes.n1!.ext!['importer.versionlessWidgetLayout']).toBe('SaveVideo:filename_prefix,format,codec')
       }
+    }
+    for (const items of [
+      [schema.items[1]!, schema.items[0]!, ...schema.items.slice(2)],
+      [sdInput('extra', 'STRING', 'STRING'), ...schema.items],
+      [sdInput('filename_prefix', 'INT', 'INT'), ...schema.items.slice(1)],
+    ]) {
+      const drifted = { ...schema, items }
+      const resolveDrifted = (type: string) => type === schema.type ? drifted : undefined
+      const source = workflow([lgNode(1, 'SaveVideo', { widgets_values: ['video/unversioned', format, codec] })])
+      const imported = importLitegraph(source, resolveDrifted)
+      expect(codesOf(imported.diagnostics)).not.toContain('import.widgets.versionlessLayout')
+      expect(imported.document!.graphs.g0!.nodes.n1!.ext?.['importer.versionlessWidgetLayout']).toBeUndefined()
+      const compiled = compile({ document: imported.document!, revision: 1, resolve: resolveDrifted,
+        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'drifted-save-video' })
+      expect(compiled.ok).toBe(false)
     }
   })
 

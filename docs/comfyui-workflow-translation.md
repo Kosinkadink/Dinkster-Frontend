@@ -91,6 +91,9 @@ table. These source versions are not the workflow format's `version` field.
 
 Separately, a SaveVideo node without `properties.ver` can carry the recognized
 three-widget layout: string filename prefix, supported container, supported codec.
+The served positional consumers must have that order, with only the canonical
+optional appended mount allowed after them. Reordered or extra consumers do not
+qualify.
 When the served schema accepts those choices, import stores the codec explicitly
 in both the container branch and fallback codec input, including automatic
 encoding choices. It records `importer.versionlessWidgetLayout` on the imported

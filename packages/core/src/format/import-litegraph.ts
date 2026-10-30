@@ -189,14 +189,15 @@ function normalizeLegacyWidgetValue(
   value: Json,
 ): Json {
   if (typeof value !== 'string') return value
-  if (item.widget?.widgetType === 'INT' || item.widget?.widgetType === 'FLOAT') {
+  const floating = item.widget?.widgetType === 'FLOAT'
+  if (item.widget?.widgetType === 'INT' || floating) {
     const numericText = value.trim()
     const numeric = Number(numericText)
     const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(numericText)
     if (
       decimal &&
       Number.isFinite(numeric) &&
-      (item.widget.widgetType === 'FLOAT' || Number.isSafeInteger(numeric))
+      (floating || Number.isSafeInteger(numeric))
     ) return numeric
     return value
   }
@@ -1478,12 +1479,19 @@ function importLitegraphGraph(
       if (n.type === 'SaveVideo' && n.properties?.['ver'] === undefined && raw.length === 3 &&
         typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string' &&
         ['auto', 'mp4', 'mkv', 'webm'].includes(raw[1]) && ['auto', 'h264', 'av1'].includes(raw[2])) {
-        const format = schema.items.find((item) => item.kind === 'input' && item.id === 'format')
-        const codec = schema.items.find((item) => item.kind === 'input' && item.id === 'codec')
-        const branch = format?.kind === 'input' && format.dynamic?.kind === 'dynamicCombo' && format.dynamic.materialization === 'wire15'
+        const positional = schema.items.filter((item): item is InputSpec => item.kind === 'input' &&
+          (item.dynamic !== undefined || item.widget !== undefined && item.forceInput !== true))
+        const [prefix, format, codec, mount] = positional
+        const layoutMatches = prefix?.id === 'filename_prefix' && prefix.type.kind === 'concrete' && prefix.type.name === 'STRING' &&
+          prefix.widget?.widgetType === 'STRING' && prefix.widget.controller === undefined && prefix.dynamic === undefined &&
+          format?.id === 'format' && codec?.id === 'codec' &&
+          (positional.length === 3 || positional.length === 4 && mount?.id === 'mount' && mount.optional &&
+            mount.type.kind === 'concrete' && mount.type.name === 'STRING' && mount.widget !== undefined &&
+            mount.widget.controller === undefined && mount.adjacentTo === 'filename_prefix' && mount.dynamic === undefined)
+        const branch = layoutMatches && format?.dynamic?.kind === 'dynamicCombo' && format.dynamic.materialization === 'wire15'
           ? format.dynamic.options.find((option) => option.key === raw[1]) : undefined
         const nestedCodec = branch?.inputs.find((item) => item.id === 'codec')
-        if (codec?.kind === 'input' && codec.dynamic?.kind === 'dynamicCombo' && codec.dynamic.materialization === 'wire15' &&
+        if (codec?.dynamic?.kind === 'dynamicCombo' && codec.dynamic.materialization === 'wire15' &&
           codec.dynamic.options.some((option) => option.key === raw[2]) &&
           nestedCodec?.dynamic?.kind === 'dynamicCombo' && nestedCodec.dynamic.materialization === 'wire15' &&
           nestedCodec.dynamic.options.some((option) => option.key === raw[2])) {
