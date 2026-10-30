@@ -33,6 +33,7 @@ import {
   netViewPositions,
   occurrenceDynamicView,
   occurrenceFamilyEndpoint,
+  occurrenceFamilyMemberOwner,
   occurrenceSubtreeKey,
   portRefKey,
   regionBoundaryLabels,
@@ -878,31 +879,7 @@ export interface BuildSceneInput {
       readonly valueKey: string
     }>>
     readonly selectorOwners: ReadonlyMap<string, ReadonlyMap<string, { readonly graphId: string; readonly nodeId: string; readonly boundaryId: string }>>
-    readonly familyOwners?: ReadonlyMap<string, ReadonlyMap<string, {
-      readonly graphId: string
-      readonly nodeId: string
-      readonly boundaryId: string
-      readonly occurrence: import('@dinkster/core').OccurrenceRef
-      readonly familyPath: string
-      readonly suffixMembers: ReadonlyMap<string, string>
-      readonly ghostOwner: {
-        readonly graphId: string
-        readonly nodeId: string
-        readonly boundaryId: string
-        readonly occurrence: import('@dinkster/core').OccurrenceRef
-        readonly sourceMember: string
-        readonly route: readonly import('@dinkster/core').BoundaryRouteLeg[]
-      }
-      readonly route: readonly import('@dinkster/core').BoundaryRouteLeg[]
-      readonly suffixOwners: ReadonlyMap<string, {
-        readonly graphId: string
-        readonly nodeId: string
-        readonly boundaryId: string
-        readonly occurrence: import('@dinkster/core').OccurrenceRef
-        readonly sourceMember: string
-        readonly route: readonly import('@dinkster/core').BoundaryRouteLeg[]
-      }>
-    }>>
+    readonly familyOwners?: import('@dinkster/core').OccurrenceDynamicView['familyOwners']
   }
 }
 
@@ -1290,16 +1267,23 @@ export function buildScene(input: BuildSceneInput): Scene {
       const construct = pin.materialize?.at(-1)?.construct
       const growthOwner = construct === undefined ? undefined : familyOwnerFor(construct)
       if (growthOwner !== undefined) return growthOwner
-      for (const [familyPath, owner] of input.occurrenceView?.familyOwners?.get(node.id) ?? []) {
-        if (
-          pin.address.port.startsWith(`${familyPath}.`) &&
-          pin.address.members?.some((member) => owner.suffixMembers.has(member as string))
-        ) return owner
+      for (const owner of input.occurrenceView?.familyOwners?.get(node.id)?.values() ?? []) {
+        if (occurrenceFamilyMemberOwner(owner, pin.address.port, pin.address.members)) return owner
       }
       return undefined
     }
     const rowFamilyOwner = (row: Extract<typeof baseLayout.rows[number], { kind: 'widget' }>) => {
       for (const [familyPath, owner] of input.occurrenceView?.familyOwners?.get(node.id) ?? []) {
+        if (owner.optionalAfterMinimum) {
+          const frame = row.materialize?.at(-1)
+          const predicted = frame?.construct === familyPath && row.address.port === `${familyPath}.${frame.members.at(-1)}`
+          const source = occurrenceFamilyMemberOwner(owner, row.address.port, row.address.members) ?? (predicted ? owner.ghostOwner : undefined)
+          if (!source) continue
+          return {
+            graphId: source.graphId, nodeId: source.nodeId, construct: source.boundaryId,
+            valueKey: `${source.boundaryId}${row.valueKey.slice(familyPath.length)}`,
+          }
+        }
         const member = row.address.members?.[0]
         const persisted = member === undefined ? undefined : owner.suffixMembers.get(member as string)
         if (persisted === undefined || !row.address.port.startsWith(`${familyPath}.`)) continue
@@ -1342,7 +1326,13 @@ export function buildScene(input: BuildSceneInput): Scene {
             }
             if (row.kind === 'widget') {
               const owner = rowFamilyOwner(row)
-              if (owner !== undefined) return { ...row, familyOwner: owner }
+              if (owner !== undefined) {
+                const construct = row.materialize?.at(-1)?.construct
+                const canonical = construct !== undefined && familyOwnerFor(construct)?.optionalAfterMinimum
+                return { ...row, familyOwner: owner,
+                  ...(canonical ? { materialize: row.materialize!.map((frame) => frame.construct === construct ? { ...frame, construct: owner.construct } : frame) } : {}),
+                }
+              }
               const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.valueKey)
               if (valueOwner !== undefined) {
                 return {
@@ -1389,11 +1379,8 @@ export function buildScene(input: BuildSceneInput): Scene {
               },
             }
             if (owner === undefined) return pin
-            const memberOwners = (pin.address.members ?? [])
-              .map((member) => owner.suffixOwners.get(member as string))
-              .filter((memberOwner) => memberOwner !== undefined)
-            const memberOwner = memberOwners.length === 1 ? memberOwners[0] : undefined
-            const sourceOwner = memberOwner ?? owner
+            const memberOwner = occurrenceFamilyMemberOwner(owner, pin.address.port, pin.address.members)
+            const sourceOwner = memberOwner ?? (owner.optionalAfterMinimum && pin.ghost ? owner.ghostOwner : owner)
             const sourceEndpoint = occurrenceFamilyEndpoint(
               owner,
               pin.address.port,

@@ -13,6 +13,39 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('compiles required initial family positions without requiring an authored tail', () => {
+    const source = parseDinksterSchema('Source', { interface: [
+      { role: 'output', id: 'out0', type: concrete('IMAGE') },
+    ] }).schema!
+    const target = parseDinksterSchema('Positional', { outputNode: true, interface: [{
+      role: 'inputFamily', id: 'images', minMembers: 2, maxMembers: 4,
+      memberPrefix: 'image', optionalAfterMinimum: true,
+      template: [{ role: 'input', id: 'value', type: concrete('IMAGE'), required: true }],
+    }] }).schema!
+    const resolve = (type: string) => type === 'Source' ? source : type === 'Positional' ? target : undefined
+    for (const missingFirst of [false, true]) {
+      const imported = importLitegraph({ nodes: [
+        { id: 1, type: 'Source', outputs: [{ name: 'out0', type: 'IMAGE', links: [1, 2] }] },
+        { id: 2, type: 'Positional', inputs: Array.from({ length: 4 }, (_, index) => ({
+          name: `images.image${index}`, type: 'IMAGE',
+          link: index === (missingFirst ? 2 : 0) ? 1 : index === (missingFirst ? 3 : 1) ? 2 : null,
+        })) },
+      ], links: [
+        [1, 1, 0, 2, missingFirst ? 2 : 0, 'IMAGE'],
+        [2, 1, 0, 2, missingFirst ? 3 : 1, 'IMAGE'],
+      ] }, resolve)
+      expect(imported.document).toBeDefined()
+      const result = compile({ document: imported.document!, revision: 0, resolve,
+        scope: { kind: 'full' }, connection: asConnectionId('positional'), schemaHash: 'positional' })
+      expect(result.ok, JSON.stringify(result.ok ? result.artifact.diagnostics : result.diagnostics)).toBe(true)
+      if (result.ok) {
+        expect(result.artifact.diagnostics.some((diagnostic) => diagnostic.blocksExecution)).toBe(missingFirst)
+        expect(Object.keys(result.artifact.prompt.n2!.inputs)).toEqual(missingFirst
+          ? ['images.image2', 'images.image3'] : ['images.image0', 'images.image1'])
+      }
+    }
+  })
+
   it('decodes historical input-family templates and rejects malformed declarations without losing the node', () => {
     const rule = (sourceTemplate: unknown) => ({
       from: 'OldNode', cases: [{ to: 'NewNode', inputFamilies: { values: {

@@ -180,7 +180,7 @@ function materializedDocument(
   let current = doc
   const materializations: OccurrenceLinkMaterialization[] = []
   for (const { endpoint, side } of endpoints) {
-    if (endpoint.kind !== 'boundary' || endpoint.address.members === undefined) continue
+    if (endpoint.kind !== 'boundary') continue
     let graph = current.graphs[current.root]
     for (const hop of endpoint.occurrence.instancePath) {
       const node = graph?.nodes[hop]

@@ -576,6 +576,7 @@ export function collectWire15MemberEvidence(
   valueKeys: readonly string[],
   inputPorts: readonly string[],
   dynamicKeys: readonly string[],
+  singleLeaf = false,
 ): readonly string[] {
   const result: string[] = []
   const seen = new Set<string>()
@@ -587,9 +588,11 @@ export function collectWire15MemberEvidence(
   }
   for (const member of explicitMembers) add(member)
   const prefix = `${family}.`
-  for (const channel of [valueKeys, inputPorts, dynamicKeys]) {
+  for (const channel of singleLeaf ? [valueKeys, inputPorts] : [valueKeys, inputPorts, dynamicKeys]) {
     for (const key of channel) {
-      if (key.startsWith(prefix)) add(key.slice(prefix.length).split('.', 1)[0]!)
+      if (!key.startsWith(prefix)) continue
+      const suffix = key.slice(prefix.length)
+      if (!singleLeaf || !suffix.includes('.')) add(suffix.split('.', 1)[0]!)
     }
   }
   return result
@@ -627,6 +630,7 @@ function elaborateWire15Family(
     Object.keys(ctx.storedValues),
     ctx.connectivity.inputPorts?.() ?? [],
     Object.keys(ctx.dynamicState),
+    spec.optionalAfterMinimum === true,
   )
   for (const member of evidenceMembers) {
     if (storedMembers.includes(member as never)) add(member)
@@ -652,6 +656,31 @@ function elaborateWire15Family(
   }
 
   const synthetic = new Set<string>()
+  const positions = new Map<string, number>()
+  if (spec.optionalAfterMinimum) {
+    const names = autogrowNames(spec)
+    for (const member of members) {
+      const position = spec.naming.kind === 'names'
+        ? spec.naming.names.indexOf(member)
+        : Number(member.slice(spec.naming.prefix.length)) - (spec.ordinalOffset ?? 0)
+      if (!Number.isSafeInteger(position) || position < 0 || position >= max || names.nameOf(position) !== member) {
+        ctx.report('error', 'elab.autogrow.badMember', `${ctx.nodeType}.${family}: member '${member}' is outside the declared vocabulary`, family)
+        return
+      }
+      positions.set(member, position)
+    }
+    if (!spec.template[0]!.optional) {
+      for (let position = 0; position < min && position < ctx.memberBudget; position++) {
+        const member = names.nameOf(position)
+        if (!seen.has(member)) {
+          add(member)
+          synthetic.add(member)
+        }
+        positions.set(member, position)
+      }
+    }
+    members.sort((left, right) => positions.get(left)! - positions.get(right)!)
+  }
   let fresh = Math.max(nextMemberBase(state), maxMemberSuffix(members) + 1)
   const declaredNames = spec.naming.kind === 'names' ? spec.naming.names : undefined
   const namedSynthesisOrder = declaredNames !== undefined
@@ -663,7 +692,7 @@ function elaborateWire15Family(
         return [...declaredNames.slice(highest + 1), ...declaredNames.slice(0, highest + 1)]
       })()
     : undefined
-  while (ctx.promoteGhosts && members.length < min && members.length < max) {
+  while (!spec.optionalAfterMinimum && ctx.promoteGhosts && members.length < min && members.length < max) {
     const member = spec.naming.kind === 'names'
       ? namedSynthesisOrder!.find((name) => !seen.has(name))
       : fresh <= MAX_MEMBER_ORDINAL ? `m${fresh++}` : undefined
@@ -671,7 +700,7 @@ function elaborateWire15Family(
     add(member)
     synthetic.add(member)
   }
-  if (members.length < min) {
+  if (!spec.optionalAfterMinimum && members.length < min) {
     ctx.report('error', 'elab.autogrow.underMin', `${ctx.nodeType}.${family}: ${members.length} members are below the minimum of ${min}`, family)
     return
   }
@@ -725,7 +754,10 @@ function elaborateWire15Family(
         kind: 'input',
         address: { port: memberPath },
         ...(memberApi !== undefined ? { apiName: memberApi } : {}),
-        spec: { ...slot, id: memberPath, displayName: apiSegment },
+        spec: {
+          ...slot, id: memberPath, displayName: apiSegment,
+          ...(spec.optionalAfterMinimum ? { optional: ghost || !!slot.optional || ordinal >= min } : {}),
+        },
         origin,
       }, child)
     } else {
@@ -770,11 +802,16 @@ function elaborateWire15Family(
   }
 
   for (const [ordinal, member] of members.entries()) {
-    if (!emitMember(member, ordinal, false, synthetic.has(member))) return
+    if (!emitMember(member, spec.optionalAfterMinimum ? positions.get(member)! : ordinal, false, synthetic.has(member))) return
   }
 
   if (members.length >= max || scope.ghost) return
-  const ghost = fresh <= MAX_MEMBER_ORDINAL ? `m${fresh}` : undefined
+  const ghostOrdinal = spec.optionalAfterMinimum
+    ? Math.max(-1, ...positions.values()) + 1
+    : members.length
+  const ghost = spec.optionalAfterMinimum
+    ? ghostOrdinal < max ? autogrowNames(spec).nameOf(ghostOrdinal) : undefined
+    : fresh <= MAX_MEMBER_ORDINAL ? `m${fresh}` : undefined
   if (ghost === undefined) {
     if (spec.naming.kind === 'prefix' && fresh > MAX_MEMBER_ORDINAL) {
       ctx.report(
@@ -787,7 +824,7 @@ function elaborateWire15Family(
     return
   }
   const before = ctx.itemCount()
-  if (!emitMember(ghost, members.length, true, true)) return
+  if (!emitMember(ghost, ghostOrdinal, true, true)) return
   if (ctx.itemCount() === before) {
     ctx.emit({
       kind: 'growth',
