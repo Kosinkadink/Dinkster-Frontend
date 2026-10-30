@@ -165,8 +165,8 @@ nativeTest('quantized socket-lane boundaries refuse body autosnap while the inte
   const failures = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'socket-lane-drop', root: 'g0',
     graphs: { g0: { id: 'g0', name: 'root', nodes: {
-      source: { id: 'source', type: 'dinkster.load_checkpoint', values: {} },
-      target: { id: 'target', type: 'dinkster.ksampler', values: {} },
+      source: { id: 'source', type: 'CheckpointLoaderSimple', values: {} },
+      target: { id: 'target', type: 'KSampler', values: {} },
     }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
     view: { graphs: { g0: { nodes: {
       source: { position: { x: 100, y: 150 } },
@@ -176,14 +176,7 @@ nativeTest('quantized socket-lane boundaries refuse body autosnap while the inte
   expect(failures).toEqual([])
   await identityViewport(page)
 
-  const sourceOutput = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'source')
-    if (!node) throw new Error("no scene node 'source'")
-    return node.layout.pins.find((pin) => pin.direction === 'out' && pin.portId === 'model')?.portId ??
-      node.layout.pins.find((pin) => pin.direction === 'out' && pin.portId === 'out0')?.portId ??
-      node.layout.pins.find((pin) => pin.direction === 'out')?.portId ??
-      (() => { throw new Error("no output pin on 'source'") })()
-  })
+  const sourceOutput = 'MODEL'
   const sourcePin = await pinPoint(page, 'source', 'out', sourceOutput)
   const targetPin = await pinPoint(page, 'target', 'in', 'model')
   const overlay = () => page.evaluate(() => {
@@ -369,38 +362,38 @@ nativeTest('native typed Autogrow families filter in both directions and generic
     await identityViewport(page)
   }
 
-  await openSingleNode('comfy.EmptyImage', 'Native typed output drop')
-  await drag(page, await pinPoint(page, 'n0', 'out', 'image'), EMPTY)
+  await openSingleNode('EmptyImage', 'Native typed output drop')
+  await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   const search = page.getByTestId('palette-search')
   await search.fill('Batch Images')
-  await expect(page.locator('[data-node-type="comfy.BatchImagesNode"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="BatchImagesNode"]')).toBeVisible()
   await search.fill('Batch Masks')
-  await expect(page.locator('[data-node-type="comfy.BatchMasksNode"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="BatchMasksNode"]')).not.toBeVisible()
   await search.fill('Batch Latents')
-  await expect(page.locator('[data-node-type="comfy.BatchLatentsNode"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="BatchLatentsNode"]')).not.toBeVisible()
   await search.fill('Preview as Text')
   await expect(page.locator('[data-node-type="dinkster.preview_any"]')).toBeVisible()
-  await expect(page.locator('[data-node-type="comfy.PreviewAny"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="PreviewAny"]')).toBeVisible()
 
   await search.fill('Batch Images')
-  await page.locator('[data-node-type="comfy.BatchImagesNode"]').click()
+  await page.locator('[data-node-type="BatchImagesNode"]').click()
   const inserted = await activeDoc(page)
-  const batch = Object.values(inserted.graphs['g0']!.nodes).find((node) => node.type === 'comfy.BatchImagesNode')
-  expect(batch?.dynamic?.['images']).toMatchObject({ members: ['m0'] })
+  const batch = Object.values(inserted.graphs['g0']!.nodes).find((node) => node.type === 'BatchImagesNode')
+  expect(batch?.dynamic?.['images']).toMatchObject({ members: ['image0'] })
   expect(Object.values(inserted.graphs['g0']!.links)).toEqual([
     expect.objectContaining({
-      from: { node: 'n0', port: 'image' },
-      to: expect.objectContaining({ node: batch!.id, port: 'images.images', members: ['m0'] }),
+      from: { node: 'n0', port: 'IMAGE' },
+      to: { node: batch!.id, port: 'images.image0' },
     }),
   ])
 
-  await openSingleNode('comfy.PreviewImage', 'Native typed input drop')
+  await openSingleNode('PreviewImage', 'Native typed input drop')
   await drag(page, await pinPoint(page, 'n0', 'in', 'images'), EMPTY)
   await expect(page.getByTestId('node-palette')).toHaveAttribute('data-link-drop', 'out')
   await page.getByTestId('palette-search').fill('Batch Images')
-  await expect(page.locator('[data-node-type="comfy.BatchImagesNode"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="BatchImagesNode"]')).toBeVisible()
   await page.getByTestId('palette-search').fill('Batch Masks')
-  await expect(page.locator('[data-node-type="comfy.BatchMasksNode"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="BatchMasksNode"]')).not.toBeVisible()
 })
 
 test('backdrop pointerdown cancels a link-drop ghost without creating a link or panning', async ({ page }) => {
