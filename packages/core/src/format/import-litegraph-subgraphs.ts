@@ -295,7 +295,8 @@ export function importLitegraphSubgraphs(
         for (const [index, value] of rawValues.entries()) {
           const id = ids[index]
           const controllerId = proxyControllers.get(node)?.get(index)
-          if (controllerId !== undefined && ['fixed', 'increment', 'decrement', 'randomize'].includes(value)) controllers[controllerId] = value
+          if (controllerId !== undefined && typeof value === 'boolean') controllers[controllerId] = value ? 'randomize' : 'fixed'
+          else if (controllerId !== undefined && ['fixed', 'increment', 'decrement', 'randomize'].includes(value)) controllers[controllerId] = value
           else if (id !== undefined && controllerId === undefined) values[id] = value
           else diagnostics.push(diag('warning', 'import', 'import.subgraphs.widgetUnresolved', `Subgraph ${node['id']}: promoted widget ${index} has no matching input`))
         }

@@ -680,6 +680,33 @@ describe('LiteGraph subgraphs', () => {
     expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
   })
 
+  it.each([
+    { value: false, controllers: { in: 'fixed' }, warnings: [] },
+    { value: true, controllers: { in: 'randomize' }, warnings: [] },
+    { value: null, controllers: {}, warnings: ['import.subgraphs.widgetUnresolved'] },
+  ])('decodes promoted controller $value without shifting the following literal', ({ value, controllers, warnings }) => {
+    const seeded: NodeSchema = { ...schema, items: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: {}, default: 5, controller: 'after_generate' } },
+      { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'INT' } },
+    ] }
+    const resolver = (type: string) => type === 'Relay' ? seeded : undefined
+    const raw = { nodes: [{ ...instance(10), widgets_values: [value, 29],
+      properties: { proxyWidgets: [['1', 'control_after_generate'], ['-1', 'value']] } }], links: [],
+      definitions: { subgraphs: [{ ...definition(), nodes: [{ ...relay(), widgets_values: [7, 'decrement'] }] }] } }
+    const before = JSON.stringify(raw)
+    const result = importLitegraph(raw as JsonObject, resolver)
+    expect(result.diagnostics.map((item) => item.code)).toEqual(warnings)
+    expect(result.document!.graphs.g0!.nodes.n10!.controllers).toEqual(controllers)
+    expect(result.document!.graphs.g0!.nodes.n10!.values).toEqual({ in: 29 })
+    expect(result.document!.graphs.inner!.nodes.n1!.controllers).toEqual({ value: 'decrement' })
+    expect(prompt(result.document!, resolver)['n10.n1']!.inputs.value).toBe(29)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(result.document))).document!
+    expect(reopened.graphs.g0!.nodes.n10!.controllers).toEqual(controllers)
+    expect(prompt(reopened, resolver)['n10.n1']!.inputs.value).toBe(29)
+    expect(JSON.stringify(raw)).toBe(before)
+  })
+
   it('preserves primitive proxy values independently through structural output boundaries', () => {
     const def = { ...definition(), inputs: [], nodes: [
       { id: 1, type: 'PrimitiveNode', pos: [61, 29], outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
