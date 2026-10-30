@@ -265,28 +265,32 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
                 })}>{message('desktopManagement.snapshots.restore')}</ProductButton>
               </div>
             </section>
+          </>}
+        </Show>
 
-            <section class="desktop-management-section desktop-management-wide">
-              <div>
-                <h3>{message('desktopManagement.folders.title')}</h3>
-                <p>{message('desktopManagement.folders.description')}</p>
-              </div>
-              <Show when={currentConnection()} fallback={<p class="desktop-management-note">{message('desktopManagement.folders.unavailable')}</p>}>
-                {(connection) => <>
-                  <Show when={mountChangesAllowed()}>
-                    <MountFolderForm
-                      connection={connection()}
-                      {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })}
-                      onGranted={refreshMounts}
-                    />
-                  </Show>
-                  <div class="desktop-mount-list">
-                    <For each={mounts()}>{(mount) => <span>{mount.id} - {mount.state} - {mount.mode}</span>}</For>
-                  </div>
-                </>}
+        <section class="desktop-management-section desktop-management-wide">
+          <div>
+            <h3>{message('desktopManagement.folders.title')}</h3>
+            <p>{message('desktopManagement.folders.description')}</p>
+          </div>
+          <Show when={currentConnection()} fallback={<p class="desktop-management-note">{message('desktopManagement.folders.unavailable')}</p>}>
+            {(connection) => <>
+              <Show when={mountChangesAllowed()}>
+                <MountFolderForm
+                  connection={connection()}
+                  {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })}
+                  onGranted={refreshMounts}
+                />
               </Show>
-            </section>
+              <div class="desktop-mount-list">
+                <For each={mounts()}>{(mount) => <span>{mount.id} - {mount.state} - {mount.mode}</span>}</For>
+              </div>
+            </>}
+          </Show>
+        </section>
 
+        <Show when={info()}>
+          {(current) => <>
             <section class="desktop-management-section desktop-management-wide">
               <div>
                 <h3>{message('desktopManagement.worker.title')}</h3>

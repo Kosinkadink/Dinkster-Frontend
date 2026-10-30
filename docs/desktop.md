@@ -182,7 +182,10 @@ not rebind live grants. Server policy can
 disable folder changes without hiding the configured folders.
 
 Backend status refreshes and canceling the native chooser preserve an unsaved
-folder choice.
+folder choice. Folder controls and configured folders load independently of
+Desktop version and storage information. A slow or failed storage scan does not
+block a backend-authorized folder choice; metadata arrival preserves the current
+unsaved choice. Metadata-dependent management controls retain their loading state.
 
 ### Remote worker machines
 
