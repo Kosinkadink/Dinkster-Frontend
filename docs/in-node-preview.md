@@ -39,6 +39,13 @@ rendition downloads **Download preview**, independently of any color conversion.
 Live frame rings and animated WebP remain unchanged. Saved VIDEO artifacts
 never become original-file playback URLs; recorded values use renditions.
 
+Saved files may carry an associated display image, including a browser-readable
+preview of an EXR. The preview is fetched for display; Download still fetches the
+original saved file under its original filename. An unavailable preview does not
+remove that download or fetch the original as a display fallback. File metadata
+is not an inline payload: large saved-file sizes and multiple nodes' file lists
+remain intact, and malformed optional previews do not discard valid saved files.
+
 ## Video inspection
 
 Canvas and App View use the same video transport. It exposes play/pause,
