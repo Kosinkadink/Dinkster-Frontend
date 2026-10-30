@@ -3,7 +3,6 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { createSignal, type SharedSessionStatus } from '@dinkster/core'
 import { App } from '../src/App.js'
 import { AppState, type CollabTabState } from '../src/app-state.js'
-import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
 
 vi.mock('../src/CanvasHost.js', async (original) => ({
   ...await original<typeof import('../src/CanvasHost.js')>(),
@@ -47,10 +46,14 @@ it('replaces Assets backend ownership and rejects pending old file locations whe
   const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
   const host = document.createElement('div')
   document.body.append(host)
-  dispose = render(() => <App app={app} />, host)
   window.dinksterDesktop = {
-    fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: true }), revealFile,
-  } as unknown as DinksterDesktopBridge
+    fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: true }),
+    chooseDirectory: async () => undefined,
+    resolveDroppedFile: async () => ({ status: 'refused', reason: 'not-resolvable' }),
+    revealFile,
+  }
+  dispose = render(() => <App app={app} />, host)
+  expect(host.querySelector('[data-testid="desktop-management-button"]')).toBeNull()
   host.querySelector<HTMLButtonElement>('[data-testid="assets-toggle"]')!.click()
   const select = (name: string) => [...host.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((row) => row.textContent?.includes(name))!
   await vi.waitFor(() => expect(select(first.name)).toBeDefined())

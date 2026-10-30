@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterConnection } from '@dinkster/client'
-import { desktopBridge } from './desktop-bridge.js'
+import { desktopFileBridge } from './desktop-bridge.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductNotice } from './ProductForm.js'
 import { useAppMessage } from './locale.js'
@@ -36,7 +36,7 @@ export function AssetFileLocation(props: {
     }).catch((failure: unknown) => {
       if (request === generation) setError(String(failure instanceof Error ? failure.message : failure))
     })
-    const bridge = desktopBridge()
+    const bridge = desktopFileBridge()
     if (bridge?.fileCapabilities && bridge.revealFile) {
       void bridge.fileCapabilities(url).then((capabilities) => {
         if (request === generation) setCanReveal(capabilities.reveal)
@@ -52,7 +52,7 @@ export function AssetFileLocation(props: {
     setError('')
     try {
       if (path !== undefined) await navigator.clipboard.writeText(path)
-      else if (canReveal()) await desktopBridge()!.revealFile!(url, identity)
+      else if (canReveal()) await desktopFileBridge()!.revealFile!(url, identity)
     } catch (failure) {
       if (request === generation) setError(String(failure instanceof Error ? failure.message : failure))
     } finally {
