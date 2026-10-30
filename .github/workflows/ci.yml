@@ -48,6 +48,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
       - uses: pnpm/action-setup@v4
         with:
           version: 11.28.8
@@ -61,6 +64,52 @@ jobs:
       - run: pnpm ci:fast
         env:
           DINKSTER_SOURCE_ROOT: .ci/Dinkster
+      - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - name: Install checkout pack sources
+        run: |
+          uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
+            -e .ci/Dinkster/packages/dinkster-nodes-dev \
+            -e .ci/Dinkster/packages/dinkster-nodes-foundation \
+            -e .ci/Dinkster/packages/dinkster-nodes-image \
+            -e .ci/Dinkster/packages/dinkster-nodes-media-io \
+            -e .ci/Dinkster/packages/dinkster-nodes-remote \
+            -e .ci/Dinkster/packages/dinkster-nodes-comfy \
+            -e .ci/Dinkster/packages/dinkster-nodes-vision
+      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+      - name: Require every native pack to announce
+        timeout-minutes: 4
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+          DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15432
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          root = Path('.ci/Dinkster').resolve()
+          with subprocess.Popen([
+              str(root / '.venv/bin/dinkster-serve'),
+              '--host', '127.0.0.1', '--port', '15432',
+              '--engine-variant', 'linux-cpu',
+              '--pack', str(root / 'packages/dinkster-nodes-dev/dinkster-pack.toml'),
+              '--library-root', str(Path('.ci/native-library').resolve()),
+          ], cwd=root) as backend:
+              try:
+                  subprocess.run([
+                      'node', '--input-type=module', '-e',
+                      "import wait from './packages/e2e/hosted-global-setup.ts'; await wait()",
+                  ], check=True, timeout=190)
+                  if backend.poll() is not None:
+                      raise RuntimeError(f'Native backend exited: {backend.returncode}')
+              finally:
+                  backend.terminate()
+                  try:
+                      backend.wait(timeout=10)
+                  except subprocess.TimeoutExpired:
+                      backend.kill()
+          PY
 
   visual:
     name: product screenshots
