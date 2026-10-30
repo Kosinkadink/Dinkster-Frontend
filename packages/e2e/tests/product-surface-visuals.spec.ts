@@ -95,6 +95,8 @@ for (const theme of ['dark', 'light'] as const) {
     await closeGallery(page)
     await screenshot(page, `brand-shell-${theme}`)
     await page.evaluate(() => Object.assign(window, { dinksterDesktop: {
+      locale: async () => 'en',
+      status: async () => ({ phase: 'running', detail: 'Ready' }),
       info: async () => ({ appVersion: '0.2.0', engineCommit: 'brand-visual', variant: 'cuda', storageBytes: 0, releases: [], update: { state: 'current', detail: 'Current' } }),
       onInfo: () => () => undefined,
       systemCheck: async () => ({ platform: 'linux', architecture: 'x64', freeBytes: 1, totalBytes: 2, engineReady: true, engineDetail: 'Ready', gpu: { available: false } }),
@@ -1530,6 +1532,8 @@ test('Saved connection rows retain actions, credential editing and connection fa
     host.setAttribute('aria-label', 'Saved connections fixture')
     document.querySelector('.canvas-pane')!.append(host)
     desktopWindow.dinksterDesktop = {
+      locale: async () => 'en',
+      status: async () => ({ phase: 'running', detail: 'Ready' }),
       connectionCredentials: async () => ({ custody: true, profiles: [profile.id] }),
       setConnectionCredential: async () => { host.dataset['savedToken'] = 'true' },
     }
