@@ -980,7 +980,7 @@ describe('sections', () => {
   it('hides a dynamic choice subtree without hiding sibling controls or losing literals', () => {
     for (const hidden of [false, true]) {
       const schema = schemaOf([widget('prefix'), input('codec', {
-        hidden,
+        ...(hidden ? { hidden: true as const } : {}),
         dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'h264', inputs: [
           widget('crf'), input('nested', { dynamic: { kind: 'dynamicCombo', options: [{ key: 'on', inputs: [widget('quality')] }] } }),
         ] }] },
