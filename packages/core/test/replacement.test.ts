@@ -1190,6 +1190,55 @@ describe('input family replacement', () => {
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
 
+  it('preserves non-widget static and ordered family literals in a same-type migration', () => {
+    const target = schemaOf('ConcatenateVideo', [
+      input('complete_audio', { type: { kind: 'concrete', name: 'BOOLEAN' } }),
+      {
+        ...familyInput('videos', []),
+        dynamic: {
+          kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+          template: [input('video', { type: { kind: 'list', element: { kind: 'concrete', name: 'VIDEO' } } })],
+          naming: { kind: 'prefix', prefix: 'video', min: 2, max: 8 },
+        },
+      },
+    ])
+    const rule: ReplacementRule = {
+      from: 'ConcatenateVideo', migration: { historicalInputs: ['videos'] }, cases: [{
+        to: 'ConcatenateVideo', inputs: { complete_audio: { kind: 'copy', input: 'complete_audio' } },
+        inputFamilies: { videos: {
+          kind: 'copy', sourceFamily: 'videos', memberIds: 'targetPositions',
+          sourceTemplate: { inputs: ['video'] }, inputs: { video: { kind: 'copy', input: 'video' } },
+        } },
+      }],
+    }
+    const original = doc({ g0: graph({ id: 'g0', nodes: {
+      old: node('old', 'ConcatenateVideo', {
+        'videos.m9': ['clip-b', 'clip-c'], 'videos.m2': ['clip-a'], complete_audio: false,
+      }, { dynamic: { videos: { members: ['m9', 'm2'] } } }),
+    } }) })
+    const resolve = (type: string) => type === target.type ? target : undefined
+    const planned = planReplacement(original, 'g0', 'old', rule, resolve)
+    expect(planned.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
+    expect(planned.plan).toBeDefined()
+    if (!planned.plan) return
+    const store = new DocumentStore(original, coreCommandRegistry())
+    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.values).toEqual({
+      'videos.video0': ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
+    })
+    const compiled = compile({ document: store.doc, revision: 1, resolve, scope: { kind: 'full' },
+      connection: asConnectionId('test'), schemaHash: 'test' })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (compiled.ok) expect(compiled.artifact.prompt.old!.inputs).toEqual({
+      'videos.video0': ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
+    })
+    expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.values.complete_audio).toBe(false)
+  })
+
   it.each([false, true])('migrates boundary-only historical member bindings (flat=%s)', (flat) => {
     const target = schemaOf('BoundFamily', [{
       ...familyInput('values', []),

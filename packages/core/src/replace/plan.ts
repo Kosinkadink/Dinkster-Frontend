@@ -1495,7 +1495,7 @@ function planReplacementForCase(
           )
           break
         }
-        if (spec.widget !== undefined || storesCount)
+        if (spec.widget !== undefined || storesCount || rule.migration !== undefined)
           copyValueTo(address, mapping, mapping.input, spec.widget?.controller !== undefined)
         else if (state.node.values[mapping.input] !== undefined)
           warnings.push(
@@ -1565,7 +1565,8 @@ function planReplacementForCase(
       } else if (mapping.kind === 'link') {
         moveConnectionTo(address, source)
       } else {
-        if (spec.widget !== undefined) copyValueTo(address, mapping, source, spec.widget.controller !== undefined)
+        if (spec.widget !== undefined || rule.migration !== undefined)
+          copyValueTo(address, mapping, source, spec.widget?.controller !== undefined)
         else if (state.node.values[source] !== undefined)
           warnings.push(
             diag(

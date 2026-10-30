@@ -198,6 +198,13 @@ is preserved, while ancestor instances retain their own suffixes and consume
 the migrated definition prefix. Stale binding identities and unsupported
 nested source state fail explicitly.
 
+Explicit `copy` mappings in marked same-type migrations retain stored static
+and family-member literals even when the target input has no widget. Widget
+presentation does not determine whether a native input can store a value;
+controller modes still require a controller-capable target widget. Ordinary
+cross-type replacements retain their warning-and-drop behavior for non-widget
+literals.
+
 ### 3. Two-stage derived state: interface elaboration, then type solving
 
 This is the core correction over the current frontend, which conflates "what ports does this node have" with "what types are they" and mutates both via callbacks.
