@@ -3,8 +3,11 @@
 ## Source of truth
 
 `branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
-identity values. `packages/core/src/ui/tokens.ts` imports that source and
-projects it into the existing semantic roles. It exports:
+identity values. The private `@dinkster/branding` workspace package exports
+that JSON as `@dinkster/branding/palette`; core declares it as a dependency.
+`packages/core/src/ui/tokens.ts` imports it with the native JSON type
+attribute and projects it into the existing semantic roles. No duplicate
+theme CSS is maintained. It exports:
 
 - `semanticDesignTokens`, the host token model;
 - `semanticCssVariables` and `semanticCssRoot`, the CSS projection injected

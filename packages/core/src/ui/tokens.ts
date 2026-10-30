@@ -1,4 +1,4 @@
-import palette from '../../../../branding/tokens/dinkster-colors.json' with { type: 'json' }
+import palette from '@dinkster/branding/palette' with { type: 'json' }
 
 export interface TypeToken {
   readonly fontSize: number
