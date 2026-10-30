@@ -103,6 +103,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - name: Install checkout pack sources
+        run: |
+          uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
+            -e .ci/Dinkster/packages/dinkster-nodes-foundation \
+            -e .ci/Dinkster/packages/dinkster-nodes-image \
+            -e .ci/Dinkster/packages/dinkster-nodes-media-io \
+            -e .ci/Dinkster/packages/dinkster-nodes-remote \
+            -e .ci/Dinkster/packages/dinkster-nodes-vision
       - name: Verify generated fixtures are current
         env:
           DINKSTER_SOURCE_ROOT: ${{ github.workspace }}/.ci/Dinkster
@@ -186,6 +194,14 @@ jobs:
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python -r .ci/ComfyUI/requirements.txt
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - name: Install checkout pack sources
+        run: |
+          uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
+            -e .ci/Dinkster/packages/dinkster-nodes-foundation \
+            -e .ci/Dinkster/packages/dinkster-nodes-image \
+            -e .ci/Dinkster/packages/dinkster-nodes-media-io \
+            -e .ci/Dinkster/packages/dinkster-nodes-remote \
+            -e .ci/Dinkster/packages/dinkster-nodes-vision
       - name: Install hosted compatibility dependencies
         run: |
           uv venv --python 3.12 .ci/Dinkster/.venv-torch
