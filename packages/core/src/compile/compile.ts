@@ -1736,7 +1736,8 @@ function compileImpl(
         const instanceDynamic = ctx.overlays.get(node.id) ?? node.dynamic
         const instanceValues = ctx.values.get(node.id) ?? node.values
         const resolveChildNode = (inner: NodeData): NodeSchema | undefined => resolveNode(child.id, inner)
-        const { crossings, problems } = buildBoundaryCrossings(child, resolve, instanceDynamic, resolveChildNode, instanceValues)
+        const instanceInputs = withExtraConnectivity(connectivityFor(path, defId)(node.id), ctx.extraIn.get(node.id), undefined)
+        const { crossings, problems } = buildBoundaryCrossings(child, resolve, instanceDynamic, resolveChildNode, instanceValues, instanceInputs.inputPorts?.())
         if (problems.length > 0) {
           for (const p of problems) {
             diags.push(diag('error', 'compile', p.code, `${p.message} (node '${node.id}')`, { anchor: anchorOf(path, node.id) }))

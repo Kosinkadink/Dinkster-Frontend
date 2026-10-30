@@ -186,6 +186,18 @@ listed. Deprecated schemas default to search demotion when visibility is
 omitted. Type IDs remain authoritative; display names are presentation, so a
 successor may share a hidden predecessor's name without changing identity.
 
+Input-family `copy` mappings preserve authored suffix IDs and order by default.
+Explicit `memberIds: 'targetPositions'` maps that order to declared target
+positions, including values, controllers, labels, links, net sinks and fixed
+boundary bindings. Same-type migrations can declare a historical family root
+with `sourceTemplate`: persisted members and incoming addresses provide
+evidence even without widget values. Historical flat addresses migrate;
+already-canonical sparse members remain unchanged on rescan. Whole-family
+bindings retain their external IDs and selections when every template slot
+is preserved, while ancestor instances retain their own suffixes and consume
+the migrated definition prefix. Stale binding identities and unsupported
+nested source state fail explicitly.
+
 ### 3. Two-stage derived state: interface elaboration, then type solving
 
 This is the core correction over the current frontend, which conflates "what ports does this node have" with "what types are they" and mutates both via callbacks.

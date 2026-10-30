@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import { compile, type CompileInput } from '../src/compile/compile.js'
 import { translateThroughCrossing, type FamilyCrossing } from '../src/compile/crossing.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
@@ -431,6 +432,86 @@ const innerFamilyOf = (type: string): string =>
 // ---------------------------------------------------------------------------
 
 describe('widget output boundary lowering', () => {
+  it.each([false, true])('rejects suffixes that overwrite definition-owned values (named=%s)', (named) => {
+    const first = named ? 'first' : 'item0'
+    const positional = parseDinksterSchema('Positional', { outputNode: true, interface: [{
+      role: 'inputFamily', id: 'items', minMembers: 0, optionalAfterMinimum: true,
+      ...(named ? { memberNames: ['first', 'second'] } : { memberPrefix: 'item', maxMembers: 2 }),
+      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false }],
+    }] }).schema!
+    const document = docOf({
+      g0: { nodes: { shell: { type: '#sub', values: { [`fam.${first}`]: 20 }, dynamic: { fam: { members: [first] } } } } },
+      sub: { nodes: { n: { type: 'Positional', values: { [`items.${first}`]: 10 } } },
+        boundary: { inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'items' } }] } },
+    })
+    const result = compile({ ...inputOf(document), resolve: () => positional })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.boundary.forwardUnknownMember')
+    expect(document.graphs.sub!.nodes.n!.values).toEqual({ [`items.${first}`]: 10 })
+  })
+
+  it.each([1, 2].flatMap((depth) => [false, true].flatMap((named) =>
+    ['value', 'link'].map((evidence) => ({ depth, named, evidence })),
+  )))('preserves authored positional evidence through $depth boundaries (named=$named, $evidence)', ({ depth, named, evidence }) => {
+    const first = named ? 'first' : 'item0'
+    const second = named ? 'second' : 'item1'
+    const positional = parseDinksterSchema('Positional', { outputNode: true, interface: [{
+      role: 'inputFamily', id: 'items', minMembers: 0, optionalAfterMinimum: true,
+      ...(named ? { memberNames: ['first', 'second', 'tail'] } : { memberPrefix: 'item', maxMembers: 3 }),
+      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false }],
+    }] }).schema!
+    const document = docOf({
+      g0: { nodes: { source: { type: 'IntSource' }, shell: {
+        type: depth === 1 ? '#sub' : '#outer',
+        values: evidence === 'value' ? { [`fam.${second}`]: 20 } : {},
+      } }, links: evidence === 'link' ? [[['source', 'out'], ['shell', `fam.${second}`]]] : [] },
+      sub: { nodes: { source: { type: 'IntSource' }, n: {
+        type: 'Positional', values: evidence === 'value' ? { [`items.${first}`]: 10 } : {},
+      } }, links: evidence === 'link' ? [[['source', 'out'], ['n', `items.${first}`]]] : [],
+      boundary: { inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'items' } }] } },
+      ...(depth === 2 ? { outer: { nodes: { inner: { type: '#sub' } }, boundary: {
+        inputs: [{ id: 'fam', binds: { kind: 'family', node: 'inner', port: 'fam' } }],
+      } } } : {}),
+    })
+    const result = compile({ ...inputOf(document), resolve: (type) => type === 'Positional' ? positional : resolve(type) })
+    expect(result.ok, JSON.stringify(result.ok ? result.artifact.diagnostics : result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.diagnostics.filter((diagnostic) => diagnostic.blocksExecution)).toEqual([])
+    const node = Object.values(result.artifact.prompt).find((node) => node.class_type === 'Positional')!
+    expect(Object.keys(node.inputs)).toEqual([`items.${first}`, `items.${second}`])
+    if (evidence === 'value') expect(node.inputs).toEqual({ [`items.${first}`]: 10, [`items.${second}`]: 20 })
+    else {
+      expect(node.inputs[`items.${second}`]).toEqual(['source', 0])
+      expect(node.inputs[`items.${first}`]).not.toEqual(['source', 0])
+    }
+  })
+
+  it.each([1, 2])('compiles canonical opted-in suffixes through %s family boundaries', (depth) => {
+    const positional = parseDinksterSchema('Positional', { outputNode: true, interface: [{
+      role: 'inputFamily', id: 'images', minMembers: 2, maxMembers: 4,
+      memberPrefix: 'image', optionalAfterMinimum: true,
+      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
+    }] }).schema!
+    const document = docOf({
+      g0: { nodes: { a: { type: 'Src' }, b: { type: 'Src' }, shell: {
+        type: depth === 1 ? '#sub' : '#outer', dynamic: { fam: { members: ['image1', 'image2'] } },
+      } }, links: [[['b', 'out'], ['shell', 'fam.image1']]] },
+      sub: { nodes: { a: { type: 'Src' }, n: { type: 'Positional', dynamic: { images: { members: ['image0'] } } } },
+        links: [[['a', 'out'], ['n', 'images.image0']]],
+        boundary: { inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'images' } }] } },
+      ...(depth === 2 ? { outer: { nodes: { inner: { type: '#sub' } }, boundary: {
+        inputs: [{ id: 'fam', binds: { kind: 'family', node: 'inner', port: 'fam' } }],
+      } } } : {}),
+    })
+    const result = compile({ ...inputOf(document), resolve: (type) => type === 'Positional' ? positional : resolve(type) })
+    expect(result.ok, JSON.stringify(result.ok ? result.artifact.diagnostics : result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.diagnostics.filter((diagnostic) => diagnostic.blocksExecution)).toEqual([])
+    const node = Object.values(result.artifact.prompt).find((node) => node.class_type === 'Positional')!
+    expect(Object.keys(node.inputs)).toEqual(['images.image0', 'images.image1'])
+    expect(node.inputs['images.image1']).toEqual(['b', 0])
+  })
+
   const leaf = (value: number): GraphSpec => ({
     nodes: { n: { type: 'IntValue', values: { value } } },
     boundary: {

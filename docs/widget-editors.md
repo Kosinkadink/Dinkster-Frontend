@@ -209,6 +209,13 @@ readable but is dimmed and crossed out. Mouse hover and the pointer-inert
 keyboard mirror expose the same `Stale/unproven value` wording without editing
 or storing anything.
 
+Background overlay refreshes preserve focus and the open tooltip on an
+unchanged widget mirror. Its label and activation use the current overlay
+data, and its open tooltip follows execution value and provenance updates.
+Refreshing does not reopen a dismissed tooltip. Document or graph navigation
+replaces the control rather than carrying focus to an unrelated widget with
+the same node and input ids.
+
 Compact rows are the primary workflow. INT and FLOAT edge steppers paint a
 minus on the left and a plus on the right. They remain independent controls
 that immediately write one undoable schema-aware step and never open the

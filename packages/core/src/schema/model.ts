@@ -439,6 +439,8 @@ export interface AutogrowSpec {
   readonly template: readonly InputSpec[]
   /** Each stored member binds its own variables instead of sharing the family template. */
   readonly independentTypes?: boolean
+  /** Only initial vocabulary positions require a required template leaf. */
+  readonly optionalAfterMinimum?: boolean
   /** Wire-15 document-driven materialization (absent keeps wire-14 identity). */
   readonly materialization?: 'wire15'
   readonly naming:
@@ -1129,10 +1131,13 @@ export const initialDynamicStateOf = (
       const construct = joinValuePath(prefix, item.id)
       if (dynamic?.kind === 'autogrow' && dynamic.materialization === 'wire15') {
         const { min } = autogrowBounds(dynamic)
-        if (min === 0 || dynamic.naming.kind === 'native') continue
+        if (min === 0 || dynamic.naming.kind === 'native' ||
+          (dynamic.optionalAfterMinimum && dynamic.template[0]!.optional)) continue
+        const prefix = dynamic.naming.kind === 'prefix' ? dynamic.naming.prefix : ''
         const members = dynamic.naming.kind === 'names'
           ? dynamic.naming.names.slice(0, min)
-          : Array.from({ length: min }, (_, index) => `m${index}`)
+          : Array.from({ length: min }, (_, index) => dynamic.optionalAfterMinimum
+            ? `${prefix}${index + (dynamic.ordinalOffset ?? 0)}` : `m${index}`)
         state[construct] = {
           members,
           ...(dynamic.naming.kind === 'prefix' ? { seq: min } : {}),

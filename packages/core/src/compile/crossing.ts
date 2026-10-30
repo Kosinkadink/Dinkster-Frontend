@@ -26,7 +26,7 @@
 import { isForwardingBinding, isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type Json, type NodeData } from '../format/document.js'
 import { asDynamicMemberId, asNodeId, asPortId, type NodeId, type PortRef } from '../ids.js'
 import { memberHopsOf, resolveBoundaryRoute, type BoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { addressOfElabKey, elabKeyOf, DEFAULT_ELAB_BUDGET } from '../schema/elaborate.js'
+import { addressOfElabKey, buildGraphConnectivity, collectWire15MemberEvidence, elabKeyOf, DEFAULT_ELAB_BUDGET } from '../schema/elaborate.js'
 import { autogrowBounds, outputSchemaInputsOf, outputCountValueOf, type CountBoundOutputAutogrowSpec, type NodeSchema } from '../schema/model.js'
 
 /**
@@ -48,6 +48,8 @@ export interface FamilyCrossing {
   readonly rebase: ReadonlyMap<string, string>
   /** Canonical count-bound members map directly instead of owning dynamic suffix state. */
   readonly countBound?: true
+  /** Positional input families retain canonical suffix identities across boundaries. */
+  readonly optionalAfterMinimum?: true
   /**
    * Slot-selective forwarding (hazard F10): the template slot paths the
    * boundary exposes (dotted entries narrow nested autogrow constructs);
@@ -181,10 +183,12 @@ export function buildBoundaryCrossings(
   instanceDynamic: Readonly<Record<string, DynamicPortState>> | undefined,
   resolveNode: (node: NodeData) => NodeSchema | undefined = (node) => resolve(node.type),
   instanceValues: Readonly<Record<string, Json>> = {},
+  instanceInputPorts: readonly string[] = [],
 ): CrossingsResult {
   const crossings = new Map<string, BoundaryCrossing>()
   const problems: CrossingProblem[] = []
   if (!child.boundary) return { crossings, problems }
+  const connectivity = buildGraphConnectivity(child)
   const projectedCounts = projectCountBoundValues(child, instanceValues, resolveNode)
   const sides = [
     { items: child.boundary.inputs, side: 'input' as const },
@@ -253,6 +257,7 @@ export function buildBoundaryCrossings(
         }
         const terminal = route.terminal as Extract<BoundaryRoute['terminal'], { kind: 'family' }>
         const countBound = side === 'output' && 'count' in terminal.spec
+        const optionalAfterMinimum = 'optionalAfterMinimum' in terminal.spec && terminal.spec.optionalAfterMinimum === true
         const count = countBound
           ? outputCountValueOf(terminal.spec as CountBoundOutputAutogrowSpec, projectedCounts.get(node.id) ?? node.values)
           : undefined
@@ -264,9 +269,21 @@ export function buildBoundaryCrossings(
           ? countValid
             ? Array.from({ length: count as number }, (_, index) => String(index))
             : []
-          : instanceDynamic?.[item.id]?.members ?? []
+          : optionalAfterMinimum
+            ? collectWire15MemberEvidence(item.id, instanceDynamic?.[item.id]?.members ?? [], Object.keys(instanceValues), instanceInputPorts, [], true)
+            : instanceDynamic?.[item.id]?.members ?? []
+        const owned = optionalAfterMinimum
+          ? collectWire15MemberEvidence(terminal.familyPath, scope?.[terminal.familyPath]?.members ?? [], Object.keys(node.values), connectivity(node.id).inputPorts?.() ?? [], [], true)
+          : []
+        if (optionalAfterMinimum && suffix.some((member) => owned.includes(member))) {
+          problems.push({
+            code: 'compile.boundary.forwardUnknownMember',
+            message: `boundary '${item.id}' suffix overlaps definition-owned canonical members`,
+          })
+          return undefined
+        }
         const rebase = new Map<string, string>()
-        for (const m of suffix) rebase.set(m, countBound ? m : rebasedIdOf(m))
+        for (const m of suffix) rebase.set(m, countBound || optionalAfterMinimum ? m : rebasedIdOf(m))
         return {
           boundaryId: item.id,
           side,
@@ -276,6 +293,7 @@ export function buildBoundaryCrossings(
           familyPath: terminal.familyPath,
           rebase,
           ...(countBound ? { countBound: true } : {}),
+          ...(optionalAfterMinimum ? { optionalAfterMinimum: true } : {}),
           ...(binding.slots !== undefined ? { slots: new Set(binding.slots) } : {}),
         }
       }
@@ -332,6 +350,22 @@ export function translateThroughCrossing(
     ref: { node: crossing.targetNode, port: asPortId(`${crossing.constructPath}${rest}`),
       ...((crossing.hopMembers.length || members.length) ? { members: [...crossing.hopMembers, ...members].map(asDynamicMemberId) } : {}),
     },
+  }
+  if (crossing.optionalAfterMinimum) {
+    const suffix = rest.slice(1)
+    if (!crossing.rebase.has(suffix) || members.length > 0) return {
+      ok: false,
+      code: 'compile.boundary.forwardUnknownMember',
+      message: `address '${addr.port}' is not an instance-appended canonical member of '${boundaryId}'`,
+    }
+    return {
+      ok: true,
+      ref: {
+        node: crossing.targetNode,
+        port: asPortId(`${crossing.familyPath}.${suffix}`),
+        ...(crossing.hopMembers.length ? { members: crossing.hopMembers.map(asDynamicMemberId) } : {}),
+      },
+    }
   }
   if (members.length === 0) {
     return {
@@ -494,7 +528,7 @@ const mergeFamilyState = (
   instState: DynamicPortState | undefined,
   crossing: FamilyCrossing,
 ): DynamicPortState => {
-  const suffix = instState?.members ?? []
+  const suffix = crossing.optionalAfterMinimum ? [...crossing.rebase.keys()] : instState?.members ?? []
   const members = [...(defState?.members ?? []), ...suffix.map((m) => crossing.rebase.get(m) ?? rebasedIdOf(m))]
   const memberLabels: Record<string, string> = { ...defState?.memberLabels }
   for (const [member, label] of Object.entries(instState?.memberLabels ?? {})) {

@@ -45,7 +45,7 @@ import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
 import { effectiveValueSourceSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
-import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from './elaborate.js'
+import { buildGraphConnectivity, collectWire15MemberEvidence, DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from './elaborate.js'
 import { outputDescriptorAssetOf, outputDescriptorValueOf, parseOutputDescriptors } from './output-descriptors.js'
 import { autogrowBounds, canonicalTypeIdOf, effectiveComboOption, inputsOf, outputCountValueOf, outputSchemaInputsOf, typeExprFromTypeId } from './model.js'
 import { parseSelection, type SelectionTree } from './slot-selection.js'
@@ -466,6 +466,7 @@ export function deriveBoundarySchema(
 
   const items: InterfaceItem[] = []
   const seenIds = new Set<string>()
+  const connectivity = buildGraphConnectivity(def)
   const routeCache = new WeakMap<object, Partial<Record<'input' | 'output', { node: NodeData; route: BoundaryRoute }>>>()
   /** One suffix owner per target family (hazard F1): route identity -> boundary id. */
   const forwardedFamilies = new Map<string, string>()
@@ -735,12 +736,26 @@ export function deriveBoundarySchema(
     const terminal = route.terminal as Extract<RouteTerminal, { kind: 'family' }>
     const spec = terminal.spec
     const { min, max } = autogrowBounds(spec)
+    const stored = familyStateAt(node, route.hops, terminal.familyPath)?.members ?? []
+    const members = 'optionalAfterMinimum' in spec && spec.optionalAfterMinimum
+      ? collectWire15MemberEvidence(terminal.familyPath, stored, Object.keys(node.values), connectivity(node.id).inputPorts?.() ?? [], [], true)
+      : stored
     const prefix = 'count' in spec
       ? 0
-      : familyStateAt(node, route.hops, terminal.familyPath)?.members?.length ?? 0
+      : members.length
     if (prefix > max) {
       fail('boundary.familyOverCap', `boundary ${side} '${item.id}': definition holds ${prefix} members of '${terminal.familyPath}' but the family caps at ${max}`)
       return undefined
+    }
+    if ('optionalAfterMinimum' in spec && spec.optionalAfterMinimum) {
+      const naming = spec.naming
+      const offset = spec.ordinalOffset ?? 0
+      const initial = Array.from({ length: prefix }, (_, index) => naming.kind === 'names'
+        ? naming.names[index] : naming.kind === 'prefix' ? `${naming.prefix}${offset + index}` : undefined)
+      if (initial.some((member) => member === undefined || !members.includes(member))) {
+        fail('boundary.familyNonPrefix', `boundary ${side} '${item.id}': definition-owned members of '${terminal.familyPath}' must occupy the initial canonical positions`)
+        return undefined
+      }
     }
     let template = spec.template
     const selection = binding.slots
@@ -786,6 +801,7 @@ export function deriveBoundarySchema(
       kind: 'autogrow',
       template: template.map((s) => freshenInputSpec(s, binding.node, typeBindingsFor(node))),
       naming,
+      ...(spec.optionalAfterMinimum ? { optionalAfterMinimum: true, materialization: 'wire15' as const } : {}),
       ...(offset > 0 ? { ordinalOffset: offset } : {}),
     }
   }

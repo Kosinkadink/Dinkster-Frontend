@@ -1,4 +1,4 @@
-import { boundaryBindingKey, isNodeBoundaryBinding, resolveDynamicAddress, type BoundaryRouteLeg, type GraphDef, type GraphViewState, type Json, type LinkData, type NodeData, type OccurrenceTopology, type ParentDeliveryIdentity, type WorkflowDocument } from './format/document.js'
+import { resolveDynamicAddress, type BoundaryRouteLeg, type GraphDef, type GraphViewState, type Json, type LinkData, type NodeData, type OccurrenceTopology, type ParentDeliveryIdentity, type WorkflowDocument } from './format/document.js'
 import { validateClipboardRecords, validateDocumentShape, validateGraphDefShape, validateGraphViewShape, validateOccurrenceTopologyShape } from './format/validate.js'
 import { groupAllocationFloor } from './group-alloc.js'
 import { actorCursorOf, formatAllocatedId, isPortEndpoint, isRerouteRef, isValidActorId, isWidgetTapRef, occurrenceKey, sameOccurrenceRef, samePortRef, type LinkEndpoint, type OccurrenceRef, type PortRef } from './ids.js'
@@ -6,9 +6,8 @@ import { graphAllocator } from './commands/alloc.js'
 import type { CommandDefinition, CommandInvocation, TransactionBuilder } from './commands/contract.js'
 import { diag, type Diagnostic } from './diagnostics.js'
 import { NET_VIEWS_EXT_KEY, netViewKey, netViewPositions, netViewToJson, parseNetViewPosition, updateNetViewPositions, type NetViewPosition } from './format/net-views.js'
-import { subgraphDefIdOf } from './invariants.js'
+import { routeMatchesOwnerChain, subgraphDefIdOf } from './invariants.js'
 import { canonicalJson } from './compile/hash.js'
-import { matchBoundaryItem } from './compile/crossing.js'
 
 export interface DinksterClipboardEnvelope {
   readonly format: 'dinkster-clipboard'
@@ -271,41 +270,6 @@ function definitionOccurrenceReferencesClosed(
     }
     return chain
   }
-  const routeMatches = (
-    chain: readonly Hop[],
-    startIndex: number,
-    side: 'from' | 'to',
-    initialAddress: PortRef,
-    route: readonly BoundaryRouteLeg[],
-  ): boolean => {
-    if (route.length !== chain.length - startIndex) return false
-    let address = initialAddress
-    for (let offset = 0; offset < route.length; offset++) {
-      const hop = chain[startIndex + offset]!
-      const graph = graphOf(hop.bodyGraphId)!
-      const leg = route[offset]!
-      if (leg.graph !== graph.id) return false
-      const items = side === 'from' ? graph.boundary?.outputs : graph.boundary?.inputs
-      const match = matchBoundaryItem(items ?? [], address)
-      if (!match.ok || match.item.id !== leg.boundaryId) return false
-      if (match.item.binds.kind === 'family' &&
-          resolveDynamicAddress(address, hop.node.dynamic).kind !== 'resolved') return false
-      const matchingBindings = [match.item.binds, ...(match.item.alsoBinds ?? [])].filter((binding) =>
-        boundaryBindingKey(binding) === boundaryBindingKey(leg.binding))
-      if (matchingBindings.length !== 1) return false
-      const binding = matchingBindings[0]!
-      if (!isNodeBoundaryBinding(binding)) return false
-      const targetNode = graph.nodes[binding.node]
-      if (targetNode === undefined ||
-          binding.kind !== 'widgetTap' && resolveDynamicAddress(binding, targetNode.dynamic).kind === 'missing') return false
-      if (offset + 1 < route.length) {
-        const nextHop = chain[startIndex + offset + 1]!
-        if (binding.kind === 'widgetTap' || binding.node !== nextHop.ref.node) return false
-        address = { node: binding.node, port: binding.port, ...(binding.members ? { members: binding.members } : {}) }
-      }
-    }
-    return true
-  }
   const deliveryEndpoints = (
     delivery: ParentDeliveryIdentity,
   ): readonly { readonly side: 'from' | 'to'; readonly endpoint: PortRef }[] | undefined => {
@@ -338,11 +302,12 @@ function definitionOccurrenceReferencesClosed(
       for (const [side, endpoint] of [['from', link.from], ['to', link.to]] as const) {
         if (endpoint.kind !== 'boundary') continue
         const startIndex = chain.findIndex((hop) => sameOccurrenceRef(hop.ref, endpoint.occurrence))
-        if (startIndex < 0 || !routeMatches(
+        if (startIndex < 0 || !routeMatchesOwnerChain(
+          { graphs },
           chain,
           startIndex,
           side,
-          { node: endpoint.occurrence.node, ...endpoint.address },
+          endpoint.address,
           endpoint.route,
         )) return false
       }
@@ -355,7 +320,7 @@ function definitionOccurrenceReferencesClosed(
         const matches = deliveryEndpoints(suppression.delivery)?.filter(({ side, endpoint }) => {
           const startIndex = chain.findIndex((hop) =>
             hop.parentGraphId === suppression.delivery.graph && hop.ref.node === endpoint.node)
-          return startIndex >= 0 && routeMatches(chain, startIndex, side, endpoint, suppression.route)
+          return startIndex >= 0 && routeMatchesOwnerChain({ graphs }, chain, startIndex, side, endpoint, suppression.route)
         }) ?? []
         if (matches.length !== 1) return false
       }

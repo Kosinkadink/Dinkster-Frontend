@@ -301,7 +301,8 @@ function resolveOccurrenceEndpoint(
       const instanceDynamic = view.dynamic.get(occurrence.node) ?? at.node.dynamic
       const instanceValues = view.values.get(occurrence.node) ?? at.node.values
       const resolveNode = documentNodeResolver(document, resolver)
-      const built = buildBoundaryCrossings(at.bodyGraph, resolver, instanceDynamic, (node) => resolveNode(at.bodyGraph.id, node), instanceValues)
+      const instanceInputs = view.inputPorts.get(occurrence.node)
+      const built = buildBoundaryCrossings(at.bodyGraph, resolver, instanceDynamic, (node) => resolveNode(at.bodyGraph.id, node), instanceValues, instanceInputs)
       const crossing = built.crossings.get(item.id)
       const target = crossing && crossingTargets(crossing)[match.index]
       if (!target || built.problems.length > 0) {

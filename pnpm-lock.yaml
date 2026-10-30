@@ -18,6 +18,8 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  branding/tokens: {}
+
   packages/app:
     dependencies:
       '@dinkster/canvas':
@@ -110,6 +112,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@dinkster/branding':
+        specifier: workspace:*
+        version: link:../../branding/tokens
       '@noble/hashes':
         specifier: ^2.3.0
         version: 2.3.0
