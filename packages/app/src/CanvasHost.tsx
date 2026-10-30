@@ -1265,7 +1265,7 @@ export function NodeOutputPager(props: {
           <ProductButton size="compact" type="button" class="node-output-position" aria-label={`Open image 1 of 1 for ${props.title}`} onClick={() => props.onOpen?.()}>Open image</ProductButton>
         </Show>
         <Show when={props.download}>
-          {(download) => <a href={download().src} download={download().name}>Download</a>}
+          {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
         </Show>
         <Show when={props.virtualPath}>{(path) => <span class="node-output-path" title={path()}>{message('outputFile.writtenTo', { path: path() })}</span>}</Show>
         <Show when={props.onReveal}><ProductButton size="compact" type="button" class="node-output-reveal" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</ProductButton></Show>

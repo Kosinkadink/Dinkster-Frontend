@@ -408,6 +408,62 @@ describe('sourceFor', () => {
     expect(l.sourceFor(exec({ artifacts: [artifact('data', 'b', 'application/json', 'result.json')] }), ['data'], false)).toBeUndefined()
   })
 
+  it('displays an associated image without fetching the original and downloads the saved file explicitly', async () => {
+    const originalDigest = `blake3:${'5'.repeat(64)}`
+    const previewDigest = `blake3:${'6'.repeat(64)}`
+    const fetchRecordedOutput = vi.fn(async () => new Response(new Uint8Array([7, 8, 9])))
+    class FakeImage {
+      src = ''
+      naturalWidth = 12
+      naturalHeight = 8
+      decode = async () => {}
+    }
+    vi.stubGlobal('Image', FakeImage)
+    try {
+      const l = createPreviewLoader({
+        viewUrlForExecution: () => '', assetUrlForInput: () => '', onDecoded: () => {},
+        assetUrlForExecution: (_ref, digest) => `http://backend/api/assets/${digest}`,
+        fetchRecordedOutput,
+      })
+      const artifacts = Array.from({ length: 65 }, (_, index) => ({
+        nodeId: 'save', digest: originalDigest, name: `frame-${index}.exr`, size: 2048,
+        mediaType: 'image/x-exr', virtualPath: `mounts/output/frame-${index}.exr`,
+        preview: { digest: previewDigest, name: 'preview.webp', size: 32, mediaType: 'image/webp', virtualPath: `previews/${'6'.repeat(64)}/preview.webp` },
+      }))
+      const source = l.sourceFor(exec({ artifacts }), ['save'], false, 64)!
+      expect(source.output).toEqual({ index: 64, count: 65 })
+      const loaded = await source.load()
+      expect(loaded.image).toBeInstanceOf(FakeImage)
+      expect(loaded).toMatchObject({ width: 12, height: 8 })
+      expect(fetchRecordedOutput).toHaveBeenCalledExactlyOnceWith(`http://backend/api/assets/${previewDigest}`)
+      expect(loaded.download).toMatchObject({ src: `http://backend/api/assets/${originalDigest}`, name: 'frame-64.exr' })
+      expect(loaded.download?.previewOnly).toBeUndefined()
+      const signal = new AbortController().signal
+      const blob = await loaded.download!.load!(signal)
+      expect(fetchRecordedOutput).toHaveBeenLastCalledWith(`http://backend/api/assets/${originalDigest}`, { signal })
+      expect(blob.type).toBe('image/x-exr')
+      expect(source.key).not.toBe(l.sourceFor(exec({ artifacts }), ['save'], false, 63)!.key)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('preserves the original download when an optional associated preview fails', async () => {
+    const fetchRecordedOutput = vi.fn(async () => new Response('', { status: 404 }))
+    const l = createPreviewLoader({
+      viewUrlForExecution: () => '', assetUrlForInput: () => '', onDecoded: () => {},
+      assetUrlForExecution: (_ref, digest) => `http://backend/api/assets/${digest}`,
+      fetchRecordedOutput,
+    })
+    const loaded = await l.sourceFor(exec({ artifacts: [{
+      nodeId: 'save', digest: `blake3:${'7'.repeat(64)}`, name: 'original.exr', size: 123,
+      mediaType: 'image/x-exr', virtualPath: 'mounts/output/original.exr',
+      preview: { digest: `blake3:${'8'.repeat(64)}`, name: 'preview.jpg', size: 24, mediaType: 'image/jpeg', virtualPath: `previews/${'8'.repeat(64)}/preview.jpg` },
+    }] }), ['save'], false)!.load()
+    expect(loaded).toMatchObject({ status: 'failed', download: { src: `http://backend/api/assets/blake3:${'7'.repeat(64)}`, name: 'original.exr' } })
+    expect(fetchRecordedOutput).toHaveBeenCalledExactlyOnceWith(`http://backend/api/assets/blake3:${'8'.repeat(64)}`)
+  })
+
   it('fetches cross-origin recorded audio only for an explicit download and sanitizes the filename', async () => {
     const digest = `blake3:${'4'.repeat(64)}`
     const url = `https://outputs.example/api/assets/${digest}`
