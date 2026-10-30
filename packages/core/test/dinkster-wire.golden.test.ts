@@ -671,4 +671,36 @@ describe('Dinkster schema wire', () => {
       expect.objectContaining({ severity: 'error', code: 'schema.parse.threw' }),
     ])
   })
+
+  it('keeps hidden dynamic choices and selected literals in compiled prompts', () => {
+    for (const hidden of [undefined, false, true]) {
+      const parsed = parseDinksterSchema('HiddenChoice', {
+        schemaVersion: 1, outputNode: true,
+        interface: [{ role: 'dynamicCombo', id: 'codec', required: false, hidden, options: [
+          { key: 'h264', inputs: [{ role: 'input', id: 'crf', type: concrete('INT'), required: false }] },
+          { key: 'vp9', inputs: [] },
+        ] }],
+      })
+      expect(parsed.diagnostics).toEqual([])
+      expect(inputsOf(parsed.schema!)[0]?.hidden).toBe(hidden === true ? true : undefined)
+      const result = compile({
+        document: { format: 'dinkster-workflow', formatVersion: 1, lineage: 'hidden-choice', root: 'g0', graphs: {
+          g0: { id: 'g0', name: 'root', nodes: {
+            n0: { id: 'n0', type: 'HiddenChoice', values: { 'codec.crf': 23 }, dynamic: { codec: { selected: 'h264' } } },
+          }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 },
+        }, view: { graphs: {} } },
+        revision: 0, resolve: () => parsed.schema!, scope: { kind: 'full' },
+        connection: asConnectionId('hidden-choice'), schemaHash: 'hidden-choice',
+      })
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.artifact.prompt.n0).toMatchObject({ inputs: { 'codec.crf': 23 }, slotVariants: { codec: 'h264' } })
+      }
+    }
+    const invalid = parseDinksterSchema('InvalidHidden', {
+      interface: [{ role: 'dynamicCombo', id: 'codec', hidden: 'true', options: [{ key: 'auto', inputs: [] }] }],
+    })
+    expect(invalid.schema).toBeUndefined()
+    expect(invalid.diagnostics[0]?.message).toContain('hidden')
+  })
 })

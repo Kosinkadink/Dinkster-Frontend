@@ -382,6 +382,8 @@ export interface ElabScope {
   readonly ancestry: readonly DynamicAncestor[]
   /** True when any ancestor is a ghost: emission strips api names centrally. */
   readonly ghost: boolean
+  /** Presentation inherited from a hidden input construct; submission is unchanged. */
+  readonly hidden?: boolean
   /** Scope-local dynamic state cursor, keyed by construct value key (hazard N4). */
   readonly stateOf: (construct: string) => DynamicPortState | undefined
   /** Display-name prefix composed across members ('items0'); presentation only. */
@@ -1564,7 +1566,7 @@ export function elaborateInterface(
         return
       }
       if (item.kind === 'section' || item.kind === 'growth') {
-        items.push(item)
+        if (!scope.hidden) items.push(item)
         return
       }
       // Central scoped emission (hazard N4): bind identity and ghost policy
@@ -1596,9 +1598,9 @@ export function elaborateInterface(
           if (scope.wire15Materialization) wire15ApiNames.add(apiName)
         }
         const spec =
-          canonical && (!scope.ghost || item.spec.optional)
+          canonical && (!scope.ghost || item.spec.optional) && (!scope.hidden || item.spec.hidden)
             ? item.spec
-            : stripDynamic({ ...item.spec, id, ...(scope.ghost ? { optional: true } : {}) })
+            : stripDynamic({ ...item.spec, id, ...(scope.ghost ? { optional: true } : {}), ...(scope.hidden ? { hidden: true } : {}) })
         items.push({
           ...rest,
           ...(apiName !== undefined ? { apiName } : {}),
@@ -1672,6 +1674,7 @@ export function elaborateInterface(
         members: [...parent.members, entry.member],
         ancestry: [...parent.ancestry, entry],
         ghost: parent.ghost || entry.ghost === true,
+        ...(parent.hidden ? { hidden: true } : {}),
         stateOf: (construct) => nested?.[construct],
         ...(frame.displayPrefix !== undefined ? { displayPrefix: frame.displayPrefix } : {}),
         ...(frame.frames !== undefined ? { frames: frame.frames } : {}),
@@ -1716,6 +1719,7 @@ export function elaborateInterface(
 
   const elaborateInput = (item: InputSpec, scope: ElabScope): void => {
     checkId(item.id, 'input')
+    if (item.hidden && !scope.hidden) scope = { ...scope, hidden: true }
     if (!item.dynamic) {
       const port = joinValuePath(scope.valuePrefix, item.id)
       const apiName = apiJoin(scope.apiPrefix, item.id)
