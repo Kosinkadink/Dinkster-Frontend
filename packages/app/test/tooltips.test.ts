@@ -101,6 +101,32 @@ describe('TooltipController', () => {
     controller.show({}, { x: 0, y: 0 }, true)
     expect(controller.visible).toBeUndefined()
   })
+
+  it('refreshes only the matching visible owned target without reopening a dismissed tooltip', () => {
+    vi.useFakeTimers()
+    const controller = new TooltipController()
+    const owner = Symbol('canvas')
+    const oldTarget = { value: 512 }
+    const currentTarget = { value: 1024 }
+    controller.register({ id: 'value', resolve: (target, opts) => ({
+      lines: [String((target as { value: number }).value)],
+      ...(opts.detailed ? { detail: ['detail'] } : {}),
+    }) })
+    controller.show(oldTarget, { x: 13, y: 29 }, true, true, owner)
+    controller.refreshTarget(oldTarget, currentTarget, Symbol('other canvas'))
+    controller.refreshTarget({ value: 512 }, currentTarget, owner)
+    expect(controller.visible?.lines).toEqual(['512'])
+    controller.refreshTarget(oldTarget, currentTarget, owner)
+    expect(controller.visible).toEqual({ lines: ['1024'], detail: ['detail'], x: 13, y: 29, detailed: true })
+    controller.show({ value: 99 }, { x: 1, y: 2 }, false, false, owner)
+    controller.refreshTarget(currentTarget, { value: 2048 }, owner)
+    expect(controller.visible?.lines).toEqual(['1024'])
+    vi.advanceTimersByTime(500)
+    expect(controller.visible?.lines).toEqual(['99'])
+    controller.hide()
+    controller.refreshTarget(currentTarget, { value: 2048 }, owner)
+    expect(controller.visible).toBeUndefined()
+  })
 })
 
 describe('canvas tooltip provider', () => {

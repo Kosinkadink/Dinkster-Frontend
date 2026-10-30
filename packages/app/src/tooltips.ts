@@ -49,6 +49,15 @@ export class TooltipController {
     else this.pending = setTimeout(() => this.resolveNow(), Math.max(0, this.delayMs()))
   }
 
+  /** Update an owned visible session without reopening it after dismissal. */
+  refreshTarget(previousTarget: unknown, target: unknown, owner: unknown): void {
+    const candidate = this.candidate
+    if (this.current === undefined || this.currentTarget !== previousTarget || this.currentOwner !== owner ||
+        candidate === undefined || candidate.target !== previousTarget || candidate.owner !== owner) return
+    this.candidate = { ...candidate, target }
+    this.resolveNow()
+  }
+
   /** Replace a target inside one hover session without restarting its initial delay. */
   showInSession(target: unknown, anchor: TooltipAnchor, detailed = this.detailed): void {
     if (this.current) {
