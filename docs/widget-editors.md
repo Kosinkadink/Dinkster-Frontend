@@ -9,6 +9,17 @@ settings. Missing required fields and mistyped known fields still reject the
 node with a schema error. Unknown non-empty widget type names remain custom
 pack descriptors, preserving their JSON parameters for widget-kind lookup.
 
+## Authored 3D viewport
+
+LOAD_3D edits the selected model file through an orbit viewport. Projection,
+field of view, position and scale remain drafts until Apply. Apply uploads
+scene, mask and normal PNG captures at the node's width and height and writes
+their granted file references with camera and model-transform metadata in one
+undoable widget value. The mask carries alpha: its consuming MASK is 1-alpha,
+not grayscale RGB. Optional viewport recording uses the media upload route.
+Cancel leaves the stored value unchanged; reopening restores its camera and
+transform. Missing model files and failed uploads do not replace the value.
+
 ## Button actions
 
 BUTTON is stateless, with a null default and the `core.button` view. Its

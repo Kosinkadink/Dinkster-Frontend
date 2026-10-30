@@ -1579,5 +1579,17 @@
   "videoDocument.type": "video document",
   "videoDocument.value.audio": "Audio",
   "videoDocument.value.default": "Use command default",
-  "videoDocument.value.video": "Video"
+  "videoDocument.value.video": "Video",
+  "load3dWidget.native": "3D authoring requires a native connection.",
+  "load3dWidget.chooseModel": "Choose a model file on this node before editing the viewport.",
+  "load3dWidget.unavailable": "The selected model file is unavailable.",
+  "load3dWidget.camera": "Camera projection",
+  "load3dWidget.perspective": "Perspective",
+  "load3dWidget.orthographic": "Orthographic",
+  "load3dWidget.fov": "Field of view",
+  "load3dWidget.position": "Model position",
+  "load3dWidget.scale": "Model scale",
+  "load3dWidget.record": "Record viewport",
+  "load3dWidget.stopRecording": "Stop recording",
+  "load3dWidget.help": "Orbit the selected model and edit its placement. Apply captures scene, alpha mask and normals at the node's width and height, then stores the viewport with granted file references. Cancel leaves the document unchanged."
 }

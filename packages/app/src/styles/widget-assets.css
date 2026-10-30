@@ -166,6 +166,7 @@
 }
 .widget-editor.widget-modal-editor:active { cursor: default; }
 .widget-editor.widget-modal-editor .widget-editor-header { cursor: default; touch-action: auto; }
+.load3d-widget-viewport { height: 320px; width: 100%; }
 .widget-modal-help { margin: 0; color: var(--dinkster-text-secondary); }
 .widget-modal-metadata {
   display: grid;

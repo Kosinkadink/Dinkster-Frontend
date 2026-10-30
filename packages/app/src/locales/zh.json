@@ -1579,5 +1579,17 @@
   "videoDocument.type": "视频文档",
   "videoDocument.value.audio": "音频",
   "videoDocument.value.default": "使用默认命令",
-  "videoDocument.value.video": "视频"
+  "videoDocument.value.video": "视频",
+  "load3dWidget.native": "3D 编辑需要原生连接。",
+  "load3dWidget.chooseModel": "编辑视口前，请先在此节点选择模型文件。",
+  "load3dWidget.unavailable": "所选模型文件不可用。",
+  "load3dWidget.camera": "相机投影",
+  "load3dWidget.perspective": "透视",
+  "load3dWidget.orthographic": "正交",
+  "load3dWidget.fov": "视野角度",
+  "load3dWidget.position": "模型位置",
+  "load3dWidget.scale": "模型缩放",
+  "load3dWidget.record": "录制视口",
+  "load3dWidget.stopRecording": "停止录制",
+  "load3dWidget.help": "旋转查看所选模型并编辑其位置。应用将按节点的宽高捕获场景、透明度遮罩和法线，并以授权文件引用保存视口。取消不会更改文档。"
 }

@@ -4,6 +4,7 @@ import { AudioRecordWidgetEditor } from './AudioRecordWidgetEditor.js'
 import { ColorWidgetEditor } from './ColorWidgetEditor.js'
 import { ColorsWidgetEditor } from './ColorsWidgetEditor.js'
 import { ComboWidgetEditor } from './ComboWidgetEditor.js'
+import { Load3dWidgetEditor } from './Load3dWidgetEditor.js'
 import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
 import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
 import { MountWidgetEditor } from './MountWidgetEditor.js'
@@ -22,6 +23,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['MULTI_COMBO', MultiComboWidgetEditor],
   ['ASSET', AssetWidgetEditor],
   ['AUDIO_RECORD', AudioRecordWidgetEditor],
+  ['LOAD_3D', Load3dWidgetEditor],
   ['MOUNT', MountWidgetEditor],
   ['VIDEO_EDIT', VideoEditWidgetEditor],
 ])
