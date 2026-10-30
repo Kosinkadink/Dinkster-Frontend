@@ -15,6 +15,7 @@ import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ProjectFolderSettings } from './ProjectFolderSettings.js'
+import { OutputMountSettings } from './OutputMountSettings.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 type SourceSectionKey = 'assets.source.section.models' | 'assets.source.section.media' | 'assets.source.section.inputOutput' | 'assets.source.section.other'
@@ -191,6 +192,8 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   const [discoveryError, setDiscoveryError] = createSignal<string>()
   const [retryTick, setRetryTick] = createSignal(0)
   const [foldersOpen, setFoldersOpen] = createSignal(false)
+  const [outputUnconfigured, setOutputUnconfigured] = createSignal(false)
+  let folders: HTMLDetailsElement | undefined
   const [sourceFailures, setSourceFailures] = createSignal<Readonly<Record<string, AssetSourceFailurePresentation>>>({})
   let live = true
   let discoveryGeneration = 0
@@ -205,16 +208,19 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     let scanPolling = false
     setAdapters(undefined)
     setMounts([])
+    setOutputUnconfigured(false)
     setDiscoveryError(undefined)
     setSourceFailures({})
 
     const discover = async (): Promise<void> => {
       try {
-        const descriptors = await connection.listMounts()
+        const settings = await connection.fetchMountSettings()
+        const descriptors = settings.mounts
         const browsable = await mountAssetSources(connection, undefined, descriptors)
         if (!live || !active || generation !== discoveryGeneration) return
         setAdapters(browsable)
         setMounts(descriptors)
+        setOutputUnconfigured(settings.outputMount === undefined)
         setDiscoveryError(undefined)
         scanPolling = descriptors.some((mount) => mount.state === 'pending' || mount.state === 'scanning')
         if (scanPolling) {
@@ -272,10 +278,16 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
 
   return (
     <div class="assets-panel" data-testid="assets-overlay">
-      <details class="asset-project-folders" onToggle={(event) => setFoldersOpen(event.currentTarget.open)}>
+      <Show when={outputUnconfigured()}>
+        <ProductEmptyState testId="assets-output-unconfigured" title={message('outputMountSettings.none')} hint={message('outputMountSettings.configureHint')} action={
+          <ProductButton type="button" onClick={() => { if (folders) folders.open = true; setFoldersOpen(true) }}>{message('outputMountSettings.configure')}</ProductButton>
+        } />
+      </Show>
+      <details ref={folders} class="asset-project-folders" onToggle={(event) => setFoldersOpen(event.currentTarget.open)}>
         <summary>{message('projectFolders.title')}</summary>
         <Show when={foldersOpen()}>
           <ProjectFolderSettings connection={props.connection} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} backendLabel={props.baseUrl || props.backendId} onChanged={() => setRetryTick((tick) => tick + 1)} />
+          <OutputMountSettings connection={props.connection} />
         </Show>
       </details>
       <Show
