@@ -1527,6 +1527,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     disabled?: boolean
     activate?: () => void
   }[]>([])
+  const widgetA11yById = createMemo(() => new Map(widgetA11yTargets().map((item) => [item.id, item])))
   const [previewA11yTargets, setPreviewA11yTargets] = createSolidSignal<readonly CanvasPreviewA11yTarget[]>([])
   const [semanticScene, setSemanticScene] = createSolidSignal<{
     readonly owner: string
@@ -4522,7 +4523,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...widgetValueA11yTargets,
         ...exposureA11yTargets,
         ...previewExposureA11yTargets,
-      ])
+      ].map((item) => ({ ...item, id: JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath, item.id]) })))
       renderer.setLensCapabilities({
         ...(lens.typeAdornments ? { typeAdornments: true } : {}),
         ...(lens.nodeBodyContent
@@ -6322,22 +6323,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
       <Show when={!editor() && !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()}>
         <div class="canvas-widget-a11y" role="group" aria-label="Canvas widget controls">
-          <For each={widgetA11yTargets()}>{(item) => (
+          <For each={widgetA11yTargets().map((item) => item.id)}>{(id) => {
+            let retainedItem = widgetA11yById().get(id)!
+            const item = () => {
+              const current = widgetA11yById().get(id)
+              if (current !== undefined) retainedItem = current
+              return retainedItem
+            }
+            return (
             <ProductButton size="compact"
               type="button"
-              data-testid={item.activate ? 'canvas-exposure-a11y' : 'canvas-widget-a11y'}
-              aria-label={item.label}
-              aria-pressed={item.pressed}
-              disabled={item.disabled}
-              onClick={() => item.activate?.()}
+              data-testid={item().activate ? 'canvas-exposure-a11y' : 'canvas-widget-a11y'}
+              aria-label={item().label}
+              aria-pressed={item().pressed}
+              disabled={item().disabled}
+              onClick={() => item().activate?.()}
               onFocus={(event) => {
-                if (item.target === undefined) return
+                const target = item().target
+                if (target === undefined) return
                 const rect = event.currentTarget.getBoundingClientRect()
-                props.tooltips?.show(item.target, { x: rect.left, y: rect.bottom + 8 }, undefined, true, tooltipOwner)
+                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8 }, undefined, true, tooltipOwner)
               }}
               onBlur={() => props.tooltips?.hide()}
-            >{item.label}</ProductButton>
-          )}</For>
+            >{item().label}</ProductButton>
+            )
+          }}</For>
         </div>
       </Show>
       <CanvasPreviewA11y targets={previewA11yTargets()} />

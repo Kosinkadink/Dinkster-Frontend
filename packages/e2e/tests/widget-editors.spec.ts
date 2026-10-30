@@ -1365,6 +1365,13 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
   await proxy.focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1.30')
   await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 1.30')
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', false))
+  await expect(proxy).toBeFocused()
+  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 1.30')
+  await page.screenshot({ path: test.info().outputPath('focused-after-overlay-refresh.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', true))
+  await expect(proxy).toBeFocused()
   expect(await proxy.evaluate((element) => getComputedStyle(element.parentElement!).pointerEvents)).toBe('none')
   const sourcePoint = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'source')!
@@ -1420,6 +1427,15 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     path: screenshotPath,
     contentType: 'image/png',
   })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const doc = structuredClone(app.activeTab()!.store.doc)
+    app.openDocument({ ...doc, lineage: 'pass-through-other' }, 'Other Pass Through')
+  })
+  await expect(proxy).not.toBeFocused()
+  await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
+  await proxy.focus()
+  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 8.00')
   expect(pageErrors).toEqual([])
 })
 
