@@ -109,7 +109,7 @@ import {
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
-import { ExecutedImageFacts, ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
+import { ExecutedImageFacts, ExecutedImageViewer, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
 import {
   beginTabDragModel,
@@ -3087,9 +3087,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     setFailed(new Set<string>())
     setLoaded(new Set<string>())
   })
-  const images = () => executedImageInventory(props.execution, {
+  const images = createMemo(() => executedImageInventory(props.execution, {
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-  })
+    values: values(),
+  }))
   const imageGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly images: { readonly image: ExecutedImage; readonly index: number }[] }>()
     for (const [index, image] of images().entries()) {
@@ -3210,7 +3211,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
               >
                 <span class="output-thumbnail-preview">
                   <Show when={!failed().has(image.key)} fallback={<span class="output-thumbnail-unavailable">Image unavailable</span>}>
-                    <img src={image.url} alt="" onLoad={() => markLoaded(image.key)} onError={() => markFailed(image.key)} />
+                    <ViewerImage image={image} alt="" onLoad={() => markLoaded(image.key)} onError={() => markFailed(image.key)} />
                   </Show>
                   <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>
                 </span>

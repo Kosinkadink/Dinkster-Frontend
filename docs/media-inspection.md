@@ -25,6 +25,10 @@ preserves mounted inspector disclosures and their open state.
 Image output thumbnails, the output viewer, canvas previews and App View use a
 checkerboard behind transparent pixels. The background is presentation-only and
 does not bake into the image or affect downstream mirror inputs.
+The Outputs image grid includes native IMAGE batches as well as saved image
+assets. Each native batch tile requests an advertised PNG rendition from its
+owning execution; mounting and unmounting the tile owns its request and blob URL.
+Unavailable renditions remain visible as unavailable tiles.
 
 When a server rendition includes `X-Dinkster-Color-Transform`, canvas and App View
 captions show its conversion label as **Preview color**. App View calls that

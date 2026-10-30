@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ExecutionState } from '@dinkster/client'
 import { executedImageInventory } from '../src/executed-image-inventory.js'
+import type { PeekValues } from '../src/peek-preview.js'
 
 const digest = (char: string): string => `blake3:${char.repeat(64)}`
 const asset = (value: string, name: string) => ({
@@ -17,6 +18,36 @@ const execution = (outputs: ExecutionState['outputs']): ExecutionState => ({
 } as unknown as ExecutionState)
 
 describe('executedImageInventory', () => {
+  it('loads native batch images from their owning execution and preserves refusals', async () => {
+    const outputs = { preview: { images: { typeId: 'IMAGE', fingerprint: 'batch', meta: { shape: [3, 8, 16, 4] } } } }
+    const values: PeekValues = {
+      peek: async () => ({ available: true, descriptor: outputs.preview.images, renditions: [
+        { kind: 'png', mime: 'image/png', parameters: ['batch'], version: 'renderer-2' },
+      ] }),
+      rendition: async (query, kind, options) => ({
+        available: true, mime: 'image/png', kind, fingerprint: 'batch',
+        bytes: new TextEncoder().encode(JSON.stringify({ query, kind, batch: options?.batch, version: options?.rendererVersion })).buffer,
+      }),
+    }
+    const images = executedImageInventory(execution(outputs), { values, assetUrlForExecution: () => '' })
+    expect(images.map((image) => image.batchIndex)).toEqual([0, 1, 2])
+    const result = await images[2]!.load!(new AbortController().signal)
+    expect(result.available).toBe(true)
+    if (result.available) expect(JSON.parse(new TextDecoder().decode(result.bytes))).toEqual({
+      query: { jobId: 'run-7', nodeId: 'preview', outputId: 'images' }, kind: 'png', batch: 2, version: 'renderer-2',
+    })
+    const refused = executedImageInventory(execution(outputs), {
+      values: { ...values, peek: async () => ({ available: false, status: 410, reason: 'evicted', error: 'Gone' }) },
+      assetUrlForExecution: () => '',
+    })
+    expect(await refused[0]!.load!(new AbortController().signal)).toMatchObject({ available: false, reason: 'evicted' })
+    const unsupported = executedImageInventory(execution(outputs), {
+      values: { ...values, peek: async () => ({ available: true, descriptor: outputs.preview.images, renditions: [{ kind: 'png', mime: 'image/png' }] }) },
+      assetUrlForExecution: () => '',
+    })
+    expect(await unsupported[1]!.load!(new AbortController().signal)).toMatchObject({ available: false, reason: 'no-rendition' })
+  })
+
   it('orders runtime ids, native keys, and descriptor refs without provenance dedupe', () => {
     const a = digest('a')
     const b = digest('b')
