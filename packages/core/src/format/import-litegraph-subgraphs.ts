@@ -423,7 +423,7 @@ export function importLitegraphSubgraphs(
         link[1] === def.inputNode && link[2] === index && !slot['linkIds'].includes(link[0]) &&
         JSON.stringify(importedSlotType(link[5])) !== JSON.stringify(importedSlotType(primary[5])))
       if (conflicts.length) diagnostics.push(diag('warning', 'import', 'import.subgraphs.boundaryTypeConflict',
-        `subgraph '${id}' input '${slot['id']}' promotes listed link ${primary[0]} but retains unlisted links ${conflicts.map((link: any[]) => link[0]).join(', ')} with conflicting types`,
+        `Input '${slot['id']}' promotes link ${primary[0]}; retained unlisted links have conflicting types`,
         { data: { graphId: id, boundaryId: slot['id'], promotedLink: primary[0], conflictingLinks: conflicts.map((link: any[]) => link[0]) } }))
       const first = def.raw['links'].findIndex((link: any[]) => link[1] === def.inputNode && link[2] === index)
       def.raw['links'].splice(def.raw['links'].indexOf(primary), 1)
