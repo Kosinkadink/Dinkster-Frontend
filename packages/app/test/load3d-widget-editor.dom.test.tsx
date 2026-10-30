@@ -29,7 +29,8 @@ it('keeps authored state on upload failure and cancel; successful capture is und
     { role: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/3d' } },
     { role: 'input', id: 'image', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
   ] }).schema!
-  const initial = { recording: '', custom: { retained: true }, camera_info: fixtures.camera, model_3d_info: [fixtures.transform] }
+  const initial = { recording: '', custom: { retained: true }, camera_info: fixtures.camera,
+    model_3d_info: [{ ...fixtures.transform, customModel: 'retained' }, { name: 'second-model' }] }
   const model = { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'model/gltf-binary', name: 'fixture.glb', size: 1, virtualPath: 'fixture.glb' }
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [model, initial] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
@@ -66,9 +67,12 @@ it('keeps authored state on upload failure and cancel; successful capture is und
   dispose = open()
   await vi.waitFor(() => expect(document.querySelector('#load3d-position-x')).not.toBeNull())
   expect(document.querySelector<HTMLInputElement>('#load3d-position-x')!.value).toBe('2')
+  const rotation = document.querySelector<HTMLInputElement>('#load3d-quaternion-y')!
+  rotation.value = '0.5'; rotation.dispatchEvent(new Event('change', { bubbles: true }))
   button('Apply').click()
   await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.image).toMatchObject({
     custom: { retained: true }, camera_info: initial.camera_info, recording: '',
+    model_3d_info: [{ customModel: 'retained', quaternion: { y: 0.5 } }, { name: 'second-model' }],
     image: { name: 'viewport-image.png' }, mask: { name: 'viewport-mask.png' }, normal: { name: 'viewport-normal.png' },
   }))
   expect(store.undo()).toBe(true)

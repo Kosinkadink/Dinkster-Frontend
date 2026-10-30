@@ -7,8 +7,9 @@ import { useAppMessage } from '../locale.js'
 import { mountModel3dViewer, type Model3dCameraState, type Model3dTransform, type Model3dViewerHandle } from '../model3d-viewer.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 
-const object = (value: unknown): Record<string, Json> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, Json> : {}
+const object = (value: unknown): Record<string, Json> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, Json> : {}
+}
 
 const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const message = useAppMessage()
@@ -19,9 +20,9 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const node = nodeId === undefined ? undefined : ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]
   const initial = object(ed.initial === undefined ? ed.spec?.default : ed.initial)
   const revision = ed.tab.store.revision
-  const [camera, setCamera] = createSignal<Model3dCameraState>()
-  const [transform, setTransform] = createSignal<Model3dTransform>()
-  const [error, setError] = createSignal<string>()
+  const [camera, setCamera] = createSignal(undefined as Model3dCameraState | undefined)
+  const [transform, setTransform] = createSignal(undefined as Model3dTransform | undefined)
+  const [error, setError] = createSignal(undefined as string | undefined)
   const [busy, setBusy] = createSignal(false)
   const [recording, setRecording] = createSignal(false)
   let viewport!: HTMLDivElement
@@ -61,33 +62,48 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   })
 
   const record = (): void => {
-    if (recording()) { recorder?.stop(); return }
+    if (recording()) {
+      if (recorder?.state === 'recording') recorder.stop()
+      return
+    }
     try {
-      stream = viewport.querySelector('canvas')!.captureStream(30)
-      recorder = new MediaRecorder(stream)
+      const recordingStream = viewport.querySelector('canvas')!.captureStream(30)
+      stream = recordingStream
+      const currentRecorder = new MediaRecorder(recordingStream)
+      recorder = currentRecorder
       const chunks: Blob[] = []
-      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
-      recorder.onstop = () => {
-        video = new Blob(chunks, { type: recorder!.mimeType })
-        stream?.getTracks().forEach((track) => track.stop())
-        if (live) setRecording(false)
+      currentRecorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
+      currentRecorder.onstop = () => {
+        recordingStream.getTracks().forEach((track) => track.stop())
+        if (live && recorder === currentRecorder) {
+          video = new Blob(chunks, { type: currentRecorder.mimeType })
+          setRecording(false)
+        }
       }
-      recorder.start()
+      currentRecorder.onerror = () => {
+        recordingStream.getTracks().forEach((track) => track.stop())
+        if (live && recorder === currentRecorder) { setRecording(false); setError(message('load3dWidget.recordingFailed')) }
+      }
+      currentRecorder.start()
       setRecording(true)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    } catch (reason) {
+      stream?.getTracks().forEach((track) => track.stop())
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
   }
   const apply = async (): Promise<void> => {
-    if (!viewer || backend.protocol !== 'dinkster' || recording()) return
+    if (!viewer || backend.protocol !== 'dinkster' || recording() || busy()) return
     if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return }
     setBusy(true)
     setError(undefined)
     try {
-      const capture = await viewer.capture(Number(node?.values.width ?? 1024), Number(node?.values.height ?? 1024))
+      const modelInfo = Array.isArray(initial.model_3d_info) ? initial.model_3d_info : []
       const next: Record<string, Json> = {
         ...initial,
         camera_info: { ...object(initial.camera_info), ...JSON.parse(JSON.stringify(viewer.cameraState())) },
-        model_3d_info: [JSON.parse(JSON.stringify(viewer.modelTransform()))],
+        model_3d_info: [{ ...object(modelInfo[0]), ...JSON.parse(JSON.stringify(viewer.modelTransform())) }, ...modelInfo.slice(1)],
       }
+      const capture = await viewer.capture(Number(node?.values.width ?? 1024), Number(node?.values.height ?? 1024))
       for (const name of ['image', 'mask', 'normal'] as const) {
         const file = new File([capture[name]], `viewport-${name}.png`, { type: 'image/png' })
         const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal })
@@ -106,23 +122,27 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     } finally { if (live) setBusy(false) }
   }
   const changeCamera = (update: Partial<Model3dCameraState>): void => {
-    if (!viewer) return
+    if (!viewer || busy()) return
     viewer.setCameraState({ ...viewer.cameraState(), ...update })
     setCamera(viewer.cameraState())
   }
-  const changeTransform = (field: 'position' | 'scale', axis: 'x' | 'y' | 'z', value: number): void => {
-    if (!viewer || !Number.isFinite(value)) return
+  const changeTransform = (field: 'position' | 'quaternion' | 'scale', axis: 'x' | 'y' | 'z' | 'w', value: number): void => {
+    if (!viewer || busy() || !Number.isFinite(value)) return
     const state = viewer.modelTransform()
+    if (field === 'quaternion') {
+      const quaternion = { ...state.quaternion, [axis]: value }
+      if (Math.hypot(quaternion.x, quaternion.y, quaternion.z, quaternion.w) === 0) return
+    }
     viewer.setModelTransform({ ...state, [field]: { ...state[field], [axis]: value } })
     setTransform(viewer.modelTransform())
   }
   return <div class="widget-editor widget-modal-editor" data-testid="load3d-widget-editor">
     <props.header type="LOAD_3D" />
-    <div ref={viewport} class="load3d-widget-viewport" data-testid="load3d-viewport" />
+    <div ref={viewport} inert={busy()} class="load3d-widget-viewport" data-testid="load3d-viewport" />
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
     <Show when={camera()}>{(state) => <>
       <ProductField layout="compact" controlId="load3d-camera-type" label={message('load3dWidget.camera')}>
-        <ProductSelect id="load3d-camera-type" ariaLabel={message('load3dWidget.camera')} selectedId={state().cameraType}
+        <ProductSelect id="load3d-camera-type" disabled={busy()} ariaLabel={message('load3dWidget.camera')} selectedId={state().cameraType}
           options={[
             { id: 'perspective', value: 'perspective' as const, label: message('load3dWidget.perspective') },
             { id: 'orthographic', value: 'orthographic' as const, label: message('load3dWidget.orthographic') },
@@ -130,15 +150,15 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       </ProductField>
       <ProductField layout="compact" controlId="load3d-fov" label={message('load3dWidget.fov')}>
         <ProductTextInput id="load3d-fov" value={String(state().fov ?? 40)} disabled={busy() || state().cameraType === 'orthographic'}
-          onChange={(event) => { const fov = Number(event.currentTarget.value); if (fov > 0 && fov < 180) changeCamera({ fov }) }} />
+          onChange={(event) => { const fov = Number(event.currentTarget.value); if (fov < 180 && fov > 0) changeCamera({ fov }) }} />
       </ProductField>
     </>}</Show>
-    <Show when={transform()}>{(state) => <For each={['position', 'scale'] as const}>{(field) =>
-      <For each={['x', 'y', 'z'] as const}>{(axis) => <ProductField layout="compact" controlId={`load3d-${field}-${axis}`} label={`${message(field === 'position' ? 'load3dWidget.position' : 'load3dWidget.scale')} ${axis.toUpperCase()}`}>
-        <ProductTextInput id={`load3d-${field}-${axis}`} value={String(state()[field][axis])} disabled={busy()}
+    <div class="load3d-widget-transforms"><Show when={transform()}>{(state) => <For each={['position', 'quaternion', 'scale'] as const}>{(field) =>
+      <For each={field === 'quaternion' ? ['x', 'y', 'z', 'w'] as const : ['x', 'y', 'z'] as const}>{(axis) => <ProductField layout="compact" controlId={`load3d-${field}-${axis}`} label={`${message(field === 'position' ? 'load3dWidget.position' : field === 'quaternion' ? 'load3dWidget.rotation' : 'load3dWidget.scale')} ${axis.toUpperCase()}`}>
+        <ProductTextInput id={`load3d-${field}-${axis}`} value={String((state()[field] as Record<string, number>)[axis])} disabled={busy()}
           onChange={(event) => changeTransform(field, axis, Number(event.currentTarget.value))} />
       </ProductField>}</For>
-    }</For>}</Show>
+    }</For>}</Show></div>
     <ProductActionFooter>
       <ProductButton type="button" disabled={!camera() || busy()} onClick={record}>{message(recording() ? 'load3dWidget.stopRecording' : 'load3dWidget.record')}</ProductButton>
       <ProductButton type="button" disabled={busy()} onClick={props.close}>{message('common.cancel')}</ProductButton>

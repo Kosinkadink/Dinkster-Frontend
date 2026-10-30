@@ -347,7 +347,11 @@ export interface Model3dCameraState {
   target: Vector3State
   zoom: number
   cameraType: 'perspective' | 'orthographic'
+  quaternion?: Vector3State & { w: number }
+  useCustomUp?: boolean
+  customUp?: Vector3State
   fov?: number
+  aspect?: number
   near?: number
   far?: number
   frustum?: { left: number; right: number; top: number; bottom: number }
@@ -379,6 +383,8 @@ export async function mountModel3dViewer(
   let disposed = false
   let capturing = false
   let frame = 0
+  let customUp: Vector3State | undefined
+  let useCustomUp = false
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
   const dispose = (): void => {
     if (disposed) return
@@ -420,7 +426,7 @@ export async function mountModel3dViewer(
     const renderLoop = (): void => {
       if (disposed) return
       if (!capturing) {
-        orbit.update()
+        controls!.update()
         gl.render(framed.scene, activeCamera)
       }
       frame = requestAnimationFrame(renderLoop)
@@ -428,6 +434,7 @@ export async function mountModel3dViewer(
     frame = requestAnimationFrame(renderLoop)
 
     resize = new ResizeObserver(() => {
+      if (capturing || disposed) return
       const width = Math.max(container.clientWidth, 1)
       const height = Math.max(container.clientHeight, 1)
       gl.setSize(width, height)
@@ -447,12 +454,15 @@ export async function mountModel3dViewer(
       position: vector(activeCamera.position), target: vector(controls!.target),
       zoom: activeCamera.zoom,
       cameraType: activeCamera instanceof modules.THREE.PerspectiveCamera ? 'perspective' : 'orthographic',
-      fov: framed.camera.fov, near: activeCamera.near, far: activeCamera.far,
+      quaternion: { ...vector(activeCamera.quaternion), w: activeCamera.quaternion.w },
+      ...(customUp ? { customUp: vector(customUp), useCustomUp } : {}),
+      fov: framed.camera.fov, aspect: framed.camera.aspect, near: activeCamera.near, far: activeCamera.far,
       ...(activeCamera instanceof modules.THREE.OrthographicCamera ? {
         frustum: { left: activeCamera.left, right: activeCamera.right, top: activeCamera.top, bottom: activeCamera.bottom },
       } : {}),
     }),
     setCameraState(state) {
+      if (disposed || capturing) return
       if (state.cameraType === 'orthographic') {
         const bounds = state.frustum ?? { left: -10, right: 10, top: 10, bottom: -10 }
         activeCamera = new modules.THREE.OrthographicCamera(bounds.left, bounds.right, bounds.top, bounds.bottom,
@@ -465,7 +475,13 @@ export async function mountModel3dViewer(
       }
       activeCamera.position.copy(state.position)
       activeCamera.zoom = state.zoom
-      controls!.object = activeCamera
+      customUp = state.customUp ? vector(state.customUp) : undefined
+      useCustomUp = state.useCustomUp === true && customUp !== undefined
+      activeCamera.up.copy(useCustomUp ? customUp! : { x: 0, y: 1, z: 0 })
+      // OrbitControls caches the camera-up basis when it is constructed.
+      controls!.dispose()
+      controls = new modules.OrbitControls(activeCamera, renderer!.domElement)
+      controls.enableDamping = true
       controls!.target.copy(state.target)
       activeCamera.lookAt(controls!.target)
       activeCamera.updateProjectionMatrix()
@@ -474,8 +490,9 @@ export async function mountModel3dViewer(
     modelTransform: () => ({ position: vector(framed.model.position),
       quaternion: { ...vector(framed.model.quaternion), w: framed.model.quaternion.w }, scale: vector(framed.model.scale) }),
     setModelTransform(state) {
+      if (disposed || capturing) return
       framed.model.position.copy(state.position)
-      framed.model.quaternion.copy(state.quaternion)
+      framed.model.quaternion.copy(state.quaternion).normalize()
       framed.model.scale.copy(state.scale)
       framed.model.updateMatrixWorld(true)
     },
@@ -485,41 +502,62 @@ export async function mountModel3dViewer(
         throw new Error('Capture dimensions must be integers from 1 to 4096')
       }
       const gl = renderer!
-      const previousSize = gl.getSize(new modules.THREE.Vector2())
       const previousRatio = gl.getPixelRatio()
       const previousAspect = framed.camera.aspect
       const previousMaterial = framed.scene.overrideMaterial
       const previousBackground = framed.scene.background
-      const maskMaterial = new modules.THREE.MeshBasicMaterial({ color: 0xffffff, side: modules.THREE.DoubleSide })
+      const previousColor = gl.getClearColor(new modules.THREE.Color())
+      const previousAlpha = gl.getClearAlpha()
+      const previousOrbitEnabled = controls!.enabled
+      const previousFrustum = activeCamera instanceof modules.THREE.OrthographicCamera
+        ? { left: activeCamera.left, right: activeCamera.right, top: activeCamera.top, bottom: activeCamera.bottom }
+        : undefined
       const normalMaterial = new modules.THREE.MeshNormalMaterial({ side: modules.THREE.DoubleSide })
       const encode = async (): Promise<Blob> => {
+        if (disposed) throw new Error('3D viewport was closed during capture')
         gl.render(framed.scene, activeCamera)
         return new Promise((resolve, reject) => gl.domElement.toBlob(
           (blob) => blob ? resolve(blob) : reject(new Error('3D capture encoding failed')), 'image/png'))
       }
       capturing = true
+      controls!.enabled = false
       try {
         gl.setPixelRatio(1)
         gl.setSize(width, height, false)
         if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
+        else {
+          activeCamera.left = -5 * width / height
+          activeCamera.right = 5 * width / height
+          activeCamera.top = 5
+          activeCamera.bottom = -5
+        }
         activeCamera.updateProjectionMatrix()
         const image = await encode()
         // LoadImage returns 1-alpha as MASK. Keep transparent background,
-        // rather than encoding a grayscale RGB image with opaque alpha.
+        // including the original materials' transparency and alpha maps.
         framed.scene.background = null
-        framed.scene.overrideMaterial = maskMaterial
+        gl.setClearColor(0x000000, 0)
         const mask = await encode()
         framed.scene.overrideMaterial = normalMaterial
+        gl.setClearColor(0x000000, 1)
         const normal = await encode()
         return { image, mask, normal }
       } finally {
         framed.scene.overrideMaterial = previousMaterial
         framed.scene.background = previousBackground
         framed.camera.aspect = previousAspect
+        if (previousFrustum && activeCamera instanceof modules.THREE.OrthographicCamera) Object.assign(activeCamera, previousFrustum)
         activeCamera.updateProjectionMatrix()
-        gl.setPixelRatio(previousRatio)
-        gl.setSize(previousSize.x, previousSize.y, false)
-        maskMaterial.dispose()
+        if (!disposed) {
+          gl.setClearColor(previousColor, previousAlpha)
+          gl.setPixelRatio(previousRatio)
+          const width = Math.max(container.clientWidth, 1)
+          const height = Math.max(container.clientHeight, 1)
+          gl.setSize(width, height, false)
+          if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
+          activeCamera.updateProjectionMatrix()
+          controls!.enabled = previousOrbitEnabled
+        }
         normalMaterial.dispose()
         capturing = false
       }

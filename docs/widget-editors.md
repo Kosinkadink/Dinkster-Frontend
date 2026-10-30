@@ -12,7 +12,8 @@ pack descriptors, preserving their JSON parameters for widget-kind lookup.
 ## Authored 3D viewport
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,
-field of view, position and scale remain drafts until Apply. Apply uploads
+field of view, position, rotation quaternion and scale remain drafts until Apply.
+Quaternion components are normalized to a unit rotation. Apply uploads
 scene, mask and normal PNG captures at the node's width and height and writes
 their granted file references with camera and model-transform metadata in one
 undoable widget value. The mask carries alpha: its consuming MASK is 1-alpha,

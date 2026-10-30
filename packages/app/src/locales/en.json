@@ -1588,7 +1588,9 @@
   "load3dWidget.orthographic": "Orthographic",
   "load3dWidget.fov": "Field of view",
   "load3dWidget.position": "Model position",
+  "load3dWidget.rotation": "Model rotation quaternion",
   "load3dWidget.scale": "Model scale",
+  "load3dWidget.recordingFailed": "Viewport recording failed.",
   "load3dWidget.record": "Record viewport",
   "load3dWidget.stopRecording": "Stop recording",
   "load3dWidget.help": "Orbit the selected model and edit its placement. Apply captures scene, alpha mask and normals at the node's width and height, then stores the viewport with granted file references. Cancel leaves the document unchanged."

@@ -12,7 +12,7 @@ const savedModelDigest = `blake3:${'c'.repeat(64)}`
 const savedSplatDigest = `blake3:${'d'.repeat(64)}`
 
 /** Minimal valid GLB: one red unlit-friendly triangle, non-indexed. */
-function glb(): Buffer {
+function glb(alpha = 1): Buffer {
   const positions = Buffer.alloc(36)
   const vertices = [-1, -1, 0, 1, -1, 0, 0, 1, 0]
   vertices.forEach((value, index) => positions.writeFloatLE(value, index * 4))
@@ -22,7 +22,7 @@ function glb(): Buffer {
     scenes: [{ nodes: [0] }],
     nodes: [{ mesh: 0 }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }],
-    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.9, 0.25, 0.2, 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true }],
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.9, 0.25, 0.2, alpha], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true, alphaMode: alpha < 1 ? 'BLEND' : 'OPAQUE' }],
     buffers: [{ byteLength: positions.length }],
     bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.length }],
     accessors: [{
@@ -246,4 +246,67 @@ test('a saved splat PLY artifact paints a poster and mounts a disposable orbit v
     mediaType: 'model/ply',
   })
   await provePosterAndOrbitViewport(page, (name) => testInfo.outputPath(`splat-${name}`))
+})
+
+test('authored captures retain material alpha and camera state across projection and capture', async ({ page }) => {
+  const result = await page.evaluate(async (bytes) => {
+    const modulePath = '/src/model3d-viewer.ts'
+    const { mountModel3dViewer } = await import(modulePath)
+    const host = document.createElement('div')
+    host.style.cssText = 'width:400px;height:300px;position:fixed;inset:0;z-index:1000'
+    document.body.append(host)
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'model/gltf-binary' }))
+    const viewer = await mountModel3dViewer(host, url)
+    try {
+      const camera = {
+        ...viewer.cameraState(), position: { x: 0, y: 0, z: 4 }, target: { x: 0, y: 0, z: 0 },
+        customUp: { x: 1, y: 0, z: 0 }, useCustomUp: true, fov: 51, zoom: 1.2,
+      }
+      viewer.setCameraState(camera)
+      const restored = viewer.cameraState()
+      viewer.setCameraState({ ...restored, cameraType: 'orthographic', frustum: { left: -4, right: 4, top: 3, bottom: -3 } })
+      const orthographic = viewer.cameraState()
+      viewer.setCameraState({ ...restored, cameraType: 'perspective' })
+      viewer.setModelTransform({ position: { x: 0.1, y: -0.2, z: 0 }, quaternion: { x: 0, y: 0, z: 1, w: 2 }, scale: { x: 0.8, y: 1.1, z: 1 } })
+      const transform = viewer.modelTransform()
+      const pendingCapture = viewer.capture(257, 143)
+      viewer.setCameraState({ ...restored, position: { x: 99, y: 0, z: 4 } })
+      viewer.setModelTransform({ ...transform, position: { x: 99, y: 0, z: 0 } })
+      host.querySelector('canvas')!.dispatchEvent(new WheelEvent('wheel', { deltaY: 400, bubbles: true, cancelable: true }))
+      const capture = await pendingCapture
+      const afterTransform = viewer.modelTransform()
+      const images: Record<string, { width: number; height: number; transparent: number; halfAlpha: number; opaque: number }> = {}
+      for (const [name, blob] of Object.entries(capture as Record<string, Blob>)) {
+        const bitmap = await createImageBitmap(blob)
+        const canvas = document.createElement('canvas')
+        canvas.width = bitmap.width; canvas.height = bitmap.height
+        const context = canvas.getContext('2d')!
+        context.drawImage(bitmap, 0, 0)
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+        let transparent = 0; let halfAlpha = 0; let opaque = 0
+        for (let i = 3; i < pixels.length; i += 4) {
+          if (pixels[i] === 0) transparent++
+          if (pixels[i]! >= 120 && pixels[i]! <= 200) halfAlpha++
+          if (pixels[i] === 255) opaque++
+        }
+        images[name] = { width: canvas.width, height: canvas.height, transparent, halfAlpha, opaque }
+        bitmap.close()
+      }
+      return { restored, orthographic, transform, afterTransform, after: viewer.cameraState(), images }
+    } finally { viewer.dispose(); URL.revokeObjectURL(url); host.remove() }
+  }, Array.from(glb(0.5)))
+  expect(result.restored).toMatchObject({ customUp: { x: 1, y: 0, z: 0 }, useCustomUp: true, zoom: 1.2, fov: 51 })
+  expect(result.restored.quaternion.z).toBeCloseTo(-Math.SQRT1_2, 12)
+  expect(result.restored.quaternion.w).toBeCloseTo(Math.SQRT1_2, 12)
+  expect(result.orthographic).toMatchObject({ cameraType: 'orthographic', frustum: { left: -4, right: 4, top: 3, bottom: -3 }, useCustomUp: true })
+  expect(result.after).toEqual(result.restored)
+  expect(result.afterTransform).toEqual(result.transform)
+  expect(result.transform.position).toEqual({ x: 0.1, y: -0.2, z: 0 })
+  expect(result.transform.quaternion.z).toBeCloseTo(1 / Math.sqrt(5), 12)
+  expect(result.transform.quaternion.w).toBeCloseTo(2 / Math.sqrt(5), 12)
+  for (const image of Object.values(result.images)) expect(image).toMatchObject({ width: 257, height: 143 })
+  expect(result.images.mask!.transparent).toBeGreaterThan(1000)
+  expect(result.images.mask!.halfAlpha).toBeGreaterThan(1000)
+  expect(result.images.mask!.opaque).toBe(0)
+  expect(result.images.normal!.opaque).toBe(257 * 143)
 })
