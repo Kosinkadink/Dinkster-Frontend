@@ -57,7 +57,20 @@ for (const theme of ['dark', 'light'] as const) {
     await page.addInitScript((selected) => {
       localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
     }, theme)
-    await boot(page)
+    let releaseWordmark!: () => void
+    const wordmarkReady = new Promise<void>((resolve) => { releaseWordmark = resolve })
+    await page.route('**/branding/svg/dinkster-wordmark-color-*.svg', async (route) => {
+      await wordmarkReady
+      await route.continue()
+    })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+    const headerBefore = await page.locator('.topbar').boundingBox()
+    releaseWordmark()
+    await expect.poll(() => page.getByTestId('dinkster-menu-button').locator('img:visible')
+      .evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
+    expect(await page.locator('.topbar').boundingBox()).toEqual(headerBefore)
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
     await expect(page.getByTestId('dinkster-menu-button').getByRole('img', { name: 'Dinkster' })).toBeVisible()
     const expectedCanvas = theme === 'dark' ? 'rgb(17, 19, 22)' : 'rgb(247, 248, 250)'

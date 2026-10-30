@@ -394,19 +394,34 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
   await expect(page.locator('.node-media-overlay').filter({ has: page.locator('[src]') })).toHaveCount(5)
   await page.screenshot({ path: `${proofDir}/01-ready-mp4-webm-wav-list-failure.png`, animations: 'disabled' })
 
+  // Observe playback and activate Pause in the same browser task so the
+  // one-second fixture cannot end between the two transport assertions.
+  const pauseOnPlayback = () => audioElement.evaluate((node: HTMLAudioElement) => {
+    delete node.dataset['playingBeforePause']
+    delete node.dataset['pausedByControl']
+    node.addEventListener('playing', () => {
+      node.dataset['playingBeforePause'] = String(!node.paused)
+      const pause = node.closest('.audio-transport')?.querySelector<HTMLButtonElement>('button[aria-label="Pause audio"]')
+      if (!pause?.checkVisibility()) throw new Error('playing audio has no visible Pause control')
+      pause.click()
+      node.dataset['pausedByControl'] = String(node.paused)
+    }, { once: true })
+  })
   const play = page.getByRole('button', { name: 'Play audio' })
+  await pauseOnPlayback()
   await play.focus()
   await page.keyboard.press('Enter')
-  await expect(audioElement).toHaveJSProperty('paused', false)
-  await page.getByRole('button', { name: 'Pause audio' }).click()
+  await expect(audioElement).toHaveAttribute('data-playing-before-pause', 'true')
+  await expect(audioElement).toHaveAttribute('data-paused-by-control', 'true')
   await expect(audioElement).toHaveJSProperty('paused', true)
   const seek = page.getByRole('slider', { name: 'Audio position' })
   await seek.focus()
   await page.keyboard.press('ArrowRight')
   await expect.poll(async () => Number(await seek.getAttribute('aria-valuenow'))).toBeGreaterThan(0)
+  await pauseOnPlayback()
   await page.getByRole('button', { name: 'Play audio' }).click()
-  await expect(page.getByRole('button', { name: 'Pause audio' })).toBeVisible()
-  await page.getByRole('button', { name: 'Pause audio' }).click()
+  await expect(audioElement).toHaveAttribute('data-playing-before-pause', 'true')
+  await expect(audioElement).toHaveAttribute('data-paused-by-control', 'true')
   await expect(audioElement).toHaveJSProperty('paused', true)
   await videoControls.first().focus()
   await expect(videoControls.first()).toBeFocused()

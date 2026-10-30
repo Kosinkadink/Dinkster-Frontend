@@ -93,6 +93,16 @@ async function coveredOutlineSlices(page: Page, edge: Edge, inset = 0): Promise<
   return page.evaluate(({ edge, inset }) => {
     const renderer = window.__dinksterTest!.renderer!
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=graph-canvas]')!
+    const ctx = canvas.getContext('2d')!
+    const fillText = ctx.fillText
+    // Primary title text now shares the selection's off-white. Measure
+    // outline pixels without mistaking glyphs in the edge band for a stroke.
+    ctx.fillText = () => {}
+    try {
+      ;(renderer as unknown as { renderNow(): void }).renderNow()
+    } finally {
+      ctx.fillText = fillText
+    }
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'edge')!
     const viewport = renderer.getViewport()
     const x = viewport.x + node.x * viewport.scale
@@ -113,7 +123,8 @@ async function coveredOutlineSlices(page: Page, edge: Edge, inset = 0): Promise<
     const py = Math.max(0, Math.floor(cssRect.y * sy))
     const pw = Math.max(1, Math.min(canvas.width - px, Math.ceil(cssRect.width * sx)))
     const ph = Math.max(1, Math.min(canvas.height - py, Math.ceil(cssRect.height * sy)))
-    const image = canvas.getContext('2d')!.getImageData(px, py, pw, ph)
+    const image = ctx.getImageData(px, py, pw, ph)
+    ;(renderer as unknown as { renderNow(): void }).renderNow()
     const longitudinalLength = edge === 'left' || edge === 'right' ? ph : pw
     const slices = 5
     let covered = 0

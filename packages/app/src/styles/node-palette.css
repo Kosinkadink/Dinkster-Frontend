@@ -257,6 +257,7 @@
   min-height: 0;
   padding: var(--dinkster-space-8);
   overflow-y: auto;
+  scroll-padding-block: var(--dinkster-space-8);
   overscroll-behavior: contain;
   scrollbar-color: var(--dinkster-border-strong) var(--dinkster-surface-inset);
   scrollbar-gutter: stable;
