@@ -740,6 +740,46 @@ describe('dynamic layout on plain nodes', () => {
       .toEqual([{ value: 'd0', label: 'Default' }, { value: '\u0000m0', label: 'Renamed' }])
   })
 
+  it.each([false, true])('keeps canonical drilled rows editable and retained/ghost sockets connected to their owner (named=%s)', (named) => {
+    const names = named ? ['head', 'middle', 'tail', 'last'] : ['item0', 'item1', 'item2', 'item3']
+    const canonical = schemaOf('Canonical', [{
+      ...input('weights', { optional: true }), dynamic: {
+        kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
+        naming: named ? { kind: 'names', names } : { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
+        template: [{ ...input('value', { optional: true, ...floatWidget(0) }), type: { kind: 'concrete', name: 'FLOAT' } }],
+      },
+    }])
+    const doc = docOf({
+      g0: { nodes: { instance: { type: '#sub', values: { [`forwarded.${names[1]}`]: 22 }, dynamic: { forwarded: { members: [names[1]] } } } } },
+      sub: { nodes: { n: { type: 'Canonical', values: { [`weights.${names[0]}`]: 11 }, dynamic: { weights: { members: [names[0]] } } } },
+        boundary: { inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'weights' } }] } },
+    })
+    const resolver = (type: string) => type === 'Canonical' ? canonical : schemas[type]
+    const scene = buildScene({
+      document: doc, graphId: 'sub', resolve: documentResolver(doc, resolver), tokens: defaultTokens, measure, widgetMeasure,
+      occurrenceView: occurrenceDynamicView(doc, resolver, ['instance']),
+      occurrence: { owner: { instancePath: [], node: 'instance' as any }, plannerAvailable: true },
+    })
+    const rows = widgetRowsOf(scene, 'n')
+    expect(rows.find((row) => row.valueKey === `weights.${names[0]}`)!.familyOwner).toBeUndefined()
+    expect(rows.find((row) => row.valueKey === `weights.${names[1]}`)!.familyOwner).toEqual({
+      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: `forwarded.${names[1]}`,
+    })
+    const ghostRow = rows.find((row) => row.valueKey === `weights.${names[2]}`)!
+    expect(ghostRow.familyOwner).toEqual({
+      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: `forwarded.${names[2]}`,
+    })
+    expect(ghostRow.materialize).toEqual([{ construct: 'forwarded', members: [names[2]] }])
+    for (const [index, ghost] of [[1, false], [2, true]] as const) {
+      const pin = pinsOf(scene, 'n', 'in').find((candidate) => candidate.address.port === `weights.${names[index]}`)!
+      expect(pin.ghost === true).toBe(ghost)
+      expect(pin.familyOwner).toMatchObject({ graphId: 'g0', nodeId: 'instance', socketed: true,
+        sourceEndpoint: { kind: 'boundary', occurrence: { instancePath: [], node: 'instance' }, address: { port: `forwarded.${names[index]}` } },
+      })
+      expect((pin.familyOwner!.sourceEndpoint as any).address.members).toBeUndefined()
+    }
+  })
+
   it('renders merged occurrence family rows and annotates only suffix ownership', () => {
     const doc = docOf({
       g0: { nodes: {} },

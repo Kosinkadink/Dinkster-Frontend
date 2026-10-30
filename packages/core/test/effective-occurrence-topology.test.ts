@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology, effectiveTopologyDrivesPort } from '../src/compile/effective-topology.js'
 import { semanticHashOf } from '../src/compile/hash.js'
+import { occurrenceDynamicView } from '../src/compile/occurrence-view.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
 import type { NodeSchema } from '../src/schema/model.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 
 const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema => ({
   type,
@@ -154,6 +156,51 @@ const run = (doc: WorkflowDocument) => compile({
 })
 
 describe('effectiveOccurrenceTopology', () => {
+  it.each(['body', 'boundary', 'parent', 'ancestorBoundary'].flatMap((kind) => [false, true].map((named) => ({ kind, named }))))('forwards a canonical member with only $kind link evidence (named=$named)', ({ kind, named }) => {
+    const member = named ? 'tail' : 'item1'
+    const positional = parseDinksterSchema('Positional', { outputNode: true, interface: [{
+      role: 'inputFamily', id: 'items', minMembers: 0, optionalAfterMinimum: true,
+      ...(named ? { memberNames: ['head', 'tail', 'third', 'last'] } : { memberPrefix: 'item', maxMembers: 4 }),
+      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
+    }] }).schema!
+    const localOwner = kind === 'body' ? owner('a') : owner('i', ['a'])
+    const binding = { kind: 'family', node: 'batch', port: 'items' }
+    const outerBinding = { kind: 'family', node: 'i', port: 'fam' }
+    const doc = {
+      ...document(),
+      graphs: {
+        root: { ...document().graphs.root!, nodes: {
+          p: { id: 'p', type: 'Src', values: {} },
+          a: { id: 'a', type: '#outer', values: {} }, b: { id: 'b', type: '#outer', values: {} },
+        }, links: kind === 'parent' ? { parent: { id: 'parent', from: { node: 'p', port: 'out' }, to: { node: 'a', port: `outerFam.${member}` } } } : {} },
+        outer: { id: 'outer', name: 'outer', nodes: {
+          p: { id: 'p', type: 'Src', values: {} }, i: { id: 'i', type: '#inner', values: {} },
+        }, links: {}, nets: {}, reroutes: {}, boundary: { inputs: [{ id: 'outerFam', binds: outerBinding }], outputs: [] }, nextOrdinal: 1 },
+        inner: { id: 'inner', name: 'inner', nodes: {
+          p: { id: 'p', type: 'Src', values: {} }, batch: { id: 'batch', type: 'Positional', values: {} },
+        }, links: {}, nets: {}, reroutes: {}, boundary: { inputs: [{ id: 'fam', binds: binding }], outputs: [] }, nextOrdinal: 1 },
+      },
+      occurrenceTopologies: kind === 'parent' ? {} : { [occurrenceKey(localOwner)]: {
+        owner: localOwner, bodyGraph: kind === 'body' ? 'outer' : 'inner', nextOrdinal: 1,
+        links: { local: { id: 'local', from: { kind: 'body', endpoint: { node: 'p', port: 'out' } },
+          to: kind === 'body' ? { kind: 'body', endpoint: { node: 'i', port: `fam.${member}` } } : {
+            kind: 'boundary', occurrence: kind === 'ancestorBoundary' ? owner('a') : localOwner,
+            address: { port: `${kind === 'ancestorBoundary' ? 'outerFam' : 'fam'}.${member}` },
+            route: [...(kind === 'ancestorBoundary' ? [{ graph: 'outer', boundaryId: 'outerFam', binding: outerBinding }] : []), { graph: 'inner', boundaryId: 'fam', binding }],
+          },
+        } },
+      } },
+    } as unknown as WorkflowDocument
+    const resolver = (type: string) => type === 'Positional' ? positional : resolve(type)
+    const result = compile({ ...{ document: doc, revision: 1, resolve: resolver, scope: { kind: 'full' as const }, connection: asConnectionId('c'), schemaHash: 'schema' } })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['a.i.batch']!.inputs).toEqual({ [`items.${member}`]: [kind === 'body' ? 'a.p' : kind === 'parent' ? 'p' : 'a.i.p', 0] })
+    expect(result.artifact.prompt['b.i.batch']!.inputs).toEqual({})
+    expect(occurrenceDynamicView(doc, resolver, ['a', 'i']).dynamic.get('batch')?.items?.members).toEqual([member])
+    expect(occurrenceDynamicView(doc, resolver, ['b', 'i']).dynamic.get('batch')?.items?.members ?? []).toEqual([])
+  })
+
   it('combines shared links, net sinks, suppressions, and occurrence links', () => {
     const result = effectiveOccurrenceTopology(withOverlay(), resolve, owner('a'))
     expect(result.diagnostics).toEqual([])

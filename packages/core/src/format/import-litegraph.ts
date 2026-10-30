@@ -380,7 +380,7 @@ const discoverAutogrowMembers = (
     }
     const existing = familyMembers.get(match.memberKey)
     if (existing !== undefined) return existing
-    const memberId = preserveSuffixes || match.family.spec.naming.kind === 'names'
+    const memberId = preserveSuffixes || match.family.spec.optionalAfterMinimum || match.family.spec.naming.kind === 'names'
       ? match.memberKey
       : `m${familyMembers.size}`
     familyMembers.set(match.memberKey, memberId)
@@ -405,6 +405,17 @@ const discoverAutogrowMembers = (
       order.set(family.statePath, members)
     }
     const minimum = family.spec.naming.min ?? 0
+    if (family.spec.optionalAfterMinimum) {
+      if (family.spec.template[0]?.optional) continue
+      for (let index = 0; index < minimum; index++) {
+        const member = family.spec.naming.kind === 'names'
+          ? family.spec.naming.names[index]!
+          : family.spec.naming.kind === 'prefix'
+            ? `${family.spec.naming.prefix}${index + (family.spec.ordinalOffset ?? 0)}` : undefined
+        if (member !== undefined && !members.includes(member)) members.push(member)
+      }
+      continue
+    }
     if (family.spec.naming.kind === 'names') {
       for (const name of family.spec.naming.names) {
         if (members.length >= minimum) break

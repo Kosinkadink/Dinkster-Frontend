@@ -145,7 +145,7 @@ describe('fast pull-request and full validation workflows', () => {
     expect(job['runs-on']).toBe(
       "${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}",
     )
-    expect(job.steps!.flatMap((step) => step.run ?? [])).toEqual([
+    expect(job.steps!.flatMap((step) => step.run ?? []).slice(0, 3)).toEqual([
       "test '${{ needs.visual.result }}' = success",
       'pnpm install --frozen-lockfile',
       'pnpm ci:fast',
@@ -154,6 +154,7 @@ describe('fast pull-request and full validation workflows', () => {
       'actions/checkout@v4',
       'actions/checkout@v4',
       'actions/setup-python@v5',
+      'astral-sh/setup-uv@v5',
       'pnpm/action-setup@v4',
       'actions/setup-node@v4',
     ])
@@ -180,6 +181,58 @@ describe('fast pull-request and full validation workflows', () => {
     expect(script).not.toMatch(
       /playwright|pnpm test|build|prepare:engine|verify:installed/,
     )
+  })
+
+  it('requires pinned backend catalogs and composed packs before publishing', () => {
+    const steps = fast.jobs['fast']!.steps!
+    const runs = steps.flatMap((step) => step.run ?? [])
+    expect(runs).toHaveLength(7)
+    expect(runs[3]).toBe(
+      'uv sync --project .ci/Dinkster --locked --package dinkster --no-dev',
+    )
+    expect(
+      runs[4]!
+        .trim()
+        .split(/\s+/)
+        .filter((part) => part !== '\\'),
+    ).toEqual([
+      'uv',
+      'pip',
+      'install',
+      '--python',
+      '.ci/Dinkster/.venv/bin/python',
+      '--no-deps',
+      '--no-sources',
+      '-e',
+      '.ci/Dinkster/packages/dinkster-nodes-dev',
+      '-e',
+      '.ci/Dinkster/packages/dinkster-nodes-foundation',
+      '-e',
+      '.ci/Dinkster/packages/dinkster-nodes-image',
+      '-e',
+      '.ci/Dinkster/packages/dinkster-nodes-media-io',
+      '-e',
+      '.ci/Dinkster/packages/dinkster-nodes-remote',
+      '-e',
+      '.ci/Dinkster/packages/dinkster-nodes-comfy',
+      '-e',
+      '.ci/Dinkster/packages/dinkster-nodes-vision',
+    ])
+    expect(runs[5]).toBe(
+      '.ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library',
+    )
+    expect(runs[6]).toContain(
+      "import wait from './packages/e2e/hosted-global-setup.ts'; await wait()",
+    )
+    expect(runs[6]).toContain('packages/dinkster-nodes-dev/dinkster-pack.toml')
+    expect(runs[6]).toContain('check=True, timeout=190')
+    expect(runs[6]).toContain('backend.terminate()')
+    expect(runs[6]).toContain('backend.kill()')
+    expect(runs.slice(3).join('\n')).not.toContain('playwright test')
+    expect(steps.at(-1)!.env).toEqual({
+      CUDA_VISIBLE_DEVICES: '',
+      DINKSTER_NATIVE_BACKEND: 'http://127.0.0.1:15432',
+    })
   })
 
   it('publishes content-addressed bundles only after the fast gate', () => {

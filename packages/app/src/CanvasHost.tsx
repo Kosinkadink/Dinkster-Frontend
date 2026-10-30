@@ -1266,7 +1266,7 @@ export function NodeOutputPager(props: {
           <ProductButton size="compact" type="button" class="node-output-position" aria-label={`Open image 1 of 1 for ${props.title}`} onClick={() => props.onOpen?.()}>Open image</ProductButton>
         </Show>
         <Show when={props.download}>
-          {(download) => <a href={download().src} download={download().name}>Download</a>}
+          {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
         </Show>
         <Show when={props.virtualPath}>{(path) => <span class="node-output-path" title={path()}>{message('outputFile.writtenTo', { path: path() })}</span>}</Show>
         <Show when={props.onReveal}><ProductButton size="compact" type="button" class="node-output-reveal" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</ProductButton></Show>
@@ -1528,6 +1528,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     disabled?: boolean
     activate?: () => void
   }[]>([])
+  const widgetA11yById = createMemo(() => new Map(widgetA11yTargets().map((item) => [item.id, item])))
   const [previewA11yTargets, setPreviewA11yTargets] = createSolidSignal<readonly CanvasPreviewA11yTarget[]>([])
   const [semanticScene, setSemanticScene] = createSolidSignal<{
     readonly owner: string
@@ -4543,7 +4544,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...widgetValueA11yTargets,
         ...exposureA11yTargets,
         ...previewExposureA11yTargets,
-      ])
+      ].map((item) => ({ ...item, id: JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath, item.id]) })))
       renderer.setLensCapabilities({
         ...(lens.typeAdornments ? { typeAdornments: true } : {}),
         ...(lens.nodeBodyContent
@@ -6344,22 +6345,39 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
       <Show when={!editor() && !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()}>
         <div class="canvas-widget-a11y" role="group" aria-label="Canvas widget controls">
-          <For each={widgetA11yTargets()}>{(item) => (
+          <For each={widgetA11yTargets().map((item) => item.id)}>{(id) => {
+            let retainedItem = widgetA11yById().get(id)!
+            const item = () => {
+              const current = widgetA11yById().get(id)
+              if (current !== undefined) retainedItem = current
+              return retainedItem
+            }
+            let previousTarget = item().target
+            createEffect(() => {
+              const target = item().target
+              if (previousTarget !== undefined && target !== undefined) {
+                props.tooltips?.refreshTarget(previousTarget, target, tooltipOwner)
+              }
+              previousTarget = target
+            })
+            return (
             <ProductButton size="compact"
               type="button"
-              data-testid={item.activate ? 'canvas-exposure-a11y' : 'canvas-widget-a11y'}
-              aria-label={item.label}
-              aria-pressed={item.pressed}
-              disabled={item.disabled}
-              onClick={() => item.activate?.()}
+              data-testid={item().activate ? 'canvas-exposure-a11y' : 'canvas-widget-a11y'}
+              aria-label={item().label}
+              aria-pressed={item().pressed}
+              disabled={item().disabled}
+              onClick={() => item().activate?.()}
               onFocus={(event) => {
-                if (item.target === undefined) return
+                const target = item().target
+                if (target === undefined) return
                 const rect = event.currentTarget.getBoundingClientRect()
-                props.tooltips?.show(item.target, { x: rect.left, y: rect.bottom + 8 }, undefined, true, tooltipOwner)
+                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8 }, undefined, true, tooltipOwner)
               }}
               onBlur={() => props.tooltips?.hide()}
-            >{item.label}</ProductButton>
-          )}</For>
+            >{item().label}</ProductButton>
+            )
+          }}</For>
         </div>
       </Show>
       <CanvasPreviewA11y targets={previewA11yTargets()} />

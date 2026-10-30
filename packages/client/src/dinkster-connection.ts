@@ -707,40 +707,55 @@ function isCompatSkip(v: unknown): v is CompatSkip {
   )
 }
 
-const JOB_ARTIFACT_CAP = 1024
 const JOB_ARTIFACT_NODE_ID_CAP = 512
 const JOB_ARTIFACT_NAME_CAP = 1024
 const JOB_ARTIFACT_MEDIA_TYPE_CAP = 255
 const JOB_ARTIFACT_VIRTUAL_PATH_CAP = 4096
-const JOB_ARTIFACT_SIZE_CAP = 1024 * 1024 * 1024
 const JOB_ARTIFACT_KEYS = ['nodeId', 'digest', 'name', 'size', 'mediaType', 'virtualPath'] as const
 const JOB_ARTIFACT_DIGEST = /^blake3:[0-9a-f]{64}$/
 const JOB_ARTIFACT_MEDIA_TYPE = /^[\w!#$&^.+-]+\/[\w!#$&^.+-]+$/
 const hasControlCharacter = (value: string): boolean => /[\u0000-\u001f\u007f]/.test(value)
 
-/** Optional result metadata is all-or-nothing: malformed rows never poison job state. */
+function decodeArtifactFile(row: Record<string, unknown>): ExecutionArtifact['preview'] {
+  const digest = row['digest']
+  const name = row['name']
+  const size = row['size']
+  const mediaType = row['mediaType']
+  const virtualPath = row['virtualPath']
+  if (typeof digest !== 'string' || !JOB_ARTIFACT_DIGEST.test(digest) ||
+    typeof name !== 'string' || name.length === 0 || name.length > JOB_ARTIFACT_NAME_CAP || hasControlCharacter(name) ||
+    typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0 ||
+    typeof mediaType !== 'string' || mediaType.length === 0 || mediaType.length > JOB_ARTIFACT_MEDIA_TYPE_CAP || !JOB_ARTIFACT_MEDIA_TYPE.test(mediaType) ||
+    typeof virtualPath !== 'string' || virtualPath.length > JOB_ARTIFACT_VIRTUAL_PATH_CAP || hasControlCharacter(virtualPath)) return undefined
+  return { digest, name, size, mediaType, virtualPath }
+}
+
+/** Malformed required file metadata discards the list; optional previews are isolated. */
 function decodeJobArtifacts(value: unknown): readonly ExecutionArtifact[] | undefined {
   if (value === undefined) return undefined
-  if (!Array.isArray(value) || value.length > JOB_ARTIFACT_CAP) return undefined
+  if (!Array.isArray(value)) return undefined
   const decoded: ExecutionArtifact[] = []
   for (const candidate of value) {
     if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return undefined
     const row = candidate as Record<string, unknown>
-    if (Object.keys(row).length !== JOB_ARTIFACT_KEYS.length ||
+    if (Object.keys(row).some((key) => key !== 'preview' && !JOB_ARTIFACT_KEYS.includes(key as typeof JOB_ARTIFACT_KEYS[number])) ||
       JOB_ARTIFACT_KEYS.some((key) => !Object.hasOwn(row, key))) return undefined
     const nodeId = row['nodeId']
-    const digest = row['digest']
-    const name = row['name']
-    const size = row['size']
-    const mediaType = row['mediaType']
-    const virtualPath = row['virtualPath']
-    if (typeof nodeId !== 'string' || nodeId.length === 0 || nodeId.length > JOB_ARTIFACT_NODE_ID_CAP || hasControlCharacter(nodeId) ||
-      typeof digest !== 'string' || !JOB_ARTIFACT_DIGEST.test(digest) ||
-      typeof name !== 'string' || name.length === 0 || name.length > JOB_ARTIFACT_NAME_CAP || hasControlCharacter(name) ||
-      typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0 || size > JOB_ARTIFACT_SIZE_CAP ||
-      typeof mediaType !== 'string' || mediaType.length === 0 || mediaType.length > JOB_ARTIFACT_MEDIA_TYPE_CAP || !JOB_ARTIFACT_MEDIA_TYPE.test(mediaType) ||
-      typeof virtualPath !== 'string' || virtualPath.length > JOB_ARTIFACT_VIRTUAL_PATH_CAP || hasControlCharacter(virtualPath)) return undefined
-    decoded.push({ nodeId, digest, name, size, mediaType, virtualPath })
+    const file = decodeArtifactFile(row)
+    if (typeof nodeId !== 'string' || nodeId.length === 0 || nodeId.length > JOB_ARTIFACT_NODE_ID_CAP || hasControlCharacter(nodeId) || file === undefined) return undefined
+    let preview: ExecutionArtifact['preview']
+    const rawPreview = row['preview']
+    if (typeof rawPreview === 'object' && rawPreview !== null && !Array.isArray(rawPreview)) {
+      const fields = rawPreview as Record<string, unknown>
+      if (Object.keys(fields).length === JOB_ARTIFACT_KEYS.length - 1 &&
+        JOB_ARTIFACT_KEYS.slice(1).every((key) => Object.hasOwn(fields, key))) {
+        const attachment = decodeArtifactFile(fields)
+        if (attachment !== undefined && attachment.size > 0 && attachment.size <= 16 * 1024 * 1024 &&
+          !/[\\/]/.test(attachment.name) && attachment.name !== '.' && attachment.name !== '..' &&
+          attachment.virtualPath === `previews/${attachment.digest.slice(7)}/${attachment.name}`) preview = attachment
+      }
+    }
+    decoded.push({ nodeId, ...file, ...(preview === undefined ? {} : { preview }) })
   }
   return decoded
 }

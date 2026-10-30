@@ -2785,13 +2785,46 @@ describe('job hydration and replay', () => {
     expect((await conn.fetchJob('bad-shape'))?.submittedBy).toBeUndefined()
   })
 
-  it('ignores the entire optional artifact field when its exact shape or bounds are invalid', async () => {
+  it('retains saved-file previews and descriptor-only sizes without a per-job file cap', async () => {
+    const preview = {
+      digest: `blake3:${'a'.repeat(64)}`, name: 'preview.webp', size: 238,
+      mediaType: 'image/webp', virtualPath: `previews/${'a'.repeat(64)}/preview.webp`,
+    }
+    const artifacts = Array.from({ length: 4097 }, (_, index) => ({
+      ...videoArtifact, nodeId: index < 4096 ? 'save-image' : 'another-save',
+      name: `render-${index}.exr`, size: 1024 * 1024 * 1024 + index + 1,
+      mediaType: 'image/x-exr', virtualPath: `mounts/output/render-${index}.exr`,
+      ...(index === 4096 ? { preview } : {}),
+    }))
+    const { conn } = replayHarness({ '/api/jobs/cid/j1': { ...completedJob, artifacts } })
+    const job = await conn.fetchJob('j1')
+    expect(job?.artifacts).toEqual(artifacts)
+  })
+
+  it('keeps saved files when their optional preview metadata is malformed', async () => {
+    const valid = {
+      digest: `blake3:${'a'.repeat(64)}`, name: 'preview.webp', size: 238,
+      mediaType: 'image/webp', virtualPath: `previews/${'a'.repeat(64)}/preview.webp`,
+    }
+    for (const preview of [
+      null, {}, { digest: 'bad' }, { ...videoArtifact, preview: {} },
+      { ...valid, size: 0 }, { ...valid, size: 16 * 1024 * 1024 + 1 },
+      { ...valid, name: '../preview.webp' }, { ...valid, virtualPath: 'output/preview.webp' },
+    ]) {
+      const { conn } = replayHarness({
+        '/api/jobs/cid/j1': { ...completedJob, artifacts: [{ ...videoArtifact, preview }] },
+      })
+      expect((await conn.fetchJob('j1'))?.artifacts).toEqual([videoArtifact])
+    }
+  })
+
+  it('ignores the entire optional artifact field when its required shape or bounds are invalid', async () => {
     const invalid = [
       [{ ...videoArtifact, unexpected: true }],
       [{ ...videoArtifact, digest: 'blake3:short' }],
-      [{ ...videoArtifact, size: 1024 * 1024 * 1024 + 1 }],
+      [{ ...videoArtifact, size: Number.MAX_SAFE_INTEGER + 1 }],
+      [{ ...videoArtifact, size: -1 }],
       [{ ...videoArtifact, mediaType: 'not a MIME type' }],
-      Array.from({ length: 1025 }, () => videoArtifact),
     ]
     for (const artifacts of invalid) {
       const { conn } = replayHarness({ '/api/jobs/cid/j1': { ...completedJob, artifacts } })

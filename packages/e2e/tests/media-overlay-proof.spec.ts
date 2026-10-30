@@ -246,6 +246,65 @@ async function installMediaProof(page: Page): Promise<void> {
   await expect(page.locator('.node-media-overlay[data-media-kind="audio"]')).toHaveCount(1)
 }
 
+for (const previewAvailable of [true, false]) {
+test(`saved files retain original downloads with ${previewAvailable ? 'available' : 'failed'} associated images`, async ({ page }, testInfo) => {
+  const originalRequests: string[] = []
+  await page.route('**/api/assets/**', async (route) => {
+    if (route.request().url().includes('b'.repeat(64))) {
+      await route.fulfill(previewAvailable
+        ? { contentType: 'image/png', body: png }
+        : { status: 410, body: 'Optional preview unavailable' })
+    } else {
+      originalRequests.push(route.request().url())
+      await route.fulfill({ contentType: 'image/x-exr', body: 'original EXR bytes' })
+    }
+  })
+  await installGraph(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const store = app.store as unknown as {
+      executions: { get(): Map<string, { ref: unknown }> }
+      hydrateArtifacts(ref: unknown, artifacts: unknown[]): void
+    }
+    const execution = [...store.executions.get().values()][0]!
+    store.hydrateArtifacts(execution.ref, [{
+      nodeId: 'saved', digest: `blake3:${'a'.repeat(64)}`, name: 'original.exr',
+      size: 2 ** 30 + 1, mediaType: 'image/x-exr', virtualPath: 'output/original.exr',
+      preview: { digest: `blake3:${'b'.repeat(64)}`, name: 'preview.png', size: 128,
+        mediaType: 'image/png', virtualPath: `previews/${'b'.repeat(64)}/preview.png` },
+    }])
+    window.__dinksterTest!.renderer!.setViewport({ x: -300, y: -300, scale: 1 })
+  })
+  await expect.poll(() => page.evaluate((available) => {
+    const preview = window.__dinksterTest!.renderer!.getNodePreviews()['saved']
+    return available
+      ? preview?.image !== undefined && (preview.width ?? 0) > 0
+      : preview?.status === 'failed' && preview.statusMessage === 'Preview unavailable'
+  }, previewAvailable)).toBe(true)
+  expect(originalRequests).toEqual([])
+  const download = page.locator('a[download="original.exr"]')
+  await expect(download).toHaveCount(1)
+  await expect(download).toHaveAttribute('href', new RegExp('a'.repeat(64)))
+  const clip = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'saved')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + node.x * viewport.scale + viewport.x - 12,
+      y: canvas.top + node.y * viewport.scale + viewport.y - 12,
+      width: node.layout.width * viewport.scale + 24,
+      height: node.layout.height * viewport.scale + 24,
+    }
+  })
+  await page.screenshot({ path: testInfo.outputPath('saved-associated-preview.png'), animations: 'disabled', clip })
+  const downloaded = page.waitForEvent('download')
+  await download.click()
+  expect((await downloaded).suggestedFilename()).toBe('original.exr')
+  expect(originalRequests).toHaveLength(1)
+})
+}
+
 test('painted preview indicators stay readable on multi-image and cached previews', async ({ page }, testInfo) => {
   await installMediaProof(page)
   await page.getByRole('button', { name: 'Hide minimap' }).click()
