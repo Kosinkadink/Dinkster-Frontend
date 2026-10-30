@@ -1593,5 +1593,5 @@
   "load3dWidget.recordingFailed": "Viewport recording failed.",
   "load3dWidget.record": "Record viewport",
   "load3dWidget.stopRecording": "Stop recording",
-  "load3dWidget.help": "Orbit the selected model and edit its placement. Apply captures scene, alpha mask and normals at the node's width and height, then stores the viewport with granted file references. Cancel leaves the document unchanged."
+  "load3dWidget.help": "Orbit the selected model and edit its placement. Image slots capture scene, alpha mask and normals at the node's width and height; viewport state slots store metadata without captures. Cancel leaves the document unchanged."
 }

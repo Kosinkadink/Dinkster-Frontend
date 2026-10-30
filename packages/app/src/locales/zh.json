@@ -1593,5 +1593,5 @@
   "load3dWidget.recordingFailed": "视口录制失败。",
   "load3dWidget.record": "录制视口",
   "load3dWidget.stopRecording": "停止录制",
-  "load3dWidget.help": "旋转查看所选模型并编辑其位置。应用将按节点的宽高捕获场景、透明度遮罩和法线，并以授权文件引用保存视口。取消不会更改文档。"
+  "load3dWidget.help": "旋转查看所选模型并编辑其位置。图像输入按节点宽高捕获场景、透明度遮罩和法线；视口状态输入仅保存元数据，不捕获图像。取消不会更改文档。"
 }

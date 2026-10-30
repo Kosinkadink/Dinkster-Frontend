@@ -79,3 +79,50 @@ it('keeps authored state on upload failure and cancel; successful capture is und
   expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(initial)
   dispose()
 })
+
+it('authors FILE_3D preview metadata without capture uploads and preserves capture sentinels', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  const schema = parseDinksterSchema('Preview3DAdvancedFixture', { interface: [
+    { role: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D_GLTF'] } },
+    { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+    { role: 'input', id: 'camera_info', type: { kind: 'concrete', types: ['LOAD3D_CAMERA'] } },
+    { role: 'input', id: 'model_3d_info', type: { kind: 'concrete', types: ['LOAD3D_MODEL_INFO'] } },
+  ] }).schema!
+  const initial = { image: '', mask: null, normal: '', recording: null, custom: 'keep',
+    camera_info: { ...fixtures.camera, fov: 19 }, model_3d_info: [fixtures.transform] }
+  const cameraInfo = { ...fixtures.camera, fov: 67, cameraExtra: 'explicit' }
+  const models = [{ ...fixtures.transform, position: { x: 7, y: -3, z: 1 }, modelExtra: 'explicit' }, { name: 'second' }]
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type }], links: [] }, () => schema)
+  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  for (const [inputId, value] of Object.entries({ viewport_state: initial, camera_info: cameraInfo, model_3d_info: models,
+    model_3d: { format: 'gltf', source: { digest: 'primary' }, resources: { 'buffers/mesh.bin': { digest: 'sidecar' } } } })) {
+    store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId, value } })
+  }
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = {
+    widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    backendForTab: () => ({ protocol: 'dinkster', connection: {
+      fetchAssetBytes: async (digest: string) => ['primary', 'sidecar'].includes(digest) ? new Uint8Array([1]) : undefined,
+      uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },
+    } }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport',
+    spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
+    multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#load3d-fov')?.value).toBe('67'))
+  expect(document.querySelector<HTMLInputElement>('#load3d-position-x')!.value).toBe('7')
+  expect(document.body.textContent).not.toContain('Record viewport')
+  Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!.click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual({ ...initial,
+    camera_info: cameraInfo, model_3d_info: models,
+  }))
+  expect(store.undo()).toBe(true)
+  expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
+  dispose()
+})

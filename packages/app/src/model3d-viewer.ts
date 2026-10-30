@@ -92,9 +92,23 @@ const frameCamera = (
 }
 
 /** Load a GLB and build a lit scene with the camera framing its bounds. */
-const loadFramedScene = async (modules: ThreeModules, src: string, aspect: number): Promise<FramedScene> => {
+const loadFramedScene = async (modules: ThreeModules, src: string, aspect: number, resources?: Readonly<Record<string, string>>): Promise<FramedScene> => {
   const { THREE } = modules
-  const loader = new modules.GLTFLoader()
+  const manager = new THREE.LoadingManager()
+  let resourceError: Error | undefined
+  manager.onError = (url) => { resourceError = new Error(`3D resource failed to load: ${url}`) }
+  if (resources !== undefined) manager.setURLModifier((url) => {
+    if (url === src || url.startsWith('data:') || url.startsWith('blob:')) return url
+    const key = decodeURIComponent(new URL(url, 'https://viewport.invalid/').pathname.slice(1))
+    const granted = resources[key]
+    if (!granted || new URL(url, 'https://viewport.invalid/').origin !== 'https://viewport.invalid') {
+      resourceError = new Error(`3D resource is not granted: ${url}`)
+      throw resourceError
+    }
+    return granted
+  })
+  const loader = new modules.GLTFLoader(manager)
+  if (resources !== undefined) loader.setResourcePath('https://viewport.invalid/')
   const gltf = await loader.loadAsync(src)
   const scene = new THREE.Scene()
   scene.add(gltf.scene)
@@ -136,6 +150,7 @@ const loadFramedScene = async (modules: ThreeModules, src: string, aspect: numbe
     for (const material of materials) material.dispose()
     for (const geometry of geometries) geometry.dispose()
   }
+  if (resourceError) { dispose(); throw resourceError }
   return { scene, model: gltf.scene, camera, center, dispose }
 }
 
@@ -192,10 +207,11 @@ const loadFramedSceneFor = async (
   src: string,
   aspect: number,
   mime: string,
+  resources?: Readonly<Record<string, string>>,
 ): Promise<FramedScene> =>
   mime === SPLAT_PLY_MIME
     ? loadFramedSplatScene(modules, await loadSpark(), src, aspect)
-    : loadFramedScene(modules, src, aspect)
+    : loadFramedScene(modules, src, aspect, resources)
 
 /** Dispose a renderer AND lose its WebGL context so the browser context pool drains immediately. */
 const disposeRenderer = (renderer: import('three').WebGLRenderer): void => {
@@ -367,6 +383,7 @@ export async function mountModel3dViewer(
   container: HTMLElement,
   src: string,
   mime: string = GLB_MIME,
+  resources?: Readonly<Record<string, string>>,
 ): Promise<Model3dViewerHandle> {
   const modules = await loadThree()
   const framed = await loadFramedSceneFor(
@@ -374,6 +391,7 @@ export async function mountModel3dViewer(
     src,
     Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1),
     mime,
+    resources,
   )
 
   let renderer: import('three').WebGLRenderer | undefined

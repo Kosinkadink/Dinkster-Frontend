@@ -310,3 +310,45 @@ test('authored captures retain material alpha and camera state across projection
   expect(result.images.mask!.opaque).toBe(0)
   expect(result.images.normal!.opaque).toBe(257 * 143)
 })
+
+test('GLTF sidecars use granted bytes and an ungranted external buffer cannot load', async ({ page }) => {
+  const result = await page.evaluate(async (bytes) => {
+    const modulePath = '/src/model3d-viewer.ts'
+    const { mountModel3dViewer } = await import(modulePath)
+    const packed = new Uint8Array(bytes)
+    const view = new DataView(packed.buffer)
+    const jsonLength = view.getUint32(12, true)
+    const json = JSON.parse(new TextDecoder().decode(packed.slice(20, 20 + jsonLength)))
+    const buffer = packed.slice(28 + jsonLength)
+    json.buffers[0].uri = 'buffers/mesh.bin'
+    const host = document.createElement('div')
+    host.style.cssText = 'width:400px;height:300px'
+    document.body.append(host)
+    const urls: string[] = []
+    const urlFor = (blob: Blob): string => { const url = URL.createObjectURL(blob); urls.push(url); return url }
+    try {
+      const source = urlFor(new Blob([JSON.stringify(json)], { type: 'model/gltf+json' }))
+      const resource = urlFor(new Blob([buffer]))
+      const viewer = await mountModel3dViewer(host, source, 'model/gltf+json', { 'buffers/mesh.bin': resource })
+      let visible = 0
+      try {
+        const capture = await viewer.capture(129, 83)
+        const bitmap = await createImageBitmap(capture.image)
+        const canvas = document.createElement('canvas'); canvas.width = 129; canvas.height = 83
+        const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0)
+        const pixels = context.getImageData(0, 0, 129, 83).data
+        for (let i = 3; i < pixels.length; i += 4) if (pixels[i]) visible++
+        bitmap.close()
+      } finally { viewer.dispose() }
+      json.buffers[0].uri = 'https://ungranted.invalid/mesh.bin'
+      let rejection = ''
+      try {
+        const rejected = await mountModel3dViewer(host, urlFor(new Blob([JSON.stringify(json)])), 'model/gltf+json', {})
+        rejected.dispose()
+      } catch (error) { rejection = String(error) }
+      return { visible, rejection }
+    } finally { urls.forEach((url) => URL.revokeObjectURL(url)); host.remove() }
+  }, Array.from(glb()))
+  expect(result.visible).toBeGreaterThan(100)
+  expect(result.rejection).toContain('3D resource is not granted')
+})

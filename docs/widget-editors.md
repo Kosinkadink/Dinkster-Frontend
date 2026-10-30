@@ -20,6 +20,12 @@ undoable widget value. The mask carries alpha: its consuming MASK is 1-alpha,
 not grayscale RGB. Optional viewport recording uses the media upload route.
 Cancel leaves the stored value unchanged; reopening restores its camera and
 transform. Missing model files and failed uploads do not replace the value.
+Advanced and preview `viewport_state` slots save metadata without uploading
+captures or replacing existing empty/null capture fields. Non-null camera
+and model metadata inputs override the stored viewport state on opening.
+Preview FILE_3D values load their primary `source` and declared `resources`
+through asset authority. GLTF sidecars resolve only to these granted resources,
+never arbitrary external URLs or filesystem paths.
 
 ## Button actions
 

@@ -19,6 +19,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const nodeId = ed.target.kind === 'input' ? ed.target.familyOwner?.nodeId ?? ed.target.nodeId : undefined
   const node = nodeId === undefined ? undefined : ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]
   const initial = object(ed.initial === undefined ? ed.spec?.default : ed.initial)
+  const metadataOnly = ed.target.kind === 'input' && (ed.target.familyOwner?.valueKey ?? ed.target.valueKey) === 'viewport_state'
   const revision = ed.tab.store.revision
   const [camera, setCamera] = createSignal(undefined as Model3dCameraState | undefined)
   const [transform, setTransform] = createSignal(undefined as Model3dTransform | undefined)
@@ -28,7 +29,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   let viewport!: HTMLDivElement
   let viewer: Model3dViewerHandle | undefined
   let live = true
-  let url: string | undefined
+  const urls: string[] = []
   let recorder: MediaRecorder | undefined
   let stream: MediaStream | undefined
   let video: Blob | undefined
@@ -39,22 +40,31 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     if (recorder?.state === 'recording') recorder.stop()
     stream?.getTracks().forEach((track) => track.stop())
     viewer?.dispose()
-    if (url) URL.revokeObjectURL(url)
+    urls.forEach((url) => URL.revokeObjectURL(url))
   })
   onMount(() => {
     void (async () => {
       if (backend.protocol !== 'dinkster') throw new Error(message('load3dWidget.native'))
-      const model = object(node?.values.model_file)
-      if (typeof model.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
-      const bytes = await backend.connection.fetchAssetBytes(model.digest)
-      if (!live) return
-      if (!bytes) throw new Error(message('load3dWidget.unavailable'))
-      url = URL.createObjectURL(new Blob([bytes], { type: String(model.mediaType ?? 'model/gltf-binary') }))
-      const mounted = await mountModel3dViewer(viewport, url, String(model.mediaType ?? 'model/gltf-binary'))
+      const file3d = object(node?.values.model_3d)
+      const model = object(file3d.source ?? node?.values.model_file)
+      const assetUrl = async (ref: Record<string, Json>): Promise<string> => {
+        if (typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
+        const bytes = await backend.connection.fetchAssetBytes(ref.digest)
+        if (!live || !bytes) throw new Error(message('load3dWidget.unavailable'))
+        const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
+        urls.push(url)
+        return url
+      }
+      const url = await assetUrl(model)
+      const resources: Record<string, string> = {}
+      for (const [name, ref] of Object.entries(object(file3d.resources))) resources[name] = await assetUrl(object(ref))
+      const mime = file3d.format === 'gltf' ? 'model/gltf+json' : String(model.mediaType ?? 'model/gltf-binary')
+      const mounted = await mountModel3dViewer(viewport, url, mime, resources)
       if (!live) { mounted.dispose(); return }
       viewer = mounted
-      if (initial.camera_info) viewer.setCameraState(initial.camera_info as unknown as Model3dCameraState)
-      const models = initial.model_3d_info
+      const cameraInfo = node?.values.camera_info ?? initial.camera_info
+      if (cameraInfo) viewer.setCameraState(cameraInfo as unknown as Model3dCameraState)
+      const models = node?.values.model_3d_info ?? initial.model_3d_info
       if (Array.isArray(models) && models[0]) viewer.setModelTransform(models[0] as unknown as Model3dTransform)
       setCamera(viewer.cameraState())
       setTransform(viewer.modelTransform())
@@ -97,23 +107,28 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     setBusy(true)
     setError(undefined)
     try {
-      const modelInfo = Array.isArray(initial.model_3d_info) ? initial.model_3d_info : []
+      const cameraInfo = node?.values.camera_info ?? initial.camera_info
+      const models = node?.values.model_3d_info ?? initial.model_3d_info
+      const modelInfo = Array.isArray(models) ? models : []
       const next: Record<string, Json> = {
         ...initial,
-        camera_info: { ...object(initial.camera_info), ...JSON.parse(JSON.stringify(viewer.cameraState())) },
+        camera_info: { ...object(cameraInfo), ...JSON.parse(JSON.stringify(viewer.cameraState())) },
         model_3d_info: [{ ...object(modelInfo[0]), ...JSON.parse(JSON.stringify(viewer.modelTransform())) }, ...modelInfo.slice(1)],
       }
-      const capture = await viewer.capture(Number(node?.values.width ?? 1024), Number(node?.values.height ?? 1024))
-      for (const name of ['image', 'mask', 'normal'] as const) {
-        const file = new File([capture[name]], `viewport-${name}.png`, { type: 'image/png' })
-        const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal })
-        next[name] = JSON.parse(JSON.stringify(ref)) as Json
+      if (!metadataOnly) {
+        const capture = await viewer.capture(Number(node?.values.width ?? 1024), Number(node?.values.height ?? 1024))
+        for (const name of ['image', 'mask', 'normal'] as const) {
+          if (!live) return
+          const file = new File([capture[name]], `viewport-${name}.png`, { type: 'image/png' })
+          const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal })
+          next[name] = JSON.parse(JSON.stringify(ref)) as Json
+        }
+        if (video) {
+          const file = new File([video], 'viewport-recording.webm', { type: video.type })
+          const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal: abort.signal })
+          next.recording = JSON.parse(JSON.stringify(ref)) as Json
+        } else if (next.recording === undefined) next.recording = ''
       }
-      if (video) {
-        const file = new File([video], 'viewport-recording.webm', { type: video.type })
-        const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal: abort.signal })
-        next.recording = JSON.parse(JSON.stringify(ref)) as Json
-      } else if (next.recording === undefined) next.recording = ''
       if (!live || abort.signal.aborted) return
       if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return }
       props.commitValue(next)
@@ -160,7 +175,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       </ProductField>}</For>
     }</For>}</Show></div>
     <ProductActionFooter>
-      <ProductButton type="button" disabled={!camera() || busy()} onClick={record}>{message(recording() ? 'load3dWidget.stopRecording' : 'load3dWidget.record')}</ProductButton>
+      <Show when={!metadataOnly}><ProductButton type="button" disabled={!camera() || busy()} onClick={record}>{message(recording() ? 'load3dWidget.stopRecording' : 'load3dWidget.record')}</ProductButton></Show>
       <ProductButton type="button" disabled={busy()} onClick={props.close}>{message('common.cancel')}</ProductButton>
       <ProductButton type="button" variant="primary" disabled={!camera() || busy() || recording()} onClick={() => void apply()}>{message('common.apply')}</ProductButton>
     </ProductActionFooter>
