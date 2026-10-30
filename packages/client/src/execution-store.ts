@@ -92,6 +92,7 @@ export interface ExecutionArtifact {
   readonly size: number
   readonly mediaType: string
   readonly virtualPath: string
+  readonly preview?: Omit<ExecutionArtifact, 'nodeId' | 'preview'>
 }
 
 export interface ExecutionState {
