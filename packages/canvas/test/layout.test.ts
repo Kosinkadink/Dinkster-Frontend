@@ -1029,6 +1029,23 @@ describe('sections', () => {
     expect(node.values).toEqual({ provider: 'vision.depth.v2' })
   })
 
+  it('hides a dynamic choice subtree without hiding sibling controls or losing literals', () => {
+    for (const hidden of [false, true]) {
+      const schema = schemaOf([widget('prefix'), input('codec', {
+        ...(hidden ? { hidden: true as const } : {}),
+        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'h264', inputs: [
+          widget('crf'), input('nested', { dynamic: { kind: 'dynamicCombo', options: [{ key: 'on', inputs: [widget('quality')] }] } }),
+        ] }] },
+      })])
+      const node = { ...nodeData, values: { 'codec.crf': 23, 'codec.nested.[on].quality': 7 } }
+      const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
+      expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(hidden
+        ? ['prefix'] : ['prefix', 'codec', 'codec.crf', 'codec.nested', 'codec.nested.[on].quality'])
+      expect(layout.pins.some((pin) => String(pin.portId).startsWith('codec'))).toBe(!hidden)
+      expect(node.values).toEqual({ 'codec.crf': 23, 'codec.nested.[on].quality': 7 })
+    }
+  })
+
   it('groups unsectioned advanced inputs under a collapsed Advanced row', () => {
     const schema = schemaOf([widget('prompt'), widget('service', { advanced: true })])
     const collapsed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure)

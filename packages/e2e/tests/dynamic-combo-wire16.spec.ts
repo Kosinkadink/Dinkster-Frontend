@@ -14,6 +14,57 @@ const resizeWireFixture = JSON.parse(readFileSync(
 )) as Record<string, unknown>
 const resizeWire = { ...resizeWireFixture, schemaVersion: 1 }
 
+for (const hidden of [false, true]) {
+  test(`dynamic choice hidden=${hidden} preserves submission while controlling its subtree`, async ({ page }, testInfo) => {
+    const nodeType = 'test.HiddenChoice'
+    const choice = {
+      schemaVersion: 1, nodeType, displayName: 'Dynamic choice', category: 'test', outputNode: true,
+      interface: [
+        { role: 'input', id: 'filename_prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'output' },
+        { role: 'dynamicCombo', id: 'codec', hidden, required: false, options: [{ key: 'h264', inputs: [
+          { role: 'input', id: 'crf', type: { kind: 'concrete', types: ['INT'] }, default: 18 },
+        ] }] },
+      ], signature: `hidden-${hidden}`,
+    }
+    let submitted: Record<string, unknown> | undefined
+    await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
+    await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
+    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'hidden-choice', schemaWire: 1 }, packs: {}, nodes: { [nodeType]: choice },
+    } }))
+    await page.route('/api/assets', (route) => route.fulfill({ status: 404, json: { error: 'no library' } }))
+    await page.route('/api/jobs', async (route) => {
+      submitted = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>
+      await route.fulfill({ status: 202, json: { clientId: submitted['clientId'], jobId: submitted['jobId'], state: 'queued' } })
+    })
+    await page.goto('/')
+    await expect.poll(() => page.evaluate((type) => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has(type) ?? false, nodeType)).toBe(true)
+    await page.evaluate((type) => {
+      const app = window.__dinksterTest!.app
+      app.openDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'hidden-choice', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: {
+          n0: { id: 'n0', type, values: { filename_prefix: 'clip', 'codec.crf': 23 }, dynamic: { codec: { selected: 'h264' } } },
+        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { n0: { position: { x: 320, y: 180 } } } } } },
+      }, 'Hidden choice')
+      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    }, nodeType)
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
+      .find((node) => node.id === 'n0')?.layout.rows.flatMap((row) => row.kind === 'widget' ? [row.inputId] : []))).toEqual(
+      hidden ? ['filename_prefix'] : ['filename_prefix', 'codec', 'codec.crf'],
+    )
+    await page.screenshot({ path: testInfo.outputPath(`dynamic-choice-${hidden ? 'hidden' : 'visible'}.png`) })
+    await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app
+      await app.queueSelection(app.activeTab()!, ['n0'])
+    })
+    expect((submitted?.['graph'] as { nodes?: Record<string, unknown> })?.nodes?.['n0']).toMatchObject({
+      nodeType, inputs: { filename_prefix: 'clip', 'codec.crf': 23 }, slotVariants: { codec: 'h264' },
+    })
+  })
+}
+
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,

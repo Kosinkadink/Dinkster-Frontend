@@ -660,10 +660,10 @@ describe('dynamic layout on plain nodes', () => {
     expect(branch!.selector).toBeUndefined()
   })
 
-  it('hides only the DynamicCombo selector while retaining branch rows, sockets, and execution', () => {
+  it.each([false, true])('respects DynamicCombo subtree visibility hidden=%s while retaining execution', (hidden) => {
     const schema = parseDinksterSchema('HiddenSelector', {
       outputNode: true,
-      interface: [{ role: 'dynamicCombo', id: 'codec', hidden: true, options: [
+      interface: [{ role: 'dynamicCombo', id: 'codec', hidden, options: [
         { key: 'auto', inputs: [] },
         { key: 'custom', inputs: [
           { role: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
@@ -678,8 +678,8 @@ describe('dynamic layout on plain nodes', () => {
     const before = JSON.stringify(doc)
     const resolve = (type: string) => type === schema.type ? schema : undefined
     const scene = buildScene({ document: doc, graphId: 'g0', resolve, tokens: defaultTokens, measure, widgetMeasure })
-    expect(widgetRowsOf(scene, 'm').map((row) => row.inputId)).toEqual(['codec.quality'])
-    expect(pinsOf(scene, 'm', 'in').map((pin) => pin.address.port)).toEqual(['codec.quality'])
+    expect(widgetRowsOf(scene, 'm').map((row) => row.inputId)).toEqual(hidden ? [] : ['codec', 'codec.quality'])
+    expect(pinsOf(scene, 'm', 'in').map((pin) => pin.address.port)).toEqual(hidden ? [] : ['codec', 'codec.quality'])
     const result = compile({ document: doc, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('hidden-selector'), schemaHash: 'hidden-selector' })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) throw new Error('hidden selector compilation failed')
