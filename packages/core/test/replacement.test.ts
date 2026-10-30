@@ -1384,6 +1384,17 @@ describe('input family replacement', () => {
       }
       expect(store.doc.graphs.g0!.boundary).toEqual(original.graphs.g0!.boundary)
       if (original.graphs.g0!.boundary !== undefined) {
+        for (const binding of [
+          { kind: 'family' as const, ...port('old', 'unmapped') },
+          { kind: 'family' as const, ...port('old', 'values'), members: [asDynamicMemberId('ancestor')] },
+          { kind: 'family' as const, ...port('old', 'values'), slots: ['other'] },
+          { kind: 'slot' as const, ...port('old', 'values') },
+        ]) {
+          const unsupported = structuredClone(original)
+          const definition = unsupported.graphs.g0! as { boundary: NonNullable<GraphDef['boundary']> }
+          definition.boundary = { inputs: [{ id: 'forwarded', binds: binding }], outputs: [] }
+          expect(planReplacement(unsupported, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+        }
         for (const change of ['kind', 'port', 'members', 'slots', 'promoted', 'added', 'removed']) {
           const stale = structuredClone(original)
           const boundary = stale.graphs.g0!.boundary as unknown as { inputs: Array<{ id: string; binds: Record<string, unknown>; promoted?: boolean }> }
@@ -1456,7 +1467,7 @@ describe('input family replacement', () => {
     const result = compile({ document: store.doc, revision: 1, resolve, scope: { kind: 'full' },
       connection: asConnectionId('test'), schemaHash: 'test' })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt[depth === 1 ? 'inner.old' : 'outer.inner.old']!.inputs).toMatchObject({
+    if (result.ok) expect(result.artifact.prompt[depth === 1 ? 'inner.old' : 'outer.inner.old']!.inputs).toEqual({
       [`${targetRoot}.item0`]: 11, [`${targetRoot}.item1`]: 29, [`${targetRoot}.item2`]: 47,
       ...(depth === 2 ? { [`${targetRoot}.item3`]: 83 } : {}),
     })
