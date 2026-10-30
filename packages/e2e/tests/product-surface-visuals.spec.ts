@@ -478,7 +478,7 @@ test('shell and canvas visual matrix', async ({ page }) => {
         items: [
           {
             kind: 'output',
-            id: 'out0',
+            id: 'IMAGE',
             type: { kind: 'concrete', name: 'IMAGE' },
           },
         ],
