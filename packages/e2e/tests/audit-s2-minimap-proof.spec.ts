@@ -99,10 +99,14 @@ test('dense minimap keeps nodes visible and the viewport stroke inside its canva
     const { width, height } = canvas
     const data = ctx.getImageData(0, 0, width, height).data
     const points: { x: number; y: number }[] = []
+    // The accepted off-white stroke is 90% opaque over the dark canvas.
+    const minimumStroke = [242, 244, 245].map((channel, index) =>
+      Math.floor(channel * 0.9 + [17, 19, 22][index]! * 0.1),
+    )
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 4
-        if (data[i]! >= 225 && data[i + 1]! >= 225 && data[i + 2]! >= 225 && data[i + 3]! >= 220) points.push({ x, y })
+        if (data[i]! >= minimumStroke[0]! && data[i + 1]! >= minimumStroke[1]! && data[i + 2]! >= minimumStroke[2]! && data[i + 3]! >= 220) points.push({ x, y })
       }
     }
     return {

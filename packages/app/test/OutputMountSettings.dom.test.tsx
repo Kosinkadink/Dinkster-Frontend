@@ -4,6 +4,8 @@ import { render } from "solid-js/web";
 import { createSignal, type ComponentProps } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OutputMountSettings } from "../src/OutputMountSettings.js";
+import { DinksterConnection } from "@dinkster/client";
+import { asConnectionId } from "@dinkster/core";
 
 const flush = async (): Promise<void> => {
   await Promise.resolve();
@@ -16,6 +18,33 @@ afterEach(() => {
 });
 
 describe("OutputMountSettings", () => {
+  it.each([false, true])("resolves null output into configuration guidance (writable: %s)", async (writable) => {
+    const connection = new DinksterConnection({
+      id: asConnectionId("native"), baseUrl: "http://native", clientId: "test",
+      fetchFn: async () => new Response(JSON.stringify({
+        mounts: [{ id: "renders", mode: writable ? "readwrite" : "read", state: "ready" }],
+        outputMount: null, activeOutputMount: null, mountChangesAllowed: true,
+      })),
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = render(() => <OutputMountSettings connection={connection} />, root);
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain("No output mount configured"));
+      expect(root.textContent).not.toContain("Loading output mount");
+      expect(root.textContent).not.toContain("Unsaved changes");
+      const select = root.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+      expect(select.disabled).toBe(!writable);
+      if (writable) {
+        select.click();
+        document.querySelector<HTMLElement>('[data-option-id="renders"]')!.click();
+        expect(root.querySelector<HTMLButtonElement>('[data-testid="output-mount-apply"]')?.disabled).toBe(false);
+      } else {
+        expect(root.textContent).toContain("Add a read-write folder in Project folders");
+      }
+    } finally { dispose(); }
+  });
+
   it("lists only writable mounts and persists an explicit selection", async () => {
     const fetchMountSettings = vi.fn(async () => ({
       outputMount: "output",

@@ -97,6 +97,11 @@ export function OutputMountSettings(props: {
           <Show when={settings()?.restartRequired}>
             <ProductNotice tone="warning">{message("projectFolders.restart", { output: settings()?.activeOutputMount ?? message("projectFolders.none") })}</ProductNotice>
           </Show>
+          <Show when={!settings()?.outputMount}>
+            <ProductNotice tone="status" testId="output-mount-unconfigured">
+              {message("outputMountSettings.none")} {message(writable().length === 0 ? "outputMountSettings.addFolderHint" : "outputMountSettings.selectHint")}
+            </ProductNotice>
+          </Show>
           <ProductField
             controlId="default-output-mount"
             label={message("outputMountSettings.label")}
@@ -118,7 +123,7 @@ export function OutputMountSettings(props: {
           </ProductField>
           <ProductActionFooter
             status={message(
-              selected() === settings()?.outputMount
+              selected() === (settings()?.outputMount ?? "")
                 ? "outputMountSettings.saved"
                 : "outputMountSettings.unsaved",
             )}

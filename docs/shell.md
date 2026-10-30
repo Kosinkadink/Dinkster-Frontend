@@ -7,6 +7,8 @@ to the document theme. Boot discovery uses the same wordmark and the D
 symbol; Desktop preparation and shared empty/loading cards use the symbol.
 All reference the accepted SVGs at `/branding/svg/`. Vite serves and emits
 the canonical files directly, without editable copies in the app package.
+The wordmark reserves its canonical aspect ratio before the SVG loads so
+header geometry and restored editor scroll positions do not shift.
 The HTML head references the accepted ICO, 32px PNG, SVG and 256px touch
 icon. `/manifest.webmanifest` uses the accepted 256/512px PNGs for installed
 web apps. Platform containers are at `/branding/platform/`; every published
@@ -836,6 +838,8 @@ Space toggles the focused row immediately. Escape closes the filter and returns
 focus to its trigger; clicking another palette control closes the filter while
 preserving that control's click. Opening, closing, searching, and keyboard
 navigation never edit the document.
+Keyboard result scrolling retains the list's vertical padding so the active
+row is fully visible even at fractional shell dimensions.
 
 ## Boot indicator
 

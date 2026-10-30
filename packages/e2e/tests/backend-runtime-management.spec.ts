@@ -157,6 +157,8 @@ test('mounted backend connection chrome follows the supported locale without cha
   await input.focus()
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
+    // These backend states are fixtures; background probes are not locale effects.
+    for (const cancel of [...app.supervisorPolls.values()]) cancel()
     const calls = { add: [] as string[], restart: [] as string[], retry: [] as string[] }
     ;(window as any).__backendLocaleCalls = calls
     app.addBackendByUrl = async (address: string) => {

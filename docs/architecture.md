@@ -9,6 +9,22 @@ frontend decodes only version 1. Compatibility across wire versions begins at
 public release; after that point, a wire change will add a separate decoder and
 a documented support window.
 
+## Output mount wire contract
+
+`GET /api/mounts` accepts `outputMount: null` and
+`activeOutputMount: null`. Null means no configured or active output mount,
+respectively; it is not a malformed response. The client normalizes these
+fields to absent optional strings in `MountSettings`. Non-null non-string
+values remain protocol errors. Configured mounts, source browsing, retained
+outputs and Library reopen do not require a default output mount.
+
+Assets shows an explicit unconfigured notice while keeping its sources
+available. Configure output folder opens Project folders and the output
+selector. Backends shows the same state beside the writable-folder selector
+and Apply action; when there are no writable folders, it directs the operator
+to add one in Project folders. Policy-disabled configuration stays read-only.
+Selecting an explicit save target does not require a configured default.
+
 ## Goals
 
 - Performant node-graph editor for ComfyUI, local-first (no cloud/API-node concerns for now).

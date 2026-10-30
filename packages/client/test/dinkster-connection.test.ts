@@ -447,6 +447,15 @@ describe('mount listing decode', () => {
     expect(mounts.map((m) => m.entryCount)).toEqual([3, undefined])
   })
 
+  it('accepts an unconfigured output without losing configured sources', async () => {
+    const mounts = [{ id: 'inputs', mode: 'read', state: 'ready' }]
+    const { conn } = submitHarness(() => jsonResponse(200, {
+      mounts, outputMount: null, activeOutputMount: null, mountChangesAllowed: true,
+    }))
+    await expect(conn.fetchMountSettings()).resolves.toEqual({ mounts, mountChangesAllowed: true })
+    await expect(conn.listMounts()).resolves.toEqual(mounts)
+  })
+
   it('decodes bounded mount scan progress and rejects malformed counters', async () => {
     const progress = {
       filesDone: 4,
