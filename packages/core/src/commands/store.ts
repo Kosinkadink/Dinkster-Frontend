@@ -35,6 +35,10 @@ import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
 const hasErrors = (diags: readonly Diagnostic[]): boolean =>
   diags.some((d) => d.severity === 'error')
 
+type PreparedCommand =
+  | Extract<CommandOutcome, { readonly ok: false }>
+  | (Extract<CommandOutcome, { readonly ok: true }> & { readonly invocation: CommandInvocation })
+
 /**
  * Observer failures must never corrupt a committed transaction (CO10): each
  * listener is isolated, the rest keep getting notified, and failures go to
@@ -441,7 +445,7 @@ export class DocumentStore implements DocumentStoreContract {
     }
   }
 
-  dispatch(invocation: CommandInvocation): CommandOutcome {
+  private prepareDispatch(invocation: CommandInvocation): PreparedCommand {
     const def = this.commands.get(invocation.command)
     if (!def) {
       return {
@@ -502,13 +506,23 @@ export class DocumentStore implements DocumentStoreContract {
     const { doc, forward, inverse } = tx.result()
     if (forward.length === 0) {
       // No-op commands succeed without a transaction (nothing to undo).
-      return { ok: true, doc: this.doc, forward, inverse, diagnostics: commandDiags }
+      return { ok: true, doc: this.doc, forward, inverse, diagnostics: commandDiags, invocation: ownedInvocation }
     }
 
     const invariantDiags = checkDocument(doc)
     if (hasErrors(invariantDiags)) {
       return { ok: false, diagnostics: [...commandDiags, ...invariantDiags] }
     }
+
+    return { ok: true, doc, forward, inverse, diagnostics: [...commandDiags, ...invariantDiags], invocation: ownedInvocation }
+  }
+
+  dispatch(invocation: CommandInvocation): CommandOutcome {
+    const prepared = this.prepareDispatch(invocation)
+    if (!prepared.ok) return prepared
+    const { invocation: ownedInvocation, ...outcome } = prepared
+    const { doc, forward, inverse } = outcome
+    if (forward.length === 0) return outcome
 
     this.revisionCounter += 1
     // FR2: capture the revision NOW - a reentrant dispatch from inside the
@@ -525,7 +539,7 @@ export class DocumentStore implements DocumentStoreContract {
     if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
     this.redoStack.length = 0
     this.commit(doc, Object.freeze({ kind: 'dispatch' as const, record, revision, patch: forward }))
-    return { ok: true, doc, forward, inverse, diagnostics: [...commandDiags, ...invariantDiags] }
+    return outcome
   }
 
   /**
