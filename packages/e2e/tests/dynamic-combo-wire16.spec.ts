@@ -266,7 +266,7 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
   })
 })
 
-test('hidden DynamicCombo selector retains visible branch controls and serialized state', async ({ page }, testInfo) => {
+test('hidden DynamicCombo hides branch controls and retains serialized state', async ({ page }, testInfo) => {
   const nodes = Object.fromEntries([false, true].map((hidden) => [hidden ? 'HiddenSelector' : 'VisibleSelector', {
     displayName: hidden ? 'Hidden codec selector' : 'Visible codec selector',
     category: 'test',
@@ -303,8 +303,9 @@ test('hidden DynamicCombo selector retains visible branch controls and serialize
     pins: node.layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.address.port),
   }])))
   expect(presentation['visible']?.widgets).toEqual(['codec', 'codec.quality'])
-  expect(presentation['hidden']?.widgets).toEqual(['codec.quality'])
-  expect(presentation['hidden']?.pins).toEqual(['codec.quality'])
+  expect(presentation['visible']?.pins).toEqual(['codec', 'codec.quality'])
+  expect(presentation['hidden']?.widgets).toEqual([])
+  expect(presentation['hidden']?.pins).toEqual([])
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.openDocument(JSON.parse(JSON.stringify(app.exportDocument(app.activeTab()!.id))), 'Selector reopened')

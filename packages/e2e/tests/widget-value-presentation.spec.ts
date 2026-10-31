@@ -1,7 +1,6 @@
 // Raw @playwright/test, not the shared fixture: this spec needs same-origin
 // native discovery to reach the real /api/nodes proxy so the app loads the
-// live dinkster.load_checkpoint schema. The shared fixture would pin that
-// probe to 502.
+// live CheckpointLoaderSimple schema without seeded editing documents.
 import { expect, test, type Page } from '@playwright/test'
 import { skipWithoutNativeCatalog } from './fixtures.js'
 
@@ -49,8 +48,6 @@ async function paintNode(page: Page, width?: number): Promise<{
 
 test.beforeEach(async ({ page, request }, testInfo) => {
   await skipWithoutNativeCatalog(request, testInfo)
-  await page.route('/system_stats', (route) => void route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/object_info', (route) => void route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
   await page.evaluate(() => {
@@ -58,7 +55,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-value-presentation', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
-        nodes: { loader: { id: 'loader', type: 'dinkster.load_checkpoint', values: {} } },
+        nodes: { loader: { id: 'loader', type: 'CheckpointLoaderSimple', values: {} } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: { g0: { nodes: { loader: { position: { x: 100, y: 100 } } } } } },
@@ -67,7 +64,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   })
   await expect.poll(() => page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'loader')
-    return node?.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'checkpoint') ?? false
+    return node?.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'ckpt_name') ?? false
   })).toBe(true)
 })
 
@@ -96,7 +93,7 @@ test('ASSET values preserve the placeholder before the label and ellipsize long 
       params: {
         graphId: tab.store.doc.root,
         nodeId: 'loader',
-        inputId: 'checkpoint',
+        inputId: 'ckpt_name',
         value: {
           digest: `blake3:${'0'.repeat(64)}`,
           name,

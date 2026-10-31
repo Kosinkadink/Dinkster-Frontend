@@ -695,12 +695,26 @@ describe('execution output routing', () => {
     expect(app.assetUrlForExecution(onDefault, digest)).not.toContain('http://other:8188')
   })
 
-  it('assetUrlForExecution survives backend removal (historical outputs)', () => {
+  it('historical asset routes and native value ownership survive backend removal', async () => {
+    const requests: URL[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      requests.push(new URL(String(input)))
+      return Response.json({ available: true, descriptor: { typeId: 'IMAGE', fingerprint: 'recorded-image' }, renditions: [] })
+    })
     const b = addOffline('http://other:8188')
     const ref = foreignRun(String(b.id), 'p1')
+    await app.valuesForExecution(ref)!.peek({ jobId: ref.prompt, nodeId: 'n0', outputId: 'IMAGE' })
     app.removeBackend(b.id)
     expect(app.assetUrlForExecution(ref, 'blake3:00')).toBe(
       'http://other:8188/api/assets/blake3%3A00',
     )
+    expect(await app.valuesForExecution(ref)!.peek({ jobId: ref.prompt, nodeId: 'n1', outputId: 'images' })).toMatchObject({
+      available: true, descriptor: { typeId: 'IMAGE', fingerprint: 'recorded-image' },
+    })
+    expect(requests.map((url) => url.origin)).toEqual(['http://other:8188', 'http://other:8188'])
+    expect(requests.map((url) => url.searchParams.get('jobId'))).toEqual(['p1', 'p1'])
+    expect(requests[1]!.searchParams.get('clientId')).toBe(requests[0]!.searchParams.get('clientId'))
+    expect(requests[1]!.searchParams.get('nodeId')).toBe('n1')
+    expect(app.valuesForExecution({ ...ref, connection: asConnectionId('unknown') })).toBeUndefined()
   })
 })

@@ -684,7 +684,7 @@ const resolveSchema = (type: string): NodeSchema | undefined =>
 
 const execution = (prompt: string, queuedAt: number, art: CompileArtifact, over: Partial<ExecutionState> = {}): ExecutionState => ({
   ref: { connection: art.connection, prompt }, key: `${art.connection}:${prompt}`, artifact: art,
-  status: 'completed', nodes: {}, outputs: {}, previews: {}, errors: [], queuedAt, ...over,
+  status: 'completed', nodes: {}, outputs: {}, previews: {}, artifacts: [], errors: [], queuedAt, ...over,
 } as ExecutionState)
 
 describe('retainProvenExecution', () => {
@@ -701,10 +701,15 @@ describe('retainProvenExecution', () => {
     const newer = execution('n-newer', 20, artifact(), {
       nodes: { a: { state: 'done', outputs: { out: { typeId: 'INT', value: 12 } } } },
       outputs: { a: { image: { typeId: 'ASSET', meta: { digest: `blake3:${'b'.repeat(64)}`, mediaType: 'image/png' } } } },
+      artifacts: [
+        { nodeId: 'a', digest: `blake3:${'c'.repeat(64)}`, name: 'retained.png', size: 42, mediaType: 'image/png', virtualPath: 'output/retained.png' },
+        { nodeId: 'b', digest: `blake3:${'d'.repeat(64)}`, name: 'recomputed.png', size: 43, mediaType: 'image/png', virtualPath: 'output/recomputed.png' },
+      ],
     })
     const retained = retainProvenExecution(current, [old, newer, current], live, [], resolveSchema)
     expect(retained.execution.nodes.a).toMatchObject({ state: 'cached', outputs: { out: { value: 12 } } })
     expect(retained.execution.outputs.a).toEqual(newer.outputs.a)
+    expect(retained.execution.artifacts).toEqual([newer.artifacts[0]])
     expect(retained.execution.previews.a).toBeUndefined()
     expect(retained.execution.nodes.b).toBe(current.nodes.b)
     expect(retained.execution.outputs.b).toBe(current.outputs.b)

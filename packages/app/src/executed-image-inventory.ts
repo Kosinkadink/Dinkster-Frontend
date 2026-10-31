@@ -1,5 +1,6 @@
-import type { ExecutionState, RenditionResult, ValueDescriptor } from '@dinkster/client'
+import { defaultRenditionOf, type ExecutionState, type RenditionResult, type ValueDescriptor } from '@dinkster/client'
 import { parseAssetTypeId } from '@dinkster/core'
+import { imageBatchCount, type PeekValues } from './peek-preview.js'
 
 export interface ExecutedImageBatch {
   readonly count: number
@@ -69,6 +70,7 @@ export function executedImageInventory(
   options: {
     readonly runtimeIds?: readonly string[]
     readonly assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
+    readonly values?: PeekValues | undefined
   },
 ): readonly ExecutedImage[] {
   const allowed = options.runtimeIds === undefined ? undefined : new Set(options.runtimeIds)
@@ -77,6 +79,31 @@ export function executedImageInventory(
     if (allowed !== undefined && !allowed.has(runtimeId)) continue
     const outputs = execution.outputs[runtimeId]!
     for (const outputId of Object.keys(outputs).sort()) {
+      const descriptor = outputs[outputId] as ValueDescriptor | undefined
+      const count = descriptor?.typeId === 'IMAGE' ? imageBatchCount(descriptor) : undefined
+      const values = options.values
+      if (count !== undefined && values !== undefined) {
+        const query = { jobId: execution.ref.prompt, nodeId: runtimeId, outputId }
+        for (let batchIndex = 0; batchIndex < count; batchIndex++) images.push({
+          key: `${execution.key}:rendition:${runtimeId}:${outputId}:${batchIndex}`,
+          runtimeId, outputId, descriptorIndex: 0, batchIndex,
+          url: '', kind: 'rendition', mediaType: 'image/png',
+          load: async (signal) => {
+            const peek = await values.peek(query, { signal })
+            if (!peek.available) return peek
+            const rendition = defaultRenditionOf(peek.renditions.filter((item) =>
+              item.mime === 'image/png' && (count === 1 || item.parameters?.includes('batch') === true)))
+            if (rendition === undefined) return {
+              available: false, status: 406, reason: 'no-rendition', error: 'No PNG rendition supports this image batch.',
+            }
+            return values.rendition(query, rendition.kind, {
+              signal,
+              ...(rendition.parameters?.includes('batch') === true ? { batch: batchIndex } : {}),
+              ...(rendition.version === undefined ? {} : { rendererVersion: rendition.version }),
+            })
+          },
+        })
+      }
       for (const [descriptorIndex, ref] of imageAssetRefsInOrder(outputs[outputId]).entries()) {
         images.push({
           key: `${execution.key}:asset:${runtimeId}:${outputId}:${descriptorIndex}:${ref.digest}`,

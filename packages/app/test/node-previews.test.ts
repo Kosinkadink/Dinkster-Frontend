@@ -1174,6 +1174,42 @@ describe('deriveNodePreviewSurface frame-ring animation', () => {
     outputKey: 'n1',
   })
 
+  it('keeps completed native imagery authoritative over a late frame, but shows running and frame-only previews', async () => {
+    const frame = new Blob(['late-frame'])
+    const frameBitmap = { width: 3, height: 2 }
+    const outputBitmap = { width: 64, height: 48 }
+    vi.stubGlobal('createImageBitmap', vi.fn(async (blob: Blob) => blob === frame ? frameBitmap : outputBitmap))
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:native-output')
+    const values = new DinksterValuesClient({ baseUrl: 'http://owner', clientId: 'client', fetchFn: async (url) =>
+      new URL(url).searchParams.has('rendition')
+        ? new Response(new Uint8Array([1, 2]), { headers: { 'Content-Type': 'image/png' } })
+        : Response.json({ available: true, descriptor: { typeId: 'IMAGE', fingerprint: 'native-image' }, renditions: [{ kind: 'png', mime: 'image/png', default: true }] }),
+    })
+    const l = loader()
+    const e = { ...exec({ previews: { n1: { payload: frame, timestamp: 5 } }, outputs: { n1: { IMAGE: { typeId: 'IMAGE', fingerprint: 'native-image' } } } }), nodes: {} }
+    const args = { ...surfaceArgs(e, l, false), values, runtimeIdsOf: () => ['n1'] }
+    try {
+      deriveNodePreviewSurface(args)
+      await flush(); await flush()
+      expect(deriveNodePreviewSurface(args).preview).toMatchObject(outputBitmap)
+      deriveNodePreviewSurface({ ...args, running: true })
+      await flush()
+      expect(deriveNodePreviewSurface({ ...args, running: true }).preview).toMatchObject(frameBitmap)
+      expect(deriveNodePreviewSurface({ ...args, exec: { ...e, outputs: {} } }).preview).toMatchObject(frameBitmap)
+      const partial = {
+        ...args, retainedRuntimeIds: new Set(['n1']),
+        exec: { ...e, key: 'partial-run', ref: { ...e.ref, prompt: asPromptId('partial-job') } },
+      }
+      deriveNodePreviewSurface(partial)
+      await flush(); await flush()
+      expect(deriveNodePreviewSurface(partial).preview).toMatchObject({ ...frameBitmap, state: 'cached' })
+    } finally {
+      l.dispose()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+
   const ringExec = (rings: Record<string, unknown> | undefined, latest: Blob): ExecutionState =>
     ({
       ...exec({ previews: { n1: { payload: latest, timestamp: 5 } } }),

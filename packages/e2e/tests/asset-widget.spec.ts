@@ -188,6 +188,7 @@ test.describe('native asset uploads', () => {
   test('upload commits the stored asset and its bytes are retrievable', async ({ page, request }) => {
     await targetNativeBackend(page)
     await openAsset(page)
+    await selectProductOption(page, page.getByTestId('upload-destination-mount'), 'output')
     const png = validPng()
     await page.getByTestId('asset-editor').locator('input[type=file]').setInputFiles({
       name: 'tiny.png',
@@ -210,8 +211,12 @@ test.describe('native asset uploads', () => {
     expect(await fetched.body()).toEqual(png)
   })
 
-  test('a schema-declared kind fixes picker scope with no All kinds escape', async ({ page }) => {
+  test('a schema-declared kind fixes picker scope with no All kinds escape', async ({ page, request }) => {
     await targetNativeBackend(page)
+    const uploaded = await request.post(`${NATIVE_BACKEND}/api/assets/media?scope=local&kind=media%2Fimage&mount=output&name=kind-scope.png`, {
+      data: validPng(), headers: { 'Content-Type': 'image/png' },
+    })
+    expect(uploaded.ok(), await uploaded.text()).toBe(true)
     // Re-register with a declared semantic kind, as the wire decoder emits it:
     // top-level WidgetSpec.kind, never options.kind.
     await page.evaluate(() => {
